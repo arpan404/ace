@@ -1,4 +1,9 @@
-import { createServer as httpServer, type Server } from "node:http";
+import {
+  createServer as httpServer,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from "node:http";
 import type { MaintenanceGate } from "@ace/service";
 import { accessHttp } from "./access-http.ts";
 import { attachmentsHttp } from "./attachments-http.ts";
@@ -10,6 +15,17 @@ import type { DaemonPreview } from "./preview.ts";
 import type { RemoteAuth } from "./remote-auth.ts";
 import type { ServerOptions } from "./server-options.ts";
 import { webHttp } from "./web-http.ts";
+
+type Handler = (request: IncomingMessage, response: ServerResponse) => void;
+/** `/mcp` (with or without a query) to the daemon's MCP handler; everything else to `next`. */
+function mcpFirst(options: ServerOptions, next: Handler): Handler {
+  return (request, response) => {
+    const path = (request.url ?? "/").split("?")[0];
+    const serve = options.mcp?.handleHttp;
+    if (path === "/mcp" && serve) return serve(request, response);
+    next(request, response);
+  };
+}
 
 type Access = Omit<Parameters<typeof accessHttp>[0], "authenticate" | "maintenance" | "shutdown">;
 
@@ -34,24 +50,29 @@ export function httpChains(
       next(request, response);
     };
   const local = httpServer(
-    webHttp(
-      options.webRoot,
-      attachmentsHttp(
-        options,
-        auth,
-        false,
-        iconsHttp(
+    // `<daemon-endpoint>/mcp` (contract, "Finding the daemon"): the same MCP handler as its own
+    // listener, for clients such as Spade that know only the daemon's address. Loopback only.
+    mcpFirst(
+      options,
+      webHttp(
+        options.webRoot,
+        attachmentsHttp(
           options,
           auth,
           false,
-          previewHttp(
-            preview,
-            accessHttp({
-              ...access,
-              authenticate: auth.localBearer.bind(auth),
-              maintenance,
-              ...(options.shutdown ? { shutdown: options.shutdown } : {}),
-            }),
+          iconsHttp(
+            options,
+            auth,
+            false,
+            previewHttp(
+              preview,
+              accessHttp({
+                ...access,
+                authenticate: auth.localBearer.bind(auth),
+                maintenance,
+                ...(options.shutdown ? { shutdown: options.shutdown } : {}),
+              }),
+            ),
           ),
         ),
       ),

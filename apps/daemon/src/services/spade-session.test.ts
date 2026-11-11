@@ -2,27 +2,24 @@ import { createServer } from "node:http";
 import { expect, test } from "vitest";
 import { DeviceId, type DeviceScope, type ServerMessage, SpadeClientMessage } from "@ace/protocol";
 import type { z } from "zod";
-import { SpadeHost } from "../spade/host.ts";
+import { SpadeLink } from "../spade/link.ts";
 import { createSpadeSession } from "./spade-session.ts";
 
-/** A session for a device holding `scopes`, with Spade off (no binary). */
+/** A session for a device holding `scopes`, with Spade off (turned off, no service). */
 function session(scopes: readonly DeviceScope[]) {
   const sent: ServerMessage[] = [];
-  const spade = new SpadeHost({
+  const spade = new SpadeLink({
     dataDir: "/ace/spade",
-    binary: () => undefined,
-    credentials: async () => ({ env: {}, revoke: () => {} }),
     runtime: {
-      spawn: () => {
-        throw new Error("Spade has no binary here");
-      },
       readText: async () => undefined,
-      ensureDirectory: () => {},
-      healthy: async () => false,
+      health: async () => undefined,
+      alive: () => false,
+      nonce: () => "0".repeat(32),
+      serviceState: async () => "absent",
+      watch: () => () => {},
       now: () => 0,
-      sleep: async () => {},
+      after: () => () => {},
     },
-    log: () => {},
   });
   const service = createSpadeSession({
     options: { spade },
@@ -34,8 +31,28 @@ function session(scopes: readonly DeviceScope[]) {
     await service.handle?.(SpadeClientMessage.parse(message), DeviceId.parse("device"));
     return sent.at(-1);
   };
-  return { handle, sent };
+  let revocations = 0;
+  spade.setRevoker(async () => {
+    revocations++;
+    return true;
+  });
+  return { handle, sent, revocations: () => revocations };
 }
+
+test("only an administrator can revoke Spade's grant", async () => {
+  for (const [scopes, revoked] of [
+    [["read", "operate"], false],
+    [["read", "operate", "admin"], true],
+  ] as const) {
+    const { handle, revocations } = session(scopes);
+    expect(await handle({ type: "spade.grant.revoke", requestId: "r" })).toEqual({
+      type: "spade.grant.revoke.result",
+      requestId: "r",
+      revoked,
+    });
+    expect(revocations()).toBe(revoked ? 1 : 0);
+  }
+});
 
 test("a read-only device can read Spade but not change anything", async () => {
   const { handle } = session(["read"]);

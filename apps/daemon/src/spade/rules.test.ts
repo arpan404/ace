@@ -2,42 +2,72 @@ import { describe, expect, test } from "vitest";
 import {
   checkLivePath,
   checkSpadePath,
-  failuresAfterExit,
-  findSpadeBinary,
-  readServerFile,
-  restartDelay,
   scopeFor,
+  spadeStartGraceMs,
+  spadeState,
+  type SpadeFacts,
 } from "./rules.ts";
 
-test("restarts wait 1 s, doubling each time, never more than 60 s", () => {
-  expect([1, 2, 3, 4, 5, 6, 7, 8, 50].map((failures) => restartDelay(failures))).toEqual([
-    1000, 2000, 4000, 8000, 16_000, 32_000, 60_000, 60_000, 60_000,
-  ]);
+const facts = (change: Partial<SpadeFacts>): SpadeFacts => ({
+  enabled: true,
+  service: "running",
+  healthy: false,
+  silentForMs: 0,
+  ...change,
 });
-
-test("a run that stayed ready for a minute starts the backoff over; a short one keeps climbing", () => {
-  expect(failuresAfterExit(5, 60_000)).toBe(1);
-  expect(failuresAfterExit(5, 59_999)).toBe(6);
-  expect(failuresAfterExit(5, undefined)).toBe(6);
-});
-
-const file = (value: object) => JSON.stringify(value);
-describe("server.json", () => {
-  test("names a loopback address and the child's pid when Spade is ready", () => {
-    expect(
-      readServerFile(file({ address: "127.0.0.1:4100", pid: 42, version: "0.1.0" }), 42),
-    ).toEqual({ host: "127.0.0.1", port: 4100, version: "0.1.0" });
+describe("spade.status from the service and its files", () => {
+  const endpoint = { host: "127.0.0.1", port: 4100, pid: 42, version: "0.4.0", api: 1 } as const;
+  test("is off while Spade is turned off, whatever is registered", () => {
+    expect(spadeState(facts({ enabled: false, endpoint, healthy: true }))).toEqual({
+      state: "off",
+    });
   });
+  test("is off when no service is registered", () => {
+    expect(spadeState(facts({ service: "absent" }))).toMatchObject({ state: "off" });
+  });
+  test("is ready once the running service's Spade answers /health with a valid proof", () => {
+    expect(spadeState(facts({ endpoint, healthy: true, proof: "ok" }))).toEqual({
+      state: "ready",
+      version: "0.4.0",
+    });
+  });
+  test.each(["missing", "wrong"] as const)(
+    "is failed, never ready, when the listener's proof is %s",
+    (proof) => {
+      const status = spadeState(facts({ endpoint, healthy: true, proof }));
+      expect(status.state).toBe("failed");
+      expect(status.state === "failed" && status.reason).toContain("can't prove it is Spade");
+    },
+  );
   test.each([
-    ["an earlier run's pid", { address: "127.0.0.1:4100", pid: 41, version: "0.1.0" }],
-    ["another host", { address: "0.0.0.0:4100", pid: 42, version: "0.1.0" }],
-    ["a port out of range", { address: "127.0.0.1:70000", pid: 42, version: "0.1.0" }],
-    ["no version", { address: "127.0.0.1:4100", pid: 42 }],
-  ])("is not ready when it names %s", (_name, value) => {
-    expect(readServerFile(file(value), 42)).toBeUndefined();
+    ["absent", "off"],
+    ["stopped", "failed"],
+  ] as const)(
+    "is not ready with the service %s, even with Spade proving itself",
+    (service, state) => {
+      expect(spadeState(facts({ service, endpoint, healthy: true, proof: "ok" })).state).toBe(
+        state,
+      );
+    },
+  );
+  test("is starting while the service runs and Spade hasn't answered yet", () => {
+    expect(spadeState(facts({ silentForMs: spadeStartGraceMs - 1 }))).toEqual({
+      state: "starting",
+    });
+    expect(spadeState(facts({ service: "absent", installing: true }))).toEqual({
+      state: "starting",
+    });
   });
-  test("is not ready while half written", () => {
-    expect(readServerFile('{"address":"127.0.0.1:41', 42)).toBeUndefined();
+  test.each<[string, Partial<SpadeFacts>, string]>([
+    ["stays silent", { endpoint, silentForMs: spadeStartGraceMs }, "isn't answering"],
+    ["never listens", { silentForMs: spadeStartGraceMs }, "hasn't started listening"],
+    ["is stopped", { service: "stopped" }, "not running"],
+    ["can't be read", { service: { error: "launchctl failed" } }, "launchctl failed"],
+    ["couldn't be registered", { problem: "No spade-server in this release." }, "No spade-server"],
+  ])("is failed with the reason when the service %s", (_name, change, words) => {
+    const status = spadeState(facts(change));
+    expect(status.state).toBe("failed");
+    expect(status.state === "failed" && status.reason).toContain(words);
   });
 });
 
@@ -75,29 +105,4 @@ test("reading Spade needs the read scope; changing it needs operate", () => {
   expect(scopeFor("GET")).toBe("read");
   for (const method of ["POST", "PUT", "PATCH", "DELETE"] as const)
     expect(scopeFor(method)).toBe("operate");
-});
-
-describe("the Spade binary", () => {
-  const executables = new Set(["/dev/spade", "/app/bin/spade-server"]);
-  const find = (
-    env: Record<string, string>,
-    runtimeDirectory: string,
-    platform: NodeJS.Platform = "darwin",
-  ) =>
-    findSpadeBinary({
-      env,
-      runtimeDirectory,
-      platform,
-      isExecutable: (path) => executables.has(path),
-    });
-  test("ACE_SPADE_BIN wins in development", () => {
-    expect(find({ ACE_SPADE_BIN: "/dev/spade" }, "/app/bin")).toBe("/dev/spade");
-  });
-  test("otherwise it sits beside the bundled runtime", () => {
-    expect(find({}, "/app/bin")).toBe("/app/bin/spade-server");
-  });
-  test("is missing, so Spade stays off, when neither exists", () => {
-    expect(find({}, "/usr/local/bin")).toBeUndefined();
-    expect(find({ ACE_SPADE_BIN: "/nowhere" }, "/app/bin")).toBeUndefined();
-  });
 });

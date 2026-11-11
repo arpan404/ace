@@ -98,8 +98,8 @@ export interface Services {
   accountRegistry?: AccountRegistry;
   promptFiles?: import("@ace/commands").PromptFiles;
   skillLibrary?: import("@ace/commands").SkillLibrary;
-  /** Spade, ace's assistant (ADR 0121): runs while `spade.enabled` is on. */
-  spade?: import("../spade/host.ts").SpadeHost;
+  /** Spade, ace's assistant: its own service, which the daemon reads and forwards to (ADR 0123). */
+  spade?: import("../spade/link.ts").SpadeLink;
   commands?: CommandLibrary;
   files?: FilesService;
   supportFiles?: FilesService;

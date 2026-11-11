@@ -187,71 +187,70 @@ export async function startMcpServer<A extends Authenticator = CredentialRegistr
   };
   let active = 0;
   let closing = false;
+  const handle = (request: IncomingMessage, response: ServerResponse): void => {
+    if (closing || active >= (options.maxRequests ?? 2048)) {
+      response.writeHead(503).end();
+      return;
+    }
+    active++;
+    let released = false;
+    const release = () => {
+      if (!released) {
+        released = true;
+        active--;
+      }
+    };
+    response.once("close", release);
+    response.once("finish", release);
+    void Promise.all([load(), loopbackHandler()])
+      .then(([{ nodeHandler, validateHost, validateOrigin }, hosted]) => {
+        if (closing || response.destroyed) return;
+        if (hosted) return hosted(nodeRequest(request), response);
+        if (!validateHost(request, response) || !validateOrigin(request, response)) return;
+        if (request.url !== "/mcp") {
+          response.writeHead(404).end();
+          return;
+        }
+        const principal = credentials.authenticate(bearer(request.headers.authorization));
+        if (!principal) {
+          response
+            .writeHead(401, {
+              "www-authenticate": bearerChallenge(options.challenge?.parameters?.(undefined) ?? {}),
+            })
+            .end();
+          return;
+        }
+        // Only `serve` says which resource a request arrived at.
+        const { [resourceHeader]: _ignored, ...headers } = request.headers;
+        const forward = (body?: Buffer) =>
+          nodeHandler(
+            {
+              headers,
+              ...(request.method === undefined ? {} : { method: request.method }),
+              ...(request.url === undefined ? {} : { url: request.url }),
+              [Symbol.asyncIterator]: body
+                ? async function* () {
+                    yield body;
+                  }
+                : () => request[Symbol.asyncIterator](),
+            },
+            response,
+          );
+        if (!options.challenge || request.method !== "POST") return forward();
+        return scopeRefusal(request, principal, options.challenge, maxBody).then((checked) => {
+          if (closing || response.destroyed) return;
+          if (checked.kind === "forward") return forward(checked.body);
+          response.writeHead(checked.status, checked.headers).end(checked.body);
+        });
+      })
+      .catch(() => {
+        if (!response.headersSent) response.writeHead(500);
+        response.end();
+      });
+  };
   const http = createServer(
     { maxHeaderSize: 8192, requestTimeout: 30_000, headersTimeout: 10_000 },
-    (request, response) => {
-      if (closing || active >= (options.maxRequests ?? 2048)) {
-        response.writeHead(503).end();
-        return;
-      }
-      active++;
-      let released = false;
-      const release = () => {
-        if (!released) {
-          released = true;
-          active--;
-        }
-      };
-      response.once("close", release);
-      response.once("finish", release);
-      void Promise.all([load(), loopbackHandler()])
-        .then(([{ nodeHandler, validateHost, validateOrigin }, hosted]) => {
-          if (closing || response.destroyed) return;
-          if (hosted) return hosted(nodeRequest(request), response);
-          if (!validateHost(request, response) || !validateOrigin(request, response)) return;
-          if (request.url !== "/mcp") {
-            response.writeHead(404).end();
-            return;
-          }
-          const principal = credentials.authenticate(bearer(request.headers.authorization));
-          if (!principal) {
-            response
-              .writeHead(401, {
-                "www-authenticate": bearerChallenge(
-                  options.challenge?.parameters?.(undefined) ?? {},
-                ),
-              })
-              .end();
-            return;
-          }
-          // Only `serve` says which resource a request arrived at.
-          const { [resourceHeader]: _ignored, ...headers } = request.headers;
-          const forward = (body?: Buffer) =>
-            nodeHandler(
-              {
-                headers,
-                ...(request.method === undefined ? {} : { method: request.method }),
-                ...(request.url === undefined ? {} : { url: request.url }),
-                [Symbol.asyncIterator]: body
-                  ? async function* () {
-                      yield body;
-                    }
-                  : () => request[Symbol.asyncIterator](),
-              },
-              response,
-            );
-          if (!options.challenge || request.method !== "POST") return forward();
-          return scopeRefusal(request, principal, options.challenge, maxBody).then((checked) => {
-            if (closing || response.destroyed) return;
-            if (checked.kind === "forward") return forward(checked.body);
-            response.writeHead(checked.status, checked.headers).end(checked.body);
-          });
-        })
-        .catch(() => {
-          if (!response.headersSent) response.writeHead(500);
-          response.end();
-        });
-    },
+    handle,
   );
   // Every open notification stream holds a socket; calls keep their own headroom beside them.
   http.maxConnections = 2 * streams.total + 256;
@@ -290,6 +289,11 @@ export async function startMcpServer<A extends Authenticator = CredentialRegistr
   let stopped: Promise<void> | undefined;
   return {
     url: `http://127.0.0.1:${address.port}/mcp`,
+    /**
+     * Serves a loopback request that arrived on another local listener (the daemon's own port),
+     * exactly as this listener would: same Host and Origin checks, bearer, leases and streams.
+     */
+    handleHttp: handle,
     /** Serves an MCP request that arrived elsewhere (Tailscale, a relay) at `resource`. */
     serve,
     credentials,

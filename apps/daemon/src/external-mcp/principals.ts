@@ -56,13 +56,14 @@ export class GrantPrincipals implements Authenticator {
   authenticate(bearer: string, resource?: string): Principal | undefined {
     if (this.closed) return undefined;
     const grant = this.tokens.verify(bearer, resource);
-    if (!grant) return undefined;
+    // Spade's grant acts as its host thread on the daemon's own endpoint, never out here.
+    if (!grant || grant.clientKind === "spade") return undefined;
     this.grants.touch(grant);
     return this.principal(grant);
   }
   /** Arms expiry for grants that were live when the daemon started. */
   watch(grants: readonly OutsideGrant[]): void {
-    for (const grant of grants) this.principal(grant);
+    for (const grant of grants) if (grant.clientKind !== "spade") this.principal(grant);
   }
   /** A grant's expiry changed: its timer follows. */
   rearm(grant: OutsideGrant): void {

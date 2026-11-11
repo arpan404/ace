@@ -1,69 +1,31 @@
 import { once } from "node:events";
-import { chmod, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { expect, test } from "vitest";
 import { z } from "zod";
 import { Command, DeviceId, ThreadId, type ServerMessage } from "@ace/protocol";
+import { fakeSpadeService } from "./__fixtures__/spade/fake-service.ts";
 import { daemonFixture } from "./agent-control/daemon-test-support.ts";
 import { Client } from "./socket-test-support.ts";
-import { spadeRequest } from "./spade/forward.ts";
+import { aceMcpUrl, connectSpadeMcp, spadeEnv, until } from "./spade-test-support.ts";
 
-const fakeSpade = resolve(import.meta.dirname, "__fixtures__/spade/fake-spade.ts");
 type Daemon = Awaited<ReturnType<typeof daemonFixture>>["daemon"];
 
-async function until(check: () => boolean, what: string | (() => string)) {
-  for (let turn = 0; turn < 500 && !check(); turn++)
-    await new Promise((done) => setTimeout(done, 20));
-  if (!check())
-    throw new Error(`Timed out waiting for ${typeof what === "string" ? what : what()}`);
-}
-/** Turns Spade on and waits for it, returning its host thread and the credentials it got. */
+/** Turns Spade on and waits for it to hold its grant, returning its host thread and the grant. */
 async function startSpade(daemon: Daemon) {
   await daemon.settings.set("spade.enabled", true, { kind: "global" });
   await until(
     () => daemon.spade?.status().state === "ready",
     () => `Spade to be ready (${JSON.stringify(daemon.spade?.status())})`,
   );
+  const grant = await until(async () => (await spadeEnv(daemon)).grant, "Spade's grant");
   const thread = daemon.spade?.status().thread;
-  const ready = daemon.spade?.ready();
-  if (!thread || !ready) throw new Error("Spade has no host thread");
-  const answer = await spadeRequest(
-    ready.connection,
-    { method: "GET", path: "/v1/env" },
-    { signal: AbortSignal.timeout(5000), maxBytes: 65536 },
-  );
-  if (answer.kind !== "response") throw new Error("Spade's env is too large");
-  const env = JSON.parse(answer.body.toString("utf8")) as { mcpUrl: string; mcpToken: string };
-  return { hostId: ThreadId.parse(thread.id), env };
+  if (!thread) throw new Error("Spade has no host thread");
+  return { hostId: ThreadId.parse(thread.id), grant, url: aceMcpUrl(daemon) };
 }
-/** Spade's MCP client as spade-ace connects: 2025-11-25 sessions with list changes. */
-async function connectMcp(env: { mcpUrl: string; mcpToken: string }) {
-  const transport = new StreamableHTTPClientTransport(new URL(env.mcpUrl), {
-    requestInit: {
-      headers: { Authorization: `Bearer ${env.mcpToken}`, "X-Ace-Notifications": "stream" },
-    },
-  });
-  // v1's optional sessionId uses a different exact-optional convention.
-  const wire: Transport = {
-    start: () => transport.start(),
-    close: () => transport.close(),
-    send: (message, options) => transport.send(message, options),
-  };
-  // SDK transports expose callback properties.
-  // oxlint-disable-next-line unicorn/prefer-add-event-listener
-  transport.onmessage = (message) => wire.onmessage?.(message);
-  // oxlint-disable-next-line unicorn/prefer-add-event-listener
-  transport.onerror = (error) => wire.onerror?.(error);
-  // oxlint-disable-next-line unicorn/prefer-add-event-listener
-  transport.onclose = () => wire.onclose?.();
-  const client = new McpClient({ name: "spade", version: "0.1.0" });
-  await client.connect(wire);
-  return { client, transport };
-}
+/** Spade's MCP client as spade-ace connects. */
+const connectMcp = (spade: { url: string; grant: string }) =>
+  connectSpadeMcp(spade.url, spade.grant);
 async function deleteThread(daemon: Daemon, threadId: ThreadId) {
   const token = await readFile(daemon.tokenPath, "utf8");
   const socket = new Client(daemon.url);
@@ -84,28 +46,24 @@ async function deleteThread(daemon: Daemon, threadId: ThreadId) {
   }
 }
 
-test("Spade acts as its own hidden host thread: the full agent tool set, delegations as its children, and a host that heals", async ({
-  onTestFinished,
-}) => {
-  const root = await realpath(await mkdtemp(join(tmpdir(), "ace-spade-thread-")));
-  onTestFinished(() => rm(root, { recursive: true, force: true }));
-  const binary = join(root, "spade-server");
-  await writeFile(binary, `#!/bin/sh\nexec "${process.execPath}" "${fakeSpade}"\n`);
-  await chmod(binary, 0o755);
+test("Spade acts as its own hidden host thread: the full agent tool set, delegations as its children, and a host that heals", async () => {
+  let home = "";
+  const service = fakeSpadeService(() => home);
   const f = await daemonFixture(undefined, {
-    spade: { env: { PATH: process.env.PATH, HOME: root, ACE_SPADE_BIN: binary } },
+    spade: { service: service.control, pollMs: { waiting: 50, ready: 200 } },
   });
+  home = join(f.h.home, "daemon");
   let daemon = f.daemon;
-  const opened: McpClient[] = [];
+  const opened: Awaited<ReturnType<typeof connectSpadeMcp>>[] = [];
   try {
-    const { hostId, env } = await startSpade(daemon);
+    const spade = await startSpade(daemon);
+    const { hostId } = spade;
     const host = daemon.store.getThread(hostId);
     expect(host?.host).toBe("spade");
 
     // The lease is a provider session's: every agent tool group, each tool's risk stated.
-    const { client, transport } = await connectMcp(env);
+    const client = await connectMcp(spade);
     opened.push(client);
-    expect(transport.sessionId).toBeTruthy();
     const { tools } = await client.listTools();
     const names = tools.map((tool) => tool.name);
     for (const tool of [
@@ -188,7 +146,7 @@ test("Spade acts as its own hidden host thread: the full agent tool set, delegat
     const restarted = await startSpade(daemon);
     expect(restarted.hostId).toBe(hostId);
     expect(access()).toBe("read-only");
-    const narrowed = await connectMcp(restarted.env);
+    const narrowed = { client: await connectMcp(restarted) };
     opened.push(narrowed.client);
     const stricter = await narrowed.client.callTool({
       name: "delegate",
@@ -247,7 +205,8 @@ test("Spade acts as its own hidden host thread: the full agent tool set, delegat
     await until(() => daemon.store.getThread(unnamedId) !== undefined, "the unnamed child");
     expect(daemon.store.getThread(unnamedId)?.provider).toBe(other);
 
-    // Deleted, it is made again on the next start, in the same hidden project.
+    // Deleted, it is made again when the daemon next starts with Spade's grant live, in the same
+    // hidden project; Spade keeps running and its grant now acts as the new thread.
     expect(await deleteThread(daemon, hostId)).toMatchObject({ ok: true });
     daemon = await f.restart();
     const again = await startSpade(daemon);
@@ -256,9 +215,10 @@ test("Spade acts as its own hidden host thread: the full agent tool set, delegat
     expect(daemon.store.getThread(childId)).toMatchObject({ id: childId });
     expect(daemon.store.getThread(childId)?.deletedAt).toBeUndefined();
     expect(daemon.store.getThread(again.hostId)?.workspaceId).toBe(host?.workspaceId);
-    const second = await connectMcp(again.env);
-    opened.push(second.client);
-    expect((await second.client.listTools()).tools.map((tool) => tool.name)).toContain("delegate");
+    expect(again.grant).toBe(restarted.grant);
+    const second = await connectMcp(again);
+    opened.push(second);
+    expect((await second.listTools()).tools.map((tool) => tool.name)).toContain("delegate");
 
     // With Spade off, a restarted daemon still names the host thread, so the apps know Spade's
     // children by their parent.
@@ -278,5 +238,6 @@ test("Spade acts as its own hidden host thread: the full agent tool set, delegat
   } finally {
     for (const client of opened) await client.close().catch(() => {});
     await daemon.close();
+    await service.close();
   }
 }, 30_000);

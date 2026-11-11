@@ -54,51 +54,53 @@ type StorageServiceResponse<Q extends ServiceRequest> = Q["type"] extends "stora
             ? Replies<"skills.result">
             : Q["type"] extends "spade.status"
               ? Replies<"spade.status.result">
-              : Q["type"] extends "spade.http"
-                ? Replies<"spade.http.result" | "spade.http.open">
-                : Q["type"] extends "spade.http.read"
-                  ? Replies<"spade.http.chunk">
-                  : Q["type"] extends "diagnostics.request"
-                    ? Replies<"diagnostics.result">
-                    : Q["type"] extends "notification.config"
-                      ? Replies<"notification.config.result">
-                      : Q["type"] extends "notification.register"
-                        ? Replies<"notification.register.result">
-                        : Q["type"] extends "notification.unregister"
-                          ? Replies<"notification.unregister.result">
-                          : Q["type"] extends "notification.feed"
-                            ? Replies<"notification.feed.result">
-                            : Q["type"] extends "host.identity"
-                              ? Replies<"host.identity.result">
-                              : Q["type"] extends `machine.code.${string}`
-                                ? Replies<"machine.code.result">
-                                : Q["type"] extends "activity.reads" | "activity.markRead"
-                                  ? Replies<"activity.reads.result">
-                                  : Q["type"] extends "entities.page"
-                                    ? Replies<"entities.page">
-                                    : Q["type"] extends "queue.get"
-                                      ? Extract<Reply, { type: "queue.result" }>
-                                      : Q["type"] extends "permissions.capabilities"
-                                        ? Replies<"permissions.capabilities.result">
-                                        : Q["type"] extends "providers.request"
-                                          ? Replies<"providers.result">
-                                          : Q["type"] extends "repositories.request"
-                                            ? Replies<"repositories.result">
-                                            : Q["type"] extends "source-control.request"
-                                              ? Replies<"source-control.result">
-                                              : Q["type"] extends "projects.request"
-                                                ? Replies<"projects.result">
-                                                : Q["type"] extends
-                                                      | "accounts.login"
-                                                      | "accounts.logout"
-                                                  ? Replies<"accounts.auth">
+              : Q["type"] extends "spade.grant.revoke"
+                ? Replies<"spade.grant.revoke.result">
+                : Q["type"] extends "spade.http"
+                  ? Replies<"spade.http.result" | "spade.http.open">
+                  : Q["type"] extends "spade.http.read"
+                    ? Replies<"spade.http.chunk">
+                    : Q["type"] extends "diagnostics.request"
+                      ? Replies<"diagnostics.result">
+                      : Q["type"] extends "notification.config"
+                        ? Replies<"notification.config.result">
+                        : Q["type"] extends "notification.register"
+                          ? Replies<"notification.register.result">
+                          : Q["type"] extends "notification.unregister"
+                            ? Replies<"notification.unregister.result">
+                            : Q["type"] extends "notification.feed"
+                              ? Replies<"notification.feed.result">
+                              : Q["type"] extends "host.identity"
+                                ? Replies<"host.identity.result">
+                                : Q["type"] extends `machine.code.${string}`
+                                  ? Replies<"machine.code.result">
+                                  : Q["type"] extends "activity.reads" | "activity.markRead"
+                                    ? Replies<"activity.reads.result">
+                                    : Q["type"] extends "entities.page"
+                                      ? Replies<"entities.page">
+                                      : Q["type"] extends "queue.get"
+                                        ? Extract<Reply, { type: "queue.result" }>
+                                        : Q["type"] extends "permissions.capabilities"
+                                          ? Replies<"permissions.capabilities.result">
+                                          : Q["type"] extends "providers.request"
+                                            ? Replies<"providers.result">
+                                            : Q["type"] extends "repositories.request"
+                                              ? Replies<"repositories.result">
+                                              : Q["type"] extends "source-control.request"
+                                                ? Replies<"source-control.result">
+                                                : Q["type"] extends "projects.request"
+                                                  ? Replies<"projects.result">
                                                   : Q["type"] extends
-                                                        | "accounts.add"
-                                                        | "accounts.rename"
-                                                        | "accounts.remove"
-                                                        | "accounts.setDefault"
-                                                    ? Replies<"accounts.changed">
-                                                    : ExistingServiceResponse<Q>;
+                                                        | "accounts.login"
+                                                        | "accounts.logout"
+                                                    ? Replies<"accounts.auth">
+                                                    : Q["type"] extends
+                                                          | "accounts.add"
+                                                          | "accounts.rename"
+                                                          | "accounts.remove"
+                                                          | "accounts.setDefault"
+                                                      ? Replies<"accounts.changed">
+                                                      : ExistingServiceResponse<Q>;
 
 type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
   | "turns.page"
@@ -197,6 +199,7 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "prompts.request": ["prompts.result"],
   "skills.request": ["skills.result"],
   "spade.status": ["spade.status.result"],
+  "spade.grant.revoke": ["spade.grant.revoke.result"],
   // A request with parts is answered with spade.http.open first; its result comes later.
   "spade.http": ["spade.http.result", "spade.http.open"],
   // A long answer's next piece, under the request's own id.

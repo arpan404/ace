@@ -22,6 +22,9 @@
     },
     {
       "$ref": "https://ace.local/protocol/v1/SpadeLiveEnded.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeGrantRevokeResult.json"
     }
   ]
 }

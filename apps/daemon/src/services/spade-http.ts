@@ -17,7 +17,7 @@ import {
   responseBodyLimit,
 } from "../spade/bodies.ts";
 import { spadeRequest, spadeUpload, type SpadeAnswer, type SpadeUpload } from "../spade/forward.ts";
-import type { SpadeHost } from "../spade/host.ts";
+import type { SpadeLink } from "../spade/link.ts";
 import { checkSpadePath, scopeFor } from "../spade/rules.ts";
 
 /** How long Spade has to answer once the whole body is sent. */
@@ -50,7 +50,7 @@ interface Upload {
  * parts is streamed to Spade as each part arrives, never gathered whole.
  */
 export function createSpadeHttp(context: {
-  host(): Pick<SpadeHost, "ready"> | undefined;
+  host(): Pick<SpadeLink, "ready"> | undefined;
   authorize(scope: DeviceScope): boolean;
   connected(): boolean;
   send(message: ServerMessage): void;

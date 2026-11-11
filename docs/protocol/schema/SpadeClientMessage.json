@@ -19,6 +19,9 @@
     },
     {
       "$ref": "https://ace.local/protocol/v1/SpadeLiveUnsubscribe.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeGrantRevoke.json"
     }
   ]
 }

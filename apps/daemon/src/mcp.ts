@@ -1,7 +1,10 @@
 import { McpProviderSessions } from "./mcp-provider-sessions.ts";
 import { timeOrderedIds } from "./time-ordered-id.ts";
 import { ItemId, type McpScope } from "@ace/protocol";
+import { randomBytes } from "node:crypto";
 import {
+  CredentialRegistry,
+  type Principal,
   type StatusReader,
   ToolRegistry,
   nodeScheduler,
@@ -64,7 +67,24 @@ export async function startDaemonMcp(
     },
   });
   for (const toolkit of toolkits) toolkit.register(registry);
+  // Leases provider sessions get, then durable grants (Spade's, ADR 0123) added later.
+  const leases = new CredentialRegistry(() => randomBytes(32).toString("hex"));
+  const extra = new Set<(bearer: string) => Principal | undefined>();
+  const credentials = {
+    issue: leases.issue.bind(leases),
+    authenticate(bearer: string): Principal | undefined {
+      const leased = leases.authenticate(bearer);
+      if (leased) return leased;
+      for (const authenticate of extra) {
+        const principal = authenticate(bearer);
+        if (principal) return principal;
+      }
+      return undefined;
+    },
+    close: () => leases.close(),
+  };
   const server = await startMcpServer({
+    credentials,
     maxBodyBytes: maxRequestBodyBytes,
     registry,
     ...(awareness ? { awareness } : {}),
@@ -77,6 +97,8 @@ export async function startDaemonMcp(
   });
   return {
     url: server.url,
+    /** Serves `/mcp` arriving on the daemon's own loopback port, as `url` serves it. */
+    handleHttp: server.handleHttp,
     toolNames: () => ["context", aceToolSearch, aceToolDispatch, ...registry.names()],
     toolsChanged: server.toolsChanged,
     /** This session's failed ace calls, for diagnostics. */
@@ -107,6 +129,14 @@ export async function startDaemonMcp(
         /** The digest since this session's last ace call, for turn-start hooks. */
         changes: () => server.awareness?.changes(lease.principal),
       };
+    },
+    /**
+     * Accepts bearers `authenticate` knows beside the leases above; it is asked on every request,
+     * so a grant it reads from storage applies a revocation to the next one.
+     */
+    addAuthenticator(authenticate: (bearer: string) => Principal | undefined): () => void {
+      extra.add(authenticate);
+      return () => extra.delete(authenticate);
     },
     close: server.close,
   };

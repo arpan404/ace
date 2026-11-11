@@ -79,14 +79,20 @@ export class OutsideAccess {
    * tabs and screen work end now. False when it was already revoked or never existed.
    */
   revoke(grantId: string): boolean {
+    // Spade's grant is revoked with Spade (`spade.grant.revoke`), never as an outside client's.
+    if (this.grants.get(grantId)?.clientKind === "spade") return false;
     const revoked = this.grants.revoke(grantId);
     if (!revoked) return false;
     this.tokens.revokeTokens(grantId);
     this.principals.end(grantId);
     return true;
   }
-  /** Changes a live grant; the next request reads it. */
+  /**
+   * Changes a live grant; the next request reads it. Spade's grant is not changed here: what it
+   * may do is its host thread's lease (ADR 0123), so it is only made or revoked.
+   */
   update(grantId: string, change: GrantChange): OutsideGrant | undefined {
+    if (this.grants.get(grantId)?.clientKind === "spade") return undefined;
     const grant = this.grants.update(grantId, change);
     if (!grant) return undefined;
     this.principals.rearm(grant);
@@ -103,7 +109,7 @@ export class OutsideAccess {
    */
   stopScreen(grantId: string, by: string): boolean {
     const grant = this.grants.live(grantId);
-    if (!grant) return false;
+    if (!grant || grant.clientKind === "spade") return false;
     this.screen.stop(grantId);
     if (!grant.scopes.includes("computer")) return true;
     const updated = this.update(grantId, {

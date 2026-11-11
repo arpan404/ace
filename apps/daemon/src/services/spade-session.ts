@@ -1,14 +1,15 @@
 import { maxSpadeResponseBytes, type SpadeLiveEndReason, type SpadeStatus } from "@ace/protocol";
 import { spadeLive } from "../spade/forward.ts";
-import type { SpadeHost } from "../spade/host.ts";
+import type { SpadeLink } from "../spade/link.ts";
 import { checkLivePath } from "../spade/rules.ts";
 import { createSpadeHttp } from "./spade-http.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
 /** Live streams one connection may hold open at once. */
 const maxStreams = 16;
-/** What the session reads of the Spade host. */
-export type SpadeAccess = Pick<SpadeHost, "ready" | "status" | "subscribe" | "onRunEnded">;
+/** What the session reads of the Spade service. */
+export type SpadeAccess = Pick<SpadeLink, "ready" | "status" | "subscribe" | "onRunEnded"> &
+  Partial<Pick<SpadeLink, "revokeGrant">>;
 type SpadeSocket = Pick<SocketContext, "authorize" | "connected" | "send"> & {
   options: { spade?: SpadeAccess | undefined };
 };
@@ -26,7 +27,7 @@ function unavailable(host: SpadeAccess | undefined): string {
   return status.reason ?? "Spade isn't running.";
 }
 
-/** `spade.*` (ADR 0121): status, HTTP requests and live streams forwarded to Spade. */
+/** `spade.*` (ADR 0121, 0123): status, HTTP requests and live streams forwarded to Spade. */
 export function createSpadeSession(context: SpadeSocket): SocketService {
   const streams = new Map<string, Stream>();
   const stops: (() => void)[] = [];
@@ -146,6 +147,18 @@ export function createSpadeSession(context: SpadeSocket): SocketService {
         case "spade.live.subscribe":
           subscribe(message.requestId, message.path);
           return true;
+        case "spade.grant.revoke": {
+          // Ending Spade's access to ace is an administrator's call, as revoking any grant is.
+          const revoked = context.authorize("admin")
+            ? ((await host()?.revokeGrant?.()) ?? false)
+            : false;
+          context.send({
+            type: "spade.grant.revoke.result",
+            requestId: message.requestId,
+            revoked,
+          });
+          return true;
+        }
         case "spade.live.unsubscribe":
           stopStream(message.requestId, "unsubscribed");
           return true;

@@ -78,6 +78,8 @@ function decode(raw: unknown): OutsideGrant | undefined {
 
 /** A live grant, with `?` the time now; `isLive` states the same rule. */
 const liveSql = "revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)";
+/** Grants the outside clients' list shows: every kind but Spade's. */
+const listedSql = "client_kind<>'spade'";
 /** How many ended grants Settings lists beside every live one. */
 export const endedListed = 200;
 /** How often a grant's last use is written: every request would be a write per call. */
@@ -132,17 +134,29 @@ export class GrantStore {
     return grant && isLive(grant, this.now()) ? grant : undefined;
   }
   /**
-   * Every live grant, then the most recent ended (revoked or expired) ones up to
-   * `endedListed`, each part newest first. A live grant never falls off the list.
+   * Every live outside client's grant, then the most recent ended (revoked or expired) ones up
+   * to `endedListed`, each part newest first. A live grant never falls off the list. Spade's
+   * grant is never listed: it is shown and revoked with Spade (`spade.status`), and apps from
+   * before it existed reject a list holding a kind they don't know.
    */
   list(): OutsideGrant[] {
     const ended = this.sql
       .statement(
-        `SELECT ${columns} FROM outside_grants WHERE NOT (${liveSql}) ORDER BY created_at DESC, id LIMIT ?`,
+        `SELECT ${columns} FROM outside_grants WHERE NOT (${liveSql}) AND ${listedSql} ORDER BY created_at DESC, id LIMIT ?`,
       )
       .all(this.now(), endedListed)
       .flatMap((row) => decode(row) ?? []);
-    return [...this.liveGrants(), ...ended];
+    return [...this.liveGrants().filter((grant) => grant.clientKind !== "spade"), ...ended];
+  }
+  /** The newest grant of a kind, live or ended. */
+  latest(clientKind: OutsideClientKind): OutsideGrant | undefined {
+    return decode(
+      this.sql
+        .statement(
+          `SELECT ${columns} FROM outside_grants WHERE client_kind=? ORDER BY created_at DESC, id LIMIT 1`,
+        )
+        .get(clientKind),
+    );
   }
   /** Every grant with the threads it started and messaged, newest first. */
   entries(): OutsideGrantEntry[] {
@@ -190,6 +204,10 @@ export class GrantStore {
     const now = this.now();
     if (grant.lastUsedAt !== null && now - grant.lastUsedAt < touchEveryMs) return;
     this.sql.statement("UPDATE outside_grants SET last_used_at=? WHERE id=?").run(now, grant.id);
+  }
+  /** Forgets the last use: a new token was issued, and it hasn't been used yet. */
+  markUnused(id: string): void {
+    this.sql.statement("UPDATE outside_grants SET last_used_at=NULL WHERE id=?").run(id);
   }
   /** Notes a thread the grant started or messaged, for its row in Settings. */
   noteThread(grantId: string, threadId: ThreadId, kind: "started" | "messaged"): void {

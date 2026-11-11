@@ -1,27 +1,27 @@
 import { join } from "node:path";
 import { AccessMode, ProviderKind, type ThreadId } from "@ace/protocol";
-import { loadToken } from "../local-files.ts";
 import { ProjectStorage } from "../project-storage.ts";
-import type { SpadeCredentials, SpadeHost } from "../spade/host.ts";
-import { ensureSpadeHostThread, findHostThread } from "../spade/host-thread.ts";
-import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
+import {
+  ensureSpadeHostThread,
+  findHostThread,
+  type SpadeHostThread,
+} from "../spade/host-thread.ts";
+import type { SpadeLink } from "../spade/link.ts";
 import type { ServiceContext } from "./types.ts";
 
 /** How long a burst of writes settles before the host thread's busy flag is read again. */
 const busySettleMs = 100;
 
 /**
- * What each Spade run is given (ADR 0121): the daemon's socket and local token, and an MCP lease
- * on the daemon's own endpoint naming Spade's host thread and its root agent, with the tool
- * groups a provider session gets. The host thread is found or made first, so it heals on every
- * start. Also keeps `spade.status` saying whether the host thread's tree is busy.
+ * Spade's host thread (ADR 0121, kept by ADR 0123): made or healed when Spade's grant is made,
+ * following the person's default access and provider, and reported in `spade.status` with
+ * whether its tree is busy, whether or not Spade runs.
  */
-export function spadeCredentials(
+export function spadeHostThread(
   context: ServiceContext,
-  host: SpadeHost,
+  link: Pick<SpadeLink, "setThread">,
   dataDir: string,
-  daemonUrl: () => string | undefined,
-): () => Promise<SpadeCredentials> {
+) {
   const { services, store } = context;
   let tracked: ThreadId | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -29,7 +29,7 @@ export function spadeCredentials(
     timer = undefined;
     if (!tracked) return;
     const live = services.agentControl?.delegations.journal.liveDescendants(tracked) ?? [];
-    host.setThread({ id: tracked, busy: live.length > 0 });
+    link.setThread({ id: tracked, busy: live.length > 0 });
   };
   const stopWrites = store.onWrite(() => {
     if (!tracked || timer) return;
@@ -76,49 +76,36 @@ export function spadeCredentials(
     refresh();
   }
 
-  return async () => {
-    const issued: Record<string, string> = {};
-    const url = daemonUrl();
-    if (url) {
-      issued.SPADE_ACE_URL = url;
-      issued.SPADE_ACE_TOKEN = loadToken(context.config.dataDir).token;
-    }
-    const { mcp, engine } = services;
-    if (!mcp || !engine) {
-      context.log.log("warn", "Spade starts without ace's tools: the MCP server is unavailable");
-      return { env: issued, revoke: () => {} };
-    }
-    const provider = (await services.settings?.get("providers.default"))?.value ?? "claude";
-    const access = (await services.settings?.get("access.defaultMode"))?.value ?? "auto-review";
-    const thread = ensureSpadeHostThread({
-      store,
-      engine,
-      catalog: services.projects?.catalog ?? new ProjectStorage(store, context.now),
-      folder: join(dataDir, "workspace"),
-      provider,
-      access,
-      id: context.id,
-    });
-    tracked = thread.threadId;
-    refresh();
-    const lifetime = new AbortController();
-    const lease = mcp.openSession(
-      {
-        sessionId: `spade:${context.id()}`,
-        threadId: thread.threadId,
-        agentId: thread.agentId,
-        capabilities: daemonMcpCapabilities(services),
-      },
-      lifetime.signal,
-    );
-    issued.SPADE_ACE_MCP_URL = mcp.url;
-    issued.SPADE_ACE_MCP_TOKEN = lease.bearer;
-    return {
-      env: issued,
-      revoke: () => {
-        lease.end();
-        lifetime.abort();
-      },
-    };
+  let thread: SpadeHostThread | undefined = existing;
+  return {
+    /** The host thread now, for the grant's lease; undefined while it is missing. */
+    current(): SpadeHostThread | undefined {
+      const held = thread && store.getThread(thread.threadId);
+      if (held && held.deletedAt === undefined) return thread;
+      thread = findHostThread(store);
+      return thread;
+    },
+    /** Finds or makes the host thread with the person's current defaults. */
+    async ensure(): Promise<SpadeHostThread | undefined> {
+      const { engine } = services;
+      if (!engine) {
+        context.log.log("warn", "Spade's host thread waits for the engine");
+        return undefined;
+      }
+      const provider = (await services.settings?.get("providers.default"))?.value ?? "claude";
+      const access = (await services.settings?.get("access.defaultMode"))?.value ?? "auto-review";
+      thread = ensureSpadeHostThread({
+        store,
+        engine,
+        catalog: services.projects?.catalog ?? new ProjectStorage(store, context.now),
+        folder: join(dataDir, "workspace"),
+        provider,
+        access,
+        id: context.id,
+      });
+      tracked = thread.threadId;
+      refresh();
+      return thread;
+    },
   };
 }
