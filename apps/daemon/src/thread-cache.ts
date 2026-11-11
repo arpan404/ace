@@ -136,8 +136,8 @@ export class ThreadCache {
     if (hit && hit.revision === known) return hit.thread;
     const pending = known === undefined ? undefined : this.pending?.get(id);
     if (pending && pending.revision === known) return pending.thread;
-    // Freeze a private clone: parsed output can share nested default objects with the schema.
-    const thread = deepFreeze(structuredClone(decodeThreadRow(row)));
+    // The decode is private (no shared schema defaults), so it can be frozen as it is.
+    const thread = deepFreeze(decodeThreadRow(row));
     if (known === undefined) return thread;
     const weights = weigh(row);
     const entry = { revision: known, thread, weights, bytes: total(weights) };

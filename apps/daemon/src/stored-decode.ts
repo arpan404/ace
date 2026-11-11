@@ -1,4 +1,15 @@
-import { Event, EventPayload, Item, type EventId, type ThreadId } from "@ace/protocol";
+import type { SQLOutputValue } from "node:sqlite";
+import {
+  Event,
+  EventPayload,
+  Item,
+  ThreadClientFields,
+  ThreadProviderMetadata,
+  ThreadTransitionView,
+  type EventId,
+  type Thread,
+  type ThreadId,
+} from "@ace/protocol";
 import { z } from "zod";
 
 const tagged = z.looseObject({ type: z.string() });
@@ -75,4 +86,61 @@ export function storedEvent(
   const event: Event = { seq, id, at, threadId, payload };
   const envelope = `{"seq":${seq},"id":${JSON.stringify(id)},"at":${at},"threadId":${JSON.stringify(threadId)},"payload":}`;
   return { event, bytes: Buffer.byteLength(json) + Buffer.byteLength(envelope) };
+}
+
+type StoredRow = Record<string, SQLOutputValue>;
+/** Fields of `value` named in `keys`, as a schema pick of them gives (absent keys stay absent). */
+function picked(value: unknown, keys: readonly string[]): Partial<Thread> {
+  const fields: Record<string, unknown> = {};
+  if (typeof value !== "object" || value === null) return fields;
+  for (const key of keys) if (key in value) fields[key] = Reflect.get(value, key);
+  return fields;
+}
+const clientKeys = Object.keys(ThreadClientFields.omit({ details: true }).shape);
+const transitionKeys = Object.keys(ThreadTransitionView.shape);
+const metadataKeys = ["backend", "handoff", "permission", "titleSource", "queue", "goal"];
+const acpKeys = Object.keys(ThreadProviderMetadata.shape);
+const stored = (value: SQLOutputValue | undefined): unknown =>
+  value == null ? undefined : JSON.parse(String(value));
+/**
+ * A threads row's parts read as stored, for a row this build confirmed reads the same without
+ * validation (`thread-row-trust.ts`). Each mirrors the validating part in `thread-row.ts` minus
+ * the schema parse; a row whose stored JSON the parse would change, or that still carries the
+ * values older layouts embedded in client and provider_metadata, is never confirmed.
+ */
+export const trustedThreadParts = {
+  base: (row: StoredRow) => {
+    // Trusted: this build wrote the base columns from a validated Thread.
+    const base: Record<string, unknown> = {
+      id: row.id,
+      workspaceId: row.workspace_id,
+      title: row.title,
+      provider: row.provider,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+    if (row.archived_at !== null) base.archivedAt = row.archived_at;
+    if (row.imported != null) base.imported = JSON.parse(String(row.imported));
+    if (row.root_agent_id !== null) base.rootAgentId = row.root_agent_id;
+    return base as Partial<Thread>;
+  },
+  status: (row: StoredRow) => ({ status: JSON.parse(String(row.status)) as Thread["status"] }),
+  client: (row: StoredRow) => picked(stored(row.client), clientKeys),
+  details: (row: StoredRow) => {
+    const details = stored(row.details);
+    return details === undefined ? {} : { details: details as Thread["details"] };
+  },
+  transitions: (row: StoredRow) => picked(stored(row.transitions), transitionKeys),
+  metadata: (row: StoredRow) => picked(stored(row.provider_metadata), metadataKeys),
+  capabilities: (row: StoredRow) => {
+    const capabilities = stored(row.capabilities);
+    return capabilities === undefined
+      ? {}
+      : { capabilities: capabilities as Thread["capabilities"] };
+  },
+  acp: (row: StoredRow) => picked(stored(row.acp), acpKeys),
+} satisfies Record<string, (row: StoredRow) => Partial<Thread>>;
+/** The trusted thread decoders' code, part of the thread row shape (`thread-row-trust.ts`). */
+export function trustedThreadDecoderSource(): string {
+  return [picked, stored, ...Object.values(trustedThreadParts)].map(String).join("\n");
 }

@@ -10,6 +10,7 @@ import {
   type ThreadColumn,
 } from "./thread-columns.ts";
 import { rebuildThread } from "./thread-row.ts";
+import { keepThreadRowConfirmed, threadRowConfirmed } from "./thread-row-trust.ts";
 import type { FrozenThread } from "./thread-cache.ts";
 import type { StreamSequences } from "./stream-sequences.ts";
 import type { PayloadStore } from "./payload-store.ts";
@@ -199,6 +200,10 @@ export class EventWriter {
     payload: EventPayload,
   ): void {
     const changes = threadColumnChanges(previous, thread, writtenColumns(payload));
+    if (!changes.hot.length && !changes.cold.length) return;
+    // A new row is written whole here; an existing one keeps the columns this write leaves.
+    const confirmed =
+      !previous || threadRowConfirmed((sql) => this.source.statement(sql), thread.id);
     if (changes.hot.length)
       this.source
         .statement(
@@ -217,12 +222,13 @@ export class EventWriter {
         )
         .run(thread.id, value("details"), value("capabilities"));
     }
-    if (!changes.hot.length && !changes.cold.length) return;
     const revision = this.source
       .statement("SELECT revision FROM sidebar_thread_revisions WHERE thread_id = ?")
       .get(thread.id)?.revision;
     if (typeof revision !== "number") return;
-    const rebuilt = rebuildThread(previous, changes.row, changes.parts);
+    const { thread: rebuilt, canonical } = rebuildThread(previous, changes.row, changes.parts);
+    if (confirmed && canonical)
+      keepThreadRowConfirmed((sql) => this.source.statement(sql), thread.id, revision);
     if (previous) this.source.rememberThread(thread.id, revision, rebuilt, changes.row);
     else this.source.rememberCreatedThread(thread.id, revision, rebuilt, changes.row);
   }

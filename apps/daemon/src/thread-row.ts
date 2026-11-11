@@ -6,16 +6,17 @@ import {
   ThreadTransitionView,
   ThreadProviderMetadata,
 } from "@ace/protocol";
+import { trustedThreadDecoderSource, trustedThreadParts } from "./stored-decode.ts";
 
 type Row = Record<string, SQLOutputValue>;
 type ReadonlyThread = { readonly [K in keyof Thread]?: unknown };
 
 /**
  * A thread is stored as the narrow threads row, which changes on most events, plus its two
- * large and rarely changing values in thread_cold. Every full read selects both.
+ * large and rarely changing values in thread_cold. Every full read selects both, and whether
+ * this build confirmed the row at its current revision (`thread-row-trust.ts`).
  */
-export const threadRowColumns =
-  "threads.*, cold.details AS details, cold.capabilities AS capabilities";
+export const threadRowColumns = `threads.*, cold.details AS details, cold.capabilities AS capabilities, (SELECT trust.canonical FROM thread_row_trust AS trust JOIN sidebar_thread_revisions AS current ON current.thread_id = trust.thread_id AND current.revision = trust.revision WHERE trust.thread_id = threads.id) AS row_trusted`;
 export const threadRowSource =
   "threads LEFT JOIN thread_cold AS cold ON cold.thread_id = threads.id";
 
@@ -122,31 +123,75 @@ const partKeys: Record<ThreadPart, readonly string[]> = {
 };
 const fieldOrder = Object.keys(Thread.shape);
 
-/** Decode a materialized thread row; provider and client extensions retain their schemas. */
+const trustedParts: Record<ThreadPart, (row: Row) => Partial<Thread>> = trustedThreadParts;
+
+/**
+ * Decode a materialized thread row into a value no one else holds. A row this build confirmed
+ * at its current revision is read as stored; any other row is validated, with provider and
+ * client extensions keeping their schemas.
+ */
 export function decodeThreadRow(row: Row): Thread {
+  if (row.row_trusted === 1) return trustedThreadRow(row);
+  // A private clone: parsed output can share nested default objects with the schema.
+  return structuredClone(validatedThreadRow(row));
+}
+function validatedThreadRow(row: Row): Thread {
   const fields: Record<string, unknown> = {};
   for (const name of partNames) Object.assign(fields, parts[name](row));
   return assemble(fields);
+}
+function trustedThreadRow(row: Row): Thread {
+  const fields: Record<string, unknown> = {};
+  for (const name of partNames) Object.assign(fields, trustedParts[name](row));
+  return assemble(fields);
+}
+
+/**
+ * The validated decode of a row, and whether reading it as stored gives exactly the same
+ * thread, field order included. Only such a row may be read without validation.
+ */
+export function confirmThreadRow(row: Row): { thread: Thread; canonical: boolean } {
+  const thread = validatedThreadRow(row);
+  return { thread, canonical: JSON.stringify(thread) === JSON.stringify(trustedThreadRow(row)) };
+}
+/** True when each named part of `row` reads the same as stored as validated (`decoded`). */
+function sameAsStored(row: Row, decoded: ReadonlyMap<ThreadPart, Partial<Thread>>): boolean {
+  for (const [name, part] of decoded) if (!sameFields(part, trustedParts[name](row))) return false;
+  return true;
+}
+/** Same keys with the same values, nested key order included; `assemble` orders the top level. */
+function sameFields(a: object, b: object): boolean {
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  for (const key of keys)
+    if (!(key in b) || JSON.stringify(Reflect.get(a, key)) !== JSON.stringify(Reflect.get(b, key)))
+      return false;
+  return true;
 }
 
 /**
  * The thread a row decodes to after a write that changed only `changed` parts, from the thread
  * the row decoded to before it and the written columns in `row`. Parts not changed are shared
- * with `previous`; decoded parts are private copies.
+ * with `previous`; decoded parts are private copies. `canonical` says whether every decoded
+ * part reads the same as stored, so a row confirmed before the write stays confirmed.
  */
 export function rebuildThread(
   previous: ReadonlyThread | undefined,
   row: Row,
   changed: ReadonlySet<ThreadPart>,
-): Thread {
+): { thread: Thread; canonical: boolean } {
   const fields: Record<string, unknown> = {};
+  const decoded = new Map<ThreadPart, Partial<Thread>>();
   for (const name of partNames) {
-    if (changed.has(name) || !previous) Object.assign(fields, structuredClone(parts[name](row)));
-    else
+    if (changed.has(name) || !previous) {
+      const part = parts[name](row);
+      decoded.set(name, part);
+      Object.assign(fields, structuredClone(part));
+    } else
       for (const key of partKeys[name])
         if (key in previous) fields[key] = previous[key as keyof Thread];
   }
-  return assemble(fields);
+  return { thread: assemble(fields), canonical: sameAsStored(row, decoded) };
 }
 
 /** Fields in schema order, as a whole-object parse gives them, plus the derived continuation. */
@@ -177,4 +222,22 @@ function storedGoal(metadata: unknown): { goal?: ProviderGoal } {
     typeof metadata === "object" && metadata !== null ? Reflect.get(metadata, "goal") : undefined,
   );
   return goal.success ? { goal: goal.data } : {};
+}
+
+/**
+ * The decoders' own code, part of the thread row shape: a stamp made by one decoder says
+ * nothing about another's (`thread-row-trust.ts`).
+ */
+export function threadRowDecoderSource(): string {
+  const own = [
+    ...Object.values(parts),
+    assemble,
+    storedGoal,
+    embedded,
+    json,
+    validatedThreadRow,
+    trustedThreadRow,
+    sameFields,
+  ];
+  return `${own.map(String).join("\n")}\n${trustedThreadDecoderSource()}`;
 }
