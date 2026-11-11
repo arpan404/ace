@@ -123,6 +123,7 @@ struct ForgePullEditSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { if changes.isEmpty { dismiss() } else { discarding = true } }
+                        .disabled(saving)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     if saving { ProgressView().accessibilityLabel("Saving") }
