@@ -1429,7 +1429,7 @@ Example:
 
 ```json
 {
-  "key": "threads.autoSettleAfter",
+  "key": "threads.unresponsiveAfter",
   "requestId": "example",
   "scope": {},
   "type": "settings.get"
@@ -1520,7 +1520,7 @@ Example:
 ```json
 {
   "keys": [
-    "remote.agentTransfers"
+    "remote.transferIgnoredFiles"
   ],
   "requestId": "example",
   "scope": {
