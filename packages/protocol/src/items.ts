@@ -68,7 +68,12 @@ export const MessageOrigin = z.object({
     "automation",
     "schedule",
     "background_completion",
+    /** An outside MCP client sent it (ADR 0117); `client` names which. */
+    "mcp_client",
   ]),
+  client: z
+    .object({ grantId: z.string().min(1).max(128), name: z.string().min(1).max(256) })
+    .optional(),
   commandId: CommandId.optional(),
   interactionId: InteractionId.optional(),
   threadIds: z.array(ThreadId).optional(),
