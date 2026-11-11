@@ -145,7 +145,9 @@ struct InboxSearchList: View {
                         .inboxRowChrome()
                 }
                 if let problem = pulls.problem {
-                    SearchProblemRow(text: problem, identifier: "search.pulls.retry") { await pulls.retry(inbox) }
+                    QuietProblemRow(title: problem, action: "Try again", identifier: "search.pulls.retry") {
+                        Task { await pulls.retry(inbox) }
+                    }
                 }
             } header: { SearchHeader("Pull requests") }
         }

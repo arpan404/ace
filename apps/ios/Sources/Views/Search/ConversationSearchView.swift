@@ -81,7 +81,9 @@ struct ConversationSearchView: View {
 
     @ViewBuilder private var results: some View {
         if let problem = search.problem {
-            SearchProblemRow(text: problem, identifier: "conversation.retry") { await run() }
+            QuietProblemRow(title: problem, action: "Try again", identifier: "conversation.retry") {
+                Task { await run() }
+            }
         } else if search.loading, search.hits.isEmpty {
             SkeletonRows(count: 3, label: "Searching conversations")
         }

@@ -59,28 +59,3 @@ struct FoundPull: Identifiable, Equatable {
         await run(inbox, query: asked)
     }
 }
-
-/// A Search read that failed, as one sentence in the failed colour with its way out as a word.
-/// It sits above the rows the read found before, which stay until the next answer arrives.
-struct SearchProblemRow: View {
-    let text: String
-    let identifier: String
-    let retry: () async -> Void
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
-            Text(text).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
-                .foregroundStyle(AceTheme.StatusText.failed)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: AceDesign.Space.related)
-            Button("Try again") { Task { await retry() } }
-                .buttonStyle(.textAction(.prominent))
-                .accessibilityIdentifier(identifier)
-        }
-        .padding(.horizontal, AceDesign.Space.margin)
-        .padding(.vertical, AceDesign.Space.tight)
-        .listRowInsets(EdgeInsets())
-        .listRowBackground(Color.clear)
-        .listRowSeparator(.hidden)
-        .accessibilityElement(children: .contain)
-    }
-}
