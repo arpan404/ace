@@ -1,0 +1,360 @@
+//! The engine: one conversation's events in, model calls and tool runs out. Every change is a
+//! stored event, sent to live subscribers in order. Turns run as tasks driven by
+//! `spade_core::turn::next_step`, so they resume from storage after a restart.
+
+mod turn;
+
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use spade_core::event::Known;
+use spade_core::{Event, Transcript, TurnState, spending};
+use spade_models::{Models, Role};
+use spade_store::{Conversation, Store, StoreError, StoredEvent};
+use tokio::sync::{Notify, broadcast, watch};
+
+use crate::clock::{Clock, Ids};
+use crate::tools::Toolbox;
+
+/// Bounds on one turn.
+#[derive(Debug, Clone)]
+pub struct Limits {
+    pub max_steps: u32,
+    pub turn_cost_micros: u64,
+    pub max_parallel_tools: usize,
+    pub tool_timeout: Duration,
+    /// Longest tool result kept, in characters.
+    pub result_chars: usize,
+    pub longest_message: usize,
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        Self {
+            max_steps: 30,
+            turn_cost_micros: 2_000_000,
+            max_parallel_tools: 4,
+            tool_timeout: Duration::from_secs(120),
+            result_chars: 20_000,
+            longest_message: 100_000,
+        }
+    }
+}
+
+pub struct Setup {
+    pub store: Store,
+    pub models: Models,
+    pub tools: Toolbox,
+    pub clock: Arc<dyn Clock>,
+    pub ids: Arc<dyn Ids>,
+    pub daily_cap_micros: u64,
+    pub utc_offset_seconds: i32,
+    pub limits: Limits,
+}
+
+/// What a live subscriber receives.
+#[derive(Debug, Clone)]
+pub enum Frame {
+    Stored(StoredEvent),
+    /// A new piece of the open reply's text. Not stored; checkpoints and the step are.
+    Delta {
+        reply: String,
+        text: String,
+    },
+}
+
+/// The open reply's text so far, for a subscriber joining mid-reply.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Snapshot {
+    pub reply: String,
+    pub text: String,
+}
+
+pub struct Subscription {
+    pub frames: broadcast::Receiver<Frame>,
+    pub backlog: Vec<StoredEvent>,
+    pub snapshot: Option<Snapshot>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum SendError {
+    #[error("no such conversation")]
+    NotFound,
+    #[error("the message is empty")]
+    Empty,
+    #[error("the message is too long")]
+    TooLong,
+    #[error("today's spending cap is used up")]
+    OverCap,
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum AnswerError {
+    #[error("no such conversation")]
+    NotFound,
+    #[error("that call is not waiting for an answer")]
+    NotAwaiting,
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+/// Live state for one conversation.
+struct Live {
+    frames: broadcast::Sender<Frame>,
+    current: Mutex<Option<Snapshot>>,
+    stop: Mutex<Option<watch::Sender<bool>>>,
+    /// Woken when an approval is answered.
+    wake: Notify,
+    turn_running: AtomicBool,
+}
+
+pub struct Engine {
+    store: Store,
+    models: Models,
+    tools: Toolbox,
+    clock: Arc<dyn Clock>,
+    ids: Arc<dyn Ids>,
+    daily_cap_micros: u64,
+    utc_offset_seconds: i32,
+    limits: Limits,
+    live: Mutex<HashMap<String, Arc<Live>>>,
+    /// Orders "store, then broadcast" and makes "steer or start" and "finish unless steered"
+    /// atomic against each other, so a message sent as a reply ends is never lost.
+    record_lock: Mutex<()>,
+}
+
+impl Engine {
+    /// Opens the engine: closes replies a restart cut off and resumes turns waiting for an
+    /// approval.
+    pub fn open(setup: Setup) -> Result<Arc<Self>, StoreError> {
+        let engine = Arc::new(Self {
+            store: setup.store,
+            models: setup.models,
+            tools: setup.tools,
+            clock: setup.clock,
+            ids: setup.ids,
+            daily_cap_micros: setup.daily_cap_micros,
+            utc_offset_seconds: setup.utc_offset_seconds,
+            limits: setup.limits,
+            live: Mutex::default(),
+            record_lock: Mutex::default(),
+        });
+        for conversation in engine.store.conversations()? {
+            let events = engine.load(&conversation.id)?;
+            let transcript = Transcript::fold(&events);
+            if let Some(close) = transcript.close_after_restart() {
+                engine.record(&conversation.id, &close)?;
+            } else if transcript.turn_state() == Some(TurnState::WaitingOnYou) {
+                engine.spawn_turn(&conversation.id);
+            }
+        }
+        Ok(engine)
+    }
+
+    pub fn now_ms(&self) -> i64 {
+        self.clock.now_ms()
+    }
+
+    /// Every conversation, newest first, with whether a reply is open.
+    pub fn conversations(&self) -> Result<Vec<(Conversation, bool)>, StoreError> {
+        self.store
+            .conversations()?
+            .into_iter()
+            .map(|c| {
+                let open = self.reply_open(&c.id)?;
+                Ok((c, open))
+            })
+            .collect()
+    }
+
+    pub fn events(&self, id: &str, after: i64) -> Result<Option<Vec<StoredEvent>>, StoreError> {
+        if self.store.conversation(id)?.is_none() {
+            return Ok(None);
+        }
+        Ok(Some(self.store.events(id, after)?))
+    }
+
+    /// Starts a conversation with `text` and returns its id.
+    pub fn start_conversation(self: &Arc<Self>, text: &str) -> Result<String, SendError> {
+        self.check_message(text)?;
+        let id = self.ids.next("c");
+        self.store.create_conversation(&id, self.now_ms())?;
+        self.send(&id, text)?;
+        Ok(id)
+    }
+
+    /// Sends a message. While a reply is open it steers that turn; otherwise it starts one.
+    pub fn send(self: &Arc<Self>, id: &str, text: &str) -> Result<(), SendError> {
+        self.check_message(text)?;
+        if self.store.conversation(id)?.is_none() {
+            return Err(SendError::NotFound);
+        }
+        let start = {
+            let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+            self.append(id, &Event::user_message(text.trim()))?;
+            if Transcript::fold(&self.load(id)?).open_reply().is_some() {
+                false
+            } else {
+                let model = self.models.for_role(Role::Main).to_owned();
+                self.append(id, &Event::reply_started(self.ids.next("r"), model))?;
+                true
+            }
+        };
+        if start {
+            self.spawn_turn(id);
+        }
+        Ok(())
+    }
+
+    /// Asks the open turn to stop. Returns whether one was running.
+    pub fn stop(&self, id: &str) -> bool {
+        let live = self.live(id);
+        let stop = live.stop.lock().unwrap_or_else(|p| p.into_inner());
+        match stop.as_ref() {
+            Some(sender) => {
+                let _ = sender.send(true);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Answers an approval the open turn is waiting on.
+    pub fn answer(
+        &self,
+        id: &str,
+        call_id: &str,
+        allowed: bool,
+        always: bool,
+    ) -> Result<(), AnswerError> {
+        if self.store.conversation(id)?.is_none() {
+            return Err(AnswerError::NotFound);
+        }
+        let transcript = Transcript::fold(&self.load(id)?);
+        if !transcript.awaiting.iter().any(|c| c == call_id) {
+            return Err(AnswerError::NotAwaiting);
+        }
+        let reply = transcript
+            .open_reply()
+            .and_then(|m| m.reply.clone())
+            .unwrap_or_default();
+        self.record(
+            id,
+            &Event::Known(Known::ApprovalAnswered {
+                reply,
+                call_id: call_id.to_owned(),
+                allowed,
+                always,
+            }),
+        )?;
+        self.live(id).wake.notify_one();
+        Ok(())
+    }
+
+    /// Live frames after `after`, with the stored backlog and the open reply's text so far.
+    pub fn subscribe(&self, id: &str, after: i64) -> Result<Option<Subscription>, StoreError> {
+        if self.store.conversation(id)?.is_none() {
+            return Ok(None);
+        }
+        let live = self.live(id);
+        // Subscribe before reading the backlog, so nothing falls between them; the API drops
+        // stored frames it has already sent.
+        let frames = live.frames.subscribe();
+        let backlog = self.store.events(id, after)?;
+        let snapshot = live
+            .current
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        Ok(Some(Subscription {
+            frames,
+            backlog,
+            snapshot,
+        }))
+    }
+
+    pub fn models(&self) -> &Models {
+        &self.models
+    }
+
+    fn check_message(&self, text: &str) -> Result<(), SendError> {
+        let text = text.trim();
+        if text.is_empty() {
+            return Err(SendError::Empty);
+        }
+        if text.chars().count() > self.limits.longest_message {
+            return Err(SendError::TooLong);
+        }
+        if !self.within_cap()? {
+            return Err(SendError::OverCap);
+        }
+        Ok(())
+    }
+
+    fn within_cap(&self) -> Result<bool, StoreError> {
+        let since = spending::day_start_ms(self.now_ms(), self.utc_offset_seconds);
+        Ok(spending::within_cap(
+            self.store.spent_since(since)?,
+            self.daily_cap_micros,
+        ))
+    }
+
+    fn reply_open(&self, id: &str) -> Result<bool, StoreError> {
+        Ok(Transcript::fold(&self.load(id)?).open_reply().is_some())
+    }
+
+    fn load(&self, id: &str) -> Result<Vec<Event>, StoreError> {
+        Ok(self
+            .store
+            .events(id, 0)?
+            .into_iter()
+            .map(|e| e.event)
+            .collect())
+    }
+
+    fn live(&self, id: &str) -> Arc<Live> {
+        let mut map = self.live.lock().unwrap_or_else(|p| p.into_inner());
+        map.entry(id.to_owned())
+            .or_insert_with(|| {
+                Arc::new(Live {
+                    frames: broadcast::channel(1024).0,
+                    current: Mutex::default(),
+                    stop: Mutex::default(),
+                    wake: Notify::new(),
+                    turn_running: AtomicBool::new(false),
+                })
+            })
+            .clone()
+    }
+
+    /// Stores `event` and sends it to subscribers, in order.
+    fn record(&self, id: &str, event: &Event) -> Result<StoredEvent, StoreError> {
+        let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+        self.append(id, event)
+    }
+
+    /// Stores and broadcasts; the caller holds `record_lock`.
+    fn append(&self, id: &str, event: &Event) -> Result<StoredEvent, StoreError> {
+        let stored = self.store.append(id, event, self.now_ms())?;
+        let _ = self.live(id).frames.send(Frame::Stored(stored.clone()));
+        Ok(stored)
+    }
+
+    fn spawn_turn(self: &Arc<Self>, id: &str) {
+        let live = self.live(id);
+        if live
+            .turn_running
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return;
+        }
+        let engine = self.clone();
+        let id = id.to_owned();
+        tokio::spawn(async move { turn::run(engine, id).await });
+    }
+}

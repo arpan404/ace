@@ -2518,11 +2518,25 @@ name = "spade-server"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "chrono",
+ "futures-util",
+ "keyring-core",
  "reqwest",
+ "serde",
  "serde_json",
+ "spade-core",
+ "spade-keys",
+ "spade-models",
+ "spade-search",
+ "spade-store",
+ "spade-testkit",
+ "tempfile",
+ "thiserror",
  "tokio",
+ "tokio-stream",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -2792,6 +2806,7 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]
