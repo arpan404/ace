@@ -95,6 +95,35 @@ pub fn next_step(events: &[Event]) -> Next {
     }
 }
 
+/// The step's calls with ids unique in the conversation. Providers may reuse ids across steps
+/// (some number them `call_0`, `call_1` in each reply); a reused id would match an earlier call's
+/// result or approval, so it is replaced with one from `mint`. The stored id is the one the model
+/// sees from then on, so the call and its result still pair up.
+pub fn unique_call_ids(
+    events: &[Event],
+    calls: Vec<Call>,
+    mut mint: impl FnMut() -> String,
+) -> Vec<Call> {
+    let mut used: std::collections::HashSet<String> = events
+        .iter()
+        .filter_map(|event| match event {
+            Event::Known(Known::StepFinished { calls, .. }) => Some(calls),
+            _ => None,
+        })
+        .flatten()
+        .map(|call| call.id.clone())
+        .collect();
+    calls
+        .into_iter()
+        .map(|mut call| {
+            while call.id.is_empty() || !used.insert(call.id.clone()) {
+                call.id = mint();
+            }
+            call
+        })
+        .collect()
+}
+
 /// Steps taken and money spent by the open turn.
 pub fn progress(events: &[Event]) -> Progress {
     let Some((_, start)) = open_reply(events) else {
@@ -267,6 +296,26 @@ mod tests {
             statuses(&next_step(&events)),
             vec![("c1".into(), Status::New)]
         );
+    }
+
+    #[test]
+    fn a_call_id_used_before_in_the_conversation_is_replaced() {
+        let events = vec![
+            Event::user_message("Email Sam"),
+            Event::reply_started("r1", "m"),
+            step(vec![call("call_0")], 0),
+        ];
+        let mut minted = 0;
+        let calls = unique_call_ids(
+            &events,
+            vec![call("call_0"), call("call_1"), call("call_1"), call("")],
+            || {
+                minted += 1;
+                format!("t{minted}")
+            },
+        );
+        let ids: Vec<&str> = calls.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, vec!["t1", "call_1", "t2", "t3"]);
     }
 
     #[test]

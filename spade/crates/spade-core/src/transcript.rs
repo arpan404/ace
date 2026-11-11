@@ -112,6 +112,7 @@ impl Transcript {
                 let tool = self
                     .asked
                     .iter()
+                    .rev()
                     .find(|(id, _)| id == call_id)
                     .map(|(_, name)| name.clone());
                 if let (true, true, Some(tool)) = (*allowed, *always, tool)

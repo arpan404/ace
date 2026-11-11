@@ -280,6 +280,8 @@ impl Engine {
         if self.store.conversation(id)?.is_none() {
             return Err(AnswerError::NotFound);
         }
+        // Check and answer under one lock, so two answers to one approval cannot both land.
+        let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
         let transcript = Transcript::fold(&self.load(id)?);
         if !transcript.awaiting.iter().any(|c| c == call_id) {
             return Err(AnswerError::NotAwaiting);
@@ -288,7 +290,7 @@ impl Engine {
             .open_reply()
             .and_then(|m| m.reply.clone())
             .unwrap_or_default();
-        self.record(
+        self.append(
             id,
             &Event::Known(Known::ApprovalAnswered {
                 reply,

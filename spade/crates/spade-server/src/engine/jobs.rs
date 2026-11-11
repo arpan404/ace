@@ -21,16 +21,13 @@ pub(super) fn start(
     job: &str,
     name: &str,
     arguments: Value,
-) {
+) -> Result<(), StoreError> {
     let started = Event::Known(Known::JobStarted {
         reply: reply.to_owned(),
         job: job.to_owned(),
         name: name.to_owned(),
     });
-    if let Err(error) = engine.record(id, &started) {
-        tracing::error!(%error, "could not store a job start");
-        return;
-    }
+    engine.record(id, &started)?;
     let live = engine.live(id);
     let mut jobs = live.jobs.lock().unwrap_or_else(|p| p.into_inner());
     let task = {
@@ -77,6 +74,7 @@ pub(super) fn start(
         })
     };
     jobs.insert(job.to_owned(), task.abort_handle());
+    Ok(())
 }
 
 /// Cancels the conversation's running jobs and records each as stopped. Returns how many.

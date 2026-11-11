@@ -453,3 +453,63 @@ async fn a_message_sent_while_the_model_streams_its_answer_is_answered_in_that_t
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn a_call_id_the_provider_reuses_gets_its_own_approval_and_run() -> Result {
+    let email = FakeTool::new("send_email", Risk::Write, "sent");
+    let event = FakeTool::new("create_event", Risk::Write, "created");
+    let (emailed, created) = (email.calls(), event.calls());
+    let spade = Spade::start(
+        vec![
+            Script::reply("").call("call_0", "send_email", json!({ "to": "sam" })),
+            Script::reply("").call("call_0", "create_event", json!({ "at": "9am" })),
+            Script::reply("").call("call_0", "send_email", json!({ "to": "jo" })),
+        ],
+        tools(vec![email, event]),
+    )
+    .await?;
+    let id = spade.ask("Email Sam, book 9am, email Jo").await?;
+    let approvals = format!("/v1/conversations/{id}/approvals");
+
+    spade.wait_for_count(&id, "approval_requested", 1).await?;
+    spade
+        .post(&format!("{approvals}/call_0"), json!({ "allowed": true }))
+        .await?;
+
+    let events = spade.wait_for_count(&id, "approval_requested", 2).await?;
+    let second = events
+        .iter()
+        .filter(|e| e["type"] == "approval_requested")
+        .nth(1)
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(second["name"], "create_event");
+    let second_id = second["call_id"].as_str().unwrap_or("").to_owned();
+    assert_ne!(second_id, "call_0", "a reused id is replaced");
+    let (status, _) = spade
+        .post(
+            &format!("{approvals}/{second_id}"),
+            json!({ "allowed": true, "always": true }),
+        )
+        .await?;
+    assert_eq!(status, 202);
+
+    // Allowing create_event always must not allow send_email: the third call asks again.
+    let events = spade.wait_for_count(&id, "approval_requested", 3).await?;
+    let third = events
+        .iter()
+        .filter(|e| e["type"] == "approval_requested")
+        .nth(2)
+        .map(|e| e["name"].clone());
+    assert_eq!(third, Some(json!("send_email")));
+    assert_eq!(emailed.lock().map(|c| c.len()).unwrap_or(0), 1);
+    assert_eq!(created.lock().map(|c| c.len()).unwrap_or(0), 1);
+    // The model is shown the replaced id on both the call and its result.
+    let third_request = spade.fake.seen()[2].body["messages"].to_string();
+    assert_eq!(
+        third_request.matches(second_id.as_str()).count(),
+        2,
+        "{third_request}"
+    );
+    Ok(())
+}

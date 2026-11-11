@@ -12,7 +12,7 @@ use spade_core::context::{self, SYSTEM};
 use spade_core::event::{Call, Known, ReplyEnd, Tokens};
 use spade_core::gate::{self, Decision};
 use spade_core::tools::{CALL_TOOL, TOOL_SEARCH, describe, unwrap_call_tool};
-use spade_core::turn::{Next, Pending, Status, next_step, progress};
+use spade_core::turn::{Next, Pending, Status, next_step, progress, unique_call_ids};
 use spade_core::{Event, Transcript, spending, title};
 use spade_models::{Delta, Role, ToolCall};
 use tokio::sync::watch;
@@ -123,8 +123,10 @@ async fn drive(engine: &Arc<Engine>, id: &str, mut stop: watch::Receiver<bool>) 
                 }
             }
             Next::Calls { reply, calls } => {
-                if !handle_calls(engine, id, &reply, &events, calls, &mut stop).await {
-                    return Ended::Stopped(String::new());
+                match handle_calls(engine, id, &reply, &events, calls, &mut stop).await {
+                    Handled::Continue => {}
+                    Handled::Stopped => return Ended::Stopped(String::new()),
+                    Handled::Failed(error) => return Ended::Failed(String::new(), error),
                 }
             }
         }
@@ -183,13 +185,16 @@ async fn model_step(
                 Some(Ok(Delta::Call(call))) => calls.push(call),
                 Some(Ok(Delta::Done { usage, signatures })) => {
                     let cost = spending::cost_micros(engine.models.price(&model), &usage);
+                    let calls = unique_call_ids(
+                        events,
+                        calls.into_iter().map(|c| Call { id: c.id, name: c.name, arguments: c.arguments }).collect(),
+                        || engine.ids.next("call"),
+                    );
+                    let made_calls = !calls.is_empty();
                     let step = Event::Known(Known::StepFinished {
                         reply: reply.to_owned(),
                         text,
-                        calls: calls
-                            .iter()
-                            .map(|c| Call { id: c.id.clone(), name: c.name.clone(), arguments: c.arguments.clone() })
-                            .collect(),
+                        calls,
                         signatures,
                         usage: Tokens {
                             input: usage.input_tokens,
@@ -207,7 +212,7 @@ async fn model_step(
                         let _ = engine.store.record_spend(id, &model, cost, engine.now_ms());
                     }
                     *live.current.lock().unwrap_or_else(|p| p.into_inner()) = None;
-                    return if calls.is_empty() { Step::Answered } else { Step::Calls };
+                    return if made_calls { Step::Calls } else { Step::Answered };
                 }
                 Some(Err(error)) => return Step::Failed(text, error.to_string()),
                 None => return Step::Failed(text, "the model's reply ended early".to_owned()),
@@ -257,7 +262,14 @@ fn finish_unless_steered(engine: &Engine, id: &str, reply: &str) -> Result<bool,
     Ok(true)
 }
 
-/// Gates, runs or declines the last step's open calls. Returns false if the turn was stopped.
+/// How handling a step's calls ended.
+enum Handled {
+    Continue,
+    Stopped,
+    Failed(String),
+}
+
+/// Gates, runs or declines the last step's open calls.
 async fn handle_calls(
     engine: &Arc<Engine>,
     id: &str,
@@ -265,7 +277,7 @@ async fn handle_calls(
     events: &[Event],
     calls: Vec<Pending>,
     stop: &mut watch::Receiver<bool>,
-) -> bool {
+) -> Handled {
     let registry = engine.tools.registry();
     let transcript = Transcript::fold(events);
     let untrusted = context::untrusted_turn(events, registry);
@@ -292,15 +304,15 @@ async fn handle_calls(
                         Decision::Run => runnable.push((pending.call, name, arguments)),
                         Decision::Ask => {
                             waiting = true;
-                            let _ = engine.record(
-                                id,
-                                &Event::Known(Known::ApprovalRequested {
-                                    reply: reply.to_owned(),
-                                    call_id: pending.call.id.clone(),
-                                    name,
-                                    arguments,
-                                }),
-                            );
+                            let asked = Event::Known(Known::ApprovalRequested {
+                                reply: reply.to_owned(),
+                                call_id: pending.call.id.clone(),
+                                name,
+                                arguments,
+                            });
+                            if let Err(error) = engine.record(id, &asked) {
+                                return Handled::Failed(error.to_string());
+                            }
                         }
                     }
                 }
@@ -327,12 +339,12 @@ async fn handle_calls(
             _ = live.wake.notified() => {}
             changed = stop.changed() => {
                 if changed.is_err() || *stop.borrow() {
-                    return false;
+                    return Handled::Stopped;
                 }
             }
         }
     }
-    true
+    Handled::Continue
 }
 
 /// A call's real tool and arguments: `call_tool` names its tool inside.
@@ -351,7 +363,7 @@ async fn run_tools(
     reply: &str,
     calls: Vec<(Call, String, Value)>,
     stop: &mut watch::Receiver<bool>,
-) -> bool {
+) -> Handled {
     let limit = engine.limits.max_parallel_tools.max(1);
     let mut queue = calls.into_iter();
     let mut running = FuturesUnordered::new();
@@ -360,21 +372,27 @@ async fn run_tools(
             let Some((call, name, arguments)) = queue.next() else {
                 break;
             };
-            let _ = engine.record(
-                id,
-                &Event::Known(Known::ToolStarted {
-                    reply: reply.to_owned(),
-                    call_id: call.id.clone(),
-                    name: name.clone(),
-                }),
-            );
+            // A tool runs only once its start is stored, so a restart can never mistake a call
+            // that ran for one that did not.
+            let started = Event::Known(Known::ToolStarted {
+                reply: reply.to_owned(),
+                call_id: call.id.clone(),
+                name: name.clone(),
+            });
+            if let Err(error) = engine.record(id, &started) {
+                return Handled::Failed(error.to_string());
+            }
             if engine
                 .tools
                 .registry()
                 .get(&name)
                 .is_some_and(|def| def.background)
             {
-                super::jobs::start(engine, id, reply, &call.id, &name, arguments);
+                if let Err(error) =
+                    super::jobs::start(engine, id, reply, &call.id, &name, arguments)
+                {
+                    return Handled::Failed(error.to_string());
+                }
                 let started = ToolOutput::ok(context::job_started(&call.id));
                 finish_tool(engine, id, reply, &call, &name, started);
                 continue;
@@ -386,12 +404,12 @@ async fn run_tools(
             });
         }
         if running.is_empty() {
-            return true;
+            return Handled::Continue;
         }
         tokio::select! {
             changed = stop.changed() => {
                 if changed.is_err() || *stop.borrow() {
-                    return false;
+                    return Handled::Stopped;
                 }
             }
             Some((call, name, output)) = running.next() => {
