@@ -226,6 +226,33 @@ fn take_named(
     (cancelled, quietened)
 }
 
+/// After a restart: every job the stored events show as running was lost with the old process.
+/// Each is delivered as "unknown outcome", so the model can tell the person or check.
+pub(super) fn report_lost(engine: &Arc<Engine>, id: &str) -> Result<(), StoreError> {
+    let events = engine.load(id)?;
+    for job in Transcript::fold(&events).jobs {
+        let finished = Event::Known(Known::JobFinished {
+            name: job_name(&events, &job),
+            job,
+            content: JOB_LOST.to_owned(),
+            is_error: true,
+            uncertain: true,
+        });
+        engine.deliver(id, &finished)?;
+    }
+    Ok(())
+}
+
+fn job_name(events: &[Event], job: &str) -> String {
+    events
+        .iter()
+        .find_map(|event| match event {
+            Event::Known(Known::JobStarted { job: j, name, .. }) if j == job => Some(name.clone()),
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -256,31 +283,4 @@ mod tests {
         assert!(!later.is_finished(), "r2's job keeps running");
         assert!(jobs.contains_key("j2"));
     }
-}
-
-/// After a restart: every job the stored events show as running was lost with the old process.
-/// Each is delivered as "unknown outcome", so the model can tell the person or check.
-pub(super) fn report_lost(engine: &Arc<Engine>, id: &str) -> Result<(), StoreError> {
-    let events = engine.load(id)?;
-    for job in Transcript::fold(&events).jobs {
-        let finished = Event::Known(Known::JobFinished {
-            name: job_name(&events, &job),
-            job,
-            content: JOB_LOST.to_owned(),
-            is_error: true,
-            uncertain: true,
-        });
-        engine.deliver(id, &finished)?;
-    }
-    Ok(())
-}
-
-fn job_name(events: &[Event], job: &str) -> String {
-    events
-        .iter()
-        .find_map(|event| match event {
-            Event::Known(Known::JobStarted { job: j, name, .. }) if j == job => Some(name.clone()),
-            _ => None,
-        })
-        .unwrap_or_default()
 }
