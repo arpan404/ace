@@ -1,8 +1,10 @@
-# Draft: Outside MCP clients sign in to a machine
+# 0117: Outside MCP clients sign in to a machine
 
-Date: 2026-11-10. Status: **proposed**, waiting for the owner's review. For issue #972. Builds on
-[ADR 0110](../0110-cloudflare-relay.md), [ADR 0111](../0111-account-machine-access.md) and
-[ADR 0114](../0114-fastest-path.md). Would amend [ADR 0002](../0002-local-cli-providers.md) and
+Status: accepted. Date: 2026-11-11. Owner decision of 2026-11-11: ace's relay carries hosted
+assistants, approval happens in the ace app, and grants cover threads, the browser and computer
+use. For issue #972. Builds on
+[ADR 0110](0110-cloudflare-relay.md), [ADR 0111](0111-account-machine-access.md) and
+[ADR 0114](0114-fastest-path.md). Amends [ADR 0002](0002-local-cli-providers.md) and
 ADR 0110 with a narrow change to what ace's relay can read (see **Reach**). Webhook automations
 (#975) would use the same public reach.
 
@@ -44,7 +46,7 @@ recorded as a command receipt in SQLite, so a retry after a disconnect or restar
   PKCE with S256.
 - **ace's relay is live** on Cloudflare with accounts (ADR 0110, 0111), and a client reaches each
   machine over its fastest path (ADR 0114).
-- **Spade** (draft `spade-daemon-access.md`) has the same problem: a party that is not the person's
+- **Spade** (draft `drafts/spade-daemon-access.md`) has the same problem: a party that is not the person's
   own device acting on a machine with narrower access than admin. The two should share one list of
   permissions and one place in the daemon that enforces them.
 
@@ -76,7 +78,7 @@ admin devices (the desktop app, and iOS by push, ADR 0106). The person checks th
 picks:
 
 - **Access.** Read is always included and is the default. Each of these is its own tick:
-  start threads, message and steer threads, stop threads.
+  start threads, message and steer threads, stop threads, the browser, computer use.
 - **Projects.** All, or chosen ones.
 - **How long.** A day, 30 days (default), or until revoked.
 
@@ -103,14 +105,22 @@ protects this the same way it protects admin, because only an admin device can a
 | `threads:start`   | Start a thread in an allowed project                        |
 | `threads:message` | Queue or steer a message on an allowed thread               |
 | `threads:stop`    | Stop a thread's work                                        |
+| `browser`         | The agent browser tools, in tabs the grant owns             |
+| `computer`        | The screen tools                                            |
 
 - A client only sees tools its grant allows. Calling a tool it lacks returns HTTP 403 with
   `insufficient_scope` and the needed scope, so a client can ask the person for more (step-up),
   which goes through the same approval in ace.
 - No grant can answer approvals or questions. Provider approvals stay provider-native, and the
   person answers them in ace.
-- Browser, computer use, files and daemon settings are not offered here. They use the same scope
-  names as the Spade draft when they come, so both are one list enforced in one daemon module.
+- Browser tabs a client opens belong to its grant (ADR 0104), are named after the client and close
+  when the grant is revoked.
+- Computer use keeps every rule it has for agents in ace threads: the "Apps agents can't use" list,
+  locked use only when the person turned it on, and one run at a time. While a client is using the
+  screen, ace shows one line, "Claude is using this Mac", with Stop. Stop ends the client's screen
+  work at once; revoking ends all of its work.
+- Files and daemon settings are not offered. The scope names are the ones the Spade draft will use,
+  so both are one list enforced in one daemon module.
 - Discovery tools are added: projects and models (from the provider catalogue already in the
   daemon).
 
@@ -171,7 +181,8 @@ endpoint stays a separate listener with its own tool registry, as now.
 
 - Local HTTP process tests against a real daemon: discovery and the 401 challenge, CIMD (served by
   a local HTTPS fixture) and DCR sign-in, approval through a connected admin client, each scope's
-  allow and deny (including 403 `insufficient_scope`), read-only clients unable to change anything,
+  allow and deny (including 403 `insufficient_scope`), browser tabs owned by a grant closing on
+  revoke, Stop ending a client's screen work, read-only clients unable to change anything,
   project limits, expiry, revocation on the next request, refresh-token reuse revoking the grant,
   and grants, tokens and idempotent starts surviving a daemon restart.
 - A Miniflare process test for the relay path: a request and a streamed response through the
@@ -180,5 +191,4 @@ endpoint stays a separate listener with its own tool registry, as now.
 
 ## Open
 
-- Whether a grant may ever add browser or computer use, and whether hosted Spade uses this same
-  OAuth path instead of its own grant kind.
+- Whether hosted Spade uses this same OAuth path instead of its own grant kind.
