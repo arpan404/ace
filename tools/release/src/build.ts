@@ -44,7 +44,7 @@ async function main() {
   const inputs = await bundleDaemon(repo, root, publicKey, target);
   await collectLicenses(inputs, root);
   // Spade ships in the same archive, under the same manifest and checksums (ADR 0123).
-  const spade = await stageSpadeServer({ repo, root, target, env: process.env });
+  const spade = await stageSpadeServer({ repo, root, target, version, env: process.env });
   process.stdout.write(`[release] spade-server: ${spade}\n`);
   await cp(join(repo, "LICENSE"), join(root, "ACE-LICENSE"));
   if (target === "linux-x64" || target === "linux-arm64") {

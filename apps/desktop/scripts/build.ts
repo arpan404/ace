@@ -116,6 +116,7 @@ log(
     repo,
     root: dist,
     target: ReleaseTarget.parse(`${process.platform}-${arch}`),
+    version: appVersion,
     env: process.env,
   })}`,
 );
