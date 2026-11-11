@@ -166,7 +166,6 @@ export const railBars = 4;
 export const RailPins = z.array(z.string().min(1).max(512)).max(railBars);
 export type RailPins = z.infer<typeof RailPins>;
 
-
 /**
  * The window a rail bar shows: the account's weekly one, else its longest (Gemini's daily quota,
  * Cursor's monthly one). Weekly rather than session, because nearly every account reports a week,
@@ -220,11 +219,19 @@ export function railUsage(
         group.accounts.length > 1
           ? `${group.providerLabel} · ${entry.account.label}`
           : group.providerLabel;
-      const bar = { key: entry.key, label, left: room.left, span: room.span, tone: headroomTone(room.left) };
+      const bar = {
+        key: entry.key,
+        label,
+        left: room.left,
+        span: room.span,
+        tone: headroomTone(room.left),
+      };
       return [{ entry, bar }];
     }),
   );
-  const pinnedHere = pins.flatMap((id) => readable.find((each) => each.entry.account.id === id) ?? []);
+  const pinnedHere = pins.flatMap(
+    (id) => readable.find((each) => each.entry.account.id === id) ?? [],
+  );
   // Pins, in the order pinned; with none here, the accounts used most this week, the rest in the
   // page's order, up to four.
   const tokens = (each: { entry: AccountLimits }) => used?.get(each.entry.account.id) ?? 0;
