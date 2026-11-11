@@ -50,6 +50,21 @@ const tea: readonly ForgeCapability[] = [
   "issues.write",
 ];
 
+/** Bitbucket Cloud through bkt (ADR 0118): reads, comments and replies, approvals and requested
+ * changes, and build statuses as checks. Its merge can't be pinned to a head and its issues
+ * are gone, so neither is offered. */
+const bitbucket: readonly ForgeCapability[] = [
+  "reviews.read",
+  "reviews.files",
+  "reviews.commits",
+  "reviews.comments.read",
+  "reviews.comments.write",
+  "reviews.comments.reply",
+  "reviews.approvals.read",
+  "reviews.approvals.write",
+  "reviews.checks",
+];
+
 export const forgeCapabilities: Readonly<Record<ForgeKind, readonly ForgeCapability[]>> = {
   github,
   gitlab: [
@@ -74,7 +89,7 @@ export const forgeCapabilities: Readonly<Record<ForgeKind, readonly ForgeCapabil
   ],
   origin: ["reviews.read", "reviews.files"],
   gitbucket: [],
-  bitbucket: [],
+  bitbucket,
   gitea: tea,
   forgejo: tea,
 };

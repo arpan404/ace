@@ -16,17 +16,23 @@ test("existing GitHub and GitLab review links retain their provider URL", () => 
   ).toBe("https://gitlab.com/team/subgroup/repo/-/merge_requests/7");
 });
 
-test.each(["gitbucket", "bitbucket"] as const)(
-  "%s is never rendered as a GitLab review link",
-  (forge) => {
-    expect(() =>
-      prUrl({
-        repository: { forge, host: "git.example.com", owner: "team", name: "repo" },
-        number: 7,
-      }),
-    ).toThrow("unsupported");
-  },
-);
+test("GitBucket is never rendered as a GitLab review link", () => {
+  expect(() =>
+    prUrl({
+      repository: { forge: "gitbucket", host: "git.example.com", owner: "team", name: "repo" },
+      number: 7,
+    }),
+  ).toThrow("unsupported");
+});
+
+test("Bitbucket review links use Bitbucket's pull-requests path", () => {
+  expect(
+    prUrl({
+      repository: { forge: "bitbucket", host: "bitbucket.org", owner: "team", name: "repo" },
+      number: 7,
+    }),
+  ).toBe("https://bitbucket.org/team/repo/pull-requests/7");
+});
 
 test.each(["gitea", "forgejo"] as const)(
   "%s review links use the host's own pulls path, never GitLab's",
