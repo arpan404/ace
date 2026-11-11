@@ -50,6 +50,11 @@ export interface McpServerOptions<A extends Authenticator = CredentialRegistry> 
    */
   challenge?: ScopeChallenge;
   port?: number;
+  /**
+   * Set: when `port` is taken, listen on a free one instead and report the taken port.
+   * Unset: a taken port fails the start.
+   */
+  onPortTaken?: (port: number) => void;
   maxRequests?: number;
   maxBodyBytes?: number;
   /** Timers for progress beats on long calls (`progress-heartbeat.ts`); tests pass their own. */
@@ -180,11 +185,29 @@ export async function startMcpServer<A extends Authenticator = CredentialRegistr
   );
   // Every open notification stream holds a socket; calls keep their own headroom beside them.
   http.maxConnections = 2 * streams.total + 256;
-  try {
-    await new Promise<void>((resolve, reject) => {
-      http.once("error", reject);
-      http.listen(options.port ?? 0, "127.0.0.1", resolve);
+  const listen = (port: number) =>
+    new Promise<void>((resolve, reject) => {
+      const failed = (error: Error) => {
+        http.off("listening", listening);
+        reject(error);
+      };
+      const listening = () => {
+        http.off("error", failed);
+        resolve();
+      };
+      http.once("error", failed);
+      http.once("listening", listening);
+      http.listen(port, "127.0.0.1");
     });
+  try {
+    try {
+      await listen(options.port ?? 0);
+    } catch (error) {
+      // A remembered port another program took: listen anywhere, and say so.
+      if (!options.onPortTaken || !options.port || !isAddressInUse(error)) throw error;
+      options.onPortTaken(options.port);
+      await listen(0);
+    }
   } catch {
     credentials.close();
     const current = await runtime;
@@ -226,6 +249,9 @@ export async function startMcpServer<A extends Authenticator = CredentialRegistr
       return stopped;
     },
   };
+}
+function isAddressInUse(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "EADDRINUSE";
 }
 /** `WWW-Authenticate` for a request without a valid token (RFC 6750, RFC 9728). */
 function challengeHeader(challenge: ScopeChallenge | undefined): string {

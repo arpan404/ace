@@ -9,6 +9,7 @@ import {
 import type { ServiceContext } from "../services/types.ts";
 import { daemonComputerToolkit } from "../computer-tools.ts";
 import { outsideBrowserToolkit } from "./browser.ts";
+import { endpointPort } from "./endpoint-port.ts";
 import { OutsideAccess } from "./outside.ts";
 import { grantOfCaller } from "./principals.ts";
 import { missingScope, shorthandScopes, withheldTools } from "./scopes.ts";
@@ -71,8 +72,16 @@ export async function externalMcp(context: ServiceContext) {
     const grant = live(threadId);
     return grant ? outside.screen.begin(grant.id, grant.name, app) : () => {};
   }).register(registry);
+  const ports = endpointPort(context.config.dataDir);
+  const saved = ports.read();
   const server = await startMcpServer({
     registry,
+    ...(saved === undefined ? {} : { port: saved }),
+    onPortTaken: (port) =>
+      context.log.log(
+        "warn",
+        `The outside MCP endpoint's port ${port} is taken; it moves to a new one, and pasted client configs need the new URL from ace mcp list.`,
+      ),
     credentials: outside.principals,
     challenge: {
       missingScope(principal, tool, args) {
@@ -104,6 +113,8 @@ export async function externalMcp(context: ServiceContext) {
     },
   });
   toolsChanged = () => server.toolsChanged();
+  const port = Number(new URL(server.url).port);
+  if (port !== saved) ports.save(port);
   return {
     /** Grants, tokens, access requests and screen use, for the admin protocol and OAuth. */
     outside,

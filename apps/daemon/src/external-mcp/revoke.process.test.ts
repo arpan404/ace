@@ -183,11 +183,11 @@ test("a grant, its token and an idempotent start survive a daemon restart", asyn
     expect(list.grants).toContainEqual(
       expect.objectContaining({ id: lease.id, started: [threadId] }),
     );
-    // The same token works at the restarted endpoint, and the retried start runs once.
-    const moved = { url: list.url, bearer: lease.bearer };
+    // The endpoint keeps its URL, so a pasted config still works; the retried start runs once.
+    expect(list.url).toBe(lease.url);
     const before = restarted.store.listThreads().length;
     const again = Started.parse(
-      toolResult(await call(moved, "ace_thread_run", start)).structuredContent,
+      toolResult(await call(lease, "ace_thread_run", start)).structuredContent,
     );
     expect(again.data.threadId).toBe(threadId);
     expect(restarted.store.listThreads()).toHaveLength(before);
