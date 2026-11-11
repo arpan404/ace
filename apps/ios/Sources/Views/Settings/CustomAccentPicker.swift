@@ -10,23 +10,25 @@ struct CustomAccentPicker: View {
     let choose: (CustomAccent) -> Void
     @State private var picked: Color
     @State private var failed = false
-    @State private var problem: String?
+    @Binding var problem: String?
+    let retry: Int
     /// The colour last shown or fitted: only a different pick is sent.
     @State private var settled: String?
 
-    init(inbox: MachineInbox?, chosen: Bool, start: String?, choose: @escaping (CustomAccent) -> Void) {
+    init(inbox: MachineInbox?, chosen: Bool, start: String?, problem: Binding<String?>, retry: Int, choose: @escaping (CustomAccent) -> Void) {
         self.inbox = inbox
         self.chosen = chosen
         self.choose = choose
+        _problem = problem
+        self.retry = retry
         let colour = Color(hexString: start ?? "#3E8E7E") ?? .teal
         _picked = State(initialValue: colour)
         _settled = State(initialValue: colour.hexString)
     }
 
     var body: some View {
-        VStack(spacing: AceDesign.Space.tight) {
-            ColorPicker("Custom", selection: $picked, supportsOpacity: false)
-                .labelsHidden()
+        ColorPicker("Custom", selection: $picked, supportsOpacity: false)
+            .labelsHidden()
             .frame(width: AceDesign.Size.swatch, height: AceDesign.Size.swatch)
             .padding(AceDesign.Space.tight)
             .overlay { Circle().strokeBorder(AceDesign.Ink.accent, lineWidth: AceDesign.Size.ring).opacity(chosen ? 1 : 0).allowsHitTesting(false) }
@@ -37,13 +39,8 @@ struct CustomAccentPicker: View {
             .accessibilityAddTraits(chosen ? .isSelected : [])
             .accessibilityIdentifier("appearance.accent.custom")
             // Dragging in the picker sends many colours; fit the one it settles on.
-            .task(id: picked.hexString) { await fit(picked.hexString) }
+            .task(id: "\(picked.hexString ?? "")/\(retry)") { await fit(picked.hexString) }
             .sensoryFeedback(.error, trigger: failed) { _, now in now }
-            if let problem {
-                ServiceProblem(message: problem)
-                Button("Retry") { Task { await fit(picked.hexString) } }.buttonStyle(.textAction()).disabled(runtime == nil)
-            }
-        }
     }
 
     /// Any machine whose runtime is up: fitting is pure, so whichever answers is the same.

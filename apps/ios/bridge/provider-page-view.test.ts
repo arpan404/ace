@@ -1,5 +1,6 @@
 import "./test-host.ts";
 import { expect, test } from "vitest";
+import { CatalogModel } from "@ace/protocol";
 import { providerPage } from "./provider-page-view.ts";
 
 test("default model choices include models beyond the first 200", () => {
@@ -13,18 +14,22 @@ test("default model choices include models beyond the first 200", () => {
     machine: "studio",
     admin: true,
     catalog: {
-      models: Array.from({ length: 240 }, (_, index) => ({
-        provider: "codex",
-        id: `model-${index}`,
-        displayName: `Model ${index}`,
-        instance: "default",
-        nativeModelId: `model-${index}`,
-        efforts: [],
-        serviceTiers: [],
-        hidden: false,
-        deprecated: false,
-        raw: { json: "{}", truncated: false },
-      })),
+      models: Array.from({ length: 240 }, (_, index) =>
+        CatalogModel.parse({
+          provider: "codex",
+          id: `model-${index}`,
+          displayName: `Model ${index}`,
+          instance: "default",
+          nativeModelId: `model-${index}`,
+          efforts: [],
+          serviceTiers: [],
+          hidden: false,
+          inputModalities: ["text"],
+          isDefault: index === 0,
+          deprecated: false,
+          raw: { json: "{}", truncated: false },
+        }),
+      ),
       instances: [],
     },
   });
