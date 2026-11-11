@@ -5,6 +5,7 @@ import {
   linkAttachmentMarkers,
   placeAttachmentMarkers,
   pruneAttachmentMarkers,
+  strayMarkerEdits,
   shiftAttachmentOffsets,
   takeAttachmentMarkers,
   withMarkerHashes,
@@ -131,5 +132,34 @@ describe("editing a queued message's words", () => {
     expect(shiftAttachmentOffsets(text(before), text(after), [{ sha256: "s", at }])).toEqual([
       { sha256: "s", at: moved },
     ]);
+  });
+});
+
+describe("a marker character with no file", () => {
+  test("is taken out on send, keeping every reference and every file's place", () => {
+    const marked = insertAttachmentMarkers("/review  it", [pick(0, "/review")], 8, [
+      { key: 1, name: "shot.png" },
+    ]);
+    // A stray marker (a dropped copy of a chip) before the file.
+    const strayed = `${marked.text.slice(0, 7)}${M}${marked.text.slice(7)}`;
+    const tokens = marked.tokens.map((token) =>
+      token.start >= 7
+        ? Object.assign({}, token, { start: token.start + 1, end: token.end + 1 })
+        : token,
+    );
+    const sent = takeAttachmentMarkers(strayed, tokens);
+    expect(sent.text).toBe("/review  it");
+    expect(sent.tokens).toEqual([pick(0, "/review")]);
+    expect(sent.files).toEqual([{ key: 1, sha256: undefined, at: 1 }]);
+  });
+
+  test("is found as an edit to make, leaving the markers that have files", () => {
+    const marked = insertAttachmentMarkers("ab", [], 1, [{ key: 1, name: "shot.png" }]);
+    const strayed = `${M}${marked.text}`;
+    const tokens = marked.tokens.map((token) =>
+      Object.assign({}, token, { start: token.start + 1, end: token.end + 1 }),
+    );
+    expect(strayMarkerEdits(strayed, tokens)).toEqual([{ start: 0, end: 1, insert: "" }]);
+    expect(strayMarkerEdits(marked.text, marked.tokens)).toEqual([]);
   });
 });

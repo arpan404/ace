@@ -1,4 +1,5 @@
 import type { ContentPart } from "@ace/protocol";
+import { applyTextEdits, mapTextTokens, type TextEdit } from "./composer-text-edits.ts";
 import type { ComposerToken } from "./composer-tokens.ts";
 
 /*
@@ -8,7 +9,7 @@ import type { ComposerToken } from "./composer-tokens.ts";
  * becomes the file's offset (`MessageContext.attachments[].at`). Pure.
  */
 
-export const attachmentMarker = "￼";
+export const attachmentMarker = String.fromCharCode(0xfffc);
 
 /** A file's marker token: its chip key in this composer, and its hash once the daemon holds it. */
 export interface MarkerFile {
@@ -22,6 +23,23 @@ const inOrder = (tokens: readonly ComposerToken[]) => tokens.toSorted((a, b) => 
 /** Text as typed or pasted, with any stray marker character taken out. */
 export function withoutMarkerCharacters(text: string): string {
   return text.includes(attachmentMarker) ? text.replaceAll(attachmentMarker, "") : text;
+}
+
+/**
+ * Deleting each marker character no token covers: one a drop or a dragged copy of a chip left
+ * in the words, which stands for no file.
+ */
+export function strayMarkerEdits(text: string, tokens: readonly ComposerToken[]): TextEdit[] {
+  if (!text.includes(attachmentMarker)) return [];
+  const edits: TextEdit[] = [];
+  for (
+    let at = text.indexOf(attachmentMarker);
+    at !== -1;
+    at = text.indexOf(attachmentMarker, at + 1)
+  )
+    if (!tokens.some((token) => token.attachment && token.start === at))
+      edits.push({ start: at, end: at + 1, insert: "" });
+  return edits;
 }
 
 /** Put a marker for each of `files` at `caret`, in order; the caret ends after them. */
@@ -152,6 +170,10 @@ export function takeAttachmentMarkers(
   tokens: readonly ComposerToken[];
   files: { key: number | undefined; sha256: string | undefined; at: number }[];
 } {
+  // A marker character with no file goes first, the references around it moving with it.
+  const strays = strayMarkerEdits(text, tokens);
+  if (strays.length)
+    return takeAttachmentMarkers(applyTextEdits(text, strays), mapTextTokens(tokens, strays));
   const files: { key: number | undefined; sha256: string | undefined; at: number }[] = [];
   let skipped = 0;
   for (const token of inOrder(tokens)) {
@@ -164,9 +186,7 @@ export function takeAttachmentMarkers(
     });
   }
   const unmarked = dropMarkers(text, tokens, () => undefined);
-  // A marker character without its token (never expected) still never goes out.
-  const clean = withoutMarkerCharacters(unmarked.text);
-  return { text: clean, tokens: unmarked.text === clean ? unmarked.tokens : [], files };
+  return { text: unmarked.text, tokens: unmarked.tokens, files };
 }
 
 /**

@@ -9,6 +9,7 @@ import {
   markerKeys,
   pruneAttachmentMarkers,
   renumberEdits,
+  strayMarkerEdits,
   toggleBold,
   applyTextEdits,
   type ComposerDraft,
@@ -123,12 +124,20 @@ export function useMessageState(
       composing = false,
       shown: readonly ComposerToken[] = editComposerTokens(text, next, tokens),
     ) => {
-      const typed = shown;
-      const numbers = composing ? [] : renumberEdits(next);
-      if (!numbers.length) return record({ text: next, tokens: typed, caret: at });
-      const counted = mapTextOffset(at, numbers);
+      // A marker character with no file (a dropped copy of a chip) stands for nothing: it goes.
+      const strays = strayMarkerEdits(next, shown);
+      const words = strays.length ? applyTextEdits(next, strays) : next;
+      const typed = strays.length ? mapTextTokens(shown, strays) : shown;
+      const caretAt = strays.length ? mapTextOffset(at, strays) : at;
+      const numbers = composing ? [] : renumberEdits(words);
+      if (!numbers.length) {
+        record({ text: words, tokens: typed, caret: caretAt });
+        if (strays.length) placeSelection.current = { start: caretAt, end: caretAt };
+        return;
+      }
+      const counted = mapTextOffset(caretAt, numbers);
       record({
-        text: applyTextEdits(next, numbers),
+        text: applyTextEdits(words, numbers),
         tokens: mapTextTokens(typed, numbers),
         caret: counted,
       });

@@ -21,7 +21,7 @@ import { ComposerFooter } from "./composer-footer.tsx";
 import { composerKeyDown } from "./composer-keys.ts";
 import { ComposerNotices } from "./composer-notices.tsx";
 import { ComposerOverlays } from "./composer-overlays.tsx";
-import { pasteIntoComposer, sendBlockedReason } from "./composer-paste.ts";
+import { dropTextIntoComposer, pasteIntoComposer, sendBlockedReason } from "./composer-paste.ts";
 import type { ComposerProps } from "./composer-props.ts";
 import { composerSurface, inputLine, inputMinLines } from "./composer-styles.ts";
 import type { Trigger } from "./draft.ts";
@@ -387,7 +387,10 @@ function ComposerBody({
               if (carriesFiles(event.dataTransfer)) event.preventDefault();
             }}
             onDrop={(event) => {
-              if (!carriesFiles(event.dataTransfer)) return;
+              if (!carriesFiles(event.dataTransfer)) {
+                dropTextIntoComposer(event, input.current);
+                return;
+              }
               event.preventDefault();
               intake(event.dataTransfer);
             }}

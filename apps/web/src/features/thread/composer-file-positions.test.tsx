@@ -177,3 +177,33 @@ test("editing a pasted file renames its marker with it", async () => {
   await waitFor(() => expect(within(message).getByLabelText("Pasted 2 lines.txt")).toBeTruthy());
   expect(within(message).queryByLabelText("Pasted 60 lines.txt")).toBeNull();
 });
+
+test("a copy of a chip dropped into the words stands for no file: the file stays and keeps its place", async () => {
+  const { message, commands } = await openComposer();
+  pasteText(message, "see ");
+  pasteFile(message, screenshot());
+  await uploaded();
+  // The browser drops a copy of the chip's element, which the composer never made.
+  const copy = within(message).getByLabelText("screen.png").cloneNode(true);
+  message.prepend(copy);
+  fireEvent.input(message);
+  await waitFor(() => expect(within(message).getAllByLabelText("screen.png")).toHaveLength(1));
+  // Nothing of the copy is left in the words.
+  expect(message.textContent).toBe("see screen.png");
+  expect(screen.getByRole("list", { name: "Attachments" })).toBeTruthy();
+  fireEvent.keyDown(message, { key: "Enter" });
+  await waitFor(() =>
+    expect(sent(commands).context?.attachments).toEqual([{ sha256: pngHash, at: 4 }]),
+  );
+  expect(sent(commands).input).toEqual([{ type: "text", text: "see " }]);
+});
+
+test("text dropped into the composer goes in as plain words, never as a file's marker", async () => {
+  const { message } = await openComposer();
+  pasteText(message, "a ");
+  const dropped = `b${String.fromCharCode(0xfffc)}c`;
+  fireEvent.drop(message, {
+    dataTransfer: { files: [], items: [], types: ["text/plain"], getData: () => dropped },
+  });
+  await waitFor(() => expect(message.textContent).toBe("a bc"));
+});

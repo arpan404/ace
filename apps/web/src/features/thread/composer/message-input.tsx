@@ -158,6 +158,16 @@ export function MessageInput({
           if (!text.length && !tokens.length) placeEditorCaret(event.currentTarget, 0);
           props.onFocus?.(event);
         }}
+        onDragStart={(event) => {
+          // A chip can't be dragged: the browser would drop a copy that stands for no file.
+          const selection = event.currentTarget.ownerDocument.getSelection();
+          const range = selection?.rangeCount ? selection.getRangeAt(0) : undefined;
+          const target = event.target instanceof Node ? event.target : null;
+          const chips = [...event.currentTarget.querySelectorAll("[data-token-text]")];
+          if (chips.some((chip) => range?.intersectsNode(chip) || chip.contains(target)))
+            event.preventDefault();
+          props.onDragStart?.(event);
+        }}
         onCompositionStart={() => {
           composing.current = true;
         }}

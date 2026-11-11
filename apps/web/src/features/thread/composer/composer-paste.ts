@@ -1,5 +1,5 @@
 import { withoutMarkerCharacters } from "@ace/ui-core";
-import type { ClipboardEvent } from "react";
+import type { ClipboardEvent, DragEvent } from "react";
 import { insertEditorText } from "./editor-dom.ts";
 import { pastedFile } from "./large-paste.ts";
 
@@ -22,6 +22,31 @@ export function pasteIntoComposer(
   if (file) return ports.attach([new File([pasted], file.name, { type: "text/plain" })]);
   // A file's marker is the composer's own: a pasted one would be a file that isn't there.
   if (ports.input) insertEditorText(ports.input, withoutMarkerCharacters(pasted));
+}
+
+/**
+ * Words dropped on the message go in as a paste does, at the drop point, as plain text without
+ * any file marker; files are the caller's. False when the drop carries no words.
+ */
+export function dropTextIntoComposer(
+  event: DragEvent<HTMLElement>,
+  input: HTMLElement | null,
+): boolean {
+  const words = event.dataTransfer.getData("text/plain");
+  if (!input || !words) return false;
+  event.preventDefault();
+  const doc = input.ownerDocument;
+  input.focus();
+  // Where it was dropped, where the browser can say.
+  const point =
+    "caretRangeFromPoint" in doc ? doc.caretRangeFromPoint(event.clientX, event.clientY) : null;
+  if (point && input.contains(point.startContainer)) {
+    const selection = doc.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(point);
+  }
+  insertEditorText(input, withoutMarkerCharacters(words));
+  return true;
 }
 
 /** Why the message can't go yet, in words; undefined when it can. Pure. */
