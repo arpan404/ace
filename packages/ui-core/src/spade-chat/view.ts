@@ -1,0 +1,74 @@
+import type { SpadeApproval, SpadeConversationState, SpadeEntry } from "./fold.ts";
+import { spadeApprovalSentence, spadeToolWords } from "./words.ts";
+
+/** The conversation's Working line: what runs, in words, and since when. */
+export interface SpadeWorking {
+  label: string;
+  /** When the open reply began; undefined for a job that runs between replies. */
+  since: number | undefined;
+  /** False while Spade waits on the person rather than working itself. */
+  moving: boolean;
+}
+
+export interface SpadeView {
+  title: string;
+  loaded: boolean;
+  /** Stored entries, then messages sent from here that Spade hasn't stored yet. */
+  entries: readonly SpadeEntry[];
+  /** A reply is open: Stop is offered and a message steers it. */
+  answering: boolean;
+  /** Anything is still open: a reply, a tool, an approval or a background job. Never done then. */
+  busy: boolean;
+  working: SpadeWorking | undefined;
+  /** Approvals waiting on the person, oldest first, each with its sentence. */
+  approvals: readonly (SpadeApproval & { sentence: string })[];
+}
+
+const backgroundWords = (names: readonly string[]) => {
+  const first = names[0] ?? "";
+  const words = spadeToolWords(first).doing;
+  return names.length > 1
+    ? `${words} and ${names.length - 1} more in the background`
+    : `${words} in the background`;
+};
+
+export function spadeView(state: SpadeConversationState): SpadeView {
+  const open = state.open && state.entries[state.open.index];
+  const reply = open?.kind === "reply" ? open : undefined;
+  const approvals = state.approvals.map((approval) => ({
+    ...approval,
+    sentence: spadeApprovalSentence(approval.name),
+  }));
+  const pending: SpadeEntry[] = state.pending.map((message) => ({
+    kind: "user",
+    key: message.key,
+    text: message.text,
+    pending: true,
+  }));
+  return {
+    title: state.title,
+    loaded: state.loaded,
+    entries: pending.length ? [...state.entries, ...pending] : state.entries,
+    answering: reply !== undefined,
+    busy:
+      reply !== undefined || approvals.length > 0 || state.running.size > 0 || state.jobs.size > 0,
+    working: working(state, reply?.startedAt, approvals.length > 0),
+    approvals,
+  };
+}
+
+function working(
+  state: SpadeConversationState,
+  since: number | undefined,
+  waiting: boolean,
+): SpadeWorking | undefined {
+  const jobs = [...state.jobs.values()];
+  if (since === undefined)
+    return jobs.length
+      ? { label: backgroundWords(jobs), since: undefined, moving: true }
+      : undefined;
+  const tool = [...state.running.values()].at(-1);
+  if (tool) return { label: spadeToolWords(tool.name).doing, since, moving: true };
+  if (waiting) return { label: "Waiting for you", since, moving: false };
+  return { label: "Working", since, moving: true };
+}

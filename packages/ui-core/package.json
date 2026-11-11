@@ -10,6 +10,7 @@
     "./forge-hosts": "./src/forge-hosts.ts",
     "./provider-icons": "./src/provider-icons.ts",
     "./spade": "./src/spade-look.ts",
+    "./spade-chat": "./src/spade-chat/index.ts",
     "./time": "./src/time.ts",
     "./step-labels": "./src/tool-labels.ts",
     "./ace-tools": "./src/ace-tool-rows.ts",
