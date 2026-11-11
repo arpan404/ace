@@ -17,6 +17,9 @@ struct NewSkillView: View {
     @State private var manual = false
     @State private var agents: [SkillAgentChoice] = []
     @State private var runs: [SkillRunsChoice] = []
+    /// The draft's choices have arrived once: the sections stop reading them as still coming, even
+    /// when it brought no agent to switch on.
+    @State private var choicesLoaded = false
     @State private var check: SkillNameCheck?
     @State private var checked = ""
     /// The name check's last read didn't answer: its own sentence, with Retry.
@@ -38,13 +41,15 @@ struct NewSkillView: View {
         !trimmed.isEmpty && checked == "\(scope)|\(trimmed)" && check?.problem == nil
             && !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && agents.contains(where: \.on) && !creating
     }
+    private static let problemAnchor = "skill.new.problem"
     private var at: [String: Any] { project.map { ["workspaceId": $0.id] } ?? [:] }
 
     var body: some View {
         NavigationStack {
+            ScrollViewReader { reader in
             ScrollView {
                 VStack(alignment: .leading, spacing: AceDesign.Space.group) {
-                    if let problem { QuietProblem(message: problem, id: "skill.new.create.problem") }
+                    if let problem { QuietProblem(message: problem, id: "skill.new.create.problem").id(Self.problemAnchor) }
                     QuietField("Name") {
                         VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
                             TextField("release-notes", text: $name)
@@ -75,9 +80,14 @@ struct NewSkillView: View {
                     }
                     if let project { scopeChoice(project) }
                     agentsSection
-                    if !runs.isEmpty { runsChoice }
+                    runsSection
                 }
                 .padding(.top, AceDesign.Space.related).padding(.bottom, AceDesign.Space.group)
+            }
+            // A failed create shows where Create's answer belongs: the top, scrolled into view.
+            .onChange(of: problem) { _, now in
+                if now != nil { withAnimation { reader.scrollTo(Self.problemAnchor, anchor: .top) } }
+            }
             }
             .background(AceDesign.Surface.background)
             .animation(.default, value: agents)
@@ -137,15 +147,41 @@ struct NewSkillView: View {
         .padding(.horizontal, AceDesign.Space.margin)
     }
 
-    /// Which agents see it: a switch each, or the read's own sentence while they haven't arrived.
+    /// Which agents see it: a switch each, the read's own sentence while they haven't arrived, or
+    /// a quiet line when the machine offers none.
     private var agentsSection: some View {
         QuietSection("Agents") {
             if let choicesProblem {
                 QuietProblem(message: choicesProblem, id: "skill.new.choices.problem") { Task { await readChoices() } }
-            } else if agents.isEmpty {
+            } else if !choicesLoaded {
                 SkeletonRows(count: 3, label: "Reading agents")
+            } else if agents.isEmpty {
+                QuietSectionRow {
+                    Text("No coding agent is set up here to take a new skill.")
+                        .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                        .foregroundStyle(AceDesign.Ink.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             } else {
                 SkillAgentToggles(agents: $agents)
+            }
+        }
+    }
+
+    /// When it runs: the two choices, or - while the draft read is out or failed - its heading and a
+    /// quiet line, so the section keeps its place instead of silently going away.
+    private var runsSection: some View {
+        Group {
+            if !runs.isEmpty {
+                runsChoice
+            } else if choicesProblem != nil {
+                VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                    QuietHeading("Runs")
+                    Text("Couldn't read when it runs.")
+                        .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                        .foregroundStyle(AceDesign.Ink.muted)
+                }
+                .padding(.horizontal, AceDesign.Space.margin)
             }
         }
     }
@@ -164,7 +200,7 @@ struct NewSkillView: View {
         do {
             let choices = try await model.skills(["op": "draft"].merging(at) { $1 }, as: SkillDraftChoices.self)
             agents = choices.agents; runs = choices.runs
-            choicesProblem = nil
+            choicesLoaded = true; choicesProblem = nil
         } catch { if !Task.isCancelled { choicesProblem = error.localizedDescription } }
     }
     private func checkName() async {
@@ -175,7 +211,8 @@ struct NewSkillView: View {
         checkProblem = nil
         do {
             let result = try await model.skills(["op": "check", "name": trimmed, "scope": scope].merging(at) { $1 }, as: SkillNameCheck.self)
-            guard !Task.isCancelled else { return }
+            // A Retry runs outside the typing task: an answer for a name since changed is dropped.
+            guard !Task.isCancelled, key == "\(scope)|\(trimmed)" else { return }
             check = result; checked = key; checkProblem = nil
         } catch {
             // An empty name needs no check: the failure names a check that never mattered.
