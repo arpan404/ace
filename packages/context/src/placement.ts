@@ -132,8 +132,8 @@ function kind(part: ContentPart): string {
  * `interleaved` providers keep part order in their native message, so each file's own part
  * goes at its spot. Others join a message's text into one prompt and send files beside it:
  * a file that became text joins the text at its spot on lines of its own, and a native file is
- * named there (`[Attached image 1: screen.png]`, numbered in the order files reach the provider) and sent
- * after the text.
+ * named there (`[Attached image 1: screen.png]`, numbered in the order files reach the
+ * provider) and sent after the text.
  */
 export function fillPlaces(
   message: readonly ContentPart[],
