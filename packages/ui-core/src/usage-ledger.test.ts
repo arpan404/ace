@@ -48,14 +48,14 @@ test("rows from every machine add up by value, most cost first, with their chang
 
 test("a row's days line up with the span, zero on days it didn't run", () => {
   const read = {
-    totals: [row({ thread: "t1" }, 300, 3)],
+    totals: [row({ workspace: "w1" }, 300, 3)],
     previous: [],
     series: [
-      row({ day: "2026-11-09", thread: "t1" }, 100, 1),
-      row({ day: "2026-11-11", thread: "t1" }, 200, 2),
+      row({ day: "2026-11-09", workspace: "w1" }, 100, 1),
+      row({ day: "2026-11-11", workspace: "w1" }, 200, 2),
     ],
   };
-  const [line] = ledgerLines([read], "thread", days);
+  const [line] = ledgerLines([read], "workspace", days);
   expect(line?.days.map((day) => day.usd)).toEqual([1, 0, 2]);
 });
 

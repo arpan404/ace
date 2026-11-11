@@ -1,6 +1,4 @@
 import { ArrowsClockwiseIcon, ChartBarIcon, DevicesIcon } from "@phosphor-icons/react";
-import type { SidebarReader } from "@ace/client";
-import { useSidebarAll } from "@ace/client-react";
 import {
   catalogModelIds,
   catalogModelNames,
@@ -77,16 +75,6 @@ const all = "all";
 /** Spend reads everything on the machines shown; a row opens to its parts in place. */
 const noFilters = {};
 
-const readTitles = (reader: SidebarReader) =>
-  new Map(
-    reader.ids.flatMap((id) => {
-      const title = reader.thread(id)?.title;
-      return title ? [[id, title] as const] : [];
-    }),
-  );
-const sameTitles = (a: ReadonlyMap<string, string>, b: ReadonlyMap<string, string>) =>
-  a.size === b.size && [...a].every(([id, title]) => b.get(id) === title);
-
 /**
  * Usage (`/usage`): Limits as availability on one timeline, then Spend as one ledger to drill
  * into. Clicking an account's name drills Spend into that account; Limits always list every
@@ -121,7 +109,6 @@ export function UsagePage() {
   const modelName = useMemo(() => catalogModelNames(catalog ?? []), [catalog]);
   const modelId = useMemo(() => catalogModelIds(catalog ?? []), [catalog]);
   const project = useProjectName();
-  const titles = useSidebarAll(readTitles, sameTitles);
   const automations = useDaemonQuery({
     queryKey: ["usage-page", "automations"],
     staleTime: 5 * 60_000,
@@ -173,7 +160,6 @@ export function UsagePage() {
     modelName,
   });
   const name = (kind: LedgerGroup, key: string, parent: LedgerStep | undefined) => {
-    if (kind === "thread") return titles?.get(key) ?? "Thread";
     if (kind === "skill") return key;
     const full = namer(kind, key);
     // Under its provider, an account is just its own name: "Personal", not "Codex · Personal".

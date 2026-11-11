@@ -5,7 +5,7 @@ import { pricedUsd, usageTokens } from "./usage-report.ts";
 /*
  * Spend as one ledger: rows grouped by one dimension, inside a scope the person drilled into
  * (Claude › Work › ace). Clicking a row narrows the scope to it and groups by the next level
- * down: provider, account, project, thread. Every row carries its days for a trend and the same
+ * down: provider, account, project. Every row carries its days for a trend and the same
  * span before, for its change. Machines are the page's own dimension: each daemon is one.
  */
 
@@ -13,7 +13,6 @@ export type LedgerGroup =
   | "provider"
   | "account"
   | "workspace"
-  | "thread"
   | "model"
   | "machine"
   | "automation"
@@ -24,7 +23,6 @@ export const ledgerGroups: readonly { value: LedgerGroup; label: string }[] = [
   { value: "provider", label: "Provider" },
   { value: "account", label: "Account" },
   { value: "workspace", label: "Project" },
-  { value: "thread", label: "Thread" },
   { value: "model", label: "Model" },
   { value: "machine", label: "Machine" },
   { value: "automation", label: "Automation" },
@@ -32,17 +30,16 @@ export const ledgerGroups: readonly { value: LedgerGroup; label: string }[] = [
   { value: "role", label: "Agent" },
 ];
 
-/** Where a click on a row leads; undefined for a thread, which opens instead. */
+/** What a row opens to; a project is as deep as the ledger goes. */
 const below: Record<LedgerGroup, LedgerGroup | undefined> = {
   provider: "account",
   account: "workspace",
-  workspace: "thread",
+  workspace: undefined,
   machine: "workspace",
-  model: "thread",
-  automation: "thread",
-  skill: "thread",
-  role: "thread",
-  thread: undefined,
+  model: "workspace",
+  automation: "workspace",
+  skill: "workspace",
+  role: "workspace",
 };
 
 export function nextLedgerGroup(group: LedgerGroup): LedgerGroup | undefined {

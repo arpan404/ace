@@ -283,7 +283,7 @@ test("Refresh asks each environment for current limits and shows what comes back
   expect((await accountBlock("Codex", "Personal")).textContent).toContain("3 banked resets");
 });
 
-test("the range changes the total, and a ledger row opens in place to its parts", async () => {
+test("the range changes the total, and a ledger row opens in place to its parts, down to projects", async () => {
   const app = harness();
   app.daemon.services.usage.sources = [
     source("claude", "claude-personal", "claude-opus-4-6", 15),
@@ -329,19 +329,12 @@ test("an account's name lists Spend by account with that one open, and Limits st
   expect(await screen.findByRole("button", { name: "Group by: Account" })).toBeTruthy();
   const row = await ledgerRow("Codex · Personal");
   expect(row.getAttribute("aria-expanded")).toBe("true");
-  expect(await screen.findByRole("list", { name: "Codex · Personal by project" })).toBeTruthy();
+  const projects = await screen.findByRole("list", { name: "Codex · Personal by project" });
+  // A project is as deep as Spend goes: its rows open nothing further.
+  expect(await within(projects).findAllByRole("listitem")).not.toHaveLength(0);
+  expect(within(projects).queryAllByRole("button")).toEqual([]);
   expect(total()).toBe("6M");
   expect(await accountBlock("Claude Code", "Personal")).toBeTruthy();
-});
-
-test("a thread row opens its thread", async () => {
-  const app = harness();
-  app.daemon.services.usage.sources = [source("codex", "codex-personal", "gpt-5.3-codex", 5)];
-  await app.open("/usage");
-  await groupBy("Thread");
-  const list = await screen.findByRole("list", { name: "Spend by thread" });
-  const row = await within(list).findByRole("link");
-  expect(row.getAttribute("href")).toBe("/t/thread-codex");
 });
 
 test("a model without a price reads Unpriced in money, never a $0.00 cost", async () => {

@@ -12,7 +12,6 @@ import {
   type LedgerLine,
   type LedgerStep,
 } from "@ace/ui-core";
-import { Link } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
@@ -39,9 +38,8 @@ interface LedgerContext {
 /**
  * Spend as one ledger, grouped by one dimension: a row per value with its share, its days as a
  * trend, its figure and its change against the span before. A row opens in place to what is
- * inside it, the level below (a provider's accounts, an account's projects, a project's threads),
- * each a share of its parent; the row stays put and nothing else on the page changes. A thread row
- * opens the thread.
+ * inside it, the level below (a provider's accounts, an account's projects), each a share of its
+ * parent; the row stays put and nothing else on the page changes. A project is as deep as it goes.
  */
 export function Ledger(
   props: LedgerContext & {
@@ -247,14 +245,6 @@ function Row(
     depth > 0 ? "h-10" : "h-13",
   );
   const name = `${label}: ${figure}${change.label ? `, ${change.label}` : ""}`;
-  if (group === "thread")
-    return (
-      <li>
-        <Link to="/t/$threadId" params={{ threadId: line.key }} aria-label={name} className={look}>
-          {cells}
-        </Link>
-      </li>
-    );
   if (!next)
     return (
       <li aria-label={name} className={look}>
