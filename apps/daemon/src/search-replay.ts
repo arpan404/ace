@@ -1,4 +1,4 @@
-import { decodeStoredPayload } from "./stored-decode.ts";
+import { decodeStoredPayload, storedEvent, untrusted, type StoredTrust } from "./stored-decode.ts";
 import { z } from "zod";
 import type { DatabaseSync } from "node:sqlite";
 import { Event, ItemId, ThreadId } from "@ace/protocol";
@@ -41,8 +41,11 @@ export class SearchReplay {
   private readonly itemKey;
   private readonly threadPayload;
   private readonly history: HistoryIndex;
-  constructor(db: DatabaseSync, history: HistoryIndex) {
+  /** Events from `trust.from` on were written by this build and are read as stored. */
+  private readonly trust: StoredTrust;
+  constructor(db: DatabaseSync, history: HistoryIndex, trust: StoredTrust = untrusted()) {
     this.history = history;
+    this.trust = trust;
     this.sizes = db.prepare(
       "SELECT seq,id,thread_id,at,type,length(CAST(payload AS BLOB)) AS bytes FROM events WHERE seq>? AND seq<=? ORDER BY seq LIMIT ?",
     );
@@ -61,6 +64,51 @@ export class SearchReplay {
     this.itemKey = db.prepare(
       "SELECT COALESCE(json_extract(payload,'$.item.id'),json_extract(payload,'$.itemId')) AS id FROM events WHERE seq=?",
     );
+  }
+  /**
+   * A row too large for a page, replaced by a bounded payload ace assembles from parts of it.
+   * Rare, so it is validated as before.
+   */
+  private bounded(
+    row: z.infer<typeof Row>,
+    capacity: number,
+  ): { event: SearchPage["events"][number]; bytes: number } {
+    let payload: unknown;
+    if (["item.created", "item.updated", "item.delta"].includes(row.type)) {
+      const key = ItemKey.parse(this.itemKey.get(row.seq));
+      const item = this.history.searchItem(
+        row.thread_id,
+        key.id,
+        row.seq,
+        capacity - (Buffer.byteLength(JSON.stringify({ type: "item.updated", item: null })) - 4),
+      );
+      if (!item) throw new Error("search_replay_source_unavailable");
+      payload = item.type === "search.item" ? item : { type: "item.updated", item };
+    } else if (row.type === "thread.created" || row.type === "thread.updated") {
+      const bounded = BoundedThreadPayload.parse(this.threadPayload.get(row.seq));
+      const status: unknown = bounded.status ? JSON.parse(bounded.status) : undefined;
+      payload =
+        row.type === "thread.created"
+          ? { type: "thread.created", thread: { ...bounded, status } }
+          : {
+              type: "thread.updated",
+              ...(bounded.title === null ? {} : { title: bounded.title }),
+              ...(status === undefined ? {} : { status }),
+            };
+    } else throw new Error("search_replay_identity_limit");
+    const searchItem =
+      typeof payload === "object" &&
+      payload !== null &&
+      "type" in payload &&
+      payload.type === "search.item";
+    const event = (searchItem ? SearchReplayEvent : Event).parse({
+      seq: row.seq,
+      id: row.id,
+      threadId: row.thread_id,
+      at: row.at,
+      payload: searchItem ? payload : decodeStoredPayload(payload),
+    });
+    return { event, bytes: Buffer.byteLength(JSON.stringify(event)) };
   }
   read(input: unknown, headSeq: number): SearchPage {
     const q = Options.parse(input);
@@ -105,45 +153,12 @@ export class SearchReplay {
         complete = false;
         break;
       }
-      let payload: unknown;
-      if (oversized && ["item.created", "item.updated", "item.delta"].includes(row.type)) {
-        const key = ItemKey.parse(this.itemKey.get(row.seq));
-        const item = this.history.searchItem(
-          row.thread_id,
-          key.id,
-          row.seq,
-          capacity - (Buffer.byteLength(JSON.stringify({ type: "item.updated", item: null })) - 4),
-        );
-        if (!item) throw new Error("search_replay_source_unavailable");
-        payload = item.type === "search.item" ? item : { type: "item.updated", item };
-      } else if (oversized && (row.type === "thread.created" || row.type === "thread.updated")) {
-        const bounded = BoundedThreadPayload.parse(this.threadPayload.get(row.seq));
-        const status: unknown = bounded.status ? JSON.parse(bounded.status) : undefined;
-        payload =
-          row.type === "thread.created"
-            ? { type: "thread.created", thread: { ...bounded, status } }
-            : {
-                type: "thread.updated",
-                ...(bounded.title === null ? {} : { title: bounded.title }),
-                ...(status === undefined ? {} : { status }),
-              };
-      } else {
-        if (oversized) throw new Error("search_replay_identity_limit");
-        payload = JSON.parse(String(this.payload.get(row.seq)?.payload));
-      }
-      const searchItem =
-        typeof payload === "object" &&
-        payload !== null &&
-        "type" in payload &&
-        payload.type === "search.item";
-      const event = (searchItem ? SearchReplayEvent : Event).parse({
-        seq: row.seq,
-        id: row.id,
-        threadId: row.thread_id,
-        at: row.at,
-        payload: searchItem ? payload : decodeStoredPayload(payload),
-      });
-      const size = Buffer.byteLength(JSON.stringify(event)) + 1;
+      // A stored row is read as `Store.readEvents` reads it: as stored when this build wrote it.
+      const read = oversized
+        ? this.bounded(row, capacity)
+        : storedEvent({ ...raw, payload: this.payload.get(row.seq)?.payload }, this.trust.from);
+      const event = read.event;
+      const size = read.bytes + 1;
       if (bytes + size > q.maxBytes) throw new Error("search_replay_page_limit");
       events.push(event);
       bytes += size;

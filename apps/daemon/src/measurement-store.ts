@@ -1,4 +1,4 @@
-import { decodeStoredItem } from "./stored-decode.ts";
+import { storedItem, untrusted, type StoredTrust } from "./stored-decode.ts";
 import { StepMeasurement, type EventPayload, type ThreadId } from "@ace/protocol";
 import type { StatementSync, DatabaseSync } from "node:sqlite";
 import { measurementCall } from "./measurement-correlation.ts";
@@ -6,8 +6,14 @@ import { measurementCall } from "./measurement-correlation.ts";
 /** Indexed daemon evidence survives provider upserts and daemon restarts. */
 export class MeasurementStore {
   private sql: (query: string) => StatementSync;
-  constructor(db: DatabaseSync, sql: (query: string) => StatementSync) {
+  private readonly trust: StoredTrust;
+  constructor(
+    db: DatabaseSync,
+    sql: (query: string) => StatementSync,
+    trust: StoredTrust = untrusted(),
+  ) {
     this.sql = sql;
+    this.trust = trust;
     db.exec(`CREATE TABLE IF NOT EXISTS measurement_tools (
       id TEXT PRIMARY KEY, thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
       agent_id TEXT NOT NULL, name TEXT NOT NULL, args TEXT NOT NULL, seq INTEGER NOT NULL,
@@ -84,7 +90,10 @@ export class MeasurementStore {
     );
   }
   item(thread: ThreadId, id: string) {
-    const row = this.sql("SELECT item FROM items WHERE thread_id=? AND id=?").get(thread, id);
-    return row ? decodeStoredItem(JSON.parse(String(row.item))) : undefined;
+    const row = this.sql("SELECT item, created_seq FROM items WHERE thread_id=? AND id=?").get(
+      thread,
+      id,
+    );
+    return row ? storedItem(Number(row.created_seq), String(row.item), this.trust.from) : undefined;
   }
 }
