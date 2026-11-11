@@ -12,7 +12,8 @@
     "./version": "./src/version.ts",
     "./spade": "./src/spade/index.ts",
     "./spade-update-mode": "./src/spade-update-mode.ts",
-    "./spade-plan": "./src/spade-plan.ts"
+    "./spade-plan": "./src/spade-plan.ts",
+    "./spade-service": "./src/spade-api.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"

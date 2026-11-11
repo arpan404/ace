@@ -5,7 +5,7 @@ import {
   installSpadeBinary,
   installedSpadeVersion,
   type SpadeServiceState,
-} from "@ace/service/spade";
+} from "@ace/service/spade-service";
 import type { DoctorContext } from "./feature.ts";
 import { spadeFeature, type SpadePorts } from "./spade.ts";
 import { doctorTestContext } from "./test-support.ts";

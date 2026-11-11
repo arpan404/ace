@@ -36,6 +36,7 @@ export {
   spadeQuiet,
   describeSpadeSwap,
   spadeDeadlines,
+  spadeDeadlineMarginMs,
   SpadeMaintenance,
   type SpadeSwapMode,
   type SpadeSwapPorts,

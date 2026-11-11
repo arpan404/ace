@@ -4,7 +4,7 @@ import {
   localSpadePlan,
   spadeServiceState,
   type SpadeServiceState,
-} from "@ace/service/spade";
+} from "@ace/service/spade-service";
 import { spadeDisabled } from "../services/spade.ts";
 import type { DoctorContext, DoctorFeature } from "./feature.ts";
 import { cliVersion } from "./install.ts";
