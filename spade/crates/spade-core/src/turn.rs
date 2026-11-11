@@ -124,27 +124,26 @@ pub fn unique_call_ids(
         .collect()
 }
 
-/// Whether the person pressed Stop after `reply` began.
+/// Whether the person pressed Stop on `reply`.
 pub fn stop_requested(events: &[Event], reply: &str) -> bool {
-    let Some(started) = events.iter().position(
-        |e| matches!(e, Event::Known(Known::ReplyStarted { reply: r, .. }) if r == reply),
-    ) else {
-        return false;
-    };
-    events[started..]
-        .iter()
-        .any(|e| matches!(e, Event::Known(Known::StopRequested {})))
+    events.iter().any(
+        |e| matches!(e, Event::Known(Known::StopRequested { reply: Some(r), .. }) if r == reply),
+    )
 }
 
-/// Whether the person pressed Stop after the reply that started `job` began, so its result must
-/// not open a reply.
+/// Whether the person stopped `job`, or the reply that started it, so its result must not open a
+/// reply.
 pub fn job_stopped(events: &[Event], job: &str) -> bool {
-    events.iter().any(|e| match e {
-        Event::Known(Known::JobStarted { job: j, reply, .. }) if j == job => {
-            stop_requested(events, reply)
-        }
-        _ => false,
-    })
+    let named = events.iter().any(|e| {
+        matches!(e, Event::Known(Known::StopRequested { jobs, .. }) if jobs.iter().any(|j| j == job))
+    });
+    named
+        || events.iter().any(|e| match e {
+            Event::Known(Known::JobStarted { job: j, reply, .. }) if j == job => {
+                stop_requested(events, reply)
+            }
+            _ => false,
+        })
 }
 
 /// Steps taken and money spent by the open turn.
@@ -342,7 +341,7 @@ mod tests {
     }
 
     #[test]
-    fn a_stop_after_a_jobs_reply_began_keeps_its_result_quiet_even_if_logged_before_the_start() {
+    fn a_stop_affects_only_the_reply_and_jobs_it_names() {
         let started = |job: &str, reply: &str| {
             Event::Known(Known::JobStarted {
                 reply: reply.into(),
@@ -350,21 +349,32 @@ mod tests {
                 name: "research".into(),
             })
         };
-        let stop = Event::Known(Known::StopRequested {});
+        let stop = |reply: Option<&str>, jobs: &[&str]| {
+            Event::Known(Known::StopRequested {
+                reply: reply.map(str::to_owned),
+                jobs: jobs.iter().map(|j| (*j).to_owned()).collect(),
+            })
+        };
         let events = vec![
-            stop.clone(),
             Event::reply_started("r1", "m"),
-            stop,
-            // Logged after the stop, but its reply began before it.
+            stop(Some("r1"), &[]),
+            // Logged after the stop, but started by the stopped reply.
             started("j1", "r1"),
             Event::reply_started("r2", "m"),
             started("j2", "r2"),
+            started("j3", "r2"),
+            stop(None, &["j3"]),
+            Event::reply_started("r3", "m"),
         ];
         assert!(stop_requested(&events, "r1"));
         assert!(!stop_requested(&events, "r2"));
+        assert!(
+            !stop_requested(&events, "r3"),
+            "a late stop never reaches a newer reply"
+        );
         assert!(job_stopped(&events, "j1"));
         assert!(!job_stopped(&events, "j2"));
-        assert!(!job_stopped(&events, "unknown"));
+        assert!(job_stopped(&events, "j3"));
     }
 
     #[test]
