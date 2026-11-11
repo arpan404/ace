@@ -1,9 +1,8 @@
 import { SkillOperation, type SkillAgent, type SkillResult, type SkillUsage } from "@ace/protocol";
 import { CommandFilesystemUnavailable, writeOutcomeUnknown } from "./posix-ops.ts";
 import { commandCallOwner, commandRootSettled } from "./posix.ts";
-import { CommandCatalog } from "./catalog.ts";
-import { CommandFiles, type WatchSource } from "./files.ts";
-import { RecoveryLoop, type RecoveryScheduler } from "./recovery-loop.ts";
+import type { WatchSource } from "./files.ts";
+import { RecoveryLoop, type RecoveryScheduler, type RecoveryTimer } from "./recovery-loop.ts";
 import type { DiscoveryRoot } from "./roots.ts";
 import { editSkill, newSkill } from "./skill-markdown.ts";
 import {
@@ -27,6 +26,7 @@ import {
 } from "./skill-roots.ts";
 import { SkillUpdates, type SkillUpdateOptions } from "./skill-updates.ts";
 import { listSkills, type Listed, type PluginSkill } from "./skill-listing.ts";
+import { SkillWatches } from "./skill-watch.ts";
 export type { PluginSkill } from "./skill-listing.ts";
 
 /** An error and its cause, in one line for the daemon log. */
@@ -48,6 +48,8 @@ export interface SkillLibraryOptions {
   usage?: SkillUsageReader | undefined;
   watch?: WatchSource | undefined;
   schedule?: RecoveryScheduler | undefined;
+  /** Ends a folder watch some time after its last subscriber leaves; tests run it at once. */
+  linger?: RecoveryTimer | undefined;
   /** The descriptor primitive every mutation opens through; tests wrap it to race a swap. */
   openChild?: OpenCommandChild | undefined;
   id(): string;
@@ -68,10 +70,12 @@ export class SkillLibrary {
   private readonly options: SkillLibraryOptions;
   private readonly updates: SkillUpdates | undefined;
   private readonly disk: SkillDisk;
-  private readonly watchers = new Map<string, { files: CommandFiles; users: number }>();
+  private readonly watches: SkillWatches<Listed[]>;
   private readonly listeners = new Set<() => void>();
   private tail: Promise<unknown> = Promise.resolve();
   private pending = 0;
+  /** A change is running: its own reads must see what it just wrote, never the cache. */
+  private changing = false;
   private closed = false;
   private stopRetry: (() => void) | undefined;
   /** Every file call the library makes; closing cancels it, so no stuck folder holds it open. */
@@ -80,6 +84,17 @@ export class SkillLibrary {
     this.options = options;
     this.disk = new SkillDisk(options.openChild, this.calls);
     this.updates = options.updates ? new SkillUpdates(options.updates, this.disk) : undefined;
+    const home = options.homes.home;
+    this.watches = new SkillWatches({
+      roots: (workspace) =>
+        skillRoots(options.homes, workspace || undefined)
+          .filter((root) => (workspace ? root.scope === "project" : root.scope === "personal"))
+          .map((root) => watchedRoot(root, workspace ? "workspace" : "user", home)),
+      changed: () => this.notify(),
+      watch: options.watch,
+      schedule: options.schedule,
+      linger: options.linger,
+    });
   }
   /**
    * Self-heal after a crash mid-update. Queued ahead of requests, so it never blocks the caller
@@ -137,7 +152,7 @@ export class SkillLibrary {
               code: "unavailable",
               message: "Skills are closing. Try again in a moment.",
             } satisfies SkillResult)
-          : this.perform(parsed.data),
+          : this.run(parsed.data),
       )
       .catch((error: unknown): SkillResult => {
         const unknown = writeOutcomeUnknown(error);
@@ -186,13 +201,18 @@ export class SkillLibrary {
   /** Changes from disk or from this library. Watches personal roots and, if named, the project's. */
   subscribe(workspaceId: string | undefined, listener: () => void): () => void {
     if (this.closed || this.listeners.size >= 64) throw new Error("Skill subscription limit");
-    const keys = ["", ...(workspaceId ? [this.workspace(workspaceId)] : [])];
-    for (const key of keys) this.watch(key);
+    const releases: (() => void)[] = [];
+    try {
+      for (const key of this.keys(workspaceId)) releases.push(this.watches.hold(key));
+    } catch (error) {
+      for (const release of releases) release();
+      throw error;
+    }
     const wrapped = () => listener();
     this.listeners.add(wrapped);
     return () => {
       this.listeners.delete(wrapped);
-      for (const key of keys) this.unwatch(key);
+      for (const release of releases) release();
     };
   }
   async close(): Promise<void> {
@@ -203,8 +223,7 @@ export class SkillLibrary {
     this.stopRetry = undefined;
     this.listeners.clear();
     await this.tail.catch(() => {});
-    for (const { files } of this.watchers.values()) await files.close();
-    this.watchers.clear();
+    await this.watches.close();
     await this.updates?.close();
   }
   /** The personal skill folders every agent reads, from this library's own homes. */
@@ -218,6 +237,7 @@ export class SkillLibrary {
     this.notify();
   }
   private notify(): void {
+    this.watches.forget();
     for (const listener of this.listeners) {
       try {
         listener();
@@ -226,43 +246,32 @@ export class SkillLibrary {
       }
     }
   }
-  private watch(workspace: string): void {
-    const held = this.watchers.get(workspace);
-    if (held) {
-      held.users++;
-      return;
-    }
-    if (this.watchers.size >= 9) throw new Error("Skill watch limit");
-    const home = this.options.homes.home;
-    const roots = skillRoots(this.options.homes, workspace || undefined)
-      .filter((root) => (workspace ? root.scope === "project" : root.scope === "personal"))
-      .map((root) => watchedRoot(root, workspace ? "workspace" : "user", home));
-    const files = new CommandFiles(new CommandCatalog(() => 0), roots, {
-      ...(this.options.watch ? { watch: this.options.watch } : {}),
-      ...(this.options.schedule ? { schedule: this.options.schedule } : {}),
-    });
-    files.subscribe(() => this.notify());
-    void files.start().catch(() => {});
-    this.watchers.set(workspace, { files, users: 1 });
-  }
-  private unwatch(workspace: string): void {
-    const held = this.watchers.get(workspace);
-    if (!held || --held.users > 0) return;
-    this.watchers.delete(workspace);
-    void held.files.close();
-  }
   private workspace(workspaceId: string): string {
     const path = this.options.workspace(workspaceId);
     if (!path) throw new SkillError("not_found", "This project isn't on this machine.");
     return path;
   }
+  /** Watch keys behind a listing: personal folders, plus the project's when one is named. */
+  private keys(workspaceId: string | undefined): string[] {
+    return ["", ...(workspaceId ? [this.workspace(workspaceId)] : [])];
+  }
+  /** Reads are answered from the watched cache; a change reads the disk throughout. */
+  private async run(op: SkillOperation): Promise<SkillResult> {
+    if (op.op === "list" || op.op === "read" || op.op === "usage") return this.perform(op);
+    this.changing = true;
+    try {
+      return await this.perform(op);
+    } finally {
+      this.changing = false;
+      // Whatever it wrote, or half wrote before failing, is read fresh next time.
+      this.watches.forget();
+    }
+  }
   private listAll(workspaceId: string | undefined): Promise<Listed[]> {
-    return listSkills({
-      calls: this.calls,
-      ...this.options,
-      workspace: workspaceId ? this.workspace(workspaceId) : undefined,
-      locked: this.updates?.locked(),
-    });
+    const workspace = workspaceId ? this.workspace(workspaceId) : undefined;
+    const load = () =>
+      listSkills({ calls: this.calls, ...this.options, workspace, locked: this.updates?.locked() });
+    return this.changing ? load() : this.watches.read(this.keys(workspaceId), load);
   }
   private async find(id: string, workspaceId: string | undefined): Promise<Listed> {
     const found = (await this.listAll(workspaceId)).find((listed) => listed.entry.id === id);
