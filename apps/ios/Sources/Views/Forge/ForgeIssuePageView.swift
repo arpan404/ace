@@ -40,13 +40,9 @@ struct ForgeIssuePageView: View {
         .refreshable { await load() }
         .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
             if let page, client.canOperate {
-                Button { start(page) } label: {
-                    Text("Start thread").fontWeight(.semibold).frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
-                }
-                .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.capsule)
-                .tint(AceTheme.Colours.foreground)
-                .foregroundStyle(AceTheme.Colours.background)
+                Button("Start thread") { start(page) }
+                .buttonStyle(.textAction(.prominent))
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, AceTheme.Spacing.lg)
                 .padding(.vertical, AceTheme.Spacing.sm)
                 .background(AceTheme.Colours.background)
@@ -135,7 +131,7 @@ struct ForgeIssuePageView: View {
                 }
                 Spacer(minLength: AceTheme.Spacing.sm)
                 Button("Comment") { post(page) }
-                    .buttonStyle(.bordered).buttonBorderShape(.capsule).tint(AceTheme.Colours.foreground)
+                    .buttonStyle(.textAction(.prominent))
                     .disabled(posting || page.box.off != nil || !page.unconfirmed.isEmpty || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .accessibilityIdentifier("forge.issue.comment")
             }
