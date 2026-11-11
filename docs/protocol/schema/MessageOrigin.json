@@ -5,6 +5,25 @@
     "afterExit": {
       "type": "boolean"
     },
+    "client": {
+      "properties": {
+        "grantId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "grantId",
+        "name"
+      ],
+      "type": "object"
+    },
     "commandId": {
       "$ref": "https://ace.local/protocol/v1/CommandId.json"
     },
@@ -39,7 +58,8 @@
         "steer",
         "automation",
         "schedule",
-        "background_completion"
+        "background_completion",
+        "mcp_client"
       ],
       "type": "string"
     },

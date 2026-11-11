@@ -10,6 +10,7 @@ import { createProviderLoginSession } from "./provider-login.ts";
 import { createHostIdentitySession } from "./host-identity.ts";
 import { createMachineCodeSession } from "./machine-code.ts";
 import { createFleetSession } from "./fleet.ts";
+import { createOutsideClientsSession } from "./outside-clients.ts";
 import { createProviderStatusesSession } from "./provider-status.ts";
 import { createProjectsSession } from "./projects.ts";
 import { createTransfersSession } from "./transfers.ts";
@@ -67,6 +68,7 @@ export const socketServiceFactories = [
   createHostIdentitySession,
   createMachineCodeSession,
   createFleetSession,
+  createOutsideClientsSession,
   createLongThreadSession,
   createPreviewClientSession,
   createAutomationsSession,

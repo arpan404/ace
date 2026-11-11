@@ -43,12 +43,30 @@
     },
     {
       "properties": {
+        "allow": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/OutsideScope.json"
+          },
+          "maxItems": 6,
+          "minItems": 1,
+          "type": "array"
+        },
+        "name": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
         "op": {
           "const": "mcp.enroll",
           "type": "string"
         },
-        "project": {
-          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        "projects": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+          },
+          "maxItems": 256,
+          "minItems": 1,
+          "type": "array"
         },
         "scope": {
           "enum": [
@@ -58,14 +76,20 @@
           "type": "string"
         },
         "ttlMs": {
-          "exclusiveMinimum": 0,
-          "maximum": 86400000,
-          "type": "integer"
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 31622400000,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
         "op",
-        "scope",
         "ttlMs"
       ],
       "type": "object"

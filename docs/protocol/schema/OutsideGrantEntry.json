@@ -1,0 +1,123 @@
+{
+  "$id": "https://ace.local/protocol/v1/OutsideGrantEntry.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "approvedBy": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "clientId": {
+      "maxLength": 2048,
+      "minLength": 1,
+      "type": "string"
+    },
+    "clientKind": {
+      "$ref": "https://ace.local/protocol/v1/OutsideClientKind.json"
+    },
+    "createdAt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "domain": {
+      "anyOf": [
+        {
+          "maxLength": 253,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "expiresAt": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "id": {
+      "pattern": "^[a-zA-Z0-9_-]{1,128}$",
+      "type": "string"
+    },
+    "lastUsedAt": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "messaged": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+      },
+      "maxItems": 256,
+      "type": "array"
+    },
+    "name": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "projects": {
+      "$ref": "https://ace.local/protocol/v1/OutsideProjects.json"
+    },
+    "revokedAt": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "scopes": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/OutsideScope.json"
+      },
+      "maxItems": 6,
+      "minItems": 1,
+      "type": "array"
+    },
+    "started": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+      },
+      "maxItems": 256,
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "clientKind",
+    "clientId",
+    "name",
+    "domain",
+    "scopes",
+    "projects",
+    "createdAt",
+    "expiresAt",
+    "lastUsedAt",
+    "revokedAt",
+    "approvedBy",
+    "started",
+    "messaged"
+  ],
+  "type": "object"
+}

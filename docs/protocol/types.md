@@ -4211,6 +4211,7 @@ Example:
 | internal | no | `true` |  |
 | wakesAgent | no | `false` |  |
 | listening | no | array | {"maxItems":16,"items":{"type":"integer","minimum":1,"maximum":65535}} |
+| blocksPrompts | no | `true` |  |
 | outputPath | no | string |  |
 | toolCallId | no | [ItemId.json](schema/ItemId.json) |  |
 | childAgentId | no | [AgentId.json](schema/AgentId.json) |  |
@@ -4224,15 +4225,17 @@ Example:
 ```json
 {
   "agentId": "example",
+  "childAgentId": "example",
+  "endedAt": 3,
   "id": "example",
   "internal": true,
   "kind": "monitor",
+  "outputPath": "example",
   "raw": [],
-  "startedAt": 3,
+  "startedAt": 7,
   "status": "stopped",
   "stoppable": true,
   "title": "example",
-  "toolCallId": "example",
   "wakesAgent": false
 }
 ```
@@ -8725,17 +8728,19 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | op | yes | `"mcp.enroll"` |  |
-| scope | yes | ["read","operate"] |  |
-| ttlMs | yes | integer | {"exclusiveMinimum":0,"maximum":86400000} |
-| project | no | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+| scope | no | ["read","operate"] |  |
+| allow | no | array | {"minItems":1,"maxItems":6,"items":{"$ref":"https://ace.local/protocol/v1/OutsideScope.json"}} |
+| ttlMs | yes | union | {"anyOf":[{"type":"integer","exclusiveMinimum":0,"maximum":31622400000},{"type":"null"}]} |
+| projects | no | array | {"minItems":1,"maxItems":256,"items":{"$ref":"https://ace.local/protocol/v1/WorkspaceId.json"}} |
+| name | no | string | {"minLength":1,"maxLength":256} |
 
 Example:
 
 ```json
 {
   "op": "mcp.enroll",
-  "scope": "read",
-  "ttlMs": 6
+  "scope": "operate",
+  "ttlMs": null
 }
 ```
 
@@ -10346,13 +10351,110 @@ Example:
 
 ```json
 {
-  "seq": 4,
+  "seq": 5,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
-    "kind": "threads",
-    "seq": 4,
-    "threads": {}
+    "agentChildren": {},
+    "agents": {},
+    "backgroundTasks": {},
+    "entitiesBefore": {},
+    "interactions": {},
+    "itemOrder": [],
+    "items": {},
+    "itemsBefore": null,
+    "kind": "thread",
+    "runs": {},
+    "seq": 5,
+    "thread": {
+      "capabilitiesRef": "example",
+      "createdAt": 4,
+      "delegatedFrom": {
+        "hostId": "example",
+        "hostName": "example",
+        "provider": "example",
+        "threadId": "example",
+        "threadTitle": "example"
+      },
+      "details": {
+        "continuedOn": {
+          "at": 2,
+          "hostId": "example",
+          "name": "example",
+          "threadId": "example"
+        },
+        "machine": {
+          "host": "example",
+          "icon": {
+            "kind": "monitor"
+          },
+          "name": "example"
+        },
+        "repository": {
+          "forge": "gitlab",
+          "host": "4T",
+          "name": "e",
+          "owner": "k9RZ"
+        },
+        "workspaceChange": {
+          "at": 6,
+          "branch": "example",
+          "commandId": "example",
+          "error": "example",
+          "lossy": false,
+          "state": "applied"
+        },
+        "worktreeCreation": {
+          "actions": [],
+          "attempt": 8,
+          "cleanupComplete": true,
+          "commandId": "example",
+          "details": [],
+          "elapsedMs": 8,
+          "lockPath": "example",
+          "startedAt": 1,
+          "state": "local",
+          "step": "preparing",
+          "steps": []
+        },
+        "worktreeMissing": true,
+        "worktreeSetup": {
+          "at": 5,
+          "details": [],
+          "state": "skipped"
+        }
+      },
+      "goal": {
+        "objective": "example",
+        "status": "usage_limited",
+        "tokensUsed": 7
+      },
+      "id": "example",
+      "listOrder": 3,
+      "movedFrom": {
+        "links": {
+          "linkedIssues": []
+        },
+        "workspaceId": "example"
+      },
+      "permission": {
+        "effective": null,
+        "override": null,
+        "pending": true
+      },
+      "pinOrder": 4,
+      "pinned": true,
+      "prSettled": 9,
+      "provider": "claude",
+      "settleWhenDone": true,
+      "status": {
+        "state": "unresponsive"
+      },
+      "title": "example",
+      "updatedAt": 5,
+      "workspaceId": "example"
+    },
+    "usage": {}
   }
 }
 ```
@@ -19695,7 +19797,8 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| kind | yes | ["person","interaction_answer","subagent_result","handoff","spawn","parent_agent","restart","limit_resume","queue","steer","automation","schedule","background_completion"] |  |
+| kind | yes | ["person","interaction_answer","subagent_result","handoff","spawn","parent_agent","restart","limit_resume","queue","steer","automation","schedule","background_completion","mcp_client"] |  |
+| client | no | object | {"properties":{"grantId":{"type":"string","minLength":1,"maxLength":128},"name":{"type":"string","minLength":1,"maxLength":256}},"required":["grantId","name"]} |
 | commandId | no | [CommandId.json](schema/CommandId.json) |  |
 | interactionId | no | [InteractionId.json](schema/InteractionId.json) |  |
 | threadIds | no | array | {"items":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"}} |
@@ -19711,12 +19814,12 @@ Example:
 
 ```json
 {
-  "kind": "background_completion",
-  "parentThreadId": "example",
-  "threadIds": [],
-  "to": {
+  "from": {
     "provider": "opencode"
-  }
+  },
+  "interactionId": "example",
+  "kind": "mcp_client",
+  "threadIds": []
 }
 ```
 
@@ -20544,6 +20647,294 @@ Example:
   "streamId": "example",
   "tail": "example",
   "truncated": false
+}
+```
+
+## OutsideAccessDecision
+
+[JSON Schema](schema/OutsideAccessDecision.json), input validation.
+
+### Variant 1
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| decision | yes | `"approve"` |  |
+| scopes | yes | array | {"minItems":1,"maxItems":6,"items":{"$ref":"https://ace.local/protocol/v1/OutsideScope.json"}} |
+| projects | yes | [OutsideProjects.json](schema/OutsideProjects.json) |  |
+| expiresAt | yes | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]} |
+
+Example:
+
+```json
+{
+  "decision": "approve",
+  "expiresAt": null,
+  "projects": "all",
+  "scopes": [
+    "threads:read"
+  ]
+}
+```
+
+### Variant 2
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| decision | yes | `"deny"` |  |
+
+Example:
+
+```json
+{
+  "decision": "deny"
+}
+```
+
+## OutsideAccessRequest
+
+[JSON Schema](schema/OutsideAccessRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| clientName | yes | string | {"minLength":1,"maxLength":256} |
+| domain | yes | union | {"anyOf":[{"type":"string","minLength":1,"maxLength":253},{"type":"null"}]} |
+| scopes | yes | array | {"minItems":1,"maxItems":6,"items":{"$ref":"https://ace.local/protocol/v1/OutsideScope.json"}} |
+| matchCode | yes | string | {"minLength":4,"maxLength":16} |
+| expiresAt | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| grantId | no | string | {"pattern":"^[a-zA-Z0-9_-]{1,128}$"} |
+
+Example:
+
+```json
+{
+  "clientName": "example",
+  "domain": "example",
+  "expiresAt": 8,
+  "grantId": "p_XyW0vu-PtRcqE403lVjpmJbXkIoxQab29VKKdOyrHO1DuGRYN3-pjJgkYAmpuX9pKHu6xz8DbXCDAulfLjhcLynXomwDC3Nb8rIE_",
+  "matchCode": "example",
+  "requestId": "example",
+  "scopes": [
+    "computer"
+  ]
+}
+```
+
+## OutsideClientKind
+
+[JSON Schema](schema/OutsideClientKind.json), input validation.
+
+Type: ["cli","cimd","dcr"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"dcr"
+```
+
+## OutsideGrant
+
+[JSON Schema](schema/OutsideGrant.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | string | {"pattern":"^[a-zA-Z0-9_-]{1,128}$"} |
+| clientKind | yes | [OutsideClientKind.json](schema/OutsideClientKind.json) |  |
+| clientId | yes | string | {"minLength":1,"maxLength":2048} |
+| name | yes | string | {"minLength":1,"maxLength":256} |
+| domain | yes | union | {"anyOf":[{"type":"string","minLength":1,"maxLength":253},{"type":"null"}]} |
+| scopes | yes | array | {"minItems":1,"maxItems":6,"items":{"$ref":"https://ace.local/protocol/v1/OutsideScope.json"}} |
+| projects | yes | [OutsideProjects.json](schema/OutsideProjects.json) |  |
+| createdAt | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| expiresAt | yes | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]} |
+| lastUsedAt | yes | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]} |
+| revokedAt | yes | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]} |
+| approvedBy | yes | string | {"minLength":1,"maxLength":256} |
+
+Example:
+
+```json
+{
+  "approvedBy": "example",
+  "clientId": "example",
+  "clientKind": "cli",
+  "createdAt": 6,
+  "domain": null,
+  "expiresAt": null,
+  "id": "CiSv9KmkkNx3UdR5MQzLki1_n5cEIUcEYkA9aiS17rXw96JZIHuPlFLHyaKQ",
+  "lastUsedAt": 3,
+  "name": "example",
+  "projects": "all",
+  "revokedAt": 3,
+  "scopes": [
+    "threads:message"
+  ]
+}
+```
+
+## OutsideGrantEntry
+
+[JSON Schema](schema/OutsideGrantEntry.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | string | {"pattern":"^[a-zA-Z0-9_-]{1,128}$"} |
+| clientKind | yes | [OutsideClientKind.json](schema/OutsideClientKind.json) |  |
+| clientId | yes | string | {"minLength":1,"maxLength":2048} |
+| name | yes | string | {"minLength":1,"maxLength":256} |
+| domain | yes | union | {"anyOf":[{"type":"string","minLength":1,"maxLength":253},{"type":"null"}]} |
+| scopes | yes | array | {"minItems":1,"maxItems":6,"items":{"$ref":"https://ace.local/protocol/v1/OutsideScope.json"}} |
+| projects | yes | [OutsideProjects.json](schema/OutsideProjects.json) |  |
+| createdAt | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| expiresAt | yes | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]} |
+| lastUsedAt | yes | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]} |
+| revokedAt | yes | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]} |
+| approvedBy | yes | string | {"minLength":1,"maxLength":256} |
+| started | yes | array | {"maxItems":256,"items":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"}} |
+| messaged | yes | array | {"maxItems":256,"items":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"}} |
+
+Example:
+
+```json
+{
+  "approvedBy": "example",
+  "clientId": "example",
+  "clientKind": "cimd",
+  "createdAt": 2,
+  "domain": "example",
+  "expiresAt": 6,
+  "id": "tCBhu5FrroIx5xhe_JjGrPr-b",
+  "lastUsedAt": 4,
+  "messaged": [],
+  "name": "example",
+  "projects": "all",
+  "revokedAt": null,
+  "scopes": [
+    "threads:message"
+  ],
+  "started": []
+}
+```
+
+## OutsideProjects
+
+[JSON Schema](schema/OutsideProjects.json), input validation.
+
+### Variant 1
+
+Type: `"all"`. See JSON Schema for constraints.
+
+Example:
+
+```json
+"all"
+```
+
+### Variant 2
+
+Type: array. See JSON Schema for constraints.
+
+Example:
+
+```json
+[
+  "example"
+]
+```
+
+## OutsideRequest
+
+[JSON Schema](schema/OutsideRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"outside.request"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| operation | yes | union | {"oneOf":[{"type":"object","properties":{"op":{"type":"string","const":"grants"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"revoke"},"grantId":{"type":"string","pattern":"^[a-zA-Z0-9_-]{1,128}$"}},"required":["op","grantId"]},{"type":"object","properties":{"op":{"type":"string","const":"update"},"grantId":{"type":"string","pattern":"^[a-zA-Z0-9_-]{1,128}$"},"scopes":{"minItems":1,"maxItems":6,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/OutsideScope.json"}},"projects":{"$ref":"https://ace.local/protocol/v1/OutsideProjects.json"},"expiresAt":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]}},"required":["op","grantId"]},{"type":"object","properties":{"op":{"type":"string","const":"watch"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"stopScreen"},"grantId":{"type":"string","pattern":"^[a-zA-Z0-9_-]{1,128}$"}},"required":["op","grantId"]},{"type":"object","properties":{"op":{"type":"string","const":"decide"},"accessRequestId":{"type":"string","minLength":1,"maxLength":128},"choice":{"$ref":"https://ace.local/protocol/v1/OutsideAccessDecision.json"}},"required":["op","accessRequestId","choice"]}]} |
+
+Example:
+
+```json
+{
+  "operation": {
+    "op": "watch"
+  },
+  "requestId": "example",
+  "type": "outside.request"
+}
+```
+
+## OutsideResult
+
+[JSON Schema](schema/OutsideResult.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"outside.result"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| result | yes | union | {"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"grants"},"grants":{"maxItems":1000,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/OutsideGrantEntry.json"}}},"required":["kind","grants"]},{"type":"object","properties":{"kind":{"type":"string","const":"revoked"}},"required":["kind"]},{"type":"object","properties":{"kind":{"type":"string","const":"updated"},"grant":{"$ref":"https://ace.local/protocol/v1/OutsideGrant.json"}},"required":["kind","grant"]},{"type":"object","properties":{"kind":{"type":"string","const":"watching"}},"required":["kind"]},{"type":"object","properties":{"kind":{"type":"string","const":"screenStopped"}},"required":["kind"]},{"type":"object","properties":{"kind":{"type":"string","const":"decided"}},"required":["kind"]}]} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "result": {
+    "kind": "revoked"
+  },
+  "type": "outside.result"
+}
+```
+
+## OutsideScope
+
+[JSON Schema](schema/OutsideScope.json), input validation.
+
+Type: ["threads:read","threads:start","threads:message","threads:stop","browser","computer"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"computer"
+```
+
+## OutsideScreenUse
+
+[JSON Schema](schema/OutsideScreenUse.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| grantId | yes | string | {"pattern":"^[a-zA-Z0-9_-]{1,128}$"} |
+| name | yes | string | {"minLength":1,"maxLength":256} |
+| apps | yes | array | {"maxItems":16,"items":{"type":"string","maxLength":256}} |
+
+Example:
+
+```json
+{
+  "apps": [],
+  "grantId": "CBqxxHmCDTmM5s-WbUqapoaQ1JunSUdIypxQb5NLaDIyqR_w3GO1nAFvRe4U7gwToz9a7lC5ZiC2l1XHwQDQ528iCeSwvjj",
+  "name": "example"
+}
+```
+
+## OutsideState
+
+[JSON Schema](schema/OutsideState.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"outside.state"` |  |
+| access | yes | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/OutsideAccessRequest.json"}} |
+| screen | yes | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/OutsideScreenUse.json"}} |
+
+Example:
+
+```json
+{
+  "access": [],
+  "screen": [],
+  "type": "outside.state"
 }
 ```
 
@@ -31350,8 +31741,9 @@ Example:
   "backgroundTasks": {},
   "interactions": {},
   "itemOrder": [],
+  "itemSeqs": {},
   "items": {},
-  "itemsBefore": 10,
+  "itemsBefore": null,
   "kind": "thread",
   "runs": {},
   "seq": 1,
@@ -31836,6 +32228,26 @@ Example:
 
 ```json
 "example"
+```
+
+## StartedByClient
+
+[JSON Schema](schema/StartedByClient.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"mcp_client"` |  |
+| grantId | yes | string | {"pattern":"^[a-zA-Z0-9_-]{1,128}$"} |
+| name | yes | string | {"minLength":1,"maxLength":256} |
+
+Example:
+
+```json
+{
+  "grantId": "A-o7eOmv3TMxavxuY30zNe7CvipC59cOeJsYViuhoYqQou3rSWfxN7BsALt7VyKMASc0jT6kvI-yQFELStKbKme9Dj-vwNOPzOM6_46V5Kec",
+  "kind": "mcp_client",
+  "name": "example"
+}
 ```
 
 ## StepMeasurement
@@ -32527,6 +32939,7 @@ Example:
 | delegatedBy | no | [DelegatedBy.json](schema/DelegatedBy.json) |  |
 | delegatedFrom | no | [DelegatedFrom.json](schema/DelegatedFrom.json) |  |
 | startedBy | no | [StartedBy.json](schema/StartedBy.json) |  |
+| startedByClient | no | [StartedByClient.json](schema/StartedByClient.json) |  |
 | queuedLaunch | no | [QueuedLaunch.json](schema/QueuedLaunch.json) |  |
 | execution | no | [ExecutionSelection.json](schema/ExecutionSelection.json) |  |
 | switch | no | [ThreadSwitch.json](schema/ThreadSwitch.json) |  |
@@ -32559,11 +32972,15 @@ Example:
   "prSettled": 10,
   "provider": "codex",
   "queuedLaunch": {
-    "slotLimit": 7,
     "text": "example"
   },
   "rootAgentId": "example",
   "snoozedUntil": 7,
+  "startedByClient": {
+    "grantId": "SA9HLQbfAiludjZ7",
+    "kind": "mcp_client",
+    "name": "example"
+  },
   "status": {
     "state": "unresponsive"
   },
@@ -33073,6 +33490,7 @@ Example:
 | delegatedBy | no | [DelegatedBy.json](schema/DelegatedBy.json) |  |
 | delegatedFrom | no | [DelegatedFrom.json](schema/DelegatedFrom.json) |  |
 | startedBy | no | [StartedBy.json](schema/StartedBy.json) |  |
+| startedByClient | no | [StartedByClient.json](schema/StartedByClient.json) |  |
 | queuedLaunch | no | [QueuedLaunch.json](schema/QueuedLaunch.json) |  |
 | execution | no | [ExecutionSelection.json](schema/ExecutionSelection.json) |  |
 | switch | no | [ThreadSwitch.json](schema/ThreadSwitch.json) |  |
@@ -33146,6 +33564,16 @@ Example:
   },
   "status": {
     "state": "new"
+  },
+  "switch": {
+    "at": 4,
+    "lossy": false,
+    "selection": {
+      "instanceId": "example",
+      "options": {},
+      "provider": "cursor"
+    },
+    "state": "applied"
   },
   "title": "example",
   "unread": true,
@@ -33796,6 +34224,7 @@ Example:
 | delegatedBy | no | [DelegatedBy.json](schema/DelegatedBy.json) |  |
 | delegatedFrom | no | [DelegatedFrom.json](schema/DelegatedFrom.json) |  |
 | startedBy | no | [StartedBy.json](schema/StartedBy.json) |  |
+| startedByClient | no | [StartedByClient.json](schema/StartedByClient.json) |  |
 | queuedLaunch | no | [QueuedLaunch.json](schema/QueuedLaunch.json) |  |
 | execution | no | [ExecutionSelection.json](schema/ExecutionSelection.json) |  |
 | switch | no | [ThreadSwitch.json](schema/ThreadSwitch.json) |  |
@@ -33804,8 +34233,19 @@ Example:
 
 ```json
 {
-  "queuedLaunch": {
-    "text": "example"
+  "startedByClient": {
+    "grantId": "M46xhzewegD2lCnQynDStKcj-C1cTutJl6sUXH5quXrKWsGJPD5tnoC8QKhFYlGed",
+    "kind": "mcp_client",
+    "name": "example"
+  },
+  "switch": {
+    "at": 0,
+    "error": "example",
+    "lossy": false,
+    "selection": {
+      "provider": "acp"
+    },
+    "state": "queued"
   }
 }
 ```
@@ -33843,8 +34283,8 @@ Example:
   "backgroundTasks": {},
   "interactions": {},
   "itemOrder": [],
+  "itemSeqs": {},
   "items": {},
-  "itemsBefore": null,
   "kind": "thread",
   "runs": {},
   "seq": 4,

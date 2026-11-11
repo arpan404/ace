@@ -121,6 +121,9 @@
       "$ref": "https://ace.local/protocol/v1/FleetRequest.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/OutsideRequest.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/LockedUseSubscribe.json"
     },
     {

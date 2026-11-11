@@ -1,0 +1,145 @@
+{
+  "$id": "https://ace.local/protocol/v1/OutsideRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "operation": {
+      "oneOf": [
+        {
+          "properties": {
+            "op": {
+              "const": "grants",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "grantId": {
+              "pattern": "^[a-zA-Z0-9_-]{1,128}$",
+              "type": "string"
+            },
+            "op": {
+              "const": "revoke",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "grantId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "expiresAt": {
+              "anyOf": [
+                {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "grantId": {
+              "pattern": "^[a-zA-Z0-9_-]{1,128}$",
+              "type": "string"
+            },
+            "op": {
+              "const": "update",
+              "type": "string"
+            },
+            "projects": {
+              "$ref": "https://ace.local/protocol/v1/OutsideProjects.json"
+            },
+            "scopes": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/OutsideScope.json"
+              },
+              "maxItems": 6,
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": [
+            "op",
+            "grantId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "watch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "grantId": {
+              "pattern": "^[a-zA-Z0-9_-]{1,128}$",
+              "type": "string"
+            },
+            "op": {
+              "const": "stopScreen",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "grantId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "accessRequestId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "choice": {
+              "$ref": "https://ace.local/protocol/v1/OutsideAccessDecision.json"
+            },
+            "op": {
+              "const": "decide",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "accessRequestId",
+            "choice"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "outside.request",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "operation"
+  ],
+  "type": "object"
+}
