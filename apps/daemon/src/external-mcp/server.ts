@@ -1,4 +1,4 @@
-import { aceToolDispatch, aceToolSearch, startMcpServer } from "@ace/mcp-server";
+import { aceToolDispatch, aceToolSearch, nodeScheduler, startMcpServer } from "@ace/mcp-server";
 import { computerToolNames } from "@ace/screen";
 import {
   WorkspaceId,
@@ -9,6 +9,7 @@ import {
 } from "@ace/protocol";
 import type { ServiceContext } from "../services/types.ts";
 import { daemonComputerToolkit } from "../computer-tools.ts";
+import { alertAccessRequests } from "./access-alerts.ts";
 import { outsideBrowserToolkit } from "./browser.ts";
 import { endpointPort } from "./endpoint-port.ts";
 import { OutsideAccess } from "./outside.ts";
@@ -47,6 +48,17 @@ export async function externalMcp(context: ServiceContext) {
     },
     note: (text) => context.log.log("info", text),
     changed: () => toolsChanged?.(),
+  });
+  // Each sign-in request reaches admin phones by push too, in case ace isn't open on them.
+  const stopAlerts = alertAccessRequests(outside.requests, {
+    devices: () => context.store.devices.list(),
+    now: context.now,
+    addresses: async (devices) => (await context.services.accessPush?.addresses(devices)) ?? [],
+    send: (device, alert, signal) =>
+      context.services.accessPush?.send(device, alert, signal) ?? Promise.resolve("failed"),
+    after: nodeScheduler.after,
+    report: (error) =>
+      context.log.log("warn", `A sign-in request's push alert failed: ${String(error)}`),
   });
   // Token files whose grants ended while the daemon was stopped.
   files.sweep((grantId) => outside.grants.live(grantId) !== undefined);
@@ -188,6 +200,7 @@ export async function externalMcp(context: ServiceContext) {
       }
     },
     async close() {
+      stopAlerts();
       outside.close();
       await server.close();
     },

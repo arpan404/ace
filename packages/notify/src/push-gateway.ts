@@ -1,6 +1,12 @@
 import { createECDH, createHash, randomBytes as systemRandom } from "node:crypto";
 import { z } from "zod";
-import { Notification, NotificationDevice, type PushAlertPayload } from "@ace/protocol";
+import {
+  Notification,
+  NotificationDevice,
+  PushAccessAlert,
+  type PushAccessPayload,
+  type PushAlertPayload,
+} from "@ace/protocol";
 import { encryptWebPush, p256SigningKey, vapidAuthorization } from "./webpush-crypto.ts";
 import type { DeliveryResult, NotificationTransport } from "./service.ts";
 
@@ -54,6 +60,34 @@ export function pushPlaintext(hostId: string, notification: Notification): Buffe
   return bytes;
 }
 
+/** The sign-in alert a phone can read (ADR 0117): small and fixed, so it always fits. */
+export function pushAccessPlaintext(hostId: string, access: PushAccessAlert): Buffer {
+  const { requestId, clientName, domain, matchCode, expiresAt } = PushAccessAlert.parse(access);
+  return Buffer.from(
+    JSON.stringify({
+      v: 1,
+      hostId,
+      access: { requestId, clientName, domain, matchCode, expiresAt },
+    } satisfies PushAccessPayload),
+  );
+}
+/** Sends an outside client's sign-in request to a phone, encrypted like every alert. */
+export interface AccessPushTransport {
+  sendAccess(
+    device: unknown,
+    access: PushAccessAlert,
+    signal: AbortSignal,
+  ): Promise<DeliveryResult>;
+}
+interface Sealed {
+  plaintext: Buffer;
+  /** Seconds the gateway and APNs may hold it. */
+  ttl: number;
+  urgency: "high" | "low";
+  /** The same id replaces itself on the phone rather than stacking. */
+  collapse: string;
+}
+
 /**
  * Alerts to phones through the push gateway. Each alert is encrypted to the phone's key
  * (RFC 8291) before it leaves the machine; the gateway and Apple see only ciphertext. Handles
@@ -64,7 +98,7 @@ export function createPushGatewayTransport(
   now: () => number,
   request: typeof fetch = fetch,
   random: (size: number) => Buffer = systemRandom,
-): NotificationTransport & { forget(): void } {
+): NotificationTransport & AccessPushTransport & { forget(): void } {
   const key = p256SigningKey(options.privateKey);
   const handles = new Map<string, Handle>();
   const tokens = new Map<string, { value: string; at: number }>();
@@ -112,14 +146,14 @@ export function createPushGatewayTransport(
     origin: string,
     handle: Handle,
     address: Address,
-    notification: Notification,
+    sealed: Sealed,
     signal: AbortSignal,
   ) => {
     const ecdh = createECDH("prime256v1");
     ecdh.generateKeys();
     const body = encryptWebPush({
       subscription: { endpoint: origin, p256dh: address.p256dh, auth: address.auth },
-      plaintext: pushPlaintext(options.hostId, notification),
+      plaintext: sealed.plaintext,
       salt: random(16),
       privateKey: ecdh.getPrivateKey(),
     });
@@ -130,10 +164,9 @@ export function createPushGatewayTransport(
       headers: {
         "content-type": "application/octet-stream",
         "content-encoding": "aes128gcm",
-        ttl: "86400",
-        urgency: notification.status === "background_done" ? "low" : "high",
-        // The same alert id replaces itself on the phone rather than stacking.
-        topic: createHash("sha256").update(notification.id).digest("base64url").slice(0, 32),
+        ttl: String(sealed.ttl),
+        urgency: sealed.urgency,
+        topic: createHash("sha256").update(sealed.collapse).digest("base64url").slice(0, 32),
         authorization: authorization(origin),
       },
       body: new Uint8Array(body),
@@ -141,39 +174,63 @@ export function createPushGatewayTransport(
     await response.body?.cancel();
     return response.status;
   };
-  return {
-    async send(deviceInput, notificationInput, signal) {
-      const device = NotificationDevice.parse(deviceInput);
-      const notification = Notification.parse(notificationInput);
-      const address = device.address;
-      if (address.channel !== "push") return "failed";
-      if (signal.aborted) return "retry";
-      const target = await options.target();
-      // Push is off on this machine: the phone is reached only while its app runs.
-      if (!target.enabled) return "retry";
-      const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(10_000)]);
-      try {
-        for (let attempt = 0; attempt < 2; attempt++) {
-          const found = await handleFor(target.origin, address, requestSignal);
-          if (typeof found === "string") return found;
-          const status = await post(
-            target.origin,
-            found.handle,
-            address,
-            notification,
-            requestSignal,
-          );
-          // An unreadable or expired handle (the gateway rotated its key): register once more.
-          if (status === 404 || status === 403) {
-            handles.delete(found.id);
-            continue;
-          }
-          return statusResult(status);
+  const deliver = async (
+    deviceInput: unknown,
+    sealed: Sealed,
+    signal: AbortSignal,
+  ): Promise<DeliveryResult> => {
+    const address = NotificationDevice.parse(deviceInput).address;
+    if (address.channel !== "push") return "failed";
+    if (signal.aborted) return "retry";
+    const target = await options.target();
+    // Push is off on this machine: the phone is reached only while its app runs.
+    if (!target.enabled) return "retry";
+    const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(10_000)]);
+    try {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const found = await handleFor(target.origin, address, requestSignal);
+        if (typeof found === "string") return found;
+        const status = await post(target.origin, found.handle, address, sealed, requestSignal);
+        // An unreadable or expired handle (the gateway rotated its key): register once more.
+        if (status === 404 || status === 403) {
+          handles.delete(found.id);
+          continue;
         }
-        return "retry";
-      } catch {
-        return "retry";
+        return statusResult(status);
       }
+      return "retry";
+    } catch {
+      return "retry";
+    }
+  };
+  return {
+    send(device, notificationInput, signal) {
+      const notification = Notification.parse(notificationInput);
+      return deliver(
+        device,
+        {
+          plaintext: pushPlaintext(options.hostId, notification),
+          ttl: 86_400,
+          urgency: notification.status === "background_done" ? "low" : "high",
+          collapse: notification.id,
+        },
+        signal,
+      );
+    },
+    sendAccess(device, access, signal) {
+      // Held no longer than the request lives: a late push would name a sign-in that ended.
+      const ttl = Math.ceil((access.expiresAt - now()) / 1000);
+      if (ttl <= 0) return Promise.resolve("failed");
+      return deliver(
+        device,
+        {
+          plaintext: pushAccessPlaintext(options.hostId, access),
+          ttl: Math.min(ttl, 86_400),
+          urgency: "high",
+          collapse: `access:${access.requestId}`,
+        },
+        signal,
+      );
     },
     forget() {
       handles.clear();
