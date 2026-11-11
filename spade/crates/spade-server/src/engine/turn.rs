@@ -183,7 +183,7 @@ async fn model_step(
                 }
                 Some(Ok(Delta::Reasoning(_))) => {}
                 Some(Ok(Delta::Call(call))) => calls.push(call),
-                Some(Ok(Delta::Done { usage, signatures })) => {
+                Some(Ok(Delta::Done { usage, thoughts })) => {
                     let cost = spending::cost_micros(engine.models.price(&model), &usage);
                     let calls = unique_call_ids(
                         events,
@@ -195,7 +195,7 @@ async fn model_step(
                         reply: reply.to_owned(),
                         text,
                         calls,
-                        signatures,
+                        thoughts,
                         usage: Tokens {
                             input: usage.input_tokens,
                             output: usage.output_tokens,

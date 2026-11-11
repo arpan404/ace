@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use spade_models::Thought;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -18,14 +19,15 @@ pub enum Known {
     SkillsIndexed {
         text: String,
     },
-    /// One model call in a turn finished: its text, tool calls and thought signatures.
+    /// One model call in a turn finished: its text, tool calls and the model's thoughts, kept
+    /// whole so they go back exactly as they came.
     StepFinished {
         reply: String,
         text: String,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         calls: Vec<Call>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        signatures: Vec<String>,
+        thoughts: Vec<Thought>,
         #[serde(default)]
         usage: Tokens,
         #[serde(default)]

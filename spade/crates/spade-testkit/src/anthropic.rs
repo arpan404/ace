@@ -2,7 +2,7 @@
 
 use serde_json::{Value, json};
 
-use crate::{Frame, Script, Tokens};
+use crate::{FakeThought, Frame, Script, Tokens};
 
 /// Anthropic reports uncached input apart from cache reads and writes.
 fn usage(tokens: Tokens) -> Value {
@@ -20,8 +20,18 @@ fn stop(script: &Script) -> &'static str {
     }
 }
 
+fn thought_block(thought: &FakeThought) -> Value {
+    match thought {
+        FakeThought::Signed {
+            thinking,
+            signature,
+        } => json!({ "type": "thinking", "thinking": thinking, "signature": signature }),
+        FakeThought::Redacted { data } => json!({ "type": "redacted_thinking", "data": data }),
+    }
+}
+
 pub(crate) fn reply(script: &Script, tokens: Tokens) -> Value {
-    let mut content = Vec::new();
+    let mut content: Vec<Value> = script.thoughts.iter().map(thought_block).collect();
     if !script.plain.is_empty() || script.calls.is_empty() {
         content.push(json!({ "type": "text", "text": script.plain }));
     }
@@ -54,6 +64,39 @@ pub(crate) fn stream(script: &Script, tokens: Tokens) -> Vec<Frame> {
         false,
     )];
     let mut index = 0;
+    for thought in &script.thoughts {
+        let (start, deltas) = match thought {
+            FakeThought::Signed {
+                thinking,
+                signature,
+            } => (
+                json!({ "type": "thinking", "thinking": "" }),
+                vec![
+                    json!({ "type": "thinking_delta", "thinking": thinking }),
+                    json!({ "type": "signature_delta", "signature": signature }),
+                ],
+            ),
+            FakeThought::Redacted { .. } => (thought_block(thought), Vec::new()),
+        };
+        frames.push(frame(
+            "content_block_start",
+            json!({ "type": "content_block_start", "index": index, "content_block": start }),
+            false,
+        ));
+        for delta in deltas {
+            frames.push(frame(
+                "content_block_delta",
+                json!({ "type": "content_block_delta", "index": index, "delta": delta }),
+                false,
+            ));
+        }
+        frames.push(frame(
+            "content_block_stop",
+            json!({ "type": "content_block_stop", "index": index }),
+            false,
+        ));
+        index += 1;
+    }
     let pieces = script.pieces();
     if !pieces.is_empty() {
         frames.push(frame(

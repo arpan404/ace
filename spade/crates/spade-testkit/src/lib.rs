@@ -29,6 +29,15 @@ pub struct FakeCall {
     pub arguments: Value,
 }
 
+/// Thinking the fake does before it answers.
+#[derive(Debug, Clone)]
+pub enum FakeThought {
+    /// Anthropic: a `thinking` block with its signature. OpenAI Chat: `reasoning_content`.
+    Signed { thinking: String, signature: String },
+    /// Anthropic: a `redacted_thinking` block.
+    Redacted { data: String },
+}
+
 /// How the fake answers one request.
 #[derive(Debug, Clone)]
 pub struct Script {
@@ -47,6 +56,8 @@ pub struct Script {
     pub cache_write: u32,
     /// Tool calls made after the text.
     pub calls: Vec<FakeCall>,
+    /// Thinking before the text, in order.
+    pub thoughts: Vec<FakeThought>,
 }
 
 impl Script {
@@ -60,6 +71,7 @@ impl Script {
             cache_read: 0,
             cache_write: 0,
             calls: Vec::new(),
+            thoughts: Vec::new(),
         }
     }
 
@@ -98,6 +110,23 @@ impl Script {
             id: id.to_owned(),
             name: name.to_owned(),
             arguments,
+        });
+        self
+    }
+
+    /// Adds a signed thinking block before the text.
+    pub fn thinking(mut self, thinking: &str, signature: &str) -> Self {
+        self.thoughts.push(FakeThought::Signed {
+            thinking: thinking.to_owned(),
+            signature: signature.to_owned(),
+        });
+        self
+    }
+
+    /// Adds a redacted thinking block before the text (Anthropic only).
+    pub fn redacted(mut self, data: &str) -> Self {
+        self.thoughts.push(FakeThought::Redacted {
+            data: data.to_owned(),
         });
         self
     }

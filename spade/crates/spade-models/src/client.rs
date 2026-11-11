@@ -15,7 +15,7 @@ use serde::de::DeserializeOwned;
 use crate::catalog::{Catalog, Price, Role};
 use crate::error::ModelError;
 use crate::prompt::{Delta, Generated, Message, Prompt, Reply, ToolCall, Usage};
-use crate::typed;
+use crate::{thoughts, typed};
 use spade_keys::{KeyRequest, Keys};
 
 /// Calls the catalogue's models on their endpoints.
@@ -74,7 +74,10 @@ impl Models {
             .into_iter()
             .map(from_sdk)
             .collect();
-        let signatures = signatures(&response.content);
+        let thoughts = thoughts::read(
+            Some(&response.content),
+            response.reasoning_content.as_deref(),
+        );
         let text = response.content.joined_texts().unwrap_or_default();
         if text.is_empty() && calls.is_empty() {
             return Err(ModelError::Empty {
@@ -85,7 +88,7 @@ impl Models {
             model: call.reference,
             text,
             calls,
-            signatures,
+            thoughts,
             usage,
         })
     }
@@ -126,7 +129,8 @@ impl Models {
             .options
             .with_capture_usage(true)
             .with_capture_tool_calls(true)
-            .with_capture_content(true);
+            .with_capture_content(true)
+            .with_capture_reasoning_content(true);
         let response = self
             .client
             .exec_chat_stream(call.target, request(prompt), Some(&options))
@@ -151,12 +155,10 @@ impl Models {
                             .collect();
                         out.push(Ok(Delta::Done {
                             usage: end.captured_usage.as_ref().map(usage).unwrap_or_default(),
-                            signatures: end
-                                .captured_thought_signatures()
-                                .unwrap_or_default()
-                                .into_iter()
-                                .map(str::to_owned)
-                                .collect(),
+                            thoughts: thoughts::read(
+                                end.captured_content.as_ref(),
+                                end.captured_reasoning_content.as_deref(),
+                            ),
                         }));
                         Some(out)
                     }
@@ -232,19 +234,15 @@ fn message(message: &Message) -> ChatMessage {
         Message::Spade {
             text,
             calls,
-            signatures,
-        } if calls.is_empty() && signatures.is_empty() => ChatMessage::assistant(text.as_str()),
+            thoughts,
+        } if calls.is_empty() && thoughts.is_empty() => ChatMessage::assistant(text.as_str()),
         Message::Spade {
             text,
             calls,
-            signatures,
+            thoughts,
         } => {
-            // Signatures first, then text, then the calls: the order providers expect back.
-            let mut parts: Vec<ContentPart> = signatures
-                .iter()
-                .cloned()
-                .map(ContentPart::ThoughtSignature)
-                .collect();
+            // Thoughts first, then text, then the calls: the order providers expect back.
+            let mut parts: Vec<ContentPart> = thoughts::parts(thoughts);
             if !text.is_empty() {
                 parts.push(ContentPart::Text(text.clone()));
             }
@@ -282,17 +280,6 @@ fn from_sdk(call: &SdkCall) -> ToolCall {
         name: call.fn_name.clone(),
         arguments: call.fn_arguments.clone(),
     }
-}
-
-fn signatures(content: &MessageContent) -> Vec<String> {
-    content
-        .parts()
-        .iter()
-        .filter_map(|part| match part {
-            ContentPart::ThoughtSignature(signature) => Some(signature.clone()),
-            _ => None,
-        })
-        .collect()
 }
 
 fn usage(usage: &genai::chat::Usage) -> Usage {

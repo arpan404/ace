@@ -279,7 +279,7 @@ mod tests {
             reply: reply.into(),
             text: String::new(),
             calls,
-            signatures: Vec::new(),
+            thoughts: Vec::new(),
             usage: crate::event::Tokens::default(),
             cost_micros: 0,
             seen: None,

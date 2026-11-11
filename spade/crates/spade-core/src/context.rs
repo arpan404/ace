@@ -123,7 +123,7 @@ pub fn messages(events: &[Event]) -> Vec<Message> {
             Known::StepFinished {
                 text,
                 calls,
-                signatures,
+                thoughts,
                 ..
             } => {
                 let calls: Vec<ToolCall> = calls
@@ -138,7 +138,7 @@ pub fn messages(events: &[Event]) -> Vec<Message> {
                 out.push(Message::Spade {
                     text: text.clone(),
                     calls,
-                    signatures: signatures.clone(),
+                    thoughts: thoughts.clone(),
                 });
             }
             Known::ToolFinished {
@@ -173,7 +173,7 @@ pub fn messages(events: &[Event]) -> Vec<Message> {
                     out.push(Message::Spade {
                         text: text.clone(),
                         calls: Vec::new(),
-                        signatures: Vec::new(),
+                        thoughts: Vec::new(),
                     });
                 }
             }

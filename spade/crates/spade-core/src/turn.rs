@@ -189,7 +189,7 @@ mod tests {
             reply: "r1".into(),
             text: String::new(),
             calls,
-            signatures: Vec::new(),
+            thoughts: Vec::new(),
             usage: Tokens::default(),
             cost_micros: cost,
             seen: None,

@@ -17,7 +17,7 @@ fn step(reply: &str, text: &str, calls: &[(&str, &str)]) -> Event {
                 arguments: json!({}),
             })
             .collect(),
-        signatures: Vec::new(),
+        thoughts: Vec::new(),
         usage: Tokens::default(),
         cost_micros: 0,
         seen: None,

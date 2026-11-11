@@ -513,3 +513,35 @@ async fn a_call_id_the_provider_reuses_gets_its_own_approval_and_run() -> Result
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn the_models_thinking_is_stored_with_its_step_and_sent_back_with_the_tool_result() -> Result
+{
+    let lookup = FakeTool::new("lookup", Risk::Read, "12C");
+    let spade = Spade::start(
+        vec![
+            Script::reply("")
+                .thinking("Need the weather tool.", "unused")
+                .call("c1", "lookup", json!({ "city": "Oxford" })),
+            Script::reply("It is 12C."),
+            Script::reply("").plain(r#"{"title":"Weather"}"#),
+        ],
+        tools(vec![lookup]),
+    )
+    .await?;
+    let id = spade.ask("Weather in Oxford?").await?;
+    let events = spade.wait_for(&id, "reply_finished").await?;
+    let step = events.iter().find(|e| e["type"] == "step_finished");
+    assert_eq!(
+        step.map(|e| e["thoughts"].clone()),
+        Some(json!([{ "kind": "reasoning", "text": "Need the weather tool." }]))
+    );
+    let second = &spade.fake.seen()[1].body["messages"];
+    let assistant = second
+        .as_array()
+        .and_then(|m| m.iter().find(|m| m["role"] == "assistant"))
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(assistant["reasoning_content"], "Need the weather tool.");
+    Ok(())
+}

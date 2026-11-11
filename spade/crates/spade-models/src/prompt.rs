@@ -1,5 +1,6 @@
 //! Spade's own request and reply types. Nothing outside this crate sees the SDK's types.
 
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// A tool the model may call: its name, what it does, and a JSON Schema for its input.
@@ -18,18 +19,36 @@ pub struct ToolCall {
     pub arguments: Value,
 }
 
+/// Reasoning a model did before answering, kept so it goes back exactly as it came: Anthropic
+/// rejects a tool continuation whose signed thinking is missing or altered, and some
+/// OpenAI-compatible endpoints need their `reasoning_content` back with tool calls.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Thought {
+    /// Signed thinking: the signature and, when the provider sent it, the reasoning it signs.
+    Signed {
+        signature: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reasoning: Option<String>,
+    },
+    /// Reasoning text with no signature.
+    Reasoning { text: String },
+    /// A provider block kept whole, such as Anthropic's redacted thinking.
+    Block { data: Value },
+}
+
 /// One entry in the conversation sent to a model.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Message {
     Person {
         text: String,
     },
-    /// Spade's earlier turn: its text, the tool calls it made, and the provider's thought
-    /// signatures, which must be sent back unchanged for multi-step tool use to keep working.
+    /// Spade's earlier turn: its text, the tool calls it made, and the model's thoughts, which
+    /// must be sent back unchanged for multi-step tool use to keep working.
     Spade {
         text: String,
         calls: Vec<ToolCall>,
-        signatures: Vec<String>,
+        thoughts: Vec<Thought>,
     },
     /// The result of one tool call, answered by `call_id`.
     ToolResult {
@@ -75,22 +94,22 @@ impl Prompt {
         self.messages.push(Message::Spade {
             text: text.into(),
             calls: Vec::new(),
-            signatures: Vec::new(),
+            thoughts: Vec::new(),
         });
         self
     }
 
-    /// Spade's turn that made tool calls, with the provider's thought signatures from that turn.
+    /// Spade's turn that made tool calls, with the model's thoughts from that turn.
     pub fn spade_calls(
         mut self,
         text: impl Into<String>,
         calls: Vec<ToolCall>,
-        signatures: Vec<String>,
+        thoughts: Vec<Thought>,
     ) -> Self {
         self.messages.push(Message::Spade {
             text: text.into(),
             calls,
-            signatures,
+            thoughts,
         });
         self
     }
@@ -134,8 +153,8 @@ pub struct Reply {
     pub text: String,
     /// Tool calls the model made; empty when it simply answered.
     pub calls: Vec<ToolCall>,
-    /// Thought signatures to send back with this turn (see [`Message::Spade`]).
-    pub signatures: Vec<String>,
+    /// Thoughts to send back with this turn (see [`Message::Spade`]).
+    pub thoughts: Vec<Thought>,
     pub usage: Usage,
 }
 
@@ -154,9 +173,9 @@ pub enum Delta {
     Reasoning(String),
     /// A complete tool call, sent once its arguments have fully arrived.
     Call(ToolCall),
-    /// The reply is complete. `signatures` go back with this turn (see [`Message::Spade`]).
+    /// The reply is complete. `thoughts` go back with this turn (see [`Message::Spade`]).
     Done {
         usage: Usage,
-        signatures: Vec<String>,
+        thoughts: Vec<Thought>,
     },
 }

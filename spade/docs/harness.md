@@ -9,11 +9,13 @@ Date: 2026-11-11. How a turn runs, as built in `spade-core` (decisions, no I/O) 
 | -------------------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
 | `user_message`                   | `text`, `context?`                                                 | `context` (time, memories) is fixed when stored, so the prompt rebuilds to the same bytes |
 | `skills_indexed`                 | `text`                                                             | The skill index, fixed at the first turn                                                  |
-| `step_finished`                  | `reply`, `text`, `calls[]`, `signatures[]`, `usage`, `cost_micros` | One model call ended                                                                      |
+| `step_finished`                  | `reply`, `text`, `calls[]`, `thoughts[]`, `usage`, `cost_micros`, `seen` | One model call ended. `thoughts` are kept whole (signed and redacted thinking, `reasoning_content`) and sent back as they came; `seen` is how many events its prompt was built from |
 | `approval_requested`             | `reply`, `call_id`, `name`, `arguments`                            | The gate is waiting on the person                                                         |
 | `approval_answered`              | `reply`, `call_id`, `allowed`, `always`                            | `always` allows that tool for the rest of the conversation                                |
 | `tool_started` / `tool_finished` | `reply`, `call_id`, `name`, (`content`, `is_error`)                | A tool ran                                                                                |
 | `context_compacted`              | `summary`, `keep_from`, `tokens_before`                            | The model now sees `summary`, then events from index `keep_from`                          |
+| `job_started`                    | `reply`, `job`, `name`                                             | A background tool's call was handed to a job (its `tool_finished` says so at once)       |
+| `job_finished`                   | `job`, `name`, `content`, `is_error`                               | The job ended; the model reads it as a `<job_result>`                                     |
 
 `reply_finished` closes a turn whose last step made no tool calls; its `cost_micros` is the
 turn's total.
@@ -32,8 +34,16 @@ turn's total.
   `web_fetch`, email). Allowed calls run in parallel (at most 4) with a timeout; results are cut
   to 20,000 characters. A declined call returns "The person declined this action."
 - **Steering:** a message sent mid-turn is stored at once and the next model call sees it, placed
-  after any running tools' results. A turn finishes only if no message arrived after its last step,
-  checked under the same lock that decides steer-or-start, so a message is never lost.
+  after any running tools' results, and after the step it arrived during. A turn finishes only if
+  nothing arrived after its last step's prompt was built (`seen`), checked under the same lock that
+  decides steer-or-start, so a message is never lost.
+- **Call ids:** a provider may reuse ids across steps (`call_0` in every reply); a reused id is
+  replaced before the step is stored, so results and approvals never match the wrong call.
+- **Background tools:** a tool marked `background` answers its call at once and runs as a job
+  (at most 30 minutes). Its result is delivered like a message: it steers the open reply or starts a
+  new one. Stop cancels jobs and records them stopped without starting a turn; after a restart each
+  lost job is delivered as "unknown outcome". The conversation list shows `jobs` running, so a
+  conversation never reads as idle while one is out.
 - **Stop** cancels the model stream and running tools; calls left without a result are answered
   "not run" in later prompts.
 - **Limits:** 30 steps, $2 per turn, the daily cap; each ends the turn with `reply_failed` and a

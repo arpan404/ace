@@ -2,7 +2,7 @@
 
 use serde_json::{Value, json};
 
-use crate::{Frame, Script, Tokens};
+use crate::{FakeThought, Frame, Script, Tokens};
 
 /// OpenAI counts cached tokens inside `prompt_tokens`.
 fn usage(tokens: Tokens) -> Value {
@@ -31,6 +31,10 @@ pub(crate) fn reply(script: &Script, tokens: Tokens) -> Value {
         })
         .collect();
     let mut message = json!({ "role": "assistant", "content": script.plain });
+    let reasoning = reasoning(script);
+    if !reasoning.is_empty() {
+        message["reasoning_content"] = json!(reasoning);
+    }
     if !calls.is_empty() {
         message["tool_calls"] = Value::Array(calls);
     }
@@ -52,15 +56,31 @@ fn chunk(delta: Value, finish_reason: Value) -> Frame {
     }
 }
 
-pub(crate) fn stream(script: &Script, tokens: Tokens) -> Vec<Frame> {
-    let mut frames: Vec<Frame> = script
-        .pieces()
-        .into_iter()
-        .map(|content| Frame {
-            text: true,
-            ..chunk(json!({ "content": content }), Value::Null)
+/// Signed thinking, as the `reasoning_content` some OpenAI-compatible endpoints send.
+fn reasoning(script: &Script) -> String {
+    script
+        .thoughts
+        .iter()
+        .filter_map(|t| match t {
+            FakeThought::Signed { thinking, .. } => Some(thinking.as_str()),
+            FakeThought::Redacted { .. } => None,
         })
-        .collect();
+        .collect()
+}
+
+pub(crate) fn stream(script: &Script, tokens: Tokens) -> Vec<Frame> {
+    let mut frames: Vec<Frame> = Vec::new();
+    let reasoning = reasoning(script);
+    if !reasoning.is_empty() {
+        frames.push(chunk(
+            json!({ "reasoning_content": reasoning }),
+            Value::Null,
+        ));
+    }
+    frames.extend(script.pieces().into_iter().map(|content| Frame {
+        text: true,
+        ..chunk(json!({ "content": content }), Value::Null)
+    }));
     for (index, call) in script.calls.iter().enumerate() {
         frames.push(chunk(
             json!({ "tool_calls": [{ "index": index, "id": call.id, "type": "function",
