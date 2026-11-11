@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/SpadeServerMessage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeStatusResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeStatusChanged.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeHttpResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeHttpOpen.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeHttpChunk.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeLiveFrame.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeLiveEnded.json"
+    }
+  ]
+}

@@ -348,6 +348,9 @@
         "sourceControl.preferences": {
           "$ref": "https://ace.local/protocol/v1/SourceControlPreferences.json"
         },
+        "spade.enabled": {
+          "type": "boolean"
+        },
         "storage.backupWorktrees": {
           "type": "boolean"
         },

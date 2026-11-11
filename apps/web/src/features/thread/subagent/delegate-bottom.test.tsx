@@ -1,4 +1,5 @@
 import { delegatedDocs, delegatedDocsIds, facts } from "@ace/fake-daemon";
+import { ThreadId } from "@ace/protocol";
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
@@ -70,4 +71,68 @@ test("each action on a finished delegated thread's bar says what it does", async
     expect((await screen.findByRole("tooltip")).textContent).toBe(tip);
     await userEvent.unhover(within(bar).getByRole(role, { name }));
   }
+});
+
+test("a thread Spade delegated has no parent to open: no subagent bar, no parent link, its own composer", async () => {
+  const app = harness({ clock: () => 10 * 60_000 });
+  app.daemon.createThread({
+    id: "spade-host",
+    workspaceId: "relay",
+    provider: "claude",
+    title: "Spade",
+  });
+  app.daemon.createThread({
+    id: "spade-child",
+    workspaceId: "relay",
+    provider: "codex",
+    title: "Check the relay",
+    parentThreadId: "spade-host",
+  });
+  app.daemon.apply("spade-child", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Check the relay"),
+    facts.endTurn("root"),
+  ]);
+  app.daemon.spade.status = {
+    state: "ready",
+    thread: { id: ThreadId.parse("spade-host"), busy: false },
+  };
+  await app.open("/t/spade-child");
+  await screen.findByRole("heading", { name: "Check the relay", level: 1 });
+  expect(await screen.findByRole("combobox", { name: "Message" })).toBeTruthy();
+  expect(screen.queryByRole("group", { name: "Subagent" })).toBeNull();
+  expect(screen.queryByRole("link", { name: "Spade" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Open parent" })).toBeNull();
+});
+
+test("with Spade off, a thread Spade delegated still has no parent to open: its parent says it is Spade's", async () => {
+  const app = harness({ clock: () => 10 * 60_000 });
+  app.daemon.createThread({
+    id: "old-spade-host",
+    workspaceId: "relay",
+    provider: "claude",
+    title: "Spade",
+    host: "spade",
+  });
+  app.daemon.createThread({
+    id: "old-spade-child",
+    workspaceId: "relay",
+    provider: "codex",
+    title: "Summarize the relay",
+    parentThreadId: "old-spade-host",
+  });
+  app.daemon.apply("old-spade-child", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Summarize the relay"),
+    facts.endTurn("root"),
+  ]);
+  // Spade is off: its status names no host thread.
+  app.daemon.spade.status = { state: "off" };
+  await app.open("/t/old-spade-child");
+  await screen.findByRole("heading", { name: "Summarize the relay", level: 1 });
+  expect(await screen.findByRole("combobox", { name: "Message" })).toBeTruthy();
+  expect(screen.queryByRole("group", { name: "Subagent" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Open parent" })).toBeNull();
 });

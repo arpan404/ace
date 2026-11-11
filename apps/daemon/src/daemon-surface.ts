@@ -83,6 +83,7 @@ export function bindLiveServices(serverOptions: ServerOptions, services: Service
     "storage",
     "devices",
     "userBrowser",
+    "spade",
   ] as const)
     Object.defineProperty(serverOptions, key, {
       enumerable: true,
@@ -185,6 +186,9 @@ export function daemonHandle({
     },
     get skillLibrary() {
       return services.skillLibrary;
+    },
+    get spade() {
+      return services.spade;
     },
     get commands() {
       return services.commands;

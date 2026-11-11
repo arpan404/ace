@@ -31,6 +31,8 @@ export interface FakeDaemonOptions {
 }
 export interface ThreadInit {
   imported?: Thread["imported"];
+  /** A thread the daemon holds for Spade (ADR 0117): hidden from every list. */
+  host?: Thread["host"];
   id: string;
   workspaceId: string;
   title: string;

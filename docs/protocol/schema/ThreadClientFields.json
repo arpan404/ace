@@ -26,6 +26,10 @@
     "hasSentMessage": {
       "type": "boolean"
     },
+    "host": {
+      "const": "spade",
+      "type": "string"
+    },
     "listOrder": {
       "description": "Place in the Home list when it is ordered by hand (threads.sortBy manual), higher first. Absent: the thread's creation time stands in, so a new thread leads.",
       "type": "number"

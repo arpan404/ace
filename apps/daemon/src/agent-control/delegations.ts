@@ -2,6 +2,7 @@ import { registered } from "./failure-account.ts";
 import { delegationRequest } from "./cursor-request.ts";
 import { AgentControlError, controlAdmissionError, startsLater } from "./failure.ts";
 import { callerThread } from "./authorization.ts";
+import { delegationWorkspace } from "./host-delegation.ts";
 import { ReservationLifetimes } from "./reservation-lifetimes.ts";
 import { controlCommandId } from "./command-id.ts";
 import { agentSubtree } from "./agent-subtree.ts";
@@ -496,7 +497,7 @@ export class DelegationService {
     return this.prepareInWorkspace(
       caller,
       value,
-      callerThread(this.deps.store, caller).workspaceId,
+      delegationWorkspace(this.deps.store, caller, value),
       configuredModel,
     );
   }
@@ -1299,8 +1300,15 @@ export class DelegationService {
       if (!next || next.due > this.deps.clock.now()) break;
       try {
         this.deps.store.atomic(() => {
-          if (!this.deps.store.getThread(next.parent_id)) {
+          const parent = this.deps.store.getThread(next.parent_id);
+          if (!parent) {
             this.journal.discard(next.parent_id);
+            return;
+          }
+          // A host thread (ADR 0117) has no agent to wake: Spade reads its children's results
+          // through `wait` and `agents_status`, so they stay held, undropped.
+          if (parent.host !== undefined) {
+            this.journal.holdWake(next.parent_id);
             return;
           }
           // A stopped parent is not woken. Its results wait, undropped, for its next input.

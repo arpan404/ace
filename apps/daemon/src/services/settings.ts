@@ -59,7 +59,10 @@ export function createSettingsSession(context: SocketContext): SocketService {
           (key !== "providers.configuration" || authorize("admin")) &&
           (!key.startsWith("storage.") || authorize("admin")) &&
           (!key.startsWith("browser.download") || authorize("admin")) &&
-          ((key !== "computer.blockedApps" && key !== "computer.lockedUse") || authorize("admin")),
+          ((key !== "computer.blockedApps" &&
+            key !== "computer.lockedUse" &&
+            key !== "spade.enabled") ||
+            authorize("admin")),
       ),
     set: async (key, value, commit) => {
       const write = async () => {
