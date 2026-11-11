@@ -162,6 +162,7 @@ fn stored_context_rides_with_its_message_and_messages_in_a_row_join() {
             text: "Plan my day".into(),
             context: Some("Today is Monday.".into()),
             images: Vec::new(),
+            from_agent: None,
         }),
         Event::user_message("Short please"),
     ];
@@ -368,6 +369,7 @@ fn attached_images_are_shown_when_available_and_described_when_not() {
         text: "Compare these".into(),
         context: None,
         images: vec![image("kept"), image("gone")],
+        from_agent: None,
     })];
     let shown = messages_with(&events, &Shelf);
     let Some(Message::Person { text, images }) = shown.first() else {
@@ -448,6 +450,7 @@ fn older_images_are_left_out_in_steps_so_the_prompt_start_stays_cached() {
                 text: format!("look {n}"),
                 context: None,
                 images: vec![image(n)],
+                from_agent: None,
             })
         })
         .collect();
@@ -474,6 +477,7 @@ fn image_turn(n: usize) -> [Event; 2] {
                 media_type: format!("image/png;n={n}"),
                 bytes: 3,
             }],
+            from_agent: None,
         }),
         step(&format!("r{n}"), "seen", &[]),
     ]
@@ -528,4 +532,51 @@ fn more_images_than_a_prompt_shows_compacts_instead_of_rewriting_it() {
     assert!(too_many_images(&events));
     // Far below the size that compacts, the images alone do.
     assert!(crate::compaction::plan(&events, 50, 10_000).is_some());
+}
+
+#[test]
+fn the_task_in_the_prompt_is_the_one_set_before_the_turn_began() {
+    let configured = |task: &str| {
+        Event::Known(Known::AgentConfigured {
+            task: task.into(),
+            model: "e/m".into(),
+        })
+    };
+    let mut events = vec![
+        configured("Plan trips."),
+        Event::user_message("Hi"),
+        Event::reply_started("r1", "e/m"),
+    ];
+    let system = |events: &[Event]| prompt(SYSTEM, Vec::new(), events).system.unwrap_or_default();
+    assert!(system(&events).contains("<task>\nPlan trips.\n</task>"));
+    // Changed mid-turn: this turn keeps the old task; the next turn takes the new one.
+    events.push(configured("Track parcels."));
+    let mid_turn = system(&events);
+    assert!(mid_turn.contains("Plan trips.") && !mid_turn.contains("Track parcels."));
+    events.push(Event::reply_started("r2", "e/m"));
+    assert!(system(&events).contains("Track parcels."));
+    // Cleared: no task section at all, so an agent with no task sends the bare instructions.
+    events.push(configured(""));
+    events.push(Event::reply_started("r3", "e/m"));
+    assert_eq!(system(&events), SYSTEM);
+}
+
+#[test]
+fn a_message_from_another_bot_reads_as_one_not_as_the_person() {
+    let events = [Event::Known(Known::UserMessage {
+        text: "Find flights".into(),
+        context: None,
+        images: Vec::new(),
+        from_agent: Some(crate::event::FromAgent {
+            id: "a_2".into(),
+            name: "Spade".into(),
+            depth: 1,
+        }),
+    })];
+    let sent = messages(&events);
+    assert!(matches!(
+        sent.first(),
+        Some(Message::Person { text, .. })
+            if text == "<bot_message from=\"Spade\" id=\"a_2\">\nFind flights\n</bot_message>"
+    ));
 }
