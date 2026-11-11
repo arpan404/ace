@@ -1,4 +1,5 @@
-import { storedEvent, untrusted } from "./stored-decode.ts";
+import { storedEvent, untrusted, untrustedEntities } from "./stored-decode.ts";
+import { storedEntityShape } from "./entity-shape.ts";
 import { storedEventShape, trustedSequenceStart } from "./stored-shape.ts";
 import { confirmThreadRows, openThreadRowTrust, threadRowShape } from "./thread-row-trust.ts";
 import { ThreadReads } from "./thread-reads.ts";
@@ -96,6 +97,8 @@ export interface StoreOptions extends Partial<CredentialRuntime> {
   eventShape?: string;
   /** Stands in for this build's thread row shape (`thread-row-trust.ts`), for tests. */
   threadRowShape?: string;
+  /** The entity row shape this store reads in (`entity-shape.ts`); tests stand in builds with it. */
+  entityShape?: string;
 }
 type Listener = (events: Event[]) => void;
 /** Passes of the search writer (100 ms apart by default) between refreshes of streaming items. */
@@ -161,6 +164,8 @@ export class Store {
   private publishedSeq = 0;
   /** Rows from here on were written by this build and are read without validating again. */
   private readonly trust = untrusted();
+  /** Whether every entity row is in this build's shape, so read without validating again. */
+  private readonly entityTrust = untrustedEntities();
   constructor(
     path: string,
     onError: (error: unknown) => void = console.error,
@@ -236,7 +241,7 @@ export class Store {
       (sql) => this.statement(sql),
       this.trust,
     );
-    this.status = new StatusStore(this.db, (sql) => this.statement(sql));
+    this.status = new StatusStore(this.db, (sql) => this.statement(sql), this.entityTrust);
     try {
       this.db.exec(
         // auto_vacuum only takes effect before a new file's first page or through VACUUM.
@@ -303,6 +308,7 @@ export class Store {
         report: (error) => this.onError(error),
       });
       this.atomic(migrateRunClient);
+      this.status.trustEntities(options.entityShape ?? storedEntityShape(schemaVersion));
       this.longThreads = new LongThreadIndex(this.db, (id) => {
         const thread = this.getThread(ThreadId.parse(id));
         return thread?.deletedAt === undefined ? thread : undefined;

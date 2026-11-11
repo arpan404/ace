@@ -1,11 +1,18 @@
 import type { SQLOutputValue } from "node:sqlite";
 import {
+  Agent,
+  BackgroundTask,
+  ContextMeter,
   Event,
   EventPayload,
+  Interaction,
   Item,
+  QueueState,
+  Run,
   ThreadClientFields,
   ThreadProviderMetadata,
   ThreadTransitionView,
+  UsageUpdated,
   type EventId,
   type Thread,
   type ThreadId,
@@ -143,4 +150,45 @@ export const trustedThreadParts = {
 /** The trusted thread decoders' code, part of the thread row shape (`thread-row-trust.ts`). */
 export function trustedThreadDecoderSource(): string {
   return [picked, stored, ...Object.values(trustedThreadParts)].map(String).join("\n");
+}
+/** The schema of each `view_entities` collection's values. */
+export const storedEntitySchemas = {
+  agents: Agent,
+  runs: Run,
+  interactions: Interaction,
+  backgroundTasks: BackgroundTask,
+  usage: UsageUpdated,
+  contextMeters: ContextMeter,
+  usageSnapshots: UsageUpdated,
+  queue: QueueState,
+} as const;
+export type StoredEntityCollection = keyof typeof storedEntitySchemas;
+export type StoredEntity<C extends StoredEntityCollection> = z.output<
+  (typeof storedEntitySchemas)[C]
+>;
+/**
+ * Whether every `view_entities` row is in this build's shape (`entity-shape.ts`). Entity rows are
+ * rewritten in place, so trust is all or nothing: set once at open, after any row an older
+ * build left was rewritten in this build's shape. Until then every row is decoded.
+ */
+export interface EntityTrust {
+  trusted: boolean;
+}
+export const untrustedEntities = (): EntityTrust => ({ trusted: false });
+/** A stored entity value decoded with its collection's schema, filling the schema's defaults. */
+export function decodeStoredEntity<C extends StoredEntityCollection>(
+  collection: C,
+  value: unknown,
+): StoredEntity<C> {
+  return storedEntitySchemas[collection].parse(value) as StoredEntity<C>;
+}
+/** A `view_entities` value; see `EntityTrust`. */
+export function storedEntity<C extends StoredEntityCollection>(
+  collection: C,
+  json: string,
+  trust: EntityTrust,
+): StoredEntity<C> {
+  const value: unknown = JSON.parse(json);
+  // Trusted: this build's writer produced this JSON from a value folded from validated events.
+  return trust.trusted ? (value as StoredEntity<C>) : decodeStoredEntity(collection, value);
 }
