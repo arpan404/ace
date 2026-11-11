@@ -169,12 +169,35 @@ export function harness(
       });
       await expect.poll(() => client.state).toBe("ready");
     },
+    /**
+     * The latest subscription of `kind` (of `threadId`, when given), once it is sent: a thread
+     * waits for its kept record before it subscribes.
+     */
+    async subscribed(kind: "thread" | "threads", threadId?: string) {
+      const matches = (message: (typeof sent)[number]) =>
+        message.type === "subscribe" &&
+        message.scope.kind === kind &&
+        (threadId === undefined ||
+          (message.scope.kind === "thread" && message.scope.threadId === threadId));
+      await expect.poll(() => sent.some(matches)).toBe(true);
+      const wire = sent.findLast(matches);
+      if (!wire || wire.type !== "subscribe") throw new Error("No subscription");
+      return wire;
+    },
     wire(kind: "thread" | "threads") {
       const wire = sent.findLast(
         (message) => message.type === "subscribe" && message.scope.kind === kind,
       );
       if (!wire || wire.type !== "subscribe") throw new Error("No subscription");
       return wire;
+    },
+    /** Run every scheduled job due within `ms`. */
+    elapse(ms: number) {
+      for (const job of scheduled)
+        if (job.ms <= ms) {
+          scheduled.delete(job);
+          job.callback();
+        }
     },
     flush() {
       for (const job of scheduled)

@@ -32,6 +32,8 @@ interface Cached {
   database: string | undefined;
   /** Its cursor came from disk and no live frame has confirmed it yet. */
   restored: boolean;
+  /** Its kept record is still being read: it subscribes once that settles. */
+  loading: boolean;
 }
 export interface ThreadSubscription {
   store: ThreadStore;
@@ -112,8 +114,17 @@ export class Subscriptions {
         inactiveBytes: 0,
         database: undefined,
         restored: false,
+        loading: false,
       };
       entry.binding = this.#bind(entry);
+      if (entry.binding) {
+        const loading = entry;
+        loading.loading = true;
+        void loading.binding?.loaded.then(() => {
+          loading.loading = false;
+          this.#pump();
+        });
+      }
     }
     this.#cache.delete(threadId);
     this.#cache.set(threadId, entry);
@@ -247,6 +258,8 @@ export class Subscriptions {
         // sequence (ADR 0062, ADR 0128).
         entry.restored = true;
         entry.database = record.databaseId;
+        // Known to be another database's copy, however late it loaded: replace, never merge.
+        if (this.#mismatched(entry)) entry.store.replaceOnSnapshot();
         if (!entry.refs && this.#cache.get(threadId) === entry) this.#retain(entry);
       },
     );
@@ -286,7 +299,8 @@ export class Subscriptions {
     if (!this.#ready()) return;
     for (const [threadId, entry] of this.#cache) {
       if (!this.#ready() || this.#starting.size >= 4) break;
-      if (entry.refs && !entry.rejected && !entry.subscriptionId) this.#subscribe(threadId, entry);
+      if (entry.refs && !entry.rejected && !entry.subscriptionId && !entry.loading)
+        this.#subscribe(threadId, entry);
     }
   }
   #subscribe(threadId: string, entry: Cached): void {
@@ -311,7 +325,20 @@ export class Subscriptions {
    */
   #resumable(entry: Cached): boolean {
     if (entry.fresh || entry.store.cursor === undefined) return false;
-    return !entry.restored || (entry.database !== undefined && entry.database === this.#database);
+    if (!entry.restored) return true;
+    if (entry.database !== undefined && entry.database === this.#database) return true;
+    // Known to be another database's: its sequences say nothing here, so nothing of it is kept.
+    if (this.#mismatched(entry)) entry.store.replaceOnSnapshot();
+    return false;
+  }
+  /** `entry` holds a copy known to come from another database than the daemon's. */
+  #mismatched(entry: Cached): boolean {
+    return (
+      entry.restored &&
+      entry.database !== undefined &&
+      this.#database !== undefined &&
+      entry.database !== this.#database
+    );
   }
   /**
    * The daemon's welcome named `databaseId`. A cursor is a position in one database: past a
@@ -326,6 +353,7 @@ export class Subscriptions {
       entry.fresh = true;
       entry.database = undefined;
       entry.restored = false;
+      entry.store.replaceOnSnapshot();
     }
   }
   /** A live frame for `entry` landed: its cursor is now the current database's. */

@@ -592,15 +592,21 @@ test("a fork's divider sits between the source's history and the fork's own firs
   expect(ask?.text).toBe("Now do the same for the other test.");
 });
 
-test("a thread stays shown when the daemon's snapshot replaces the one kept from the last launch", async () => {
-  const fake = fixture();
-  fake.createThread({ id: "long", workspaceId: "ace", title: "Long", provider: "codex" });
-  fake.apply("long", [
+/** A fixture daemon holding one finished thread, as each launch meets it. */
+function seeded() {
+  const daemon = fixture();
+  daemon.createThread({ id: "long", workspaceId: "ace", title: "Long", provider: "codex" });
+  daemon.apply("long", [
     facts.rootAgent("codex"),
     facts.turn("root"),
     facts.message("root", "ask", "user", "Summarise the log."),
     facts.endTurn("root"),
   ]);
+  return daemon;
+}
+
+test("a thread stays shown when the daemon's snapshot replaces the one kept from the last launch", async () => {
+  const fake = seeded();
   const kept = new Map<string, unknown>();
   const storage = {
     get: async (key: string) => kept.get(key),
@@ -612,10 +618,12 @@ test("a thread stays shown when the daemon's snapshot replaces the one kept from
   await until(() => kept.size > 0, "a kept snapshot");
   await reset();
   // This launch paints the kept snapshot first; the daemon's snapshot then clears every queued
-  // thread patch, ready included. The transcript must show again rather than load forever.
+  // thread patch, ready included. The transcript must show again rather than load forever. The
+  // daemon restarted (another database under the same host id), so it answers with a snapshot
+  // rather than resuming the kept cursor.
   let release = idle;
   const network = new Promise<void>((resolve) => (release = resolve));
-  open(connect(fake, { readSnapshots: storage, held: network }), "long");
+  open(connect(seeded(), { readSnapshots: storage, held: network }), "long");
   await until(() => latest("thread.ready"), "the kept transcript shown");
   native.frames.length = 0;
   release();

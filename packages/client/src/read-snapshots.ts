@@ -20,6 +20,9 @@ export const snapshotWriteMs = 1_000;
  * and checkpoints what is still unwritten after any write in flight, so the newest copy lands
  * last.
  */
+/** How long a new subscription waits for its kept record before it goes without one. */
+const firstReadMs = 250;
+
 export class SnapshotBinding {
   #persistence: Persistence;
   #key: string;
@@ -32,6 +35,11 @@ export class SnapshotBinding {
   #writing = false;
   #cancel: (() => void) | undefined;
   #written: Promise<void> = Promise.resolve();
+  /**
+   * Settles once the first read of the kept record has been tried (restored, missed or failed),
+   * or after `firstReadMs` at most, so a subscription can resume from what it held (ADR 0128).
+   */
+  readonly loaded: Promise<void>;
 
   constructor(
     persistence: Persistence,
@@ -56,13 +64,20 @@ export class SnapshotBinding {
     } catch {
       loaded = Promise.resolve(undefined);
     }
-    void loaded.then(
+    const tried = loaded.then(
       (value) => {
         if (this.#closed || this.#changed || value === undefined) return;
         restore(value);
       },
       () => {},
     );
+    this.loaded = new Promise((resolve) => {
+      const cancel = persistence.scheduler.set(firstReadMs, resolve);
+      void tried.then(() => {
+        cancel();
+        resolve();
+      });
+    });
   }
 
   #schedule(): void {
