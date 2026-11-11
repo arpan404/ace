@@ -58,28 +58,37 @@ pub fn within_limit(source: &str) -> Cow<'_, str> {
     let mut out: Option<String> = None;
     let mut copied_to = 0;
     let mut most_in: Counts = [None; STATES];
+    // The counts before each of the last two bytes, to step back to the `<` of a `</`.
+    let mut before: [Counts; 2] = [[None; STATES]; 2];
     for (i, &c) in bytes.iter().enumerate() {
-        let starts_tag = c.is_ascii_alphabetic()
-            && (i >= 1 && bytes[i - 1] == b'<'
-                || i >= 2 && bytes[i - 1] == b'/' && bytes[i - 2] == b'<');
-        if starts_tag {
-            let slot = &mut most_in[State::TagName as usize];
-            *slot = Some(slot.unwrap_or(0));
-        }
-        let next = match advance(&most_in, c, most) {
+        let at_i = with_start(most_in, bytes, i);
+        let next = match advance(&at_i, c, most) {
             Some(next) => next,
             None => {
                 // Byte `i` starts an attribute outside quotes, so it is a character boundary.
+                // Right after `</` the `>` would turn `</script>` into `</>script>`, ending
+                // nothing; there it goes before the `<` instead, also a boundary.
+                let after_end_open = i >= 2 && &bytes[i - 2..i] == b"</" && copied_to <= i - 2;
+                let (at, mut counts) = if after_end_open {
+                    (i - 2, before[0])
+                } else {
+                    (i, most_in)
+                };
                 let text = out.get_or_insert_with(|| String::with_capacity(source.len() + 16));
-                text.push_str(&source[copied_to..i]);
+                text.push_str(&source[copied_to..at]);
                 text.push('>');
-                copied_to = i;
+                copied_to = at;
                 // The `>` ends every candidate outside quotes; those inside quotes go on, and
-                // this byte cannot add an attribute to them.
-                let after = advance(&most_in, b'>', most).unwrap_or([None; STATES]);
-                advance(&after, c, most).unwrap_or([None; STATES])
+                // the bytes from there to `i` cannot add an attribute to them.
+                counts = advance(&counts, b'>', most).unwrap_or([None; STATES]);
+                for k in at..=i {
+                    let at_k = with_start(counts, bytes, k);
+                    counts = advance(&at_k, bytes[k], most).unwrap_or([None; STATES]);
+                }
+                counts
             }
         };
+        before = [before[1], most_in];
         most_in = next;
     }
     match out {
@@ -89,6 +98,18 @@ pub fn within_limit(source: &str) -> Cow<'_, str> {
         }
         None => Cow::Borrowed(source),
     }
+}
+
+/// `counts` with a new candidate if byte `i` is the letter after `<` or `</`.
+fn with_start(mut counts: Counts, bytes: &[u8], i: usize) -> Counts {
+    let starts_tag = bytes[i].is_ascii_alphabetic()
+        && (i >= 1 && bytes[i - 1] == b'<'
+            || i >= 2 && bytes[i - 1] == b'/' && bytes[i - 2] == b'<');
+    if starts_tag {
+        let slot = &mut counts[State::TagName as usize];
+        *slot = Some(slot.unwrap_or(0));
+    }
+    counts
 }
 
 /// Every candidate's state after byte `c`, or `None` when one would pass `most` attributes.
