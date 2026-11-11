@@ -108,6 +108,9 @@ const isServicePush = (message: ServerMessage) =>
   (!internal.has(message.type) &&
     (message.type === "catalog.changed" ||
       message.type === "history.operation.progress" ||
+      // A Spade live stream answers a one-way subscribe: no request waits for its frames.
+      message.type === "spade.live.frame" ||
+      message.type === "spade.live.ended" ||
       !("requestId" in message && message.requestId)));
 
 /** Requests that open or use a file channel or a Preview subscription (`tab-channels.ts`). */
