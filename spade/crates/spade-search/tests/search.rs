@@ -1,12 +1,14 @@
 //! The real search client over HTTP against local fake SearXNG and Brave servers.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use axum::Router;
+use axum::body::Body;
 use axum::extract::{Query, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use serde_json::{Value, json};
@@ -22,6 +24,10 @@ enum Answer {
     Json(Value),
     Status(u16),
     Slow(Duration, Value),
+    /// A redirect to this address.
+    Redirect(String),
+    /// A body that never ends, counting the bytes handed out in `sent`.
+    Endless(Arc<AtomicUsize>),
 }
 
 #[derive(Clone, Debug)]
@@ -68,8 +74,18 @@ async fn answer(
             tokio::time::sleep(pause).await;
             axum::Json(body).into_response()
         }
+        Answer::Redirect(to) => (StatusCode::FOUND, [(header::LOCATION, to)]).into_response(),
+        Answer::Endless(sent) => {
+            let chunks = futures_util::stream::repeat_with(move || {
+                sent.fetch_add(CHUNK, Ordering::Relaxed);
+                Ok::<_, std::io::Error>(vec![b' '; CHUNK])
+            });
+            Body::from_stream(chunks).into_response()
+        }
     }
 }
+
+const CHUNK: usize = 64 * 1024;
 
 async fn start(answer_with: Answer) -> Result<Running> {
     let fake = Fake {
@@ -242,5 +258,70 @@ async fn an_empty_query_never_reaches_a_backend() -> Result {
         .await;
     assert_eq!(error, Err(SearchError::EmptyQuery));
     assert!(searxng.seen().is_empty() && brave.seen().is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_brave_redirect_is_not_followed_so_the_key_never_reaches_another_server() -> Result {
+    let elsewhere = start(Answer::Json(brave_page())).await?;
+    let searxng = start(Answer::Status(502)).await?;
+    let brave = start(Answer::Redirect(format!("{}web/search", elsewhere.root))).await?;
+    let error = search(&searxng.root, &brave.root, Some("brave-secret"), 2000)?
+        .search("tokio", 5)
+        .await;
+
+    assert!(
+        matches!(&error, Err(SearchError::AllFailed(r)) if r[1].1.contains("redirected")),
+        "{error:?}"
+    );
+    assert_eq!(brave.seen().len(), 1);
+    assert!(elsewhere.seen().is_empty(), "{:?}", elsewhere.seen());
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_oversized_answer_is_refused_early_and_the_next_backend_answers() -> Result {
+    let sent = Arc::new(AtomicUsize::new(0));
+    let searxng = start(Answer::Endless(sent.clone())).await?;
+    let brave = start(Answer::Json(brave_page())).await?;
+    let found = search(&searxng.root, &brave.root, Some("brave-key"), 5000)?
+        .search("tokio", 5)
+        .await?;
+
+    assert_eq!(found.backend, "brave");
+    // The cap is 2 MiB; what was handed out past it is only what socket buffers held.
+    let sent = sent.load(Ordering::Relaxed);
+    assert!(sent < 32 * 1024 * 1024, "{sent} bytes were sent");
+    Ok(())
+}
+
+#[tokio::test]
+async fn one_odd_item_does_not_lose_the_good_ones() -> Result {
+    let page = json!({ "results": [
+        { "url": "https://www.rust-lang.org/", "title": "Rust", "content": null },
+        { "url": "https://doc.rust-lang.org/book/", "title": 42, "content": "The book" },
+        { "title": "No address", "content": "skipped" },
+        { "url": "https://crates.io/", "title": "crates.io", "content": "The registry" }
+    ]});
+    let searxng = start(Answer::Json(page)).await?;
+    let brave = start(Answer::Json(brave_page())).await?;
+    let found = search(&searxng.root, &brave.root, Some("brave-key"), 2000)?
+        .search("rust", 10)
+        .await?;
+
+    assert_eq!(found.backend, "searxng");
+    let read: Vec<_> = found
+        .results
+        .iter()
+        .map(|r| (r.title.as_str(), r.url.as_str(), r.snippet.as_str()))
+        .collect();
+    assert_eq!(
+        read,
+        vec![
+            ("Rust", "https://www.rust-lang.org/", ""),
+            ("", "https://doc.rust-lang.org/book/", "The book"),
+            ("crates.io", "https://crates.io/", "The registry"),
+        ]
+    );
     Ok(())
 }

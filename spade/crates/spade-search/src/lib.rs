@@ -44,6 +44,9 @@ pub enum SearchError {
 
 pub struct Search {
     http: reqwest::Client,
+    /// For requests that carry a key: never follows a redirect, so the key only reaches the
+    /// configured server.
+    keyed: reqwest::Client,
     backends: Vec<Backend>,
     keys: Keys,
 }
@@ -51,13 +54,17 @@ pub struct Search {
 impl Search {
     /// Each backend call gives up after `timeout`.
     pub fn new(config: SearchConfig, keys: Keys, timeout: Duration) -> Result<Self, SearchError> {
-        let http = reqwest::Client::builder()
-            .timeout(timeout)
-            .user_agent("spade-search")
-            .build()
-            .map_err(|e| SearchError::Setup(e.to_string()))?;
+        let client = |redirects: reqwest::redirect::Policy| {
+            reqwest::Client::builder()
+                .timeout(timeout)
+                .user_agent("spade-search")
+                .redirect(redirects)
+                .build()
+                .map_err(|e| SearchError::Setup(e.to_string()))
+        };
         Ok(Self {
-            http,
+            http: client(reqwest::redirect::Policy::default())?,
+            keyed: client(reqwest::redirect::Policy::none())?,
             backends: config.backends,
             keys,
         })
@@ -112,7 +119,7 @@ impl Search {
                 backend::searxng::search(&self.http, &backend.base_url, query).await
             }
             (Kind::Brave, Some(key)) => {
-                backend::brave::search(&self.http, &backend.base_url, &key, query, count).await
+                backend::brave::search(&self.keyed, &backend.base_url, &key, query, count).await
             }
             (Kind::Brave, None) => Err("no key".to_owned()),
         }
