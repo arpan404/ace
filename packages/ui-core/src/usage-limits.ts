@@ -37,6 +37,8 @@ export interface AccountWindow {
   evenLeftPercent: number | undefined;
   /** When it runs out at the pace so far, if that is before it resets; else null. */
   runsOutAt: number | null;
+  /** When the window began (its reset less its length); null without both. */
+  startsAt: number | null;
 }
 
 export interface AccountLimits {
@@ -281,6 +283,10 @@ function accountLimits(
         stale,
         evenLeftPercent: stale ? undefined : evenLeftPercent(window.resetsAt, mins, now),
         runsOutAt: stale ? null : windowRunsOutAt(window.usedPercent, window.resetsAt, mins, now),
+        startsAt:
+          window.resetsAt !== null && mins !== undefined && mins > 0
+            ? window.resetsAt - mins * minute
+            : null,
       };
     }),
     noSessionWindow:

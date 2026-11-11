@@ -213,6 +213,7 @@ export * from "./usage-breakdown.ts";
 export * from "./usage-growth.ts";
 export * from "./usage-headroom.ts";
 export * from "./usage-hues.ts";
+export * from "./usage-availability.ts";
 export * from "./usage-limits.ts";
 export * from "./usage-machines.ts";
 export * from "./join-names.ts";
