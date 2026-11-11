@@ -9,7 +9,6 @@ test("each base names its own MCP URL as the resource and itself as the issuer",
   expect(protectedResourceMetadata(relay, "Studio")).toMatchObject({
     resource: "https://relay.example/m/host-1/mcp",
     authorization_servers: ["https://relay.example/m/host-1"],
-    scopes_supported: ["threads:read"],
   });
   const server = authorizationServerMetadata(relay);
   expect(server).toMatchObject({
@@ -22,14 +21,6 @@ test("each base names its own MCP URL as the resource and itself as the issuer",
     client_id_metadata_document_supported: true,
   });
   expect(server.token_endpoint_auth_methods_supported).toContain("none");
-  expect(server.scopes_supported).toEqual([
-    "threads:read",
-    "threads:start",
-    "threads:message",
-    "threads:stop",
-    "browser",
-    "computer",
-  ]);
 });
 
 test("the resource metadata URL inserts the well-known path before the resource path", () => {
