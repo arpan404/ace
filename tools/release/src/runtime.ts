@@ -38,6 +38,8 @@ import { CMD_LAUNCHER, retrySharing, ServiceEnvironment } from "@ace/service";
 import { recoveryDelay } from "@ace/service";
 import { finished } from "node:stream/promises";
 import { bundledDesktopApp, daemonDirectory, desktopUpdateCli } from "./desktop-update.ts";
+import { updateArguments } from "./update-arguments.ts";
+import { applyWithSpade, recoverSpade, spadeReleaseCommand } from "./spade-update.ts";
 // Build replaces this constant. A source checkout cannot authenticate a public release.
 export const RELEASE_PUBLIC_KEY = "__ACE_RELEASE_PUBLIC_KEY__";
 const sleep = () => new Promise<void>((r) => setTimeout(r, 1000));
@@ -142,6 +144,7 @@ export async function updateCli(args: string[]) {
       await recoverUpdate(root, root, ports);
       // A crash after committing can leave only the in-memory admission barrier.
       await ports.maintenance("DELETE");
+      await recoverSpade(root);
     });
     if (command === "recover") return;
   }
@@ -164,17 +167,24 @@ export async function updateCli(args: string[]) {
       process.stdout.write(JSON.stringify(release.manifest) + "\n");
       return;
     }
-    await applyUpdate({
+    await applyWithSpade({
       root,
-      dataDir: root,
-      bytes: release.bytes,
-      signature: release.signature,
-      publicKey: RELEASE_PUBLIC_KEY,
-      archiveUrl: release.url,
-      fetcher: releaseFetch,
-      drain,
+      installed: installed.version,
+      offered: release.manifest.version,
       interrupt,
-      ports,
+      daemon: () =>
+        applyUpdate({
+          root,
+          dataDir: root,
+          bytes: release.bytes,
+          signature: release.signature,
+          publicKey: RELEASE_PUBLIC_KEY,
+          archiveUrl: release.url,
+          fetcher: releaseFetch,
+          drain,
+          interrupt,
+          ports,
+        }),
     });
   };
   if (!outcome) return install();
@@ -190,30 +200,6 @@ export async function updateCli(args: string[]) {
   }
 }
 
-/**
- * `ace update check | recover | apply [--drain | --interrupt] [--outcome]`. `--interrupt`
- * stops running agents instead of waiting (they continue after the restart); `--outcome`
- * records how it ended for the daemon, as a remote update does.
- */
-export function updateArguments(args: readonly string[]) {
-  const usage = "Usage: ace update check|apply [--drain|--interrupt] [--outcome]|recover";
-  const command = z.enum(["check", "apply", "recover"]).parse(args[0]);
-  const flags = args.slice(1);
-  const known = new Set(["--drain", "--interrupt", "--outcome"]);
-  if (
-    (command !== "apply" && flags.length > 0) ||
-    flags.some((flag) => !known.has(flag)) ||
-    new Set(flags).size !== flags.length ||
-    (flags.includes("--drain") && flags.includes("--interrupt"))
-  )
-    throw new Error(usage);
-  return {
-    command,
-    drain: flags.includes("--drain"),
-    interrupt: flags.includes("--interrupt"),
-    outcome: flags.includes("--outcome"),
-  };
-}
 export async function installArtifact(
   artifact: string,
   installService: (root: string) => Promise<unknown> = (root) =>
@@ -330,6 +316,7 @@ export async function releaseCommand(args: string[]): Promise<boolean> {
   else if (args[0] === "supervise") await supervise();
   else if (args[0] === "migrate-check" && args.length === 2 && args[1])
     await migrateCheck(resolve(args[1]));
+  else if (args[0] === "spade-follow") await spadeReleaseCommand(dataDir(), args.slice(1));
   else if (args[0] === "install-artifact" && args.length === 2 && args[1])
     await installArtifact(resolve(args[1]));
   else return false;

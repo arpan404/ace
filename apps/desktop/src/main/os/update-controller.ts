@@ -34,8 +34,12 @@ export interface UpdatePorts {
   drain(waiting: (count: number) => void): Promise<boolean>;
   /** Threads still at work in the daemon this app started; 0 when the app runs none. */
   busy(): Promise<number>;
-  /** Stops the browser backend and the daemon this app started: the app quits next. */
-  prepareQuit(): Promise<void>;
+  /**
+   * Stops the browser backend and the daemon this app started: the app quits next. `spadeMode`
+   * is how Spade's swap after the restart treats its running work (ADR 0123): `now` after a
+   * confirmed Restart, `idle` when the update waited for agents to finish.
+   */
+  prepareQuit(spadeMode: "idle" | "now"): Promise<void>;
   /** Quits without installing, when the installer refused after `prepareQuit`. */
   quit(): void;
   report(status: UpdateStatus): void;
@@ -156,7 +160,7 @@ export class UpdateController {
     if (this.status.state !== "downloaded") return this.status;
     this.installWhenReady = false;
     this.set({ ...this.status, state: "installing", waiting: 0, error: null });
-    return this.restart();
+    return this.restart("now");
   }
 
   /** Restart into the downloaded update once running agents finish (`ace update apply`). */
@@ -178,13 +182,13 @@ export class UpdateController {
     }
     if (!drained)
       return this.set({ ...ready, error: { during: "install", message: stalledMessage } });
-    return this.restart();
+    return this.restart("idle");
   }
 
   /** Stops the browser backend and the daemon (its shutdown interrupts turns), then installs. */
-  private async restart(): Promise<UpdateStatus> {
+  private async restart(spadeMode: "idle" | "now"): Promise<UpdateStatus> {
     try {
-      await this.ports.prepareQuit();
+      await this.ports.prepareQuit(spadeMode);
     } catch (error) {
       this.ports.log("warn", `Stopping before the update failed: ${message(error)}`);
     }

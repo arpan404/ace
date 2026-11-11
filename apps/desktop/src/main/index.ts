@@ -1,4 +1,6 @@
 import { deliverAfterLoads } from "./deep-link-delivery.ts";
+import { followDaemonWithSpade } from "./spade-follow.ts";
+import { rememberSpadeUpdateMode } from "@ace/service/spade-update-mode";
 import { existsSync, statSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -291,7 +293,13 @@ function main(target: DaemonTarget, crashDumps: string): void {
     drain: (deadlineMs, waiting) => runtime.drainForUpdate(deadlineMs, waiting),
     busy: () => runtime.busyForUpdate(),
     // Quit's own question is skipped: the person already confirmed Restart.
-    prepareQuit: () => quitGate.shutDown(),
+    prepareQuit: async (spadeMode) => {
+      if (target.kind === "managed")
+        await rememberSpadeUpdateMode(target.home, spadeMode).catch((error: unknown) =>
+          log("warn", `Remembering Spade's update mode failed: ${String(error)}`),
+        );
+      await quitGate.shutDown();
+    },
     quit: () => app.quit(),
     log: logger("updates"),
   });
@@ -539,6 +547,18 @@ function main(target: DaemonTarget, crashDumps: string): void {
             return result;
           })
         : undefined;
+    if (app.isPackaged && target.kind === "managed")
+      void followDaemonWithSpade({
+        home: target.home,
+        resourcesPath: process.resourcesPath,
+        version: info.version,
+        platform: process.platform,
+        node: paths.node,
+        entry: paths.daemonEntry,
+        env: process.env,
+        daemonReady: () => runtime.local(),
+        log: logger("spade"),
+      }).catch((error: unknown) => log("warn", `Spade's update failed: ${String(error)}`));
     const terminal = terminalCommand({
       shim,
       enabled: () => settings.get().terminalCommand,

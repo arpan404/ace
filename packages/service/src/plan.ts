@@ -41,14 +41,15 @@ export interface ServicePlan {
   domain: string;
   logDir: string;
 }
-const xml = (s: string) =>
+export const xml = (s: string) =>
   s
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&apos;");
-const quote = (s: string) =>
+/** A systemd unit-file quoted word: `\\`, `"` and the `%` specifier escaped. */
+export const quote = (s: string) =>
   '"' + s.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("%", "%%") + '"';
 export function planService(input: ServiceConfig): ServicePlan {
   const c = ServiceConfig.parse(input);
@@ -147,10 +148,34 @@ export function planTask(input: TaskConfig): TaskPlan {
   const program = win32.join(c.systemRoot, "System32", "conhost.exe");
   const cmd = win32.join(c.systemRoot, "System32", "cmd.exe");
   const args = `--headless "${cmd}" /d /c @ "${c.executable}" supervise`;
-  const content = `<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <RegistrationInfo><Description>ace local daemon</Description></RegistrationInfo>
-  <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>${xml(c.user)}</UserId></LogonTrigger></Triggers>
-  <Principals><Principal id="Author"><UserId>${xml(c.user)}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
+  const content = taskXml({ description: "ace local daemon", user: c.user, program, args });
+  return {
+    platform: "win32",
+    command: [c.executable, "supervise"],
+    name: `\\${c.name}`,
+    file: win32.join(c.dataDir, "service", "task.xml"),
+    content,
+    environmentFile: win32.join(c.dataDir, "service", "environment.json"),
+    environment: JSON.stringify(variables) + "\n",
+    logDir: win32.join(c.dataDir, "logs"),
+    user: c.user,
+    program,
+    arguments: args,
+  };
+}
+
+/** A per-user Task Scheduler task: a logon trigger and one program, restarted on failure. */
+export function taskXml(task: {
+  description: string;
+  user: string;
+  program: string;
+  args: string;
+}): string {
+  const { description, user, program, args } = task;
+  return `<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo><Description>${xml(description)}</Description></RegistrationInfo>
+  <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>${xml(user)}</UserId></LogonTrigger></Triggers>
+  <Principals><Principal id="Author"><UserId>${xml(user)}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
   <Settings>
     <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
@@ -170,17 +195,4 @@ export function planTask(input: TaskConfig): TaskPlan {
   <Actions Context="Author"><Exec><Command>${xml(program)}</Command><Arguments>${xml(args)}</Arguments></Exec></Actions>
 </Task>
 `;
-  return {
-    platform: "win32",
-    command: [c.executable, "supervise"],
-    name: `\\${c.name}`,
-    file: win32.join(c.dataDir, "service", "task.xml"),
-    content,
-    environmentFile: win32.join(c.dataDir, "service", "environment.json"),
-    environment: JSON.stringify(variables) + "\n",
-    logDir: win32.join(c.dataDir, "logs"),
-    user: c.user,
-    program,
-    arguments: args,
-  };
 }

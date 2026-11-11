@@ -17,7 +17,9 @@ import { TaskService } from "./service.ts";
 import { assertCompatibleTask } from "./compatibility.ts";
 import { CMD_LAUNCHER } from "./launcher.ts";
 import { isDesktopShim } from "./launcher.ts";
-import { checked } from "./process.ts";
+import { currentUserSid } from "./windows-user.ts";
+import { removeSpadeService } from "./spade-service.ts";
+import { localSpadePlan } from "./spade-local.ts";
 import { spawn } from "node:child_process";
 import { isAbsolute, relative, sep } from "node:path";
 
@@ -144,14 +146,6 @@ try {
   });
 }
 
-/** The signed-in account's SID; `whoami /user` prints it as the second CSV field. */
-async function currentUserSid(): Promise<string> {
-  const { stdout } = await checked(runProcess, "whoami.exe", ["/user", "/fo", "csv", "/nh"]);
-  const sid = /"(S-1-[\d-]+)"\s*$/.exec(stdout.trim())?.[1];
-  if (!sid) throw new Error("Cannot read the current user's SID");
-  return sid;
-}
-
 /** `POST /v1/stop` to the daemon serving `dataDir`, as `ace stop` does. */
 async function requestDaemonStop(dataDir: string): Promise<boolean> {
   try {
@@ -218,6 +212,9 @@ export async function serviceCommand(dataDir: string, args: string[]) {
     if (existsSync(join(dataDir, "update.json")))
       throw new Error("Recover the pending update before uninstalling");
     const result = await localService(dataDir).perform(action);
+    // Spade's service runs a binary under this home's releases, which go next (ADR 0123).
+    const spade = await localSpadePlan(dataDir);
+    if (existsSync(spade.file)) await removeSpadeService(spade);
     if (process.platform === "win32") return removeCmdInstallation(dataDir, result);
     for (const name of ["bin/ace", "current", "previous", "releases"]) {
       const path = join(dataDir, name);

@@ -83,75 +83,86 @@ export const loadedProperties = properties.join(",");
 /** Validate the manager's loaded program independently of the registration file. */
 export function assertLoadedService(plan: ServicePlan, output: string): boolean {
   try {
-    if (output.length > 64 * 1024) throw new Error("Loaded service output limit exceeded");
-    if (plan.platform === "darwin") {
-      if (
-        (output.match(/^\tpath = /gm)?.length ?? 0) !== 1 ||
-        (output.match(/^\tprogram = /gm)?.length ?? 0) !== 1 ||
-        (output.match(/^\targuments = \{/gm)?.length ?? 0) !== 1
-      )
-        throw new Error("Ambiguous loaded launchd identity");
-      const path = /^\tpath = (.+)$/m.exec(output)?.[1];
-      const program = /^\tprogram = (.+)$/m.exec(output)?.[1];
-      const argumentsBlock = /^\targuments = \{\n(.*?)^\t\}/ms.exec(output)?.[1];
-      const args = argumentsBlock
-        ?.split("\n")
-        .map((line) => line.trim())
-        .filter(Boolean);
-      if (
-        path !== plan.file ||
-        program !== plan.command[0] ||
-        !args ||
-        args.length !== 2 ||
-        args[0] !== plan.command[0] ||
-        args[1] !== "supervise"
-      )
-        throw new Error("Loaded launchd program mismatch");
-      return true;
-    } else {
-      const rows = new Map<string, string>();
-      for (const line of output.trimEnd().split("\n")) {
-        const at = line.indexOf("=");
-        if (at < 1 || rows.has(line.slice(0, at)))
-          throw new Error("Invalid loaded service properties");
-        rows.set(line.slice(0, at), line.slice(at + 1));
-      }
-      // systemd 259+ leaves empty Exec* properties out of `systemctl show`: absent is empty.
-      const known = new Set<string>(properties);
-      if ([...rows.keys()].some((key) => !known.has(key)))
-        throw new Error("Unrecognized loaded service properties");
-      if (!rows.has("LoadState") || !rows.has("ActiveState"))
-        throw new Error("Missing loaded service properties");
-      for (const key of properties) if (!rows.has(key)) rows.set(key, "");
-      if (rows.get("LoadState") === "not-found") {
-        if (properties.slice(2).some((key) => rows.get(key) !== ""))
-          throw new Error("Unrecognized missing unit");
-        return false;
-      }
-      if (rows.get("LoadState") !== "loaded") throw new Error("Unrecognized unit load state");
-      if (
-        rows.get("FragmentPath") !== plan.file ||
-        properties.slice(4).some((key) => rows.get(key) !== "")
-      )
-        throw new Error("Loaded unit hooks, drop-ins or identity mismatch");
-      const start = rows.get("ExecStart") ?? "";
-      if ((start.match(/\{/g)?.length ?? 0) !== 1 || (start.match(/\}/g)?.length ?? 0) !== 1)
-        throw new Error("Multiple loaded commands");
-      const path = /(?:^\{\s*|;\s*)path=(.*?)\s*;/.exec(start)?.[1];
-      const args = /;\s*argv\[\]=(.*?)\s*;/.exec(start)?.[1];
-      if (path !== plan.command[0] || args !== plan.command.join(" "))
-        throw new Error("Loaded systemd program mismatch");
-      const state = z
-        .enum(["active", "activating", "reloading", "inactive", "failed", "deactivating"])
-        .parse(rows.get("ActiveState"));
-      return state !== "inactive" && state !== "failed";
-    }
+    return loadedIdentity(plan.platform, plan.file, plan.command, output);
   } catch (cause) {
     throw incompatibleService(plan, cause);
   }
 }
 
-export function incompatibleTask(plan: TaskPlan, cause?: unknown): Error {
+/**
+ * Whether the program launchd (`launchctl print`) or systemd (`systemctl show`) holds is
+ * exactly `command`, registered from `file`, and active. Throws on any other program, hook or
+ * drop-in. launchd lists only loaded jobs, so a launchd answer is always active.
+ */
+export function loadedIdentity(
+  platform: "darwin" | "linux",
+  file: string,
+  command: readonly string[],
+  output: string,
+): boolean {
+  if (output.length > 64 * 1024) throw new Error("Loaded service output limit exceeded");
+  if (platform === "darwin") {
+    if (
+      (output.match(/^\tpath = /gm)?.length ?? 0) !== 1 ||
+      (output.match(/^\tprogram = /gm)?.length ?? 0) !== 1 ||
+      (output.match(/^\targuments = \{/gm)?.length ?? 0) !== 1
+    )
+      throw new Error("Ambiguous loaded launchd identity");
+    const path = /^\tpath = (.+)$/m.exec(output)?.[1];
+    const program = /^\tprogram = (.+)$/m.exec(output)?.[1];
+    const argumentsBlock = /^\targuments = \{\n(.*?)^\t\}/ms.exec(output)?.[1];
+    const args = argumentsBlock
+      ?.split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (
+      path !== file ||
+      program !== command[0] ||
+      !args ||
+      args.length !== command.length ||
+      args.some((arg, index) => arg !== command[index])
+    )
+      throw new Error("Loaded launchd program mismatch");
+    return true;
+  }
+  const rows = new Map<string, string>();
+  for (const line of output.trimEnd().split("\n")) {
+    const at = line.indexOf("=");
+    if (at < 1 || rows.has(line.slice(0, at))) throw new Error("Invalid loaded service properties");
+    rows.set(line.slice(0, at), line.slice(at + 1));
+  }
+  // systemd 259+ leaves empty Exec* properties out of `systemctl show`: absent is empty.
+  const known = new Set<string>(properties);
+  if ([...rows.keys()].some((key) => !known.has(key)))
+    throw new Error("Unrecognized loaded service properties");
+  if (!rows.has("LoadState") || !rows.has("ActiveState"))
+    throw new Error("Missing loaded service properties");
+  for (const key of properties) if (!rows.has(key)) rows.set(key, "");
+  if (rows.get("LoadState") === "not-found") {
+    if (properties.slice(2).some((key) => rows.get(key) !== ""))
+      throw new Error("Unrecognized missing unit");
+    return false;
+  }
+  if (rows.get("LoadState") !== "loaded") throw new Error("Unrecognized unit load state");
+  if (rows.get("FragmentPath") !== file || properties.slice(4).some((key) => rows.get(key) !== ""))
+    throw new Error("Loaded unit hooks, drop-ins or identity mismatch");
+  const start = rows.get("ExecStart") ?? "";
+  if ((start.match(/\{/g)?.length ?? 0) !== 1 || (start.match(/\}/g)?.length ?? 0) !== 1)
+    throw new Error("Multiple loaded commands");
+  const path = /(?:^\{\s*|;\s*)path=(.*?)\s*;/.exec(start)?.[1];
+  const args = /;\s*argv\[\]=(.*?)\s*;/.exec(start)?.[1];
+  if (path !== command[0] || args !== command.join(" "))
+    throw new Error("Loaded systemd program mismatch");
+  const state = z
+    .enum(["active", "activating", "reloading", "inactive", "failed", "deactivating"])
+    .parse(rows.get("ActiveState"));
+  return state !== "inactive" && state !== "failed";
+}
+
+/** The fields of a Task Scheduler plan its loaded-task checks compare. */
+export type LoadedTaskPlan = Pick<TaskPlan, "name" | "program" | "arguments" | "user">;
+
+export function incompatibleTask(plan: Pick<TaskPlan, "name">, cause?: unknown): Error {
   return new Error(
     `Incompatible or legacy ace service task ${plan.name}. Refusing to adopt, start or modify it. Choose a separate ACE_HOME; leave migration to the owner.`,
     { cause },
@@ -183,7 +194,7 @@ function only(xml: string, tag: string): string {
  * Validates the task Task Scheduler holds (`schtasks /Query /XML`), independently of ace's
  * record: one logon trigger and one program, both ace's, for this user.
  */
-export function assertLoadedTask(plan: TaskPlan, output: string): void {
+export function assertLoadedTask(plan: LoadedTaskPlan, output: string): void {
   try {
     if (output.length > 64 * 1024) throw new Error("Loaded task output limit exceeded");
     const actions = only(output, "Actions");
@@ -214,7 +225,7 @@ export function assertLoadedTask(plan: TaskPlan, output: string): void {
 const taskRunning = "267009";
 
 /** Whether `schtasks /Query /V /FO CSV /NH` output shows the task's program running. */
-export function taskActive(plan: TaskPlan, output: string): boolean {
+export function taskActive(plan: Pick<TaskPlan, "name">, output: string): boolean {
   const rows = output
     .split(/\r?\n/)
     .filter((line) => line.trim())

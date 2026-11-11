@@ -30,7 +30,8 @@ export interface AppUpdatesOptions {
   drain(deadlineMs: number, waiting: (count: number) => void): Promise<boolean>;
   /** Threads still at work in the daemon this app started; 0 when it runs none. */
   busy(): Promise<number>;
-  prepareQuit(): Promise<void>;
+  /** `spadeMode`: how Spade's swap after the restart treats its running work (ADR 0123). */
+  prepareQuit(spadeMode: "idle" | "now"): Promise<void>;
   quit(): void;
   log(level: "info" | "warn", message: string): void;
 }

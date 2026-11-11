@@ -172,8 +172,9 @@ export async function applyUpdate(request: UpdateRequest): Promise<"updated"> {
       }
       // Bound retained artifacts to current and previous after successful health.
       const { readdir } = await import("node:fs/promises");
+      // Spade's binaries (`releases/spade`) have their own pointer and pruning (ADR 0123).
       for (const name of await readdir(join(root, "releases")))
-        if (`releases/${name}` !== old && `releases/${name}` !== candidate)
+        if (name !== "spade" && `releases/${name}` !== old && `releases/${name}` !== candidate)
           await rm(join(root, "releases", name), { recursive: true, force: true });
       await rm(snapshot, { recursive: true, force: true });
       return "updated";
@@ -203,7 +204,7 @@ async function pruneBestEffort(
 ): Promise<void> {
   const { readdir } = await import("node:fs/promises");
   const stale = (await readdir(join(root, "releases")))
-    .filter((name) => !keep.includes(`releases/${name}`))
+    .filter((name) => name !== "spade" && !keep.includes(`releases/${name}`))
     .map((name) => join(root, "releases", name));
   for (const path of [...stale, snapshot])
     await retrySharing(() => rm(path, { recursive: true, force: true })).catch(() => {});
