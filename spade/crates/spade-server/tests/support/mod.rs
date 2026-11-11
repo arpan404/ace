@@ -241,7 +241,7 @@ impl Spade {
         }
         tokio::time::timeout(within, &mut self.task)
             .await
-            .map_err(|_| "the server did not shut down in time")??;
+            .map_err(|_| "the server did not shut down in time")???;
         Ok(())
     }
 
