@@ -158,6 +158,11 @@ pub enum Known {
         keep_from: usize,
         #[serde(default)]
         tokens_before: u32,
+        /// How many images from `keep_from` on, oldest first, the prompt describes instead of
+        /// showing until the next compaction. Fixed here so prompts between compactions only grow
+        /// at the end. Missing on events from before it was stored.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        images_left_out: Option<usize>,
     },
 }
 

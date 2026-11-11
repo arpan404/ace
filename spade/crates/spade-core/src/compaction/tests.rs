@@ -66,6 +66,7 @@ fn a_second_compaction_only_cuts_after_the_first() {
         summary: "earlier".into(),
         keep_from: 28,
         tokens_before: 8_000,
+        images_left_out: None,
     }));
     events.extend((10..12).flat_map(|n| turn(n, 50)));
     let second = plan(&events, 8_000, 10_000)
@@ -87,6 +88,7 @@ fn the_model_sees_the_summary_then_the_kept_turns_with_the_top_unchanged() {
         summary: "Summary of the earlier conversation".into(),
         keep_from: 8,
         tokens_before: 5_000,
+        images_left_out: None,
     }));
     let after = context::prompt(context::SYSTEM, tools, &events);
 
@@ -356,6 +358,7 @@ fn right_after_a_compaction_the_old_prompt_size_does_not_compact_again() {
         summary: "earlier".into(),
         keep_from: first.unwrap_or(0),
         tokens_before: 8_000,
+        images_left_out: None,
     }));
     assert_eq!(
         plan(&events, 8_000, 10_000),

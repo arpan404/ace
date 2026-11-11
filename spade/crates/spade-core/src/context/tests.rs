@@ -462,3 +462,70 @@ fn older_images_are_left_out_in_steps_so_the_prompt_start_stays_cached() {
     );
     assert_eq!(text.matches("no longer shown").count(), 10);
 }
+
+/// A turn: the person sends image `n`, Spade answers.
+fn image_turn(n: usize) -> [Event; 2] {
+    [
+        Event::Known(Known::UserMessage {
+            text: format!("look {n}"),
+            context: None,
+            images: vec![crate::event::ImageRef {
+                sha256: "kept".into(),
+                media_type: format!("image/png;n={n}"),
+                bytes: 3,
+            }],
+        }),
+        step(&format!("r{n}"), "seen", &[]),
+    ]
+}
+
+fn image_turns(range: std::ops::Range<usize>) -> Vec<Event> {
+    range.flat_map(image_turn).collect()
+}
+
+fn shown_images(messages: &[Message]) -> usize {
+    messages
+        .iter()
+        .map(|m| match m {
+            Message::Person { images, .. } => images.len(),
+            _ => 0,
+        })
+        .sum()
+}
+
+#[test]
+fn between_compactions_new_images_only_add_to_the_end_of_the_prompt() {
+    let mut events = image_turns(0..25);
+    let fixed = images_to_leave_out(&events, 0);
+    events.push(Event::Known(Known::ContextCompacted {
+        summary: "earlier".into(),
+        keep_from: 0,
+        tokens_before: 0,
+        images_left_out: Some(fixed),
+    }));
+    assert_eq!(shown_images(&messages_with(&events, &Shelf)), SHOWN_IMAGES);
+    let mut before = messages_with(&events, &Shelf);
+    for n in 25..35 {
+        events.extend(image_turn(n));
+        let after = messages_with(&events, &Shelf);
+        assert_eq!(
+            after[..before.len()],
+            before[..],
+            "image {n} rewrote an earlier message"
+        );
+        before = after;
+    }
+    assert!(!too_many_images(&events), "{} shown", shown_images(&before));
+}
+
+#[test]
+fn more_images_than_a_prompt_shows_compacts_instead_of_rewriting_it() {
+    let events = image_turns(0..MOST_SHOWN_IMAGES);
+    assert!(!too_many_images(&events));
+    assert_eq!(crate::compaction::plan(&events, 50, 10_000), None);
+
+    let events = image_turns(0..MOST_SHOWN_IMAGES + 1);
+    assert!(too_many_images(&events));
+    // Far below the size that compacts, the images alone do.
+    assert!(crate::compaction::plan(&events, 50, 10_000).is_some());
+}

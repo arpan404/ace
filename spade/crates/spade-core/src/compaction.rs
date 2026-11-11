@@ -4,7 +4,7 @@
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::context::outcome_unknown;
+use crate::context::{self, outcome_unknown};
 use crate::event::{Event, Known};
 use crate::tools::{CALL_TOOL, Registry, Risk, unwrap_call_tool};
 
@@ -23,8 +23,11 @@ pub struct Plan {
 
 /// Whether to compact now, and where to cut. `prompt_tokens` is what the endpoint reported for
 /// the last call; `budget` is the smaller of the model's context and Spade's cap.
+/// Too many images to show also compacts, whatever the size: that is the only point where which
+/// older images are left out may change.
 pub fn plan(events: &[Event], prompt_tokens: u32, budget: u32) -> Option<Plan> {
-    if budget == 0 || f64::from(prompt_tokens) < f64::from(budget) * HIGH {
+    let full = budget > 0 && f64::from(prompt_tokens) >= f64::from(budget) * HIGH;
+    if !full && !context::too_many_images(events) {
         return None;
     }
     // `prompt_tokens` comes from the last step. If a compaction came after it, that size is from
@@ -53,6 +56,8 @@ pub fn plan(events: &[Event], prompt_tokens: u32, budget: u32) -> Option<Plan> {
     let keep_from = starts
         .iter()
         .copied()
+        // A cut at the very start would summarise nothing.
+        .filter(|&start| start > already.unwrap_or(0))
         .find(|&start| {
             let kept: usize = sizes[start..].iter().sum();
             f64::from(prompt_tokens) * (kept as f64 / total as f64) <= target
