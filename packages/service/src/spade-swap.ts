@@ -42,8 +42,14 @@ export interface SpadeSwapPorts {
    * migrates the file it is given); throws why it can't.
    */
   checkMigrations(snapshot: string): Promise<void>;
-  /** Puts `snapshot` back as `spade.sqlite`, its WAL files cleared. Spade must be stopped. */
-  restoreDatabase(snapshot: string): Promise<void>;
+  /**
+   * Called on rollback with Spade stopped. Only when the failed version left the live database
+   * at a newer schema than `snapshot` (which the old version refuses to open) is the live one,
+   * with its WAL files, moved aside as `spade.sqlite.failed-<failedVersion>` and `snapshot`
+   * put back; answers where it went. Otherwise the live database is kept, with every message
+   * stored since the swap began, and the answer is undefined.
+   */
+  restoreDatabase(snapshot: string, failedVersion: string): Promise<string | undefined>;
   removeSnapshot(snapshot: string): Promise<void>;
   /** Points `releases/spade/current` at `version`. */
   flip(version: string): Promise<void>;
@@ -178,8 +184,9 @@ async function abort(
 
 /**
  * After the flip: the new version may have migrated the database, which the old one refuses to
- * open. So Spade is stopped, the pre-flip snapshot put back, `current` pointed at the old
- * version and the old Spade started and checked; the result says whether it came back.
+ * open. So Spade is stopped, the pre-flip snapshot put back if (only if) the schema moved on,
+ * `current` pointed at the old version and the old Spade started and checked; the result says
+ * whether it came back and where any set-aside changes are.
  */
 async function rollBack(
   ports: SpadeSwapPorts,
@@ -191,15 +198,20 @@ async function rollBack(
   try {
     const failedPid = await ports.serverPid();
     await ports.stop();
-    if (snapshot !== undefined) await ports.restoreDatabase(snapshot);
+    const setAside =
+      snapshot === undefined ? undefined : await ports.restoreDatabase(snapshot, result.to);
     await ports.flip(from);
     await ports.restart();
     const back = await ports.health(from, failedPid);
+    const aside =
+      setAside === undefined
+        ? ""
+        : `; Spade's data changed since the swap began was set aside in ${setAside}`;
     return {
       ...result,
       error: back
-        ? `${result.error}; Spade ${from} is running again`
-        : `${result.error}; Spade ${from} was restored but didn't come back up`,
+        ? `${result.error}; Spade ${from} is running again${aside}`
+        : `${result.error}; Spade ${from} was restored but didn't come back up${aside}`,
     };
   } catch (error) {
     return {

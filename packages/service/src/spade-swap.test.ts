@@ -23,6 +23,8 @@ function machine(options: {
   migrations?: "ok" | "refuse";
   /** Versions that migrate the database on start, then crash. */
   broken?: string[];
+  /** Versions that crash on start before touching the database. */
+  dead?: string[];
   hasDatabase?: boolean;
   /** The restore puts the snapshot back (a broken restore leaves the migrated database). */
   restores?: boolean;
@@ -47,6 +49,7 @@ function machine(options: {
     running = undefined;
     // A version older than the database refuses to open it and exits.
     if (schema > current) return;
+    if (options.dead?.includes(current)) return;
     // Starting migrates the database; a broken version crashes only after that.
     schema = current;
     if (options.broken?.includes(current)) return;
@@ -83,10 +86,13 @@ function machine(options: {
       log.push(`check ${snapshot}`);
       if (options.migrations === "refuse") throw new Error("schema 9 is newer than this build");
     },
-    async restoreDatabase(snapshot) {
+    async restoreDatabase(snapshot, failed) {
       log.push(`restore ${snapshot}`);
       if (running) throw new Error("Spade is still running");
-      if (options.restores !== false) schema = snapshots.get(snapshot) ?? schema;
+      const before = snapshots.get(snapshot) ?? schema;
+      if (schema <= before) return undefined;
+      if (options.restores !== false) schema = before;
+      return `spade.sqlite.failed-${failed}`;
     },
     async removeSnapshot(snapshot) {
       snapshots.delete(snapshot);
@@ -195,6 +201,21 @@ test("after a new Spade migrated the database and failed, the old one gets its d
   const world = machine({ broken: ["0.5.0"] });
   await swapSpade("0.5.0", "now", world.ports);
   expect(world.schema()).toBe("0.4.0");
+  expect(world.running()).toBe("0.4.0");
+});
+
+test("a rollback that put the database back says where the failed version's changes went", async () => {
+  const world = machine({ broken: ["0.5.0"] });
+  const result = await swapSpade("0.5.0", "now", world.ports);
+  expect(result.kind === "failed" && result.error).toMatch(
+    /set aside in spade\.sqlite\.failed-0\.5\.0/,
+  );
+});
+
+test("a new Spade that failed before touching the schema leaves the live database in place", async () => {
+  const world = machine({ dead: ["0.5.0"] });
+  const result = await swapSpade("0.5.0", "now", world.ports);
+  expect(result.kind === "failed" && result.error).toMatch(/0.4.0 is running again$/);
   expect(world.running()).toBe("0.4.0");
 });
 

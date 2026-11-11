@@ -78,6 +78,50 @@ test.runIf(posix)(
     expect(result.kind === "failed" && result.error).toMatch(/0.4.0 is running again/);
     expect(world.schema()).toBe(4);
     expect(world.spade()).toMatchObject({ version: "0.4.0" });
+    // The failed version's database is set aside, never deleted, and the result says where.
+    const aside = `${world.database}.failed-0.5.0`;
+    expect(result.kind === "failed" && result.error).toContain(`set aside in ${aside}`);
+    expect(world.turns(aside)).toEqual(["t1", "stored during the swap by 0.4.0"]);
+    expect(world.turns()).toEqual(["t1"]);
+  },
+);
+
+test.runIf(posix)(
+  "a new Spade that failed before touching the database leaves what the swap stored in place",
+  async ({ onTestFinished }) => {
+    const world = await setup(onTestFinished, {
+      candidate: spadeBinary("0.5.0"),
+      diesEarly: "0.5.0",
+    });
+    const result = await world.update("now");
+    expect(result.kind === "failed" && result.error).toMatch(/0.4.0 is running again$/);
+    expect(world.turns()).toEqual(["t1", "stored during the swap by 0.4.0"]);
+    expect(existsSync(`${world.database}.failed-0.5.0`)).toBe(false);
+  },
+);
+
+test.runIf(posix)(
+  "a first start that takes a while to migrate isn't rolled back",
+  async ({ onTestFinished }) => {
+    const world = await setup(onTestFinished, {
+      candidate: spadeBinary("0.5.0"),
+      slowStart: 75_000,
+    });
+    expect(await world.update("now")).toMatchObject({ kind: "swapped", to: "0.5.0" });
+    expect(world.spade()).toMatchObject({ version: "0.5.0" });
+  },
+);
+
+test.runIf(posix)(
+  "a new Spade whose process exited is given up on quickly",
+  async ({ onTestFinished }) => {
+    const world = await setup(onTestFinished, {
+      candidate: spadeBinary("0.5.0"),
+      diesEarly: "0.5.0",
+    });
+    await world.update("now");
+    // The exited process's short limit, not the minutes a running start gets.
+    expect(world.elapsed()).toBeLessThan(20_000);
   },
 );
 
@@ -120,6 +164,10 @@ async function setup(
     candidate: ReturnType<typeof spadeBinary>;
     /** A version whose process migrates the database on start and then exits. */
     crashes?: string;
+    /** A version that exits on start before it touches the database. */
+    diesEarly?: string;
+    /** How long (ms, on the test's clock) the new version takes to migrate and come up. */
+    slowStart?: number;
     /** After a restart, a process without Spade's token answers at the new address. */
     impostor?: boolean;
     ignoresKickstart?: boolean;
@@ -163,12 +211,21 @@ async function setup(
   let running: { version: string; pid: number } | undefined;
   let pids = 0;
   let admission = "open";
+  let clock = 0;
+  /** A start launchd made that hasn't finished yet: Spade migrating before server.json. */
+  let starting: { at: number } | undefined;
+  const conversation = (text: string) => {
+    const write = new DatabaseSync(database);
+    write.prepare("INSERT INTO turns VALUES (?)").run(text);
+    write.close();
+  };
   /** What launchd's start does: run `current`'s binary as Spade. */
   const start = async () => {
     await close();
     running = undefined;
     const binary = join(home, "releases/spade/current/spade-server");
     const version = (await checked(runProcess, binary, ["--version"])).stdout.trim();
+    if (options.diesEarly === version) return;
     const read = new DatabaseSync(database);
     const schema = Number(read.prepare("PRAGMA user_version").get()?.user_version);
     // Real Spade refuses a database newer than it knows, and migrates an older one.
@@ -227,7 +284,7 @@ async function setup(
         ? {
             code: 0,
             stderr: "",
-            stdout: `\tpath = ${plan.file}\n\tstate = running\n\tprogram = ${plan.command[0]}\n\targuments = {\n\t\t${plan.command[0]}\n\t}\n`,
+            stdout: `\tpath = ${plan.file}\n\tstate = ${running || starting ? "running" : "waiting"}\n\tprogram = ${plan.command[0]}\n\targuments = {\n\t\t${plan.command[0]}\n\t}\n`,
           }
         : { code: 113, stderr: "", stdout: "" };
     if (args[0] === "bootstrap") {
@@ -241,11 +298,28 @@ async function setup(
     }
     if (args[0] === "kickstart") {
       if (!loaded) return { code: 113, stderr: "", stdout: "" };
-      if (!options.ignoresKickstart) await start();
+      if (options.ignoresKickstart) return { code: 0, stderr: "", stdout: "" };
+      // The old Spade stores one last message as it goes down, after the snapshot was taken.
+      if (running) conversation(`stored during the swap by ${running.version}`);
+      const slow = options.slowStart ?? 0;
+      if (slow > 0 && running?.version !== options.candidate.version) {
+        await close();
+        running = undefined;
+        starting = { at: clock + slow };
+      } else await start();
     }
     return { code: 0, stderr: "", stdout: "" };
   };
-  const service = { run, wait: async () => {} };
+  const service = {
+    run,
+    async wait(ms: number) {
+      clock += ms;
+      if (starting && clock >= starting.at) {
+        starting = undefined;
+        await start();
+      }
+    },
+  };
   await installSpadeService(plan, service);
   const schema = () => {
     const read = new DatabaseSync(database, { readOnly: true });
@@ -268,7 +342,21 @@ async function setup(
         version: "0.5.0",
         mode,
         plan,
-        io: { service, now: () => 0 },
+        io: { service, now: () => clock },
       }),
+    /** The test's clock: advanced only by the updater's waits. */
+    elapsed: () => clock,
+    turns: (file = database) => {
+      const read = new DatabaseSync(file, { readOnly: true });
+      try {
+        return read
+          .prepare("SELECT id FROM turns")
+          .all()
+          .map((row) => String(row.id));
+      } finally {
+        read.close();
+      }
+    },
+    database,
   };
 }

@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, open, readFile, rm } from "node:fs/promises";
+import { copyFile, mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { DatabaseSync, backup } from "@ace/provider-kit/sqlite";
 import { runProcess, type Runner } from "./process.ts";
@@ -35,6 +35,7 @@ export function localSpadeSwapPorts(io: SpadeSwapIo): SpadeSwapPorts {
   const run = io.run ?? runProcess;
   const service = io.service ?? systemSpadePorts;
   const nonce = io.nonce ?? newSpadeNonce;
+  const clock = io.now ?? Date.now;
   const dataDir = join(home, "spade");
   const database = join(dataDir, "spade.sqlite");
   const snapshotDir = join(home, ".spade-update-snapshot");
@@ -123,10 +124,16 @@ export function localSpadeSwapPorts(io: SpadeSwapIo): SpadeSwapPorts {
         await rm(checkDir, { recursive: true, force: true });
       }
     },
-    async restoreDatabase(snapshot) {
-      for (const suffix of ["", "-wal", "-shm"]) await rm(database + suffix, { force: true });
+    async restoreDatabase(snapshot, failedVersion) {
+      const live = existsSync(database) ? schemaOf(database) : undefined;
+      if (live !== undefined && live <= schemaOf(snapshot)) return undefined;
+      // Never deleted: the failed version's database, with what was stored during the swap.
+      const aside = freeName(`${database}.failed-${failedVersion}`);
+      for (const suffix of ["", "-wal", "-shm"])
+        if (existsSync(database + suffix)) await rename(database + suffix, aside + suffix);
       await copyFile(snapshot, database);
       await flush(database);
+      return aside;
     },
     async removeSnapshot() {
       await rm(snapshotDir, { recursive: true, force: true });
@@ -138,8 +145,13 @@ export function localSpadeSwapPorts(io: SpadeSwapIo): SpadeSwapPorts {
     stop: () => stopSpadeService(plan, service),
     restart: () => restartSpadeService(plan, service),
     async health(target, oldPid) {
-      // A restart writes a new token, port and pid, so all three are read again on every try.
-      for (let attempt = 0; attempt < 60; attempt++) {
+      // A first start migrates the real database before it writes server.json, which can take
+      // a while: Spade gets minutes while the service says its process runs, and a short limit
+      // once it has exited. A restart writes a new token, port and pid, so all three are read
+      // again on every try.
+      const started = clock();
+      let seenRunning = started;
+      for (;;) {
         try {
           const { connection, pid } = await endpoint();
           if (pid !== oldPid) {
@@ -147,13 +159,38 @@ export function localSpadeSwapPorts(io: SpadeSwapIo): SpadeSwapPorts {
             if (health?.version === target) return true;
           }
         } catch {}
+        const at = clock();
+        if (at - started >= spadeStartMs) return false;
+        const state = await spadeServiceState(plan, service).catch(() => "stopped" as const);
+        if (state === "running") seenRunning = at;
+        else if (at - seenRunning >= spadeExitedMs) return false;
         await service.wait(500);
       }
-      return false;
     },
     wait: (ms) => service.wait(ms),
-    now: io.now ?? Date.now,
+    now: clock,
   };
+}
+
+/** How long a new Spade may take to come up while its process runs, and once it has exited. */
+export const spadeStartMs = 120_000;
+export const spadeExitedMs = 10_000;
+
+/** Spade's schema version (`PRAGMA user_version`) in the database at `path`. */
+function schemaOf(path: string): number {
+  const db = new DatabaseSync(path, { readOnly: true });
+  try {
+    return Number(db.prepare("PRAGMA user_version").get()?.user_version ?? 0);
+  } finally {
+    db.close();
+  }
+}
+
+/** `path`, or `path-2`, `path-3`… when an earlier rollback already used it. */
+function freeName(path: string): string {
+  let name = path;
+  for (let n = 2; existsSync(name); n++) name = `${path}-${n}`;
+  return name;
 }
 
 async function flush(path: string): Promise<void> {
