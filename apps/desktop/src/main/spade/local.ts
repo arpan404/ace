@@ -1,6 +1,5 @@
 import { watch } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 import { spadeDirect } from "./direct.ts";
 import { spadeEndpointWatch } from "./endpoint-watch.ts";
 
@@ -15,11 +14,13 @@ const settleMs = 150;
 export function localSpade(options: { home: string | undefined; onChange(): void }) {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const endpoints = spadeEndpointWatch({
-    dataDir: options.home === undefined ? undefined : join(options.home, "spade"),
+    home: options.home,
     readText: (path) => readFile(path, "utf8").catch(() => undefined),
     watch(directory, changed, lost) {
       try {
-        const watcher = watch(directory, { persistent: false }, changed);
+        const watcher = watch(directory, { persistent: false }, (_event, file) =>
+          changed(typeof file === "string" ? file : undefined),
+        );
         watcher.once("error", () => {
           watcher.close();
           lost();

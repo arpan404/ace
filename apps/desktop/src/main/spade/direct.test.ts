@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -39,14 +39,16 @@ async function fakeSpade(
   return (server.address() as AddressInfo).port;
 }
 
-/** Spade's data folder with its two files, as a started Spade leaves it. */
+/** An ACE_HOME with the daemon's `host-id`, and Spade's folder with its two files once published. */
 function dataDir() {
   const dir = mkdtempSync(join(tmpdir(), "spade-direct-"));
   cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+  mkdirSync(join(dir, "spade"));
+  writeFileSync(join(dir, "host-id"), hostId);
   const publish = (port: number, token: string, api = 1) => {
-    writeFileSync(join(dir, "token"), `${token}\n`);
+    writeFileSync(join(dir, "spade", "token"), `${token}\n`);
     writeFileSync(
-      join(dir, "server.json"),
+      join(dir, "spade", "server.json"),
       JSON.stringify({ address: `127.0.0.1:${port}`, pid: 1, version: "0.4.0", api }),
     );
   };
@@ -57,7 +59,7 @@ function dataDir() {
 function direct(dir: string) {
   let clock = 0;
   const watch = spadeEndpointWatch({
-    dataDir: dir,
+    home: dir,
     readText: (path) => readFile(path, "utf8").catch(() => undefined),
     watch: () => undefined,
     now: () => (clock += 10_000),
@@ -66,6 +68,7 @@ function direct(dir: string) {
   return spadeDirect(watch);
 }
 
+const hostId = "0b8d2c1e-5a8f-4d2e-9c7a-3f1e2d4c5b6a";
 const tokenA = "a".repeat(43);
 const tokenB = "b".repeat(43);
 
@@ -92,6 +95,7 @@ test("a request reaches Spade with its token, and the page sees only the answer"
     address: `127.0.0.1:${port}`,
     version: "0.4.0",
     api: 1,
+    hostId,
   });
 });
 
@@ -113,7 +117,7 @@ test("a Spade that restarted with a new token is asked again with the new one", 
   publish(port, tokenA);
   let clock = 0;
   const watch = spadeEndpointWatch({
-    dataDir: dir,
+    home: dir,
     readText: (path) => readFile(path, "utf8").catch(() => undefined),
     watch: () => undefined,
     now: () => clock,

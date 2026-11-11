@@ -10,9 +10,18 @@ import { maxSpadeResponseBytes, maxSpadeUploadBytes, SpadeMethod } from "@ace/pr
 const Version = z.string().max(64);
 const Api = z.number().int().positive();
 
-/** The local Spade the app reaches directly; null when there is none (or none it speaks to). */
+/**
+ * The local Spade the app reaches directly, with the identity of the daemon beside it
+ * (`hostId`, its home's `host-id`): a window uses the direct path only while it shows that
+ * daemon's machine. Null when there is none (or none it speaks to).
+ */
 export const SpadeEndpointInfo = z
-  .object({ address: z.string().max(64), version: Version, api: Api })
+  .object({
+    address: z.string().max(64),
+    version: Version,
+    api: Api,
+    hostId: z.string().min(1).max(128),
+  })
   .nullable();
 export type SpadeEndpointInfo = z.infer<typeof SpadeEndpointInfo>;
 

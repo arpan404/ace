@@ -100,7 +100,8 @@ export function spadeDirect(endpoints: Pick<SpadeEndpointWatch, "current" | "ref
   async function endpoint(): Promise<SpadeEndpointInfo> {
     const spade = await endpoints.current();
     if (!spade) return null;
-    return { address: `${spade.host}:${spade.port}`, version: spade.version, api: spade.api };
+    const { version, api, hostId } = spade;
+    return { address: `${spade.host}:${spade.port}`, version, api, hostId };
   }
 
   async function health(): Promise<SpadeHealthInfo> {
