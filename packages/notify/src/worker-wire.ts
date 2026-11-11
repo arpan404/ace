@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { wireShape } from "@ace/provider-kit/wire-shape";
 import {
   Notification,
   NotificationDevice,
@@ -63,7 +64,7 @@ export const WorkerCall = z.discriminatedUnion("method", [
   }),
 ]);
 export type WorkerCall = z.infer<typeof WorkerCall>;
-export const ToWorker = z.discriminatedUnion("type", [
+const ToWorker = z.discriminatedUnion("type", [
   z.object({ type: z.literal("call"), id: seq, call: WorkerCall }),
   z.object({
     type: z.literal("deliveryResult"),
@@ -84,7 +85,7 @@ export function incompatibleFrame(refusal: { path: string; message: string }) {
     message: refusal.message.slice(0, refusalMessageChars),
   };
 }
-export const FromWorker = z.discriminatedUnion("type", [
+const FromWorker = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ready") }),
   z.object({
     type: z.literal("result"),
@@ -122,6 +123,16 @@ export const FromWorker = z.discriminatedUnion("type", [
 ]);
 /** What a successful call may return. */
 export type WorkerValue = Extract<z.infer<typeof FromWorker>, { type: "result" }>["value"];
+/**
+ * Messages between the daemon and its notification worker. Both ends are this build (the
+ * worker checks `notifyWireShape` when it starts), so they are typed, not parsed on receipt.
+ * Calls carrying arguments the daemon was handed are checked against `WorkerCall` before they
+ * are sent (`NotificationWorker`); the worker's replies come from its store, which decodes
+ * its rows as it reads them.
+ */
+export type ToWorker = z.output<typeof ToWorker>;
+export type FromWorker = z.output<typeof FromWorker>;
+export const notifyWireShape = wireShape([ToWorker, FromWorker]);
 export const WorkerConfig = z.object({
   path: z.string().max(4096),
   windowMs: seq.default(5000),
