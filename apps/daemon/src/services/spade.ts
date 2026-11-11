@@ -8,6 +8,7 @@ import { SpadeGrantAuthenticator } from "../spade/grant-auth.ts";
 import { SpadeGrants } from "../spade/grant.ts";
 import { nodeSpadeLinkRuntime, spadeAceCall } from "../spade/link-runtime.ts";
 import { SpadeLink, type SpadeLinkRuntime } from "../spade/link.ts";
+import { cliVersion } from "../doctor/install.ts";
 import { aceSpadeService, type SpadeServiceControl } from "../spade/service-control.ts";
 import { spadeDisabled } from "../spade/disabled.ts";
 import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
@@ -33,9 +34,16 @@ export interface DaemonSpadeOptions {
 export async function startSpade(context: ServiceContext): Promise<void> {
   const { config, log, services, store } = context;
   const options = context.options.spade ?? {};
-  const disabled = spadeDisabled(options.env ?? process.env);
+  const env = options.env ?? process.env;
+  const disabled = spadeDisabled(env);
   const dataDir = join(config.dataDir, "spade");
-  const service = options.service ?? aceSpadeService(config.dataDir, process.platform);
+  const service =
+    options.service ??
+    aceSpadeService({
+      home: config.dataDir,
+      env,
+      version: () => cliVersion(env, process.argv[1]),
+    });
   const link = new SpadeLink({
     dataDir,
     runtime: options.runtime ?? nodeSpadeLinkRuntime({ service, now: context.now }),

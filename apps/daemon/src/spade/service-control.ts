@@ -1,4 +1,13 @@
-import { z } from "zod";
+import { dirname, join } from "node:path";
+import {
+  installSpadeBinary,
+  installSpadeService,
+  installedSpadeVersion,
+  localSpadePlan,
+  removeSpadeService,
+  spadeBinaryName,
+  spadeServiceState,
+} from "@ace/service/spade-service";
 import type { SpadeServiceState } from "./rules.ts";
 
 /**
@@ -9,56 +18,46 @@ export interface SpadeServiceControl {
   state(): Promise<SpadeServiceState>;
   /** Copies this release's `spade-server` to `<ACE_HOME>/releases/spade/<version>/` if missing. */
   installBinary(): Promise<void>;
-  /** Registers and starts the service; registering again leaves a running Spade alone. */
+  /** Registers and starts the service; an unchanged one that runs is left running. */
   register(): Promise<void>;
   /** Stops the service and removes its registration. */
   remove(): Promise<void>;
 }
 
-const State = z.enum(["absent", "stopped", "running"]);
-type Callable = (...args: unknown[]) => unknown;
-const callable = (value: unknown): value is Callable => typeof value === "function";
-
 /**
- * `@ace/service`'s Spade API, by the contract's names (spade/docs/ace-integration.md):
- * `spadeServicePlan(home, platform)`, `installSpadeService(plan)`, `removeSpadeService(plan)`,
- * `spadeServiceState(plan)` and `installSpadeBinary(home)`. Looked up when first used, so a build
- * without them says so instead of failing to start.
+ * The `spade-server` this release carries: `ACE_SPADE_BIN` in development, else the one beside
+ * the runtime in the release bundle (`bin/node`, `bin/spade-server`).
  */
-export function aceSpadeService(home: string, platform: NodeJS.Platform): SpadeServiceControl {
-  let loaded: Promise<{ plan: unknown; api: Record<string, Callable> }> | undefined;
-  const load = () =>
-    (loaded ??= import("@ace/service").then((module) => {
-      const names = [
-        "spadeServicePlan",
-        "installSpadeService",
-        "removeSpadeService",
-        "spadeServiceState",
-        "installSpadeBinary",
-      ] as const;
-      const api: Record<string, Callable> = {};
-      for (const name of names) {
-        const value: unknown = Reflect.get(module, name);
-        if (!callable(value))
-          throw new Error("This build of ace can't register Spade as a service yet.");
-        api[name] = value;
-      }
-      return { plan: api.spadeServicePlan?.(home, platform), api };
-    }));
-  const run = async (name: string, ...args: unknown[]) => {
-    const { plan, api } = await load();
-    return api[name]?.(...(args.length ? args : [plan]));
-  };
+export function bundledSpadeBinary(
+  env: Readonly<Record<string, string | undefined>>,
+  runtime: string,
+  platform: NodeJS.Platform,
+): string {
+  return env.ACE_SPADE_BIN?.trim() || join(dirname(runtime), spadeBinaryName(platform));
+}
+
+/** `@ace/service`'s Spade service for `home` on this machine and account. */
+export function aceSpadeService(input: {
+  home: string;
+  /** `ACE_SPADE_BIN` is read from it. */
+  env: Readonly<Record<string, string | undefined>>;
+  /** ace's version: the release folder the binary is installed as. */
+  version(): Promise<string>;
+}): SpadeServiceControl {
+  let plan: ReturnType<typeof localSpadePlan> | undefined;
+  const planned = () => (plan ??= localSpadePlan(input.home));
   return {
-    state: async () => State.parse(await run("spadeServiceState")),
-    installBinary: async () => {
-      await run("installSpadeBinary", home);
+    state: async () => spadeServiceState(await planned()),
+    async installBinary() {
+      if ((await installedSpadeVersion(input.home)) !== undefined) return;
+      const source = bundledSpadeBinary(input.env, process.execPath, process.platform);
+      await installSpadeBinary(input.home, source, await input.version());
     },
-    register: async () => {
-      await run("installSpadeService");
+    async register() {
+      await installSpadeService(await planned());
     },
-    remove: async () => {
-      await run("removeSpadeService");
+    async remove() {
+      await removeSpadeService(await planned());
     },
   };
 }

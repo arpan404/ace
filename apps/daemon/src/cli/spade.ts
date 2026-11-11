@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { SettingsService } from "@ace/settings";
 import { readConfig } from "../config.ts";
 import { spadeDisabled } from "../spade/disabled.ts";
+import { cliVersion } from "../doctor/install.ts";
 import { aceSpadeService, type SpadeServiceControl } from "../spade/service-control.ts";
 import { option, validateArgs, type Args } from "./args.ts";
 import { connectCli } from "./connection.ts";
@@ -21,7 +22,11 @@ import { CliFailure } from "./output.ts";
 export async function spadeCommand(
   args: Args,
   home: string,
-  service: SpadeServiceControl = aceSpadeService(home, process.platform),
+  service: SpadeServiceControl = aceSpadeService({
+    home,
+    env: process.env,
+    version: () => cliVersion(process.env, process.argv[1]),
+  }),
 ): Promise<void> {
   const verb = args.words[1];
   if (verb !== "on" && verb !== "off") throw new CliFailure("refused", "Use ace spade on|off");
