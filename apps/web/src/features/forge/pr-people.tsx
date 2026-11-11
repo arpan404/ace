@@ -41,7 +41,7 @@ export function PrPeople(props: {
     props.extensions?.reviewers?.(props.context) ??
     (props.onRequestReview && (
       <Button variant="ghost" size="xs" disabled={disabled} onClick={props.onRequestReview}>
-        Request review
+        Request
       </Button>
     ));
   const labelPicker =
@@ -54,6 +54,11 @@ export function PrPeople(props: {
   const assignees = props.assignees;
   return (
     <>
+      {detail.relatedThreads.some((thread) => !thread.archived) && (
+        <DetailRow label="Agent">
+          <PrAgentLine detail={detail} />
+        </DetailRow>
+      )}
       <DetailRow label="Reviewers" action={reviewerPicker}>
         <div id="pr-reviewers" role="group" aria-label="Reviewers" className="scroll-mt-10 py-1">
           {rows.length ? (
@@ -94,11 +99,6 @@ export function PrPeople(props: {
               <span className="text-subtle-foreground">None</span>
             )}
           </p>
-        </DetailRow>
-      )}
-      {detail.relatedThreads.some((thread) => !thread.archived) && (
-        <DetailRow label="Agent">
-          <PrAgentLine detail={detail} />
         </DetailRow>
       )}
     </>

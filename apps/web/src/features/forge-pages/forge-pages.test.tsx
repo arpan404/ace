@@ -161,7 +161,7 @@ test("a link straight to a pull request opens its page, and Back opens its proje
     "true",
   );
   // Once the PR has loaded: its placeholder's Back is replaced by the page's own.
-  await screen.findByRole("button", { name: "Copy checkout command" });
+  await screen.findByRole("button", { name: "Pull request actions" });
   await userEvent.click(await screen.findByRole("button", { name: "Back to pull requests" }));
   await waitFor(async () => expect(await numbers("Pull requests")).toContain("229"));
 });

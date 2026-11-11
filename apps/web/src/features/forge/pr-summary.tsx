@@ -3,13 +3,12 @@ import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.
 import { PrChangesGlance } from "./pr-changes-glance.tsx";
 import { PrDescription } from "./pr-description.tsx";
 import { PrStackSummary } from "./pr-stack-summary.tsx";
-import { TextAction } from "./pr-text-action.tsx";
+import { PrLatest } from "./pr-latest.tsx";
 
 /**
- * The Summary tab: a main column led by where the merge stands (one sentence, the gates, then
- * what blocks it in its authors' words), then the description, the biggest changes and the stack; and a sidebar (`about`) with the people,
- * labels, the agent and what it's filed under. A narrow view stacks the sidebar under the column.
- * The conversation lives in the Timeline and the checks in Checks: a line here leads to each.
+ * The Summary tab: a main column of sections (Merge status, Description, Files changed, the
+ * stack, Latest) and a sidebar (`about`) with the agent, the people, labels and what it's filed
+ * under. A narrow view stacks the sidebar under the column.
  */
 export function PrSummary(props: {
   context: PrWorkspaceContext;
@@ -29,10 +28,9 @@ export function PrSummary(props: {
 }) {
   const { context } = props;
   const { detail } = context;
-  const comments = detail.status.comments.length;
   return (
-    <div className="grid gap-6 px-[var(--forge-gutter,1rem)] pt-4 pb-10 @min-[50rem]/pr:grid-cols-[minmax(0,1fr)_15rem] @min-[50rem]/pr:gap-8">
-      <div className="min-w-0 space-y-7">
+    <div className="grid gap-8 px-[var(--forge-gutter,1rem)] pt-6 pb-12 @min-[50rem]/pr:grid-cols-[minmax(0,1fr)_14.5rem] @min-[50rem]/pr:gap-10">
+      <div className="min-w-0 space-y-8">
         {props.merge}
         <PrDescription
           context={context}
@@ -55,20 +53,10 @@ export function PrSummary(props: {
             onOpen={props.onOpen}
           />
         )}
-        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          {comments
-            ? `${comments} ${comments === 1 ? "comment" : "comments"} in the Timeline`
-            : "No comments yet"}
-          <span aria-hidden className="text-subtle-foreground">
-            ·
-          </span>
-          <TextAction strong onClick={props.onTimeline}>
-            {comments ? "Open the conversation" : "Leave a comment"}
-          </TextAction>
-        </p>
+        <PrLatest detail={detail} onTimeline={props.onTimeline} />
         {props.extensions?.summary?.(context)}
       </div>
-      {props.about && <div className="min-w-0 @min-[50rem]/pr:pt-1">{props.about}</div>}
+      {props.about && <div className="min-w-0 @min-[50rem]/pr:pt-0.5">{props.about}</div>}
     </div>
   );
 }

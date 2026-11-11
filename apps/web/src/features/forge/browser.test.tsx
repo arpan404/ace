@@ -82,9 +82,12 @@ test("checkout copied from another repository names that repository instead of t
   );
   await openPullRequest(app, { project: "api", repository: other, number: 42 });
   await screen.findByRole("heading", { name: "Other repository PR" }, { timeout: 10_000 });
-  await user.click(screen.getByRole("button", { name: "Copy checkout command" }));
-  expect(await navigator.clipboard.readText()).toBe("gh pr checkout 42 --repo github.com/acme/web");
-  await screen.findByRole("button", { name: "Checkout command copied" });
+  await user.click(await menuItem("Copy checkout command"));
+  await waitFor(async () =>
+    expect(await navigator.clipboard.readText()).toBe(
+      "gh pr checkout 42 --repo github.com/acme/web",
+    ),
+  );
 });
 
 /** The PR panel, apart from the thread's own work card and sidebar. */
@@ -230,9 +233,7 @@ test("the Summary leaves the checks and the conversation to their own tabs", asy
   expect(summaryRegions()).toEqual(["Description"]);
   expect(panel().getByText(/Preserve reconnect ordering\./)).toBeTruthy();
   // The conversation is one step away, in the Timeline, where its comment box is.
-  await userEvent.click(
-    panel().getByRole("button", { name: /Open the conversation|Leave a comment/ }),
-  );
+  await userEvent.click(panel().getByRole("button", { name: /^(Timeline|Leave a comment)$/ }));
   expect(panel().getByRole("tab", { name: /Timeline/, selected: true })).toBeTruthy();
   expect(panel().getByText(/Keep the context\./)).toBeTruthy();
   await userEvent.click(panel().getByRole("tab", { name: /Checks/ }));

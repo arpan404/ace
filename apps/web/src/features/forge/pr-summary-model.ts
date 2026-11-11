@@ -253,3 +253,56 @@ export function conversation(
     total: all.length,
   };
 }
+
+/** One line of the Summary's Latest: who did what, when. `where` is a file and line, in mono. */
+export interface LatestEvent {
+  key: string;
+  who: string;
+  what: string;
+  where?: string | undefined;
+  at: string;
+}
+
+const verdicts: Record<string, string> = {
+  APPROVED: "approved",
+  CHANGES_REQUESTED: "requested changes",
+  COMMENTED: "reviewed",
+};
+
+/**
+ * The newest things that happened on the PR, newest first: reviews by their verdict, comments
+ * (a conversation's first comment, not its replies) and checks that failed. Dismissed reviews
+ * and passing checks stay in the Timeline.
+ */
+export function latestEvents(
+  status: Pick<ForgePrStatus, "comments" | "checks">,
+  limit: number,
+): LatestEvent[] {
+  const events: LatestEvent[] = [];
+  for (const comment of status.comments) {
+    if (comment.replyTo !== null) continue;
+    const at = time(comment);
+    if (comment.kind === "review") {
+      const what = verdicts[comment.reviewState?.toUpperCase() ?? ""];
+      if (what) events.push({ key: `comment:${comment.id}`, who: comment.author, what, at });
+    } else
+      events.push({
+        key: `comment:${comment.id}`,
+        who: comment.author,
+        what: comment.file ? "commented on" : "commented",
+        where: comment.file
+          ? `${comment.file.split("/").pop()}${comment.line ? `:${comment.line}` : ""}`
+          : undefined,
+        at,
+      });
+  }
+  for (const check of status.checks)
+    if (check.status === "failure" && check.completedAt)
+      events.push({
+        key: `check:${check.id}`,
+        who: check.name,
+        what: "failed",
+        at: check.completedAt,
+      });
+  return events.toSorted((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, limit);
+}

@@ -11,6 +11,7 @@ import {
   type GateKey,
 } from "@ace/ui-core";
 import { Button } from "@/components/ui/button.tsx";
+import { DiffStat } from "@/components/diff-stat.tsx";
 import { cn } from "@/lib/cn.ts";
 import { PrActivity } from "./pr-activity.tsx";
 import { PrHeader } from "./pr-header.tsx";
@@ -302,7 +303,17 @@ function PrDetailLoaded(props: {
                   }}
                   context={{
                     // On a page the Summary needs no counter; how many files are viewed is Code's.
-                    summary: props.page ? null : <SummaryContext detail={detail} />,
+                    summary: props.page ? (
+                      detail.additions !== undefined && detail.deletions !== undefined ? (
+                        <DiffStat
+                          additions={detail.additions}
+                          deletions={detail.deletions}
+                          className="text-xs"
+                        />
+                      ) : null
+                    ) : (
+                      <SummaryContext detail={detail} />
+                    ),
                     timeline: (
                       <div className="flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums">
                         <span>{counted(detail.status.comments.length, "comment")}</span>

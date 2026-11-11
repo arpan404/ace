@@ -111,7 +111,7 @@ test("the reviewers are read once, not again each time the window regains focus"
 test("an approval that arrives while on the Code tab clears the Changes requested gate", async () => {
   const queryClient = createQueryClient();
   const app = await openInstallPage(queryClient);
-  await screen.findByRole("button", { name: "Reviews: mira requested changes" });
+  await screen.findByRole("button", { name: "Reviews: Changes requested" });
   await userEvent.click(await screen.findByRole("tab", { name: "Code" }));
   // Summary (its Reviewers and merge box) is gone; only the PR view remains to follow.
   await waitFor(() => expect(screen.queryByRole("group", { name: "Reviewers" })).toBeNull());
@@ -123,7 +123,7 @@ test("an approval that arrives while on the Code tab clears the Changes requeste
   // The PR's own poll brings the new detail; nothing else is read again by hand.
   await act(() => queryClient.refetchQueries({ queryKey: prDetailKey("api", repository, 31) }));
   await userEvent.click(screen.getByRole("tab", { name: "Summary" }));
-  await screen.findByRole("button", { name: "Reviews: Approved by mira" }, { timeout: 5_000 });
+  await screen.findByRole("button", { name: "Reviews: 1 approved" }, { timeout: 5_000 });
 }, 30_000);
 
 const reviewersRead = {
@@ -136,7 +136,7 @@ const reviewersRead = {
 /** PR #31 open on Code, Mira's change request in force, then Mira approves on GitHub. */
 async function approvedWhileOnCode(queryClient: ReturnType<typeof createQueryClient>) {
   const app = await openInstallPage(queryClient);
-  await screen.findByRole("button", { name: "Reviews: mira requested changes" });
+  await screen.findByRole("button", { name: "Reviews: Changes requested" });
   await userEvent.click(await screen.findByRole("tab", { name: "Code" }));
   app.daemon.workspace.submitPullRequestReview(31, {
     login: "mira",
@@ -157,7 +157,7 @@ test("when the reviewers can't be read again, the approval in the PR still clear
     expect(app.daemon.workspace.forgeReadCount(reviewersRead)).toBeGreaterThan(reads),
   );
   await userEvent.click(screen.getByRole("tab", { name: "Summary" }));
-  await screen.findByRole("button", { name: "Reviews: Approved by mira" }, { timeout: 5_000 });
+  await screen.findByRole("button", { name: "Reviews: 1 approved" }, { timeout: 5_000 });
 }, 30_000);
 
 test("while the reviewers are read again, the gate follows the PR's newer reviews", async () => {
@@ -166,8 +166,8 @@ test("while the reviewers are read again, the gate follows the PR's newer review
   const release = app.daemon.workspace.holdForgeRead(reviewersRead);
   await act(() => queryClient.refetchQueries({ queryKey: prDetailKey("api", repository, 31) }));
   await userEvent.click(screen.getByRole("tab", { name: "Summary" }));
-  await screen.findByRole("button", { name: "Reviews: Approved by mira" }, { timeout: 5_000 });
+  await screen.findByRole("button", { name: "Reviews: 1 approved" }, { timeout: 5_000 });
   release();
   await new Promise((resolve) => setTimeout(resolve, 200));
-  expect(screen.getByRole("button", { name: "Reviews: Approved by mira" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Reviews: 1 approved" })).toBeTruthy();
 }, 30_000);

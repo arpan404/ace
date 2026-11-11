@@ -1,16 +1,15 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { PencilSimpleIcon } from "@phosphor-icons/react";
-import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { PrMarkdown } from "./pr-markdown.tsx";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { PrAvatar, PrTime } from "./pr-presentation.tsx";
+import { SectionAction, SummarySection, summaryCard } from "./pr-summary-section.tsx";
 import { PrReactionPicker, PrReactions } from "./pr-reactions.tsx";
 
 /**
- * The PR's description as the first message of its conversation: who opened it and when, with
- * reactions and Edit, and the markdown under it, capped with Show more when it runs long.
+ * The PR's description: who opened it and when, a reaction and Edit beside the heading, and the
+ * markdown on a card, capped with Show more when it runs long.
  */
 export function PrDescription(props: {
   context: PrWorkspaceContext;
@@ -40,33 +39,30 @@ export function PrDescription(props: {
   const { detail } = props.context;
   const at = detail.createdAt ?? detail.updatedAt;
   return (
-    <section aria-label="Description">
-      <div className="flex h-8 items-center gap-2 text-ui">
-        <PrAvatar name={detail.author} url={detail.authorAvatarUrl} />
-        <p className="flex min-w-0 flex-1 items-baseline gap-1.5 truncate">
-          <span className="truncate font-medium text-foreground">{detail.author}</span>
-          <span className="shrink-0 text-muted-foreground">
-            {at ? (
-              <PrTime at={at} prefix={detail.createdAt ? "opened " : "updated "} />
-            ) : (
-              "opened this pull request"
+    <SummarySection
+      title="Description"
+      right={
+        <>
+          <span className="mr-1 inline-flex min-w-0 items-center gap-1.5 text-ui">
+            <PrAvatar name={detail.author} url={detail.authorAvatarUrl} />
+            <span className="truncate">{detail.author}</span>
+            {at && (
+              <span className="shrink-0 text-subtle-foreground">
+                <span aria-hidden>· </span>
+                <PrTime at={at} />
+              </span>
             )}
           </span>
-        </p>
-        <div className="-mr-1 flex shrink-0 items-center gap-0.5">
           <PrReactionPicker subject={{ kind: "pr" }} />
           {edit && (
-            <IconButton
-              icon={PencilSimpleIcon}
-              label="Edit description"
-              size="sm"
-              disabled={props.context.disabled}
-              onClick={edit}
-            />
+            <SectionAction disabled={props.context.disabled} onClick={edit}>
+              Edit
+            </SectionAction>
           )}
-        </div>
-      </div>
-      <div className="pt-1.5 pl-7">
+        </>
+      }
+    >
+      <div className={cn(summaryCard, "px-4 pt-3 pb-3.5")}>
         {body.trim() ? (
           <div>
             <div
@@ -74,7 +70,7 @@ export function PrDescription(props: {
               className={cn(
                 "relative",
                 // Images and other blocks run long: the cap keeps a long description a preview.
-                !expanded && "max-h-80 overflow-hidden",
+                !expanded && "max-h-96 overflow-hidden",
               )}
             >
               <PrMarkdown
@@ -87,7 +83,7 @@ export function PrDescription(props: {
               {overflows && !expanded && (
                 <div
                   aria-hidden
-                  className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-linear-to-b from-transparent to-panel"
+                  className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-linear-to-b from-transparent to-background"
                 />
               )}
             </div>
@@ -103,10 +99,10 @@ export function PrDescription(props: {
             )}
           </div>
         ) : (
-          <p className="text-ui text-muted-foreground italic">No description provided.</p>
+          <p className="text-ui text-subtle-foreground">No description.</p>
         )}
-        <PrReactions subject={{ kind: "pr" }} className="mt-2" onlyWhenAny />
+        <PrReactions subject={{ kind: "pr" }} className="mt-2.5" onlyWhenAny />
       </div>
-    </section>
+    </SummarySection>
   );
 }

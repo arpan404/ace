@@ -1,6 +1,12 @@
 import { expect, test } from "vitest";
 import { ForgeComment, type ForgePrStatus } from "@ace/protocol";
-import { attentionItems, biggestFiles, conversation, fixRequest } from "./pr-summary-model.ts";
+import {
+  attentionItems,
+  biggestFiles,
+  conversation,
+  fixRequest,
+  latestEvents,
+} from "./pr-summary-model.ts";
 
 const comment = (
   id: number,
@@ -154,4 +160,49 @@ test("a review asking for changes blocks in the reviewer's words until their nex
   const line = thread("t", false, [comment(23, "sam", "2026-01-03", { kind: "inline" })]);
   expect(keys([silent], [line])).toEqual(["thread:t"]);
   expect(keys([silent])).toEqual(["review:22"]);
+});
+
+test("Latest lists verdicts, first comments and failed checks newest first, leaving out replies and passes", () => {
+  const status = {
+    comments: [
+      comment(1, "sam", "2026-11-01T10:00:00Z"),
+      comment(2, "mira", "2026-11-01T12:00:00Z", { kind: "review", reviewState: "APPROVED" }),
+      comment(3, "priya", "2026-11-01T13:00:00Z", {
+        kind: "inline",
+        file: "src/socket.ts",
+        line: 42,
+      }),
+      comment(4, "sam", "2026-11-01T14:00:00Z", {
+        kind: "inline",
+        file: "src/socket.ts",
+        replyTo: 3,
+      }),
+      comment(5, "dana", "2026-11-01T15:00:00Z", { kind: "review", reviewState: "DISMISSED" }),
+    ],
+    checks: [
+      {
+        id: "a",
+        name: "test (web)",
+        status: "failure" as const,
+        conclusion: "failure",
+        completedAt: "2026-11-01T16:00:00Z",
+        jobId: null,
+        url: null,
+      },
+      {
+        id: "b",
+        name: "lint",
+        status: "success" as const,
+        conclusion: "success",
+        completedAt: "2026-11-01T17:00:00Z",
+        jobId: null,
+        url: null,
+      },
+    ],
+  };
+  expect(latestEvents(status, 3).map((e) => [e.who, e.what, e.where])).toEqual([
+    ["test (web)", "failed", undefined],
+    ["priya", "commented on", "socket.ts:42"],
+    ["mira", "approved", undefined],
+  ]);
 });

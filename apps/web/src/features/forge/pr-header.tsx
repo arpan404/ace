@@ -13,17 +13,14 @@ import {
   ArrowLeftIcon,
   CaretDownIcon,
   ArrowSquareOutIcon,
-  CheckIcon,
-  CopyIcon,
   PencilSimpleIcon,
 } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Input } from "@/components/ui/input.tsx";
-import { PullRequestGlyph, pullRequestTone } from "@/components/pull-request-state.tsx";
+import { pullRequestTone } from "@/components/pull-request-state.tsx";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { useCopy } from "@/components/use-copy.ts";
 import { cn } from "@/lib/cn.ts";
 import { PrAvatar, PrTime } from "./pr-presentation.tsx";
 import type { PrWorkspaceExtensions } from "./pr-extensions.ts";
@@ -198,8 +195,8 @@ function BranchName(props: { name: string; deleted?: boolean | undefined }) {
     <span
       title={props.name}
       className={cn(
-        "inline-block max-w-64 min-w-0 truncate align-middle font-mono text-xs",
-        props.deleted ? "text-subtle-foreground line-through" : "text-foreground/90",
+        "font-mono text-xs whitespace-nowrap",
+        props.deleted ? "text-subtle-foreground line-through" : "text-foreground",
       )}
     >
       {props.deleted && <span className="sr-only">deleted branch </span>}
@@ -211,66 +208,46 @@ function BranchName(props: { name: string; deleted?: boolean | undefined }) {
 /** The state as its glyph and word, in the state's colour, with nothing around it. */
 function StateMark(props: { state: "open" | "draft" | "merged" | "closed" }) {
   return (
-    <span
-      className={cn(
-        "inline-flex shrink-0 items-center gap-1 font-medium",
-        pullRequestTone(props.state),
-      )}
-    >
-      <PullRequestGlyph state={props.state} size={15} />
+    <span className={cn("font-semibold whitespace-nowrap", pullRequestTone(props.state))}>
       {prWords[props.state]}
     </span>
   );
 }
 
 /**
- * Under the title, one line: the state in its colour, then "mira wants to merge 3 commits into
- * main from fix/socket", the checkout command a copy away, and when it was last updated.
+ * Under the title, one sentence: the state in its colour, "mira wants to merge 3 commits into
+ * main from fix/socket", and when it was last updated. The checkout command is in ⋯.
  */
 export function PrByline(props: { actions: PrActions }) {
   const { detail } = props.actions.context;
   const { status } = detail;
-  const repository = status.ref.repository;
-  const checkout = `gh pr checkout ${status.ref.number} --repo ${repository.host}/${repository.owner}/${repository.name}`;
-  const toast = useToast();
-  const { copied, copy } = useCopy(() =>
-    toast.error({ title: "Couldn't copy the checkout command" }),
-  );
   const commits = `${detail.commits} ${detail.commits === 1 ? "commit" : "commits"}`;
   const deleted = props.actions.lifecycle.snapshot?.headBranch?.exists === false;
+  // One sentence that wraps as prose: names and branches stay whole, the avatar stays with its name.
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-ui text-muted-foreground">
+    <p className="min-w-0 text-ui leading-6 text-muted-foreground">
       {status.state !== "unknown" && (
         <>
           <StateMark state={status.state} />
-          <span aria-hidden className="text-faint-foreground">
+          <span aria-hidden className="px-1.5 text-faint-foreground">
             ·
           </span>
         </>
       )}
-      <span className="inline-flex items-center gap-1.5">
+      <span className="inline-flex items-center gap-1.5 align-top whitespace-nowrap">
         <PrAvatar name={detail.author} url={detail.authorAvatarUrl} />
-        <span className="font-medium text-foreground/90">{detail.author}</span>
-      </span>
-      <span>
-        {status.state === "merged" ? `merged ${commits} into` : `wants to merge ${commits} into`}
-      </span>
-      <BranchName name={detail.baseBranch} />
-      <span>from</span>
+        <span className="font-medium text-foreground">{detail.author}</span>
+      </span>{" "}
+      {status.state === "merged" ? `merged ${commits} into` : `wants to merge ${commits} into`}{" "}
+      <BranchName name={detail.baseBranch} /> from{" "}
       <BranchName name={detail.headBranch} deleted={deleted} />
-      <IconButton
-        icon={copied ? CheckIcon : CopyIcon}
-        label={copied ? "Checkout command copied" : "Copy checkout command"}
-        size="sm"
-        onClick={() => copy(checkout)}
-      />
-      <span aria-hidden className="text-faint-foreground">
+      <span aria-hidden className="px-1.5 text-faint-foreground">
         ·
       </span>
       <span className="whitespace-nowrap text-subtle-foreground">
         <PrTime at={detail.updatedAt} prefix="updated " />
       </span>
-    </div>
+    </p>
   );
 }
 

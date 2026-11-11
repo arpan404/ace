@@ -65,7 +65,7 @@ function Row(props: {
 }) {
   const { item } = props;
   return (
-    <li className="flex items-start gap-1.5 py-3 pr-4 pl-4">
+    <li className="flex items-start gap-2.5 px-4 py-3">
       <Lead item={item} avatar={props.avatar} />
       <div className="min-w-0 flex-1">
         <p className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-ui">
@@ -73,15 +73,14 @@ function Row(props: {
             {item.kind === "check" ? item.title : item.author}
           </span>
           <span className="text-muted-foreground">
-            {item.kind === "check"
-              ? "failed"
-              : item.kind === "review"
-                ? "requested changes"
-                : "asked on"}
+            {item.kind === "check" ? "failed" : item.kind === "review" ? "requested changes" : "on"}
           </span>
           {item.kind === "thread" && (
-            <span className="min-w-0 truncate font-mono text-xs text-foreground/85">
-              {item.detail}
+            <span
+              title={item.detail}
+              className="min-w-0 truncate font-mono text-xs text-foreground"
+            >
+              {item.detail.split("/").pop()}
             </span>
           )}
           {item.at && (
@@ -95,15 +94,17 @@ function Row(props: {
         {props.quote !== undefined && (
           <div
             className={cn(
-              "mt-1 line-clamp-3 text-ui break-words whitespace-pre-line",
-              props.masked ? "text-subtle-foreground" : "text-foreground/90",
+              "mt-0.5 line-clamp-3 text-ui break-words whitespace-pre-line",
+              props.masked ? "text-subtle-foreground" : "text-foreground",
               item.kind === "check" && "font-mono text-xs",
             )}
           >
             {props.quote}
           </div>
         )}
-        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">{props.actions}</div>
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3.5 gap-y-1 [&>button]:text-ui [&>button]:font-medium [&_button]:text-ui [&_button]:font-medium">
+          {props.actions}
+        </div>
         {props.after}
       </div>
     </li>
@@ -219,7 +220,7 @@ export function PrAttention(props: {
   const avatarOf = (author: string) =>
     detail.status.comments.find((c) => c.author === author && c.authorAvatarUrl)?.authorAvatarUrl;
   return (
-    <section id="pr-attention" aria-label="Blocking the merge" className="scroll-mt-16">
+    <section id="pr-attention" aria-label="Blocking the merge">
       <ul className="divide-y divide-border-soft">
         {items.map((item) => {
           const masked = item.kind !== "check" && !hiddenKnown;

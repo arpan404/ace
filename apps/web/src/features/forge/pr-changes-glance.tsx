@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { ForgePrDetail } from "@ace/protocol";
-import { DiffCounts, DiffStat } from "@/components/diff-stat.tsx";
+import { DiffCounts } from "@/components/diff-stat.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { plainRow } from "@/components/ui/rules.ts";
@@ -8,6 +8,7 @@ import { cn } from "@/lib/cn.ts";
 import { usePrFilePages } from "./pr-file-pages.ts";
 import { biggestFiles, type GlanceFile } from "./pr-summary-model.ts";
 import { readFailureText } from "./query-state.tsx";
+import { SectionAction, SummarySection } from "./pr-summary-section.tsx";
 
 const shown = 6;
 
@@ -18,7 +19,7 @@ function MicroBar(props: { file: GlanceFile }) {
   return (
     <span
       aria-hidden
-      className="flex h-1.5 w-16 shrink-0 justify-end overflow-hidden rounded-full @max-[30rem]/pr:hidden"
+      className="flex h-1 w-14 shrink-0 justify-end overflow-hidden rounded-full bg-fill-strong @max-[30rem]/pr:hidden"
     >
       <span className="flex h-full" style={{ width: `${Math.max(4, file.scale * 100)}%` }}>
         <span
@@ -61,35 +62,21 @@ function GlanceFrame(props: {
   children: ReactNode;
 }) {
   return (
-    <section aria-label="Changes">
-      <div className="flex h-8 items-center gap-2">
-        <h3 className="flex min-w-0 flex-1 items-center gap-1.5 text-xs font-medium text-muted-foreground">
-          Files changed
-          <span className="font-normal text-subtle-foreground tabular-nums">
-            {props.detail.changedFiles}
-          </span>
-        </h3>
-        {props.detail.additions !== undefined && props.detail.deletions !== undefined && (
-          <DiffStat
-            additions={props.detail.additions}
-            deletions={props.detail.deletions}
-            className="text-xs"
-          />
-        )}
-        <Button variant="ghost" size="xs" className="-mr-1.5" onClick={() => props.onOpenCode()}>
-          Open code
-        </Button>
-      </div>
-      <div className="mt-1 border-t border-border-soft pt-1">{props.children}</div>
-    </section>
+    <SummarySection
+      title="Files changed"
+      count={props.detail.changedFiles}
+      right={<SectionAction onClick={() => props.onOpenCode()}>Open code</SectionAction>}
+    >
+      <div className="border-t border-border">{props.children}</div>
+    </SummarySection>
   );
 }
 
 function GlanceRows(props: { files: GlanceFile[]; onOpenCode(path?: string): void }) {
-  // Rows overhang the column by their inset, so file names start on its edge and the hover
-  // wash reaches past it.
+  // Hairlines keep to the column; each row's hover wash overhangs it by its inset, so file
+  // names start on the column's edge.
   return (
-    <ul className="-mx-2">
+    <ul className="[&>li]:border-b [&>li]:border-border-soft">
       {props.files.map((file) => (
         <li key={file.path}>
           <button
@@ -98,7 +85,7 @@ function GlanceRows(props: { files: GlanceFile[]; onOpenCode(path?: string): voi
             onClick={() => props.onOpenCode(file.path)}
             className={cn(
               plainRow,
-              "flex min-h-7 w-full items-center gap-3 rounded-md px-2 text-left focus-ring-inset",
+              "-mx-2 flex min-h-9 w-[calc(100%+1rem)] items-center gap-3 rounded-md px-2 text-left focus-ring-inset",
             )}
           >
             <span className="flex min-w-0 flex-1 font-mono text-xs">
@@ -158,9 +145,9 @@ function GlanceFromPages(props: {
         </p>
       ) : pages.pending ? (
         <LoadingRegion label="changed files">
-          <ul aria-hidden className="-mx-2">
+          <ul aria-hidden>
             {[0, 1, 2].map((row) => (
-              <li key={row} className="flex h-7 items-center gap-3 px-2">
+              <li key={row} className="flex h-9 items-center gap-3 border-b border-border-soft">
                 <Skeleton className="h-3 flex-1" />
                 <Skeleton className="h-1.5 w-16 rounded-full @max-[30rem]/pr:hidden" />
                 <Skeleton className="h-3 w-20" />

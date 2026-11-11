@@ -1,7 +1,7 @@
 import type { ForgePrRow } from "@ace/protocol";
 import { ArrowLeftIcon } from "@phosphor-icons/react";
 import { prWords } from "@ace/ui-core";
-import { PullRequestGlyph, pullRequestTone } from "@/components/pull-request-state.tsx";
+import { pullRequestTone } from "@/components/pull-request-state.tsx";
 import { PersonAvatar } from "@/components/person-avatar.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -16,10 +16,11 @@ export type PrSeed = Pick<
 
 const tabs = ["Summary", "Timeline", "Code", "Checks"];
 /** A branch name, as the loaded header sets it. */
-const branch = "font-mono text-xs text-foreground/90";
+const branch = "font-mono text-xs text-foreground";
 /** Two blockers, their quotes as widths of the column (%). */
 const blockers = [82, 64];
 const about = ["Reviewers", "Assignee", "Labels"];
+const gateLabels = ["Checks", "Reviews", "Conflicts", "Branch"];
 
 /**
  * A pull request's page while it loads, built like the page: back, title, the state line
@@ -73,13 +74,7 @@ export function PrPageSkeleton(props: {
           <div className="mt-2 flex min-h-6 flex-wrap items-center gap-x-1.5 gap-y-1 text-ui text-muted-foreground">
             {seed ? (
               <>
-                <span
-                  className={cn(
-                    "inline-flex items-center gap-1 font-medium",
-                    pullRequestTone(seed.state),
-                  )}
-                >
-                  <PullRequestGlyph state={seed.state} size={15} />
+                <span className={cn("font-semibold", pullRequestTone(seed.state))}>
                   {prWords[seed.state]}
                 </span>
                 <span aria-hidden className="text-faint-foreground">
@@ -125,50 +120,54 @@ export function PrPageSkeleton(props: {
         </div>
       </div>
       <div aria-hidden className={props.readable}>
-        <div className="grid gap-6 px-[var(--forge-gutter,1rem)] pt-4 @min-[50rem]/pr:grid-cols-[minmax(0,1fr)_15rem] @min-[50rem]/pr:gap-8">
-          <div className="min-w-0 space-y-7">
-            <section className="rounded-lg bg-fill">
-              <div className="space-y-2.5 px-4 pt-3.5 pb-3">
-                <span className="flex items-center gap-2">
-                  <Skeleton className="size-4.5 rounded-full" />
-                  <Skeleton className="h-3 w-44" />
-                </span>
-                <span className="flex gap-4 pl-6.5">
-                  <Skeleton className="h-2.5 w-28" />
-                  <Skeleton className="h-2.5 w-32" />
-                  <Skeleton className="h-2.5 w-20" />
-                </span>
-              </div>
-              {open && (
-                <ul className="divide-y divide-border-soft border-t border-border-soft">
-                  {blockers.map((width) => (
-                    <li key={width} className="flex gap-1.5 px-4 py-3">
-                      <Skeleton className="size-5 shrink-0 rounded-full" />
-                      <span className="flex min-w-0 flex-1 flex-col gap-2 pt-1">
-                        <Skeleton className="h-3 w-40" />
-                        <Skeleton className="h-3" style={{ width: `${width}%` }} />
-                      </span>
-                    </li>
+        <div className="grid gap-8 px-[var(--forge-gutter,1rem)] pt-6 @min-[50rem]/pr:grid-cols-[minmax(0,1fr)_14.5rem] @min-[50rem]/pr:gap-10">
+          <div className="min-w-0 space-y-8">
+            <section>
+              <h3 className="mb-2.5 flex min-h-6 items-center text-md font-semibold text-foreground">
+                Merge status
+              </h3>
+              <div className="overflow-hidden rounded-lg border border-border bg-background">
+                <div className="px-4 py-3.5">
+                  <Skeleton className="h-3.5 w-48" />
+                </div>
+                <div className="grid grid-cols-2 border-t border-border-soft @min-[40rem]/pr:grid-cols-4">
+                  {gateLabels.map((label) => (
+                    <span key={label} className="flex flex-col gap-1.5 px-4 pt-2.5 pb-3">
+                      <span className="text-xs text-subtle-foreground">{label}</span>
+                      <Skeleton className="h-3 w-20" />
+                    </span>
                   ))}
-                </ul>
-              )}
+                </div>
+                {open && (
+                  <ul className="divide-y divide-border-soft border-t border-border-soft">
+                    {blockers.map((width) => (
+                      <li key={width} className="flex gap-2.5 px-4 py-3">
+                        <Skeleton className="size-4.5 shrink-0 rounded-full" />
+                        <span className="flex min-w-0 flex-1 flex-col gap-2 pt-0.5">
+                          <Skeleton className="h-3 w-40" />
+                          <Skeleton className="h-3" style={{ width: `${width}%` }} />
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </section>
             <section>
-              <span className="flex h-8 items-center gap-2">
-                <Skeleton className="size-5 rounded-full" />
-                <Skeleton className="h-3 w-40" />
-              </span>
-              <div className="flex flex-col gap-2 pt-2.5 pl-7">
+              <h3 className="mb-2.5 flex min-h-6 items-center text-md font-semibold text-foreground">
+                Description
+              </h3>
+              <div className="flex flex-col gap-2 rounded-lg border border-border bg-background px-4 py-3.5">
                 <Skeleton className="h-3 w-[92%]" />
                 <Skeleton className="h-3 w-[86%]" />
                 <Skeleton className="h-3 w-[48%]" />
               </div>
             </section>
           </div>
-          <div className="min-w-0 @min-[50rem]/pr:pt-1">
+          <div className="min-w-0 @min-[50rem]/pr:pt-0.5">
             {about.map((term) => (
               <div key={term} className="pb-5 last:pb-0">
-                <p className="flex h-6 items-center text-xs font-medium text-muted-foreground">
+                <p className="flex h-6 items-center text-xs font-semibold text-foreground">
                   {term}
                 </p>
                 <div className="mt-0.5 flex h-6 items-center gap-1.5">

@@ -16,11 +16,15 @@ export function DetailRow(props: { label: string; children: ReactNode; action?: 
   return (
     <div className="pb-5 text-ui last:pb-0">
       <div className="flex h-6 items-center gap-2">
-        <span className="min-w-0 flex-1 truncate text-xs font-medium text-muted-foreground">
+        <h4 className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
           {props.label}
-        </span>
+        </h4>
         {/* The action's words, not its box, end on the column's edge. */}
-        {props.action && <div className="-mr-1.5 flex shrink-0 items-center">{props.action}</div>}
+        {props.action && (
+          <div className="-mr-1.5 flex shrink-0 items-center [&_button]:text-subtle-foreground [&_button:hover]:text-foreground">
+            {props.action}
+          </div>
+        )}
       </div>
       <div className="mt-0.5 flex min-w-0 flex-col gap-0.5">{props.children}</div>
     </div>
@@ -109,7 +113,22 @@ export function PrDetails(props: {
     );
   if (issues.length || lifecycle.can("issue.link"))
     rows.push(
-      <DetailRow key="issues" label="Development">
+      <DetailRow
+        key="issues"
+        label="Linked issues"
+        action={
+          lifecycle.can("issue.link") && (
+            <Button
+              variant="ghost"
+              size="xs"
+              disabled={busy}
+              onClick={() => props.onDialog("link-issue")}
+            >
+              Link
+            </Button>
+          )
+        }
+      >
         {issues.map((issue) => (
           <IssueLine
             key={`${issue.ref.repository.owner}/${issue.ref.repository.name}#${issue.ref.number}`}
@@ -129,23 +148,8 @@ export function PrDetails(props: {
             }
           />
         ))}
-        {lifecycle.can("issue.link") ? (
-          <span className="flex h-7 items-center">
-            {/* The words, not the box, start on the column's edge. */}
-            <Button
-              variant="ghost"
-              size="xs"
-              className="-ml-1.5 text-muted-foreground"
-              disabled={busy}
-              onClick={() => props.onDialog("link-issue")}
-            >
-              Link an issue
-            </Button>
-          </span>
-        ) : (
-          !issues.length && (
-            <span className="flex h-7 items-center text-subtle-foreground">None</span>
-          )
+        {!issues.length && (
+          <span className="flex h-7 items-center text-subtle-foreground">None</span>
         )}
       </DetailRow>,
     );

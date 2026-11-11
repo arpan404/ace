@@ -71,7 +71,7 @@ test("the merge gates say what blocks the merge, and the Checks gate opens the c
   await panel().findByRole("navigation", { name: "Merge gates" });
   expect(gates().getByRole("button", { name: "Checks: 1 of 2 checks failing" })).toBeTruthy();
   expect(gates().getByRole("button", { name: "Reviews: Changes requested" })).toBeTruthy();
-  expect(gates().getByRole("button", { name: "Conflicts: No conflicts" })).toBeTruthy();
+  expect(gates().getByRole("button", { name: "Conflicts: None" })).toBeTruthy();
   // The checks live in their own tab; the gate opens it.
   expect(panel().queryByRole("button", { name: "links: Failed" })).toBeNull();
   await userEvent.click(gates().getByRole("button", { name: "Checks: 1 of 2 checks failing" }));
