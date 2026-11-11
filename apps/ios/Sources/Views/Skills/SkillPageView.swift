@@ -10,7 +10,13 @@ struct SkillPageView: View {
     let workspaceId: String?
     let project: String?
     @State private var page: SkillPage?
+    /// The read's last failure: its sentence and Retry sit where the page would be.
     @State private var problem: String?
+    /// A change to Runs or Agents failed. Its own sentence, beside the Details rows it changed and
+    /// with no Retry: reading again would not repeat the change, so the person repeats it.
+    @State private var actionProblem: String?
+    /// Delete failed: the same, beside the Delete row.
+    @State private var deleteProblem: String?
     @State private var notice: String?
     @State private var editing = false
     @State private var choosingAgents = false
@@ -30,8 +36,14 @@ struct SkillPageView: View {
                 if let page {
                     header(page)
                     details(page)
+                    if let actionProblem {
+                        QuietProblem(message: actionProblem, id: "skill.action.problem")
+                    }
                     instructions(page)
                     if page.editable, model.canOperate {
+                        if let deleteProblem {
+                            QuietProblem(message: deleteProblem, id: "skill.delete.problem")
+                        }
                         QuietSection {
                             Button { deleting = true } label: {
                                 QuietSectionRow {
@@ -48,7 +60,7 @@ struct SkillPageView: View {
                     SkeletonRows(count: 4, label: "Reading the skill")
                 }
                 if let problem {
-                    QuietProblem(message: problem) { Task { await read() } }
+                    QuietProblem(message: problem, id: "skill.read.problem") { Task { await read() } }
                 }
             }
             .padding(.top, AceDesign.Space.related).padding(.bottom, AceDesign.Space.group)
@@ -192,32 +204,35 @@ struct SkillPageView: View {
     private func setRuns(_ manual: Bool) async {
         guard let page, !busy else { return }
         busy = true; defer { busy = false }
+        actionProblem = nil
         do {
             _ = try await model.skills(["op": "edit", "id": page.id, "expectedHash": page.hash, "description": page.description,
                                         "body": page.body, "manual": manual].merging(at) { $1 }, as: SkillSaved.self)
             changed += 1
             await read()
-        } catch { problem = error.localizedDescription }
+        } catch { actionProblem = error.localizedDescription }
     }
     private func setAgents(_ agents: [String]) async {
         guard let page else { return }
         busy = true; defer { busy = false }
+        actionProblem = nil
         do {
             let reply = try await model.skills(["op": "agents", "id": page.id, "agents": agents].merging(at) { $1 }, as: SkillAgentsSaved.self)
             changed += 1; notice = reply.note
             await read()
-        } catch { problem = error.localizedDescription }
+        } catch { actionProblem = error.localizedDescription }
     }
     private func delete() async {
         guard let page else { return }
         busy = true; defer { busy = false }
+        deleteProblem = nil
         do {
             _ = try await model.skills(["op": "delete", "id": page.id, "expectedHash": page.hash, "retry": deleteUncertain].merging(at) { $1 }, as: ServiceValue.self)
             deleted += 1
             dismiss()
         } catch let failure as SkillFailure {
             deleteUncertain = failure.uncertain
-            problem = failure.message
-        } catch { problem = error.localizedDescription }
+            deleteProblem = failure.message
+        } catch { deleteProblem = error.localizedDescription }
     }
 }
