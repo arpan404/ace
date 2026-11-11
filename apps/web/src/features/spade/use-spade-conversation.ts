@@ -5,10 +5,10 @@ import { ConversationFollow, type FollowDeps } from "./conversation-follow.ts";
 import type { SpadeMessage } from "./spade-images.ts";
 import { segment, spadeBody, spadeHttp, SpadeRequestError } from "./spade-requests.ts";
 import { conversationsKey } from "./use-spade-conversations.ts";
+import { spadeTransport } from "./spade-transport.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
 
 const deps: FollowDeps = {
-  id: () => crypto.randomUUID(),
   frame: (callback) =>
     typeof requestAnimationFrame === "function"
       ? void requestAnimationFrame(callback)
@@ -27,7 +27,9 @@ export function useSpadeConversation(conversation: string) {
   const client = useClient();
   const cache = useQueryClient();
   const ready = useSpadeStatus()?.state === "ready";
-  const [follow] = useState(() => new ConversationFollow(client, conversation, deps));
+  const [follow] = useState(
+    () => new ConversationFollow(spadeTransport(client), conversation, deps),
+  );
   useEffect(() => {
     follow.start();
     return () => follow.stop();

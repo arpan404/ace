@@ -37,6 +37,8 @@ import { appIdentities, systemApplication, systemApplicationIcon } from "./os/ap
 import { editorIcons } from "./os/editor-icon.ts";
 import { openPermissionPane, permissions } from "./os/permissions.ts";
 import type { SettingsStore } from "./settings-store.ts";
+import type { SpadeDirect } from "./spade/direct.ts";
+import { spadeHandlers } from "./spade/handlers.ts";
 import { reducedTransparency, windowState } from "./window/main-window.ts";
 
 export function appearance(): NativeAppearance {
@@ -91,6 +93,8 @@ export function createHandlers(options: {
     hide(): SandboxNotice;
     restart(): void;
   };
+  /** The direct path to Spade on this computer (ADR 0123). */
+  spade: SpadeDirect;
 }): Handlers {
   const { runtime, settings, background } = options;
   const account = accountSecrets(app.getPath("userData"));
@@ -274,5 +278,6 @@ export function createHandlers(options: {
       options.sandbox.restart();
       return undefined;
     },
+    ...spadeHandlers(options.spade),
   };
 }

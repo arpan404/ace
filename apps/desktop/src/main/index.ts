@@ -26,6 +26,7 @@ import { reportAppUpdate, withdrawAppUpdate } from "./daemon/probe.ts";
 import { UpdateReporter } from "./daemon/update-report.ts";
 import { startFailed } from "./daemon/status.ts";
 import type { DaemonTarget } from "./daemon/target.ts";
+import { localSpade } from "./spade/local.ts";
 import { createDesktopLog, type Log } from "./log/desktop-log.ts";
 import { createFileLog } from "./log/file-log.ts";
 import { rendererReports } from "./diagnostics/renderer-reports.ts";
@@ -560,7 +561,14 @@ function main(target: DaemonTarget, crashDumps: string): void {
     void terminal.status().then((status) => (terminalStatus = status));
     let bindings: Readonly<Record<string, string>> | undefined;
     const toolchains = bundledToolchains(import.meta.url);
+    // Spade beside this app's daemon, reached directly so it works while the daemon is down.
+    const spade = localSpade({
+      home: target.kind === "managed" || target.kind === "attach" ? target.home : undefined,
+      onChange: () => emit(contents(), "spade.endpoint.changed", undefined),
+    });
+    app.once("will-quit", spade.close);
     const handlers = createHandlers({
+      spade: spade.direct,
       info,
       runtime,
       settings,

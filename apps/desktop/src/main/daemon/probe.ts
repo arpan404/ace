@@ -28,10 +28,15 @@ const Token = z.string().regex(/^[0-9a-f]{64}$/);
 /** As the daemon writes it (a UUID, untrimmed); anything else is not trusted as an identity. */
 const HostIdFile = z.string().regex(/^[0-9A-Za-z][0-9A-Za-z._-]{0,127}$/);
 
+/** The daemon's identity from its home's `host-id` text; undefined for anything else. */
+export function parseHostIdFile(text: string): string | undefined {
+  const parsed = HostIdFile.safeParse(text);
+  return parsed.success ? parsed.data : undefined;
+}
+
 async function readHostId(home: string): Promise<string | undefined> {
   try {
-    const parsed = HostIdFile.safeParse(await readFile(join(home, "host-id"), "utf8"));
-    return parsed.success ? parsed.data : undefined;
+    return parseHostIdFile(await readFile(join(home, "host-id"), "utf8"));
   } catch {
     return undefined;
   }
