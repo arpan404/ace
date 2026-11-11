@@ -593,6 +593,7 @@ export async function startServer(options: ServerOptions): Promise<{
           hostId,
           protocolVersion: 1,
           headSeq: options.store.headSeq(),
+          databaseId: options.store.sidebarToken(),
           ...(grant ? { grantTtlMs: grant.ttlMs() } : {}),
         });
         for (const service of sessions) service.welcomed?.();

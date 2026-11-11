@@ -167,12 +167,12 @@ export function subscribe(
     }
     // Replay safety drains pending writes; compare the cursor with the resulting head.
     const initialHead = afterSeq === undefined ? undefined : store.headSeq();
-    if (
-      afterSeq === undefined ||
-      afterSeq > (initialHead ?? 0) ||
-      (initialHead ?? 0) - afterSeq > replayLimit ||
-      !replaySafe
-    ) {
+    // A thread's replay is bounded by its own events, read below; a list's by the host's (ADR 0128).
+    const tooFar =
+      scope.kind !== "thread" &&
+      afterSeq !== undefined &&
+      (initialHead ?? 0) - afterSeq > replayLimit;
+    if (afterSeq === undefined || afterSeq > (initialHead ?? 0) || tooFar || !replaySafe) {
       const view =
         scope.kind === "thread"
           ? store.acquireThread(scope.threadId)
@@ -190,17 +190,19 @@ export function subscribe(
         throw new Error("Unknown thread");
       const head = initialHead ?? 0;
       if (head > afterSeq) {
-        // head - afterSeq <= replayLimit, so a thread filter still sees every event it needs.
+        // A list is within replayLimit of head already; a thread reads one past the limit of its
+        // own events, so more than the limit shows as overflow and gets a snapshot.
         const events = store
           .readEvents({
             afterSeq,
-            limit: replayLimit,
+            limit: replayLimit + 1,
             byteLimit: replayFrameBytes * 2,
             ...(scope.kind === "thread" ? { threadId: scope.threadId } : {}),
           })
           .filter((event) => event.seq <= head);
         const bytes = events.reduce((total, event) => total + encoder.eventBytes(event), 0);
         if (
+          events.length > replayLimit ||
           bytes > replayFrameBytes * 2 ||
           events.some((event) => encoder.eventBytes(event) > replayFrameBytes)
         ) {
