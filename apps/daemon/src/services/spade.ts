@@ -1,10 +1,10 @@
 import { dirname, join } from "node:path";
 import { logFields } from "@ace/diagnostics";
-import { loadToken } from "../local-files.ts";
 import { SpadeHost, type SpadeHostRuntime } from "../spade/host.ts";
 import type { Backoff } from "../spade/rules.ts";
 import { findSpadeBinary } from "../spade/rules.ts";
 import { isExecutable, nodeSpadeRuntime } from "../spade/runtime.ts";
+import { spadeCredentials } from "./spade-credentials.ts";
 import type { ServiceContext } from "./types.ts";
 
 /** Test seams for the Spade host; production uses the defaults. */
@@ -25,8 +25,11 @@ export async function startSpade(context: ServiceContext): Promise<void> {
   const options = context.options.spade ?? {};
   const env = options.env ?? process.env;
   let daemonUrl: string | undefined;
+  const dataDir = join(config.dataDir, "spade");
+  // Bound once the host exists: credentials report the host thread through it.
+  let credentials: (() => Promise<import("../spade/host.ts").SpadeCredentials>) | undefined;
   const host = new SpadeHost({
-    dataDir: join(config.dataDir, "spade"),
+    dataDir,
     binary: () =>
       findSpadeBinary({
         env,
@@ -34,19 +37,8 @@ export async function startSpade(context: ServiceContext): Promise<void> {
         platform: process.platform,
         isExecutable,
       }),
-    credentials: async () => {
-      const issued: Record<string, string> = {};
-      if (daemonUrl) {
-        issued.SPADE_ACE_URL = daemonUrl;
-        issued.SPADE_ACE_TOKEN = loadToken(config.dataDir).token;
-      }
-      const mcp = services.externalMcp?.issueForSpade();
-      if (mcp) {
-        issued.SPADE_ACE_MCP_URL = mcp.url;
-        issued.SPADE_ACE_MCP_TOKEN = mcp.bearer;
-      } else log.log("warn", "Spade starts without ace's tools: the MCP endpoint is unavailable");
-      return { env: issued, revoke: () => mcp?.revoke() };
-    },
+    credentials: () =>
+      credentials?.() ?? Promise.reject(new Error("Spade's credentials are not ready")),
     runtime:
       options.runtime ??
       nodeSpadeRuntime({
@@ -67,6 +59,7 @@ export async function startSpade(context: ServiceContext): Promise<void> {
     ...(options.backoff ? { backoff: options.backoff } : {}),
     ...(options.readyTimeoutMs ? { readyTimeoutMs: options.readyTimeoutMs } : {}),
   });
+  credentials = spadeCredentials(context, host, dataDir, () => daemonUrl);
   services.spade = host;
   context.resources.own(() => host.close(), "spade");
   context.onListen.push(async (server) => {

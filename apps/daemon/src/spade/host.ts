@@ -63,6 +63,7 @@ const notInstalled = "Spade isn't installed: no spade-server binary was found.";
  */
 export class SpadeHost {
   private current: SpadeStatus = { state: "off" };
+  private thread: SpadeStatus["thread"];
   private readonly listeners = new Set<(status: SpadeStatus) => void>();
   private readonly endings = new Set<(generation: number) => void>();
   private live: SpadeReady | undefined;
@@ -78,7 +79,13 @@ export class SpadeHost {
     this.backoff = options.backoff ?? defaultBackoff;
   }
   status(): SpadeStatus {
-    return this.current;
+    return this.thread ? { ...this.current, thread: this.thread } : this.current;
+  }
+  /** Spade's host thread and whether its tree is busy, reported with every status. */
+  setThread(thread: SpadeStatus["thread"]): void {
+    const before = JSON.stringify(this.status());
+    this.thread = thread;
+    this.announce(before);
   }
   subscribe(listener: (status: SpadeStatus) => void): () => void {
     this.listeners.add(listener);
@@ -115,8 +122,13 @@ export class SpadeHost {
   }
 
   private set(status: SpadeStatus): void {
-    if (JSON.stringify(status) === JSON.stringify(this.current)) return;
+    const before = JSON.stringify(this.status());
     this.current = status;
+    this.announce(before);
+  }
+  private announce(before: string): void {
+    const status = this.status();
+    if (JSON.stringify(status) === before) return;
     for (const listener of this.listeners) listener(status);
   }
   private async run(signal: AbortSignal): Promise<void> {

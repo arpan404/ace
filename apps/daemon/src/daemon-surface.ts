@@ -187,6 +187,9 @@ export function daemonHandle({
     get skillLibrary() {
       return services.skillLibrary;
     },
+    get spade() {
+      return services.spade;
+    },
     get commands() {
       return services.commands;
     },

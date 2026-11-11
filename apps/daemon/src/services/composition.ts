@@ -224,11 +224,11 @@ export const serviceFactories: readonly ServiceDefinition[] = [
     start: startExternalMcp,
   },
   {
-    // Spade's credentials name the listener's address and an external MCP lease.
+    // Spade's credentials name the listener's address, its host thread and an MCP lease for it.
     name: "spade",
     phase: "listener",
     requires: ["settings"],
-    after: ["settings", "externalMcp"],
+    after: ["settings", "engine", "mcp", "agentControl", "projects"],
     start: startSpade,
   },
   { name: "previewClient", phase: "listener", requires: [], after: [], start: startPreviewClient },
