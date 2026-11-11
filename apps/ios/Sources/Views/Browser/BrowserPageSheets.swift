@@ -44,7 +44,12 @@ struct BrowserSourceSheet: View {
     var body: some View {
         NavigationStack {
             Group {
-                if let source = model.browser.source {
+                if let problem = model.browser.problem {
+                    VStack {
+                        Text(problem.message).foregroundStyle(AceTheme.StatusText.failed)
+                        Button("Retry") { model.browser.problem = nil; model.browserSource(open: true) }.buttonStyle(.textAction())
+                    }
+                } else if let source = model.browser.source {
                     SourceText(text: source.source, wrap: wrap)
                         .ignoresSafeArea(edges: .bottom)
                         .safeAreaInset(edge: .bottom) {
@@ -77,7 +82,7 @@ struct BrowserSourceSheet: View {
         }
         .tint(AceDesign.Ink.accent)
         .presentationDetents([.large]).presentationDragIndicator(.visible)
-        .onAppear { model.browserSource(open: true) }
+        .onAppear { model.browser.problem = nil; model.browserSource(open: true) }
         .onDisappear { model.browserSource(open: false) }
     }
 }
@@ -248,40 +253,43 @@ struct BrowserExtensionsSheet: View {
     private var items: [BrowserExtensions.Item]? { model.browser.extensions?.items }
     var body: some View {
         NavigationStack {
-            List {
-                Section {
-                    if let items {
-                        if items.isEmpty {
-                            Text("No extensions installed").foregroundStyle(AceDesign.Ink.muted).insetRowBackground()
-                        }
-                        ForEach(items) { item in
-                            InsetRow(icon: .puzzlePiece, title: item.name, subtitle: [item.version, item.enabled ? nil : "Off"].compactMap { $0 }.joined(separator: " · ")) { EmptyView() }
-                                .insetRowBackground()
-                        }
-                    } else {
-                        ForEach(0..<2, id: \.self) { _ in
-                            SkeletonBar(width: 160, height: 12).frame(minHeight: InsetStyle.rowHeight, alignment: .leading)
-                                .insetRowBackground()
+            ScrollView {
+                VStack(alignment: .leading, spacing: AceDesign.Space.group) {
+                    if let problem = model.browser.problem {
+                        QuietSectionRow {
+                            VStack(alignment: .leading) {
+                                Text(problem.message).foregroundStyle(AceTheme.StatusText.failed)
+                                Button("Retry") { model.browser.problem = nil; model.browserExtensions() }.buttonStyle(.textAction())
+                            }
                         }
                     }
-                } header: { InsetHeader(items.map { "Extensions (\($0.count))" } ?? "Extensions") }
-                Section {
-                    InsetRow(systemImage: nil, title: "Show in the browser bar") {
-                        Toggle("Show in the browser bar", isOn: $inBar).labelsHidden()
-                    }
-                    .insetRowBackground()
-                    .accessibilityElement(children: .combine)
-                    .accessibilityIdentifier("browser.extensions.inBar")
-                    if model.browser.view?.state?.ownChrome != true {
-                        NavigationLink { UseMyChromeView(model: model) } label: {
-                            InsetRow("Use your Chrome's extensions", systemImage: nil)
+                    QuietSection("Extensions") {
+                        if let items {
+                            if items.isEmpty { QuietSectionRow { QuietRowText(title: "No extensions installed", tone: AceDesign.Ink.muted) } }
+                            ForEach(items) { item in
+                                QuietSectionRow {
+                                    QuietRowText(title: item.name, detail: [item.version, item.enabled ? nil : "Off"].compactMap { $0 }.joined(separator: " · "))
+                                }
+                            }
+                        } else if model.browser.problem == nil {
+                            SkeletonRows(count: 2, label: "Reading extensions")
                         }
-                        .insetRowBackground()
-                        .accessibilityIdentifier("browser.extensions.useMyChrome")
                     }
-                }
+                    QuietSection {
+                        QuietSectionRow {
+                            Toggle("Show in the browser bar", isOn: $inBar)
+                                .accessibilityIdentifier("browser.extensions.inBar")
+                        }
+                        if model.browser.view?.state?.ownChrome != true {
+                            NavigationLink { UseMyChromeView(model: model) } label: {
+                                QuietSectionRow { QuietRowText(title: "Use your Chrome's extensions"); RowCaret() }
+                            }
+                            .buttonStyle(.plain).accessibilityIdentifier("browser.extensions.useMyChrome")
+                        }
+                    }
+                }.padding(.vertical, AceDesign.Space.related)
             }
-            .insetGroupedList()
+            .background(AceDesign.Surface.background)
             .animation(.default, value: items)
             .navigationTitle("Extensions").navigationBarTitleDisplayMode(.inline)
             .toolbar { SheetClose() }
@@ -289,7 +297,7 @@ struct BrowserExtensionsSheet: View {
         .tint(AceDesign.Ink.accent)
         .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
         .sensoryFeedback(.selection, trigger: inBar)
-        .onAppear { model.browserExtensions() }
+        .onAppear { model.browser.problem = nil; model.browserExtensions() }
         .onDisappear { model.browser.clearExtensions() }
     }
 }

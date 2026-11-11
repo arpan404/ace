@@ -176,7 +176,10 @@ export class BrowserPageTools {
       shownId,
     );
     const source = Source.safeParse(raw);
-    if (!source.success) return;
+    if (!source.success) {
+      if (raw !== undefined) this.#problem("Couldn't read the page source.");
+      return;
+    }
     const text = source.data.source;
     const cut = text.length > sourceLimit;
     this.#host.sink.put("browser:source", () => ({
@@ -231,8 +234,13 @@ export class BrowserPageTools {
       action: "extensions",
       operation: "list",
     });
-    const listed = Extensions.safeParse(raw ?? { extensions: [] });
-    const items = listed.success ? listed.data.extensions : [];
+    if (raw === undefined) return;
+    const listed = Extensions.safeParse(raw);
+    if (!listed.success) {
+      this.#problem("Couldn't list the extensions.");
+      return;
+    }
+    const items = listed.data.extensions;
     const preview = this.#host.preview;
     this.#host.sink.put("browser:extensions", () => ({
       type: "browser.extensions",

@@ -177,6 +177,8 @@ struct BrowserLog: Codable, Sendable, Equatable {
         var id: String { key }
     }
     let section: String
+    let state: String?
+    let message: String?
     let entries: [Entry]
 }
 /// A finished command, said once (`browser.done`): "PDF saved to this thread" and the file.
