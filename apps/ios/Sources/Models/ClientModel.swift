@@ -245,6 +245,8 @@ import QuartzCore
         // The thread on screen (the kept one, or one tapped while the old runtime shut down) is
         // visited on this runtime. Not the person opening it: its notifications stay delivered.
         if let showing = thread {
+            // This runtime has sent none of it, however much is on screen: it reads whole.
+            showing.requiresSnapshot = true
             let opened = onOpenThread
             onOpenThread = nil
             open(showing.id)
