@@ -674,6 +674,6 @@ test("a review thread offers Reply only where the host can reply inside a thread
     const page = (await ask({ ...pullRead(gitlab), type: "forge.pull.timeline" })) as {
       rows: { kind: string; thread?: { id: string; canReply: boolean } }[];
     };
-    expect(page.rows.find((row) => row.thread?.id === "T1")?.thread?.canReply).toBe(canReply);
+    expect(page.rows.find((each) => each.thread?.id === "T1")?.thread?.canReply).toBe(canReply);
   }
 });

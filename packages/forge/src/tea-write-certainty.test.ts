@@ -12,14 +12,15 @@ const repository = { forge: "gitea" as const, host: "git.example", owner: "team"
 /** What the host does with the write once it reaches it. */
 type Reply = { status: number; identityChanged?: true } | { lost: true } | { unreachable: true };
 
+const ok = (body: unknown): CommandResult => ({
+  code: 0,
+  stdout: JSON.stringify(body),
+  truncated: false,
+  http: { status: 200, headers: {} },
+});
+
 /** Reads per Gitea's API v1 (gitea.com/swagger.v1.json); the one write gets `reply`. */
 function host(reply: Reply): CommandRunner {
-  const ok = (body: unknown): CommandResult => ({
-    code: 0,
-    stdout: JSON.stringify(body),
-    truncated: false,
-    http: { status: 200, headers: {} },
-  });
   return async (request) => {
     const path = request.args[1] ?? "";
     if (request.input !== undefined) {

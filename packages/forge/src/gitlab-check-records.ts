@@ -21,7 +21,7 @@ export const GitLabJob = z.looseObject({
 export const GitLabJobs = z.array(GitLabJob).max(100);
 export type GitLabJob = z.infer<typeof GitLabJob>;
 /** GitLab's job and pipeline states that are still under way: never passed, never final. */
-const underWay = [
+const underWay = new Set([
   "created",
   "waiting_for_resource",
   "preparing",
@@ -30,7 +30,7 @@ const underWay = [
   "blocked",
   "scheduled",
   "canceling",
-];
+]);
 
 /**
  * What one job means for the merge, as GitLab counts it (docs.gitlab.com/ci/yaml/#allow_failure,
@@ -44,7 +44,7 @@ function jobVerdict(status: string, allowFailure: boolean): JobVerdict {
   if (status === "manual") return allowFailure ? "neutral" : "pending";
   if (status === "failed") return allowFailure ? "neutral" : "failure";
   if (status === "canceled") return "failure";
-  if (underWay.includes(status)) return "pending";
+  if (underWay.has(status)) return "pending";
   return "unknown";
 }
 
