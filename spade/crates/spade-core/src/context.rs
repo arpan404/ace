@@ -97,6 +97,7 @@ pub fn prompt_with(
         tools,
         messages: messages_with(events, images),
         max_tokens: None,
+        session: None,
     }
 }
 
