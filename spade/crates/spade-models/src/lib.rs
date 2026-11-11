@@ -17,5 +17,7 @@ pub use client::{KEYLESS, Models};
 pub use config::ModelsConfig;
 pub use error::ModelError;
 pub use format::Format;
-pub use prompt::{Delta, Generated, Message, Prompt, Reply, Thought, ToolCall, ToolSpec, Usage};
+pub use prompt::{
+    Delta, Generated, Image, Message, Prompt, Reply, Thought, ToolCall, ToolSpec, Usage,
+};
 pub use spade_keys::{KeyRequest, Keys};

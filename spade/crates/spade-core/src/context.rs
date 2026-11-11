@@ -2,10 +2,10 @@
 //! the events, so each new call repeats the previous prompt byte for byte and adds to its end,
 //! which keeps the provider's cache warm (docs/design.md, Caching).
 
-use spade_models::{Message, Prompt, ToolCall, ToolSpec};
+use spade_models::{Image, Message, Prompt, ToolCall, ToolSpec};
 
-use crate::event::{Event, Known};
-use crate::tools::Registry;
+use crate::event::{Event, ImageRef, Known};
+use crate::tools::{CALL_TOOL, Registry, TOOL_SEARCH};
 
 /// Spade's standing instructions.
 pub const SYSTEM: &str = "You are Spade, the assistant built into ace. Answer clearly and directly. \
@@ -47,9 +47,34 @@ pub fn job_result(job: &str, name: &str, content: &str, is_error: bool) -> Strin
     )
 }
 
-/// The prompt for the next model call: instructions and the skill index (fixed for the
-/// conversation), the offered tools, then the conversation.
+/// Where attached images' bytes come from. A failure says why in a few words ("this model cannot
+/// see images"), and the model is told that instead of seeing the image.
+pub trait Images {
+    fn get(&self, image: &ImageRef) -> Result<Image, String>;
+}
+
+/// No images: each attached image is described instead.
+pub struct NoImages;
+
+impl Images for NoImages {
+    fn get(&self, _image: &ImageRef) -> Result<Image, String> {
+        Err("images cannot be shown here".to_owned())
+    }
+}
+
+/// The prompt for the next model call, with attached images described rather than shown.
 pub fn prompt(system: &str, tools: Vec<ToolSpec>, events: &[Event]) -> Prompt {
+    prompt_with(system, tools, events, &NoImages)
+}
+
+/// The prompt for the next model call: instructions and the skill index (fixed for the
+/// conversation), the offered tools, then the conversation, with images from `images`.
+pub fn prompt_with(
+    system: &str,
+    tools: Vec<ToolSpec>,
+    events: &[Event],
+    images: &dyn Images,
+) -> Prompt {
     let skills = events.iter().find_map(|event| match event {
         Event::Known(Known::SkillsIndexed { text }) => Some(text.as_str()),
         _ => None,
@@ -61,7 +86,7 @@ pub fn prompt(system: &str, tools: Vec<ToolSpec>, events: &[Event]) -> Prompt {
     Prompt {
         system: Some(system),
         tools,
-        messages: messages(events),
+        messages: messages_with(events, images),
         max_tokens: None,
     }
 }
@@ -70,6 +95,78 @@ pub fn prompt(system: &str, tools: Vec<ToolSpec>, events: &[Event]) -> Prompt {
 /// placed after those tools' results, since providers require every call to be answered before
 /// anything else; a call whose turn ended without a result gets [`NOT_RUN`].
 pub fn messages(events: &[Event]) -> Vec<Message> {
+    messages_with(events, &NoImages)
+}
+
+/// [`messages`] with attached images taken from `images`.
+pub fn messages_with(events: &[Event], images: &dyn Images) -> Vec<Message> {
+    messages_shown(events, &Recent::new(events, images))
+}
+
+/// Images a prompt always shows; older ones are described, so screenshots that pile up never push
+/// a request past a provider's limits. At most twice this many are shown.
+pub const SHOWN_IMAGES: usize = 10;
+
+/// How many of `total` images are described instead of shown. The cut moves in steps of
+/// [`SHOWN_IMAGES`], so the start of the prompt stays the same (and cached) for ten new images
+/// at a time instead of changing with each one.
+pub fn images_left_out(total: usize) -> usize {
+    if total <= 2 * SHOWN_IMAGES {
+        0
+    } else {
+        (total - SHOWN_IMAGES) / SHOWN_IMAGES * SHOWN_IMAGES
+    }
+}
+
+/// Shows the newest images of the conversation (see [`images_left_out`]), in the order the
+/// prompt asks for them.
+struct Recent<'a> {
+    inner: &'a dyn Images,
+    skip: std::cell::Cell<usize>,
+}
+
+impl<'a> Recent<'a> {
+    fn new(events: &[Event], inner: &'a dyn Images) -> Self {
+        // Only what the prompt shows: after a compaction, the events it kept.
+        let from = events
+            .iter()
+            .rev()
+            .find_map(|event| match event {
+                Event::Known(Known::ContextCompacted { keep_from, .. }) => Some(*keep_from),
+                _ => None,
+            })
+            .unwrap_or(0)
+            .min(events.len());
+        let total: usize = events[from..]
+            .iter()
+            .map(|event| match event {
+                Event::Known(
+                    Known::UserMessage { images, .. } | Known::ToolFinished { images, .. },
+                ) => images.len(),
+                _ => 0,
+            })
+            .sum();
+        Self {
+            inner,
+            skip: std::cell::Cell::new(images_left_out(total)),
+        }
+    }
+}
+
+impl Images for Recent<'_> {
+    fn get(&self, image: &ImageRef) -> Result<Image, String> {
+        let skip = self.skip.get();
+        if skip > 0 {
+            self.skip.set(skip - 1);
+            return Err(
+                "it is an earlier image, no longer shown to keep requests small".to_owned(),
+            );
+        }
+        self.inner.get(image)
+    }
+}
+
+fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
     // After a compaction the model sees its summary, then the events it kept word for word.
     let compacted = events.iter().rev().find_map(|event| match event {
         Event::Known(Known::ContextCompacted {
@@ -82,6 +179,7 @@ pub fn messages(events: &[Event]) -> Vec<Message> {
         Some((summary, keep_from)) => {
             out.push(Message::Person {
                 text: format!("<summary>\n{summary}\n</summary>"),
+                images: Vec::new(),
             });
             keep_from.min(events.len())
         }
@@ -90,21 +188,38 @@ pub fn messages(events: &[Event]) -> Vec<Message> {
     let events = reading_order(events, from);
     // Calls of the last Spade step still waiting for results, and messages held until they come.
     let mut pending: Vec<ToolCall> = Vec::new();
-    let mut held: Vec<String> = Vec::new();
+    let mut held: Vec<(String, Vec<Image>)> = Vec::new();
+    // Images tools returned in this step; providers take tool results as text, so they follow the
+    // step's results as one message.
+    let mut returned = Returned::default();
     // Calls that started running, so a missing result is "unknown", not "not run".
     let mut started: Vec<String> = Vec::new();
     for event in events {
         let Event::Known(event) = event else { continue };
         match event {
-            Known::UserMessage { text, context } => {
-                let text = match context {
+            Known::UserMessage {
+                text,
+                context,
+                images: attached,
+            } => {
+                let mut text = match context {
                     Some(context) => format!("<context>\n{context}\n</context>\n\n{text}"),
                     None => text.clone(),
                 };
+                let mut shown = Vec::new();
+                for image in attached {
+                    match images.get(image) {
+                        Ok(image) => shown.push(image),
+                        Err(why) => text.push_str(&format!(
+                            "\n\n[The person attached an image ({}), but {why}.]",
+                            image.media_type
+                        )),
+                    }
+                }
                 if pending.is_empty() {
-                    push_person(&mut out, text);
+                    push_person(&mut out, text, shown);
                 } else {
-                    held.push(text);
+                    held.push((text, shown));
                 }
             }
             Known::JobFinished {
@@ -115,9 +230,9 @@ pub fn messages(events: &[Event]) -> Vec<Message> {
             } => {
                 let text = job_result(job, name, content, *is_error);
                 if pending.is_empty() {
-                    push_person(&mut out, text);
+                    push_person(&mut out, text, Vec::new());
                 } else {
-                    held.push(text);
+                    held.push((text, Vec::new()));
                 }
             }
             Known::StepFinished {
@@ -146,6 +261,7 @@ pub fn messages(events: &[Event]) -> Vec<Message> {
                 name,
                 content,
                 is_error,
+                images: kept,
                 ..
             } => {
                 if let Some(at) = pending.iter().position(|c| &c.id == call_id) {
@@ -156,10 +272,9 @@ pub fn messages(events: &[Event]) -> Vec<Message> {
                         content: content.clone(),
                         is_error: *is_error,
                     });
+                    returned.add(name, kept, images);
                     if pending.is_empty() {
-                        for text in held.drain(..) {
-                            push_person(&mut out, text);
-                        }
+                        release(&mut out, &mut held, &mut returned);
                     }
                 }
             }
@@ -167,7 +282,7 @@ pub fn messages(events: &[Event]) -> Vec<Message> {
             Known::ReplyStopped { text, .. }
             | Known::ReplyFailed { text, .. }
             | Known::ReplyInterrupted { text, .. } => {
-                close(&mut out, &mut pending, &mut held, &started);
+                close(&mut out, &mut pending, &mut held, &mut returned, &started);
                 // Text that arrived before the turn ended, not yet part of a finished step.
                 if !text.is_empty() && !ends_with_spade_text(&out, text) {
                     out.push(Message::Spade {
@@ -177,7 +292,9 @@ pub fn messages(events: &[Event]) -> Vec<Message> {
                     });
                 }
             }
-            Known::ReplyFinished { .. } => close(&mut out, &mut pending, &mut held, &started),
+            Known::ReplyFinished { .. } => {
+                close(&mut out, &mut pending, &mut held, &mut returned, &started)
+            }
             _ => {}
         }
     }
@@ -225,7 +342,8 @@ fn reading_order(events: &[Event], from: usize) -> Vec<&Event> {
 fn close(
     out: &mut Vec<Message>,
     pending: &mut Vec<ToolCall>,
-    held: &mut Vec<String>,
+    held: &mut Vec<(String, Vec<Image>)>,
+    returned: &mut Returned,
     started: &[String],
 ) {
     for call in pending.drain(..) {
@@ -241,18 +359,73 @@ fn close(
             is_error: true,
         });
     }
-    for text in held.drain(..) {
-        push_person(out, text);
+    release(out, held, returned);
+}
+
+/// Images tools returned in the current step, and notes for ones that could not be shown.
+#[derive(Default)]
+struct Returned {
+    tools: Vec<String>,
+    images: Vec<Image>,
+    notes: Vec<String>,
+}
+
+impl Returned {
+    fn add(&mut self, tool: &str, kept: &[ImageRef], images: &dyn Images) {
+        for image in kept {
+            match images.get(image) {
+                Ok(image) => {
+                    self.images.push(image);
+                    if !self.tools.iter().any(|t| t == tool) {
+                        self.tools.push(tool.to_owned());
+                    }
+                }
+                Err(why) => self.notes.push(format!(
+                    "[{tool} returned an image ({}), but {why}.]",
+                    image.media_type
+                )),
+            }
+        }
+    }
+}
+
+/// After a step's results: the images its tools returned, then messages held back meanwhile.
+fn release(out: &mut Vec<Message>, held: &mut Vec<(String, Vec<Image>)>, returned: &mut Returned) {
+    let taken = std::mem::take(returned);
+    if !taken.images.is_empty() || !taken.notes.is_empty() {
+        let mut text = if taken.images.is_empty() {
+            String::new()
+        } else {
+            format!("[Images returned by {}]", taken.tools.join(", "))
+        };
+        for note in &taken.notes {
+            if !text.is_empty() {
+                text.push('\n');
+            }
+            text.push_str(note);
+        }
+        push_person(out, text, taken.images);
+    }
+    for (text, shown) in held.drain(..) {
+        push_person(out, text, shown);
     }
 }
 
 /// Adds the person's text, joining it to an immediately preceding message of theirs.
-fn push_person(out: &mut Vec<Message>, text: String) {
-    if let Some(Message::Person { text: previous }) = out.last_mut() {
+fn push_person(out: &mut Vec<Message>, text: String, shown: Vec<Image>) {
+    if let Some(Message::Person {
+        text: previous,
+        images,
+    }) = out.last_mut()
+    {
         previous.push_str("\n\n");
         previous.push_str(&text);
+        images.extend(shown);
     } else {
-        out.push(Message::Person { text });
+        out.push(Message::Person {
+            text,
+            images: shown,
+        });
     }
 }
 
@@ -273,7 +446,12 @@ pub fn untrusted_turn(events: &[Event], registry: &Registry) -> bool {
         .map_or(0, |at| at + 1);
     events[from..].iter().any(|event| match event {
         Event::Known(Known::ToolFinished { name, .. } | Known::JobFinished { name, .. }) => {
-            registry.get(name).is_some_and(|tool| tool.untrusted_output)
+            // A tool no longer listed (ace switched it off, or its list is not back yet after a
+            // restart) cannot vouch for its output.
+            match registry.get(name) {
+                Some(tool) => tool.untrusted_output,
+                None => name != TOOL_SEARCH && name != CALL_TOOL,
+            }
         }
         _ => false,
     })

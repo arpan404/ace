@@ -31,6 +31,7 @@ fn result(reply: &str, call_id: &str, name: &str, content: &str) -> Event {
         name: name.into(),
         content: content.into(),
         is_error: false,
+        images: Vec::new(),
     })
 }
 
@@ -39,7 +40,7 @@ fn shape(messages: &[Message]) -> Vec<String> {
     messages
         .iter()
         .map(|m| match m {
-            Message::Person { text } => format!("person:{text}"),
+            Message::Person { text, .. } => format!("person:{text}"),
             Message::Spade { text, calls, .. } => {
                 let ids: Vec<&str> = calls.iter().map(|c| c.id.as_str()).collect();
                 format!("spade:{text}:{}", ids.join(","))
@@ -157,6 +158,7 @@ fn stored_context_rides_with_its_message_and_messages_in_a_row_join() {
         Event::Known(Known::UserMessage {
             text: "Plan my day".into(),
             context: Some("Today is Monday.".into()),
+            images: Vec::new(),
         }),
         Event::user_message("Short please"),
     ];
@@ -334,4 +336,124 @@ fn a_message_that_arrived_while_a_step_was_answered_reads_after_that_step() {
             "person:Only mornings"
         ]
     );
+}
+
+struct Shelf;
+
+impl Images for Shelf {
+    fn get(&self, image: &crate::event::ImageRef) -> Result<spade_models::Image, String> {
+        if image.sha256 == "kept" {
+            Ok(spade_models::Image {
+                media_type: image.media_type.clone(),
+                data: "AAAA".into(),
+            })
+        } else {
+            Err("the image is no longer stored".to_owned())
+        }
+    }
+}
+
+#[test]
+fn attached_images_are_shown_when_available_and_described_when_not() {
+    let image = |sha: &str| crate::event::ImageRef {
+        sha256: sha.into(),
+        media_type: "image/png".into(),
+        bytes: 3,
+    };
+    let events = [Event::Known(Known::UserMessage {
+        text: "Compare these".into(),
+        context: None,
+        images: vec![image("kept"), image("gone")],
+    })];
+    let shown = messages_with(&events, &Shelf);
+    let Some(Message::Person { text, images }) = shown.first() else {
+        panic!("expected the person's message, got {shown:?}");
+    };
+    assert_eq!(images.len(), 1);
+    assert_eq!(images[0].media_type, "image/png");
+    assert_eq!(
+        text,
+        "Compare these\n\n[The person attached an image (image/png), but the image is no longer stored.]"
+    );
+    let described = messages(&events);
+    assert!(
+        matches!(described.first(), Some(Message::Person { images, text }) if images.is_empty() && text.matches("attached an image").count() == 2)
+    );
+}
+
+#[test]
+fn images_a_tool_returned_follow_the_steps_results_before_steered_messages() {
+    let shot = crate::event::ImageRef {
+        sha256: "kept".into(),
+        media_type: "image/png".into(),
+        bytes: 3,
+    };
+    let events = [
+        Event::user_message("Show me the page"),
+        Event::reply_started("r1", "m"),
+        step(
+            "r1",
+            "",
+            &[("c1", "browser_screenshot"), ("c2", "browser_read")],
+        ),
+        Event::Known(Known::ToolFinished {
+            reply: "r1".into(),
+            call_id: "c1".into(),
+            name: "browser_screenshot".into(),
+            content: "Took a screenshot.".into(),
+            is_error: false,
+            images: vec![shot],
+        }),
+        Event::user_message("Zoom in"),
+        result("r1", "c2", "browser_read", "Page text"),
+    ];
+    let shown = messages_with(&events, &Shelf);
+    assert_eq!(
+        shape(&shown),
+        vec![
+            "person:Show me the page",
+            "spade::c1,c2",
+            "result:c1:Took a screenshot.",
+            "result:c2:Page text",
+            "person:[Images returned by browser_screenshot]\n\nZoom in"
+        ]
+    );
+    assert!(matches!(shown.last(), Some(Message::Person { images, .. }) if images.len() == 1));
+}
+
+#[test]
+fn older_images_are_left_out_in_steps_so_the_prompt_start_stays_cached() {
+    let left_out: Vec<usize> = [5, 20, 21, 25, 29, 30, 39, 40]
+        .map(images_left_out)
+        .to_vec();
+    assert_eq!(left_out, vec![0, 0, 10, 10, 10, 20, 20, 30]);
+    // Between steps, a new image never changes which older ones are left out.
+    for total in 21..30 {
+        assert_eq!(images_left_out(total), images_left_out(total + 1).min(10));
+    }
+
+    let image = |n: usize| crate::event::ImageRef {
+        sha256: "kept".into(),
+        media_type: format!("image/png;n={n}"),
+        bytes: 3,
+    };
+    let events: Vec<Event> = (0..2 * SHOWN_IMAGES + 1)
+        .map(|n| {
+            Event::Known(Known::UserMessage {
+                text: format!("look {n}"),
+                context: None,
+                images: vec![image(n)],
+            })
+        })
+        .collect();
+    let shown = messages_with(&events, &Shelf);
+    let Some(Message::Person { text, images }) = shown.first() else {
+        panic!("{shown:?}");
+    };
+    assert_eq!(images.len(), SHOWN_IMAGES + 1);
+    assert_eq!(
+        images[0].media_type, "image/png;n=10",
+        "the ten oldest are left out"
+    );
+    assert_eq!(text.matches("no longer shown").count(), 10);
 }

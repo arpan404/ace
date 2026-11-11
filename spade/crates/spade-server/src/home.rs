@@ -55,6 +55,11 @@ impl Home {
         }
     }
 
+    /// Where attached images are kept, by hash.
+    pub fn images(&self) -> PathBuf {
+        self.dir.join("images")
+    }
+
     pub fn database(&self) -> PathBuf {
         self.dir.join("spade.sqlite")
     }

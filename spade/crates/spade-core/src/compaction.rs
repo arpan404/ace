@@ -90,7 +90,7 @@ pub fn safe_starts(events: &[Event], after: Option<usize>) -> Vec<usize> {
 fn text_len(event: &Event) -> usize {
     match event {
         Event::Known(known) => match known {
-            Known::UserMessage { text, context } => {
+            Known::UserMessage { text, context, .. } => {
                 text.len() + context.as_ref().map_or(0, String::len)
             }
             Known::StepFinished { text, calls, .. } => {

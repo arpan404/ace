@@ -334,6 +334,7 @@ mod tests {
                 name: "send_email".into(),
                 content: "done".into(),
                 is_error: false,
+                images: Vec::new(),
             }));
         }
         assert_eq!(next_step(&events), Next::CallModel { reply: "r1".into() });

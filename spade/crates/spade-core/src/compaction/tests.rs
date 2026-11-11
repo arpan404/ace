@@ -93,7 +93,7 @@ fn the_model_sees_the_summary_then_the_kept_turns_with_the_top_unchanged() {
     assert_eq!(before.system, after.system);
     assert_eq!(before.tools, after.tools);
     let first = match &after.messages[0] {
-        Message::Person { text } => text.clone(),
+        Message::Person { text, .. } => text.clone(),
         other => format!("{other:?}"),
     };
     assert!(
@@ -108,7 +108,7 @@ fn the_model_sees_the_summary_then_the_kept_turns_with_the_top_unchanged() {
         !after
             .messages
             .iter()
-            .any(|m| matches!(m, Message::Person { text } if text.contains("question 0")))
+            .any(|m| matches!(m, Message::Person { text, .. } if text.contains("question 0")))
     );
 }
 
@@ -145,6 +145,7 @@ fn completed_writes_are_listed_with_ids_and_arguments_and_reads_and_failures_are
             name: name.into(),
             content: "".into(),
             is_error,
+            images: Vec::new(),
         })
     };
     let events = vec![
@@ -225,6 +226,7 @@ fn compaction_never_cuts_at_a_message_sent_while_tools_ran() {
             name: "search".into(),
             content: "word ".repeat(400),
             is_error: false,
+            images: Vec::new(),
         }),
     ]);
     assert!(matches!(

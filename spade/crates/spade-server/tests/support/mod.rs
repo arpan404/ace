@@ -15,7 +15,7 @@ use spade_models::{Catalog, Models, ToolSpec};
 use spade_server::api::AppState;
 use spade_server::clock::{CountingIds, SystemClock};
 use spade_server::engine::{Engine, Limits, Setup};
-use spade_server::tools::{Tool, ToolFuture, ToolOutput, Toolbox};
+use spade_server::tools::{SkillLibrary, Tool, ToolFuture, ToolOutput, ToolSource, Toolbox};
 use spade_store::Store;
 use spade_testkit::{FakeProvider, Script};
 use tokio::net::TcpListener;
@@ -29,6 +29,8 @@ pub const TOKEN: &str = "test-token";
 pub struct FakeTool {
     pub def: ToolDef,
     pub answer: String,
+    /// Images it returns with its answer.
+    pub images: Vec<Vec<u8>>,
     pub delay: Duration,
     pub calls: Arc<Mutex<Vec<Value>>>,
 }
@@ -48,6 +50,7 @@ impl FakeTool {
                 background: false,
             },
             answer: answer.to_owned(),
+            images: Vec::new(),
             delay: Duration::ZERO,
             calls: Arc::default(),
         }
@@ -69,6 +72,11 @@ impl FakeTool {
         self
     }
 
+    pub fn returning_image(mut self, bytes: &[u8]) -> Self {
+        self.images.push(bytes.to_vec());
+        self
+    }
+
     pub fn slow(mut self, delay: Duration) -> Self {
         self.delay = delay;
         self
@@ -87,6 +95,7 @@ impl Tool for FakeTool {
     fn run(&self, _call_id: &str, arguments: Value) -> ToolFuture {
         let calls = self.calls.clone();
         let answer = self.answer.clone();
+        let images = self.images.clone();
         let delay = self.delay;
         Box::pin(async move {
             if !delay.is_zero() {
@@ -95,7 +104,10 @@ impl Tool for FakeTool {
             if let Ok(mut calls) = calls.lock() {
                 calls.push(arguments);
             }
-            ToolOutput::ok(answer)
+            ToolOutput {
+                images,
+                ..ToolOutput::ok(answer)
+            }
         })
     }
 }
@@ -112,6 +124,7 @@ pub struct Spade {
 pub struct Options {
     pub cap_usd: f64,
     pub limits: Limits,
+    pub skills: Option<Arc<dyn SkillLibrary>>,
 }
 
 impl Default for Options {
@@ -119,6 +132,7 @@ impl Default for Options {
         Self {
             cap_usd: 5.0,
             limits: Limits::default(),
+            skills: None,
         }
     }
 }
@@ -128,7 +142,7 @@ fn catalog(root: &str) -> Result<Catalog> {
         "roles": { "main": "fake/m", "fast": "fake/m", "deep": "fake/m" },
         "endpoints": [{ "id": "fake", "name": "Fake", "format": "openai-chat", "base_url": root,
                         "key": { "env": "FAKE_KEY" },
-                        "models": [{ "id": "m", "name": "M", "price": { "input": 2, "output": 10 } }] }]
+                        "models": [{ "id": "m", "name": "M", "capabilities": ["tools", "images"], "price": { "input": 2, "output": 10 } }] }]
     });
     Ok(Catalog::from_json(&json.to_string())?)
 }
@@ -148,10 +162,36 @@ impl Spade {
         Self::serve(fake, dir, tools, options).await
     }
 
+    /// Like `start`, with tools that also come from a live `source`.
+    pub async fn start_with_source(
+        scripts: Vec<Script>,
+        tools: Vec<Arc<dyn Tool>>,
+        source: Arc<dyn ToolSource>,
+    ) -> Result<Self> {
+        let fake = FakeProvider::start_sequence(scripts).await?;
+        let dir = Arc::new(tempfile::tempdir()?);
+        Self::serve_toolbox(
+            fake,
+            dir,
+            Toolbox::new(tools).with_source(source),
+            Options::default(),
+        )
+        .await
+    }
+
     async fn serve(
         fake: FakeProvider,
         dir: Arc<tempfile::TempDir>,
         tools: Vec<Arc<dyn Tool>>,
+        options: Options,
+    ) -> Result<Self> {
+        Self::serve_toolbox(fake, dir, Toolbox::new(tools), options).await
+    }
+
+    async fn serve_toolbox(
+        fake: FakeProvider,
+        dir: Arc<tempfile::TempDir>,
+        tools: Toolbox,
         options: Options,
     ) -> Result<Self> {
         let models = Models::new(
@@ -161,12 +201,14 @@ impl Spade {
         let engine = Engine::open(Setup {
             store: Store::open(&dir.path().join("spade.sqlite"))?,
             models,
-            tools: Toolbox::new(tools),
+            tools,
             clock: Arc::new(SystemClock),
             ids: Arc::new(CountingIds::default()),
             daily_cap_micros: spade_core::spending::usd_to_micros(options.cap_usd),
             utc_offset_seconds: 0,
             limits: options.limits,
+            skills: options.skills,
+            images: spade_server::images::ImageStore::open(&dir.path().join("images"))?,
         })?;
         let keys = KeyStore::with_store(mock::Store::new()?, spade_keys::SERVICE);
         let state = AppState {
@@ -202,6 +244,17 @@ impl Spade {
         let _ = (&mut self.task).await;
         let fake = FakeProvider::start_sequence(scripts).await?;
         Self::serve(fake, self.dir.clone(), tools, Options::default()).await
+    }
+
+    /// Shuts the server down the graceful way; fails if it does not finish within `within`.
+    pub async fn shut_down(mut self, within: Duration) -> Result {
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
+        tokio::time::timeout(within, &mut self.task)
+            .await
+            .map_err(|_| "the server did not shut down in time")???;
+        Ok(())
     }
 
     pub fn database(&self) -> PathBuf {

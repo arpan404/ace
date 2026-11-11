@@ -68,7 +68,7 @@ pub(super) fn start(
             name.to_owned(),
         );
         tokio::spawn(async move {
-            let output = run(&engine, &job, &name, arguments).await;
+            let output = run(&engine, &format!("{id}.{job}"), &name, arguments).await;
             {
                 let live = engine.live(&id);
                 let mut jobs = live.jobs.lock().unwrap_or_else(|p| p.into_inner());
@@ -78,7 +78,7 @@ pub(super) fn start(
                 }
                 jobs.insert(job.clone(), Job::Finishing);
             }
-            let content = super::turn::trim(&output.content, engine.limits.result_chars);
+            let content = super::calls::trim(&output.content, engine.limits.result_chars);
             let finished = Event::Known(Known::JobFinished {
                 job: job.clone(),
                 name,
@@ -98,11 +98,12 @@ pub(super) fn start(
     Ok(Started::Running)
 }
 
-async fn run(engine: &Engine, job: &str, name: &str, arguments: Value) -> ToolOutput {
+/// Runs the job's tool. `key` is unique across conversations and stable for this job.
+async fn run(engine: &Engine, key: &str, name: &str, arguments: Value) -> ToolOutput {
     let Some(tool) = engine.tools.get(name) else {
         return ToolOutput::error(format!("There is no tool named {name}."));
     };
-    match tokio::time::timeout(engine.limits.job_timeout, tool.run(job, arguments)).await {
+    match tokio::time::timeout(engine.limits.job_timeout, tool.run(key, arguments)).await {
         Ok(output) => output,
         Err(_) => ToolOutput::error(format!(
             "{name} did not finish within {} minutes.",

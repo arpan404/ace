@@ -233,7 +233,14 @@ fn request(prompt: &Prompt) -> ChatRequest {
 
 fn message(message: &Message) -> ChatMessage {
     match message {
-        Message::Person { text } => ChatMessage::user(text.as_str()),
+        Message::Person { text, images } if images.is_empty() => ChatMessage::user(text.as_str()),
+        Message::Person { text, images } => {
+            let mut parts = vec![ContentPart::Text(text.clone())];
+            parts.extend(images.iter().map(|image| {
+                ContentPart::from_binary_base64(image.media_type.clone(), image.data.clone(), None)
+            }));
+            ChatMessage::user(MessageContent::from_parts(parts))
+        }
         Message::Spade {
             text,
             calls,
