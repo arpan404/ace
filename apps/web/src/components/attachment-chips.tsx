@@ -16,7 +16,8 @@ import { useFilePreview, useLightbox } from "./attachment-open.tsx";
  * a progress ring, failures say why and offer Retry. A chip opens its preview on click or Enter,
  * and Delete or Backspace removes it, moving focus to the next chip or back to the message.
  * With `onEdit`, an editable chip (a long paste) opens its text for editing, and Save puts the
- * edited text in its place.
+ * edited text in its place. With `panelEdit` it edits in the thread's side panel instead, where
+ * there is one, and the chip whose text the panel holds shows as current.
  * `threadId` lets a chip restored from a saved draft preview the copy the daemon holds.
  */
 export function AttachmentChipRow(props: {
@@ -24,6 +25,7 @@ export function AttachmentChipRow(props: {
   onRemove(key: number): void;
   onRetry?: ((key: number) => void) | undefined;
   onEdit?: ((key: number, text: string) => void) | undefined;
+  panelEdit?: PanelEdit | undefined;
   threadId?: string | undefined;
 }) {
   const list = useRef<HTMLUListElement>(null);
@@ -41,6 +43,8 @@ export function AttachmentChipRow(props: {
   const open = (item: ChipAttachment, element: HTMLElement) => {
     const image = images.findIndex((candidate) => candidate.key === String(item.key));
     if (image >= 0) return showImage(image, element);
+    if (editable(item) && item.file && props.panelEdit?.open(item.key, item.name, item.file))
+      return;
     showFile(
       {
         name: item.name,
@@ -84,6 +88,7 @@ export function AttachmentChipRow(props: {
           <Chip
             key={item.key}
             item={item}
+            current={props.panelEdit?.editing.has(item.key) ?? false}
             threadId={props.threadId}
             onOpen={open}
             onRemove={remove}
@@ -115,6 +120,13 @@ export function AttachmentChipRow(props: {
       {preview}
     </>
   );
+}
+
+/** Editing a chip's text in the side panel: false from `open` where there is no panel for it. */
+export interface PanelEdit {
+  open(key: number, name: string, file: File): boolean;
+  /** The chips whose text the panel holds. */
+  editing: ReadonlySet<number>;
 }
 
 /** The chip's own preview: this page's file, else the still kept with the draft, else the daemon's. */
@@ -150,6 +162,8 @@ function fileSource(item: ChipAttachment, threadId: string | undefined): FileSou
 
 function Chip(props: {
   item: ChipAttachment;
+  /** Its text is open in the side panel. */
+  current: boolean;
   threadId?: string | undefined;
   onOpen(item: ChipAttachment, element: HTMLElement): void;
   onRemove(key: number, from: HTMLElement): void;
@@ -170,8 +184,9 @@ function Chip(props: {
   return (
     <li
       className={cn(
-        "inline-flex h-8 min-w-0 shrink-0 items-center gap-1 pr-1 pl-1 text-ui leading-4",
+        "inline-flex h-8 min-w-0 shrink-0 items-center gap-1 rounded-md pr-1 pl-1 text-ui leading-4",
         failed ? "max-w-80" : "max-w-60",
+        props.current && "bg-active",
       )}
     >
       <button
@@ -179,6 +194,7 @@ function Chip(props: {
         data-chip-open
         aria-label={`Preview ${item.name}`}
         aria-keyshortcuts="Delete"
+        aria-current={props.current || undefined}
         onClick={(event) => props.onOpen(item, event.currentTarget)}
         onKeyDown={keys}
         className="focus-ring flex h-full min-w-0 items-center gap-1.5 rounded-md"

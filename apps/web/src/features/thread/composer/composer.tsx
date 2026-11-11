@@ -34,6 +34,7 @@ import type { Suggestion } from "./suggestions.tsx";
 import { useAutosize } from "./use-autosize.ts";
 import { useComposerPicks } from "./use-composer-picks.ts";
 import { useComposerSubmit } from "./use-composer-submit.ts";
+import { usePanelTextEdit, useSendAfterEdits } from "./panel-text-edit.ts";
 import { useComposerSuggestions } from "./use-composer-suggestions.ts";
 import { useDraftSync } from "./use-draft-sync.ts";
 import { useElementWidth } from "./use-element-width.ts";
@@ -258,7 +259,18 @@ function ComposerBody({
     failedUpload: attachments.items.some((item) => item.state === "failed"),
     empty,
   });
-  const submit = useComposerSubmit({
+  // An edited copy takes its chip's place, and the message's marker follows it.
+  const editFile = (key: number, edited: string) => {
+    const copy = attachments.edit(key, edited);
+    if (copy) message.rekey(key, copy.key, copy.name);
+    return copy;
+  };
+  const panelEdit = usePanelTextEdit({
+    scope: props.thread.id,
+    keys: attachments.items.map((item) => item.key),
+    commit: editFile,
+  });
+  const submitNow = useComposerSubmit({
     blocked,
     current,
     entries: suggestions.entries,
@@ -273,6 +285,7 @@ function ComposerBody({
     takeText: sync.take,
     replace: props.onReplaced,
   });
+  const submit = useSendAfterEdits(panelEdit.flush, submitNow);
   useImperativeHandle(ref, () => ({
     openAdd: () => addMenu.current?.open(),
     focus: () => input.current?.focus(),
@@ -409,10 +422,8 @@ function ComposerBody({
               items={attachments.items}
               onRemove={attachments.remove}
               onRetry={attachments.retry}
-              onEdit={(key, edited) => {
-                const copy = attachments.edit(key, edited);
-                if (copy) message.rekey(key, copy.key, copy.name);
-              }}
+              onEdit={editFile}
+              panelEdit={panelEdit}
               threadId={props.thread.draft ? undefined : props.thread.id}
             />
             <ReplyQuotes quotes={quotes} />
