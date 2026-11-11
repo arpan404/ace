@@ -56,6 +56,8 @@ export function SpadeComposer(props: {
         sendsNow
         stopInStrip
         followUp="steer"
+        // Spade reads the files from this window; with no thread they never upload to the daemon.
+        sendsWhileUploading
         autoFocus
         typeToFocus
         label="Message Spade"

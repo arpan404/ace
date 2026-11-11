@@ -58,8 +58,8 @@ const encodedSize = (bytes: number) => Math.ceil(bytes / 3) * 4;
 
 /**
  * The message's files as Spade images: PNG, JPEG, GIF or WebP, at most eight. As sent they must
- * fit one request together, so if they don't, each is re-encoded smaller (largest sides first)
- * until they do. Throws `SpadeImageError` with words for the person when that can't work.
+ * fit one request together, so if they don't, each one over its share is re-encoded smaller
+ * (largest sides first) until they do. Throws `SpadeImageError` with words for the person when that can't work.
  */
 export async function prepareSpadeImages(files: readonly File[]): Promise<PreparedImage[]> {
   if (files.length > maxSpadeImages)
@@ -71,7 +71,13 @@ export async function prepareSpadeImages(files: readonly File[]): Promise<Prepar
   const total = () => blobs.reduce((sum, blob) => sum + encodedSize(blob.size), 0);
   for (const side of sides) {
     if (total() <= imageBudget && blobs.every((blob) => blob.size <= maxImageBytes)) break;
-    blobs = await Promise.all(files.map((file) => shrink(file, side)));
+    // Only an image over its share shrinks; a small one goes as it was.
+    const share = imageBudget / files.length;
+    blobs = await Promise.all(
+      files.map((file) =>
+        encodedSize(file.size) > share || file.size > maxImageBytes ? shrink(file, side) : file,
+      ),
+    );
   }
   if (total() > imageBudget)
     throw new SpadeImageError("These images are too large to send together. Send fewer at once.");
