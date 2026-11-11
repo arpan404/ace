@@ -57,6 +57,8 @@ struct State {
     hold: tokio::sync::watch::Sender<bool>,
     /// Where `tools/call` POSTs are redirected, when set.
     redirect_calls: Mutex<Option<String>>,
+    /// While true, every request is accepted and never answered.
+    hang: std::sync::atomic::AtomicBool,
 }
 
 #[derive(Clone)]
@@ -83,6 +85,7 @@ impl FakeMcp {
             cancels: AtomicUsize::new(0),
             hold: tokio::sync::watch::channel(false).0,
             redirect_calls: Mutex::new(None),
+            hang: std::sync::atomic::AtomicBool::new(false),
         });
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -143,6 +146,11 @@ impl FakeMcp {
         for peer in peers {
             let _ = peer.notify_tool_list_changed().await;
         }
+    }
+
+    /// From now on, every request is accepted and left unanswered, like a daemon that hung.
+    pub fn hang(&self) {
+        self.state.hang.store(true, Ordering::SeqCst);
     }
 
     /// From now on, `tools/call` answers (headers go out at once) wait for `release_answers`.
@@ -229,6 +237,9 @@ const DECORATE: &str = "DECORATE_ME";
 async fn daemon_rules(Shared(state): Shared<Arc<State>>, request: Request, next: Next) -> Response {
     let headers = request.headers().clone();
     lock(&state.requests).push(headers.clone());
+    if state.hang.load(Ordering::SeqCst) {
+        std::future::pending::<()>().await;
+    }
     let expected = format!("Bearer {TOKEN}");
     if headers.get("authorization").map(|v| v.as_bytes()) != Some(expected.as_bytes()) {
         return StatusCode::UNAUTHORIZED.into_response();

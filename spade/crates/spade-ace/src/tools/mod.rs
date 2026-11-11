@@ -25,7 +25,9 @@ use rmcp::model::{
     CancelledNotificationParam, ClientCapabilities, ClientConfig, ClientRequest, CustomRequest,
     Implementation, PaginatedRequestParams, PingRequest, ProtocolVersion,
 };
-use rmcp::service::{NotificationContext, PeerRequestOptions, RunningService};
+use rmcp::service::{
+    NotificationContext, PeerRequestOptions, RunningService, RunningServiceCancellationToken,
+};
 use rmcp::transport::StreamableHttpClientTransport;
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
 use rmcp::{ClientHandler, Peer, RoleClient, ServiceExt};
@@ -56,7 +58,14 @@ pub struct AceTools {
     /// Route tokens for calls; never reused for the life of this client.
     next_call: AtomicU64,
     calls: Semaphore,
+    /// Set by `close`: the credential is withdrawn, so nothing more is sent with it.
+    closed: AtomicBool,
+    /// Stops the live session's service (and anything it has queued) when closed.
+    cancel: std::sync::Mutex<Option<RunningServiceCancellationToken>>,
 }
+
+/// Why a closed client refuses.
+const WITHDRAWN: &str = "Spade's access to ace was withdrawn";
 
 struct Live {
     service: RunningService<RoleClient, Listener>,
@@ -76,6 +85,31 @@ impl AceTools {
             epochs: AtomicU64::new(0),
             next_call: AtomicU64::new(0),
             calls: Semaphore::new(MOST_CALLS),
+            closed: AtomicBool::new(false),
+            cancel: std::sync::Mutex::new(None),
+        }
+    }
+
+    /// Withdraws this client's credential: its session is cancelled with anything still queued,
+    /// and every later listing or call fails as not run without sending anything. Calls that were
+    /// already sent may still be answered or fail; nothing unsent goes out.
+    pub fn close(&self) {
+        self.closed.store(true, Ordering::SeqCst);
+        let token = self
+            .cancel
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+        if let Some(token) = token {
+            token.cancel();
+        }
+    }
+
+    fn refuse_if_closed(&self) -> Result<(), ToolsError> {
+        if self.closed.load(Ordering::SeqCst) {
+            Err(ToolsError::NotRun(WITHDRAWN.into()))
+        } else {
+            Ok(())
         }
     }
 
@@ -114,6 +148,8 @@ impl AceTools {
             .map_err(|_| ToolsError::NotRun("too many calls are waiting on ace".into()))?
             .map_err(|_| ToolsError::NotRun("the client is closing".into()))?;
         let (peer, epoch, routes) = self.peer().await.map_err(not_run_if_unavailable)?;
+        // Checked once more right before sending: a close while the session opened wins.
+        self.refuse_if_closed()?;
         // The token names this call alone; the HTTP layer hands its raw answer to this waiter.
         let token = self.next_call.fetch_add(1, Ordering::Relaxed) + 1;
         let mut meta = serde_json::Map::new();
@@ -244,6 +280,7 @@ impl AceTools {
 
     /// The live session's peer, epoch and call routes, opening a session if there is none.
     async fn peer(&self) -> Result<(Peer<RoleClient>, u64, CallRoutes), ToolsError> {
+        self.refuse_if_closed()?;
         let mut session = self.session.lock().await;
         if let Some(live) = session.as_ref()
             && !live.service.is_closed()
@@ -257,6 +294,18 @@ impl AceTools {
         let service = tokio::time::timeout(self.config.timeout(), self.open(routes.clone()))
             .await
             .map_err(|_| ToolsError::Timeout)??;
+        {
+            let mut cancel = self
+                .cancel
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            // Closed while the session opened: it is never used.
+            if self.closed.load(Ordering::SeqCst) {
+                service.cancellation_token().cancel();
+                return Err(ToolsError::NotRun(WITHDRAWN.into()));
+            }
+            *cancel = Some(service.cancellation_token());
+        }
         let epoch = self.epochs.fetch_add(1, Ordering::Relaxed) + 1;
         let peer = service.peer().clone();
         *session = Some(Live {

@@ -194,3 +194,100 @@ async fn when_the_daemon_goes_away_its_tools_go_and_come_back_with_it() -> Resul
     assert_eq!(spade.get("/v1/ace").await?.1["connected"], false);
     Ok(())
 }
+
+#[tokio::test]
+async fn after_the_grant_is_forgotten_a_tool_kept_from_before_sends_nothing() -> Result {
+    let home = tempfile::tempdir()?;
+    let mcp = FakeMcp::start(vec![tool("echo", Some(true), None)]).await;
+    daemon_files(home.path(), &mcp)?;
+    let spade = Spade::start_with(Vec::new(), Vec::new(), with_ace(home.path())).await?;
+    spade
+        .put("/v1/ace", json!({ "grant": fake_mcp::TOKEN }))
+        .await?;
+    wait_connected(&spade, true).await?;
+    // A running turn holds on to the tool it looked up.
+    let kept = spade
+        .ace
+        .as_ref()
+        .and_then(|ace| ace.tools().into_iter().next())
+        .ok_or("no ace tool")?;
+
+    let (status, _) = spade.delete("/v1/ace").await?;
+    assert_eq!(status, 204);
+    let output = kept.run("c_1.call_1", json!({ "say": "late" })).await;
+    assert!(
+        output.is_error && output.content.starts_with("Not run"),
+        "{output:?}"
+    );
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(
+        mcp.tool_call_frames(),
+        0,
+        "nothing went out with the forgotten grant"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_daemon_that_stops_answering_loses_its_tools_within_the_check() -> Result {
+    let home = tempfile::tempdir()?;
+    let mcp = FakeMcp::start(vec![tool("echo", Some(true), None)]).await;
+    daemon_files(home.path(), &mcp)?;
+    let spade = Spade::start_with(Vec::new(), Vec::new(), with_ace(home.path())).await?;
+    spade
+        .put("/v1/ace", json!({ "grant": fake_mcp::TOKEN }))
+        .await?;
+    wait_connected(&spade, true).await?;
+
+    mcp.hang();
+    let started = Instant::now();
+    wait_connected(&spade, false).await?;
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "{:?}",
+        started.elapsed()
+    );
+    assert!(ace_tool_names(&spade).is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn after_a_connection_worked_the_backoff_starts_over() -> Result {
+    let home = tempfile::tempdir()?;
+    let spade = Spade::start_with(
+        Vec::new(),
+        Vec::new(),
+        Options {
+            ace_home: Some(home.path().to_path_buf()),
+            ace_retry: Some(spade_server::tools::Retry {
+                first: Duration::from_millis(20),
+                longest: Duration::from_millis(1500),
+                check: Duration::from_millis(50),
+                answer: Duration::from_millis(300),
+            }),
+            ..Default::default()
+        },
+    )
+    .await?;
+    spade
+        .put("/v1/ace", json!({ "grant": fake_mcp::TOKEN }))
+        .await?;
+    // No daemon for long enough that the wait grows to its longest.
+    tokio::time::sleep(Duration::from_millis(2800)).await;
+    let mcp = FakeMcp::start(vec![tool("echo", Some(true), None)]).await;
+    daemon_files(home.path(), &mcp)?;
+    wait_connected(&spade, true).await?;
+
+    drop(mcp);
+    wait_connected(&spade, false).await?;
+    let back = FakeMcp::start(vec![tool("echo", Some(true), None)]).await;
+    daemon_files(home.path(), &back)?;
+    let started = Instant::now();
+    wait_connected(&spade, true).await?;
+    assert!(
+        started.elapsed() < Duration::from_millis(700),
+        "reconnected after {:?}",
+        started.elapsed()
+    );
+    Ok(())
+}

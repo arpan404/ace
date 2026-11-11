@@ -371,3 +371,26 @@ async fn a_redirected_call_is_not_followed_anywhere() {
     assert_eq!(reached.load(std::sync::atomic::Ordering::SeqCst), 0);
     assert_eq!(fake.tool_call_frames(), 1);
 }
+
+#[tokio::test]
+async fn a_closed_client_sends_nothing_more_with_its_credential() {
+    let fake = FakeMcp::start(usual_tools()).await;
+    let ace = std::sync::Arc::new(client(&fake, TOKEN, Duration::from_secs(5)));
+    ace.tools().await.unwrap_or_else(|e| panic!("{e}"));
+    // One call waits to open its session while another holds a live one; both start before the
+    // close and neither may send.
+    let fresh = std::sync::Arc::new(client(&fake, TOKEN, Duration::from_secs(5)));
+    let opening = tokio::spawn({
+        let fresh = fresh.clone();
+        async move { fresh.call("echo", json!({ "say": "late" })).await }
+    });
+    ace.close();
+    fresh.close();
+    let after = ace.call("echo", json!({ "say": "after" })).await;
+    assert!(matches!(after, Err(ToolsError::NotRun(_))), "{after:?}");
+    let opened = opening.await.unwrap_or_else(|e| panic!("{e}"));
+    assert!(matches!(opened, Err(ToolsError::NotRun(_))), "{opened:?}");
+    assert!(matches!(ace.tools().await, Err(ToolsError::NotRun(_))));
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(fake.tool_call_frames(), 0);
+}

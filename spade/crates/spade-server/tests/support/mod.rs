@@ -134,6 +134,8 @@ pub struct Options {
     pub skills: Option<Arc<dyn SkillLibrary>>,
     /// Finds ace from this folder's files, retrying quickly.
     pub ace_home: Option<PathBuf>,
+    /// Waits for the ace connection, when not the quick ones tests use by default.
+    pub ace_retry: Option<Retry>,
 }
 
 impl Default for Options {
@@ -143,6 +145,7 @@ impl Default for Options {
             limits: Limits::default(),
             skills: None,
             ace_home: None,
+            ace_retry: None,
         }
     }
 }
@@ -209,11 +212,12 @@ impl Spade {
             AceLink::start(
                 AceTarget::Discover(home),
                 Some(keys.clone()),
-                Retry {
+                options.ace_retry.unwrap_or(Retry {
                     first: Duration::from_millis(20),
                     longest: Duration::from_millis(100),
                     check: Duration::from_millis(50),
-                },
+                    answer: Duration::from_millis(300),
+                }),
             )
         });
         if let Some(link) = &ace {

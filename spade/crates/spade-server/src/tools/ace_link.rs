@@ -6,7 +6,7 @@
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::time::Duration;
 
 use spade_ace::{AceConfig, AceSkills, AceTools, Secret, discover, next_retry_between};
@@ -22,6 +22,10 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(11 * 60);
 /// How often a live connection is checked by default (a ping on the MCP session), so a daemon
 /// that went away takes its tools with it and the next one is found.
 const CHECK: Duration = Duration::from_secs(5);
+
+/// How long ace has to answer a connect or a check before Spade treats it as gone. A daemon that
+/// accepts but never answers must not keep its tools listed.
+const ANSWER: Duration = Duration::from_secs(5);
 
 /// Where ace is.
 #[derive(Debug, Clone)]
@@ -45,12 +49,14 @@ impl AceTarget {
     }
 }
 
-/// Waits between connects (`first`, doubling up to `longest`) and between checks of a live one.
+/// Waits between connects (`first`, doubling up to `longest`), between checks of a live one, and
+/// for ace to answer a connect or check.
 #[derive(Debug, Clone, Copy)]
 pub struct Retry {
     pub first: Duration,
     pub longest: Duration,
     pub check: Duration,
+    pub answer: Duration,
 }
 
 impl Default for Retry {
@@ -59,6 +65,7 @@ impl Default for Retry {
             first: spade_ace::FIRST_RETRY,
             longest: spade_ace::LONGEST_RETRY,
             check: CHECK,
+            answer: ANSWER,
         }
     }
 }
@@ -89,12 +96,15 @@ pub struct AceLink {
     connected: AtomicBool,
     /// Rung when the grant changes, to connect again at once.
     wake: Notify,
+    /// Every client made since the grant last changed. A grant change closes them all, so a call
+    /// still holding an old one (a tool kept by a running turn) sends nothing more with it.
+    clients: Mutex<Vec<Weak<AceTools>>>,
 }
 
 /// Why a connection ended.
 enum Ended {
-    /// It never came up, or the daemon went away.
-    Lost,
+    /// It never came up, or the daemon went away; `connected` if it was up first.
+    Lost { connected: bool },
     /// The grant changed.
     Woken,
 }
@@ -121,6 +131,7 @@ impl AceLink {
             current: RwLock::default(),
             connected: AtomicBool::new(false),
             wake: Notify::new(),
+            clients: Mutex::default(),
         });
         tokio::spawn(link.clone().run());
         link
@@ -153,6 +164,7 @@ impl AceLink {
         }
         *self.grant.lock().unwrap_or_else(|p| p.into_inner()) = Some(Secret::new(grant));
         self.grants.fetch_add(1, Ordering::SeqCst);
+        self.retire_clients();
         self.wake.notify_one();
         Ok(())
     }
@@ -161,6 +173,7 @@ impl AceLink {
     pub fn forget_grant(&self) -> Result<(), GrantError> {
         *self.grant.lock().unwrap_or_else(|p| p.into_inner()) = None;
         self.grants.fetch_add(1, Ordering::SeqCst);
+        self.retire_clients();
         self.disconnect();
         self.wake.notify_one();
         if let Some(keys) = &self.keys {
@@ -176,13 +189,18 @@ impl AceLink {
                 Ok(config) => self.connect_and_stay(config).await,
                 Err(why) => {
                     tracing::debug!(%why, "ace is not reachable yet");
-                    Ended::Lost
+                    Ended::Lost { connected: false }
                 }
             };
             self.disconnect();
-            if let Ended::Woken = ended {
-                wait = None;
-                continue;
+            match ended {
+                Ended::Woken => {
+                    wait = None;
+                    continue;
+                }
+                // A connection that worked starts the backoff over.
+                Ended::Lost { connected: true } => wait = None,
+                Ended::Lost { connected: false } => {}
             }
             let delay = next_retry_between(wait, self.retry.first, self.retry.longest);
             wait = Some(delay);
@@ -214,13 +232,20 @@ impl AceLink {
     async fn connect_and_stay(&self, config: AceConfig) -> Ended {
         let grants = self.grants.load(Ordering::SeqCst);
         let client = Arc::new(AceTools::new(config.tools.with_timeout(CALL_TIMEOUT)));
+        if !self.register(grants, &client) {
+            return Ended::Woken;
+        }
         let mut changes = client.changes();
         let list = tokio::select! {
-            listed = client.tools() => match listed {
-                Ok(list) => list,
-                Err(error) => {
+            listed = tokio::time::timeout(self.retry.answer, client.tools()) => match listed {
+                Ok(Ok(list)) => list,
+                Ok(Err(error)) => {
                     tracing::debug!(%error, "could not reach ace");
-                    return Ended::Lost;
+                    return Ended::Lost { connected: false };
+                }
+                Err(_) => {
+                    tracing::debug!("ace did not answer in time");
+                    return Ended::Lost { connected: false };
                 }
             },
             () = self.wake.notified() => return Ended::Woken,
@@ -232,19 +257,30 @@ impl AceLink {
         tracing::info!(tools = list.len(), "connected to ace");
         loop {
             tokio::select! {
-                changed = changes.changed() => if changed.is_err() { return Ended::Lost },
+                changed = changes.changed() => if changed.is_err() {
+                    return Ended::Lost { connected: true };
+                },
                 () = tokio::time::sleep(self.retry.check) => {}
                 () = self.wake.notified() => return Ended::Woken,
             }
-            match client.tools().await {
-                Ok(list) => {
+            // A short check, which a grant change interrupts.
+            let checked = tokio::select! {
+                checked = tokio::time::timeout(self.retry.answer, client.tools()) => checked,
+                () = self.wake.notified() => return Ended::Woken,
+            };
+            match checked {
+                Ok(Ok(list)) => {
                     if !self.offer(grants, &client, &skills, &list) {
                         return Ended::Woken;
                     }
                 }
-                Err(error) => {
+                Ok(Err(error)) => {
                     tracing::info!(%error, "lost ace; its tools are gone until it is back");
-                    return Ended::Lost;
+                    return Ended::Lost { connected: true };
+                }
+                Err(_) => {
+                    tracing::info!("ace stopped answering; its tools are gone until it is back");
+                    return Ended::Lost { connected: true };
                 }
             }
         }
@@ -268,6 +304,27 @@ impl AceLink {
         });
         self.connected.store(true, Ordering::SeqCst);
         true
+    }
+
+    /// Records a client made under grant generation `grants`; closes it at once if the grant has
+    /// changed since. Checked under the lock `retire_clients` takes, so no client escapes both.
+    fn register(&self, grants: u64, client: &Arc<AceTools>) -> bool {
+        let mut clients = self.clients.lock().unwrap_or_else(|p| p.into_inner());
+        if self.grants.load(Ordering::SeqCst) != grants {
+            client.close();
+            return false;
+        }
+        clients.retain(|c| c.strong_count() > 0);
+        clients.push(Arc::downgrade(client));
+        true
+    }
+
+    /// Closes every client made with an earlier grant.
+    fn retire_clients(&self) {
+        let clients = std::mem::take(&mut *self.clients.lock().unwrap_or_else(|p| p.into_inner()));
+        for client in clients.iter().filter_map(Weak::upgrade) {
+            client.close();
+        }
     }
 
     fn disconnect(&self) {
