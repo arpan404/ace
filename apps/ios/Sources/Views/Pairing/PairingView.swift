@@ -76,6 +76,7 @@ struct ConfirmPairingView: View {
     let onPaired: () -> Void
     @State private var name = UIDevice.current.name
     @State private var pairing = false
+    @State private var submission: Task<Void, Never>?
     @State private var failure: ProblemNotice?
 
     var body: some View {
@@ -101,7 +102,7 @@ struct ConfirmPairingView: View {
                 }
                 Section {
                     Button {
-                        Task { await pair() }
+                        submission = Task { await pair() }
                     } label: {
                         HStack { Text(pairing ? "Pairing…" : "Pair this phone"); if pairing { Spacer(); WorkingMark(label: "Pairing") } }
                     }
@@ -114,13 +115,14 @@ struct ConfirmPairingView: View {
         .insetGroupedList()
         .navigationTitle("Confirm computer")
         .navigationBarTitleDisplayMode(.inline)
-        .interactiveDismissDisabled(pairing)
+        .onDisappear { submission?.cancel(); submission = nil }
     }
     private func pair() async {
         pairing = true
         failure = nil
-        let problem = await machines.pair(link, name: String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(256)))
+        let problem = await machines.pair(link, name: pairingDeviceName(name))
         pairing = false
+        guard !Task.isCancelled else { return }
         if let problem { failure = problem } else { onPaired() }
     }
 }

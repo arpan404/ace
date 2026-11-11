@@ -196,9 +196,11 @@ import Observation
     }
     /// Redeem a confirmed link, store the device, then connect it beside the others.
     func pair(_ link: PairingLink, name: String) async -> ProblemNotice? {
+        guard !Task.isCancelled else { return .cancelled }
         switch await access.perform(.pair(link, name: name)) {
         case .failure(let notice): return notice
         case .success(let outcome):
+            guard !Task.isCancelled else { return .cancelled }
             // Through `follow`: an account machine this pairing turns out to be lets its runtime go.
             if let listed = outcome.machines { paired = listed; await follow(merged()) }
             guard let paired = outcome.paired, let entry = entry(paired.hostId) else { return .unknown }
