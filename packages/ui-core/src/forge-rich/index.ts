@@ -1,4 +1,3 @@
-export * from "./blocks.ts";
 export * from "./html-pieces.ts";
 export * from "./html-policy.ts";
 export * from "./html-tree.ts";
