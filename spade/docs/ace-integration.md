@@ -104,6 +104,14 @@ the token stays in the main process and never reaches the page. The preload brid
   `token` and `server.json` are read again (or every file, when the OS names none); Spade's
   database and images changing never are.
 
+The token goes only to a Spade that proved it holds it: before the first tokened request to a
+reading of the files, and after every re-read, the main process asks `GET /health?nonce=<hex>`
+with a fresh random nonce and requires `proof`, the lowercase hex HMAC-SHA256 of the nonce keyed
+with the token file's contents (`proveSpade` in `@ace/service/spade`, shared with the daemon).
+Without the right proof that address is treated as no Spade: `endpoint()` is null, requests are
+`unreachable` and the page falls back to the daemon. A stale `server.json` naming a port another
+local process now holds never gets the token.
+
 When nobody listens at the old address or Spade answers 401 (it restarted with a new token), the
 main process reads the files again and sends once more. The renderer falls back to the daemon's
 `spade.*` family when `endpoint()` is null or a request is `unreachable`, and looks again after

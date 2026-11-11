@@ -1,5 +1,6 @@
 import { watch } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { newSpadeNonce } from "@ace/service/spade";
 import { spadeDirect } from "./direct.ts";
 import { spadeEndpointWatch } from "./endpoint-watch.ts";
 
@@ -36,5 +37,8 @@ export function localSpade(options: { home: string | undefined; onChange(): void
       timer = setTimeout(options.onChange, settleMs);
     },
   });
-  return { direct: spadeDirect(endpoints), close: () => endpoints.close() };
+  return {
+    direct: spadeDirect(endpoints, { nonce: newSpadeNonce }),
+    close: () => endpoints.close(),
+  };
 }

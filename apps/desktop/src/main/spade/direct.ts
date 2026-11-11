@@ -4,13 +4,14 @@ import {
   checkSpadePath,
   isTextContentType,
   neverConnected,
+  proveSpade,
   requestBodyLimit,
   responseBodyLimit,
-  spadeHealth,
   spadeLive,
   spadeRequest,
   type LiveEnd,
   type SpadeAnswer,
+  type SpadeHealth,
 } from "@ace/service/spade";
 import type {
   SpadeDirectAnswer,
@@ -38,21 +39,60 @@ const sameSpade = (a: LocalSpade | undefined, b: LocalSpade | undefined) =>
  * forwarder's. When Spade restarted under a request (nothing listens at the old port, or the
  * token is stale) its files are read again and the request is sent once more; a request that
  * may have reached Spade is never sent twice.
+ *
+ * The token goes only to a Spade that proved it holds it: before the first tokened request to a
+ * reading of Spade's files (and after every re-read), `/health` with a fresh nonce must answer
+ * the right proof (`proveSpade`). Anything else at that address is treated as no Spade.
  */
-export function spadeDirect(endpoints: Pick<SpadeEndpointWatch, "current" | "refresh">) {
+export function spadeDirect(
+  endpoints: Pick<SpadeEndpointWatch, "current" | "refresh">,
+  options: { nonce(): string },
+) {
   const streams = new Map<string, { controller: AbortController; owner: number }>();
+  /** Readings whose Spade proved it holds their token (each re-read is a new reading). */
+  const trusted = new WeakMap<LocalSpade, Promise<boolean>>();
+
+  /** Spade's health, from the Spade at `spade` that holds its token only; marks it trusted. */
+  async function check(spade: LocalSpade): Promise<SpadeHealth | undefined> {
+    const answer = await proveSpade(spade, options.nonce(), AbortSignal.timeout(healthMs));
+    if (answer) trusted.set(spade, Promise.resolve(true));
+    return answer;
+  }
+
+  /** Whether the token may go to `spade`: proved once per reading; a failure is asked again. */
+  function proven(spade: LocalSpade): Promise<boolean> {
+    let proving = trusted.get(spade);
+    if (!proving) {
+      proving = check(spade).then((answer) => {
+        if (!answer) trusted.delete(spade);
+        return answer !== undefined;
+      });
+      trusted.set(spade, proving);
+    }
+    return proving;
+  }
+
+  /** The Spade the token may go to now: this reading, or a fresh one if this one fails. */
+  async function trustedSpade(): Promise<LocalSpade | undefined> {
+    const spade = await endpoints.current();
+    if (!spade) return undefined;
+    if (await proven(spade)) return spade;
+    const again = await endpoints.refresh();
+    return again && !sameSpade(spade, again) && (await proven(again)) ? again : undefined;
+  }
 
   /** Run `attempt` against Spade, and once more against a restarted Spade if it needs one. */
   async function withSpade<T>(
     attempt: (spade: LocalSpade) => Promise<T>,
     retry: (result: T) => boolean,
   ): Promise<T | undefined> {
-    const spade = await endpoints.current();
+    const spade = await trustedSpade();
     if (!spade) return undefined;
     const result = await attempt(spade);
     if (!retry(result)) return result;
     const again = await endpoints.refresh();
-    return again && !sameSpade(spade, again) ? attempt(again) : result;
+    if (!again || sameSpade(spade, again) || !(await proven(again))) return result;
+    return attempt(again);
   }
 
   async function request(input: SpadeDirectRequest): Promise<SpadeDirectAnswer> {
@@ -98,17 +138,20 @@ export function spadeDirect(endpoints: Pick<SpadeEndpointWatch, "current" | "ref
   }
 
   async function endpoint(): Promise<SpadeEndpointInfo> {
-    const spade = await endpoints.current();
+    const spade = await trustedSpade();
     if (!spade) return null;
     const { version, api, hostId } = spade;
     return { address: `${spade.host}:${spade.port}`, version, api, hostId };
   }
 
   async function health(): Promise<SpadeHealthInfo> {
-    const answer = await withSpade(
-      (spade) => spadeHealth(spade, AbortSignal.timeout(healthMs)),
-      (result) => result === undefined,
-    );
+    // Asked afresh every time (it says whether Spade is up now), and proved like any request.
+    const spade = await endpoints.current();
+    let answer = spade && (await check(spade));
+    if (!answer) {
+      const again = await endpoints.refresh();
+      if (again && !sameSpade(spade, again)) answer = await check(again);
+    }
     if (!answer) return null;
     return {
       ...(answer.version === undefined ? {} : { version: answer.version }),

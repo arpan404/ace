@@ -1,4 +1,5 @@
 import { request, type IncomingMessage } from "node:http";
+import { checkSpadeProof, isSpadeNonce } from "./proof.ts";
 import { sseDecoder, SseTooLarge, type SseEvent } from "./sse.ts";
 
 /** Where a ready Spade listens, and the token its API needs. */
@@ -161,6 +162,8 @@ export interface SpadeHealth {
   version: string | undefined;
   /** Spade's HTTP API version; absent from builds older than ADR 0123. */
   api: number | undefined;
+  /** Spade's proof for the nonce asked with, if one was. */
+  proof: string | undefined;
 }
 
 /**
@@ -170,11 +173,13 @@ export interface SpadeHealth {
 export async function spadeHealth(
   connection: Omit<SpadeConnection, "token">,
   signal: AbortSignal,
+  nonce?: string,
 ): Promise<SpadeHealth | undefined> {
+  if (nonce !== undefined && !isSpadeNonce(nonce)) return undefined;
   try {
     const response = await send(
       { ...connection, token: "" },
-      { method: "GET", path: "/health" },
+      { method: "GET", path: nonce === undefined ? "/health" : `/health?nonce=${nonce}` },
       signal,
       false,
     );
@@ -185,13 +190,29 @@ export async function spadeHealth(
       return undefined;
     const version: unknown = Reflect.get(value, "version");
     const api: unknown = Reflect.get(value, "api");
+    const proof: unknown = Reflect.get(value, "proof");
     return {
       version: typeof version === "string" ? version.slice(0, 64) : undefined,
       api: typeof api === "number" && Number.isInteger(api) ? api : undefined,
+      proof: typeof proof === "string" ? proof.slice(0, 128) : undefined,
     };
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Spade's health, only from the Spade that holds `connection.token`: `/health` with `nonce` (a
+ * fresh one per check, `newSpadeNonce`) must answer the right proof. Undefined otherwise, and
+ * then the token must not be sent to that address. The check itself never sends the token.
+ */
+export async function proveSpade(
+  connection: SpadeConnection,
+  nonce: string,
+  signal: AbortSignal,
+): Promise<SpadeHealth | undefined> {
+  const health = await spadeHealth(connection, signal, nonce);
+  return health && checkSpadeProof(connection.token, nonce, health.proof) ? health : undefined;
 }
 
 /** Whether Spade serves requests (`spadeHealth` answered). */

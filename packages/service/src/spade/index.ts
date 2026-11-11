@@ -5,5 +5,6 @@
  */
 export * from "./client.ts";
 export * from "./endpoint.ts";
+export * from "./proof.ts";
 export * from "./routes.ts";
 export * from "./sse.ts";
