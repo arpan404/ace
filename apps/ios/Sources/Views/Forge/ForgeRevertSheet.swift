@@ -10,6 +10,7 @@ struct ForgeRevertSheet: View {
     let create: (String, String) async -> ForgeWorkOutcome
     let openPull: (Int) -> Void
     @State private var asking = false
+    @State private var discarding = false
     @State private var writing = false
     @State private var outcome: ForgeWorkOutcome?
     @Environment(\.dismiss) private var dismiss
@@ -49,13 +50,17 @@ struct ForgeRevertSheet: View {
             .navigationTitle("Revert #\(number)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button(outcome?.ok == true ? "Done" : "Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button(outcome?.ok == true ? "Done" : "Cancel") { if outcome?.ok == true || (title.isEmpty && body_.isEmpty) { dismiss() } else { discarding = true } }.disabled(writing) }
             }
             .confirmationDialog("Open a draft that reverts #\(number)?", isPresented: $asking, titleVisibility: .visible) {
                 Button("Open revert draft") { send() }
             }
             .sensoryFeedback(.success, trigger: outcome) { _, now in now?.ok == true }
-            .interactiveDismissDisabled(writing)
+            .interactiveDismissDisabled(writing || (outcome?.ok != true && (!title.isEmpty || !body_.isEmpty)))
+            .confirmationDialog("Discard draft?", isPresented: $discarding, titleVisibility: .visible) {
+                Button("Discard", role: .destructive) { dismiss() }
+                Button("Keep editing", role: .cancel) {}
+            }
         }
         .presentationDetents([.medium, .large])
     }

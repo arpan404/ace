@@ -76,7 +76,7 @@ struct ForgePullPageView: View {
         .task(id: "\(method)|\(client.readGeneration(request))") { await load() }
         .sheet(isPresented: Binding(get: { editingCommit != nil }, set: { if !$0 { editingCommit = nil } })) {
             if let target = editingCommit, let page {
-                ForgeMergeCommitSheet(target: target, title: "#\(page.number) \(page.title)") { edited in
+                ForgeMergeCommitSheet(target: target, title: "#\(page.number) \(page.title)", current: target.matches(page, method: method)) { edited in
                     editingCommit = nil
                     Task { await write(edited) }
                 }
@@ -94,7 +94,6 @@ struct ForgePullPageView: View {
         // A refresh that moves the head or the method ends the question asked against the old one.
         .onChange(of: "\(page?.headSha ?? "")|\(method)") {
             if let target = confirming, !target.matches(page, method: method) { confirming = nil }
-            if let target = editingCommit, !target.matches(page, method: method) { editingCommit = nil }
         }
     }
 
