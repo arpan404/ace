@@ -15,7 +15,7 @@ struct PairingView: View {
         QuietPage {
             Group {
                 QuietGroup {
-                    Button { scanning = true } label: { Label("Scan pairing QR code", systemImage: "qrcode.viewfinder") }
+                    Button { scanning = true } label: { Text("Scan pairing QR code") }
                         .accessibilityIdentifier("pairing.scan")
                 } footer: {
                     Text("On your computer, run `ace pair` or open Settings › Machines and devices and create a pairing link.")
@@ -104,9 +104,10 @@ struct ConfirmPairingView: View {
                     Button {
                         submission = Task { await pair() }
                     } label: {
-                        HStack { Text(pairing ? "Pairing…" : "Pair this phone"); if pairing { Spacer(); WorkingMark(label: "Pairing") } }
+                        HStack { Text(pairing ? "Pairing…" : failure == nil ? "Pair this phone" : "Retry"); if pairing { Spacer(); WorkingMark(label: "Pairing") } }
                     }
                     .disabled(pairing || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .buttonStyle(.textAction(.prominent))
                     .accessibilityIdentifier("pairing.confirm")
                 }
             }

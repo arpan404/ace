@@ -203,6 +203,7 @@ import Observation
             guard !Task.isCancelled else { return .cancelled }
             // Through `follow`: an account machine this pairing turns out to be lets its runtime go.
             if let listed = outcome.machines { paired = listed; await follow(merged()) }
+            guard !Task.isCancelled else { return .cancelled }
             guard let paired = outcome.paired, let entry = entry(paired.hostId) else { return .unknown }
             grants.set(paired.scopes, for: entry)
             saveGrants()
@@ -483,7 +484,7 @@ import Observation
         client.canOperate = canOperate(entry)
         client.canAdmin = grants.scopes(for: entry).map { Grants(scopes: $0).canAdmin }
         await beforeConnect?(client, target)
-        guard openings[hostId] == opening, inbox.client(hostId) === client, !isOff(hostId) else { return }
+        guard !Task.isCancelled, openings[hostId] == opening, inbox.client(hostId) === client, !isOff(hostId) else { return }
         await client.connect(target: target, directory: storage, itemLimit: itemLimit)
     }
     /// Any open of this machine still waiting goes no further. Returns the new latest.
