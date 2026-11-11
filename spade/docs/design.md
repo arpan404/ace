@@ -129,6 +129,15 @@ call Spade makes itself. `spade-search` (owner, 2026-11-10: SearXNG and Brave on
 clean title, address and snippet, drops repeats, caps results at 20, and skips a backend that
 fails, times out or has no key, with a reason that never carries the key.
 
+`spade-fetch` is `web_fetch`. Pages are untrusted and may try to steer the agent, so it fetches
+http and https only, resolves the host itself and refuses loopback, private, link-local (cloud
+metadata), CGNAT, multicast and reserved addresses and their IPv6 forms, then connects only to the
+addresses it checked so DNS cannot swap them. Every redirect is checked again, at most five. It
+reads at most 5 MB, and only HTML, text, JSON and XML (PDF later). HTML becomes light Markdown
+from the main content (`main`, else `article`, else the body) without scripts, navigation,
+page headers and footers, asides, forms or hidden elements. Text comes back a window at a time,
+with the next offset when more remains. Errors are one short line and never quote the page.
+
 ## Compaction
 
 Automatic (owner, 2026-11-10), plus a manual `/compact [focus]`. It rewrites only the conversation

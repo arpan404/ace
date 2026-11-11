@@ -40,6 +40,7 @@ crates/
   spade-store/     SQLite: conversations, event log, spending ledger
   spade-keys/      endpoint API keys in the OS keychain (ADR 0116)
   spade-search/    web search: your own SearXNG, then Brave with your key
+  spade-fetch/     web_fetch: one page as readable text, refusing local and private addresses
   spade-server/    local API and reply engine (in progress)
   spade-testkit/   test-only fake model endpoint (all three formats)
 config/

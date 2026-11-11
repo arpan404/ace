@@ -2697,6 +2697,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "ego-tree",
+ "futures-util",
  "reqwest",
  "scraper",
  "thiserror",
