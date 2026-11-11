@@ -28,6 +28,12 @@ const BUSY: u8 = 3;
 
 #[tokio::main]
 async fn main() -> std::process::ExitCode {
+    let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    if let Some(flag) = args.first()
+        && flag == "--check-migrations"
+    {
+        return check_migrations(args.get(1));
+    }
     // The HTML parser's own logs carry page text, so they are dropped by a separate layer that no
     // RUST_LOG setting can turn back on.
     tracing_subscriber::registry()
@@ -43,6 +49,26 @@ async fn main() -> std::process::ExitCode {
         }
         Err(Failure::Other(error)) => {
             tracing::error!(%error, "spade could not start");
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+/// `spade-server --check-migrations <path>`: an updater asks whether this build can open a
+/// snapshot of Spade's database (docs/ace-integration.md, "Updates"). Migrates and checks that
+/// file only; never touches the data folder. Exit 0 if usable, else 1 with one line saying why.
+fn check_migrations(path: Option<&std::ffi::OsString>) -> std::process::ExitCode {
+    let Some(path) = path else {
+        eprintln!("usage: spade-server --check-migrations <path to a copy of spade.sqlite>");
+        return std::process::ExitCode::from(2);
+    };
+    match Store::check(std::path::Path::new(path)) {
+        Ok(()) => {
+            println!("ok");
+            std::process::ExitCode::SUCCESS
+        }
+        Err(why) => {
+            eprintln!("{why}");
             std::process::ExitCode::FAILURE
         }
     }

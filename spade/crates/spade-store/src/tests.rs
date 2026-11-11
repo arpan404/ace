@@ -128,3 +128,51 @@ fn events_appended_together_are_numbered_in_order_after_the_rest() -> Result<()>
     assert!(store.events("missing", 0)?.is_empty());
     Ok(())
 }
+
+#[test]
+fn a_good_database_passes_the_check_and_a_damaged_or_missing_one_does_not()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    let (dir, path) = temp();
+    {
+        let store = Store::open(&path)?;
+        store.create_conversation("a", 1)?;
+        for n in 0..200 {
+            store.append(
+                "a",
+                &Event::user_message(format!("message {n} {}", "x".repeat(200))),
+                n,
+            )?;
+        }
+    }
+    assert_eq!(Store::check(&path), Ok(()));
+
+    let garbage = dir.path().join("garbage.sqlite");
+    std::fs::write(&garbage, vec![0x5a_u8; 8192])?;
+    let why = Store::check(&garbage).err().unwrap_or_default();
+    assert!(
+        why.contains("not a Spade database") || why.contains("not a database"),
+        "{why}"
+    );
+    assert!(!why.contains('\n'));
+
+    // Cut short, as a copy interrupted part way would be.
+    let bytes = std::fs::read(&path)?;
+    let truncated = dir.path().join("truncated.sqlite");
+    std::fs::write(&truncated, &bytes[..bytes.len() / 2])?;
+    assert!(Store::check(&truncated).is_err());
+
+    let missing = dir.path().join("missing.sqlite");
+    assert!(Store::check(&missing).is_err());
+    assert!(!missing.exists(), "the check never creates a database");
+    Ok(())
+}
+
+#[test]
+fn a_database_from_a_newer_spade_is_refused_by_the_check() -> Result<()> {
+    let (_dir, path) = temp();
+    drop(Store::open(&path)?);
+    rusqlite::Connection::open(&path)?.pragma_update(None, "user_version", 999)?;
+    let why = Store::check(&path).err().unwrap_or_default();
+    assert!(why.contains("newer"), "{why}");
+    Ok(())
+}
