@@ -31,7 +31,11 @@ daemon is away.
 - **Ready.** After binding, Spade writes `<SPADE_DATA_DIR>/token` (mode 0600, rewritten on every
   start) and then `<SPADE_DATA_DIR>/server.json` atomically:
   `{"address":"127.0.0.1:PORT","pid":1234,"version":"0.4.0","api":1}`. `GET /health` answers
-  `{"ok":true,"version":"0.4.0","api":1}` without a token. `api` is Spade's HTTP API version;
+  `{"ok":true,"version":"0.4.0","api":1}` without a token. With `?nonce=<16-64 hex
+characters>` it also answers `proof`: lowercase hex HMAC-SHA256 with the token file's contents
+  as the key and the nonce as the message. Before sending Spade's token or a grant to the address
+  in `server.json`, the daemon and the desktop app check the proof against a fresh nonce; a wrong
+  or missing proof means it isn't Spade, and nothing secret is sent. `api` is Spade's HTTP API version;
   clients accept the current and previous one.
 - **Stop.** SIGTERM: Spade closes admission, lets a running model step finish (up to 5 s for a
   plain stop), records open turns as paused (`turn_paused`), ends its live streams and exits. On
