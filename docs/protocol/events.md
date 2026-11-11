@@ -27,16 +27,17 @@ Example:
   "payload": {
     "task": {
       "agentId": "example",
+      "blocksPrompts": true,
       "childAgentId": "example",
+      "endedAt": 1,
       "id": "example",
       "internal": true,
       "kind": "shell",
       "listening": [],
       "outputPath": "example",
-      "raw": [],
-      "startedAt": 5,
+      "startedAt": 6,
       "status": "failed",
-      "stoppable": true,
+      "stoppable": false,
       "title": "example",
       "toolCallId": "example"
     },
@@ -622,11 +623,12 @@ Example:
     "agentId": "example",
     "id": "example",
     "kind": "shell",
-    "startedAt": 2,
+    "outputPath": "example",
+    "raw": [],
+    "startedAt": 9,
     "status": "failed",
-    "stoppable": false,
-    "title": "example",
-    "toolCallId": "example"
+    "stoppable": true,
+    "title": "example"
   },
   "type": "background_task.started"
 }

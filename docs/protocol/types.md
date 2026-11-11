@@ -4211,6 +4211,7 @@ Example:
 | internal | no | `true` |  |
 | wakesAgent | no | `false` |  |
 | listening | no | array | {"maxItems":16,"items":{"type":"integer","minimum":1,"maximum":65535}} |
+| blocksPrompts | no | `true` |  |
 | outputPath | no | string |  |
 | toolCallId | no | [ItemId.json](schema/ItemId.json) |  |
 | childAgentId | no | [AgentId.json](schema/AgentId.json) |  |
@@ -4224,15 +4225,17 @@ Example:
 ```json
 {
   "agentId": "example",
+  "childAgentId": "example",
+  "endedAt": 3,
   "id": "example",
   "internal": true,
   "kind": "monitor",
+  "outputPath": "example",
   "raw": [],
-  "startedAt": 3,
+  "startedAt": 7,
   "status": "stopped",
   "stoppable": true,
   "title": "example",
-  "toolCallId": "example",
   "wakesAgent": false
 }
 ```
@@ -29903,7 +29906,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
-| settings | yes | object | {"properties":{"storage.retention":{"$ref":"https://ace.local/protocol/v1/StorageRetention.json"},"storage.scheduledCleanup":{"type":"boolean"},"storage.worktreeRetentionDays":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},{"type":"null"}]},"storage.backupWorktrees":{"type":"boolean"},"storage.retentionDays":{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},"logs.maxBytes":{"$ref":"https://ace.local/protocol/v1/LogMaxBytes.json"},"sourceControl.preferences":{"$ref":"https://ace.local/protocol/v1/SourceControlPreferences.json"},"providers.configuration":{"$ref":"https://ace.local/protocol/v1/ProviderConfigurations.json"},"host.displayName":{"type":"string","maxLength":256},"host.icon":{"$ref":"https://ace.local/protocol/v1/MachineIcon.json"},"projects.roots":{"maxItems":32,"type":"array","items":{"type":"string","minLength":1,"maxLength":4096}},"threads.followUpBehavior":{"type":"string","enum":["steer","queue"]},"threads.forkOnSwitch":{"type":"boolean"},"threads.limitPolicy":{"type":"string","enum":["manual","resume_at_reset","snooze_until_reset","migrate_now"]},"providers.default":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"providers.coder.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.coder.model":{"type":"string","minLength":1,"maxLength":256},"providers.coder.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.coder.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.reviewer.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.reviewer.model":{"type":"string","minLength":1,"maxLength":256},"providers.reviewer.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.reviewer.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.planner.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.planner.model":{"type":"string","minLength":1,"maxLength":256},"providers.planner.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.planner.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.verifier.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.verifier.model":{"type":"string","minLength":1,"maxLength":256},"providers.verifier.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.verifier.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"browser.backend":{"type":"string","enum":["auto","embedded","headless"]},"browser.backendLoss":{"type":"string","enum":["pause","headless"]},"browser.profile":{"type":"string","enum":["persistent","ephemeral"]},"browser.profileScope":{"$ref":"https://ace.local/protocol/v1/BrowserProfileScope.json"},"browser.downloadDir":{"type":"string","maxLength":4096},"browser.downloadDefault":{"type":"string","maxLength":4096},"browser.userChrome.storageReads":{"type":"boolean"},"computer.blockedApps":{"maxItems":200,"type":"array","items":{"type":"string","minLength":1,"maxLength":200}},"computer.lockedUse":{"type":"boolean"},"devices.emulatorWindow":{"type":"boolean"},"devices.enabled":{"type":"boolean"},"access.defaultMode":{"$ref":"https://ace.local/protocol/v1/AccessMode.json"},"access.nativeModes":{"type":"object","propertyNames":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/PermissionMode.json"}},"threads.useWorktree":{"type":"boolean"},"worktree.preparationTimeoutMs":{"type":"integer","minimum":60000,"maximum":3600000},"threads.autoSettleAfter":{"type":"string","enum":["1d","2d","1w","never"]},"threads.unresponsiveAfter":{"type":"string","enum":["2m","5m","15m"]},"threads.settleOnMerge":{"type":"boolean"},"threads.settleOnClose":{"type":"boolean"},"threads.sortBy":{"type":"string","enum":["activity","created","manual"]},"threads.keepSettledFor":{"type":"string","enum":["0d","1d","3d","7d"]},"remote.enabled":{"type":"boolean"},"remote.transport":{"type":"string","enum":["local","lan","tailscale","relay"]},"remote.lan":{"type":"boolean"},"remote.tailscale":{"type":"boolean"},"remote.relay":{"type":"boolean"},"remote.agentAccess":{"type":"string","enum":["off","read","operate"]},"remote.agentTransfers":{"type":"boolean"},"remote.transferIgnoredFiles":{"type":"boolean"},"remote.hostedPairingLink":{"type":"boolean"},"remote.relayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1.","examples":["","wss://relay.example.invalid/"]},"notifications.remotePush":{"type":"boolean"},"notifications.pushGatewayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"An HTTPS origin without path, query or credentials. HTTP is allowed only on 127.0.0.1.","examples":["https://push.acehq.dev"]},"automations.enabled":{"type":"boolean"},"agents.maxRunningChildren":{"anyOf":[{"type":"integer","minimum":1,"maximum":64},{"type":"null"}]},"generation.model":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/UtilityModelChoice.json"},{"type":"null"}]},"generation.autoDraftCommits":{"type":"boolean"},"clients.theme":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"},"clients.keybindings":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}} |
+| settings | yes | object | {"properties":{"storage.retention":{"$ref":"https://ace.local/protocol/v1/StorageRetention.json"},"storage.scheduledCleanup":{"type":"boolean"},"storage.worktreeRetentionDays":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},{"type":"null"}]},"storage.backupWorktrees":{"type":"boolean"},"storage.retentionDays":{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},"logs.maxBytes":{"$ref":"https://ace.local/protocol/v1/LogMaxBytes.json"},"sourceControl.preferences":{"$ref":"https://ace.local/protocol/v1/SourceControlPreferences.json"},"providers.configuration":{"$ref":"https://ace.local/protocol/v1/ProviderConfigurations.json"},"host.displayName":{"type":"string","maxLength":256},"host.icon":{"$ref":"https://ace.local/protocol/v1/MachineIcon.json"},"projects.roots":{"maxItems":32,"type":"array","items":{"type":"string","minLength":1,"maxLength":4096}},"threads.followUpBehavior":{"type":"string","enum":["steer","queue"]},"threads.forkOnSwitch":{"type":"boolean"},"threads.limitPolicy":{"type":"string","enum":["manual","resume_at_reset","snooze_until_reset","migrate_now"]},"providers.default":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"providers.coder.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.coder.model":{"type":"string","minLength":1,"maxLength":256},"providers.coder.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.coder.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.reviewer.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.reviewer.model":{"type":"string","minLength":1,"maxLength":256},"providers.reviewer.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.reviewer.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.planner.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.planner.model":{"type":"string","minLength":1,"maxLength":256},"providers.planner.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.planner.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.verifier.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.verifier.model":{"type":"string","minLength":1,"maxLength":256},"providers.verifier.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.verifier.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"browser.backend":{"type":"string","enum":["auto","embedded","headless"]},"browser.backendLoss":{"type":"string","enum":["pause","headless"]},"browser.profile":{"type":"string","enum":["persistent","ephemeral"]},"browser.profileScope":{"$ref":"https://ace.local/protocol/v1/BrowserProfileScope.json"},"browser.downloadDir":{"type":"string","maxLength":4096},"browser.downloadDefault":{"type":"string","maxLength":4096},"browser.userChrome.storageReads":{"type":"boolean"},"computer.blockedApps":{"maxItems":200,"type":"array","items":{"type":"string","minLength":1,"maxLength":200}},"computer.lockedUse":{"type":"boolean"},"spade.enabled":{"type":"boolean"},"devices.emulatorWindow":{"type":"boolean"},"devices.enabled":{"type":"boolean"},"access.defaultMode":{"$ref":"https://ace.local/protocol/v1/AccessMode.json"},"access.nativeModes":{"type":"object","propertyNames":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/PermissionMode.json"}},"threads.useWorktree":{"type":"boolean"},"worktree.preparationTimeoutMs":{"type":"integer","minimum":60000,"maximum":3600000},"threads.autoSettleAfter":{"type":"string","enum":["1d","2d","1w","never"]},"threads.unresponsiveAfter":{"type":"string","enum":["2m","5m","15m"]},"threads.settleOnMerge":{"type":"boolean"},"threads.settleOnClose":{"type":"boolean"},"threads.sortBy":{"type":"string","enum":["activity","created","manual"]},"threads.keepSettledFor":{"type":"string","enum":["0d","1d","3d","7d"]},"remote.enabled":{"type":"boolean"},"remote.transport":{"type":"string","enum":["local","lan","tailscale","relay"]},"remote.lan":{"type":"boolean"},"remote.tailscale":{"type":"boolean"},"remote.relay":{"type":"boolean"},"remote.agentAccess":{"type":"string","enum":["off","read","operate"]},"remote.agentTransfers":{"type":"boolean"},"remote.transferIgnoredFiles":{"type":"boolean"},"remote.hostedPairingLink":{"type":"boolean"},"remote.relayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1.","examples":["","wss://relay.example.invalid/"]},"notifications.remotePush":{"type":"boolean"},"notifications.pushGatewayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"An HTTPS origin without path, query or credentials. HTTP is allowed only on 127.0.0.1.","examples":["https://push.acehq.dev"]},"automations.enabled":{"type":"boolean"},"agents.maxRunningChildren":{"anyOf":[{"type":"integer","minimum":1,"maximum":64},{"type":"null"}]},"generation.model":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/UtilityModelChoice.json"},{"type":"null"}]},"generation.autoDraftCommits":{"type":"boolean"},"clients.theme":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"},"clients.keybindings":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}} |
 
 Example:
 
@@ -29919,12 +29922,12 @@ Example:
     "providers.planner.tier": "priority",
     "providers.verifier.provider": "cursor",
     "providers.verifier.reasoningEffort": "default",
-    "remote.agentAccess": "operate",
-    "remote.enabled": false,
-    "remote.relay": true,
+    "remote.relay": false,
+    "remote.tailscale": true,
     "storage.backupWorktrees": true,
     "threads.forkOnSwitch": true,
-    "threads.settleOnMerge": true
+    "threads.keepSettledFor": "7d",
+    "threads.unresponsiveAfter": "2m"
   },
   "version": 2
 }
@@ -29977,12 +29980,12 @@ Example:
 
 [JSON Schema](schema/SettingsKey.json), input validation.
 
-Type: ["storage.retention","storage.scheduledCleanup","storage.worktreeRetentionDays","storage.backupWorktrees","storage.retentionDays","logs.maxBytes","sourceControl.preferences","providers.configuration","host.displayName","host.icon","projects.roots","threads.followUpBehavior","threads.forkOnSwitch","threads.limitPolicy","providers.default","providers.coder.provider","providers.coder.model","providers.coder.tier","providers.coder.reasoningEffort","providers.reviewer.provider","providers.reviewer.model","providers.reviewer.tier","providers.reviewer.reasoningEffort","providers.planner.provider","providers.planner.model","providers.planner.tier","providers.planner.reasoningEffort","providers.verifier.provider","providers.verifier.model","providers.verifier.tier","providers.verifier.reasoningEffort","browser.backend","browser.backendLoss","browser.profile","browser.profileScope","browser.downloadDir","browser.downloadDefault","browser.userChrome.storageReads","computer.blockedApps","computer.lockedUse","devices.emulatorWindow","devices.enabled","access.defaultMode","access.nativeModes","threads.useWorktree","worktree.preparationTimeoutMs","threads.autoSettleAfter","threads.unresponsiveAfter","threads.settleOnMerge","threads.settleOnClose","threads.sortBy","threads.keepSettledFor","remote.enabled","remote.transport","remote.lan","remote.tailscale","remote.relay","remote.agentAccess","remote.agentTransfers","remote.transferIgnoredFiles","remote.hostedPairingLink","remote.relayUrl","notifications.remotePush","notifications.pushGatewayUrl","automations.enabled","agents.maxRunningChildren","generation.model","generation.autoDraftCommits","clients.theme","clients.keybindings"]. See JSON Schema for constraints.
+Type: ["storage.retention","storage.scheduledCleanup","storage.worktreeRetentionDays","storage.backupWorktrees","storage.retentionDays","logs.maxBytes","sourceControl.preferences","providers.configuration","host.displayName","host.icon","projects.roots","threads.followUpBehavior","threads.forkOnSwitch","threads.limitPolicy","providers.default","providers.coder.provider","providers.coder.model","providers.coder.tier","providers.coder.reasoningEffort","providers.reviewer.provider","providers.reviewer.model","providers.reviewer.tier","providers.reviewer.reasoningEffort","providers.planner.provider","providers.planner.model","providers.planner.tier","providers.planner.reasoningEffort","providers.verifier.provider","providers.verifier.model","providers.verifier.tier","providers.verifier.reasoningEffort","browser.backend","browser.backendLoss","browser.profile","browser.profileScope","browser.downloadDir","browser.downloadDefault","browser.userChrome.storageReads","computer.blockedApps","computer.lockedUse","spade.enabled","devices.emulatorWindow","devices.enabled","access.defaultMode","access.nativeModes","threads.useWorktree","worktree.preparationTimeoutMs","threads.autoSettleAfter","threads.unresponsiveAfter","threads.settleOnMerge","threads.settleOnClose","threads.sortBy","threads.keepSettledFor","remote.enabled","remote.transport","remote.lan","remote.tailscale","remote.relay","remote.agentAccess","remote.agentTransfers","remote.transferIgnoredFiles","remote.hostedPairingLink","remote.relayUrl","notifications.remotePush","notifications.pushGatewayUrl","automations.enabled","agents.maxRunningChildren","generation.model","generation.autoDraftCommits","clients.theme","clients.keybindings"]. See JSON Schema for constraints.
 
 Example:
 
 ```json
-"storage.retentionDays"
+"logs.maxBytes"
 ```
 
 ## SettingsLayer
@@ -30403,6 +30406,7 @@ Example:
 | browser.userChrome.storageReads | yes | boolean |  |
 | computer.blockedApps | yes | array | {"maxItems":200,"items":{"type":"string","minLength":1,"maxLength":200}} |
 | computer.lockedUse | yes | boolean |  |
+| spade.enabled | yes | boolean |  |
 | devices.emulatorWindow | yes | boolean |  |
 | devices.enabled | yes | boolean |  |
 | access.defaultMode | yes | [AccessMode.json](schema/AccessMode.json) |  |
@@ -30438,9 +30442,9 @@ Example:
 
 ```json
 {
-  "access.defaultMode": "auto-review",
+  "access.defaultMode": "ask",
   "access.nativeModes": {},
-  "agents.maxRunningChildren": 7,
+  "agents.maxRunningChildren": null,
   "automations.enabled": true,
   "browser.backend": "embedded",
   "browser.backendLoss": "headless",
@@ -30453,8 +30457,8 @@ Example:
   "clients.theme": [],
   "computer.blockedApps": [],
   "computer.lockedUse": false,
-  "devices.emulatorWindow": false,
-  "devices.enabled": true,
+  "devices.emulatorWindow": true,
+  "devices.enabled": false,
   "generation.autoDraftCommits": true,
   "generation.model": null,
   "host.displayName": "example",
@@ -30463,7 +30467,7 @@ Example:
   },
   "logs.maxBytes": 1048579,
   "notifications.pushGatewayUrl": "https://push.acehq.dev",
-  "notifications.remotePush": false,
+  "notifications.remotePush": true,
   "projects.roots": [],
   "providers.coder.model": "example",
   "providers.coder.provider": "codex",
@@ -30483,16 +30487,16 @@ Example:
   "providers.verifier.provider": "opencode",
   "providers.verifier.reasoningEffort": "max",
   "providers.verifier.tier": "default",
-  "remote.agentAccess": "read",
-  "remote.agentTransfers": false,
-  "remote.enabled": false,
+  "remote.agentAccess": "operate",
+  "remote.agentTransfers": true,
+  "remote.enabled": true,
   "remote.hostedPairingLink": true,
   "remote.lan": false,
   "remote.relay": false,
-  "remote.relayUrl": "",
+  "remote.relayUrl": "wss://relay.example.invalid/",
   "remote.tailscale": false,
   "remote.transferIgnoredFiles": true,
-  "remote.transport": "local",
+  "remote.transport": "tailscale",
   "sourceControl.preferences": {
     "host": "github.com",
     "hosts": [
@@ -30502,6 +30506,7 @@ Example:
     ],
     "remote": "origin"
   },
+  "spade.enabled": false,
   "storage.backupWorktrees": false,
   "storage.retention": {
     "caches": 1,
@@ -30514,14 +30519,14 @@ Example:
   "threads.autoSettleAfter": "1w",
   "threads.followUpBehavior": "steer",
   "threads.forkOnSwitch": true,
-  "threads.keepSettledFor": "1d",
+  "threads.keepSettledFor": "3d",
   "threads.limitPolicy": "resume_at_reset",
   "threads.settleOnClose": false,
   "threads.settleOnMerge": false,
-  "threads.sortBy": "manual",
-  "threads.unresponsiveAfter": "5m",
-  "threads.useWorktree": true,
-  "worktree.preparationTimeoutMs": 60005
+  "threads.sortBy": "created",
+  "threads.unresponsiveAfter": "15m",
+  "threads.useWorktree": false,
+  "worktree.preparationTimeoutMs": 60007
 }
 ```
 
@@ -31823,6 +31828,444 @@ Example:
   "baseRef": "example",
   "branch": "example",
   "kind": "pr"
+}
+```
+
+## SpadeClientMessage
+
+[JSON Schema](schema/SpadeClientMessage.json), input validation.
+
+### spade.status
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.status"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "spade.status"
+}
+```
+
+### spade.http
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.http"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| method | yes | [SpadeMethod.json](schema/SpadeMethod.json) |  |
+| path | yes | string | {"minLength":4,"maxLength":2048} |
+| body | no | string | {"maxLength":524288} |
+
+Example:
+
+```json
+{
+  "method": "PATCH",
+  "path": "example",
+  "requestId": "example",
+  "type": "spade.http"
+}
+```
+
+### spade.live.subscribe
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.live.subscribe"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| path | yes | string | {"minLength":4,"maxLength":2048} |
+
+Example:
+
+```json
+{
+  "path": "example",
+  "requestId": "example",
+  "type": "spade.live.subscribe"
+}
+```
+
+### spade.live.unsubscribe
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.live.unsubscribe"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "spade.live.unsubscribe"
+}
+```
+
+## SpadeErrorCode
+
+[JSON Schema](schema/SpadeErrorCode.json), input validation.
+
+Type: ["forbidden","invalid_path","unavailable","too_large","failed","limit"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"too_large"
+```
+
+## SpadeHttpRequest
+
+[JSON Schema](schema/SpadeHttpRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.http"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| method | yes | [SpadeMethod.json](schema/SpadeMethod.json) |  |
+| path | yes | string | {"minLength":4,"maxLength":2048} |
+| body | no | string | {"maxLength":524288} |
+
+Example:
+
+```json
+{
+  "body": "example",
+  "method": "GET",
+  "path": "example",
+  "requestId": "example",
+  "type": "spade.http"
+}
+```
+
+## SpadeHttpResult
+
+[JSON Schema](schema/SpadeHttpResult.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.http.result"` |  |
+| requestId | yes | string |  |
+| result | yes | union | {"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"response"},"status":{"type":"integer","minimum":100,"maximum":599},"body":{"type":"string","maxLength":1048576}},"required":["kind","status","body"]},{"type":"object","properties":{"kind":{"type":"string","const":"error"},"code":{"$ref":"https://ace.local/protocol/v1/SpadeErrorCode.json"},"message":{"type":"string","maxLength":1024}},"required":["kind","code","message"]}]} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "result": {
+    "code": "failed",
+    "kind": "error",
+    "message": "example"
+  },
+  "type": "spade.http.result"
+}
+```
+
+## SpadeLiveEnded
+
+[JSON Schema](schema/SpadeLiveEnded.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.live.ended"` |  |
+| requestId | yes | string |  |
+| reason | yes | [SpadeLiveEndReason.json](schema/SpadeLiveEndReason.json) |  |
+| status | no | integer | {"minimum":100,"maximum":599} |
+
+Example:
+
+```json
+{
+  "reason": "invalid_path",
+  "requestId": "example",
+  "type": "spade.live.ended"
+}
+```
+
+## SpadeLiveEndReason
+
+[JSON Schema](schema/SpadeLiveEndReason.json), input validation.
+
+Type: ["closed","restarted","unsubscribed","refused","forbidden","invalid_path","unavailable","too_large","limit"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"too_large"
+```
+
+## SpadeLiveFrame
+
+[JSON Schema](schema/SpadeLiveFrame.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.live.frame"` |  |
+| requestId | yes | string |  |
+| event | yes | string | {"maxLength":128} |
+| data | yes | string | {"maxLength":1048576} |
+
+Example:
+
+```json
+{
+  "data": "example",
+  "event": "example",
+  "requestId": "example",
+  "type": "spade.live.frame"
+}
+```
+
+## SpadeLiveSubscribe
+
+[JSON Schema](schema/SpadeLiveSubscribe.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.live.subscribe"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| path | yes | string | {"minLength":4,"maxLength":2048} |
+
+Example:
+
+```json
+{
+  "path": "example",
+  "requestId": "example",
+  "type": "spade.live.subscribe"
+}
+```
+
+## SpadeLiveUnsubscribe
+
+[JSON Schema](schema/SpadeLiveUnsubscribe.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.live.unsubscribe"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "spade.live.unsubscribe"
+}
+```
+
+## SpadeMethod
+
+[JSON Schema](schema/SpadeMethod.json), input validation.
+
+Type: ["GET","POST","PUT","PATCH","DELETE"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"POST"
+```
+
+## SpadeServerMessage
+
+[JSON Schema](schema/SpadeServerMessage.json), input validation.
+
+### spade.status.result
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.status.result"` |  |
+| requestId | yes | string |  |
+| status | yes | [SpadeStatus.json](schema/SpadeStatus.json) |  |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "status": {
+    "state": "off",
+    "version": "example"
+  },
+  "type": "spade.status.result"
+}
+```
+
+### spade.status.changed
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.status.changed"` |  |
+| status | yes | [SpadeStatus.json](schema/SpadeStatus.json) |  |
+
+Example:
+
+```json
+{
+  "status": {
+    "reason": "example",
+    "state": "failed",
+    "version": "example"
+  },
+  "type": "spade.status.changed"
+}
+```
+
+### spade.http.result
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.http.result"` |  |
+| requestId | yes | string |  |
+| result | yes | union | {"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"response"},"status":{"type":"integer","minimum":100,"maximum":599},"body":{"type":"string","maxLength":1048576}},"required":["kind","status","body"]},{"type":"object","properties":{"kind":{"type":"string","const":"error"},"code":{"$ref":"https://ace.local/protocol/v1/SpadeErrorCode.json"},"message":{"type":"string","maxLength":1024}},"required":["kind","code","message"]}]} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "result": {
+    "code": "failed",
+    "kind": "error",
+    "message": "example"
+  },
+  "type": "spade.http.result"
+}
+```
+
+### spade.live.frame
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.live.frame"` |  |
+| requestId | yes | string |  |
+| event | yes | string | {"maxLength":128} |
+| data | yes | string | {"maxLength":1048576} |
+
+Example:
+
+```json
+{
+  "data": "example",
+  "event": "example",
+  "requestId": "example",
+  "type": "spade.live.frame"
+}
+```
+
+### spade.live.ended
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.live.ended"` |  |
+| requestId | yes | string |  |
+| reason | yes | [SpadeLiveEndReason.json](schema/SpadeLiveEndReason.json) |  |
+| status | no | integer | {"minimum":100,"maximum":599} |
+
+Example:
+
+```json
+{
+  "reason": "unsubscribed",
+  "requestId": "example",
+  "type": "spade.live.ended"
+}
+```
+
+## SpadeState
+
+[JSON Schema](schema/SpadeState.json), input validation.
+
+Type: ["off","starting","ready","failed"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"starting"
+```
+
+## SpadeStatus
+
+[JSON Schema](schema/SpadeStatus.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| state | yes | [SpadeState.json](schema/SpadeState.json) |  |
+| version | no | string | {"maxLength":64} |
+| reason | no | string | {"maxLength":1024} |
+
+Example:
+
+```json
+{
+  "state": "failed",
+  "version": "example"
+}
+```
+
+## SpadeStatusChanged
+
+[JSON Schema](schema/SpadeStatusChanged.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.status.changed"` |  |
+| status | yes | [SpadeStatus.json](schema/SpadeStatus.json) |  |
+
+Example:
+
+```json
+{
+  "status": {
+    "state": "ready",
+    "version": "example"
+  },
+  "type": "spade.status.changed"
+}
+```
+
+## SpadeStatusRequest
+
+[JSON Schema](schema/SpadeStatusRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.status"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "spade.status"
+}
+```
+
+## SpadeStatusResult
+
+[JSON Schema](schema/SpadeStatusResult.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.status.result"` |  |
+| requestId | yes | string |  |
+| status | yes | [SpadeStatus.json](schema/SpadeStatus.json) |  |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "status": {
+    "state": "off"
+  },
+  "type": "spade.status.result"
 }
 ```
 

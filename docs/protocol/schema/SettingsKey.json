@@ -42,6 +42,7 @@
     "browser.userChrome.storageReads",
     "computer.blockedApps",
     "computer.lockedUse",
+    "spade.enabled",
     "devices.emulatorWindow",
     "devices.enabled",
     "access.defaultMode",

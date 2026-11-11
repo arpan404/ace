@@ -1,0 +1,21 @@
+{
+  "$id": "https://ace.local/protocol/v1/SpadeStatus.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "reason": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "state": {
+      "$ref": "https://ace.local/protocol/v1/SpadeState.json"
+    },
+    "version": {
+      "maxLength": 64,
+      "type": "string"
+    }
+  },
+  "required": [
+    "state"
+  ],
+  "type": "object"
+}

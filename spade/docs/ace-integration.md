@@ -19,7 +19,12 @@ the same way they reach the daemon.
   | `SPADE_ACE_URL`, `SPADE_ACE_TOKEN`         | the daemon's loopback WebSocket and the local token, for protocol requests such as `skills.request` |
   | `RUST_LOG`                                 | `info`                                                                                              |
 
-  stdout and stderr go to the daemon's log, tagged `spade`.
+  stdout and stderr go to the daemon's log, tagged `spade`. Spade inherits the rest of the
+  daemon's environment, including the person's own `SPADE_*` settings, except `ACE_*`.
+  `SPADE_ACE_MCP_URL` is `http://127.0.0.1:PORT/mcp` (MCP Streamable HTTP, the bearer in
+  `Authorization`). `SPADE_ACE_URL` is `ws://127.0.0.1:PORT`: send
+  `{"type":"hello","protocolVersion":1,"deviceId":"spade","token":"<SPADE_ACE_TOKEN>"}` and wait
+  for `welcome` before any request.
 
 - **Model catalogue.** If `<SPADE_DATA_DIR>/models.json` does not exist, Spade writes its built-in
   default there on first start; `SPADE_MODEL_CATALOG` still overrides the path.
@@ -27,26 +32,31 @@ the same way they reach the daemon.
 - **Ready.** After binding, Spade writes `<SPADE_DATA_DIR>/token` (mode 0600) and then
   `<SPADE_DATA_DIR>/server.json` atomically: `{"address":"127.0.0.1:PORT","pid":1234,"version":"0.1.0"}`.
   The daemon waits for a `server.json` whose `pid` is its child, then `GET /health`.
-- **Stop.** SIGTERM; Spade finishes open requests and exits within 5 seconds, or the daemon kills
-  it. The daemon restarts a crashed Spade with backoff (1 s, doubling, at most 60 s) and reports
+- **Stop.** SIGTERM; Spade finishes open requests, ends its live streams and exits within 5
+  seconds, or the daemon kills it. The daemon restarts a crashed Spade with backoff (1 s, doubling, at most 60 s) and reports
   each failure.
 
 ## Clients reach Spade through the daemon
 
 New request family in `@ace/protocol`, served by the daemon:
 
-- `spade.status` → `{state: "off" | "starting" | "ready" | "failed", version?, reason?}`, with
-  `spade.status.changed` pushed on every change.
-- `spade.http` `{requestId, method, path, body?}` → `{status, body}`. The daemon forwards it to
-  Spade's HTTP API with Spade's token. `path` must start with `/v1/`; `GET` needs the device read
-  scope, every other method needs operate.
+- `spade.status` → `spade.status.result` `{status: {state: "off" | "starting" | "ready" |
+"failed", version?, reason?}}`; afterwards that socket gets `spade.status.changed` on every
+  change.
+- `spade.http` `{requestId, method, path, body?}` → `spade.http.result` with `result`
+  `{kind: "response", status, body}` or `{kind: "error", code, message}` (`forbidden`,
+  `invalid_path`, `unavailable`, `too_large`, `failed`). The daemon forwards it to Spade's HTTP
+  API with Spade's token. `path` must start with `/v1/`; `GET` needs the device read scope, every
+  other method needs operate. Bodies are text both ways.
 - `spade.live.subscribe` `{requestId, path}` (a `/v1/.../live?after=N` path) → `spade.live.frame`
   `{requestId, event, data}` for each server-sent event, and `spade.live.ended`
-  `{requestId, reason}` when the stream closes (Spade restarted, unsubscribed, disconnected). The
-  client resubscribes with its last `seq`. `spade.live.unsubscribe` `{requestId}` ends it.
+  `{requestId, reason, status?}` when the stream closes (`restarted`, `closed`, `unsubscribed`,
+  `refused` with Spade's status, or a refusal such as `forbidden` or `unavailable`). The client
+  resubscribes with its last `seq`. `spade.live.unsubscribe` `{requestId}` ends it.
 
 The daemon passes bodies through without interpreting them; Spade owns their schemas (see
-[chat-core.md](chat-core.md)). Sizes are capped like other protocol frames.
+[chat-core.md](chat-core.md)). Request bodies are capped at 512 KiB; response bodies and each live
+event at 1 MiB. ADR 0117 records the daemon side.
 
 ## Spade uses ace's tools through the daemon
 
