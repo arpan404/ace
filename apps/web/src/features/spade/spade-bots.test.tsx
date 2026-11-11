@@ -93,10 +93,14 @@ test("with no endpoint key, Spade's conversation asks for one and saves it to Sp
     api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
   });
   const setup = within(await screen.findByRole("region", { name: "Model key" }));
-  expect(setup.getByText("Spade needs a key for one of your model endpoints to answer.")).toBeTruthy();
+  expect(
+    setup.getByText("Spade needs a key for one of your model endpoints to answer."),
+  ).toBeTruthy();
   await userEvent.type(setup.getByLabelText("Key"), "sk-test");
   await userEvent.click(setup.getByRole("button", { name: "Save key" }));
-  await waitFor(() => expect(spade.sent("PUT", "/v1/keys/openrouter")).toEqual([{ key: "sk-test" }]));
+  await waitFor(() =>
+    expect(spade.sent("PUT", "/v1/keys/openrouter")).toEqual([{ key: "sk-test" }]),
+  );
   await waitFor(() => expect(screen.queryByRole("region", { name: "Model key" })).toBeNull());
 });
 

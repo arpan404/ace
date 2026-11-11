@@ -55,9 +55,13 @@ function Scroller(props: { children: ReactNode }) {
         const element = event.currentTarget;
         atEnd.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48;
       }}
-      className="flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-gutter:stable_both-edges]"
+      className="col-start-1 row-start-1 flex min-h-0 flex-col overflow-y-auto [scrollbar-gutter:stable_both-edges]"
     >
-      <div ref={content} className={`${readingColumn} mt-auto w-full pt-6 pb-4`}>
+      {/* Room under the last line for the composer floating over the conversation. */}
+      <div
+        ref={content}
+        className={`${readingColumn} mt-auto w-full pt-6 pb-[calc(var(--composer-clearance,0px)+1rem)]`}
+      >
         {props.children}
       </div>
     </div>
@@ -217,7 +221,7 @@ function Conversation(props: { bot: RosterBot; roster: readonly RosterBot[] }) {
   );
   return (
     <BotScreen bot={bot}>
-      <div className="flex h-full min-h-0 flex-col">
+      <div data-thread-column="" className="grid h-full min-h-0 grid-cols-1 grid-rows-1">
         <Scroller>
           {bot.kind === "main" && <SpadeKeySetup />}
           {problem ? (

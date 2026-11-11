@@ -140,13 +140,19 @@ export class FakeSpadeApi implements FakeSpadeServer {
   open(path: string): { event: string; data: string }[] {
     const match = /^\/v1\/conversations\/([^/]+)\/live\?after=(\d+)/.exec(path);
     if (!match) return [];
-    const list = this.events.get(decodeURIComponent(match[1] ?? "")) ?? [];
+    const conversation = decodeURIComponent(match[1] ?? "");
+    const list = this.events.get(conversation) ?? [];
     const after = Number(match[2]);
+    const agent = this.agents.find((candidate) => candidate.conversation === conversation);
     return [
       ...list
         .filter((stored) => stored.seq > after)
         .map((stored) => ({ event: "stored", data: JSON.stringify(stored) })),
       { event: "caught_up", data: JSON.stringify({ seq: list.length }) },
+      // As Spade does: the agent's state once after the backlog, then on every change.
+      ...(agent
+        ? [{ event: "status", data: JSON.stringify({ state: agent.state, status: agent.status }) }]
+        : []),
     ];
   }
 

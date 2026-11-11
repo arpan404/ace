@@ -18,7 +18,13 @@ test("Spade lists first, then bots by latest activity, each with what it does no
       last_activity: now() - 60_000,
       last_message: { from: "person", text: "Water the tomatoes at 6", at: 0, from_agent: null },
     });
-    spade.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" }, last_activity: 0 });
+    spade.addAgent({
+      id: "main",
+      kind: "main",
+      name: "Spade",
+      avatar: { kind: "spade" },
+      last_activity: 0,
+    });
     const inbox = spade.addAgent({ id: "inbox", name: "Inbox", last_activity: now() });
     spade.status(inbox, "waiting", "Waiting for you");
   });
@@ -45,14 +51,34 @@ test("opening a bot shows its conversation as bubbles from both sides, and none 
       text: "Let me check.",
       calls: [{ id: "k1", name: "web_search" }],
     });
-    spade.store(garden.conversation, { type: "tool_started", reply: "r1", call_id: "k1", name: "web_search" });
-    spade.store(garden.conversation, { type: "tool_finished", reply: "r1", call_id: "k1", name: "web_search" });
-    spade.store(garden.conversation, { type: "step_finished", reply: "r1", text: "In **October**." });
-    spade.store(garden.conversation, { type: "reply_finished", reply: "r1", text: "In **October**." });
+    spade.store(garden.conversation, {
+      type: "tool_started",
+      reply: "r1",
+      call_id: "k1",
+      name: "web_search",
+    });
+    spade.store(garden.conversation, {
+      type: "tool_finished",
+      reply: "r1",
+      call_id: "k1",
+      name: "web_search",
+    });
+    spade.store(garden.conversation, {
+      type: "step_finished",
+      reply: "r1",
+      text: "In **October**.",
+    });
+    spade.store(garden.conversation, {
+      type: "reply_finished",
+      reply: "r1",
+      text: "In **October**.",
+    });
   });
   await userEvent.click(await botRow("Garden"));
   const chat = within(await feed("Garden"));
-  expect((await chat.findByRole("article", { name: "You" })).textContent).toBe("When do I plant garlic?");
+  expect((await chat.findByRole("article", { name: "You" })).textContent).toBe(
+    "When do I plant garlic?",
+  );
   // One reply is one bubble: its words, without the search it ran between them.
   const replies = chat.getAllByRole("article", { name: "Garden" });
   expect(replies).toHaveLength(1);
@@ -105,7 +131,12 @@ test("editing a bot sends only what changed and says task and model apply from i
   const { spade } = await spadeApp("/spade/garden", (api) => {
     withEndpoint(api);
     api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
-    api.addAgent({ id: "garden", name: "Garden", task: "Keep the garden alive", model: "openrouter/meta/llama" });
+    api.addAgent({
+      id: "garden",
+      name: "Garden",
+      task: "Keep the garden alive",
+      model: "openrouter/meta/llama",
+    });
   });
   await feed("Garden");
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
@@ -135,7 +166,9 @@ test("deleting a bot asks first, then removes it and its conversation", async ()
   expect(spade.sent("DELETE", "/v1/agents/garden")).toEqual([]);
   await userEvent.click(confirm.getByRole("button", { name: "Delete bot" }));
   await waitFor(() => expect(spade.agents.map((agent) => agent.id)).toEqual(["main"]));
-  await waitFor(async () => expect((await roster()).queryByRole("link", { name: /^Garden/ })).toBeNull());
+  await waitFor(async () =>
+    expect((await roster()).queryByRole("link", { name: /^Garden/ })).toBeNull(),
+  );
 });
 
 test("Spade itself can be edited but never deleted", async () => {
