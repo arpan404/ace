@@ -6,6 +6,7 @@ import { useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useDaemonSetting } from "./daemon-setting.ts";
 import { catalogKey } from "./model-catalog.ts";
+import { refreshProviders } from "./provider-readiness.ts";
 
 export function useProviderConfiguration(provider: ProviderKind) {
   const client = useClient();
@@ -20,6 +21,8 @@ export function useProviderConfiguration(provider: ProviderKind) {
       await editProviderConfiguration(client, (current) =>
         changeProvider(current, provider, change),
       );
+      // Turning a provider on or off changes what it can do, not just which models it lists.
+      refreshProviders(query);
       await query.invalidateQueries({ queryKey: catalogKey });
       return true;
     } catch {

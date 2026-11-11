@@ -25,6 +25,12 @@ export function providerReadiness(row: ProviderStatus): ProviderStatus {
   // Older than ace's minimum: sessions are refused until it is updated, whatever its sign-in.
   if (row.enabled !== false && row.installed === true && row.versionCheck?.status === "too_old")
     readiness = "needs_update";
+  // Turned off in Settings: ace never probed it, so install guidance would be a guess, and
+  // sign-in is refused until it is turned back on.
+  if (row.enabled === false) {
+    const { installHint: _hint, installCommand: _command, actionId: _action, ...rest } = row;
+    return { ...rest, readiness, loginHint: "Turned off in ace. Turn it on in Settings." };
+  }
   return {
     ...row,
     readiness,
