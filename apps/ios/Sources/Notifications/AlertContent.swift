@@ -33,6 +33,8 @@ struct AlertContent: Equatable, Sendable {
     var banner = true
     /// The thread's own title, for the finished summary.
     private(set) var threadTitle = ""
+    /// Set for an outside app's sign-in waiting for approval: a tap opens its sheet, not a thread.
+    private(set) var access: AccessAlert? = nil
 
     /// The system request identifier for a daemon alert. Alert ids are unique only within their
     /// daemon, so the machine is part of it: the same id from two machines is two notifications.
@@ -49,6 +51,17 @@ struct AlertContent: Equatable, Sendable {
     static func notice(id: String, threadId: String, title: String, body: String, hostId: String? = nil) -> AlertContent {
         var content = AlertContent(identifier: id, title: title, body: body, threadId: threadId)
         content.hostId = hostId
+        return content
+    }
+    /// An outside app's sign-in waiting for the person, from the machine that has it. It
+    /// interrupts like a question does: the request lives ten minutes.
+    static func access(_ alert: AccessAlert, hostId: String, machine: String?) -> AlertContent {
+        let words = alert.words(machine: machine)
+        var content = AlertContent(identifier: AccessAlert.identifier(alert.requestId, hostId: hostId), title: words.title,
+                                   body: words.body, threadId: "", group: "access:\(hostId)")
+        content.hostId = hostId
+        content.access = alert
+        content.level = .timeSensitive
         return content
     }
     /// Several threads that finished close together, as one quiet notification: "3 threads

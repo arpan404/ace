@@ -384,6 +384,8 @@ export class OutsideWatch {
         line: outsideScreenLine([use.name], mac) ?? "",
       })),
       opened,
+      /** Said over a live connection; false after it drops, when nothing is known. */
+      live: this.#heard,
     }));
   }
 }
