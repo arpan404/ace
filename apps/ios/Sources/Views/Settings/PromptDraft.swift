@@ -19,3 +19,14 @@ struct PromptDraft {
         reloadAvailable = false
     }
 }
+
+/// The prompt operation that failed, so Retry repeats exactly that one.
+enum PromptFailure: Equatable {
+    case read, reload, save
+    /// The machine's copy changed under this draft. Sending the old revision again can never land,
+    /// so the editor offers Reload from machine instead of Retry.
+    case conflict
+
+    /// What Retry sends again, or nil when only a reload can recover.
+    var retry: PromptFailure? { self == .conflict ? nil : self }
+}

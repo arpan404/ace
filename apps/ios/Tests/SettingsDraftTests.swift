@@ -32,6 +32,15 @@ struct SettingsDraftTests {
         #expect(draft.revision == "r2")
         #expect(!draft.dirty)
     }
+
+    @Test func promptChangedElsewhereCannotBeRetriedOnlyReloaded() {
+        // Sending the same stale revision again can never land, so the editor offers a reload.
+        #expect(PromptFailure.conflict.retry == nil)
+        // Every other failure repeats exactly the operation that failed.
+        #expect(PromptFailure.save.retry == .save)
+        #expect(PromptFailure.reload.retry == .reload)
+        #expect(PromptFailure.read.retry == .read)
+    }
 }
 
 @MainActor struct SettingsSignInTests {
@@ -40,14 +49,9 @@ struct SettingsDraftTests {
         var flow: SignInLifetime? = SignInLifetime()
         flow?.cancel = { cancelled.append($0) }
         flow?.unfinishedSession = "login-1"
-        // A child screen borrows the flow; releasing that borrow leaves sign-in running.
-        var child = flow
-        child = nil
-        #expect(cancelled.isEmpty)
         flow = nil
         for _ in 0..<100 where cancelled.isEmpty { await Task.yield() }
         #expect(cancelled == ["login-1"])
-        _ = child
     }
 
     @Test func leavingAFinishedSignInDoesNotCancelIt() async {

@@ -19,6 +19,7 @@ private struct PromptsReply: Decodable {
         let text: String?
         let revision: String?
         let message: String?
+        let code: String?
         let file: PromptFileRow?
     }
     let result: Result
@@ -114,6 +115,8 @@ private struct PromptEditor: View {
     @State private var loaded = false
     @State private var busy = false
     @State private var problem: String?
+    /// The operation that last failed, so Retry repeats it instead of guessing from `loaded`.
+    @State private var failure: PromptFailure?
     @State private var saved = false
     var body: some View {
         Form {
@@ -123,8 +126,14 @@ private struct PromptEditor: View {
                     .accessibilityLabel("Prompt instructions")
                     .disabled(file != nil && !loaded)
                 ServiceProblem(message: problem)
-                if problem != nil { Button("Retry") { Task { if loaded { await save() } else { await read() } } }.buttonStyle(.textAction()).disabled(busy) }
-                if draft.reloadAvailable {
+                if let failure {
+                    if let retried = failure.retry {
+                        Button("Retry") { Task { await retry(retried) } }.buttonStyle(.textAction()).disabled(busy)
+                    } else {
+                        Button("Reload from machine") { Task { await reload() } }.buttonStyle(.textAction()).disabled(busy)
+                    }
+                }
+                if draft.reloadAvailable && failure != .conflict {
                     Text("The machine reconnected. Your unsaved edits are kept.").foregroundStyle(AceDesign.Ink.muted)
                     Button("Reload from machine") { Task { await reload() } }.buttonStyle(.textAction()).disabled(busy)
                 }
@@ -147,8 +156,10 @@ private struct PromptEditor: View {
         name = file.name
         do {
             let snapshot = try await readFile()
-            draft.receive(text: snapshot.text, revision: snapshot.revision); loaded = true; problem = nil
-        } catch { if !Task.isCancelled { problem = error.localizedDescription } }
+            draft.receive(text: snapshot.text, revision: snapshot.revision); loaded = true
+            // A failed save keeps its place: the person still has edits to send.
+            if failure != .save && failure != .conflict { failure = nil; problem = nil }
+        } catch { if !Task.isCancelled { failed(.read, error) } }
     }
     private func readFile() async throws -> (text: String, revision: String) {
         let reply = try await model.service(["type": "prompts.request", "operation": ["op": "read", "scope": scope, "name": file?.name ?? name]], as: PromptsReply.self)
@@ -164,8 +175,18 @@ private struct PromptEditor: View {
             let snapshot = try await readFile()
             draft = PromptDraft()
             draft.receive(text: snapshot.text, revision: snapshot.revision)
-            loaded = true; saved = false; problem = nil
-        } catch { if !Task.isCancelled { problem = error.localizedDescription } }
+            loaded = true; saved = false; problem = nil; failure = nil
+        } catch { if !Task.isCancelled { failed(.reload, error) } }
+    }
+    private func retry(_ operation: PromptFailure) async {
+        switch operation {
+        case .read: await read()
+        case .reload, .conflict: await reload()
+        case .save: await save()
+        }
+    }
+    private func failed(_ operation: PromptFailure, _ error: any Error) {
+        failure = operation; problem = error.localizedDescription
     }
     private func save() async {
         busy = true; saved = false
@@ -174,11 +195,20 @@ private struct PromptEditor: View {
             let written = draft.text
             let expected: Any = draft.revision.map { $0 as Any } ?? NSNull()
             let reply = try await model.service(["type": "prompts.request", "operation": ["op": "write", "scope": scope, "name": name, "text": written, "expectedRevision": expected]], as: PromptsReply.self)
-            guard reply.result.kind == "file" else { throw ServiceFailure(message: reply.result.message ?? "Couldn't save prompt") }
+            guard reply.result.kind == "file" else {
+                // The machine's copy changed under this draft, so this revision can never land.
+                failure = reply.result.code == "conflict" ? .conflict : .save
+                problem = reply.result.message ?? "Couldn't save prompt"
+                return
+            }
             draft.saved(text: written, revision: reply.result.revision)
             let diagnostics = reply.result.file?.diagnostics ?? []
             saved = diagnostics.isEmpty && !draft.dirty
+            failure = nil
             problem = diagnostics.isEmpty ? nil : diagnostics.map(\.message).joined(separator: "\n")
-        } catch { problem = error.localizedDescription }
+        } catch {
+            failure = .save
+            problem = error.localizedDescription
+        }
     }
 }
