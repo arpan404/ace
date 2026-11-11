@@ -242,7 +242,9 @@ struct NewThreadSheet: View {
         HStack(spacing: AceDesign.Space.related) {
             text.lineLimit(1)
             Spacer(minLength: AceDesign.Space.related)
-            Button("Unlink", action: unlink).accessibilityIdentifier(id == "newThread.issue" ? "newThread.unlinkIssue" : "newThread.unlinkPull")
+            Button("Unlink", action: unlink)
+                .buttonStyle(.textAction())
+                .accessibilityIdentifier(id == "newThread.issue" ? "newThread.unlinkIssue" : "newThread.unlinkPull")
         }
         .accessibilityIdentifier(id)
     }
