@@ -134,11 +134,11 @@ test("editing a pasted file renames its marker with it", async () => {
   const chips = await uploaded();
   expect(within(message).getByLabelText("Pasted 60 lines.txt")).toBeTruthy();
   await user.click(within(chips).getByRole("button", { name: "Preview Pasted 60 lines.txt" }));
-  const dialog = await screen.findByRole("dialog", { name: "Pasted 60 lines.txt" });
-  const contents = await within(dialog).findByRole("textbox", { name: "File contents" });
+  // It opens beside the thread, and what is typed there is kept once typing pauses.
+  const panel = await screen.findByRole("region", { name: "Pasted 60 lines.txt" });
+  const contents = await within(panel).findByRole("textbox", { name: "File contents" });
   await user.clear(contents);
   await user.type(contents, "one{Enter}two");
-  await user.click(within(dialog).getByRole("button", { name: "Save" }));
   await waitFor(() => expect(within(message).getByLabelText("Pasted 2 lines.txt")).toBeTruthy());
   expect(within(message).queryByLabelText("Pasted 60 lines.txt")).toBeNull();
 });
@@ -198,11 +198,11 @@ test("undo after editing a pasted file keeps the marker, named for the edited co
   const chips = await uploaded();
   pasteText(message, " and more");
   await user.click(within(chips).getByRole("button", { name: "Preview Pasted 60 lines.txt" }));
-  const dialog = await screen.findByRole("dialog", { name: "Pasted 60 lines.txt" });
-  const contents = await within(dialog).findByRole("textbox", { name: "File contents" });
+  // It opens beside the thread, and what is typed there is kept once typing pauses.
+  const panel = await screen.findByRole("region", { name: "Pasted 60 lines.txt" });
+  const contents = await within(panel).findByRole("textbox", { name: "File contents" });
   await user.clear(contents);
   await user.type(contents, "one{Enter}two");
-  await user.click(within(dialog).getByRole("button", { name: "Save" }));
   await waitFor(() => expect(within(message).getByLabelText("Pasted 2 lines.txt")).toBeTruthy());
   fireEvent.keyDown(message, { key: "z", metaKey: true });
   await waitFor(() => expect(message.textContent).not.toContain("and more"));
