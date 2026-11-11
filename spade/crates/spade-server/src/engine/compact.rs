@@ -86,7 +86,7 @@ async fn run(
     prompt.messages.push(Message::Person {
         text: compaction::request(focus),
     });
-    let carried = compaction::carried_out(events, plan.keep_from, engine.tools.registry());
+    let carried = compaction::carried_out(events, plan.keep_from, &engine.tools.registry());
     let written = match engine.models.chat(model, &prompt).await {
         Ok(reply) => {
             let cost = spending::cost_micros(engine.models.price(model), &reply.usage);

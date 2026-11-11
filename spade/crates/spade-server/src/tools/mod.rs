@@ -1,7 +1,9 @@
 //! The tools Spade can run. Each is a [`Tool`]: a definition for the registry and an async run.
 //! `tool_search` and `call_tool` are not here; the engine answers them from the registry.
 
+mod skills;
 mod todo;
+mod web_fetch;
 mod web_search;
 
 use std::collections::BTreeMap;
@@ -12,7 +14,9 @@ use std::sync::Arc;
 use serde_json::Value;
 use spade_core::tools::{Registry, ToolDef};
 
+pub use skills::{AceLibrary, LibraryFuture, SkillLibrary, SkillLoad, SkillSearch};
 pub use todo::Todo;
+pub use web_fetch::WebFetch;
 pub use web_search::WebSearch;
 
 pub type ToolFuture = Pin<Box<dyn Future<Output = ToolOutput> + Send>>;
@@ -46,32 +50,63 @@ pub trait Tool: Send + Sync {
     fn run(&self, call_id: &str, arguments: Value) -> ToolFuture;
 }
 
-/// Every tool by name, and the registry built from their definitions.
+/// Tools whose list changes while Spade runs, such as ace's. Every one is offered deferred, so
+/// the tool list sent to the model stays the same as they come and go.
+pub trait ToolSource: Send + Sync {
+    /// The source's tools now.
+    fn tools(&self) -> Vec<Arc<dyn Tool>>;
+}
+
+/// Spade's own tools by name, plus tools from live sources; a source's tool never replaces one
+/// of Spade's own.
 #[derive(Clone)]
 pub struct Toolbox {
-    tools: BTreeMap<String, Arc<dyn Tool>>,
-    registry: Registry,
+    core: BTreeMap<String, Arc<dyn Tool>>,
+    sources: Vec<Arc<dyn ToolSource>>,
 }
 
 impl Toolbox {
     pub fn new(tools: Vec<Arc<dyn Tool>>) -> Self {
-        let defs: Vec<ToolDef> = tools.iter().map(|tool| tool.def()).collect();
         Self {
-            tools: tools
+            core: tools
                 .into_iter()
-                .zip(defs.iter())
-                .map(|(tool, def)| (def.spec.name.clone(), tool))
+                .map(|tool| (tool.def().spec.name, tool))
                 .collect(),
-            registry: Registry::new(defs),
+            sources: Vec::new(),
         }
     }
 
-    pub fn registry(&self) -> &Registry {
-        &self.registry
+    pub fn with_source(mut self, source: Arc<dyn ToolSource>) -> Self {
+        self.sources.push(source);
+        self
+    }
+
+    /// Every tool's definition now.
+    pub fn registry(&self) -> Registry {
+        let mut defs: BTreeMap<String, ToolDef> = BTreeMap::new();
+        for tool in self.sources.iter().flat_map(|source| source.tools()) {
+            let mut def = tool.def();
+            def.deferred = true;
+            defs.insert(def.spec.name.clone(), def);
+        }
+        for tool in self.core.values() {
+            let def = tool.def();
+            defs.insert(def.spec.name.clone(), def);
+        }
+        if self.sources.is_empty() {
+            Registry::new(defs.into_values())
+        } else {
+            Registry::with_search(defs.into_values())
+        }
     }
 
     pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
-        self.tools.get(name).cloned()
+        self.core.get(name).cloned().or_else(|| {
+            self.sources
+                .iter()
+                .flat_map(|source| source.tools())
+                .find(|tool| tool.def().spec.name == name)
+        })
     }
 }
 

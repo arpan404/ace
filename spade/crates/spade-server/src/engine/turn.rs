@@ -280,7 +280,7 @@ async fn handle_calls(
 ) -> Handled {
     let registry = engine.tools.registry();
     let transcript = Transcript::fold(events);
-    let untrusted = context::untrusted_turn(events, registry);
+    let untrusted = context::untrusted_turn(events, &registry);
     let mut runnable: Vec<(Call, String, Value)> = Vec::new();
     let mut waiting = false;
     for pending in calls {
@@ -422,7 +422,8 @@ async fn run_tools(
 async fn run_one(engine: &Arc<Engine>, call_id: &str, name: &str, arguments: Value) -> ToolOutput {
     if name == TOOL_SEARCH {
         let query = arguments.get("query").and_then(Value::as_str).unwrap_or("");
-        let found = engine.tools.registry().search(query, 5);
+        let registry = engine.tools.registry();
+        let found = registry.search(query, 5);
         return ToolOutput::ok(describe(&found));
     }
     let Some(tool) = engine.tools.get(name) else {

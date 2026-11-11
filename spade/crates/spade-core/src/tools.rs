@@ -39,6 +39,9 @@ pub const CALL_TOOL: &str = "call_tool";
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Registry {
     tools: BTreeMap<String, ToolDef>,
+    /// Offer `tool_search` and `call_tool` even with no deferred tool yet, because some will
+    /// arrive later (ace's tools); the offered list must not change when they do.
+    always_search: bool,
 }
 
 impl Registry {
@@ -48,6 +51,16 @@ impl Registry {
                 .into_iter()
                 .map(|tool| (tool.spec.name.clone(), tool))
                 .collect(),
+            always_search: false,
+        }
+    }
+
+    /// A registry that always offers `tool_search` and `call_tool`, for when deferred tools come
+    /// and go while Spade runs.
+    pub fn with_search(tools: impl IntoIterator<Item = ToolDef>) -> Self {
+        Self {
+            always_search: true,
+            ..Self::new(tools)
         }
     }
 
@@ -64,7 +77,7 @@ impl Registry {
             .filter(|tool| !tool.deferred)
             .map(|tool| tool.spec.clone())
             .collect();
-        if self.tools.values().any(|tool| tool.deferred) {
+        if self.always_search || self.tools.values().any(|tool| tool.deferred) {
             specs.push(tool_search_spec());
             specs.push(call_tool_spec());
         }
