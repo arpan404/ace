@@ -1,17 +1,16 @@
 import { can } from "@ace/ui-core";
 import { useLayoutEffect, useRef, useState } from "react";
-import { PencilSimpleIcon } from "@phosphor-icons/react";
-import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { PrMarkdown } from "./pr-markdown.tsx";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
-import { PrSection } from "./pr-section.tsx";
+import { PrAvatar, PrTime } from "./pr-presentation.tsx";
+import { PrBoxHead, prBox } from "./pr-box.tsx";
 import { PrReactionPicker, PrReactions } from "./pr-reactions.tsx";
 
 /**
- * The PR's description as markdown, clamped to four whole lines with Show more when it runs
- * longer. The clamp counts rendered lines, so it never leaves half a line showing.
+ * The PR's description as the first comment: a box headed by who opened it and when, with a
+ * reaction and Edit, and the markdown under it, capped with Show more when it runs long.
  */
 export function PrDescription(props: {
   context: PrWorkspaceContext;
@@ -40,58 +39,71 @@ export function PrDescription(props: {
     : props.extensions?.editDescription
       ? () => props.extensions?.editDescription?.(props.context)
       : props.onEdit;
+  const { detail } = props.context;
+  const at = detail.createdAt ?? detail.updatedAt;
   return (
-    <PrSection
-      title="Description"
-      fixed
-      action={
-        <>
-          <PrReactionPicker subject={{ kind: "pr" }} />
-          {edit && (
-            <IconButton
-              icon={PencilSimpleIcon}
-              label="Edit description"
-              size="sm"
-              disabled={props.context.disabled}
-              onClick={edit}
-            />
-          )}
-        </>
-      }
-    >
-      {body.trim() ? (
-        <div>
-          <div
-            ref={box}
-            className={cn(
-              !expanded &&
-                // Images and other blocks escape a line clamp: the height cap keeps them a preview.
-                "line-clamp-4 max-h-48 overflow-hidden [&_*]:my-0 [&_h1,&_h2,&_h3,&_h4]:text-ui [&_h1,&_h2,&_h3,&_h4]:font-medium",
+    <section aria-label="Description" className={prBox}>
+      <PrBoxHead
+        actions={
+          <>
+            <PrReactionPicker subject={{ kind: "pr" }} />
+            {edit && (
+              <Button variant="ghost" size="xs" disabled={props.context.disabled} onClick={edit}>
+                Edit
+              </Button>
             )}
-          >
-            <PrMarkdown
-              context={props.context}
-              extensions={props.extensions}
-              onOpen={props.onOpen}
-              tasks={props.onTasks}
-              text={body}
-            />
-          </div>
-          {(overflows || expanded) && (
-            <Button
-              variant="ghost"
-              size="xs"
-              className="-ml-1.5 mt-1"
-              onClick={() => setExpanded(!expanded)}
+          </>
+        }
+      >
+        <PrAvatar name={detail.author} url={detail.authorAvatarUrl} />
+        <span className="truncate font-semibold text-foreground">{detail.author}</span>
+        {at && (
+          <span className="shrink-0">
+            <PrTime at={at} prefix={detail.createdAt ? "opened " : "updated "} />
+          </span>
+        )}
+      </PrBoxHead>
+      <div className="px-4 pt-3 pb-3.5">
+        {body.trim() ? (
+          <div>
+            <div
+              ref={box}
+              className={cn(
+                "relative",
+                // Images and other blocks run long: the cap keeps a long description a preview.
+                !expanded && "max-h-96 overflow-hidden",
+              )}
             >
-              {expanded ? "Show less" : "Show more"}
-            </Button>
-          )}
-        </div>
-      ) : (
-        <p className="text-ui text-muted-foreground italic">No description provided.</p>
-      )}
-      <PrReactions subject={{ kind: "pr" }} className="mt-1.5" onlyWhenAny />
-    </PrSection>
+              <PrMarkdown
+                context={props.context}
+                extensions={props.extensions}
+                onOpen={props.onOpen}
+                tasks={props.onTasks}
+                text={body}
+              />
+              {overflows && !expanded && (
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-linear-to-b from-transparent to-background"
+                />
+              )}
+            </div>
+            {(overflows || expanded) && (
+              <Button
+                variant="ghost"
+                size="xs"
+                className="-ml-1.5 mt-1"
+                onClick={() => setExpanded(!expanded)}
+              >
+                {expanded ? "Show less" : "Show more"}
+              </Button>
+            )}
+          </div>
+        ) : (
+          <p className="text-ui text-subtle-foreground">No description provided.</p>
+        )}
+        <PrReactions subject={{ kind: "pr" }} className="mt-2.5" onlyWhenAny />
+      </div>
+    </section>
   );
 }

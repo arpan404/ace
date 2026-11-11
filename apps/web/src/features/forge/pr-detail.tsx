@@ -1,10 +1,11 @@
-import { can, forgeDisplayName } from "@ace/ui-core";
 import { useEffect, useCallback, useMemo, useState, type KeyboardEvent } from "react";
 import { useConnectionState } from "@ace/client-react";
 import { useQueryClient, type Query } from "@tanstack/react-query";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import type { ForgePrDetail, ForgePrStatus, ForgeRepository } from "@ace/protocol";
 import {
+  can,
+  forgeDisplayName,
   hostedReviewLine,
   knownFileCount,
   allCommits,
@@ -14,12 +15,14 @@ import {
   type GateKey,
 } from "@ace/ui-core";
 import { Button } from "@/components/ui/button.tsx";
+import { DiffStat } from "@/components/diff-stat.tsx";
 import { cn } from "@/lib/cn.ts";
 import { PrActivity } from "./pr-activity.tsx";
 import { PrHeader } from "./pr-header.tsx";
 import { PrPageHeader } from "./pr-page-header.tsx";
 import { PrSummary } from "./pr-summary.tsx";
 import { PrChecks } from "./pr-checks.tsx";
+import { PrChecksTally } from "./pr-checks-list.tsx";
 import { PrPeople } from "./pr-people.tsx";
 import { TextAction } from "./pr-text-action.tsx";
 import { PrQuoteProvider } from "./pr-quote.tsx";
@@ -43,7 +46,8 @@ import { PrMergeCommitDialog } from "./pr-merge-commit.tsx";
 import { PrWriteStatus } from "./pr-write-status.tsx";
 import { PrFailure } from "./pr-detail-states.tsx";
 import { PrPageSkeleton, type PrSeed } from "./pr-page-skeleton.tsx";
-import { PrGatesRow } from "./pr-gates-row.tsx";
+import { PrMergeBox } from "./pr-merge-box.tsx";
+import { useBlockingItems } from "./pr-attention.tsx";
 import { prShortcut } from "./pr-shortcuts.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { ForgeContentScope } from "./rich/scope.ts";
@@ -110,6 +114,7 @@ function PrDetailLoaded(props: {
   const { context } = props;
   const readable = props.page ? pageWidth : undefined;
   const { detail } = context;
+  // The tabs this host can fill: a read-only host may have no code, checks or conversation.
   const available = {
     summary: true,
     code: can(detail, "reviews.files"),
@@ -129,7 +134,6 @@ function PrDetailLoaded(props: {
     openConflicts: () => setDialog("conflicts"),
     editCommit: setCommitWhen,
   });
-  const [behindOpen, setBehindOpen] = useState(false);
   const [checkFocus, setCheckFocus] = useState<{ id: string; seq: number }>();
   const [codeFocus, setCodeFocus] = useState<{ path: string; line?: number; seq: number }>();
   // Which commits Code shows, held here so a commit in the Timeline opens there.
@@ -152,7 +156,7 @@ function PrDetailLoaded(props: {
     props.onTab("checks");
     if (id) setCheckFocus((current) => ({ id, seq: (current?.seq ?? 0) + 1 }));
   };
-  // A gate jumps to its detail: the checks, the reviewers, the conflicts, the update menu.
+  // A gate in the merge box jumps to its detail: the checks, the reviewers, the conflicts.
   const onGate = (key: GateKey) => {
     if (key === "checks") openCheck();
     else if (key === "reviews") {
@@ -161,20 +165,17 @@ function PrDetailLoaded(props: {
         .getElementById("pr-reviewers")
         ?.scrollIntoView?.({ block: "start", behavior: "smooth" });
     } else if (key === "conflicts" && actions.primary.kind === "resolve") void actions.runPrimary();
-    else if (key === "branch" && actions.mergeState.state?.mergeState === "BEHIND")
-      setBehindOpen(true);
     else if (key === "ended") props.onTab("timeline");
   };
-  // Blocked, the header's merge says so in words and leads here: the Summary's Blocking the merge.
+  // Blocked, the header's merge says so in words and leads here: the Summary's merge box.
   const showBlocking = () => {
     props.onTab("summary");
     requestAnimationFrame(() =>
-      document
-        .getElementById("pr-attention")
-        ?.scrollIntoView?.({ block: "start", behavior: "smooth" }),
+      document.getElementById("pr-merge")?.scrollIntoView?.({ block: "start", behavior: "smooth" }),
     );
   };
-  const [order, setOrder] = useState<"newest" | "oldest">("newest");
+  const blocking = useBlockingItems(detail);
+  const [order, setOrder] = useState<"newest" | "oldest">("oldest");
   // Each tab keeps its own fold: scrolled down in Code, the header stays folded there only.
   const [condensed, setCondensed] = useState<Record<PrTab, boolean>>({
     summary: false,
@@ -274,9 +275,6 @@ function PrDetailLoaded(props: {
                         <PrPageHeader
                           actions={actions}
                           extensions={props.extensions}
-                          behindOpen={behindOpen}
-                          onBehindOpen={setBehindOpen}
-                          onGate={onGate}
                           onBlocked={showBlocking}
                           onBack={props.onBack}
                           menu={menu}
@@ -286,12 +284,9 @@ function PrDetailLoaded(props: {
                           actions={actions}
                           extensions={props.extensions}
                           condensed={condensed[shownTab]}
-                          behindOpen={behindOpen}
-                          onBehindOpen={setBehindOpen}
-                          gates={<PrGatesRow actions={actions} onSelect={onGate} />}
                           onBack={props.onBack}
-                          onOpen={props.onOpen}
                           onBlocked={showBlocking}
+                          blockingCount={blocking.length}
                           menu={menu}
                         />
                       )}
@@ -344,7 +339,17 @@ function PrDetailLoaded(props: {
                   }}
                   context={{
                     // On a page the Summary needs no counter; how many files are viewed is Code's.
-                    summary: props.page ? null : <SummaryContext detail={detail} />,
+                    summary: props.page ? (
+                      detail.additions !== undefined && detail.deletions !== undefined ? (
+                        <DiffStat
+                          additions={detail.additions}
+                          deletions={detail.deletions}
+                          className="text-xs"
+                        />
+                      ) : null
+                    ) : (
+                      <SummaryContext detail={detail} />
+                    ),
                     timeline: (
                       <div className="flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums">
                         {can(detail, "reviews.comments.read") && (
@@ -366,20 +371,35 @@ function PrDetailLoaded(props: {
                       </div>
                     ),
                     code: null,
-                    checks: props.page ? null : <PrChecksPill status={detail.status} />,
+                    checks: props.page ? (
+                      <PrChecksTally checks={detail.status.checks} />
+                    ) : (
+                      <PrChecksPill status={detail.status} />
+                    ),
                   }}
                   panels={{
                     summary: (
                       <PrSummary
                         context={context}
                         extensions={props.extensions}
-                        hostThreadId={props.hostThreadId}
                         stack={actions.stack}
                         onOpen={props.onOpen}
                         onOpenCode={openCode}
-                        onOpenCheck={openCheck}
-                        onTimeline={() => props.onTab("timeline")}
                         onEdit={editable ? () => setDialog("edit") : undefined}
+                        merge={
+                          <PrMergeBox
+                            actions={actions}
+                            onGate={onGate}
+                            attention={{
+                              workspaceId: context.workspaceId,
+                              hostThreadId: props.hostThreadId,
+                              disabled: context.disabled,
+                              onRefresh: context.refresh,
+                              onOpenCode: openCode,
+                              onOpenCheck: openCheck,
+                            }}
+                          />
+                        }
                         about={
                           <PrDetails
                             actions={actions}

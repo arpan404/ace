@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import { DetailRow } from "./pr-detail-row.tsx";
+import { PrBranchBlock, PrParticipantsBlock } from "./pr-sidebar-blocks.tsx";
 import type { ForgeClosingIssue } from "@ace/protocol";
 import { prUrl } from "@ace/forge/pr-reference";
 import { Button } from "@/components/ui/button.tsx";
@@ -6,22 +8,7 @@ import { WebLink } from "@/components/web-link.tsx";
 import { cn } from "@/lib/cn.ts";
 import type { PrActions } from "./pr-actions.ts";
 import type { PrDialog } from "./pr-dialogs.tsx";
-import { PrSection } from "./pr-section.tsx";
 import { lockReasonLabels } from "@ace/ui-core";
-
-/** One labelled row of the About section: "Reviewers", "Labels", "Milestone"… */
-export function DetailRow(props: { label: string; children: ReactNode; action?: ReactNode }) {
-  return (
-    <div className="flex min-h-8 items-start gap-3 py-0.5 text-ui">
-      <span className="flex h-7 w-24 shrink-0 items-center text-xs text-muted-foreground">
-        {props.label}
-      </span>
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">{props.children}</div>
-      {/* The action's words, not its box, end on the column's edge. */}
-      {props.action && <div className="-mr-1.5 flex h-7 shrink-0 items-center">{props.action}</div>}
-    </div>
-  );
-}
 
 function IssueLine(props: { issue: ForgeClosingIssue; action?: ReactNode }) {
   const { issue } = props;
@@ -43,10 +30,10 @@ function IssueLine(props: { issue: ForgeClosingIssue; action?: ReactNode }) {
 }
 
 /**
- * About the pull request: who reviews it, who is assigned, its labels and the agent on it
- * (`people`), then what it is filed under and touches on GitHub besides its code: the
- * milestone, the issues it closes, a locked conversation and the head branch once it is done.
- * Each row shows only when it holds something or this account can change it.
+ * The Summary's sidebar, as GitHub's: who reviews it, who is assigned, its labels and the agent on
+ * it (`people`), then the milestone, the issues it closes (Development), a locked conversation
+ * and the head branch once it is done. Each block shows only when it holds something or this
+ * account can change it.
  */
 export function PrDetails(props: {
   actions: PrActions;
@@ -57,9 +44,9 @@ export function PrDetails(props: {
   const snapshot = lifecycle.snapshot;
   if (!snapshot)
     return props.people ? (
-      <PrSection id="pr-about" title="About" fixed>
-        <div>{props.people}</div>
-      </PrSection>
+      <aside id="pr-about" aria-label="About">
+        {props.people}
+      </aside>
     ) : null;
   const busy = lifecycle.blocked;
   const editMilestone = snapshot.editableFields.includes("milestone");
@@ -67,7 +54,7 @@ export function PrDetails(props: {
   const conversation = snapshot.conversation;
   const branch = snapshot.headBranch;
   const done = snapshot.state === "merged" || snapshot.state === "closed";
-  const rows: ReactNode[] = [];
+  const rows: ReactNode[] = [<PrBranchBlock key="head" actions={props.actions} />];
   if (snapshot.milestone !== undefined && (snapshot.milestone || editMilestone))
     rows.push(
       <DetailRow
@@ -105,7 +92,22 @@ export function PrDetails(props: {
     );
   if (issues.length || lifecycle.can("issue.link"))
     rows.push(
-      <DetailRow key="issues" label="Closes">
+      <DetailRow
+        key="issues"
+        label="Development"
+        action={
+          lifecycle.can("issue.link") && (
+            <Button
+              variant="ghost"
+              size="xs"
+              disabled={busy}
+              onClick={() => props.onDialog("link-issue")}
+            >
+              Link
+            </Button>
+          )
+        }
+      >
         {issues.map((issue) => (
           <IssueLine
             key={`${issue.ref.repository.owner}/${issue.ref.repository.name}#${issue.ref.number}`}
@@ -125,23 +127,8 @@ export function PrDetails(props: {
             }
           />
         ))}
-        {lifecycle.can("issue.link") ? (
-          <span className="flex h-7 items-center">
-            {/* The words, not the box, start on the column's edge. */}
-            <Button
-              variant="ghost"
-              size="xs"
-              className="-ml-1.5 text-muted-foreground"
-              disabled={busy}
-              onClick={() => props.onDialog("link-issue")}
-            >
-              Link an issue
-            </Button>
-          </span>
-        ) : (
-          !issues.length && (
-            <span className="flex h-7 items-center text-subtle-foreground">None</span>
-          )
+        {!issues.length && (
+          <span className="flex h-7 items-center text-subtle-foreground">No linked issues</span>
         )}
       </DetailRow>,
     );
@@ -240,13 +227,11 @@ export function PrDetails(props: {
         </span>
       </DetailRow>,
     );
-  if (!rows.length && !props.people) return null;
   return (
-    <PrSection id="pr-about" title="About" fixed>
-      <div>
-        {props.people}
-        {rows}
-      </div>
-    </PrSection>
+    <aside id="pr-about" aria-label="About">
+      {props.people}
+      {rows}
+      <PrParticipantsBlock detail={props.actions.context.detail} />
+    </aside>
   );
 }

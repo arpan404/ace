@@ -46,6 +46,8 @@ export function MarkdownEditor(props: {
   onSubmit?: (() => void) | undefined;
   preview?: ((text: string) => ReactNode) | undefined;
   className?: string | undefined;
+  /** Extra classes for the Write / Preview row, for a box that draws it as its head. */
+  headClassName?: string | undefined;
   /** Where `@` and `#` suggestions come from, over the page's own. */
   completions?: MarkdownCompletions | undefined;
 }) {
@@ -110,7 +112,12 @@ export function MarkdownEditor(props: {
         props.className,
       )}
     >
-      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-1 pt-1">
+      <div
+        className={cn(
+          "flex flex-wrap items-center justify-between gap-x-2 gap-y-1 px-1 pt-1",
+          props.headClassName,
+        )}
+      >
         <WordChoice
           label={`${props.label}: write or preview`}
           value={tab}

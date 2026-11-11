@@ -16,37 +16,23 @@ import { commentFixRequest } from "./pr-summary-model.ts";
 import { PrSuggestionActions } from "./pr-suggestions.tsx";
 import { useEdit, useFocusAsk } from "./pr-ui-store.tsx";
 
+/** What a comment needs to act: its menu, its edit, and whether it is hidden. */
+export type CommentControls = ReturnType<typeof useCommentControls>;
+
 /**
- * One comment wherever the PR shows it: who said it and when, its text (clamped), its
- * suggestion's commit controls, reactions, and a ⋯ menu on hover. The viewer's own comments
- * edit in place; a hidden comment folds to one line naming why until it is shown.
+ * A comment's behaviour, apart from how it is drawn: the ⋯ menu's actions, editing in place
+ * for the viewer's own, and the fold for a hidden comment. The edit lives above the row, so a
+ * row scrolled away and back keeps it (`pr-ui-store`).
  */
-export function PrComment(props: {
-  comment: ForgeComment;
-  /** Words after the author: "commented", a review verdict. */
-  words?: ReactNode;
-  /** Trailing heading detail, such as the file and line in a list of comments. */
-  place?: ReactNode;
-  /** Off for rows whose avatar already sits on a rail beside them. */
-  avatar?: boolean;
-  /** Where Quote reply sends the text; without one there is no Quote reply. */
-  quoteTarget?: QuoteTarget | undefined;
-  /** A suggestion no longer on the current diff can't be committed. */
-  outdated?: boolean;
-  open: boolean;
-  onToggle(): void;
-}) {
-  const { comment } = props;
+export function useCommentControls(comment: ForgeComment, quoteTarget?: QuoteTarget) {
   const review = usePrReview();
   const identity = usePrIdentity();
   const quote = useQuote();
   const state = review?.state;
-  // The edit lives above the row, so a row scrolled away and back keeps it (`pr-ui-store`).
   const [edit, setEdit, clearIf] = useEdit(`${comment.kind}:${comment.id}`);
   const box = useRef<HTMLDivElement>(null);
   const askFocus = useFocusAsk(`edit:${comment.kind}:${comment.id}`, box);
   const [shown, setShown] = useState(false);
-  const avatar = props.avatar ?? true;
   const reason = hiddenReasonOf(state, comment);
   const own =
     !!state && state.canComment && comment.author === state.viewer && comment.kind !== "review";
@@ -76,8 +62,8 @@ export function PrComment(props: {
         : undefined,
     // Only where the viewer can answer: a quote with no box to take it would be lost.
     quote:
-      quote && props.quoteTarget && state?.canComment && comment.body.trim()
-        ? () => props.quoteTarget && quote(props.quoteTarget, comment.body)
+      quote && quoteTarget && state?.canComment && comment.body.trim()
+        ? () => quote(quoteTarget, comment.body)
         : undefined,
     edit:
       own && source
@@ -124,33 +110,63 @@ export function PrComment(props: {
       });
   };
   const folded = reason !== undefined && !shown && !edit;
-  const indent = avatar ? "pl-[26px]" : undefined;
+  return {
+    comment,
+    actions,
+    prUrl: identity?.url ?? "",
+    reason,
+    shown,
+    setShown,
+    edit,
+    setEdit,
+    save,
+    disabled,
+    folded,
+    box,
+  };
+}
+
+/** The reaction picker (on hover) and the ⋯ menu, at the end of a comment's heading. */
+export function CommentHeadControls(props: { controls: CommentControls }) {
+  const { comment, folded } = props.controls;
   return (
-    <div className="group/comment min-w-0" data-comment-id={`${comment.kind}:${comment.id}`}>
-      <div className="flex min-h-6 min-w-0 items-center gap-1.5 text-ui text-muted-foreground">
-        {avatar && <PrAvatar name={comment.author} url={comment.authorAvatarUrl} />}
-        <span className="truncate font-medium text-foreground">{comment.author}</span>
-        {props.words}
-        <span aria-hidden className="text-subtle-foreground">
-          ·
+    <span className="ml-auto flex shrink-0 items-center">
+      {comment.kind !== "review" && !folded && (
+        <span className="opacity-0 group-hover/comment:opacity-100 group-focus-within/comment:opacity-100 has-aria-expanded:opacity-100 pointer-coarse:opacity-100">
+          <PrReactionPicker subject={{ kind: comment.kind, commentId: comment.id }} />
         </span>
-        <PrTime at={comment.createdAt ?? comment.updatedAt} />
-        {props.place && (
-          <span className="min-w-0 truncate font-mono text-xs text-subtle-foreground">
-            {props.place}
-          </span>
-        )}
-        <span className="ml-auto flex shrink-0 items-center">
-          {comment.kind !== "review" && !folded && (
-            <span className="opacity-0 group-hover/comment:opacity-100 group-focus-within/comment:opacity-100 has-aria-expanded:opacity-100 pointer-coarse:opacity-100">
-              <PrReactionPicker subject={{ kind: comment.kind, commentId: comment.id }} />
-            </span>
-          )}
-          <PrCommentMenu comment={comment} prUrl={identity?.url ?? ""} actions={actions} />
-        </span>
-      </div>
+      )}
+      <PrCommentMenu
+        comment={comment}
+        prUrl={props.controls.prUrl}
+        actions={props.controls.actions}
+      />
+    </span>
+  );
+}
+
+/**
+ * A comment's text under its heading: the hidden notice with Show, the editor while editing,
+ * else the clamped text, a suggestion's commit controls and reactions.
+ */
+export function CommentContent(props: {
+  controls: CommentControls;
+  open: boolean;
+  onToggle(): void;
+  outdated?: boolean | undefined;
+  className?: string | undefined;
+}) {
+  const { comment, reason, shown, setShown, edit, setEdit, save, disabled, folded, box } =
+    props.controls;
+  return (
+    <>
       {reason !== undefined && (
-        <p className={cn("flex items-center gap-1.5 text-xs text-subtle-foreground", indent)}>
+        <p
+          className={cn(
+            "flex items-center gap-1.5 text-xs text-subtle-foreground",
+            props.className,
+          )}
+        >
           {`Hidden as ${hiddenWord(reason)}`}
           <span aria-hidden>·</span>
           <button
@@ -165,7 +181,7 @@ export function PrComment(props: {
       )}
       {!folded &&
         (edit ? (
-          <div ref={box} className={cn("mt-1.5 space-y-2", indent)}>
+          <div ref={box} className={cn("mt-1.5 space-y-2", props.className)}>
             <MarkdownEditor
               label="Edit comment"
               disabled={disabled}
@@ -184,7 +200,7 @@ export function PrComment(props: {
             </div>
           </div>
         ) : (
-          <div className={cn("space-y-1.5", indent)}>
+          <div className={cn("space-y-1.5", props.className)}>
             {comment.body.trim() && (
               <div className="mt-0.5">
                 <PrClampedText
@@ -201,6 +217,57 @@ export function PrComment(props: {
             )}
           </div>
         ))}
+    </>
+  );
+}
+
+/**
+ * One comment wherever the PR shows it: who said it and when, its text (clamped), its
+ * suggestion's commit controls, reactions, and a ⋯ menu on hover. The viewer's own comments
+ * edit in place; a hidden comment folds to one line naming why until it is shown.
+ */
+export function PrComment(props: {
+  comment: ForgeComment;
+  /** Words after the author: "commented", a review verdict. */
+  words?: ReactNode;
+  /** Trailing heading detail, such as the file and line in a list of comments. */
+  place?: ReactNode;
+  /** Off for rows whose avatar already sits on a rail beside them. */
+  avatar?: boolean;
+  /** Where Quote reply sends the text; without one there is no Quote reply. */
+  quoteTarget?: QuoteTarget | undefined;
+  /** A suggestion no longer on the current diff can't be committed. */
+  outdated?: boolean;
+  open: boolean;
+  onToggle(): void;
+}) {
+  const { comment } = props;
+  const controls = useCommentControls(comment, props.quoteTarget);
+  const avatar = props.avatar ?? true;
+  return (
+    <div className="group/comment min-w-0" data-comment-id={`${comment.kind}:${comment.id}`}>
+      <div className="flex min-h-6 min-w-0 items-center gap-1.5 text-ui text-muted-foreground">
+        {avatar && <PrAvatar name={comment.author} url={comment.authorAvatarUrl} />}
+        <span className="truncate font-medium text-foreground">{comment.author}</span>
+        {props.words}
+        <span aria-hidden className="text-subtle-foreground">
+          ·
+        </span>
+        <PrTime at={comment.createdAt ?? comment.updatedAt} />
+        {props.place && (
+          <span className="min-w-0 truncate font-mono text-xs text-subtle-foreground">
+            {props.place}
+          </span>
+        )}
+        <CommentHeadControls controls={controls} />
+      </div>
+      <CommentContent
+        controls={controls}
+        open={props.open}
+        onToggle={props.onToggle}
+        outdated={props.outdated}
+        className={avatar ? "pl-[26px]" : undefined}
+      />
     </div>
   );
 }

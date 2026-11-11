@@ -4,9 +4,10 @@ import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.
 import { PrReviewers } from "./pr-reviewers.tsx";
 import { reviewerRows, type ReviewerRow } from "@ace/ui-core";
 import { usePrReviewers } from "./pr-reviewers-query.ts";
-import { DetailRow } from "./pr-details.tsx";
-import { PrAgentLine } from "./pr-agent-chip.tsx";
+import { DetailRow } from "./pr-detail-row.tsx";
+import { PrAgentBlock } from "./pr-sidebar-blocks.tsx";
 import { PrAvatar } from "./pr-presentation.tsx";
+import { LabelPill } from "@/components/forge-marks.tsx";
 
 /**
  * The people on the pull request, as the About section's first rows: each reviewer with their
@@ -41,8 +42,14 @@ export function PrPeople(props: {
     can(detail, "reviews.reviewers.request") &&
     (props.extensions?.reviewers?.(props.context) ??
       (props.onRequestReview && (
-        <Button variant="ghost" size="xs" disabled={disabled} onClick={props.onRequestReview}>
-          Request review
+        <Button
+          variant="ghost"
+          size="xs"
+          aria-label="Request review"
+          disabled={disabled}
+          onClick={props.onRequestReview}
+        >
+          Request
         </Button>
       )));
   const labelPicker =
@@ -56,6 +63,7 @@ export function PrPeople(props: {
   const assignees = props.assignees;
   return (
     <>
+      <PrAgentBlock detail={detail} />
       {(can(detail, "reviews.approvals.read") || can(detail, "reviews.approvals.write")) && (
         <DetailRow label="Reviewers" action={reviewerPicker}>
           <div id="pr-reviewers" role="group" aria-label="Reviewers" className="scroll-mt-10 py-1">
@@ -82,7 +90,7 @@ export function PrPeople(props: {
                 onRequestReview={props.onRequestReview}
               />
             ) : (
-              <span className="text-subtle-foreground">No reviewers yet</span>
+              <span className="text-subtle-foreground">No reviews</span>
             )}
           </div>
         </DetailRow>
@@ -98,7 +106,7 @@ export function PrPeople(props: {
                 </span>
               ))
             ) : (
-              <span className="text-subtle-foreground">Nobody</span>
+              <span className="text-subtle-foreground">No one assigned</span>
             )}
           </span>
         </DetailRow>
@@ -114,43 +122,20 @@ export function PrPeople(props: {
           </p>
         </DetailRow>
       )}
-      {detail.relatedThreads.some((thread) => !thread.archived) && (
-        <DetailRow label="Agent">
-          <PrAgentLine detail={detail} />
-        </DetailRow>
-      )}
     </>
   );
 }
 
-/**
- * Labels as their names between commas, each in its own colour (mixed toward the text colour so
- * it stays readable on either theme), with no box around them.
- */
+/** Labels as GitHub's coloured pills, wrapping in the sidebar's width. */
 function LabelNames(props: {
   names: readonly string[];
   colors?: Readonly<Record<string, string>> | undefined;
 }) {
   return (
-    <span className="min-w-0">
-      {props.names.map((name, index) => {
-        const color = props.colors?.[name];
-        return (
-          <span key={name}>
-            <span
-              style={
-                color
-                  ? { color: `color-mix(in oklab, #${color} 60%, var(--foreground))` }
-                  : undefined
-              }
-              className={color ? undefined : "text-foreground/85"}
-            >
-              {name}
-            </span>
-            {index < props.names.length - 1 && <span className="text-subtle-foreground">, </span>}
-          </span>
-        );
-      })}
+    <span className="flex min-w-0 flex-wrap gap-1 py-1">
+      {props.names.map((name) => (
+        <LabelPill key={name} name={name} color={props.colors?.[name]} />
+      ))}
     </span>
   );
 }

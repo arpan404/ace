@@ -3,7 +3,9 @@ import { useRef } from "react";
 import { MarkdownEditor } from "@/components/markdown-editor/markdown-editor.tsx";
 import { draftKeys, useMarkdownDraft } from "@/components/markdown-editor/use-markdown-draft.ts";
 import { Button } from "@/components/ui/button.tsx";
-import { PrAvatar } from "./pr-presentation.tsx";
+import { cn } from "@/lib/cn.ts";
+import { prBoxFoot } from "./pr-box.tsx";
+import { TimelineBox } from "./pr-timeline-box.tsx";
 import { appendTo, useQuotedInto } from "./pr-quote.tsx";
 import { lockedText, usePrDetail, usePrIdentity, usePrReview } from "./pr-review-context.tsx";
 import { useFocusAsk } from "./pr-ui-store.tsx";
@@ -18,8 +20,8 @@ function useViewerAvatar(viewer: string | undefined): string | undefined {
 }
 
 /**
- * The comment box at the Timeline's newest end: the viewer's avatar beside the Markdown editor,
- * and Comment (⌘↵). Unsent text is kept on this device; a quote reply lands here.
+ * The comment box at the Timeline's newest end: the viewer's avatar in the gutter, a box with
+ * Write and Preview in its head and Comment (⌘↵) at its foot. Unsent text is kept on this device; a quote reply lands here.
  */
 export function PrConversationBox() {
   const review = usePrReview();
@@ -54,11 +56,8 @@ export function PrConversationBox() {
     });
   };
   return (
-    <div ref={box} className="relative flex gap-4 pb-6">
-      <div className="relative z-[1] flex size-8 shrink-0 items-start justify-center bg-panel pt-0.5">
-        <PrAvatar name={viewer ?? ""} url={avatar} className="size-8" />
-      </div>
-      <div className="min-w-0 flex-1 space-y-2">
+    <div ref={box} className="pt-2">
+      <TimelineBox author={viewer ?? ""} avatarUrl={avatar} className="pb-6">
         <MarkdownEditor
           label="Comment"
           placeholder="Leave a comment"
@@ -67,8 +66,10 @@ export function PrConversationBox() {
           disabled={locked}
           onChange={draft.setText}
           onSubmit={send}
+          className="rounded-t-lg rounded-b-none shadow-none"
+          headClassName="rounded-t-lg border-b border-border bg-surface-1 px-2 py-1"
         />
-        <div className="flex items-center justify-end gap-2">
+        <div className={cn(prBoxFoot, "justify-end")}>
           {locked && (
             <p role="status" className="mr-auto text-xs text-muted-foreground">
               {lockedText}
@@ -78,7 +79,7 @@ export function PrConversationBox() {
             Comment
           </Button>
         </div>
-      </div>
+      </TimelineBox>
     </div>
   );
 }

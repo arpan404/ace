@@ -9,8 +9,9 @@ import { usePrActivityEvents } from "./pr-activity-events.ts";
 import { PrConversationBox } from "./pr-conversation-box.tsx";
 import { cn } from "@/lib/cn.ts";
 import { usePrCommits } from "./pr-commits.tsx";
-import { prTimelineItems } from "@ace/ui-core";
+import { prTimelineItems, prTimelinePushes } from "@ace/ui-core";
 import { PrTimelineRow, type TimelineExpansion } from "./pr-timeline-rows.tsx";
+import { timelineLine } from "./pr-timeline-box.tsx";
 
 export function PrActivity(props: {
   workspaceId: string;
@@ -22,6 +23,7 @@ export function PrActivity(props: {
 }) {
   const commentsReadable = can(props.detail, "reviews.comments.read");
   const commitsReadable = can(props.detail, "reviews.commits");
+  // A host whose conversation can't be read here shows none of it.
   const detail = useMemo(
     () =>
       commentsReadable
@@ -34,10 +36,13 @@ export function PrActivity(props: {
   const activity = usePrActivityEvents(props);
   const rows = useMemo(
     () =>
-      prTimelineItems(
-        detail,
-        commitsReadable ? (commits.data?.commits ?? []) : [],
-        commentsReadable ? (activity.data?.events ?? []) : [],
+      prTimelinePushes(
+        prTimelineItems(
+          detail,
+          commitsReadable ? (commits.data?.commits ?? []) : [],
+          commentsReadable ? (activity.data?.events ?? []) : [],
+          props.order,
+        ),
         props.order,
       ),
     [detail, commitsReadable, commentsReadable, commits.data, activity.data, props.order],
@@ -57,8 +62,7 @@ export function PrActivity(props: {
     [open],
   );
   const settled =
-    (!can(props.detail, "reviews.commits") || !commits.isPending) &&
-    (!can(props.detail, "reviews.comments.read") || !activity.isPending);
+    (!commitsReadable || !commits.isPending) && (!commentsReadable || !activity.isPending);
   // Older pages are still on their way; a failed read says so through its own state.
   const arriving =
     (commitsReadable && commits.data?.complete === false && !commits.error) ||
@@ -68,14 +72,12 @@ export function PrActivity(props: {
     <section
       aria-label="Pull request timeline"
       className={cn(
-        "mx-auto w-full max-w-3xl px-[var(--forge-gutter,1rem)] pt-5 pb-10",
+        "mx-auto w-full max-w-3xl px-[var(--forge-gutter,1rem)] pt-6 pb-10",
         props.className,
       )}
     >
-      {can(props.detail, "reviews.commits") && <QueryState label="commits" query={commits} />}
-      {can(props.detail, "reviews.comments.read") && (
-        <QueryState label="timeline" query={activity} />
-      )}
+      {commitsReadable && <QueryState label="commits" query={commits} />}
+      {commentsReadable && <QueryState label="timeline" query={activity} />}
       {((commentsReadable && activity.data?.truncated) ||
         (commitsReadable && commits.data?.truncated)) && (
         <p role="status" className="mb-4 text-sm text-muted-foreground">
@@ -93,11 +95,11 @@ export function PrActivity(props: {
           </div>
         )
       ) : (
-        <div className="relative before:absolute before:top-4 before:bottom-5 before:left-4 before:w-px before:bg-border">
+        <div className={timelineLine}>
           <LongRows
             items={rows}
             rowKey={(row) => row.id}
-            estimate={48}
+            estimate={56}
             virtualAbove={80}
             render={(row) => (
               <PrTimelineRow item={row} expansion={expansion} onOpenCommit={props.onOpenCommit} />

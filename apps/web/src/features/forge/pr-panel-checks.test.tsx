@@ -86,7 +86,7 @@ test("the PR panel's checks flip from running to passed on their own while CI ru
   await act(async () => {
     await vi.advanceTimersByTimeAsync(16_000);
   });
-  expect(await screen.findByText("1 check passed")).toBeTruthy();
+  expect((await screen.findAllByText("1 check passed")).length).toBeGreaterThan(0);
   // A background poll neither shows the refresh banner nor holds writes.
   expect(screen.queryByText(/Refreshing GitHub/)).toBeNull();
 });
@@ -94,7 +94,7 @@ test("the PR panel's checks flip from running to passed on their own while CI ru
 test("checks GitHub couldn't read say so in the PR panel instead of claiming none", async () => {
   const app = open(detail({ ci: "unknown" }));
   await openPullRequest(app, { project: "api", number: 42 });
-  expect(await screen.findByText("Checks unavailable")).toBeTruthy();
+  expect((await screen.findAllByText("Checks unavailable")).length).toBeGreaterThan(0);
   expect(screen.queryByText("No checks reported")).toBeNull();
 });
 
