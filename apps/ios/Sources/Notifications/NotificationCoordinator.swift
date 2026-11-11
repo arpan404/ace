@@ -73,6 +73,12 @@ struct SystemAuthorizer: NotificationAuthorizer {
     @ObservationIgnored var approvalAlerts: [String: String] = [:]
     /// Settings › Notifications › Live Activity.
     private(set) var liveActivity: Bool
+    /// Each machine's sign-ins waiting for approval when it last said, by host.
+    @ObservationIgnored var accessSeen: [String: Set<String>] = [:]
+    /// A tapped sign-in waiting for its machine's runtime (a cold launch).
+    @ObservationIgnored var pendingAccess: (alert: AccessAlert, hostId: String?)?
+    /// The person's name for a machine, for "Claude wants to sign in to studio".
+    @ObservationIgnored var machineName: (String) -> String? = { _ in nil }
 
     init(center: any NotificationCenterPort = SystemNotificationCenter(), authorizer: any NotificationAuthorizer = SystemAuthorizer(),
          defaults: UserDefaults = .standard, now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 },
@@ -113,6 +119,7 @@ struct SystemAuthorizer: NotificationAuthorizer {
         model.liveActivity.onShow = { [weak self] in try self?.lockScreen.show() }
         // Opening a thread here is reading it: its notification goes.
         model.onOpenThread = { [weak self] threadId in self?.desk.clear(threadId: threadId, hostId: hostId) }
+        model.outside.onAccessState = { [weak self] access in self?.accessState(access, hostId: hostId) }
         lockScreen.changed()
         if let link = pendingLink, link.hostId == nil || link.hostId == hostId { model.deepLink = link.threadId; pendingLink = nil }
         // Read once the runtime is starting, never before it: the permission's sync goes to that
@@ -128,6 +135,7 @@ struct SystemAuthorizer: NotificationAuthorizer {
         model.liveActivity.onChange = nil
         model.liveActivity.onShow = nil
         model.onOpenThread = nil
+        model.outside.onAccessState = nil
         lockScreen.changed()
     }
     /// A machine turned off on this phone: its notifications are withdrawn, its approvals leave
@@ -165,7 +173,11 @@ struct SystemAuthorizer: NotificationAuthorizer {
                 await ledger.catchUp(cursor: cursor, entries: posting ? entries : [], retracted: retracted)
                 feeds.removeValue(forKey: hostId)?.forEach { $0.finish(true) }
             }
-        case .connected: if let entry { sync(entry.model, ledger: entry.notifier, hostId: entry.hostId) }
+        case .connected:
+            if let entry {
+                sync(entry.model, ledger: entry.notifier, hostId: entry.hostId)
+                connectedForAccess(entry.model, hostId: entry.hostId)
+            }
         case .config(let preferences): preferencesByMachine[hostId] = preferences
         case .action(let id, let outcome):
             if outcome == .saved { outcomes[id]?.latest = outcome } else { outcomes.removeValue(forKey: id)?.finish(outcome) }

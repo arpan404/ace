@@ -55,7 +55,7 @@ import { followDismissed } from "./dismissed-sends.ts";
 import { BrowserLive } from "./browser-live.ts";
 import { nativeChunks, Picked } from "./thread-attachments.ts";
 import { ComputerAccess, ComputerAccessControl } from "./computer-access.ts";
-import { OutsideWatch } from "./outside-clients.ts";
+import { OutsideOpenAction, OutsideWatch } from "./outside-clients.ts";
 import { DeviceStats, DeviceStatsControl } from "./device-stats.ts";
 import { NativeDevices, NativeDeviceControl } from "./native-devices.ts";
 import { NativeScreen, NativeScreenControl } from "./native-screen.ts";
@@ -319,7 +319,7 @@ async function start(json: string): Promise<void> {
   needs?.stop();
   needs = followNeeds(client, pump);
   outside?.stop();
-  outside = new OutsideWatch(client, pump, preview);
+  outside = new OutsideWatch(client, pump, preview, () => host.now());
   outside.start();
   // Each project's mark, sent once and referenced by the rows (`project-looks.ts`).
   followProjectLooks(client, pump);
@@ -514,6 +514,12 @@ function action(json: string): void {
     const filesAction = NativeFilesAction.safeParse(raw);
     if (filesAction.success) {
       if (filesActions) routeFilesAction(filesActions, filesAction.data);
+      else error();
+      return;
+    }
+    const openAccess = OutsideOpenAction.safeParse(raw);
+    if (openAccess.success) {
+      if (outside) outside.open(openAccess.data);
       else error();
       return;
     }

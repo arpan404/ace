@@ -41,21 +41,54 @@ import Observation
         let line: String
         var id: String { grantId }
     }
-    struct State: Codable, Sendable, Equatable { let access: [Access]; let screen: [ScreenUse] }
+    /// What became of the last tapped sign-in alert (`outside.open`); `n` counts taps.
+    struct Opened: Codable, Sendable, Equatable {
+        let n: Int
+        let requestId: String
+        /// Nil: the sheet opens on it. Otherwise why it can't, in words.
+        let ended: String?
+    }
+    struct State: Codable, Sendable, Equatable {
+        let access: [Access]
+        let screen: [ScreenUse]
+        var opened: Opened? = nil
+        /// The machine said this over a live connection; false once it is gone, when nothing is known.
+        var live: Bool? = nil
+    }
 
     private(set) var access: [Access] = []
     private(set) var screen: [ScreenUse] = []
     /// Sign-ins the person put aside with "Not now"; they stay in Settings' reach until they end.
     var setAside: Set<String> = []
+    /// The tapped sign-in, shown first while it waits.
+    private(set) var focus: String?
+    /// A tapped sign-in that had already ended, said once in place of its sheet.
+    var ended: String?
+    private var answeredTap = 0
+    /// Every state the machine sends over a live connection, for the notifications naming sign-ins.
+    @ObservationIgnored var onAccessState: ((_ access: [Access]) -> Void)?
 
     func apply(_ next: State) {
+        let after = Set(next.access.map(\.requestId))
         if access != next.access { access = next.access }
         if screen != next.screen { screen = next.screen }
-        setAside.formIntersection(next.access.map(\.requestId))
+        setAside.formIntersection(after)
+        if let focus, !after.contains(focus) { self.focus = nil }
+        if let opened = next.opened, opened.n != answeredTap {
+            answeredTap = opened.n
+            if let words = opened.ended { ended = words } else {
+                focus = opened.requestId
+                setAside.remove(opened.requestId)
+            }
+        }
+        if next.live ?? true { onAccessState?(next.access) }
     }
-    func reset() { access = []; screen = []; setAside = [] }
-    /// The sign-in the sheet shows now, if any.
-    var asking: Access? { access.first { !setAside.contains($0.requestId) } }
+    func reset() { access = []; screen = []; setAside = []; focus = nil }
+    /// The sign-in the sheet shows now, if any: the tapped one first.
+    var asking: Access? {
+        access.first { $0.requestId == focus && !setAside.contains($0.requestId) }
+            ?? access.first { !setAside.contains($0.requestId) }
+    }
 }
 
 /// One machine's connected apps, in the bridge's words (`answerOutside`).

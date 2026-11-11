@@ -12,7 +12,12 @@ struct OutsideAccessPrompt: ViewModifier {
         let asking = inbox.sessions.lazy.compactMap { session in
             session.client.outside.asking.map { Asking(hostId: session.hostId, client: session.client, request: $0) }
         }.first
-        content.sheet(item: Binding(get: { asking }, set: { if $0 == nil, let asking { asking.client.outside.setAside.insert(asking.request.requestId) } })) { asking in
+        // A tapped sign-in alert whose request already ended says so once, in place of a sheet.
+        let ended = inbox.sessions.first { $0.client.outside.ended != nil }?.client.outside
+        content.alert("Sign-in ended", isPresented: Binding(get: { ended != nil }, set: { if !$0 { ended?.ended = nil } })) {
+            Button("OK", role: .cancel) { ended?.ended = nil }
+        } message: { Text(ended?.ended ?? "") }
+        .sheet(item: Binding(get: { asking }, set: { if $0 == nil, let asking { asking.client.outside.setAside.insert(asking.request.requestId) } })) { asking in
             NavigationStack {
                 OutsideAccessSheet(client: asking.client, request: asking.request,
                                    machine: inbox.names[asking.hostId] ?? "this machine")

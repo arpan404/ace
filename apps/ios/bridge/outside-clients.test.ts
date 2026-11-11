@@ -15,13 +15,15 @@ afterEach(async () => {
   for (const close of closers.splice(0)) await close();
 });
 const day = 24 * 60 * 60_000;
+/** The phone's clock. */
+const now = 1_000;
 
 async function connected(scopes?: readonly DeviceScope[]) {
   const { daemon, client } = sheetFixture(scopes ? { scopes } : {});
   await client.start();
   await until(() => client.state === "ready", "the client connects");
   const sink = new RecordingSink();
-  const watch = new OutsideWatch(client, sink, plainPreview);
+  const watch = new OutsideWatch(client, sink, plainPreview, () => now);
   watch.start();
   closers.push(
     () => watch.stop(),
@@ -40,6 +42,7 @@ async function connected(scopes?: readonly DeviceScope[]) {
             expiry: string;
           }[];
           screen: { grantId: string; name: string; line: string }[];
+          opened: { n: number; requestId: string; ended: string | null } | null;
         }
       | undefined;
   return { daemon, client, sink, state, watch };
@@ -273,4 +276,65 @@ test("a chat's hidden project is never offered as a project to choose", async ()
   expect(answer.ok).toBe(true);
   expect(answer.projects.map((project) => project.id)).toContain("ace");
   expect(answer.projects.map((project) => project.id)).not.toContain("chat-1");
+});
+
+const signIn = {
+  requestId: "r1",
+  clientName: "Claude",
+  domain: "claude.ai",
+  scopes: ["threads:read" as const],
+  matchCode: "7KQ2XM",
+  expiresAt: now + 9 * 60_000,
+};
+const tap = (requestId = "r1", expiresAt = signIn.expiresAt) =>
+  ({ type: "outside.open", requestId, clientName: "Claude", expiresAt }) as const;
+
+test("tapping a sign-in alert opens the sheet on that request", async () => {
+  const { daemon, state, watch } = await connected();
+  daemon.outside.ask(signIn);
+  await until(() => state()?.access.length === 1, "the sign-in arrives");
+  watch.open(tap());
+  expect(state()?.opened).toEqual({ n: 1, requestId: "r1", ended: null });
+});
+
+test("a tap on a cold launch waits for the machine, then opens the sheet", async () => {
+  const { daemon, client } = sheetFixture({});
+  daemon.outside.ask(signIn);
+  const sink = new RecordingSink();
+  const watch = new OutsideWatch(client, sink, plainPreview, () => now);
+  watch.start();
+  closers.push(
+    () => watch.stop(),
+    () => client.close(),
+  );
+  // Tapped before the phone has reached the machine: nothing is decided yet.
+  watch.open(tap());
+  const opened = () => (sink.read(OutsideWatch.key) as { opened?: unknown } | undefined)?.opened;
+  expect(opened() ?? null).toBeNull();
+  await client.start();
+  await until(() => opened() != null, "the tapped sign-in opens");
+  expect(opened()).toEqual({ n: 1, requestId: "r1", ended: null });
+});
+
+test("a tapped sign-in the machine no longer lists says it ended instead of opening a sheet", async () => {
+  const { state, watch, sink } = await connected();
+  await until(() => sink.read(OutsideWatch.key) !== undefined, "the machine says what is pending");
+  watch.open(tap("gone"));
+  expect(state()?.opened).toEqual({
+    n: 1,
+    requestId: "gone",
+    ended: "Claude's sign-in request ended. Ask it to sign in again.",
+  });
+});
+
+test("a tapped sign-in past its time says it ended, even while the machine still lists it", async () => {
+  const { daemon, state, watch } = await connected();
+  daemon.outside.ask({ ...signIn, expiresAt: Number.MAX_SAFE_INTEGER });
+  await until(() => state()?.access.length === 1, "the sign-in arrives");
+  // The alert said it ends at `now`: the phone's clock has reached it.
+  watch.open(tap("r1", now));
+  expect(state()?.opened?.ended).toMatch(/ended/);
+  // A second tap is answered on its own.
+  watch.open(tap("r1"));
+  expect(state()?.opened).toEqual({ n: 2, requestId: "r1", ended: null });
 });

@@ -2,8 +2,10 @@ import { replayGap } from "./replay-gap.ts";
 import type { Worker, WorkerOptions } from "node:worker_threads";
 import { startWorker } from "@ace/provider-kit/worker";
 import { revivedIncompatibleData } from "@ace/provider-kit/incompatible-data";
+import { z } from "zod";
 import {
   NotificationAddress,
+  NotificationDevice,
   NotificationFeed,
   NotificationPreferences,
   type Notification,
@@ -20,6 +22,8 @@ import {
   type WorkerCall,
   type WorkerValue,
 } from "./worker-wire.ts";
+const NoticeWindows = z.array(z.object({ after: z.number(), before: z.number() }));
+const PushDevices = z.array(NotificationDevice);
 import { metadata, type MetadataEvent } from "./metadata.ts";
 import type { NoticeWindow } from "./sleep-boundary.ts";
 
@@ -284,7 +288,7 @@ export class NotificationWorker {
    */
   async closeSleep(): Promise<NoticeWindow[]> {
     const value = await this.call({ method: "closeSleep" });
-    return Array.isArray(value) ? value : [];
+    return Array.isArray(value) ? NoticeWindows.parse(value) : [];
   }
   async forgetSleep(): Promise<void> {
     await this.call({ method: "forgetSleep" });
@@ -336,6 +340,12 @@ export class NotificationWorker {
   }
   async register(device: DeviceId, address: unknown): Promise<void> {
     await this.call({ method: "register", device, address: NotificationAddress.parse(address) });
+  }
+  /** Push addresses among these devices that may be alerted now, at most 128 asked. */
+  async pushAddresses(devices: readonly DeviceId[]): Promise<NotificationDevice[]> {
+    return PushDevices.parse(
+      await this.call({ method: "pushAddresses", devices: devices.slice(0, 128) }),
+    );
   }
   /** Stops alerts to this device until it registers again. */
   async unregister(device: DeviceId): Promise<void> {

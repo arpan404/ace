@@ -228,6 +228,27 @@ export function accessRow(request: OutsideAccessRequest, preview: Preview) {
 type WatchOwner = Pick<ClientCore, "request" | "connectionState" | "onMessage" | "state">;
 
 /**
+ * The person tapped a sign-in alert (`AccessAlert` on the phone): open the sheet for that
+ * request, or say it ended. The alert's own fields come along, since the machine may not have
+ * said anything yet.
+ */
+export const OutsideOpenAction = z.object({
+  type: z.literal("outside.open"),
+  requestId: z.string().min(1).max(128),
+  clientName: z.string().min(1).max(256),
+  expiresAt: z.number().nonnegative(),
+});
+export type OutsideOpenAction = z.infer<typeof OutsideOpenAction>;
+
+/** What became of the last tapped alert; `n` counts taps, so each one is answered once. */
+interface Opened {
+  n: number;
+  requestId: string;
+  /** Null: the sheet opens on it. Otherwise why it can't. */
+  ended: string | null;
+}
+
+/**
  * Follows a machine's pending sign-ins and outside screen use while the runtime is connected:
  * asks to watch on every ready connection and draws each `outside.state` as one patch. A
  * machine that refuses (this phone isn't its administrator, or it has no outside endpoint) is
@@ -245,10 +266,44 @@ export class OutsideWatch {
   /** Whether the machine says it is a Mac; undefined until read for a screen line. */
   #mac: boolean | undefined;
   #stops: (() => void)[] = [];
-  constructor(owner: WatchOwner, sink: PatchSink, preview: Preview) {
+  #now: () => number;
+  /** Whether the machine has said what is pending since this connection began. */
+  #heard = false;
+  /** A tapped alert waiting for the machine to say what is pending. */
+  #opening: OutsideOpenAction | undefined;
+  #opened: Opened | null = null;
+  #taps = 0;
+  constructor(owner: WatchOwner, sink: PatchSink, preview: Preview, now: () => number) {
     this.#owner = owner;
     this.#sink = sink;
     this.#preview = preview;
+    this.#now = now;
+  }
+  /**
+   * A tapped sign-in alert. Opens the sheet on it as soon as the machine lists it; once the
+   * machine has said what is pending without it, or it has run out, the phone says it ended
+   * instead of drawing a sheet nobody can answer.
+   */
+  open(action: OutsideOpenAction): void {
+    this.#opening = action;
+    this.#settleOpening();
+  }
+  #settleOpening(): void {
+    const opening = this.#opening;
+    if (!opening) return;
+    const pending = this.#access.some((request) => request.requestId === opening.requestId);
+    const over = opening.expiresAt <= this.#now();
+    if (!pending && !over && !this.#heard && !this.#refused) return;
+    this.#opening = undefined;
+    this.#opened = {
+      n: ++this.#taps,
+      requestId: opening.requestId,
+      ended:
+        pending && !over
+          ? null
+          : `${this.#preview(opening.clientName, 256)}'s sign-in request ended. Ask it to sign in again.`,
+    };
+    this.#put();
   }
   start(): void {
     if (this.#stops.length) return;
@@ -273,16 +328,20 @@ export class OutsideWatch {
       await this.#owner.request({ type: "outside.request", operation: { op: "watch" } }, quiet);
     } catch (error) {
       const code = refusalCode(error);
-      if (code === "forbidden" || code === "unavailable" || code === "protocol")
+      if (code === "forbidden" || code === "unavailable" || code === "protocol") {
         this.#refused = true;
+        this.#settleOpening();
+      }
     }
   }
   #receive(message: ServerMessage): void {
     if (message.type !== "outside.state") return;
     this.#access = message.access;
     this.#screen = message.screen;
+    this.#heard = true;
     if (this.#screen.length && this.#mac === undefined) void this.#readPlatform();
     this.#put();
+    this.#settleOpening();
   }
   async #readPlatform(): Promise<void> {
     try {
@@ -294,6 +353,7 @@ export class OutsideWatch {
     this.#put();
   }
   #clear(): void {
+    this.#heard = false;
     if (!this.#access.length && !this.#screen.length) return;
     this.#access = [];
     this.#screen = [];
@@ -304,6 +364,7 @@ export class OutsideWatch {
     const screen = this.#screen;
     const preview = this.#preview;
     const mac = this.#mac ?? false;
+    const opened = this.#opened;
     this.#sink.put(OutsideWatch.key, () => ({
       type: "outside.state",
       access: access.map((request) => accessRow(request, preview)),
@@ -314,6 +375,9 @@ export class OutsideWatch {
         /** "Claude is using this Mac", one line per client. */
         line: screenUseSentence([use.name], thisMachineWords(mac)),
       })),
+      opened,
+      /** Said over a live connection; false after it drops, when nothing is known. */
+      live: this.#heard,
     }));
   }
 }

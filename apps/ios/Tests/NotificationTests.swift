@@ -490,3 +490,132 @@ private final class Session: ClientSession, @unchecked Sendable {
         return actions(type)[0]
     }
 }
+
+/// Outside apps' sign-ins (ADR 0117): the push payload, the words, the local alert while ace is in
+/// the background, and a tap that opens the sign-in sheet on its machine or says it ended.
+@Suite @MainActor struct AccessAlertTests {
+    @Test func aSignInPushDecodesAndAThreadAlertsPayloadIsNotMistakenForOne() throws {
+        let access = #"{"v":1,"hostId":"studio","access":{"requestId":"r1","clientName":"Claude","domain":"claude.ai","matchCode":"7KQ2XM","expiresAt":1800000000000}}"#
+        let decoded = try #require(AccessAlert.push(Data(access.utf8)))
+        #expect(decoded.hostId == "studio")
+        #expect(decoded.alert == AccessAlert(requestId: "r1", clientName: "Claude", domain: "claude.ai", matchCode: "7KQ2XM", expiresAt: 1_800_000_000_000))
+        let unverified = #"{"v":1,"hostId":"studio","access":{"requestId":"r1","clientName":"Bot","domain":null,"matchCode":"7KQ2XM","expiresAt":1}}"#
+        #expect(AccessAlert.push(Data(unverified.utf8))?.alert.domain == nil)
+        // The older, thread-shaped payload is a thread alert's business, never a sign-in.
+        let thread = #"{"v":1,"hostId":"studio","notification":{"id":"n:1","threadId":"t","title":"Fix","status":"needs_you","backgroundCount":0,"actions":[]}}"#
+        #expect(AccessAlert.push(Data(thread.utf8)) == nil)
+        // A later version, or one missing what it must say, is dropped: the generic text stays.
+        #expect(AccessAlert.push(Data(access.replacingOccurrences(of: #""v":1"#, with: #""v":2"#).utf8)) == nil)
+        #expect(AccessAlert.push(Data(access.replacingOccurrences(of: #""matchCode":"7KQ2XM""#, with: #""matchCode":"""#).utf8)) == nil)
+        #expect(AccessAlert.push(Data("not json".utf8)) == nil)
+    }
+
+    @Test func theAlertNamesWhoAsksTheMachineAndTheCodeToCompare() {
+        let verified = AccessAlert(requestId: "r1", clientName: "Claude", domain: "claude.ai", matchCode: "7KQ2XM", expiresAt: 1)
+        #expect(verified.words(machine: "studio") == ("Claude wants to sign in to studio", "Code 7KQ2XM · claude.ai"))
+        let unverified = AccessAlert(requestId: "r1", clientName: "Bot", domain: nil, matchCode: "7KQ2XM", expiresAt: 1)
+        #expect(unverified.words(machine: nil) == ("Bot wants to sign in to your computer", "Code 7KQ2XM · Unverified app"))
+    }
+
+    @Test func aSignInArrivingWhileAceIsInTheBackgroundAlertsOnceAndGoesWhenTheMachineStopsListingIt() async throws {
+        let (coordinator, center, session, _) = try await connected()
+        coordinator.scene(active: false)
+        session.patch(state(["r1"]))
+        try await until("the sign-in is alerted") { center.posted.count == 1 }
+        let posted = try #require(center.posted.first)
+        #expect(posted.identifier == "host|access:r1")
+        #expect((posted.title, posted.body) == ("Claude wants to sign in to studio", "Code 7KQ2XM · claude.ai"))
+        #expect(posted.access?.requestId == "r1")
+        // The machine says it again, and says nothing once the connection drops: no second alert,
+        // and a dropped connection withdraws nothing, since the request may still be waiting.
+        session.patch(state(["r1"]))
+        session.patch(state([], live: false))
+        session.patch(state(["r1"]))
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(center.posted.count == 1)
+        #expect(center.withdrawn.isEmpty)
+        // Answered, expired or cancelled: the machine stops listing it and the alert goes.
+        session.patch(state([]))
+        try await until("the ended sign-in is withdrawn") { center.withdrawn == ["host|access:r1"] }
+    }
+
+    @Test func aSignInArrivingWhileAceIsOpenPostsNothingBecauseTheSheetOpensItself() async throws {
+        let (_, center, session, model) = try await connected()
+        session.patch(state(["r1"]))
+        try await until("the sheet has it") { model.outside.asking?.requestId == "r1" }
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(center.posted.isEmpty)
+    }
+
+    @Test func tappingASignInAlertAsksItsMachineToOpenThatRequest() async throws {
+        let (coordinator, _, session, _) = try await connected()
+        var info = tapped.info
+        info[NotificationKeys.hostId] = "host"
+        await coordinator.respond(action: "com.apple.UNNotificationDefaultActionIdentifier", notificationId: "host|access:r2", info: info)
+        let open = try await session.waitFor("outside.open")
+        #expect(open["requestId"] as? String == "r2")
+        #expect(open["clientName"] as? String == "Claude")
+    }
+
+    @Test func aTapOnAColdLaunchWaitsForTheMachineToConnect() async throws {
+        let sessions = Sessions()
+        let coordinator = NotificationCoordinator(center: FakeCenter(), authorizer: FakeAuthorizer(), defaults: try defaults(), now: { 0 },
+                                                  sleep: fastSleep, connectInBackground: { _ in [] })
+        var info = tapped.info
+        info[NotificationKeys.hostId] = "host"
+        await coordinator.respond(action: "com.apple.UNNotificationDefaultActionIdentifier", notificationId: "host|access:r2", info: info)
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
+        await coordinator.attach(model, target: try target())
+        await model.connect(target: try target(), directory: URL(fileURLWithPath: "/unused"))
+        let session = try #require(sessions.values.first)
+        session.patch(#"{"type":"notifications.connected"}"#)
+        #expect(try await session.waitFor("outside.open")["requestId"] as? String == "r2")
+    }
+
+    @Test func theMachinesAnswerToATapOpensThatSheetFirstOrSaysItEndedOnce() async throws {
+        let (_, _, session, model) = try await connected()
+        session.patch(state(["r1", "r2"]))
+        try await until("both sign-ins arrive") { model.outside.access.count == 2 }
+        model.outside.setAside.insert("r2")
+        session.patch(state(["r1", "r2"], opened: #"{"n":1,"requestId":"r2","ended":null}"#))
+        try await until("the tapped sign-in shows first") { model.outside.asking?.requestId == "r2" }
+        session.patch(state(["r1"], opened: #"{"n":2,"requestId":"gone","ended":"Claude's sign-in request ended. Ask it to sign in again."}"#))
+        try await until("the ended sign-in is said") { model.outside.ended != nil }
+        model.outside.ended = nil
+        // The same answer again (a later state) isn't said twice.
+        session.patch(state(["r1"], opened: #"{"n":2,"requestId":"gone","ended":"Claude's sign-in request ended. Ask it to sign in again."}"#))
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(model.outside.ended == nil)
+        #expect(model.outside.asking?.requestId == "r1")
+    }
+
+    // MARK: Support
+
+    private let tapped = AccessAlert(requestId: "r2", clientName: "Claude", domain: "claude.ai", matchCode: "7KQ2XM", expiresAt: 1_800_000_000_000)
+    private func connected() async throws -> (NotificationCoordinator, FakeCenter, Session, ClientModel) {
+        let center = FakeCenter()
+        let sessions = Sessions()
+        let coordinator = NotificationCoordinator(center: center, authorizer: FakeAuthorizer(), defaults: try defaults(), now: { 0 },
+                                                  sleep: fastSleep, connectInBackground: { _ in [] })
+        coordinator.machineName = { $0 == "host" ? "studio" : nil }
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
+        await coordinator.attach(model, target: try target())
+        await model.connect(target: try target(), directory: URL(fileURLWithPath: "/unused"))
+        await coordinator.setEnabled(true)
+        let session = try #require(sessions.values.first)
+        session.patch(#"{"type":"connection","state":"ready"}"#)
+        try await until("the connection is ready") { model.connection == "ready" }
+        return (coordinator, center, session, model)
+    }
+    private func defaults() throws -> UserDefaults { try #require(UserDefaults(suiteName: "ace.tests.\(UUID().uuidString)")) }
+    private func target() throws -> ConnectionTarget {
+        ConnectionTarget(endpoint: try #require(URL(string: "ws://127.0.0.1:9841")), hostId: "host", deviceId: "phone", pin: nil, credential: { "{}" })
+    }
+    /// The bridge's `outside.state` with these sign-ins waiting.
+    private func state(_ ids: [String], live: Bool = true, opened: String = "null") -> String {
+        let access = ids.map { id in
+            #"{"requestId":"\#(id)","clientName":"Claude","domain":"claude.ai","verified":true,"matchCode":"7KQ2XM","expiresAt":1800000000000,"grantId":null,"choices":[],"expiries":[],"expiry":"month"}"#
+        }.joined(separator: ",")
+        return #"{"type":"outside.state","access":[\#(access)],"screen":[],"opened":\#(opened),"live":\#(live)}"#
+    }
+}
