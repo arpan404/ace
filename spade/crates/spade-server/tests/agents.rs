@@ -300,6 +300,7 @@ async fn the_roster_shows_a_running_turn_and_an_approval_wait() -> Result {
 
     let waiting = wait_until(&spade, &id, |a| a["state"] == "waiting").await?;
     assert_eq!(waiting["status"], "Waiting for you");
+    assert_eq!(waiting["waiting_for"], "approval");
     assert_eq!(waiting["working"], true);
     assert_eq!(
         waiting["last_message"]["text"], "Email Sam about lunch",
@@ -333,6 +334,7 @@ async fn the_roster_shows_a_running_turn_and_an_approval_wait() -> Result {
     );
     let idle = wait_until(&spade, &id, |a| a["state"] == "idle").await?;
     assert_eq!(idle["status"], Value::Null);
+    assert_eq!(idle["waiting_for"], Value::Null);
     assert_eq!(idle["working"], false);
     assert_eq!(
         (&idle["last_message"]["from"], &idle["last_message"]["text"]),

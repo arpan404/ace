@@ -74,7 +74,8 @@ All under `/v1`, with the bearer token; JSON; problems are `{"error": "<one line
 fields in a body are ignored. Times are integer milliseconds since the epoch.
 
 **Agent** = `{"id", "kind": "main"|"bot", "name", "task", "avatar", "model", "conversation",
-"created_at", "updated_at", "last_activity", "state", "working", "status", "last_message"}`
+"created_at", "updated_at", "last_activity", "state", "working", "waiting_for", "status",
+"last_message"}`
 
 - `avatar`: `{"kind":"image","sha256"}` (served by `GET /v1/images/{sha256}`),
   `{"kind":"generated","initials","color"}` with colour one of slate, red, orange, amber, green,
@@ -82,6 +83,9 @@ fields in a body are ignored. Times are integer milliseconds since the epoch.
 - `state`: `idle`, `working` (a reply is open or a background job runs) or `waiting` (an approval
   waits for the person). `working` is `state != "idle"`, kept for clients built on the first
   draft of this contract.
+- `waiting_for`: `"approval"` while `state` is `waiting`, else `null`. `"question"` is reserved
+  for when Spade has a tool that asks the person a question; none exists yet, so only approvals
+  wait today.
 - `status`: a few plain words while not idle (`Thinking`, `Searching the web`, `Reading a page`,
   `Asking Research`, `Waiting for you`, `Working in the background`, `Using <tool>`); never
   arguments; `null` when idle.
