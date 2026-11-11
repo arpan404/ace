@@ -14,7 +14,7 @@ import type { ClientApi } from "./api.ts";
  */
 
 /** What an exchange needs from the connection. */
-export type SpadeHttpOwner = Pick<ClientApi, "request" | "send">;
+export type SpadeHttpOwner = Pick<ClientApi, "request" | "send" | "onMessage">;
 
 export interface SpadeExchange {
   method: SpadeMethod;
@@ -58,17 +58,17 @@ export function spadeBodyParts(text: string, max: number, encoding: SpadeBodyEnc
 
 const isHighSurrogate = (code: number) => code >= 0xd800 && code <= 0xdbff;
 
-/** Let queued work run, so a request already handed to the client is on the socket first. */
+/** Let queued work run, so the socket drains a little between runs of parts. */
 const nextTask = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 /** Parts sent before letting the socket drain a little. */
 const partsPerTurn = 16;
 
 /**
- * Send one request and read its whole answer. A body over one message's room goes in parts
- * after the request (the daemon drops a part for a request it hasn't seen, so each part waits
- * until the request is out). A long answer's pieces are read in order; if the daemon no longer
- * holds them (`gone`), the request is sent once more.
+ * Send one request and read its whole answer. A body over one message's room goes in parts,
+ * sent once the daemon says the upload is open (`spade.http.open`); its result follows them. A
+ * refusal comes instead of the open, and then no part is sent. A long answer's pieces are read
+ * in order; if the daemon no longer holds them (`gone`), the request is sent once more.
  */
 export async function spadeExchange(
   client: SpadeHttpOwner,
@@ -110,6 +110,8 @@ async function attempt(
     ...(options.signal ? { signal: options.signal } : {}),
     ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
   };
+  // An upload's result arrives after the request resolved on its open: listen before asking.
+  const uploaded = parts ? uploadResult(client, requestId, options.signal) : undefined;
   const reply = client.request(
     {
       type: "spade.http",
@@ -121,13 +123,51 @@ async function attempt(
     },
     requestOptions,
   );
-  if (parts) {
-    // A refusal can arrive before every part is out; the reply says why either way.
-    const sent = sendParts(client, requestId, parts).catch(() => undefined);
-    const [result] = await Promise.all([reply, sent]);
-    return finish(client, requestId, result.result, requestOptions);
+  if (parts && uploaded) {
+    try {
+      const answer = await reply;
+      if (answer.type === "spade.http.result")
+        return finish(client, requestId, answer.result, requestOptions);
+      // The open: the daemon took the request and wants the body now. A refusal partway through
+      // ends the upload with a result; a part the socket can't take ends it here.
+      const lost = sendParts(client, requestId, parts).then(
+        () => new Promise<never>(() => {}),
+        () => ({
+          kind: "error" as const,
+          code: "failed" as const,
+          message: "The connection dropped while sending to Spade.",
+        }),
+      );
+      const result = await Promise.race([uploaded.result, lost]);
+      return finish(client, requestId, result, requestOptions);
+    } finally {
+      uploaded.stop();
+    }
   }
-  return finish(client, requestId, (await reply).result, requestOptions);
+  const answer = await reply;
+  if (answer.type !== "spade.http.result")
+    return { kind: "error", code: "failed", message: "The daemon opened an upload with no body." };
+  return finish(client, requestId, answer.result, requestOptions);
+}
+
+/** The `spade.http.result` that ends the upload `requestId`, however it arrives. */
+function uploadResult(client: SpadeHttpOwner, requestId: string, signal: AbortSignal | undefined) {
+  let stop = () => {};
+  const result = new Promise<SpadeHttpResult["result"]>((resolve, reject) => {
+    const unsubscribe = client.onMessage((message) => {
+      if (message.type === "spade.http.result" && message.requestId === requestId)
+        resolve(message.result);
+    });
+    const aborted = () => reject(signal?.reason ?? new Error("aborted"));
+    signal?.addEventListener("abort", aborted, { once: true });
+    stop = () => {
+      unsubscribe();
+      signal?.removeEventListener("abort", aborted);
+    };
+  });
+  // Unobserved until the open arrives; a refusal before it never reads this.
+  result.catch(() => {});
+  return { result, stop: () => stop() };
 }
 
 async function sendParts(client: SpadeHttpOwner, requestId: string, parts: readonly string[]) {

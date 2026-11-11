@@ -3,12 +3,18 @@ import { expect, test } from "vitest";
 import { spadeBodyParts, spadeExchange, type SpadeHttpOwner } from "./spade-http.ts";
 
 /**
- * A daemon's `spade.http` as the client sees it: parts for a request it has seen are joined in
- * order (a part for an unknown request is dropped, as the daemon drops it), and an answer longer
- * than one message is held in pieces for `spade.http.read`.
+ * A daemon's `spade.http` as the client sees it: an upload is answered `spade.http.open`, its
+ * parts are joined in order (a part for an unknown upload is dropped, as the daemon drops it) and
+ * its result comes as a later message; an answer longer than one message is held in pieces for
+ * `spade.http.read`.
  */
-function fakeDaemon(answer: (body: string) => string, opts: { forget?: number } = {}) {
+function fakeDaemon(
+  answer: (body: string) => string,
+  opts: { forget?: number; refuseUploads?: boolean } = {},
+) {
   const uploads = new Map<string, { parts: number; got: string[]; done(): void }>();
+  const listeners = new Set<(message: unknown) => void>();
+  let partsSeen = 0;
   const held = new Map<string, string[]>();
   let forget = opts.forget ?? 0;
   const received: string[] = [];
@@ -49,27 +55,37 @@ function fakeDaemon(answer: (body: string) => string, opts: { forget?: number } 
         };
       }
       if (typeof input.parts === "number") {
-        const parts = input.parts;
-        return new Promise((resolve) =>
-          uploads.set(requestId, {
-            parts,
-            got: [],
-            done() {
-              resolve(respond(requestId, this.got.join("")));
-            },
-          }),
-        );
+        if (opts.refuseUploads)
+          return {
+            type: "spade.http.result",
+            requestId,
+            result: { kind: "error", code: "limit", message: "Too many uploads." },
+          };
+        uploads.set(requestId, {
+          parts: input.parts,
+          got: [],
+          done() {
+            const result = respond(requestId, this.got.join(""));
+            for (const listener of listeners) listener(result);
+          },
+        });
+        return { type: "spade.http.open", requestId };
       }
       return respond(requestId, (input.body as string | undefined) ?? "");
     }) as unknown as SpadeHttpOwner["request"],
     send: ((message: { type: string; requestId: string; index: number; body: string }) => {
+      partsSeen++;
       const upload = uploads.get(message.requestId);
       if (!upload || message.index !== upload.got.length) return;
       upload.got.push(message.body);
       if (upload.got.length === upload.parts) upload.done();
     }) as SpadeHttpOwner["send"],
+    onMessage: ((listener: (message: unknown) => void) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    }) as SpadeHttpOwner["onMessage"],
   };
-  return { owner, received };
+  return { owner, received, partsSent: () => partsSeen };
 }
 
 let ids = 0;
@@ -118,4 +134,12 @@ test("parts join back to the body and never split a surrogate pair or a base64 q
   const pieces = spadeBodyParts(base64, 10, "base64");
   expect(pieces.join("")).toBe(base64);
   expect(pieces.slice(0, -1).every((piece) => piece.length % 4 === 0)).toBe(true);
+});
+
+test("an upload the daemon refuses sends no parts and says why", async () => {
+  const body = "A".repeat(2 * maxSpadeRequestBytes);
+  const daemon = fakeDaemon(() => "{}", { refuseUploads: true });
+  const answer = await spadeExchange(daemon.owner, { method: "POST", path: "/v1/x", body }, { id });
+  expect(answer).toEqual({ kind: "error", code: "limit", message: "Too many uploads." });
+  expect(daemon.partsSent()).toBe(0);
 });
