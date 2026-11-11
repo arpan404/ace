@@ -69,6 +69,10 @@ function oauthError(status: number, error: string, description: string): Respons
   );
 }
 
+function limited(): Response {
+  return new Response("Too many requests", { status: 429, headers: { "retry-after": "60" } });
+}
+
 export function outsideSurface(deps: SurfaceDeps) {
   const limits = {
     authorize: new RateLimit({ limit: callLimits.authorize, windowMs: 60_000, now: deps.now }),
@@ -87,8 +91,6 @@ export function outsideSurface(deps: SurfaceDeps) {
     const path = relativePath(request, base);
     const method = request.method;
     const caller = peer ? `${base.url} ${peer}` : base.url;
-    const limited = () =>
-      new Response("Too many requests", { status: 429, headers: { "retry-after": "60" } });
     const browserRegistration = path === "/register" && base.path === "local";
     if (path === "/mcp") {
       if (!originAllowed(request.headers.get("origin"), base))

@@ -8,6 +8,20 @@ import type { MetadataFetch } from "./cimd.ts";
 import { outsideOAuth } from "./service.ts";
 import { callLimits } from "./surface.ts";
 
+/** The MCP endpoint itself is out of scope here. */
+const mcp = async () => new Response(null, { status: 418 });
+/** Every client is a metadata document naming one web redirect. */
+const fetchMetadata: MetadataFetch = async (url) => ({
+  status: 200,
+  headers: new Headers(),
+  body: new TextEncoder().encode(
+    JSON.stringify({
+      client_id: url.href,
+      client_name: "App",
+      redirect_uris: ["https://app.example/cb"],
+    }),
+  ),
+});
 // The sign-in surface as one way in serves it, on a database in memory and a clock and timers
 // the test moves. Clients are metadata documents served by the fake fetch.
 function surface() {
@@ -39,17 +53,6 @@ function surface() {
     ended: () => {},
     closeBrowser: () => {},
   });
-  const fetchMetadata: MetadataFetch = async (url) => ({
-    status: 200,
-    headers: new Headers(),
-    body: new TextEncoder().encode(
-      JSON.stringify({
-        client_id: url.href,
-        client_name: "App",
-        redirect_uris: ["https://app.example/cb"],
-      }),
-    ),
-  });
   const serve = outsideOAuth({
     outside,
     sql,
@@ -59,7 +62,6 @@ function surface() {
     fetchMetadata,
     machine: () => "Studio",
   });
-  const mcp = async () => new Response(null, { status: 418 });
   const call = (base: OutsideBase, path: string, init?: RequestInit, peer?: string) =>
     serve(new Request(`${base.url}${path}`, init), base, mcp, peer);
   const authorize = (base: OutsideBase, client: string, peer?: string) =>

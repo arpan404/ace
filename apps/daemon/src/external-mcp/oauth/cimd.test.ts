@@ -106,8 +106,7 @@ test("a failed fetch is a problem the page can show, not a throw", async () => {
 });
 
 test("only a few documents are fetched at once, across clients", async () => {
-  let release = () => {};
-  const held = new Promise<void>((resolve) => (release = resolve));
+  const { promise: held, resolve: release } = Promise.withResolvers<void>();
   const fetched: string[] = [];
   const clients = new ClientMetadata({
     now: () => 0,

@@ -26,6 +26,9 @@ function privateV4([a = 0, b = 0]: number[]): boolean {
   );
 }
 
+function hexGroups(half: string | undefined): number[] {
+  return half ? half.split(":").map((group) => Number.parseInt(group, 16)) : [];
+}
 /** An IPv6 address as its eight 16-bit groups, embedded dotted IPv4 included. */
 function groups(address: string): number[] | undefined {
   let text = address.toLowerCase().replace(/%.*$/, "");
@@ -38,10 +41,8 @@ function groups(address: string): number[] | undefined {
   }
   const halves = text.split("::");
   if (halves.length > 2) return undefined;
-  const read = (half: string | undefined) =>
-    half ? half.split(":").map((group) => Number.parseInt(group, 16)) : [];
-  const head = read(halves[0]);
-  const tail = read(halves[1]);
+  const head = hexGroups(halves[0]);
+  const tail = hexGroups(halves[1]);
   const missing = 8 - head.length - tail.length;
   if (halves.length === 1 ? missing !== 0 : missing < 0) return undefined;
   const all = [...head, ...Array<number>(Math.max(0, missing)).fill(0), ...tail];

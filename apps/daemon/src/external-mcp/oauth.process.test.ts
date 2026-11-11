@@ -247,9 +247,9 @@ test("a call outside the grant gets 403 insufficient_scope, and signing in again
   expect(header).toContain('scope="threads:start"');
   expect(header).toContain(`resource_metadata="${base}/.well-known/oauth-protected-resource/mcp"`);
   const liveGrants = async () => {
-    const listed = await setup.admin({ op: "grants" });
-    if (listed.kind !== "grants") throw new Error("No grants");
-    return listed.grants.filter((grant) => grant.clientId === clientId && grant.revokedAt === null);
+    const all = await setup.admin({ op: "grants" });
+    if (all.kind !== "grants") throw new Error("No grants");
+    return all.grants.filter((grant) => grant.clientId === clientId && grant.revokedAt === null);
   };
   const before = await liveGrants();
   const stepped = await signIn("threads:read threads:start", ["threads:read", "threads:start"]);

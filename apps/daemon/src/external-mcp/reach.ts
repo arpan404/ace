@@ -47,7 +47,7 @@ export function publicOrigin(value: string): string | null {
   }
 }
 /** Whether a proxy says it forwarded the request (RFC 7239, or the X-Forwarded-* family). */
-function forwarded(headers: Headers): boolean {
+function proxied(headers: Headers): boolean {
   for (const name of headers.keys())
     if (name === "forwarded" || name.startsWith("x-forwarded-")) return true;
   return false;
@@ -66,7 +66,7 @@ export function loopbackBase(
   const named = headers.get("host")?.toLowerCase();
   if (!named) return undefined;
   if (custom && named === new URL(custom).host) return outsideBase("custom", custom);
-  if (forwarded(headers)) return undefined;
+  if (proxied(headers)) return undefined;
   if ([`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`].includes(named))
     return outsideBase("local", `http://${named}`);
   return undefined;
