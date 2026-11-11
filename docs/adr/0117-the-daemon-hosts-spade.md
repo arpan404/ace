@@ -132,10 +132,13 @@ Schema-only in `@ace/protocol` (`spade.ts`), served by the daemon's `spade` sock
 - `spade.status` → `spade.status.result` `{status: {state, version?, reason?}}`, `state` one of
   `off`, `starting`, `ready`, `failed`. After asking, that socket receives `spade.status.changed`
   on every change. Needs read; a device without it is told Spade is off.
-- `spade.http` `{requestId, method, path, body?}` → `spade.http.result` with
-  `result: {kind: "response", status, body}` or `{kind: "error", code, message}`. `GET` needs
-  read; `POST`, `PUT`, `PATCH` and `DELETE` need operate. The daemon adds Spade's token and passes
-  the body through as text.
+- `spade.http` `{requestId, method, path, body?, encoding?, contentType?, parts?}`, plus
+  `spade.http.part` `{requestId, index, body}` when `parts` is set → `spade.http.result` with
+  `result: {kind: "response", status, body, encoding, contentType?, parts?}` or
+  `{kind: "error", code, message}`; the pieces of a long answer are read with `spade.http.read`
+  `{requestId, index}` → `spade.http.chunk` `{requestId, index, body, gone?}`. `GET` needs read;
+  `POST`, `PUT`, `PATCH` and `DELETE` need operate. The daemon adds Spade's token and passes the
+  body through as bytes.
 - `spade.live.subscribe` `{requestId, path}` opens one of Spade's server-sent event streams;
   each event arrives as `spade.live.frame` `{requestId, event, data}` with `data` as Spade wrote
   it. `spade.live.ended` `{requestId, reason, status?}` closes it: `restarted` when the daemon
@@ -150,9 +153,18 @@ Rules the daemon enforces before anything reaches Spade:
 - **Paths.** Only `/v1/...` with an optional query: no dot segments, empty segments, fragments,
   backslashes, whitespace, encoded `.`, `/`, `\` or NUL, or broken escapes. Live paths must end in
   `/live`. So no client reaches `/health` or anything outside the API.
-- **Sizes.** Request bodies at most 512 KiB, so a request fits the daemon's 1 MiB inbound frame;
-  response bodies and each live event at most 1 MiB. A larger answer is `too_large`, never cut.
-- **Time.** A `spade.http` request gives up after 60 s with `failed`.
+- **Bodies.** Bytes pass through, written as text (UTF-8) or base64 (`encoding`), with a
+  `contentType`. Answers come back as text when Spade's content type is textual, else as base64.
+- **Sizes.** An inline request body is at most 512 KiB, so it fits the daemon's 1 MiB inbound
+  frame. A larger one comes in `spade.http.part`s of 192 Ki characters, which fit the relay's
+  256 KiB client messages; the daemon streams them to Spade with chunked transfer, never
+  gathering the body. A new conversation or a message takes 56 MiB (8 images of 5 MiB as
+  base64), every other route 512 KiB. An answer is at most 1 MiB, or 5 MiB from
+  `/v1/images/...`. An answer over 768 Ki characters is read in pieces with `spade.http.read`,
+  so no reply comes near the outbox's 2 MiB frame and 4 MiB queue caps. The client pulls each
+  piece, as with `files.pull`.
+- **Time.** A `spade.http` request gives up 60 s after its body is sent with `failed`, and an
+  upload 60 s after its last part arrived.
 
 ## Consequences
 

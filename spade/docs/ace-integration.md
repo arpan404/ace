@@ -46,11 +46,33 @@ New request family in `@ace/protocol`, served by the daemon:
 - `spade.status` → `spade.status.result` `{status: {state: "off" | "starting" | "ready" |
 "failed", version?, reason?}}`; afterwards that socket gets `spade.status.changed` on every
   change.
-- `spade.http` `{requestId, method, path, body?}` → `spade.http.result` with `result`
-  `{kind: "response", status, body}` or `{kind: "error", code, message}` (`forbidden`,
-  `invalid_path`, `unavailable`, `too_large`, `failed`). The daemon forwards it to Spade's HTTP
-  API with Spade's token. `path` must start with `/v1/`; `GET` needs the device read scope, every
-  other method needs operate. Bodies are text both ways.
+- `spade.http` `{requestId, method, path, body?, encoding?, contentType?, parts?}` →
+  `spade.http.result` with `result` `{kind: "response", status, body, encoding, contentType?,
+parts?}` or `{kind: "error", code, message}` (`forbidden`, `invalid_path`, `unavailable`,
+  `too_large`, `invalid_body`, `limit`, `failed`). The daemon forwards it to Spade's HTTP API
+  with Spade's token. `path` must start with `/v1/`; `GET` needs the device read scope, every
+  other method needs operate. Bodies pass through as bytes:
+  - **Encoding.** `encoding` is `"text"` (UTF-8, the default) or `"base64"` (bytes), for the
+    request body and every part. `contentType` is sent as `content-type`, `application/json` by
+    default.
+  - **Large requests.** With `parts: N` (up to 1024) the request has no `body`; it follows in
+    `spade.http.part` `{requestId, index, body}` messages, `index` 0 to N - 1 in order, each at
+    most 192 Ki characters. A base64 part other than the last holds a multiple of 4 characters,
+    and a text part never splits a surrogate pair. The daemon streams the parts to Spade as they
+    arrive, with chunked transfer. A part out of order or bad base64 ends the request with
+    `invalid_body`; 60 s without the next part ends it with `failed`.
+  - **Request caps.** `POST /v1/conversations` and `POST /v1/conversations/{id}/messages` take up
+    to 56 MiB, room for 8 images of 5 MiB as base64 in JSON. Every other route takes 512 KiB. A
+    larger body is refused with `too_large` before Spade sees it.
+  - **Answers.** JSON and `text/*` answers come back as `encoding: "text"`; anything else (an
+    image) as `encoding: "base64"` with Spade's `contentType`. `GET /v1/images/{sha256}` may
+    answer up to 5 MiB; every other route 1 MiB.
+  - **Long answers.** An answer longer than 768 Ki characters comes in pieces. `result.body` is
+    the first and `result.parts` the count; the client asks for each further piece with
+    `spade.http.read` `{requestId, index}` (1 to parts - 1). The daemon answers each with
+    `spade.http.chunk` `{requestId, index, body}`, and the whole body is the pieces joined in
+    order. The daemon holds the pieces 60 s and lets them go once the last is read; a chunk with
+    `gone: true` means they were let go, so send the request again.
 - `spade.live.subscribe` `{requestId, path}` (a `/v1/.../live?after=N` path) → `spade.live.frame`
   `{requestId, event, data}` for each server-sent event, and `spade.live.ended`
   `{requestId, reason, status?}` when the stream closes (`restarted`, `closed`, `unsubscribed`,
@@ -58,8 +80,8 @@ New request family in `@ace/protocol`, served by the daemon:
   resubscribes with its last `seq`. `spade.live.unsubscribe` `{requestId}` ends it.
 
 The daemon passes bodies through without interpreting them; Spade owns their schemas (see
-[chat-core.md](chat-core.md)). Request bodies are capped at 512 KiB; response bodies and each live
-event at 1 MiB. ADR 0117 records the daemon side.
+[chat-core.md](chat-core.md)). Caps are per route, as above; each live event is at most 1 MiB.
+ADR 0117 records the daemon side.
 
 ## Spade uses ace's tools through the daemon
 
