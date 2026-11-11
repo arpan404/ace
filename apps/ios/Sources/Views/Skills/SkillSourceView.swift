@@ -9,7 +9,11 @@ struct SkillSourceView: View {
     @State private var source = ""
     @State private var original = ""
     @State private var hash: String?
+    /// The source read's last failure, with Retry where the source would be.
     @State private var problem: String?
+    /// A failed switch. Its own sentence beside the switches, with no Retry: the switch itself
+    /// repeats the change.
+    @State private var actionProblem: String?
     @State private var editing = false
     @State private var loading = false
     @State private var enabled: Bool?
@@ -39,9 +43,12 @@ struct SkillSourceView: View {
                         }
                     }
                 }
+                if let actionProblem {
+                    QuietProblem(message: actionProblem, id: "plugin.source.action.problem")
+                }
                 if loading { SkeletonRows(count: 4, label: "Reading source") }
                 if let problem {
-                    QuietProblem(message: problem) { Task { await read() } }
+                    QuietProblem(message: problem, id: "plugin.source.problem") { Task { await read() } }
                 }
                 if hash != nil {
                     if editing {
@@ -82,10 +89,11 @@ struct SkillSourceView: View {
     }
     private func availability(enabled: Bool, providers: [String]) {
         Task {
+            actionProblem = nil
             do {
                 _ = try await model.plugin(["type": "plugins.skillAvailability", "plugin": component.plugin, "name": component.name, "enabled": enabled, "providers": providers], expecting: "plugins.skillAvailability")
-                self.enabled = enabled; self.providers = providers; problem = nil
-            } catch { problem = error.localizedDescription }
+                self.enabled = enabled; self.providers = providers; actionProblem = nil
+            } catch { actionProblem = error.localizedDescription }
         }
     }
     private func read() async {
