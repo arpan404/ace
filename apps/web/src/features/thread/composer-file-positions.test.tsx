@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { createHash } from "node:crypto";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
-import { editorText } from "./composer/editor-dom.ts";
+import { editorText, insertEditorText } from "./composer/editor-dom.ts";
 
 configure({ asyncUtilTimeout: 10000 });
 
@@ -232,4 +232,29 @@ test("Tab on an item that can't nest leaves the composer as Tab always does", as
   // Not taken: the browser moves focus on.
   expect(fireEvent.keyDown(message, { key: "Tab" })).toBe(true);
   expect(fireEvent.keyDown(message, { key: "Tab", shiftKey: true })).toBe(true);
+});
+
+test("a file pasted right after typing goes after the typed words, which stay", async () => {
+  const { message, commands } = await openComposer();
+  // Typed, then pasted at once: the composer hasn't drawn the typing yet.
+  insertEditorText(message, "look at this: ");
+  pasteText(message, Array.from({ length: 455 }, (_, line) => `line ${line}`).join("\n"));
+  await uploaded();
+  await waitFor(() =>
+    expect(editorText(message)).toBe(`look at this: ${String.fromCharCode(0xfffc)}`),
+  );
+  expect(within(message).getByLabelText("Pasted 455 lines.txt")).toBeTruthy();
+  fireEvent.keyDown(message, { key: "Enter" });
+  await waitFor(() => expect(sent(commands).context?.attachments?.[0]?.at).toBe(14));
+  expect(sent(commands).input).toEqual([{ type: "text", text: "look at this: " }]);
+});
+
+test("a file dropped right after typing goes after the typed words, which stay", async () => {
+  const { message } = await openComposer();
+  insertEditorText(message, "see ");
+  fireEvent.drop(message, {
+    dataTransfer: { files: [screenshot()], items: [], types: ["Files"], getData: () => "" },
+  });
+  await uploaded();
+  await waitFor(() => expect(editorText(message)).toBe(`see ${String.fromCharCode(0xfffc)}`));
 });

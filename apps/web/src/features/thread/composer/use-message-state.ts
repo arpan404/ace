@@ -56,7 +56,15 @@ export function useMessageState(
   "use no memo";
   const [text, setText] = useState(initial.text);
   const [tokens, setTokens] = useState<readonly ComposerToken[]>(initial.tokens ?? []);
-  const [caret, setCaret] = useState(initial.text.length);
+  const [caret, setShownCaret] = useState(initial.text.length);
+  // The message as of the last change, ahead of the next render: two events in one task (typing,
+  // then a paste that adds a file) each build on what the one before left, never on the words
+  // the last render saw.
+  const live = useRef<EditSnapshot>({ text, tokens, caret });
+  const setCaret = (at: number) => {
+    live.current = { ...live.current, caret: at };
+    setShownCaret(at);
+  };
   const [picked, setPicked] = useState<ReadonlySet<string>>(() => new Set(initial.mentions));
   const history = useRef<EditHistory>(emptyHistory);
   // Where to put the selection once a composer edit has rendered.
@@ -69,14 +77,16 @@ export function useMessageState(
     placeSelection.current = undefined;
   });
   const show = (next: EditSnapshot) => {
+    live.current = next;
     setTokens(next.tokens);
     setText(next.text);
-    setCaret(next.caret);
+    setShownCaret(next.caret);
   };
   const record = (next: EditSnapshot) => {
-    history.current = recordEdit(history.current, { text, tokens, caret }, next);
+    const before = live.current;
+    history.current = recordEdit(history.current, before, next);
     show(next);
-    const gone = goneMarkers(tokens, next.tokens);
+    const gone = goneMarkers(before.tokens, next.tokens);
     if (gone.length) onMarkersGone(gone);
   };
   /** Replace the whole message (another window's draft, a cleared composer): history restarts. */
@@ -88,7 +98,7 @@ export function useMessageState(
   const edit = (next: ComposerEdit) => {
     record({
       text: next.text,
-      tokens: next.tokens ?? editComposerTokens(text, next.text, tokens),
+      tokens: next.tokens ?? editComposerTokens(live.current.text, next.text, live.current.tokens),
       caret: next.caret,
     });
     placeSelection.current = { start: next.caret, end: next.caret };
@@ -107,13 +117,14 @@ export function useMessageState(
     if (!range) return false;
     const changed = made(range);
     if (!changed) return false;
-    const after = applyTextChange(text, tokens, changed);
-    if (after.text !== text)
-      record({ text: after.text, tokens: after.tokens, caret: after.selection.end });
+    const was = live.current;
+    const after = applyTextChange(was.text, was.tokens, changed);
+    const same = after.text === was.text;
+    if (!same) record({ text: after.text, tokens: after.tokens, caret: after.selection.end });
     else setCaret(after.selection.end);
     placeSelection.current = after.selection;
     // Nothing to draw again: put the selection back now.
-    if (after.text === text && input.current)
+    if (same && input.current)
       placeEditorSelection(input.current, after.selection.start, after.selection.end);
     return true;
   };
@@ -136,7 +147,11 @@ export function useMessageState(
       next: string,
       at: number,
       composing = false,
-      shown: readonly ComposerToken[] = editComposerTokens(text, next, tokens),
+      shown: readonly ComposerToken[] = editComposerTokens(
+        live.current.text,
+        next,
+        live.current.tokens,
+      ),
     ) => {
       // A marker character with no file (a dropped copy of a chip) stands for nothing: it goes.
       const strays = strayMarkerEdits(next, shown);
@@ -144,12 +159,12 @@ export function useMessageState(
       const typed = strays.length ? mapTextTokens(shown, strays) : shown;
       const caretAt = strays.length ? mapTextOffset(at, strays) : at;
       // Numbers count again only where a list item was added or taken away.
-      const listed = composing ? undefined : typedListChange(text, words);
+      const listed = composing ? undefined : typedListChange(live.current.text, words);
       const numbers = listed ? renumberEdits(words, new Set(), listed) : [];
       // A space typed at the end of bold words is written after their marks (bold can't end in
       // a space), so the next words typed there carry the bold on, as in a document.
       const spaced =
-        words.length === text.length + 1 &&
+        words.length === live.current.text.length + 1 &&
         /\s/.test(words[caretAt - 1] ?? "") &&
         boldEndsAt(words, typed, caretAt - 1) &&
         !boldAt(words, typed, caretAt);
@@ -173,7 +188,7 @@ export function useMessageState(
     newline: () => {
       const range = input.current && editorSelection(input.current);
       if (!range) return;
-      commit(breakLine(text, tokens, range));
+      commit(breakLine(live.current.text, live.current.tokens, range));
       input.current?.focus();
     },
     /**
@@ -183,11 +198,12 @@ export function useMessageState(
     bold: () => {
       const range = input.current && editorSelection(input.current);
       if (!range) return;
-      if (range.start !== range.end) return void change(() => toggleBold(text, range, tokens));
+      if (range.start !== range.end)
+        return void change(() => toggleBold(live.current.text, range, live.current.tokens));
       const now =
         pending.current?.at === range.start
           ? pending.current.bold
-          : boldAt(text, tokens, range.start);
+          : boldAt(live.current.text, live.current.tokens, range.start);
       pending.current = { at: range.start, bold: !now };
     },
     /** Words about to be typed: put in bold or plain as ⌘B asked; false to let the browser type. */
@@ -198,11 +214,17 @@ export function useMessageState(
         pending.current = undefined;
         return false;
       }
-      if (wanted.bold === boldAt(text, tokens, range.start)) {
+      if (wanted.bold === boldAt(live.current.text, live.current.tokens, range.start)) {
         pending.current = undefined;
         return false;
       }
-      const edited = typeStyled(text, tokens, range.start, typed, wanted.bold);
+      const edited = typeStyled(
+        live.current.text,
+        live.current.tokens,
+        range.start,
+        typed,
+        wanted.bold,
+      );
       commit(edited);
       // Spaces alone don't settle it: the words after them are still what ⌘B asked.
       pending.current = typed.trim() ? undefined : { at: edited.caret, bold: wanted.bold };
@@ -212,20 +234,21 @@ export function useMessageState(
     backspace: (): boolean => {
       const line = input.current ? editorLineStart(input.current) : undefined;
       if (line === undefined) return false;
-      const cleared = clearLineStyle(text, tokens, line);
+      const cleared = clearLineStyle(live.current.text, live.current.tokens, line);
       if (!cleared) return false;
       commit(cleared);
       return true;
     },
     /** Tab or Shift+Tab: false outside a list, where the key keeps its usual meaning. */
-    indent: (outdent: boolean) => change((range) => indentList(text, range, outdent)),
+    indent: (outdent: boolean) => change((range) => indentList(live.current.text, range, outdent)),
     /** Mark where files were added: at the caret, or where it last was. */
     markFiles: (files: readonly { key: number; name: string }[]) => {
       if (!files.length) return;
       const focused =
         !!input.current && input.current.ownerDocument.activeElement === input.current;
-      const at = focused && input.current ? editorSelection(input.current).start : caret;
-      const marked = insertAttachmentMarkers(text, tokens, at, files);
+      const at =
+        focused && input.current ? editorSelection(input.current).start : live.current.caret;
+      const marked = insertAttachmentMarkers(live.current.text, live.current.tokens, at, files);
       // A step of its own to undo, never part of the word being typed.
       history.current = { ...history.current, run: undefined };
       record({ text: marked.text, tokens: marked.tokens, caret: marked.caret });
@@ -234,9 +257,9 @@ export function useMessageState(
     },
     /** Take out the markers of files no longer attached; not a step of its own to undo. */
     prune: (attached: ReadonlySet<number>) => {
-      const kept = pruneAttachmentMarkers(text, tokens, attached);
-      if (kept.tokens === tokens) return;
-      const at = Math.min(caret, kept.text.length);
+      const kept = pruneAttachmentMarkers(live.current.text, live.current.tokens, attached);
+      if (kept.tokens === live.current.tokens) return;
+      const at = Math.min(live.current.caret, kept.text.length);
       show({ text: kept.text, tokens: kept.tokens, caret: at });
       if (input.current?.ownerDocument.activeElement === input.current)
         placeSelection.current = { start: at, end: at };
@@ -253,13 +276,15 @@ export function useMessageState(
       };
       // Undo and redo find the same marker under the copy's key.
       history.current = mapHistoryTokens(history.current, renamed);
-      const next = renamed(tokens);
-      if (next !== tokens) setTokens(next);
+      const next = renamed(live.current.tokens);
+      if (next === live.current.tokens) return;
+      live.current = { ...live.current, tokens: next };
+      setTokens(next);
     },
     /** Undo or redo; the snapshot shown, or undefined when there was nothing to step to. */
     step: (direction: "undo" | "redo"): EditSnapshot | undefined => {
       const walk = direction === "undo" ? undoEdit : redoEdit;
-      const taken = walk(history.current, { text, tokens, caret });
+      const taken = walk(history.current, live.current);
       if (!taken) return undefined;
       history.current = taken.history;
       show(taken.snapshot);
