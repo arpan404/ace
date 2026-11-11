@@ -40,7 +40,13 @@ export function PrPeople(props: {
   const reviewerPicker =
     props.extensions?.reviewers?.(props.context) ??
     (props.onRequestReview && (
-      <Button variant="ghost" size="xs" disabled={disabled} onClick={props.onRequestReview}>
+      <Button
+        variant="ghost"
+        size="xs"
+        aria-label="Request review"
+        disabled={disabled}
+        onClick={props.onRequestReview}
+      >
         Request
       </Button>
     ));
