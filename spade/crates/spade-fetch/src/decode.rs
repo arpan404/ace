@@ -1,8 +1,9 @@
 //! Bytes to text in the page's own character encoding. Pure.
 //!
 //! The encoding is the first of: a byte order mark, the `charset` of the `Content-Type` header,
-//! for HTML a `<meta charset>` (or `http-equiv` content type) in the first 1024 bytes, and
-//! UTF-8. Bytes that do not decode become U+FFFD.
+//! for HTML a `<meta charset>` (or `http-equiv` content type) in the first 1024 bytes, then
+//! UTF-8 if the bytes are valid UTF-8 and windows-1252 if not. Bytes a declared encoding cannot
+//! decode become U+FFFD.
 
 use encoding_rs::{Encoding, UTF_8};
 
@@ -17,7 +18,15 @@ pub fn decode(bytes: &[u8], charset: Option<&str>, html: bool) -> String {
         html.then(|| meta_charset(&bytes[..bytes.len().min(META_PREFIX)]))
             .flatten()
     };
-    let encoding = declared.or_else(sniffed).unwrap_or(UTF_8);
+    // Old pages often declare nothing and are not UTF-8; those read best as windows-1252.
+    let fallback = || {
+        if std::str::from_utf8(bytes).is_ok() || Encoding::for_bom(bytes).is_some() {
+            UTF_8
+        } else {
+            encoding_rs::WINDOWS_1252
+        }
+    };
+    let encoding = declared.or_else(sniffed).unwrap_or_else(fallback);
     // `decode` lets a byte order mark override the choice and strips it.
     let (text, _, _) = encoding.decode(bytes);
     text.into_owned()

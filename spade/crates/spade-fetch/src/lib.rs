@@ -17,6 +17,8 @@
 //! - Reading the routing table runs `netstat` or `netsh` outside Linux. It is killed after two
 //!   seconds, which then refuses the fetch, but that wait is not cut short by the fetch's own
 //!   deadline.
+//! - Elements with `hidden="until-found"` are dropped like other hidden elements, and text a
+//!   malformed page puts inside `<head>` is not read.
 
 pub mod decode;
 pub mod extract;
