@@ -91,7 +91,7 @@ struct BrowserBar: View {
     private func barButton(_ label: String, _ icon: AceIcon.Name, enabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             AceIcon(icon, size: AceDesign.Size.barIcon, relativeTo: .subheadline)
-                .frame(width: AceDesign.Size.tap - AceDesign.Space.tight, height: AceDesign.Size.tap)
+                .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

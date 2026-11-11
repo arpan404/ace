@@ -70,7 +70,7 @@ struct AgentTreePage: View {
                 .accessibilityIdentifier("agents.summary")
             if model.canOperate && sheet.treeRunning {
                 Button(stop.saving ? "Stopping…" : "Stop all") { request(.tree(agents: sheet.totals.agents)) }
-                    .buttonStyle(StripTextButtonStyle())
+                    .buttonStyle(.textAction())
                     .disabled(stop.saving)
                     .padding(.trailing, -AceDesign.Space.related)
                     .accessibilityIdentifier("agents.stopAll")

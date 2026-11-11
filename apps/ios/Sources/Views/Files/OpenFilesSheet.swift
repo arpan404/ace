@@ -49,11 +49,11 @@ struct OpenFilesSheet: View {
                             HStack(spacing: AceTheme.Spacing.md) {
                                 Button { pick(path) } label: { row(path) }.buttonStyle(.plain)
                                 Button("Close") { model.fileClosed(scope, path) }
-                                    .buttonStyle(.plain).foregroundStyle(AceTheme.Colours.mutedForeground)
+                                    .buttonStyle(.textAction())
                                     .frame(minHeight: AceDesign.Size.tap)
                                     .accessibilityIdentifier("files.close.\(path)")
                             }
-                            .listRowSeparator(.hidden)
+                            .listRowSeparatorTint(AceTheme.Colours.separator)
                             .swipeActions { Button("Close") { model.fileClosed(scope, path) } }
                             .contextMenu {
                                 Button("Close others", systemImage: "xmark.square") {
@@ -68,7 +68,7 @@ struct OpenFilesSheet: View {
                     Section("Recent") {
                         ForEach(recent, id: \.self) { path in
                             Button { pick(path) } label: { row(path) }.buttonStyle(.plain)
-                                .listRowSeparator(.hidden)
+                                .listRowSeparatorTint(AceTheme.Colours.separator)
                         }
                     }
                 }

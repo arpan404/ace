@@ -29,7 +29,7 @@ struct RecentlyDeletedView: View {
                     }
                     Spacer(minLength: AceTheme.Spacing.sm)
                     Button(busy == entry.id ? "Restoring…" : "Restore") { restore(entry) }
-                        .buttonStyle(.borderless).disabled(busy != nil || !model.canOperate)
+                        .buttonStyle(.textAction()).disabled(busy != nil || !model.canOperate)
                         .accessibilityIdentifier("trash.restore.\(entry.path)")
                 }
                 .frame(minHeight: AceDesign.Size.rowDetail)

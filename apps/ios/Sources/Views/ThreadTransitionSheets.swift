@@ -129,7 +129,7 @@ private struct RenameSheet: View {
                         .transition(.opacity)
                 }
                 Button("Name from first message") { run(retitle) }
-                    .buttonStyle(StripTextButtonStyle())
+                    .buttonStyle(.textAction())
                     .disabled(sending)
                     .accessibilityIdentifier("rename.retitle")
                 Spacer(minLength: AceTheme.Spacing.none)
@@ -226,7 +226,7 @@ private struct TurnsSheet: View {
                         .padding(.vertical, AceDesign.Space.tight)
                         .contentShape(Rectangle())
                     }
-                    .buttonStyle(RowPressStyle())
+                    .buttonStyle(.plain)
                     .listRowSeparator(.hidden)
                     .listRowBackground(AceTheme.Colours.background)
                     .accessibilityIdentifier("turn.\(turn.ordinal)")
