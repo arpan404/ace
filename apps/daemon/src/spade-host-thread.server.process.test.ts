@@ -120,6 +120,9 @@ test("Spade acts as its own hidden host thread: the full agent tool set, delegat
       "tools_find",
     ])
       expect(names).toContain(tool);
+    // Nothing that waits on the person inside the hidden host thread.
+    expect(names).not.toContain("ask");
+    expect(names).not.toContain("browser_request_help");
     for (const tool of tools) {
       expect(typeof tool.annotations?.readOnlyHint).toBe("boolean");
       expect(typeof tool.annotations?.destructiveHint).toBe("boolean");
