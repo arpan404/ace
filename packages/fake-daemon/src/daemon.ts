@@ -1,5 +1,6 @@
 import type { PlaceInput } from "@ace/ui-core/thread-place";
 import { FakeComputerAccess } from "./computer-access.ts";
+import { FakeOutsideClients } from "./outside-clients.ts";
 import { fakeRemoteStatus } from "./remote-status.ts";
 import { projectIntent } from "./project-intents.ts";
 import { fakeGoalUpdate } from "./goal-commands.ts";
@@ -168,8 +169,16 @@ export class FakeDaemon implements Host {
   readonly transfers: FakeTransfers;
   /** Locked computer use and Use my Chrome (`computer-access.ts`). */
   readonly computerAccess = new FakeComputerAccess();
+  /** Outside MCP clients' grants and sign-ins (`outside-clients.ts`), for administrators. */
+  readonly outside: FakeOutsideClients;
   constructor(options: FakeDaemonOptions) {
     this.options = options;
+    this.outside = new FakeOutsideClients(
+      () => options.clock(),
+      (device) =>
+        options.deviceScopes === undefined ||
+        options.deviceScopes[device]?.includes("admin") === true,
+    );
     this.worktreeCreations = new FakeWorktreeCreations(
       options.clock,
       options.worktreeCreationSchedule ??
@@ -911,6 +920,7 @@ export class FakeDaemon implements Host {
     }
     if (this.transfers.handle(message, connection.push)) return true;
     if (this.computerAccess.handle(message, connection.push)) return true;
+    if (this.outside.handle(message, connection.push, connection.deviceId)) return true;
     return this.services.handle(message, connection.push, connection.deviceId);
   }
   /** Link this machine to `other` so it can send work there (`FakeTransfers.link`). */
@@ -920,6 +930,7 @@ export class FakeDaemon implements Host {
   release(connection: Connection): void {
     this.connections.delete(connection);
     this.services.release(connection.push);
+    this.outside.release(connection.push);
   }
   /** Scripted metadata changes use the same event stream as command effects. */
   updateThread(

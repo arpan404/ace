@@ -14,6 +14,7 @@ import {
   settledSummary,
   systemInput,
   treeWaiting,
+  startedByClientLine,
 } from "@ace/ui-core";
 import { host } from "./host.ts";
 
@@ -86,6 +87,8 @@ export function threadRow(thread: Thread | ThreadListEntry) {
     archivedAt: thread.archivedAt ?? null,
     updatedAt: thread.updatedAt,
     canSteer: thread.capabilities?.steer ?? false,
+    /** "Started by Claude" when an outside app started the thread (ADR 0117). */
+    startedBy: thread.startedByClient ? preview(startedByClientLine(thread.startedByClient)) : null,
     /** The pull request the thread's card names ("#1188"), with its state, for the inbox. */
     pr: card.pr === undefined ? null : { number: card.pr, state: card.prState ?? "open" },
     /** When the shown Working or Waiting began while the tree works, for the row's time. */

@@ -55,6 +55,7 @@ import { followDismissed } from "./dismissed-sends.ts";
 import { BrowserLive } from "./browser-live.ts";
 import { nativeChunks, Picked } from "./thread-attachments.ts";
 import { ComputerAccess, ComputerAccessControl } from "./computer-access.ts";
+import { OutsideWatch } from "./outside-clients.ts";
 import { DeviceStats, DeviceStatsControl } from "./device-stats.ts";
 import { NativeDevices, NativeDeviceControl } from "./native-devices.ts";
 import { NativeScreen, NativeScreenControl } from "./native-screen.ts";
@@ -144,6 +145,8 @@ let screen: NativeScreen | undefined;
 let transfers: NativeTransfers | undefined;
 let filesActions: FilesActions | undefined;
 let access: ComputerAccess | undefined;
+/** Outside apps' pending sign-ins and screen use on this machine (`outside-clients.ts`). */
+let outside: OutsideWatch | undefined;
 let workspace: NativeWorkspace | undefined;
 const pump = new PatchPump();
 const deviceStats = new DeviceStats(pump);
@@ -315,6 +318,9 @@ async function start(json: string): Promise<void> {
   );
   needs?.stop();
   needs = followNeeds(client, pump);
+  outside?.stop();
+  outside = new OutsideWatch(client, pump, preview);
+  outside.start();
   // Each project's mark, sent once and referenced by the rows (`project-looks.ts`).
   followProjectLooks(client, pump);
   followMachine(client, pump, trust);
