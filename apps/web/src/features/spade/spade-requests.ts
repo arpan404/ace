@@ -46,5 +46,13 @@ export async function spadeHttp(
   return result.body;
 }
 
+/** A message's body as Spade takes it: images as `{data}` with their base64. */
+export function spadeBody(message: { text: string; images: readonly { data: string }[] }) {
+  return {
+    text: message.text,
+    ...(message.images.length ? { images: message.images.map(({ data }) => ({ data })) } : {}),
+  };
+}
+
 /** A path segment from an id Spade gave us. */
 export const segment = (id: string) => encodeURIComponent(id);

@@ -10,7 +10,7 @@ import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
-import { segment, spadeHttp, SpadeRequestError } from "./spade-requests.ts";
+import { segment, spadeHttp } from "./spade-requests.ts";
 import { useSpadeEnabled } from "./use-spade-enabled.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
 
@@ -106,15 +106,7 @@ function KeyRow(props: { endpoint: SpadeEndpoint; keychain: boolean }) {
     setSending(true);
     try {
       if (action === "set") await spadeHttp(client, "PUT", path, { body: { key } });
-      else
-        await spadeHttp(client, "DELETE", path).catch((error: unknown) => {
-          // Spade doesn't say where a set key comes from: 404 means the environment, not the keychain.
-          if (error instanceof SpadeRequestError && error.status === 404)
-            throw new Error(
-              "This key comes from Spade's environment, so it can't be removed here.",
-            );
-          throw error;
-        });
+      else await spadeHttp(client, "DELETE", path);
       await cache.invalidateQueries({ queryKey: modelsKey });
     } catch (error) {
       toast.error({
@@ -130,7 +122,7 @@ function KeyRow(props: { endpoint: SpadeEndpoint; keychain: boolean }) {
       <SettingRow
         title="Key"
         description={
-          endpoint.keySet
+          endpoint.keySource === "environment"
             ? "Set from the environment."
             : "This machine has no keychain. Set the endpoint's environment variable for Spade."
         }
@@ -140,7 +132,13 @@ function KeyRow(props: { endpoint: SpadeEndpoint; keychain: boolean }) {
     <SettingRow
       title="Key"
       htmlFor={field}
-      description={endpoint.keySet ? "Set" : "Not set. Spade can't use these models without it."}
+      description={
+        endpoint.keySource === "environment"
+          ? "Set from the environment. A key saved here is used instead."
+          : endpoint.keySet
+            ? "Set"
+            : "Not set. Spade can't use these models without it."
+      }
     >
       <form
         className="flex items-center gap-1.5"
@@ -163,7 +161,8 @@ function KeyRow(props: { endpoint: SpadeEndpoint; keychain: boolean }) {
         <Button size="sm" type="submit" disabled={sending || !draft.trim()}>
           Save
         </Button>
-        {endpoint.keySet && (
+        {/* Only a key in the keychain can be removed from here; the environment's stays. */}
+        {endpoint.keySource === "keychain" && (
           <Button
             size="sm"
             variant="ghost"

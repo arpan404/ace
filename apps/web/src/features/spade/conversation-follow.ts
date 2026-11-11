@@ -3,12 +3,13 @@ import type { SpadeLiveEndReason } from "@ace/protocol";
 import {
   emptySpadeConversation,
   foldSpade,
+  parseSpadeEvents,
   parseSpadeLiveFrame,
   spadeView,
   type SpadeFoldInput,
   type SpadeView,
 } from "@ace/ui-core/spade-chat";
-import { segment } from "./spade-requests.ts";
+import { segment, spadeHttp, SpadeRequestError } from "./spade-requests.ts";
 
 /** What the shell can't control: ids, the frame clock and timers. */
 export interface FollowDeps {
@@ -23,6 +24,9 @@ export interface FollowSnapshot {
   /** Why the conversation can't be followed live, in words; undefined while it can. */
   problem: string | undefined;
 }
+
+/** Events per page when a conversation first opens. */
+const pageSize = 200;
 
 /** Ends after which a new subscription picks up where the last left off. */
 const resumable = new Set<SpadeLiveEndReason>(["restarted", "closed", "unavailable", "limit"]);
@@ -41,6 +45,9 @@ export class ConversationFollow {
   private requestId: string | undefined;
   private spadeReady = false;
   private framePending = false;
+  /** The first open reads the history in pages before it follows live. */
+  private paged = false;
+  private paging = false;
   private retryTimer: (() => void) | undefined;
   private retries = 0;
   private readonly client: ClientApi;
@@ -114,8 +121,17 @@ export class ConversationFollow {
   }
 
   private open() {
-    if (this.requestId || !this.spadeReady || this.client.state !== "ready") return;
+    if (this.requestId || this.paging || !this.spadeReady || this.client.state !== "ready") return;
     if (this.snapshot.problem) return;
+    if (!this.paged) {
+      this.paging = true;
+      void this.page().finally(() => {
+        this.paging = false;
+        this.paged = true;
+        this.open();
+      });
+      return;
+    }
     const requestId = `spade-live-${this.deps.id()}`;
     this.requestId = requestId;
     const path = `/v1/conversations/${segment(this.conversation)}/live?after=${this.state.lastSeq}`;
@@ -123,6 +139,33 @@ export class ConversationFollow {
       this.client.send({ type: "spade.live.subscribe", requestId, path });
     } catch {
       this.requestId = undefined;
+    }
+  }
+
+  /**
+   * The history so far, a page at a time, each shown as it arrives; then the live stream picks
+   * up after the last one. A page that fails leaves the rest to the live stream's backlog.
+   */
+  private async page() {
+    for (;;) {
+      const after = this.state.lastSeq;
+      let body: string;
+      try {
+        body = await spadeHttp(
+          this.client,
+          "GET",
+          `/v1/conversations/${segment(this.conversation)}/events?after=${after}&limit=${pageSize}`,
+        );
+      } catch (error) {
+        if (error instanceof SpadeRequestError && error.status === 404)
+          this.setProblem("This conversation isn't in Spade any more.");
+        return;
+      }
+      const page = parseSpadeEvents(body);
+      if (!page) return;
+      for (const stored of page) foldSpade(this.state, { kind: "stored", stored });
+      this.publish();
+      if (page.length < pageSize || this.state.lastSeq === after) return;
     }
   }
 

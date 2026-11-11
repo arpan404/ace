@@ -2,10 +2,13 @@ import {
   spadeCallLine,
   spadeToolWords,
   type SpadeEntry,
+  type SpadeImageRef,
   type SpadeReplyEntry,
   type SpadeView,
 } from "@ace/ui-core/spade-chat";
 import { memo } from "react";
+import { formatBytes } from "@/components/format-bytes.ts";
+import { sentImageUrl } from "./spade-images.ts";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { WorkingIndicator } from "@/components/working-indicator.tsx";
@@ -68,10 +71,17 @@ const Entry = memo(function Entry(props: { entry: SpadeEntry; conversation: stri
   switch (entry.kind) {
     case "user":
       return (
-        <div role="article" className="flex flex-col items-end" aria-busy={entry.pending}>
-          <div className={cn(userBubble, entry.pending && "opacity-70")}>
-            <BubbleText text={entry.text} />
-          </div>
+        <div
+          role="article"
+          className={cn("flex flex-col items-end gap-1", entry.pending && "opacity-70")}
+          aria-busy={entry.pending}
+        >
+          {entry.images.length > 0 && <SentImages images={entry.images} />}
+          {entry.text && (
+            <div className={userBubble}>
+              <BubbleText text={entry.text} />
+            </div>
+          )}
         </div>
       );
     case "reply":
@@ -92,6 +102,33 @@ const Entry = memo(function Entry(props: { entry: SpadeEntry; conversation: stri
       );
   }
 });
+
+/**
+ * The person's images, right-aligned above their words. One sent from this window shows itself;
+ * one sent elsewhere is a quiet tile with its size, since the daemon can't fetch Spade's copy yet.
+ */
+function SentImages(props: { images: readonly SpadeImageRef[] }) {
+  return (
+    <div className="flex max-w-[80%] flex-wrap justify-end gap-1.5">
+      {/* The same image twice in one message is one picture shown twice: keyed by place. */}
+      {props.images
+        .map((image, place) => ({ image, key: `${place}:${image.sha256}` }))
+        .map(({ image, key }) => {
+          const url = sentImageUrl(image.sha256);
+          return url ? (
+            <img key={key} src={url} alt="" className="max-h-40 max-w-60 rounded-lg object-cover" />
+          ) : (
+            <span
+              key={key}
+              className="grid h-16 min-w-24 place-items-center rounded-lg bg-bubble px-3 text-xs text-muted-foreground"
+            >
+              {`Image · ${formatBytes(image.bytes)}`}
+            </span>
+          );
+        })}
+    </div>
+  );
+}
 
 /** Calls that read in the transcript: ones with an outcome. */
 const settled = new Set(["done", "failed", "declined", "skipped"]);

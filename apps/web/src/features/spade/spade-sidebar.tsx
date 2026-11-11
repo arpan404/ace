@@ -1,5 +1,5 @@
 import { formatAge } from "@ace/ui-core";
-import { spadeRowWorking, spadeStateLine } from "@ace/ui-core/spade-chat";
+import { spadeRowState, spadeStateLine } from "@ace/ui-core/spade-chat";
 import { NotePencilIcon } from "@phosphor-icons/react";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { StatusLabel } from "@/components/status-label.tsx";
@@ -17,8 +17,8 @@ import { useSpadeEnabled } from "./use-spade-enabled.ts";
 /**
  * Spade's panel: "Spade" and New conversation, Spade's state in one sentence while it isn't
  * running (with Turn on while it is off), then its conversations, newest first. A row says
- * Working while Spade answers in it or one of its background jobs is out; otherwise how long ago
- * it last changed.
+ * Approve while an approval waits on the person, Working while Spade answers in it or one of its
+ * background jobs is out, otherwise how long ago it last changed.
  */
 export function SpadeSidebar() {
   const navigate = useNavigate();
@@ -62,7 +62,9 @@ export function SpadeSidebar() {
                   <PanelRowBody
                     title={row.title || "New conversation"}
                     trailing={
-                      spadeRowWorking(row) ? (
+                      spadeRowState(row) === "needs-you" ? (
+                        <StatusLabel tone="needs-you" label="Approve" />
+                      ) : spadeRowState(row) === "working" ? (
                         <StatusLabel tone="working" label="Working" />
                       ) : (
                         <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">

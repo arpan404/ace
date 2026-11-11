@@ -300,9 +300,9 @@ test("compaction leaves a quiet marker and a rename sets the title", () => {
   expect(c.view().title).toBe("Greetings");
 });
 
-describe("the Spade API's later details", () => {
-  const hash = (digit: string) => digit.repeat(64);
+const hash = (digit: string) => digit.repeat(64);
 
+describe("the Spade API's later details", () => {
   test("caught_up marks an empty conversation loaded and caught up", () => {
     const c = conversation();
     expect(c.view()).toMatchObject({ loaded: false, caughtUp: false });

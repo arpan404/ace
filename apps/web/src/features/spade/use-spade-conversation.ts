@@ -2,7 +2,8 @@ import { useClient } from "@ace/client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { ConversationFollow, type FollowDeps } from "./conversation-follow.ts";
-import { segment, spadeHttp, SpadeRequestError } from "./spade-requests.ts";
+import type { SpadeMessage } from "./spade-images.ts";
+import { segment, spadeBody, spadeHttp, SpadeRequestError } from "./spade-requests.ts";
 import { conversationsKey } from "./use-spade-conversations.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
 
@@ -41,11 +42,12 @@ export function useSpadeConversation(conversation: string) {
     ready,
     retry: () => follow.retry(),
     /** Resolves false when Spade refused it; the message leaves the conversation then. */
-    async send(text: string): Promise<void> {
+    async send(message: SpadeMessage): Promise<void> {
       const key = `local-${crypto.randomUUID()}`;
-      follow.apply({ kind: "sent", key, text });
+      const { text, images } = message;
+      follow.apply({ kind: "sent", key, text, images: images.map((image) => image.ref) });
       try {
-        await spadeHttp(client, "POST", `${path}/messages`, { body: { text } });
+        await spadeHttp(client, "POST", `${path}/messages`, { body: spadeBody(message) });
         listChanged();
       } catch (error) {
         follow.apply({ kind: "refused", key });

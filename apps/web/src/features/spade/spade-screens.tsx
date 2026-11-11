@@ -10,7 +10,8 @@ import { Screen, useViewFrame } from "@/features/shell/index.ts";
 import { readingColumn } from "@/features/thread/index.ts";
 import { SpadeApprovalStrip } from "./spade-approval-strip.tsx";
 import { SpadeComposer } from "./spade-composer.tsx";
-import { spadeHttp } from "./spade-requests.ts";
+import type { SpadeMessage } from "./spade-images.ts";
+import { spadeBody, spadeHttp } from "./spade-requests.ts";
 import { SpadeStateStrip } from "./spade-state.tsx";
 import { SpadeTranscript } from "./spade-transcript.tsx";
 import { useSpadeConversation } from "./use-spade-conversation.ts";
@@ -68,9 +69,9 @@ export function SpadeNewScreen() {
   const line = useSpadeLine();
   // The panel says Spade's state while it shows; the page says it only when the panel doesn't.
   const panelShown = useViewFrame().sidebarShown;
-  const start = async (text: string) => {
+  const start = async (message: SpadeMessage) => {
     const id = parseSpadeCreated(
-      await spadeHttp(client, "POST", "/v1/conversations", { body: { text } }),
+      await spadeHttp(client, "POST", "/v1/conversations", { body: spadeBody(message) }),
     );
     if (!id) throw new Error("Spade started the conversation but didn't say where it is.");
     void cache.invalidateQueries({ queryKey: conversationsKey });
