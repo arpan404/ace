@@ -197,7 +197,7 @@ test("the Summary leads with what blocks the merge, each in its author's words",
   );
 });
 
-test("Open log takes a failing check to the Checks tab, failures first, with how long it ran", async () => {
+test("Open log takes a failing check to the Checks tab, failures first, with how long it ran, and selects it", async () => {
   const { page } = await openPage(detail());
   await waitFor(() => page.getByRole("region", { name: "Merge status" }), {
     timeout: 10_000,
@@ -206,15 +206,21 @@ test("Open log takes a failing check to the Checks tab, failures first, with how
   await waitFor(() =>
     expect(page.getByRole("tab", { name: "Checks" }).getAttribute("aria-selected")).toBe("true"),
   );
-  const checks = within(page.getByRole("region", { name: "1 of 2 failing" }));
+  const checks = within(page.getByRole("region", { name: "Checks" }));
   const rows = checks.getAllByRole("button", { name: /: (Failed|Passed)$/ });
   expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual([
     "test (web): Failed",
     "lint: Passed",
   ]);
   expect(rows[0]?.textContent).toContain("2m 30s");
-  // Opened from there, the failing check already shows its log.
-  expect(rows[0]?.getAttribute("aria-expanded")).toBe("true");
+  // Opened from there, the failing check is the one shown beside the list.
+  expect(rows[0]?.getAttribute("aria-current")).toBe("true");
+  expect(rows[1]?.getAttribute("aria-current")).toBeNull();
+  expect(
+    within(checks.getByRole("region", { name: "Check" })).getByRole("heading", {
+      name: "test (web)",
+    }),
+  ).toBeTruthy();
 });
 
 test("Fix with agent on a PR no thread works on starts a new thread with the request in its composer", async () => {

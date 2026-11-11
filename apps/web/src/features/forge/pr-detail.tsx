@@ -18,6 +18,7 @@ import { PrHeader } from "./pr-header.tsx";
 import { PrPageHeader } from "./pr-page-header.tsx";
 import { PrSummary } from "./pr-summary.tsx";
 import { PrChecks } from "./pr-checks.tsx";
+import { PrChecksTally } from "./pr-checks-list.tsx";
 import { PrPeople } from "./pr-people.tsx";
 import { TextAction } from "./pr-text-action.tsx";
 import { PrQuoteProvider } from "./pr-quote.tsx";
@@ -333,7 +334,11 @@ function PrDetailLoaded(props: {
                       </div>
                     ),
                     code: null,
-                    checks: props.page ? null : <PrChecksPill status={detail.status} />,
+                    checks: props.page ? (
+                      <PrChecksTally checks={detail.status.checks} />
+                    ) : (
+                      <PrChecksPill status={detail.status} />
+                    ),
                   }}
                   panels={{
                     summary: (
