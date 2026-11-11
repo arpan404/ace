@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import type { ThreadId } from "@ace/protocol";
+import { AccessMode, type ThreadId } from "@ace/protocol";
 import { loadToken } from "../local-files.ts";
 import { ProjectStorage } from "../project-storage.ts";
 import type { SpadeCredentials, SpadeHost } from "../spade/host.ts";
@@ -40,6 +40,24 @@ export function spadeCredentials(
     stopWrites();
     clearTimeout(timer);
   }, "spade host thread status");
+  // The host thread's access is the person's default: a change applies to Spade's next
+  // delegation at once, with the same thread, lease and delegation receipts.
+  const settings = services.settings;
+  if (settings)
+    void settings
+      .subscribe({ keys: ["access.defaultMode"], scope: {} }, (notification) => {
+        if (notification.type !== "changed" || !tracked) return;
+        const entry = notification.entries.find((each) => each.key === "access.defaultMode");
+        const access = AccessMode.safeParse(entry?.value);
+        if (access.success) services.engine?.hosts.setAccess(tracked, access.data);
+      })
+      .then(
+        (stop) => context.resources.own(stop, "spade host thread access"),
+        (error: unknown) =>
+          context.log.log("warn", "Spade's host thread won't follow access changes", {
+            error: error instanceof Error ? error.message : String(error),
+          }),
+      );
 
   return async () => {
     const issued: Record<string, string> = {};

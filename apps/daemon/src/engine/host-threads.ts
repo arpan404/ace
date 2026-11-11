@@ -76,4 +76,8 @@ export class HostThreads {
     }
     return repo.store.getThread(input.id)?.rootAgentId;
   }
+  /** Brings a host thread's access, the ceiling of everything it delegates, up to date. */
+  setAccess(id: ThreadId, access: AccessMode): void {
+    this.repo.permissions.hold(id, access, this.now());
+  }
 }

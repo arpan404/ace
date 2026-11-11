@@ -170,9 +170,51 @@ test("Spade acts as its own hidden host thread: the full agent tool set, delegat
       }),
     ).toMatchObject({ ok: false, error: "host_thread" });
 
+    // Its access is the person's default, followed live and on every start.
+    const access = () => daemon.store.getThread(hostId)?.permission?.effective;
+    expect(access()).toBe("full-access");
+    await daemon.settings.set("access.defaultMode", "auto-review", { kind: "global" });
+    await until(
+      () => access() === "auto-review",
+      () => `host access auto-review (${access()})`,
+    );
+    await daemon.settings.set("spade.enabled", false, { kind: "global" });
+    await until(() => daemon.spade?.status().state === "off", "Spade to stop");
+    await daemon.settings.set("access.defaultMode", "read-only", { kind: "global" });
+    await client.close();
+    const restarted = await startSpade(daemon);
+    expect(restarted.hostId).toBe(hostId);
+    expect(access()).toBe("read-only");
+    const narrowed = await connectMcp(restarted.env);
+    opened.push(narrowed.client);
+    const stricter = await narrowed.client.callTool({
+      name: "delegate",
+      arguments: {
+        tasks: [
+          {
+            requestId: "spade.c1.2",
+            task: "Look around",
+            role: "Reader-in-project",
+            provider: "codex",
+            project: f.workspace,
+          },
+        ],
+      },
+    });
+    const stricterId = ThreadId.parse(
+      z
+        .object({ data: z.object({ threadIds: z.array(z.string()).length(1) }) })
+        .parse(stricter.structuredContent).data.threadIds[0],
+    );
+    const childAccess = () => {
+      const permission = daemon.store.getThread(stricterId)?.permission;
+      return permission?.effective ?? permission?.override;
+    };
+    await until(() => childAccess() != null, "the stricter child's access");
+    expect(childAccess()).toBe("read-only");
+
     // Deleted, it is made again on the next start, in the same hidden project.
     expect(await deleteThread(daemon, hostId)).toMatchObject({ ok: true });
-    await client.close();
     daemon = await f.restart();
     const again = await startSpade(daemon);
     expect(again.hostId).not.toBe(hostId);
