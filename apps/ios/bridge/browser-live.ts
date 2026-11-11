@@ -37,6 +37,8 @@ export type Schedule = (delayMs: number, callback: () => void) => () => void;
 export const nativeVideoCodecs = ["avc1.42E033"] as const;
 /** A watched thread whose browser isn't there yet asks again this often, as the web does. */
 const retryMs = 5_000;
+/** Tabs sent per page; each "show more" adds as many. */
+const firstTabs = 20;
 const subscriberId = "ios-live";
 
 const Viewport = z.object({
@@ -271,7 +273,7 @@ export class BrowserLive {
       .catch(() => put(false));
   }
   /** False when the action can't be read or needs an open view that isn't there. */
-  #tabsLimit = 20;
+  #tabsLimit = firstTabs;
 
   action(raw: unknown): boolean {
     const parsed = BrowserAction.safeParse(raw);
@@ -321,7 +323,7 @@ export class BrowserLive {
       };
       this.#watch = watch;
       // Each watch starts on the first page of tabs, whatever an earlier one had shown.
-      this.#tabsLimit = 20;
+      this.#tabsLimit = firstTabs;
       this.#devices.reset();
       this.#sink.put("browser:presets", () => ({
         type: "browser.presets",
@@ -338,7 +340,7 @@ export class BrowserLive {
     if (!watch) return false;
     switch (action.kind) {
       case "tabs.more":
-        this.#tabsLimit += 20;
+        this.#tabsLimit += firstTabs;
         this.#putView(watch);
         return true;
       case "viewport": {
