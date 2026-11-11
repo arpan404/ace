@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use spade_ace::{AceConfig, AceSkills, AceTools};
 use spade_fetch::{Fetcher, Policy};
 use spade_keys::{KeyStore, Keys};
 use spade_models::{Catalog, Models};
@@ -13,8 +12,8 @@ use spade_server::engine::{Engine, Limits, Setup};
 use spade_server::home::{DEFAULT_MODELS, DEFAULT_SEARCH, Home, HomeError, new_token};
 use spade_server::images::ImageStore;
 use spade_server::tools::{
-    AceLibrary, AceSource, SkillLibrary, SkillLoad, SkillSearch, Todo, Tool, Toolbox, WebFetch,
-    WebSearch,
+    AceLink, AceTarget, Retry, SkillLibrary, SkillLoad, SkillSearch, Todo, Tool, ToolSource,
+    Toolbox, WebFetch, WebSearch,
 };
 use spade_store::Store;
 use tokio::net::TcpListener;
@@ -121,11 +120,12 @@ async fn run() -> Result<(), Failure> {
         Duration::from_secs(10),
     )
     .map_err(other)?;
-    // ace's tools and skill library, when the daemon started Spade (docs/ace-integration.md).
-    let ace = match AceConfig::from_env(env) {
-        Ok(ace) => Some(ace),
-        Err(error) => {
-            tracing::warn!(%error, "running without ace's tools and skills");
+    // ace's tools and skill library, found from ace's home with the grant ace handed over (or
+    // the SPADE_ACE_* variables in development). Absent while ace is away.
+    let ace = match AceTarget::from_env(env) {
+        Some(target) => Some(AceLink::start(target, keychain.clone(), Retry::default())),
+        None => {
+            tracing::warn!("SPADE_ACE_HOME is not set; running without ace's tools and skills");
             None
         }
     };
@@ -139,20 +139,15 @@ async fn run() -> Result<(), Failure> {
         Arc::new(Todo),
     ];
     let mut skills: Option<Arc<dyn SkillLibrary>> = None;
-    let mut source = None;
-    if let Some(ace) = ace {
-        let library: Arc<dyn SkillLibrary> =
-            Arc::new(AceLibrary(Arc::new(AceSkills::new(ace.skills))));
+    if let Some(link) = &ace {
+        let library: Arc<dyn SkillLibrary> = link.clone();
         core.push(Arc::new(SkillSearch(library.clone())));
         core.push(Arc::new(SkillLoad(library.clone())));
         skills = Some(library);
-        // ace's `wait` can block for up to ten minutes; the engine's own limits still apply.
-        let tools = ace.tools.with_timeout(Duration::from_secs(11 * 60));
-        source = Some(AceSource::start(Arc::new(AceTools::new(tools))));
     }
     let mut tools = Toolbox::new(core);
-    if let Some(source) = source {
-        tools = tools.with_source(source);
+    if let Some(link) = &ace {
+        tools = tools.with_source(link.clone() as Arc<dyn ToolSource>);
     }
 
     let engine = Engine::open(Setup {
@@ -181,6 +176,7 @@ async fn run() -> Result<(), Failure> {
         engine: engine.clone(),
         token: token.into(),
         keys: keychain,
+        ace,
     };
     let stopping = async move {
         shutdown_signal().await;

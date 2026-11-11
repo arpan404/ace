@@ -1,0 +1,350 @@
+//! Spade's connection to ace (docs/ace-integration.md, "Spade's grant for ace"). Spade runs on its
+//! own, so ace may come and go: this finds the daemon from its files on every connect, calls its
+//! MCP endpoint with the grant the daemon handed over, and retries with backoff while the daemon
+//! is missing or refuses. ace's tools and skills are there only while connected; everything else
+//! in Spade works without them.
+
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
+use std::time::Duration;
+
+use spade_ace::{AceConfig, AceSkills, AceTools, Secret, discover, next_retry_between};
+use spade_core::skills::SkillEntry;
+use spade_keys::{KeyError, KeyStore};
+use tokio::sync::Notify;
+
+use super::{AceLibrary, LibraryFuture, SkillLibrary, Tool, ToolSource};
+
+/// ace's `wait` can block for up to ten minutes; the engine's own limits still apply.
+const CALL_TIMEOUT: Duration = Duration::from_secs(11 * 60);
+
+/// How often a live connection is checked by default (a ping on the MCP session), so a daemon
+/// that went away takes its tools with it and the next one is found.
+const CHECK: Duration = Duration::from_secs(5);
+
+/// Where ace is.
+#[derive(Debug, Clone)]
+pub enum AceTarget {
+    /// Found from `<ace home>/daemon-endpoint` and `daemon-token`, with the stored grant.
+    Discover(PathBuf),
+    /// Given by the `SPADE_ACE_*` variables, for development. Overrides the grant and files.
+    Fixed(AceConfig),
+}
+
+impl AceTarget {
+    /// The `SPADE_ACE_*` variables if all four are set, else `SPADE_ACE_HOME`; none without either.
+    pub fn from_env(var: impl Fn(&str) -> Option<String>) -> Option<Self> {
+        if let Ok(config) = AceConfig::from_env(&var) {
+            return Some(Self::Fixed(config));
+        }
+        var("SPADE_ACE_HOME")
+            .map(|home| home.trim().to_owned())
+            .filter(|home| !home.is_empty())
+            .map(|home| Self::Discover(PathBuf::from(home)))
+    }
+}
+
+/// Waits between connects (`first`, doubling up to `longest`) and between checks of a live one.
+#[derive(Debug, Clone, Copy)]
+pub struct Retry {
+    pub first: Duration,
+    pub longest: Duration,
+    pub check: Duration,
+}
+
+impl Default for Retry {
+    fn default() -> Self {
+        Self {
+            first: spade_ace::FIRST_RETRY,
+            longest: spade_ace::LONGEST_RETRY,
+            check: CHECK,
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum GrantError {
+    #[error("the grant is empty")]
+    Empty,
+    #[error(transparent)]
+    Keychain(#[from] KeyError),
+}
+
+/// What a live connection offers.
+struct Connected {
+    tools: Vec<Arc<dyn Tool>>,
+    skills: Arc<AceSkills>,
+}
+
+pub struct AceLink {
+    target: AceTarget,
+    /// Where the grant is kept. Without a keychain it lives in memory for this run only.
+    keys: Option<KeyStore>,
+    grant: Mutex<Option<Secret>>,
+    /// Changes whenever the grant does, so a connection made with an old grant offers nothing.
+    grants: AtomicU64,
+    retry: Retry,
+    current: RwLock<Option<Connected>>,
+    connected: AtomicBool,
+    /// Rung when the grant changes, to connect again at once.
+    wake: Notify,
+}
+
+/// Why a connection ended.
+enum Ended {
+    /// It never came up, or the daemon went away.
+    Lost,
+    /// The grant changed.
+    Woken,
+}
+
+impl AceLink {
+    /// Starts connecting in the background. The grant is read from `keys` once, here.
+    pub fn start(target: AceTarget, keys: Option<KeyStore>, retry: Retry) -> Arc<Self> {
+        let grant = keys
+            .as_ref()
+            .and_then(|keys| match keys.ace_grant() {
+                Ok(grant) => grant,
+                Err(error) => {
+                    tracing::warn!(%error, "could not read Spade's ace grant");
+                    None
+                }
+            })
+            .map(Secret::new);
+        let link = Arc::new(Self {
+            target,
+            keys,
+            grant: Mutex::new(grant),
+            grants: AtomicU64::new(0),
+            retry,
+            current: RwLock::default(),
+            connected: AtomicBool::new(false),
+            wake: Notify::new(),
+        });
+        tokio::spawn(link.clone().run());
+        link
+    }
+
+    /// Whether ace's tools are reachable now.
+    pub fn connected(&self) -> bool {
+        self.connected.load(Ordering::SeqCst)
+    }
+
+    /// Whether Spade holds a grant (or was given ace's credentials directly).
+    pub fn has_grant(&self) -> bool {
+        matches!(self.target, AceTarget::Fixed(_))
+            || self
+                .grant
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .is_some()
+    }
+
+    /// Stores the grant the daemon handed over and connects with it.
+    pub fn set_grant(&self, grant: &str) -> Result<(), GrantError> {
+        let grant = grant.trim();
+        if grant.is_empty() {
+            return Err(GrantError::Empty);
+        }
+        match &self.keys {
+            Some(keys) => keys.set_ace_grant(grant)?,
+            None => tracing::warn!("no keychain; Spade keeps its ace grant until it stops"),
+        }
+        *self.grant.lock().unwrap_or_else(|p| p.into_inner()) = Some(Secret::new(grant));
+        self.grants.fetch_add(1, Ordering::SeqCst);
+        self.wake.notify_one();
+        Ok(())
+    }
+
+    /// Forgets the grant and disconnects.
+    pub fn forget_grant(&self) -> Result<(), GrantError> {
+        *self.grant.lock().unwrap_or_else(|p| p.into_inner()) = None;
+        self.grants.fetch_add(1, Ordering::SeqCst);
+        self.disconnect();
+        self.wake.notify_one();
+        if let Some(keys) = &self.keys {
+            keys.delete_ace_grant()?;
+        }
+        Ok(())
+    }
+
+    async fn run(self: Arc<Self>) {
+        let mut wait: Option<Duration> = None;
+        loop {
+            let ended = match self.config() {
+                Ok(config) => self.connect_and_stay(config).await,
+                Err(why) => {
+                    tracing::debug!(%why, "ace is not reachable yet");
+                    Ended::Lost
+                }
+            };
+            self.disconnect();
+            if let Ended::Woken = ended {
+                wait = None;
+                continue;
+            }
+            let delay = next_retry_between(wait, self.retry.first, self.retry.longest);
+            wait = Some(delay);
+            tokio::select! {
+                () = tokio::time::sleep(delay) => {}
+                () = self.wake.notified() => wait = None,
+            }
+        }
+    }
+
+    /// How to reach ace now: the files are read again each time, as the daemon may have moved.
+    fn config(&self) -> Result<AceConfig, String> {
+        match &self.target {
+            AceTarget::Fixed(config) => Ok(config.clone()),
+            AceTarget::Discover(home) => {
+                let grant = self
+                    .grant
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .clone()
+                    .ok_or("Spade has no grant for ace yet")?;
+                discover(home, grant).map_err(|e| e.to_string())
+            }
+        }
+    }
+
+    /// Connects, offers ace's tools, and keeps them current until the daemon goes away or the
+    /// grant changes.
+    async fn connect_and_stay(&self, config: AceConfig) -> Ended {
+        let grants = self.grants.load(Ordering::SeqCst);
+        let client = Arc::new(AceTools::new(config.tools.with_timeout(CALL_TIMEOUT)));
+        let mut changes = client.changes();
+        let list = tokio::select! {
+            listed = client.tools() => match listed {
+                Ok(list) => list,
+                Err(error) => {
+                    tracing::debug!(%error, "could not reach ace");
+                    return Ended::Lost;
+                }
+            },
+            () = self.wake.notified() => return Ended::Woken,
+        };
+        let skills = Arc::new(AceSkills::new(config.skills));
+        if !self.offer(grants, &client, &skills, &list) {
+            return Ended::Woken;
+        }
+        tracing::info!(tools = list.len(), "connected to ace");
+        loop {
+            tokio::select! {
+                changed = changes.changed() => if changed.is_err() { return Ended::Lost },
+                () = tokio::time::sleep(self.retry.check) => {}
+                () = self.wake.notified() => return Ended::Woken,
+            }
+            match client.tools().await {
+                Ok(list) => {
+                    if !self.offer(grants, &client, &skills, &list) {
+                        return Ended::Woken;
+                    }
+                }
+                Err(error) => {
+                    tracing::info!(%error, "lost ace; its tools are gone until it is back");
+                    return Ended::Lost;
+                }
+            }
+        }
+    }
+
+    /// Offers `list`, unless the grant changed since the connection began. Returns whether it did.
+    fn offer(
+        &self,
+        grants: u64,
+        client: &Arc<AceTools>,
+        skills: &Arc<AceSkills>,
+        list: &[spade_ace::AceTool],
+    ) -> bool {
+        let mut current = self.current.write().unwrap_or_else(|p| p.into_inner());
+        if self.grants.load(Ordering::SeqCst) != grants {
+            return false;
+        }
+        *current = Some(Connected {
+            tools: super::ace::tools(client, list),
+            skills: skills.clone(),
+        });
+        self.connected.store(true, Ordering::SeqCst);
+        true
+    }
+
+    fn disconnect(&self) {
+        self.connected.store(false, Ordering::SeqCst);
+        *self.current.write().unwrap_or_else(|p| p.into_inner()) = None;
+    }
+
+    fn library(&self) -> Option<AceLibrary> {
+        self.current
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_ref()
+            .map(|c| AceLibrary(c.skills.clone()))
+    }
+}
+
+impl ToolSource for AceLink {
+    fn tools(&self) -> Vec<Arc<dyn Tool>> {
+        self.current
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_ref()
+            .map(|c| c.tools.clone())
+            .unwrap_or_default()
+    }
+}
+
+const AWAY: &str = "ace is not running, or Spade is not connected to it yet";
+
+impl SkillLibrary for AceLink {
+    fn list(&self) -> LibraryFuture<Vec<SkillEntry>> {
+        match self.library() {
+            Some(library) => library.list(),
+            None => Box::pin(async { Err(AWAY.to_owned()) }),
+        }
+    }
+
+    fn read(&self, id: &str) -> LibraryFuture<String> {
+        match self.library() {
+            Some(library) => library.read(id),
+            None => Box::pin(async { Err(AWAY.to_owned()) }),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::*;
+
+    fn env(pairs: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<String> {
+        move |key| {
+            pairs
+                .iter()
+                .find(|(k, _)| *k == key)
+                .map(|(_, v)| (*v).to_owned())
+        }
+    }
+
+    #[test]
+    fn the_development_variables_override_finding_ace_from_its_home() {
+        let both = env(&[
+            ("SPADE_ACE_HOME", "/home/me/.ace"),
+            ("SPADE_ACE_MCP_URL", "http://127.0.0.1:4400/mcp"),
+            ("SPADE_ACE_MCP_TOKEN", "mcp"),
+            ("SPADE_ACE_URL", "ws://127.0.0.1:4400/"),
+            ("SPADE_ACE_TOKEN", "local"),
+        ]);
+        assert!(matches!(
+            AceTarget::from_env(both),
+            Some(AceTarget::Fixed(_))
+        ));
+        let home = AceTarget::from_env(env(&[("SPADE_ACE_HOME", "/home/me/.ace")]));
+        assert!(
+            matches!(&home, Some(AceTarget::Discover(path)) if path == Path::new("/home/me/.ace"))
+        );
+        assert!(AceTarget::from_env(env(&[("SPADE_ACE_HOME", "  ")])).is_none());
+    }
+}

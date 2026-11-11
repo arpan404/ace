@@ -29,7 +29,16 @@ pub enum DiscoveryError {
 /// The wait before the next connect after `previous` (none after a success): 1 s, doubling, at
 /// most 30 s.
 pub fn next_retry(previous: Option<Duration>) -> Duration {
-    previous.map_or(FIRST_RETRY, |d| (d * 2).clamp(FIRST_RETRY, LONGEST_RETRY))
+    next_retry_between(previous, FIRST_RETRY, LONGEST_RETRY)
+}
+
+/// [`next_retry`] with other bounds (tests use milliseconds).
+pub fn next_retry_between(
+    previous: Option<Duration>,
+    first: Duration,
+    longest: Duration,
+) -> Duration {
+    previous.map_or(first, |d| (d * 2).clamp(first, longest.max(first)))
 }
 
 /// The MCP and WebSocket URLs for the daemon at `endpoint` (`http://127.0.0.1:PORT`).

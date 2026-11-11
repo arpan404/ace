@@ -22,6 +22,7 @@ mod url;
 pub use config::{AceConfig, ConfigError, DEFAULT_TIMEOUT, SkillsConfig, ToolsConfig};
 pub use discovery::{
     DiscoveryError, FIRST_RETRY, LONGEST_RETRY, daemon_urls, discover, next_retry,
+    next_retry_between,
 };
 pub use secret::Secret;
 pub use skills::{AceSkills, Skill, SkillErrorCode, SkillList, SkillScope, SkillText, SkillsError};

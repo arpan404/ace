@@ -22,6 +22,7 @@ use tokio::sync::watch;
 use tokio_stream::wrappers::BroadcastStream;
 
 use crate::engine::{AnswerError, CompactError, Engine, Frame, MaintenanceState, SendError};
+use crate::tools::{AceLink, GrantError};
 
 /// Set when the server begins shutting down, so live streams end and shutdown is not held up.
 #[derive(Clone)]
@@ -37,6 +38,8 @@ pub struct AppState {
     pub token: Arc<str>,
     /// The OS keychain, when this machine has one.
     pub keys: Option<KeyStore>,
+    /// The connection to ace, when Spade knows where ace lives.
+    pub ace: Option<Arc<AceLink>>,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -59,6 +62,7 @@ pub fn router(state: AppState) -> Router {
         .route("/models", get(models))
         .route("/images/{sha256}", get(image))
         .route("/keys/{endpoint}", put(set_key).delete(delete_key))
+        .route("/ace", get(ace_state).put(set_grant).delete(forget_grant))
         .route(
             "/maintenance",
             get(maintenance_state)
@@ -482,4 +486,47 @@ async fn begin_maintenance(
 async fn end_maintenance(State(state): State<AppState>) -> Response {
     state.engine.end_maintenance();
     Json(maintenance_json(state.engine.maintenance_state())).into_response()
+}
+
+/// Whether Spade holds a grant for ace and is connected; never the grant itself.
+async fn ace_state(State(state): State<AppState>) -> Response {
+    let (grant, connected) = state
+        .ace
+        .as_ref()
+        .map_or((false, false), |ace| (ace.has_grant(), ace.connected()));
+    Json(json!({ "grant": grant, "connected": connected })).into_response()
+}
+
+#[derive(Deserialize)]
+struct Grant {
+    grant: String,
+}
+
+/// The daemon hands over Spade's grant: kept in the keychain, used at once.
+async fn set_grant(State(state): State<AppState>, Json(body): Json<Grant>) -> Response {
+    let Some(ace) = state.ace else {
+        return problem(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Spade was started without SPADE_ACE_HOME, so it does not know where ace is",
+        );
+    };
+    match ace.set_grant(&body.grant) {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error @ GrantError::Empty) => problem(StatusCode::BAD_REQUEST, &error.to_string()),
+        Err(GrantError::Keychain(spade_keys::KeyError::Invalid(why))) => {
+            problem(StatusCode::BAD_REQUEST, why)
+        }
+        Err(error) => problem(StatusCode::SERVICE_UNAVAILABLE, &error.to_string()),
+    }
+}
+
+/// Forgets the grant and disconnects from ace.
+async fn forget_grant(State(state): State<AppState>) -> Response {
+    let Some(ace) = state.ace else {
+        return StatusCode::NO_CONTENT.into_response();
+    };
+    match ace.forget_grant() {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => problem(StatusCode::SERVICE_UNAVAILABLE, &error.to_string()),
+    }
 }
