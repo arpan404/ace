@@ -5,52 +5,33 @@ import SwiftUI
 struct SkillRowLabel: View {
     let row: SkillRow
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text(row.title).aceFont(InsetStyle.label, relativeTo: .body)
-                    .foregroundStyle(AceTheme.Colours.foreground)
-                if !row.description.isEmpty {
-                    Text(row.description).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(2)
-                }
-            }
-            Spacer(minLength: AceTheme.Spacing.sm)
-            HStack(spacing: AceTheme.Spacing.xs) {
-                ForEach(row.marks, id: \.self) { ProviderMark(provider: $0, size: AceDesign.Size.metaIcon) }
-            }
-            .accessibilityHidden(true)
+        HStack(spacing: AceDesign.Space.related) {
+            QuietRowText(title: row.title, detail: row.description.isEmpty ? nil : row.description)
+            ForEach(row.marks, id: \.self) { ProviderMark(provider: $0, size: AceDesign.Size.metaIcon) }
+                .accessibilityHidden(true)
         }
-        .padding(.vertical, AceTheme.Spacing.xs)
-        .contentShape(Rectangle())
-    }
-}
-
-/// The rows' shape while the first read is on its way, so nothing jumps when it lands.
-struct SkillRowsPlaceholder: View {
-    var body: some View {
-        Section {
-            ForEach(0..<4, id: \.self) { index in
-                SkillRowLabel(row: SkillRow(id: "\(index)", name: "", title: "A skill title", description: "What it does and when agents use it",
-                                            marks: [], editable: false))
-            }
-        } header: { InsetHeader("Personal") }
-        .insetRowBackground()
-        .redacted(reason: .placeholder)
-        .accessibilityLabel("Reading skills")
-        .transition(.opacity)
     }
 }
 
 /// Installed plugins, each with the agents it reaches, then Install plugin and any review left
-/// to finish.
-struct PluginRows: View {
+/// to finish. The plugin list and its catalog each say when they failed, with their way back.
+struct PluginsSection: View {
     let model: ClientModel
     let plugins: [PluginAgents]
     let components: [PluginComponentRow]
     let reviews: [NativePluginReview]
     let query: String
+    /// The plugin list's last read failed.
+    let problem: String?
+    /// The catalog's last read failed.
+    let catalogProblem: String?
+    /// The catalog has another page.
+    let more: Bool
     let install: () -> Void
     let review: (PluginReviewRequest) -> Void
+    let retry: () -> Void
+    let loadMore: () -> Void
+    let retryCatalog: () -> Void
 
     private var shown: [PluginAgents] {
         query.isEmpty ? plugins : plugins.filter { plugin in
@@ -60,28 +41,51 @@ struct PluginRows: View {
     }
 
     var body: some View {
-        Section {
+        QuietSection("Plugins") {
             ForEach(shown) { plugin in
                 NavigationLink {
                     PluginPageView(model: model, plugin: plugin, components: components.filter { $0.plugin == plugin.name })
                 } label: {
-                    InsetRow(systemImage: nil, title: plugin.name, subtitle: plugin.summary) {
-                        InsetValue(text: plugin.version)
+                    QuietSectionRow {
+                        QuietRowText(title: plugin.name, detail: plugin.summary)
+                        Text(plugin.version).aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                            .foregroundStyle(AceDesign.Ink.subtle).lineLimit(1)
+                        RowCaret()
                     }
                 }
+                .buttonStyle(.row)
                 .accessibilityIdentifier("plugins.row.\(plugin.name)")
             }
             ForEach(reviews) { pending in
                 Button { review(PluginReviewRequest(operation: ["type": "plugins.readReview", "id": pending.id])) } label: {
-                    InsetRow("Finish reviewing \(pending.name)", systemImage: "checkmark.shield")
+                    QuietSectionRow {
+                        Text("Finish reviewing \(pending.name)").aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                            .fontWeight(AceDesign.Typeface.strong).foregroundStyle(AceDesign.Ink.primary)
+                    }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.row)
             }
             if model.canOperate {
-                Button(action: install) { InsetRow("Install plugin", systemImage: "plus") }
-                    .buttonStyle(.plain).accessibilityIdentifier("plugins.install")
+                Button(action: install) {
+                    QuietSectionRow {
+                        Text("Install plugin").aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                            .fontWeight(AceDesign.Typeface.strong).foregroundStyle(AceDesign.Ink.primary)
+                    }
+                }
+                .buttonStyle(.row)
+                .accessibilityIdentifier("plugins.install")
             }
-        } header: { InsetHeader("Plugins") }
-        .insetRowBackground()
+            if more {
+                Button(action: loadMore) {
+                    QuietSectionRow {
+                        Text("Show more plugin skills").aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                            .foregroundStyle(AceDesign.Ink.muted)
+                    }
+                }
+                .buttonStyle(.row)
+            }
+            if let problem { QuietProblem(message: problem, retry: retry) }
+            if let catalogProblem { QuietProblem(message: catalogProblem, retry: retryCatalog) }
+        }
     }
 }
