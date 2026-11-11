@@ -58,8 +58,7 @@
         "steer",
         "automation",
         "schedule",
-        "background_completion",
-        "mcp_client"
+        "background_completion"
       ],
       "type": "string"
     },

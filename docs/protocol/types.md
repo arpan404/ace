@@ -19797,7 +19797,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| kind | yes | ["person","interaction_answer","subagent_result","handoff","spawn","parent_agent","restart","limit_resume","queue","steer","automation","schedule","background_completion","mcp_client"] |  |
+| kind | yes | ["person","interaction_answer","subagent_result","handoff","spawn","parent_agent","restart","limit_resume","queue","steer","automation","schedule","background_completion"] |  |
 | client | no | object | {"properties":{"grantId":{"type":"string","minLength":1,"maxLength":128},"name":{"type":"string","minLength":1,"maxLength":256}},"required":["grantId","name"]} |
 | commandId | no | [CommandId.json](schema/CommandId.json) |  |
 | interactionId | no | [InteractionId.json](schema/InteractionId.json) |  |
@@ -19818,7 +19818,7 @@ Example:
     "provider": "opencode"
   },
   "interactionId": "example",
-  "kind": "mcp_client",
+  "kind": "background_completion",
   "threadIds": []
 }
 ```

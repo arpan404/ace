@@ -9,9 +9,37 @@ import { expect, test } from "vitest";
 import { z } from "zod";
 import { daemonFixture } from "../agent-control/daemon-test-support.ts";
 import { invoke } from "../cli-test-support.ts";
-import { ThreadId } from "@ace/protocol";
+import { MessageOrigin, ThreadId } from "@ace/protocol";
 import { call, enroll, toolResult } from "./outside-test-support.ts";
 const execute = promisify(execFile);
+/** MessageOrigin's kinds before outside clients (09f641620), which older apps decode with. */
+const PreviousOrigin = MessageOrigin.omit({ client: true }).extend({
+  kind: z.enum([
+    "person",
+    "interaction_answer",
+    "subagent_result",
+    "handoff",
+    "spawn",
+    "parent_agent",
+    "restart",
+    "limit_resume",
+    "queue",
+    "steer",
+    "automation",
+    "schedule",
+    "background_completion",
+  ]),
+});
+/** Every `origin` object anywhere in a tool result. */
+function originsIn(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value.flatMap(originsIn);
+  if (typeof value !== "object" || value === null) return [];
+  const own = Reflect.get(value, "origin");
+  return [
+    ...(typeof own === "object" && own !== null ? [own] : []),
+    ...Object.entries(value).flatMap(([key, entry]) => (key === "origin" ? [] : originsIn(entry))),
+  ];
+}
 
 test("revoking an external enrollment during workspace preparation prevents its child admission", async () => {
   const entered = Promise.withResolvers<ReturnType<typeof spawnGitProcess>>();
@@ -84,6 +112,7 @@ test("revoking an external enrollment during workspace preparation prevents its 
               task: "synthetic",
               role: "revoked-enrollment-child",
               provider: "claude",
+              // The project's own checkout: the one existing worktree a grant may name.
               workspace: { kind: "existing_worktree", path: f.h.home },
             },
           },
@@ -131,8 +160,16 @@ test("a grant, its token and an idempotent start survive a daemon restart", asyn
     await f.daemon.engine?.flush();
     // The thread and its first message name the client that sent them; neither carries a token.
     const read = await call(lease, "ace_thread_read", { threadId });
-    expect(read.body).toContain('"kind":"mcp_client"');
     expect(read.body).not.toContain(lease.bearer);
+    const origins = originsIn(JSON.parse(read.body));
+    expect(origins).toContainEqual(
+      expect.objectContaining({
+        kind: "person",
+        client: { grantId: lease.id, name: "Synthetic assistant" },
+      }),
+    );
+    // Apps from before outside clients read every origin, the client's included.
+    for (const origin of origins) expect(PreviousOrigin.safeParse(origin).success).toBe(true);
     restarted = await f.restart();
     const client = { kind: "mcp_client", grantId: lease.id, name: "Synthetic assistant" };
     expect(restarted.store.getThread(threadId)?.startedByClient).toEqual(client);
