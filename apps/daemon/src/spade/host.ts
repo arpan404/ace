@@ -148,7 +148,7 @@ export class SpadeHost {
         return;
       }
       this.set({ state: "starting" });
-      const outcome = await this.once(binary, signal).catch((error: unknown) => ({
+      const outcome = await this.once(binary, signal).catch((error: unknown): RunOutcome => ({
         readyForMs: undefined,
         reason: error instanceof Error ? error.message : String(error),
       }));
