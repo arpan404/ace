@@ -2,27 +2,22 @@ import { createServer } from "node:http";
 import { expect, test } from "vitest";
 import { DeviceId, type DeviceScope, type ServerMessage, SpadeClientMessage } from "@ace/protocol";
 import type { z } from "zod";
-import { SpadeHost } from "../spade/host.ts";
+import { SpadeLink } from "../spade/link.ts";
 import { createSpadeSession } from "./spade-session.ts";
 
-/** A session for a device holding `scopes`, with Spade off (no binary). */
+/** A session for a device holding `scopes`, with Spade off (turned off, no service). */
 function session(scopes: readonly DeviceScope[]) {
   const sent: ServerMessage[] = [];
-  const spade = new SpadeHost({
+  const spade = new SpadeLink({
     dataDir: "/ace/spade",
-    binary: () => undefined,
-    credentials: async () => ({ env: {}, revoke: () => {} }),
     runtime: {
-      spawn: () => {
-        throw new Error("Spade has no binary here");
-      },
       readText: async () => undefined,
-      ensureDirectory: () => {},
       healthy: async () => false,
+      serviceState: async () => "absent",
+      watch: () => () => {},
       now: () => 0,
-      sleep: async () => {},
+      after: () => () => {},
     },
-    log: () => {},
   });
   const service = createSpadeSession({
     options: { spade },

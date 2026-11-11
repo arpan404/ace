@@ -8,6 +8,7 @@ import { SpadeGrants } from "../spade/grant.ts";
 import { nodeSpadeLinkRuntime, spadeAceCall } from "../spade/link-runtime.ts";
 import { SpadeLink, type SpadeLinkRuntime } from "../spade/link.ts";
 import { aceSpadeService, type SpadeServiceControl } from "../spade/service-control.ts";
+import { spadeDisabled } from "../spade/disabled.ts";
 import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
 import { spadeHostThread } from "./spade-host.ts";
 import { spadeSwitch } from "./spade-switch.ts";
@@ -123,12 +124,4 @@ export async function startSpade(context: ServiceContext): Promise<void> {
   context.resources.own(stop, "spade setting");
   // Not awaited: registering a service can be slow, and the daemon's start doesn't wait on Spade.
   void toggle.set((await settings.get("spade.enabled")).value === true, "started");
-}
-
-/**
- * Whether Spade is left out: built with `DISABLE_SPADE=1` (the release bundle bakes it in) or
- * started with `DISABLE_SPADE=1` in the daemon's environment.
- */
-export function spadeDisabled(env: Record<string, string | undefined>): boolean {
-  return process.env.ACE_BUILD_DISABLE_SPADE === "1" || env.DISABLE_SPADE === "1";
 }

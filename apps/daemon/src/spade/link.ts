@@ -56,7 +56,7 @@ export class SpadeLink {
   private readonly arrivals = new Set<(ready: SpadeReady) => void>();
   private readonly options: SpadeLinkOptions;
   private running: Promise<void> | undefined;
-  private again = false;
+  private next: Promise<void> | undefined;
   private cancelTimer: (() => void) | undefined;
   private stopWatch: (() => void) | undefined;
   private closed = false;
@@ -109,19 +109,22 @@ export class SpadeLink {
     this.facts = { ...this.facts, installing: input.installing ?? false, problem: input.problem };
     this.refresh();
   }
-  /** Looks again now; overlapping calls fold into one more look. */
+  /**
+   * Looks again now. A call during a look waits for one more look after it, and calls made
+   * meanwhile share that one.
+   */
   refresh(): Promise<void> {
     if (this.closed) return Promise.resolve();
+    if (this.next) return this.next;
     if (this.running) {
-      this.again = true;
-      return this.running;
+      this.next = this.running.then(() => {
+        this.next = undefined;
+        return this.refresh();
+      });
+      return this.next;
     }
     this.running = this.look().finally(() => {
       this.running = undefined;
-      if (this.again && !this.closed) {
-        this.again = false;
-        void this.refresh();
-      }
     });
     return this.running;
   }
@@ -129,6 +132,7 @@ export class SpadeLink {
     this.closed = true;
     this.stopWatch?.();
     this.cancelTimer?.();
+    await this.next;
     await this.running;
     this.leave();
     this.listeners.clear();
