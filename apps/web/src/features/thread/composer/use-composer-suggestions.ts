@@ -13,6 +13,8 @@ export function useComposerSuggestions(
   text: string,
   caret: number,
   recent: () => readonly string[],
+  /** No project or commands to suggest (Spade): `@`, `/` and + open no list. */
+  off = false,
 ) {
   "use no memo";
   const [dismissed, setDismissed] = useState<number>();
@@ -21,7 +23,8 @@ export function useComposerSuggestions(
   const found = adding
     ? { kind: "command" as const, query: "", start: caret, end: caret }
     : triggerAt(text, caret);
-  const trigger: Trigger | undefined = found && found.start !== dismissed ? found : undefined;
+  const trigger: Trigger | undefined =
+    !off && found && found.start !== dismissed ? found : undefined;
   const suggestions = useSuggestions(thread, trigger, recent, adding);
   const items = suggestions.state === "ready" ? suggestions.items : [];
   // The highlight resets whenever the token being completed changes.

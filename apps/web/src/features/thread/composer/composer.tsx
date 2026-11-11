@@ -155,8 +155,12 @@ function ComposerBody({
   };
   const intake = (data: DataTransfer) =>
     takeTransfer(data, (taken: Intake) => attach(taken.files, taken.note));
-  const list = useComposerSuggestions(props.thread, text, caret, () =>
-    recentFiles(storage, props.thread.workspaceId),
+  const list = useComposerSuggestions(
+    props.thread,
+    text,
+    caret,
+    () => recentFiles(storage, props.thread.workspaceId),
+    !!props.filesOnly,
   );
   const { trigger, suggestions, items, active, adding, setAdding, setDismissed } = list;
   const empty = !text.trim() && !attachments.items.length && !annotations.count && !quotes.count;
@@ -356,6 +360,8 @@ function ComposerBody({
     onFiles: (files: FileList) => attach(files),
     onFocusInput: () => input.current?.focus(),
     onAddOpen: () => {
+      // With nothing to suggest, + is the file picker itself.
+      if (props.filesOnly) return addMenu.current?.attach();
       setDismissed(undefined);
       setAdding(true);
       message.placeCaretAt(caret);
