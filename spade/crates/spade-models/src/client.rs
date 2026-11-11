@@ -1,0 +1,204 @@
+//! The I/O shell: turns Spade prompts into calls on the endpoint a model reference names.
+
+use std::sync::Arc;
+
+use futures_util::{Stream, StreamExt};
+use genai::chat::{ChatMessage, ChatOptions, ChatRequest, ChatStreamEvent};
+use genai::resolver::{AuthData, Endpoint as ServiceEndpoint};
+use genai::{Client, Headers, ModelIden, ServiceTarget};
+use schemars::JsonSchema;
+use serde::de::DeserializeOwned;
+
+use crate::catalog::{Catalog, Price, Role};
+use crate::error::ModelError;
+use crate::prompt::{Delta, Prompt, Reply, Speaker, Usage};
+use crate::typed;
+use spade_keys::{KeyRequest, Keys};
+
+/// Calls the catalogue's models on their endpoints.
+#[derive(Debug, Clone)]
+pub struct Models {
+    client: Client,
+    catalog: Arc<Catalog>,
+    keys: Keys,
+}
+
+/// Sent to an endpoint that needs no key (a local server), which ignores it.
+pub const KEYLESS: &str = "no-key";
+
+/// A model resolved for one call.
+struct Call {
+    reference: String,
+    target: ServiceTarget,
+    options: ChatOptions,
+}
+
+impl Models {
+    pub fn new(catalog: Catalog, keys: Keys) -> Result<Self, ModelError> {
+        let client = Client::new().map_err(|error| ModelError::Setup(error.to_string()))?;
+        Ok(Self {
+            client,
+            catalog: Arc::new(catalog),
+            keys,
+        })
+    }
+
+    pub fn catalog(&self) -> &Catalog {
+        &self.catalog
+    }
+
+    /// The `endpoint/model` set for `role`.
+    pub fn for_role(&self, role: Role) -> &str {
+        self.catalog.role(role)
+    }
+
+    /// What `reference` costs; `None` when unlisted, flat-rate or local.
+    pub fn price(&self, reference: &str) -> Option<Price> {
+        self.catalog.resolve(reference).and_then(|r| r.model.price)
+    }
+
+    pub async fn chat(&self, reference: &str, prompt: &Prompt) -> Result<Reply, ModelError> {
+        let call = self.call(reference, prompt)?;
+        let response = self
+            .client
+            .exec_chat(call.target, request(prompt), Some(&call.options))
+            .await
+            .map_err(|error| provider_error(&call.reference, &error))?;
+        let usage = usage(&response.usage);
+        let text = response
+            .into_first_text()
+            .ok_or_else(|| ModelError::Empty {
+                model: call.reference.clone(),
+            })?;
+        Ok(Reply {
+            model: call.reference,
+            text,
+            usage,
+        })
+    }
+
+    /// Asks for a reply shaped as `T` and parses it.
+    pub async fn generate<T>(&self, reference: &str, prompt: &Prompt) -> Result<T, ModelError>
+    where
+        T: JsonSchema + DeserializeOwned,
+    {
+        let call = self.call(reference, prompt)?;
+        let options = call.options.with_response_format(typed::spec::<T>()?);
+        let response = self
+            .client
+            .exec_chat(call.target, request(prompt), Some(&options))
+            .await
+            .map_err(|error| provider_error(&call.reference, &error))?;
+        let text = response.first_text().ok_or_else(|| ModelError::Empty {
+            model: call.reference.clone(),
+        })?;
+        typed::parse(&call.reference, text)
+    }
+
+    /// Streams the reply. The last item is [`Delta::Done`] unless the stream fails first.
+    pub async fn stream(
+        &self,
+        reference: &str,
+        prompt: &Prompt,
+    ) -> Result<impl Stream<Item = Result<Delta, ModelError>> + Send + use<>, ModelError> {
+        let call = self.call(reference, prompt)?;
+        let options = call.options.with_capture_usage(true);
+        let response = self
+            .client
+            .exec_chat_stream(call.target, request(prompt), Some(&options))
+            .await
+            .map_err(|error| provider_error(&call.reference, &error))?;
+        let reference = call.reference;
+        Ok(response.stream.filter_map(move |event| {
+            let delta = match event {
+                Ok(ChatStreamEvent::Chunk(chunk)) => Some(Ok(Delta::Text(chunk.content))),
+                Ok(ChatStreamEvent::ReasoningChunk(chunk)) => {
+                    Some(Ok(Delta::Reasoning(chunk.content)))
+                }
+                Ok(ChatStreamEvent::End(end)) => Some(Ok(Delta::Done {
+                    usage: end.captured_usage.as_ref().map(usage).unwrap_or_default(),
+                })),
+                // Start and heartbeats carry nothing. Tool calls and thought signatures arrive
+                // only when tools are sent, which comes with the agent loop.
+                Ok(_) => None,
+                Err(error) => Some(Err(provider_error(&reference, &error))),
+            };
+            std::future::ready(delta)
+        }))
+    }
+
+    fn call(&self, reference: &str, prompt: &Prompt) -> Result<Call, ModelError> {
+        let resolved = self
+            .catalog
+            .resolve(reference)
+            .ok_or_else(|| ModelError::UnknownModel(reference.to_owned()))?;
+        let endpoint = resolved.endpoint;
+        let auth = if endpoint.needs_key {
+            let request = KeyRequest {
+                endpoint: &endpoint.id,
+                env: endpoint.key_env.as_deref(),
+            };
+            let key = self
+                .keys
+                .get(request)
+                .ok_or_else(|| ModelError::MissingKey {
+                    endpoint: endpoint.id.clone(),
+                    var: endpoint.key_env.clone(),
+                })?;
+            AuthData::from_single(key)
+        } else {
+            // The SDK's OpenAI path needs some key; local servers ignore this one.
+            AuthData::from_single(KEYLESS)
+        };
+        let mut options = ChatOptions::default();
+        if let Some(value) = prompt.max_tokens {
+            options = options.with_max_tokens(value);
+        }
+        if !endpoint.headers.is_empty() {
+            options = options.with_extra_headers(Headers::from(endpoint.headers.clone()));
+        }
+        Ok(Call {
+            reference: reference.to_owned(),
+            target: ServiceTarget {
+                endpoint: ServiceEndpoint::from_owned(endpoint.base_url.clone()),
+                auth,
+                model: ModelIden::new(endpoint.format.adapter(), resolved.model.id.as_str()),
+            },
+            options,
+        })
+    }
+}
+
+fn request(prompt: &Prompt) -> ChatRequest {
+    let messages = prompt
+        .messages
+        .iter()
+        .map(|message| match message.speaker {
+            Speaker::Person => ChatMessage::user(message.text.as_str()),
+            Speaker::Spade => ChatMessage::assistant(message.text.as_str()),
+        })
+        .collect();
+    let request = ChatRequest::new(messages);
+    match &prompt.system {
+        Some(system) => request.with_system(system.as_str()),
+        None => request,
+    }
+}
+
+fn usage(usage: &genai::chat::Usage) -> Usage {
+    let count = |value: Option<i32>| value.and_then(|v| u32::try_from(v).ok());
+    let details = usage.prompt_tokens_details.as_ref();
+    Usage {
+        input_tokens: count(usage.prompt_tokens),
+        output_tokens: count(usage.completion_tokens),
+        cache_read_tokens: count(details.and_then(|d| d.cached_tokens)),
+        cache_write_tokens: count(details.and_then(|d| d.cache_creation_tokens)),
+    }
+}
+
+fn provider_error(model: &str, error: &genai::Error) -> ModelError {
+    ModelError::Provider {
+        model: model.to_owned(),
+        message: error.to_string(),
+    }
+}

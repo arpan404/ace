@@ -30,6 +30,7 @@ import type { ServiceContext } from "./types.ts";
 import { apiKeyLoginDriver, apiKeySupport } from "../provider-api-key.ts";
 import { piKeyHandOff } from "../pi-login-driver.ts";
 import { openOpenCodeSignIn } from "@ace/adapter-opencode/sign-in";
+import { readOpenCodeEarlierLogins } from "../opencode-earlier-logins.ts";
 import { openCodexAccount } from "@ace/adapter-codex/account-login";
 import { cursorApiKeyEntry } from "@ace/adapter-cursor/auth";
 
@@ -325,6 +326,7 @@ export async function prepareProviderLogin(
             env,
             ...(target.provider === "opencode"
               ? {
+                  openCodeEarlierLogins: () => readOpenCodeEarlierLogins(instance.homeDir),
                   openCodeSignIn: (signIn: AbortSignal) =>
                     openOpenCodeSignIn({
                       command: executable,

@@ -48,6 +48,7 @@ export function deferredProjectsApi(
     add: (...args) => call((ready) => ready.add(...args)),
     create: (...args) => call((ready) => ready.create(...args)),
     addRoot: (...args) => call((ready) => ready.addRoot(...args)),
+    removeRoot: (...args) => call((ready) => ready.removeRoot(...args)),
     clone: (...args) => call((ready) => ready.clone(...args)),
     update: (...args) => call((ready) => ready.update(...args)),
     rename: (...args) => call((ready) => ready.rename(...args)),

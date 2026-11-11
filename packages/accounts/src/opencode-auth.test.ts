@@ -1,5 +1,9 @@
 import { expect, test } from "vitest";
-import { openCodeAuthChangeVerified, openCodeIntegrationConnected } from "./index.ts";
+import {
+  openCodeAuthChangeVerified,
+  openCodeEarlierLogins,
+  openCodeIntegrationConnected,
+} from "./index.ts";
 
 test("another connected service cannot make the selected OpenCode login succeed", () => {
   const connections = new Map([
@@ -57,4 +61,28 @@ test("targeted OpenCode verification still checks only the chosen integration", 
   expect(openCodeAuthChangeVerified("login", "openai", undefined, after)).toBe(false);
   expect(openCodeAuthChangeVerified("logout", "openai", undefined, after)).toBe(true);
   expect(openCodeAuthChangeVerified("logout", "anthropic", undefined, after)).toBe(false);
+});
+
+test("OpenCode's pre-2.2 auth.json yields only the names it held a login for, never a value", () => {
+  const file = JSON.stringify({
+    "github-copilot": {
+      type: "oauth",
+      refresh: "ghr_refresh_secret",
+      access: "gho_access_secret",
+      expires: 1,
+    },
+    lmstudio: { type: "api", key: "lm-key-secret" },
+    "wafer.ai": { type: "api", key: "wafer-key-secret" },
+    "https://models.example.com/": { type: "wellknown", key: "k", token: "t" },
+    broken: "not a login",
+    "-flag": { type: "api", key: "never-a-cli-flag" },
+  });
+  const names = openCodeEarlierLogins(file);
+  expect([...names].toSorted()).toEqual(["github-copilot", "lmstudio", "wafer.ai"]);
+  expect(JSON.stringify([...names])).not.toMatch(/secret/);
+});
+
+test("an unreadable auth.json names no earlier login", () => {
+  expect(openCodeEarlierLogins("{not json").size).toBe(0);
+  expect(openCodeEarlierLogins("[1,2]").size).toBe(0);
 });

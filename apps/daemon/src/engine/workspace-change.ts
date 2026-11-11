@@ -46,6 +46,46 @@ const failureCode = (error: unknown) =>
       : "workspace_change_failed";
 
 /**
+ * Work a checkout move must wait for. Messages a held queue keeps (after a Stop, or a send that
+ * couldn't start) go nowhere until the person lets them, so they don't hold the checkout: a
+ * thread whose worktree is gone can still move with its message waiting. Anything running,
+ * awaiting a reply or of uncertain delivery does.
+ */
+function livePending(repo: EngineRepository, id: ThreadId): boolean {
+  const pending = [...repo.pending.headers(id)];
+  // A thread with nothing pending may never have run, and so has no queue to read.
+  if (!pending.length) return false;
+  if (!repo.queue.get(id).paused || repo.queue.hasUncertain(id)) return true;
+  for (const intent of pending)
+    if (
+      intent.status === "running" ||
+      intent.awaiting ||
+      intent.submittedGeneration !== undefined ||
+      (intent.kind !== "thread.send" && intent.kind !== "thread.create")
+    )
+      return true;
+  return false;
+}
+
+/**
+ * A queue held because the checkout was gone sends again once a move gives it one: released,
+ * with an engine slot for the wake that follows the change (a full engine sends it later).
+ */
+function releaseMissingHold(repo: EngineRepository, id: ThreadId, at: number): void {
+  const queue = repo.queue.get(id);
+  if (
+    !queue.paused ||
+    queue.reason !== "not_sent" ||
+    queue.lastFailure?.code !== "worktree_missing" ||
+    queue.limited ||
+    queue.continuation
+  )
+    return;
+  repo.queue.set(id, { paused: false, reason: null }, at);
+  repo.reserve(id);
+}
+
+/**
  * Persist a fence before closing a session or mutating Git. Only the moving thread and the
  * threads bound to a root the change rewrites must be quiet. A fence an uncertain failure
  * or a restart leaves behind is settled by `settleWorkspaceChange` once Git is free.
@@ -64,11 +104,7 @@ export async function changeEngineWorkspace(
   const state = repo.requireState(id);
   const thread = repo.store.getThread(id);
   if (!thread || thread.deletedAt !== undefined) throw new Error("thread_not_found");
-  if (
-    repo.transitions.guarded(id) ||
-    !repo.quiescent(state) ||
-    !repo.pending.headers(id)[Symbol.iterator]().next().done
-  )
+  if (repo.transitions.guarded(id) || !repo.quiescent(state) || livePending(repo, id))
     throw new Error("thread_tree_is_live");
   if (
     thread.details?.workspaceChange?.state === "preparing" &&
@@ -127,7 +163,7 @@ export async function changeEngineWorkspace(
       if (
         repo.transitions.guarded(owner) ||
         (peer && !repo.quiescent(peer)) ||
-        !repo.pending.headers(owner)[Symbol.iterator]().next().done
+        livePending(repo, owner)
       )
         throw new Error("thread_tree_is_live");
     }
@@ -158,6 +194,7 @@ export async function changeEngineWorkspace(
         context: details.pullRequestWorkspace ? [details.pullRequestWorkspace.context] : [],
       });
       status("applied", details);
+      releaseMissingHold(repo, id, now());
       commit();
       repo.store.workspaceReservations.release(commandId);
     });

@@ -1,6 +1,6 @@
 import { once } from "node:events";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { WebSocket } from "ws";
@@ -206,6 +206,26 @@ it("absolute paths an answer names in code or prose open; paths it doesn't name 
     type: "files.error",
     code: "FORBIDDEN",
   });
+});
+
+it("a home path an answer names opens from the daemon's home folder", async () => {
+  const f = await setup("websocket");
+  const folder = await mkdtemp(join(homedir(), "ace-linked-home-"));
+  cleanup.push(() => rm(folder, { recursive: true, force: true }));
+  await writeFile(join(folder, "Draft3.pdf"), "%PDF-1.7 draft\n");
+  const named = `~/${folder.slice(homedir().length + 1)}/Draft3.pdf`;
+  f.message(
+    "answer",
+    "assistant",
+    `I wrote the revised proposal: \`${named}\` and [a link](${named}).`,
+  );
+  expect(await f.open("answer", named)).toBe("%PDF-1.7 draft\n");
+});
+
+it("a path with spaces an answer names in inline code opens", async () => {
+  const f = await setup("websocket");
+  f.message("answer", "assistant", `I saved it as \`${f.pdf}\`.`);
+  expect(await f.open("answer", f.pdf)).toBe("%PDF-1.7 assignment\n");
 });
 
 it("a link in the person's own message grants nothing", async () => {

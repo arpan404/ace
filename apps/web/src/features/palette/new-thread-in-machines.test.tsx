@@ -25,12 +25,16 @@ async function openStep(made: ReturnType<typeof harness>) {
   return screen.findByRole("dialog", { name: "New thread in" });
 }
 
-/** The step's rows, in order. */
+/** The step's rows, in order, as read aloud: decorative project badges are skipped. */
 const rows = async (step: HTMLElement) => {
   const list = await within(step).findByRole("listbox", { name: "Projects" });
   return within(list)
     .getAllByRole("option")
-    .map((option) => option.textContent ?? "");
+    .map((option) => {
+      const spoken = option.cloneNode(true) as HTMLElement;
+      for (const hidden of spoken.querySelectorAll("[aria-hidden]")) hidden.remove();
+      return spoken.textContent ?? "";
+    });
 };
 /** The machine's projects: every row but the chat first and Add project last. */
 const projectNames = async (step: HTMLElement) =>
@@ -119,5 +123,25 @@ test("a folder created from the project picker on Build server is made there and
   expect(await screen.findByRole("button", { name: "Project: jobs" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Machine: Build server" })).toBeTruthy();
   expect(paths(build)).toContain("/home/ci/services/jobs");
+  expect(paths(made.daemon)).toEqual(["/Users/dev/code/weather"]);
+});
+
+test("Add project from New thread in keeps the chosen machine", async () => {
+  const { made, build } = world([{ hostId: "build", name: "Build server" }]);
+  if (!build) throw new Error("no build server");
+  const step = await openStep(made);
+  await userEvent.click(await within(step).findByRole("button", { name: "Machine: This Mac" }));
+  await userEvent.click(await within(step).findByRole("option", { name: "Build server" }));
+  await waitFor(async () => expect(await projectNames(step)).toEqual(["api"]));
+  await userEvent.click(within(step).getByRole("option", { name: /^Add project/ }));
+
+  // Add project opens on the build server, without asking again.
+  const sources = await screen.findByRole("listbox", { name: "Project sources" });
+  expect(screen.getByRole("button", { name: "Machine: Build server" })).toBeTruthy();
+  await userEvent.click(within(sources).getByRole("option", { name: "New project" }));
+  await userEvent.type(await screen.findByRole("textbox", { name: "Project name" }), "jobs");
+  expect(await screen.findByText("~/services/jobs")).toBeTruthy();
+  await userEvent.keyboard("{Control>}{Enter}{/Control}");
+  await waitFor(() => expect(paths(build)).toContain("/home/ci/services/jobs"));
   expect(paths(made.daemon)).toEqual(["/Users/dev/code/weather"]);
 });

@@ -6,6 +6,12 @@ ace is a multi-agent coding environment: a local daemon that drives the user's i
 
 ace is a clean-room rewrite. Never copy, paste or closely paraphrase code from t3code, `arpan404/ace-legacy`, or any other codebase whose license we haven't explicitly accepted. Reading other projects to learn which interfaces exist is fine; the implementation must be written fresh from our own specs and from primary provider sources.
 
+## Spade
+
+`spade/` is Spade, ace's assistant, in Rust with its own Cargo workspace and checks
+(`cargo fmt --check`, `cargo clippy --all-targets`, `cargo test` inside `spade/`). Like the rest of
+ace it is Apache-2.0.
+
 ## Priorities
 
 1. Correctness of agent state. Never show an agent as done while any part of its tree is still working or waiting on a human.
@@ -16,7 +22,7 @@ When these conflict, choose in that order.
 
 ## Decisions that are settled
 
-- Providers are reached only through the user's own installed, logged-in CLIs. ace never collects, stores or proxies provider credentials and is never hosted (ADR 0002).
+- Providers are reached only through the user's own installed, logged-in CLIs. ace never collects, stores or proxies provider credentials and is never hosted (ADR 0002). One narrow exception: Spade keeps the API keys of endpoints the person adds in the OS keychain, nowhere else (ADR 0116).
 - Daemon runtime is Bun (releases ship it as `bin/node`); release builds run on Node 26. Bun is the package manager and script runner. TypeScript everywhere. Zod 4 for schemas. No Effect (ADR 0003).
 - `packages/protocol` is schema-only: Zod schemas and inferred types, no runtime behaviour beyond parsing.
 

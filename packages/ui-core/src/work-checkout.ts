@@ -90,7 +90,13 @@ export type CheckoutProblemAction =
 
 /** What stops the thread's checkout, in the words both apps show. */
 export interface CheckoutProblem {
-  kind: "move-failed" | "move-unconfirmed" | "worktree-missing" | "setup-failed" | "setup-skipped";
+  kind:
+    | "move-failed"
+    | "move-unconfirmed"
+    | "worktree-missing"
+    | "project-missing"
+    | "setup-failed"
+    | "setup-skipped";
   label: string;
   /** Why, when the daemon said. */
   detail: string | undefined;
@@ -123,18 +129,7 @@ export function checkoutProblem(details: ThreadDetails | undefined): CheckoutPro
       actions: [{ kind: "retry-move", move }, { kind: "clear-move" }],
     };
   }
-  if (details?.worktreeMissing)
-    return {
-      kind: "worktree-missing",
-      label: "Worktree missing",
-      detail: undefined,
-      output: [],
-      failed: true,
-      actions: [
-        { kind: "move", move: { mode: "local" }, label: "Move to local" },
-        { kind: "move", move: { mode: "worktree" }, label: "Recreate worktree" },
-      ],
-    };
+  if (details?.worktreeMissing) return missingProblem(details);
   const setup = details?.worktreeSetup;
   if (setup?.state === "failed")
     return {
@@ -158,6 +153,109 @@ export function checkoutProblem(details: ThreadDetails | undefined): CheckoutPro
       actions: [],
     };
   return undefined;
+}
+
+const toLocal: CheckoutProblemAction = {
+  kind: "move",
+  move: { mode: "local" },
+  label: "Move to local",
+};
+const toWorktree = (label: string): CheckoutProblemAction => ({
+  kind: "move",
+  move: { mode: "worktree" },
+  label,
+});
+
+/** The branch a new worktree starts from, as the person named it: `main`, `origin/main`. */
+function baseName(details: ThreadDetails): string | undefined {
+  const { base } = details;
+  if (base) return base.remote ? `${base.remote}/${base.ref}` : base.ref;
+  return details.baseBranch && details.baseBranch !== "HEAD" ? details.baseBranch : undefined;
+}
+
+/** A gone checkout's problem: failed, with no output of its own. */
+const missing = (
+  label: string,
+  detail: string | undefined,
+  actions: CheckoutProblemAction[],
+): CheckoutProblem => ({
+  kind: "worktree-missing",
+  label,
+  detail,
+  output: [],
+  failed: true,
+  actions,
+});
+
+/**
+ * A checkout whose folder is gone, by what Git still has of it. The project's own folder gone
+ * leaves nowhere to move. A worktree whose branch survives is made again on it; one whose
+ * branch is checked out elsewhere or deleted can go back to local or start a new worktree,
+ * which the daemon makes on a branch of its own from the thread's base. A daemon that sent
+ * only the flag gets both ways back, unexplained.
+ */
+function missingProblem(details: ThreadDetails): CheckoutProblem {
+  const gone = details.checkoutMissing;
+  if (gone?.kind === "project")
+    return {
+      ...missing(
+        "Project folder missing",
+        `${details.workspace?.path ?? "The project's folder"} is gone. Put the folder back to keep working in this thread.`,
+        [],
+      ),
+      kind: "project-missing",
+    };
+  const branch = gone?.branch;
+  if (!branch)
+    return missing("Worktree missing", undefined, [toLocal, toWorktree("Recreate worktree")]);
+  const base = baseName(details);
+  const fresh = base
+    ? `A new worktree starts from ${base}.`
+    : "A new worktree starts from the local checkout's commit.";
+  switch (branch.state) {
+    case "free":
+      return missing(
+        "Worktree missing",
+        `${branch.name} is still here. Recreate worktree puts the thread back on it.`,
+        [toWorktree("Recreate worktree"), toLocal],
+      );
+    case "gone":
+      return missing("Worktree and branch removed", `${branch.name} was deleted too. ${fresh}`, [
+        toLocal,
+        toWorktree("New worktree"),
+      ]);
+    case "elsewhere":
+      return missing(
+        "Worktree missing",
+        branch.holder === "local"
+          ? `${branch.name} is checked out in the local checkout now. Move to local carries on there.`
+          : `${branch.name} is checked out in another worktree. ${fresh}`,
+        [toLocal, toWorktree("New worktree")],
+      );
+  }
+}
+
+/**
+ * The branch of a checkout whose folder is gone, as the card's Branch row says it instead of
+ * its last sync state: its name, and where it is now ("deleted", "in the local checkout").
+ * Undefined while the checkout is there, or when the daemon didn't say what it was on.
+ */
+export function missingBranch(
+  details: ThreadDetails | undefined,
+): { name: string; where: string } | undefined {
+  if (!details?.worktreeMissing) return undefined;
+  const branch = details.checkoutMissing?.branch;
+  const name = branch?.name ?? details.branch;
+  if (!name) return undefined;
+  const where =
+    branch?.state === "gone"
+      ? "deleted"
+      : branch?.state === "elsewhere"
+        ? branch.holder === "local"
+          ? "in the local checkout"
+          : "in another worktree"
+        : "folder gone";
+  return { name, where };
 }
 
 /** Whose lock: a thread's checkout (a message it stopped) or a project's repository (a start). */

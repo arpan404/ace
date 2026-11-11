@@ -136,6 +136,25 @@ export const ThreadDetails = z.object({
   /** The thread's checkout folder no longer exists (deleted, or removed by storage cleanup). */
   worktreeMissing: z.boolean().optional(),
   /**
+   * With `worktreeMissing`, what Git still has: `project` when the project's own folder is gone
+   * (no checkout left to move to), else `worktree`, with the branch it was on and where that
+   * branch is now. `free`: nothing has it checked out, so the worktree can be made again on it;
+   * `gone`: deleted; `elsewhere`: checked out in the project's own checkout (`local`) or in
+   * another worktree. Absent from daemons that only report the flag.
+   */
+  checkoutMissing: z
+    .object({
+      kind: z.enum(["worktree", "project"]),
+      branch: z
+        .object({
+          name: z.string().max(1024),
+          state: z.enum(["free", "gone", "elsewhere"]),
+          holder: z.enum(["local", "worktree"]).optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+  /**
    * The setup script of a worktree made when the thread first ran: `failed` holds the thread's
    * queue until Retry or Continue (`thread.workspace.setup`); `skipped` says it didn't run
    * because the thread's access is Read-only. Absent once setup ran or was continued past.

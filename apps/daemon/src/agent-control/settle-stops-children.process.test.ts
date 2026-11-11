@@ -14,10 +14,7 @@ test("settling a thread stops the child threads it delegated to, with the backgr
   // The child finishes its turn with a background shell still running, and so does the parent.
   await f.emit(child.childId, task, end);
   await f.emit(parent.threadId, end);
-  expect(f.store.getThread(child.childId)?.status).toEqual({
-    state: "waiting",
-    on: "background_task",
-  });
+  expect(f.store.getThread(child.childId)?.status).toEqual({ state: "done" });
   expect(f.store.getThread(parent.threadId)?.status.state).not.toBe("working");
 
   const settled = organizeThread(

@@ -12,6 +12,10 @@ const copy: Record<string, string> = {
   workspace_root_changed: "The thread's worktree moved: try again.",
   workspace_not_found: "The thread's project is gone: open the project again.",
   workspace_unavailable: "The thread has no checkout yet: send it a message first.",
+  worktree_missing:
+    "The thread's folder is gone: move it to the local checkout or make its worktree again.",
+  workspace_removed:
+    "The thread's folder was removed: move it to the local checkout or make its worktree again.",
   workspace_change_in_progress: "The checkout is still moving: wait for it to finish, then retry.",
   workspace_change_interrupted:
     "The checkout move stopped when the daemon restarted: the thread stayed where it was. Retry to move it.",
@@ -197,6 +201,8 @@ const copy: Record<string, string> = {
     "This suggestion can't be applied: it is resolved, outdated or on removed lines.",
   review_workspace_not_found: "The thread's project is gone: open the project again.",
   review_limit: "This review is full: resolve or discard some comments first.",
+  // Allowed project folders.
+  last_root: "It's the only allowed folder: allow another before removing it.",
   unsupported_by_fake_daemon: "This daemon can't do that yet: update the daemon.",
 };
 

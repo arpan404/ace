@@ -28,7 +28,8 @@ it("active background descendants keep the thread working above retry and shell 
   h.end("grandchild");
   expect(h.view.status).toEqual({ state: "waiting", on: "upstream" });
   h.send({ type: "retry.cleared", agent: "root" });
-  expect(h.view.status).toEqual({ state: "waiting", on: "background_task" });
+  // Every agent replied: the root's shell is left running (ADR 0116).
+  expect(h.view.status).toEqual({ state: "done" });
   h.send({
     type: "item.upsert",
     agent: "root",
@@ -72,8 +73,10 @@ it("a background task re-announced by the subagent that owns it moves there and 
   expect(h.item("watch")).toMatchObject({ call: { backgroundTaskId: h.task("task")?.id } });
   h.end("child");
   h.end();
-  expect(h.agent("child")?.status).toMatchObject({ state: "blocked", on: "background_task" });
-  expect(h.view.status).toEqual({ state: "waiting", on: "background_task" });
+  // Every agent replied: the shell is left running on the subagent (ADR 0116).
+  expect(h.agent("child")?.status).toEqual({ state: "idle" });
+  expect(h.task("task")).toMatchObject({ status: "running", agentId: h.agent("child")?.id });
+  expect(h.view.status).toEqual({ state: "done" });
 });
 
 it("a running background task cannot move to a sibling or back to an ancestor", () => {

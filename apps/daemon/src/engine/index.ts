@@ -102,7 +102,7 @@ export interface EngineOptions {
   beforeSend?(threadId: ThreadId, commandId: import("@ace/protocol").CommandId): Promise<void>;
   /** `runCommands` is false when the thread's access is Read-only: no setup script runs. */
   prepareWorkspace?(threadId: ThreadId, options: { runCommands: boolean }): Promise<string>;
-  assertWorkspaceAvailable?(cwd: string): Promise<void>;
+  assertWorkspaceAvailable?(cwd: string, threadId: ThreadId): Promise<void>;
   machine?: { host: string; name: string };
   sessionContext?: NonNullable<ConstructorParameters<typeof Sessions>[0]["context"]>;
   ids?: IdSource;

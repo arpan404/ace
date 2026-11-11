@@ -10,12 +10,11 @@
     },
     {
       "t": 6288,
-      "thread": "waiting",
-      "on": "background_task",
+      "thread": "done",
       "agentStates": {
-        "root": "blocked"
+        "root": "idle"
       },
-      "note": "Parent execution ended, but the native shell is still running."
+      "note": "Parent execution ended; the native shell still runs, listed, not waited on (ADR 0116)."
     },
     {
       "t": 19702,
