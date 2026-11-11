@@ -73,7 +73,7 @@ impl Policy {
 
 /// The IPv4 address carried inside an IPv6 one: IPv4-mapped (`::ffff:a.b.c.d`), IPv4-compatible
 /// (`::a.b.c.d`), NAT64 (`64:ff9b::a.b.c.d`) and 6to4 (`2002:aabb:ccdd::`).
-fn embedded_v4(ip: Ipv6Addr) -> Option<Ipv4Addr> {
+pub(crate) fn embedded_v4(ip: Ipv6Addr) -> Option<Ipv4Addr> {
     let s = ip.segments();
     let tail = |hi: u16, lo: u16| {
         let [a, b] = hi.to_be_bytes();

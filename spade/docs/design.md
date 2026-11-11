@@ -136,12 +136,21 @@ address of this machine or on its links (read from its interfaces on every fetch
 list refuses the fetch). It connects only to the addresses it checked, never through a proxy, so
 DNS cannot swap them. Every redirect is checked again, at most five, all within one deadline. It
 reads at most 5 MB after decompression, and only HTML, text, JSON and XML (PDF later), decoded in
-the page's own character encoding. HTML is read by Spade's own tokenizer and a tree with fixed
-limits (256 open elements, 100,000 tags, 1 MiB of text, 2 KB per link), never logged, and becomes
-light Markdown from the main content (`main`, else `article`, else the body) without scripts,
+the page's own character encoding. HTML is read by html5ever's tokenizer and Spade's own tree
+builder with fixed limits (128 attributes per tag, 256 open elements, 100,000 tags, 1 MiB of text,
+2 KB per link), and becomes light Markdown from the main content (`main`, else `article`, else the body) without scripts,
 navigation, page headers and footers, asides, forms or hidden elements. Text comes back a window
 at a time, with the next offset when more remains and a mark when the page was cut. Errors are
 one short line and never quote the page.
+
+Known limits of `web_fetch`: routes in Linux routing tables other than the main one (policy
+routing, which needs rtnetlink to read) and gateway-less routes wider than /16 (IPv4) or /32
+(IPv6) are not treated as this machine's networks. Only policy routing or unusually wide public
+on-link prefixes are affected. Outside Linux the routing table comes from `netstat` or `netsh`,
+which is killed after two seconds (refusing the fetch); that wait does not shorten with the
+fetch's own deadline. The HTML tokenizer logs page text at debug and trace level, so whoever
+installs a log subscriber drops the events `spade_fetch::is_parser_log` names, in a filter
+RUST_LOG cannot override.
 
 ## Compaction
 

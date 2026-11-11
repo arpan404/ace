@@ -88,3 +88,74 @@ fn the_header_charset_is_read_from_its_parameters() {
     assert_eq!(header_charset("text/html"), None);
     assert_eq!(header_charset("text/html; charset="), None);
 }
+
+#[tokio::test]
+async fn a_commented_out_meta_charset_is_ignored() -> Result {
+    let addr = serve_bytes(
+        "text/html",
+        "<!--<meta charset=windows-1252>--><meta charset=utf-8><main>café</main>".as_bytes(),
+    )
+    .await?;
+    let got = local()
+        .fetch(&format!("http://{addr}/"), Page::default())
+        .await?;
+    assert_eq!(got.text, "café");
+    Ok(())
+}
+
+fn last_char(bytes: &[u8]) -> Option<char> {
+    decode(bytes, None, true).chars().last()
+}
+
+#[test]
+fn the_prescan_matches_whole_meta_declarations_only() {
+    // é in windows-1252 is the single byte E9; in UTF-8 that byte is invalid.
+    let cases: [(&[u8], char); 9] = [
+        (b"<!--<meta charset=windows-1252>--><p>\xe9", '\u{fffd}'),
+        (b"<!--><meta charset=windows-1252><p>\xe9", '\u{e9}'),
+        (b"<meta data-charset=windows-1252><p>\xe9", '\u{fffd}'),
+        (
+            b"<meta content=\"text/html; charset=windows-1252\"><p>\xe9",
+            '\u{fffd}',
+        ),
+        (
+            b"<meta http-equiv=\"Content-Type\" content=\"text/html; charset=windows-1252\">\xe9",
+            '\u{e9}',
+        ),
+        (
+            b"<div title=\"<meta charset=windows-1252>\"><p>\xe9",
+            '\u{fffd}',
+        ),
+        (b"<META CHARSET='Windows-1252'><p>\xe9", '\u{e9}'),
+        (b"<meta charset=x-user-defined><p>\xe9", '\u{e9}'),
+        (
+            b"<meta charset=windows-1252 charset=utf-8><p>\xe9",
+            '\u{e9}',
+        ),
+    ];
+    for (bytes, expected) in cases {
+        assert_eq!(
+            last_char(bytes),
+            Some(expected),
+            "{}",
+            String::from_utf8_lossy(bytes)
+        );
+    }
+}
+
+#[test]
+fn a_meta_charset_counts_only_when_it_ends_within_the_first_1024_bytes() {
+    let meta = b"<meta charset=windows-1252>";
+    let at = |pad: usize| {
+        let mut page = vec![b' '; pad];
+        page.extend_from_slice(meta);
+        page.extend_from_slice(b"<p>\xe9");
+        last_char(&page)
+    };
+    assert_eq!(at(1024 - meta.len()), Some('\u{e9}'), "ends on byte 1024");
+    assert_eq!(
+        at(1024 - meta.len() + 1),
+        Some('\u{fffd}'),
+        "ends past byte 1024"
+    );
+}
