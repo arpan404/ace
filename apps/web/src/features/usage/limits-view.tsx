@@ -15,6 +15,7 @@ import type { Machine } from "@/lib/machines.ts";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { BankedResetAction, type RedeemReset } from "./banked-resets.tsx";
+import { LimitBar } from "./limit-bar.tsx";
 
 /**
  * Limits, one account at a time with each of its windows (a session, a week, a model's own week,
@@ -216,7 +217,7 @@ function WindowRow(props: { window: AccountWindow; now: number }) {
         {!window.stale && <span className="text-xs font-normal text-subtle-foreground"> left</span>}
       </span>
       <div className="col-span-2 @min-[40rem]/limits:order-2 @min-[40rem]/limits:col-span-1">
-        <Bar window={window} runsOut={runsOut} />
+        <LimitBar window={window} runsOut={runsOut} />
       </div>
       <span
         className={cn(
@@ -272,66 +273,5 @@ function WindowRow(props: { window: AccountWindow; now: number }) {
         </HoverCardContent>
       </HoverCard>
     </li>
-  );
-}
-
-/**
- * What is left as a fat bar. Lasting: ink up to where the pace leaves it at the reset (the
- * marker), amber for what that pace still uses. Running out: all of it red.
- */
-function Bar(props: { window: AccountWindow; runsOut: boolean }) {
-  const { window } = props;
-  const left = window.stale ? 0 : window.leftPercent;
-  const marker = props.runsOut || window.stale ? null : window.leftAtReset;
-  const valuetext = window.stale ? "Not used since its reset" : `${window.leftPercent}% left`;
-  return (
-    <div
-      role="meter"
-      aria-label={window.label}
-      aria-valuemin={0}
-      aria-valuemax={100}
-      aria-valuenow={window.leftPercent}
-      aria-valuetext={valuetext}
-      className={cn(
-        "relative h-2.5 overflow-hidden rounded-full",
-        window.leftPercent <= 0 && !window.stale ? "bg-status-failed/20" : "bg-faint-foreground/30",
-      )}
-    >
-      <span className="absolute inset-0">
-        {props.runsOut ? (
-          <span
-            data-runs-out=""
-            style={{ width: `${left}%` }}
-            className="absolute inset-y-0 left-0 rounded-r-full bg-status-failed"
-          />
-        ) : (
-          <>
-            <span
-              style={{ width: `${marker ?? left}%` }}
-              className={cn(
-                "absolute inset-y-0 left-0 bg-muted-foreground",
-                // The fill's end is round; where the pace part follows, the notch parts them.
-                !(marker !== null && marker < left) && "rounded-r-full",
-              )}
-            />
-            {marker !== null && marker < left && (
-              <span
-                data-pace=""
-                style={{ left: `${marker}%`, width: `${left - marker}%` }}
-                className="usage-pace absolute inset-y-0 rounded-r-full"
-              />
-            )}
-          </>
-        )}
-      </span>
-      {/* Where the pace leaves it at the reset: a notch in the bar's own height. */}
-      {marker !== null && marker < left && (
-        <span
-          aria-hidden
-          style={{ left: `${marker}%` }}
-          className="absolute inset-y-0 w-[3px] -translate-x-1/2 bg-background"
-        />
-      )}
-    </div>
   );
 }

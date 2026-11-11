@@ -1,7 +1,7 @@
 import { AccountSummary } from "@ace/protocol/accounts";
 import { expect, test } from "vitest";
 import { accountView } from "./accounts.ts";
-import { headroomSentence, railUsage, usageHeadroom } from "./usage-headroom.ts";
+import { headroomAlert, railUsage, usageHeadroom } from "./usage-headroom.ts";
 import { usageLimits } from "./usage-limits.ts";
 
 const now = Date.parse("2026-11-01T12:00:00Z");
@@ -171,7 +171,7 @@ test("a session past its reset since its last reading counts as fresh", () => {
   expect(stale?.sessionLeft).toBe(43);
 });
 
-test("with room everywhere, the card names the tightest provider and when it runs out at this pace", () => {
+test("a session this pace runs out is left to its own row, not repeated above the rows", () => {
   const list = headroom(claudePersonal, {
     provider: "codex",
     id: "codex-personal",
@@ -179,16 +179,13 @@ test("with room everywhere, the card names the tightest provider and when it run
     isDefault: true,
     session: [38, 181],
   });
-  expect(headroomSentence(list, now)).toBe(
-    "Claude Code's session runs out in about 2h at this pace; it resets in 2h 1m.",
-  );
+  // Its own row says when it runs out; the card adds nothing above them.
+  expect(headroomAlert(list, now)).toBeUndefined();
 });
 
-test("a tightest provider on pace to last until its reset gets no forecast", () => {
+test("with every provider lasting until its reset, the card says nothing above its limits", () => {
   const list = headroom({ ...claudePersonal, session: [30, 60] });
-  expect(headroomSentence(list, now)).toBe(
-    "Claude Code is the tightest, with 59% of the session left; it resets in 1h.",
-  );
+  expect(headroomAlert(list, now)).toBeUndefined();
 });
 
 test("the card says who is out on every account and when they're back", () => {
@@ -196,11 +193,14 @@ test("the card says who is out on every account and when they're back", () => {
     { ...claudePersonal, session: [100, 88] },
     { ...claudeWork, session: [100, 150] },
   );
-  expect(headroomSentence(list, now)).toBe("Claude Code is out; it's back in 1h 28m.");
+  expect(headroomAlert(list, now)).toEqual({
+    text: "Claude Code is out; it's back in 1h 28m.",
+    tone: "out",
+  });
 });
 
 test("the card says nothing with no limits read", () => {
-  expect(headroomSentence([], now)).toBe("No limits read yet.");
+  expect(headroomAlert([], now)).toBeUndefined();
 });
 
 test("set to session, the bars show each account's usable session instead of its week", () => {

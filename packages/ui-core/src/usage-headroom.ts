@@ -281,20 +281,19 @@ function backIn(entry: PooledHeadroom, now: number): string {
   return entry.backAt === null ? "" : formatCountdown(entry.backAt - now);
 }
 
-/** The hover card's one sentence about the tightest provider. */
-export function headroomSentence(headroom: readonly PooledHeadroom[], now: number): string {
+/**
+ * The one thing the card's rows can't say: a provider whose every account is out, and when the
+ * first comes back. A window that runs out says so in its own row. Undefined otherwise.
+ */
+export function headroomAlert(
+  headroom: readonly PooledHeadroom[],
+  now: number,
+): { text: string; tone: "out" } | undefined {
   const [first] = outProviders(headroom);
-  if (first) {
-    const back = backIn(first, now);
-    return `${first.providerLabel} is out${back ? `; it's back in ${back}` : ""}.`;
-  }
-  const tight = tightestProvider(headroom);
-  if (!tight) return "No limits read yet.";
-  const resets = tight.session?.resetsAt;
-  const resetPart = resets ? `; it resets in ${formatCountdown(resets - now)}` : "";
-  const runsOut = tight.session?.runsOutAt;
-  if (runsOut)
-    return `${tight.providerLabel}'s session runs out in ${approximately(runsOut - now)} at this pace${resetPart}.`;
-  const left = tight.currentLeft ?? tight.sessionLeft ?? 0;
-  return `${tight.providerLabel} is the tightest, with ${left}% of the session left${resetPart}.`;
+  if (!first) return undefined;
+  const back = backIn(first, now);
+  return {
+    text: `${first.providerLabel} is out${back ? `; it's back in ${back}` : ""}.`,
+    tone: "out",
+  };
 }

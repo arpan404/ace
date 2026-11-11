@@ -89,7 +89,15 @@ test("an account out for the week reads out in the icon's name; the card names w
   // Both Codex accounts have spent their week; the first comes back when its week resets.
   const card = await screen.findByText("Codex is out; it's back in 3d.");
   const body = card.closest("[data-slot=usage-card]");
-  expect(body && within(body as HTMLElement).getByRole("region", { name: "Codex" })).toBeTruthy();
+  const codex = body && within(body as HTMLElement).getByRole("region", { name: "Codex" });
+  expect(codex).toBeTruthy();
+  // Its current account is named, with each of its limits as the Usage page draws them.
+  expect(codex?.textContent).toContain("Codex · Personal");
+  expect(
+    within(codex as HTMLElement)
+      .getAllByRole("meter")
+      .map((each) => [each.getAttribute("aria-label"), each.getAttribute("aria-valuenow")]),
+  ).toContainEqual(["Weekly", "0"]);
   await userEvent.click(within(body as HTMLElement).getByRole("link", { name: "Open Usage ›" }));
   await waitFor(() =>
     expect(screen.getByRole("heading", { level: 2, name: "Usage" })).toBeTruthy(),
