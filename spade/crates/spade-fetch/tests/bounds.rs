@@ -286,3 +286,12 @@ fn many_tags_each_with_some_attributes_are_not_cut() {
     assert!(!read.truncated);
     assert!(read.text.starts_with("wwww"));
 }
+
+#[test]
+fn ending_an_over_long_candidate_never_breaks_an_end_tag() {
+    // The 129th "attribute" of the script-string candidate starts at the `s` of `</script>`.
+    let words = " w".repeat(MOST_ATTRIBUTES);
+    let source = format!("<main><script>x = '<a{words}</script><p>After</p></main>");
+    let read = read_within_two_seconds(source);
+    assert_eq!(read.text, "After");
+}

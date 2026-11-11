@@ -173,3 +173,30 @@ fn a_meta_charset_counts_only_when_it_ends_within_the_first_1024_bytes() {
         "ends past byte 1024"
     );
 }
+
+#[test]
+fn one_stray_byte_does_not_turn_a_utf8_page_into_windows_1252() {
+    let mut page = "<p>It\u{2019}s \u{201c}fine\u{201d} \u{2014} caf\u{e9} na\u{ef}ve</p>"
+        .as_bytes()
+        .to_vec();
+    page.extend_from_slice(b"<p>stray \xff byte</p>");
+    let text = decode(&page, None, true);
+    assert!(
+        text.contains("It\u{2019}s \u{201c}fine\u{201d} \u{2014} caf\u{e9} na\u{ef}ve"),
+        "{text}"
+    );
+    assert!(text.contains("stray \u{fffd} byte"));
+}
+
+#[test]
+fn a_page_mostly_in_windows_1252_reads_as_windows_1252() {
+    let text = decode(
+        b"<p>Caf\xe9 cr\xe8me, \x93quoted\x94 and na\xefve</p>",
+        None,
+        true,
+    );
+    assert_eq!(
+        text,
+        "<p>Caf\u{e9} cr\u{e8}me, \u{201c}quoted\u{201d} and na\u{ef}ve</p>"
+    );
+}
