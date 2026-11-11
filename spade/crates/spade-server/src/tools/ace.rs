@@ -19,18 +19,17 @@ const REFRESH: Duration = Duration::from_secs(300);
 
 /// ace's tools whose output is only ace's own state, never text from outside (web pages, agents'
 /// output, other people). Every other ace tool's output is untrusted, so writes after it ask.
-const TRUSTED: &[&str] = &[
-    "context",
-    "machines",
-    "models",
-    "projects_find",
-    "threads_find",
-    "automations_list",
-    "agents_status",
-];
+/// (Tools that return agents' output or notes, such as agents_status, context and threads_find,
+/// are untrusted: an agent may have read a page written to trick Spade.)
+const TRUSTED: &[&str] = &["machines", "models", "projects_find", "automations_list"];
 
-/// ace's tools that can run for minutes, run as background jobs.
-const BACKGROUND: &[&str] = &["wait"];
+/// ace's tools that can run for minutes, run as background jobs. `delegate` waits for its
+/// children there, so the conversation shows as working while they run and their results come
+/// back as a `<job_result>`; nothing wakes Spade when a child finishes otherwise.
+const BACKGROUND: &[&str] = &["wait", "delegate"];
+
+/// How long a background `delegate` waits for its children unless the model asked otherwise.
+const DELEGATE_WAIT_SECONDS: u64 = 600;
 
 /// How Spade offers one of ace's tools.
 pub fn def(tool: &AceTool) -> ToolDef {
@@ -51,26 +50,50 @@ pub fn def(tool: &AceTool) -> ToolDef {
     }
 }
 
-/// Gives each task of a `delegate` call a request id derived from the call's key, unless the
-/// model chose one. ace returns the same child for a repeated request id, so a retried call,
-/// even after a restart, never starts a second agent.
-pub fn with_request_ids(name: &str, key: &str, mut arguments: Value) -> Value {
+/// Prepares a `delegate` call. Each task's request id is scoped to this call's key, which is
+/// unique across conversations and stable across retries: a retried call, even after a restart,
+/// returns the same children, and two conversations can never collide on a model's "task-1". The
+/// call waits for its children (it runs as a background job) unless the model set a wait.
+pub fn prepare_delegate(name: &str, key: &str, mut arguments: Value) -> Value {
     if name != "delegate" {
         return arguments;
     }
+    let scope = id_safe(key);
     if let Some(tasks) = arguments.get_mut("tasks").and_then(Value::as_array_mut) {
         for (index, task) in tasks.iter_mut().enumerate() {
-            if let Some(task) = task.as_object_mut()
-                && !task.contains_key("requestId")
-            {
+            if let Some(task) = task.as_object_mut() {
+                let own = task
+                    .get("requestId")
+                    .and_then(Value::as_str)
+                    .map(id_safe)
+                    .filter(|id| !id.is_empty())
+                    .unwrap_or_else(|| index.to_string());
                 task.insert(
                     "requestId".to_owned(),
-                    Value::String(format!("{key}.{index}")),
+                    Value::String(format!("{scope}.{own}")),
                 );
             }
         }
     }
+    if let Some(object) = arguments.as_object_mut() {
+        object
+            .entry("waitSeconds")
+            .or_insert(Value::from(DELEGATE_WAIT_SECONDS));
+    }
     arguments
+}
+
+/// Only the characters ace accepts in an id (`[A-Za-z0-9_.-]`); anything else becomes `_`.
+fn id_safe(text: &str) -> String {
+    text.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 /// What a call's answer tells the model.
@@ -191,7 +214,7 @@ impl Tool for AceCall {
 
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {
         let (client, name) = (self.client.clone(), self.def.spec.name.clone());
-        let arguments = with_request_ids(&name, key, arguments);
+        let arguments = prepare_delegate(&name, key, arguments);
         Box::pin(async move { output(client.call(&name, arguments).await) })
     }
 }
@@ -215,8 +238,9 @@ mod tests {
     fn ace_tools_are_deferred_keep_their_risk_and_most_output_is_untrusted() {
         let read = def(&tool("thread_read", AceRisk::Read));
         assert!(read.deferred && read.untrusted_output && read.risk == Risk::Read);
-        let status = def(&tool("agents_status", AceRisk::Read));
-        assert!(!status.untrusted_output);
+        assert!(def(&tool("agents_status", AceRisk::Read)).untrusted_output);
+        assert!(!def(&tool("machines", AceRisk::Read)).untrusted_output);
+        assert!(def(&tool("delegate", AceRisk::Write)).background);
         let start = def(&tool("thread_start", AceRisk::Write));
         assert_eq!(start.risk, Risk::Write);
         assert!(!start.background);
@@ -228,20 +252,36 @@ mod tests {
     }
 
     #[test]
-    fn each_delegated_task_gets_a_stable_request_id_unless_the_model_gave_one() {
+    fn delegated_tasks_get_ids_scoped_to_the_call_and_wait_for_their_children() {
         let arguments = json!({ "tasks": [
             { "task": "fix the bug", "role": "Fix-bug" },
-            { "task": "write docs", "role": "Docs", "requestId": "mine" }
+            { "task": "write docs", "role": "Docs", "requestId": "task 1" }
         ]});
-        let keyed = with_request_ids("delegate", "c_1.call_7", arguments.clone());
-        assert_eq!(keyed["tasks"][0]["requestId"], "c_1.call_7.0");
-        assert_eq!(keyed["tasks"][1]["requestId"], "mine");
+        let key = "c_1.functions.delegate:0";
+        let prepared = prepare_delegate("delegate", key, arguments.clone());
         assert_eq!(
-            with_request_ids("delegate", "c_1.call_7", arguments.clone()),
-            keyed
+            prepared["tasks"][0]["requestId"],
+            "c_1.functions.delegate_0.0"
         );
         assert_eq!(
-            with_request_ids("thread_start", "c_1.call_7", arguments.clone()),
+            prepared["tasks"][1]["requestId"],
+            "c_1.functions.delegate_0.task_1"
+        );
+        assert_eq!(prepared["waitSeconds"], 600);
+        assert_eq!(
+            prepare_delegate("delegate", key, arguments.clone()),
+            prepared,
+            "stable on retry"
+        );
+        let other = prepare_delegate("delegate", "c_2.functions.delegate:0", arguments.clone());
+        assert_ne!(
+            other["tasks"][1]["requestId"],
+            prepared["tasks"][1]["requestId"]
+        );
+        let asked = prepare_delegate("delegate", key, json!({ "tasks": [], "waitSeconds": 30 }));
+        assert_eq!(asked["waitSeconds"], 30);
+        assert_eq!(
+            prepare_delegate("thread_start", key, arguments.clone()),
             arguments
         );
     }

@@ -420,3 +420,31 @@ fn images_a_tool_returned_follow_the_steps_results_before_steered_messages() {
     );
     assert!(matches!(shown.last(), Some(Message::Person { images, .. }) if images.len() == 1));
 }
+
+#[test]
+fn only_the_newest_images_are_shown_and_older_ones_are_described() {
+    let image = |n: usize| crate::event::ImageRef {
+        sha256: "kept".into(),
+        media_type: format!("image/png;n={n}"),
+        bytes: 3,
+    };
+    let events: Vec<Event> = (0..SHOWN_IMAGES + 2)
+        .map(|n| {
+            Event::Known(Known::UserMessage {
+                text: format!("look {n}"),
+                context: None,
+                images: vec![image(n)],
+            })
+        })
+        .collect();
+    let shown = messages_with(&events, &Shelf);
+    let Some(Message::Person { text, images }) = shown.first() else {
+        panic!("{shown:?}");
+    };
+    assert_eq!(images.len(), SHOWN_IMAGES);
+    assert_eq!(
+        images[0].media_type, "image/png;n=2",
+        "the two oldest are left out"
+    );
+    assert_eq!(text.matches("no longer shown").count(), 2);
+}

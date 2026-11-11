@@ -27,7 +27,7 @@ use crate::engine::{AnswerError, CompactError, Engine, Frame, SendError};
 #[derive(Clone)]
 pub struct Closing(pub watch::Receiver<bool>);
 
-/// The largest message body: eight 5 MB images as base64, plus the text. Other routes keep the
+/// The largest message body: eight 3.75 MB images as base64, plus the text. Other routes keep the
 /// default limit.
 const MESSAGE_BODY: usize = 60 * 1024 * 1024;
 
@@ -342,6 +342,7 @@ async fn image(State(state): State<AppState>, Path(sha256): Path<String>) -> Res
                     axum::http::header::CACHE_CONTROL,
                     "private, max-age=31536000, immutable",
                 ),
+                (axum::http::header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
             ],
             bytes,
         )

@@ -137,9 +137,12 @@ impl Engine {
         images: &[Vec<u8>],
     ) -> Result<String, SendError> {
         self.check_message(text, images.len())?;
+        // Images are checked and stored first, so a refused one never leaves an empty
+        // conversation behind.
+        let message = self.message(text, images)?;
         let id = self.ids.next("c");
         self.store.create_conversation(&id, self.now_ms())?;
-        self.send(&id, text, images)?;
+        self.deliver(&id, &message)?;
         Ok(id)
     }
 
@@ -155,17 +158,22 @@ impl Engine {
         if self.store.conversation(id)?.is_none() {
             return Err(SendError::NotFound);
         }
+        let message = self.message(text, images)?;
+        self.deliver(id, &message)?;
+        Ok(())
+    }
+
+    /// The person's message as stored, with its images kept in the image store.
+    fn message(&self, text: &str, images: &[Vec<u8>]) -> Result<Event, SendError> {
         let images = images
             .iter()
             .map(|bytes| self.images.put(bytes))
             .collect::<Result<Vec<_>, _>>()?;
-        let message = Event::Known(Known::UserMessage {
+        Ok(Event::Known(Known::UserMessage {
             text: text.trim().to_owned(),
             context: None,
             images,
-        });
-        self.deliver(id, &message)?;
-        Ok(())
+        }))
     }
 
     /// A stored image and its media type, by hash.

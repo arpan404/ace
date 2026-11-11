@@ -60,11 +60,12 @@ async fn an_attached_image_is_stored_once_shown_to_the_model_and_served_back() -
         .send()
         .await?;
     assert_eq!(served.headers()["content-type"], "image/png");
+    assert_eq!(served.headers()["x-content-type-options"], "nosniff");
     assert_eq!(served.bytes().await?.as_ref(), PNG);
 
     // A full-size image, past the server's default 2 MB body limit, is taken too.
     let mut large = PNG.to_vec();
-    large.resize(4 * 1024 * 1024, 7);
+    large.resize(3_500_000, 7);
     let (big, body) = spade
         .post(
             &format!("/v1/conversations/{id}/messages"),
@@ -200,5 +201,21 @@ async fn an_image_a_tool_returns_is_kept_and_shown_to_the_model_after_the_result
         last["content"][1]["image_url"]["url"],
         format!("data:image/png;base64,{}", STANDARD.encode(PNG))
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_refused_image_leaves_no_empty_conversation_behind() -> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    let (status, _) = spade
+        .post(
+            "/v1/conversations",
+            json!({ "text": "Look", "images": [{ "data": STANDARD.encode(b"\x00\x00\x00\x18ftypheic") }] }),
+        )
+        .await?;
+    assert_eq!(status, 400);
+    let (_, list) = spade.get("/v1/conversations").await?;
+    assert_eq!(list, json!([]));
+    assert!(spade.fake.seen().is_empty());
     Ok(())
 }

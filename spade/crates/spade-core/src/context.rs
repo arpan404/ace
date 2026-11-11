@@ -5,7 +5,7 @@
 use spade_models::{Image, Message, Prompt, ToolCall, ToolSpec};
 
 use crate::event::{Event, ImageRef, Known};
-use crate::tools::Registry;
+use crate::tools::{CALL_TOOL, Registry, TOOL_SEARCH};
 
 /// Spade's standing instructions.
 pub const SYSTEM: &str = "You are Spade, the assistant built into ace. Answer clearly and directly. \
@@ -100,6 +100,62 @@ pub fn messages(events: &[Event]) -> Vec<Message> {
 
 /// [`messages`] with attached images taken from `images`.
 pub fn messages_with(events: &[Event], images: &dyn Images) -> Vec<Message> {
+    messages_shown(events, &Recent::new(events, images))
+}
+
+/// The most images one prompt shows; older ones are described, so screenshots that pile up never
+/// push a request past a provider's limits.
+pub const SHOWN_IMAGES: usize = 10;
+
+/// Shows only the last [`SHOWN_IMAGES`] images of the conversation, in the order the prompt asks
+/// for them.
+struct Recent<'a> {
+    inner: &'a dyn Images,
+    skip: std::cell::Cell<usize>,
+}
+
+impl<'a> Recent<'a> {
+    fn new(events: &[Event], inner: &'a dyn Images) -> Self {
+        // Only what the prompt shows: after a compaction, the events it kept.
+        let from = events
+            .iter()
+            .rev()
+            .find_map(|event| match event {
+                Event::Known(Known::ContextCompacted { keep_from, .. }) => Some(*keep_from),
+                _ => None,
+            })
+            .unwrap_or(0)
+            .min(events.len());
+        let total: usize = events[from..]
+            .iter()
+            .map(|event| match event {
+                Event::Known(
+                    Known::UserMessage { images, .. } | Known::ToolFinished { images, .. },
+                ) => images.len(),
+                _ => 0,
+            })
+            .sum();
+        Self {
+            inner,
+            skip: std::cell::Cell::new(total.saturating_sub(SHOWN_IMAGES)),
+        }
+    }
+}
+
+impl Images for Recent<'_> {
+    fn get(&self, image: &ImageRef) -> Result<Image, String> {
+        let skip = self.skip.get();
+        if skip > 0 {
+            self.skip.set(skip - 1);
+            return Err(
+                "it is an earlier image, no longer shown to keep requests small".to_owned(),
+            );
+        }
+        self.inner.get(image)
+    }
+}
+
+fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
     // After a compaction the model sees its summary, then the events it kept word for word.
     let compacted = events.iter().rev().find_map(|event| match event {
         Event::Known(Known::ContextCompacted {
@@ -379,7 +435,12 @@ pub fn untrusted_turn(events: &[Event], registry: &Registry) -> bool {
         .map_or(0, |at| at + 1);
     events[from..].iter().any(|event| match event {
         Event::Known(Known::ToolFinished { name, .. } | Known::JobFinished { name, .. }) => {
-            registry.get(name).is_some_and(|tool| tool.untrusted_output)
+            // A tool no longer listed (ace switched it off, or its list is not back yet after a
+            // restart) cannot vouch for its output.
+            match registry.get(name) {
+                Some(tool) => tool.untrusted_output,
+                None => name != TOOL_SEARCH && name != CALL_TOOL,
+            }
         }
         _ => false,
     })

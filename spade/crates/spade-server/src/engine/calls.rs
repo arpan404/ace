@@ -9,7 +9,7 @@ use serde_json::Value;
 use spade_core::context;
 use spade_core::event::{Call, Known};
 use spade_core::gate::{self, Decision};
-use spade_core::tools::{CALL_TOOL, TOOL_SEARCH, describe, unwrap_call_tool};
+use spade_core::tools::{CALL_TOOL, Risk, TOOL_SEARCH, describe, unwrap_call_tool};
 use spade_core::turn::{Pending, Status};
 use spade_core::{Event, Transcript};
 use tokio::sync::watch;
@@ -205,12 +205,21 @@ async fn run_one(
     };
     // Unique across conversations, and the same on every retry of this call.
     let key = format!("{id}.{call_id}");
+    let reads_only = tool.def().risk == Risk::Read;
     match tokio::time::timeout(engine.limits.tool_timeout, tool.run(&key, arguments)).await {
         Ok(output) => output,
-        Err(_) => ToolOutput::error(format!(
-            "{name} did not finish within {} seconds.",
-            engine.limits.tool_timeout.as_secs()
-        )),
+        Err(_) => {
+            let seconds = engine.limits.tool_timeout.as_secs();
+            if reads_only {
+                ToolOutput::error(format!("{name} did not finish within {seconds} seconds."))
+            } else {
+                // A write cut off may still have acted; never let it read as "did not run".
+                ToolOutput::error(format!(
+                    "{} ({name} did not answer within {seconds} seconds.)",
+                    context::MAYBE_RAN
+                ))
+            }
+        }
     }
 }
 

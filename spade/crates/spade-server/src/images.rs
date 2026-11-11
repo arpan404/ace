@@ -14,12 +14,13 @@ use spade_models::Image;
 
 /// The most images one message may carry.
 pub const MOST_IMAGES: usize = 8;
-/// The largest image accepted, in bytes.
-pub const MOST_BYTES: usize = 5 * 1024 * 1024;
+/// The largest image accepted, in bytes. Providers count their 5 MB limit on the base64 text,
+/// which is a third larger.
+pub const MOST_BYTES: usize = 3_750_000;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ImageError {
-    #[error("an image is larger than 5 MB")]
+    #[error("an image is larger than 3.75 MB")]
     TooLarge,
     #[error("an attachment is not a PNG, JPEG, GIF or WebP image")]
     NotAnImage,
