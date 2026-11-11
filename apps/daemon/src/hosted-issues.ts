@@ -75,7 +75,12 @@ export async function hostedIssueWriter(scope: IssueScope): Promise<IssueWrites>
   await backends.assertWritable(cwd, repository);
   if (isTeaHost(repository.forge)) return backends.teaIssueWriter(cwd, repository, signal);
   if (repository.forge !== "gitlab") throw new ForgeError("unsupported");
-  const identity = await backends.admittedWriter(cwd, repository, gitlabIssueWrites, signal);
+  const identity = await backends.admittedWriter(
+    cwd,
+    repository,
+    gitlabIssueWrites(repository),
+    signal,
+  );
   return new GitLabIssues({ repository, runner: identity.runner });
 }
 

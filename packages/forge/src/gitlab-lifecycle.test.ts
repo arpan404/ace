@@ -28,9 +28,9 @@ function fixture(options: { role?: number; identityChanged?: true; lost?: boolea
   const runner: CommandRunner = async (request) => {
     let body: unknown;
     if (request.input !== undefined) {
-      expect(isAdmittedWriteRequest("glab", request, repository.host, gitLabLifecycleWrites)).toBe(
-        true,
-      );
+      expect(
+        isAdmittedWriteRequest("glab", request, repository.host, gitLabLifecycleWrites(repository)),
+      ).toBe(true);
       request.dispatch?.prepare?.();
       request.dispatch?.record();
       writes.push(request);

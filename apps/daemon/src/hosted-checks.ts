@@ -51,7 +51,7 @@ export class HostedChecks {
                 runner: await this.#ctx.backends.hostRunner(
                   cwd,
                   repository,
-                  gitLabChecksWrites,
+                  gitLabChecksWrites(repository),
                   signal,
                 ),
               }),

@@ -20,7 +20,7 @@ for (const forge of ["gitea", "forgejo"] as const) {
     let lose = true;
     let ci = "success";
     const runner: CommandRunner = async (r) => {
-      expect(isAdmittedApiRequest("tea", r, "work", teaWrites)).toBe(true);
+      expect(isAdmittedApiRequest("tea", r, "work", teaWrites(repository))).toBe(true);
       const path = r.args[1] ?? "";
       if (r.input) {
         expect(JSON.parse(r.input)).toMatchObject({

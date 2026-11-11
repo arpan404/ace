@@ -18,16 +18,21 @@ function fixture(options: { unrelated?: boolean; lost?: boolean; switched?: true
     const path = request.args[1] ?? "";
     let body: unknown;
     if (request.input !== undefined) {
-      expect(isAdmittedWriteRequest("glab", request, repository.host, gitLabCreationWrites)).toBe(
-        true,
-      );
+      expect(
+        isAdmittedWriteRequest(
+          "glab",
+          request,
+          repository.host,
+          gitLabCreationWrites(repository, { owner: "alice", name: "fork" }),
+        ),
+      ).toBe(true);
       request.dispatch?.prepare?.();
       request.dispatch?.record();
       writes.push(request);
       const input = JSON.parse(request.input);
       created = {
         iid: 7,
-        source_project_id: path.includes("projects/2/") ? 2 : 1,
+        source_project_id: path.startsWith("projects/alice%2Ffork/") ? 2 : 1,
         target_project_id: 1,
         source_branch: input.source_branch,
         target_branch: input.target_branch,
@@ -61,7 +66,7 @@ for (const source of [undefined, { owner: "alice", name: "fork" }]) {
     ).toEqual({ repository, number: 7 });
     expect(f.writes[0]?.args).toEqual([
       "api",
-      `projects/${source ? 2 : 1}/merge_requests`,
+      `projects/${source ? "alice%2Ffork" : "team%2Frepo"}/merge_requests`,
       "-X",
       "POST",
       "--hostname",

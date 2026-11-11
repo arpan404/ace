@@ -47,7 +47,9 @@ for (const forge of ["gitea", "forgejo"] as const) {
       repository: { forge, host: "git.example", owner: "team", name: "app" },
       login: "work",
       runner: async (r) => {
-        expect(isAdmittedApiRequest("tea", r, "work", teaReviewWrites)).toBe(true);
+        expect(
+          isAdmittedApiRequest("tea", r, "work", teaReviewWrites({ owner: "team", name: "app" })),
+        ).toBe(true);
         const path = r.args[1] ?? "";
         let body: unknown;
         if (r.input) {
@@ -196,12 +198,10 @@ for (const forge of ["gitea", "forgejo"] as const) {
       adapter.write(7, { kind: "conversation", body: "No" }, [], "denied", signal, () => false),
     ).rejects.toMatchObject({ kind: "forbidden" });
     expect(writes).toEqual([]);
-    for (const w of teaReviewWrites) {
-      const endpoint = w.endpoint.source.includes("replies")
-        ? "repos/team/app/pulls/7/comments/5/replies"
-        : w.endpoint.source.includes("reviews")
-          ? "repos/team/app/pulls/7/reviews"
-          : "repos/team/app/issues/7/comments";
+    for (const w of teaReviewWrites({ owner: "team", name: "app" }, 7)) {
+      const endpoint = w.endpoint.source.includes("reviews")
+        ? "repos/team/app/pulls/7/reviews"
+        : "repos/team/app/issues/7/comments";
       const args = [
         "api",
         endpoint,

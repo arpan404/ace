@@ -35,7 +35,7 @@ function environment(
     identityChanged?: true;
     loseWrite?: boolean;
     squashOption?: string;
-    requiresPipeline?: boolean;
+    requiresPipeline?: boolean | undefined;
     version?: string;
     writeCode?: number;
   } = {},
@@ -45,9 +45,9 @@ function environment(
     const endpoint = request.args[1];
     let body: unknown;
     if (request.input !== undefined) {
-      expect(isAdmittedWriteRequest("glab", request, repository.host, gitlabMergeWrites)).toBe(
-        true,
-      );
+      expect(
+        isAdmittedWriteRequest("glab", request, repository.host, gitlabMergeWrites(repository)),
+      ).toBe(true);
       request.dispatch?.prepare?.();
       request.dispatch?.record();
       writes.push(request);

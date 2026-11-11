@@ -13,6 +13,22 @@ export interface HostApiWrite {
   endpoint: RegExp;
 }
 
+/**
+ * One adapter's writes pinned under `root`, the exact API path of one repository (and, where
+ * known, one pull request or issue): admission itself refuses any other repository. Each
+ * `path` is a regular-expression source matched after the root, to the end of the endpoint.
+ */
+export function writesUnder(
+  root: string,
+  writes: readonly { method: HostApiWrite["method"]; path: string }[],
+): HostApiWrite[] {
+  const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return writes.map((write) => ({
+    method: write.method,
+    endpoint: new RegExp(`^${escaped}${write.path}$`),
+  }));
+}
+
 /** Output-only glab flags a read may add after its fixed prefix, each at most once. */
 const glabOptional = new Set(["--include", "--paginate"]);
 

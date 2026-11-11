@@ -17,23 +17,21 @@ import { ReadBudget } from "./read-budget.ts";
 import { WriteDispatch } from "./write-dispatch.ts";
 import { reviewWriteMarker } from "./github-reviews.ts";
 import type { CommandRunner } from "./command.ts";
-import type { HostApiWrite } from "./read-only-api.ts";
+import { writesUnder, type HostApiWrite } from "./read-only-api.ts";
 
 /** Exact admission, scoped to this selected project and MR. No issue or project mutations. */
 export function gitLabReviewWrites(
   repository: ForgeRepository,
   number: number,
 ): readonly HostApiWrite[] {
-  const root = `${gitLabProjectPath(repository)}/merge_requests/${number}`;
-  const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return [
-    { method: "POST", endpoint: new RegExp(`^${escaped}/notes$`) },
-    { method: "POST", endpoint: new RegExp(`^${escaped}/discussions$`) },
-    { method: "POST", endpoint: new RegExp(`^${escaped}/discussions/[a-fA-F0-9]+/notes$`) },
-    { method: "PUT", endpoint: new RegExp(`^${escaped}/discussions/[a-fA-F0-9]+$`) },
-    { method: "POST", endpoint: new RegExp(`^${escaped}/(approve|unapprove)$`) },
-    { method: "PUT", endpoint: new RegExp(`^${escaped}$`) },
-  ];
+  return writesUnder(`${gitLabProjectPath(repository)}/merge_requests/${number}`, [
+    { method: "POST", path: "/notes" },
+    { method: "POST", path: "/discussions" },
+    { method: "POST", path: "/discussions/[a-fA-F0-9]+/notes" },
+    { method: "PUT", path: "/discussions/[a-fA-F0-9]+" },
+    { method: "POST", path: "/(approve|unapprove)" },
+    { method: "PUT", path: "" },
+  ]);
 }
 
 /** GitLab implements the journal's review contract; unsupported GitHub actions fail closed. */

@@ -1,7 +1,9 @@
+import type { ForgeRepository } from "@ace/protocol/forge";
 import type { ForgeIssueDetail, ForgeIssueWrite } from "@ace/protocol/forge-issues";
 import { ForgeError } from "./errors.ts";
 import { applyMembers, planIssueWrite } from "./issue-write-plan.ts";
-import type { HostApiWrite } from "./read-only-api.ts";
+import { writesUnder, type HostApiWrite } from "./read-only-api.ts";
+import { gitLabProjectPath } from "./gitlab-api.ts";
 
 /**
  * Every GitLab issue write ace sends (ADR 0117), each as
@@ -15,11 +17,14 @@ import type { HostApiWrite } from "./read-only-api.ts";
  * `:id` is the URL-encoded project path. Nothing else is admitted: no merge request endpoints,
  * no deletes, no query strings.
  */
-export const gitlabIssueWrites: readonly HostApiWrite[] = [
-  { method: "POST", endpoint: /^projects\/[^/?#]+\/issues$/ },
-  { method: "POST", endpoint: /^projects\/[^/?#]+\/issues\/[1-9]\d*\/notes$/ },
-  { method: "PUT", endpoint: /^projects\/[^/?#]+\/issues\/[1-9]\d*$/ },
-];
+/** Issue writes in `repository` only. */
+export function gitlabIssueWrites(repository: ForgeRepository): readonly HostApiWrite[] {
+  return writesUnder(gitLabProjectPath(repository), [
+    { method: "POST", path: "/issues" },
+    { method: "POST", path: "/issues/[1-9]\\d*/notes" },
+    { method: "PUT", path: "/issues/[1-9]\\d*" },
+  ]);
+}
 
 type Change = Exclude<ForgeIssueWrite, { action: "create" } | { action: "comment" }>;
 

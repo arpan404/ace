@@ -144,7 +144,7 @@ export class WorkspaceNewPr {
         throw new Error("repository_mismatch");
       return createHostedGitLabPr(
         p,
-        await gitLabCreationBackend(this.ctx.backends, cwd, target.repository, signal),
+        await gitLabCreationBackend(this.ctx.backends, cwd, target.repository, signal, p.head),
         signal,
         allowed,
       );

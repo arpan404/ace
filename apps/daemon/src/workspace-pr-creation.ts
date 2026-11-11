@@ -69,7 +69,13 @@ export class WorkspacePrCreation {
     const backend =
       repositoryKey(target.repository) === repositoryKey(checkout.repository)
         ? pushed
-        : await hostedCreationBackend(this.ctx.backends, cwd, target.repository, this.ctx.signal);
+        : await hostedCreationBackend(
+            this.ctx.backends,
+            cwd,
+            target.repository,
+            this.ctx.signal,
+            target.head,
+          );
     if (!allowed()) throw new Error("forbidden");
     const verifyHead = async () => {
       if (value.expectedHead === undefined) return;

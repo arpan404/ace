@@ -22,7 +22,7 @@ for (const forge of ["gitea", "forgejo"] as const) {
       repository,
       login: "work",
       runner: async (r) => {
-        expect(isAdmittedApiRequest("tea", r, "work", teaIssueWrites)).toBe(true);
+        expect(isAdmittedApiRequest("tea", r, "work", teaIssueWrites(repository))).toBe(true);
         if (r.input) writes.push({ method: r.args[3], path: r.args[1], body: JSON.parse(r.input) });
         const body = respond
           ? respond(r)

@@ -5,6 +5,11 @@ import { ForgeMutationOutcome, MutationDispatch } from "./mutation.ts";
 /** Statuses after which Gitea has certainly not applied a write; the same rule as GitLabApi. */
 const refused = new Set([400, 401, 403, 404, 405, 409, 412, 422, 429]);
 
+/** A Gitea or Forgejo repository's API path, `repos/<owner>/<name>`: every endpoint's prefix. */
+export function teaRepoPath(repository: { owner: string; name: string }): string {
+  return `repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}`;
+}
+
 /** tea keeps the body on stdout and --include HTTP metadata on stderr. */
 export function teaResponse(result: CommandResult): unknown {
   if (result.truncated) throw new ForgeError("limit");

@@ -3,20 +3,26 @@ import { ForgeIssueWrite } from "@ace/protocol/forge-issues";
 import type { ForgeRepository } from "@ace/protocol/forge";
 import type { CommandRunner } from "./command.ts";
 import type { WriteDispatch } from "./write-dispatch.ts";
-import type { HostApiWrite } from "./read-only-api.ts";
+import { writesUnder, type HostApiWrite } from "./read-only-api.ts";
 import { TeaIssues } from "./tea-issues.ts";
-import { teaGet, teaWrite } from "./tea-api.ts";
+import { teaGet, teaRepoPath, teaWrite } from "./tea-api.ts";
 import { decode } from "./tea-records.ts";
 import { ForgeError } from "./errors.ts";
 import { planIssueWrite, issueWriteLanded, applyMembers } from "./issue-write-plan.ts";
 
-export const teaIssueWrites: readonly HostApiWrite[] = [
-  { method: "POST", endpoint: /^repos\/[^/?]+\/[^/?]+\/issues$/ },
-  { method: "POST", endpoint: /^repos\/[^/?]+\/[^/?]+\/issues\/[1-9]\d*\/comments$/ },
-  { method: "PATCH", endpoint: /^repos\/[^/?]+\/[^/?]+\/issues\/[1-9]\d*$/ },
-  { method: "POST", endpoint: /^repos\/[^/?]+\/[^/?]+\/issues\/[1-9]\d*\/labels$/ },
-  { method: "DELETE", endpoint: /^repos\/[^/?]+\/[^/?]+\/issues\/[1-9]\d*\/labels\/[1-9]\d*$/ },
-];
+/** Issue writes in `repository` only. */
+export function teaIssueWrites(repository: {
+  owner: string;
+  name: string;
+}): readonly HostApiWrite[] {
+  return writesUnder(teaRepoPath(repository), [
+    { method: "POST", path: "/issues" },
+    { method: "POST", path: "/issues/[1-9]\\d*/comments" },
+    { method: "PATCH", path: "/issues/[1-9]\\d*" },
+    { method: "POST", path: "/issues/[1-9]\\d*/labels" },
+    { method: "DELETE", path: "/issues/[1-9]\\d*/labels/[1-9]\\d*" },
+  ]);
+}
 const settings = z.object({
   archived: z.boolean(),
   has_issues: z.boolean(),
@@ -46,7 +52,7 @@ export class TeaIssueWriter {
     login: string;
   }) {
     this.options = privateOptions;
-    this.root = `repos/${encodeURIComponent(privateOptions.repository.owner)}/${encodeURIComponent(privateOptions.repository.name)}`;
+    this.root = teaRepoPath(privateOptions.repository);
     this.issues = new TeaIssues(privateOptions);
   }
   private options: { repository: ForgeRepository; runner: CommandRunner; login: string };

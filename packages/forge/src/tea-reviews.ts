@@ -4,16 +4,23 @@ import { ForgeComment, ForgeReviewThread, type ForgeRepository } from "@ace/prot
 import type { ForgeReviewAction, ForgeReviewDraft } from "@ace/protocol/forge-review";
 import type { CommandRunner } from "./command.ts";
 import type { WriteDispatch } from "./write-dispatch.ts";
-import type { HostApiWrite } from "./read-only-api.ts";
-import { teaGet, teaWrite } from "./tea-api.ts";
+import { writesUnder, type HostApiWrite } from "./read-only-api.ts";
+import { teaGet, teaRepoPath, teaWrite } from "./tea-api.ts";
 import { decode, pull } from "./tea-records.ts";
 import { ForgeError } from "./errors.ts";
 import { clipText } from "./host-text.ts";
 
-export const teaReviewWrites: readonly HostApiWrite[] = [
-  { method: "POST", endpoint: /^repos\/[^/?]+\/[^/?]+\/issues\/[1-9]\d*\/comments$/ },
-  { method: "POST", endpoint: /^repos\/[^/?]+\/[^/?]+\/pulls\/[1-9]\d*\/reviews$/ },
-];
+/** Review writes in `repository`, on PR `number` when known. */
+export function teaReviewWrites(
+  repository: { owner: string; name: string },
+  number?: number,
+): readonly HostApiWrite[] {
+  const pr = number === undefined ? "[1-9]\\d*" : String(z.number().int().positive().parse(number));
+  return writesUnder(teaRepoPath(repository), [
+    { method: "POST", path: `/issues/${pr}/comments` },
+    { method: "POST", path: `/pulls/${pr}/reviews` },
+  ]);
+}
 const person = z.object({ login: z.string() });
 const comment = z.looseObject({
   id: z.number().int().positive(),
@@ -59,7 +66,7 @@ export class TeaReviews {
   private options: { repository: ForgeRepository; runner: CommandRunner; login: string };
   constructor(options: { repository: ForgeRepository; runner: CommandRunner; login: string }) {
     this.options = options;
-    this.root = `repos/${encodeURIComponent(options.repository.owner)}/${encodeURIComponent(options.repository.name)}`;
+    this.root = teaRepoPath(options.repository);
   }
   private get(path: string, signal: AbortSignal) {
     return teaGet(this.options.runner, this.options.login, `${this.root}/${path}`, signal);

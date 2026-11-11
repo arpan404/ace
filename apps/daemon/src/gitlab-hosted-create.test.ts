@@ -152,7 +152,8 @@ test("a hosted GitLab MR opens on the primary from its pushed fork with nested n
     ).toMatchObject({ ok: true, pr: { repository, number: 7 } });
     expect(writes).toEqual([
       {
-        endpoint: "projects/2/merge_requests",
+        // Posted to the fork by path: the one project admission pins besides the target.
+        endpoint: "projects/alice%2Fsub%2Ffork/merge_requests",
         body: {
           source_branch: "topic",
           target_branch: "main",
@@ -166,6 +167,18 @@ test("a hosted GitLab MR opens on the primary from its pushed fork with nested n
     expect(
       await forge.hostedPrCreate({ ...command, payload: command.payload }, root, () => true),
     ).toMatchObject({ ok: true, prExisting: true });
+    expect(writes).toHaveLength(1);
+    // A fork the project hides is never written to, even though the target is visible.
+    created = false;
+    new ProjectRepositoryConfigs(store).set(workspaceId, {
+      added: [],
+      hidden: [fork],
+      primary: repository,
+    });
+    const hidden = await forge
+      .hostedPrCreate({ ...command, payload: command.payload }, root, () => true)
+      .catch((error: unknown) => ({ ok: false, error: String(error) }));
+    expect(hidden).toMatchObject({ ok: false });
     expect(writes).toHaveLength(1);
   } finally {
     forge.close();

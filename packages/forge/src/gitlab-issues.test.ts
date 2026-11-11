@@ -58,7 +58,7 @@ function gitlab(
   const writes: { args: readonly string[]; body: unknown }[] = [];
   const reads: string[] = [];
   const runner: CommandRunner = async (request) => {
-    if (!isAdmittedApiRequest("glab", request, "gitlab.com", gitlabIssueWrites))
+    if (!isAdmittedApiRequest("glab", request, "gitlab.com", gitlabIssueWrites(repository)))
       throw new Error(`not admitted: ${request.args.join(" ")}`);
     const path = request.args[1] ?? "";
     if (request.input !== undefined) {
@@ -535,7 +535,12 @@ test("recovery finds a lost create or comment by its marker without writing agai
 });
 
 const admitted = (args: string[], input = "{}") =>
-  isAdmittedWriteRequest("glab", { command: "glab", args, input }, "gitlab.com", gitlabIssueWrites);
+  isAdmittedWriteRequest(
+    "glab",
+    { command: "glab", args, input },
+    "gitlab.com",
+    gitlabIssueWrites(repository),
+  );
 test("only the three issue writes are admitted, in their one exact shape", () => {
   expect(admitted(exact("POST", `${root}/issues`))).toBe(true);
   expect(admitted(exact("POST", `${root}/issues/7/notes`))).toBe(true);

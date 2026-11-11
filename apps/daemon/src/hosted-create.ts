@@ -15,13 +15,26 @@ export type HostedCreationBackend = Pick<
   GitHubForge,
   "repository" | "repositoryMetadata" | "status" | "findPr" | "createPr" | "openPr"
 >;
+/**
+ * GitLab MR creation in `repository`. An MR from a fork is posted to the fork (`head`), so the
+ * fork is refused like the target when the project hides or can't use it, and admission pins
+ * the write to those two projects.
+ */
 export async function gitLabCreationBackend(
   backends: ForgeBackends,
   cwd: string,
   repository: ForgeRepository,
   signal: AbortSignal,
+  head?: Pick<ForgeRepository, "owner" | "name">,
 ): Promise<HostedCreationBackend> {
-  const runner = await backends.hostRunner(cwd, repository, gitLabCreationWrites, signal);
+  const source = head ? { ...repository, owner: head.owner, name: head.name } : undefined;
+  if (source) await backends.assertWritable(cwd, source);
+  const runner = await backends.hostRunner(
+    cwd,
+    repository,
+    gitLabCreationWrites(repository, source),
+    signal,
+  );
   return new GitLabCreation({ repository, runner });
 }
 /** The target/head are already resolved and guarded by WorkspaceNewPr, never client-selected. */
@@ -77,8 +90,9 @@ export async function hostedCreationBackend(
   cwd: string,
   repository: ForgeRepository,
   signal: AbortSignal,
+  head?: Pick<ForgeRepository, "owner" | "name">,
 ): Promise<HostedCreationBackend> {
   return repository.forge === "gitlab"
-    ? gitLabCreationBackend(backends, cwd, repository, signal)
+    ? gitLabCreationBackend(backends, cwd, repository, signal, head)
     : backends.backend(cwd, repository);
 }

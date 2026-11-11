@@ -1,7 +1,8 @@
+import type { ForgeRepository } from "@ace/protocol/forge";
 import { Buffer } from "node:buffer";
 import { z } from "zod";
 import { ForgeCheckRun } from "@ace/protocol/forge-checks";
-import { GitLabApi } from "./gitlab-api.ts";
+import { GitLabApi, gitLabProjectPath } from "./gitlab-api.ts";
 import {
   GitLabJob,
   GitLabJobs,
@@ -14,14 +15,17 @@ import {
 import { ForgeError } from "./errors.ts";
 import { ReadBudget } from "./read-budget.ts";
 import { ForgeMutationOutcome, MutationDispatch } from "./mutation.ts";
-import type { HostApiWrite } from "./read-only-api.ts";
+import { writesUnder, type HostApiWrite } from "./read-only-api.ts";
 import { readJobLog } from "./job-log.ts";
 
 /** Only these writes are handed to SourceControl.writeIdentity. */
-export const gitLabChecksWrites: readonly HostApiWrite[] = [
-  { method: "POST", endpoint: /^projects\/[^/?]+\/pipelines\/[1-9]\d*\/(retry|cancel)$/ },
-  { method: "POST", endpoint: /^projects\/[^/?]+\/jobs\/[1-9]\d*\/retry$/ },
-];
+/** Retrying and cancelling pipelines and jobs of `repository` only. */
+export function gitLabChecksWrites(repository: ForgeRepository): readonly HostApiWrite[] {
+  return writesUnder(gitLabProjectPath(repository), [
+    { method: "POST", path: "/pipelines/[1-9]\\d*/(retry|cancel)" },
+    { method: "POST", path: "/jobs/[1-9]\\d*/retry" },
+  ]);
+}
 const positive = z.number().int().positive();
 const logBytes = 1_048_576;
 

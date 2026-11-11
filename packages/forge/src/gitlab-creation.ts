@@ -11,7 +11,7 @@ import { ForgeError } from "./errors.ts";
 import { decode } from "./gitlab-records.ts";
 import { ForgeMutationOutcome, MutationDispatch } from "./mutation.ts";
 import { ReadBudget } from "./read-budget.ts";
-import type { HostApiWrite } from "./read-only-api.ts";
+import { writesUnder, type HostApiWrite } from "./read-only-api.ts";
 import type { WriteDispatch } from "./write-dispatch.ts";
 const Project = z.looseObject({
   id: z.number().int().positive(),
@@ -35,9 +35,18 @@ const OpenInput = z.object({
   draft: z.boolean(),
   labels: z.array(z.string().min(1).max(256)).max(100).optional(),
 });
-export const gitLabCreationWrites: readonly HostApiWrite[] = [
-  { method: "POST", endpoint: /^projects\/[A-Za-z0-9%_.~-]+\/merge_requests$/ },
-];
+/**
+ * Opening an MR in `target`, posted to the project its branch is in: `target` itself, or the
+ * `source` fork. Nothing else is admitted.
+ */
+export function gitLabCreationWrites(
+  target: ForgeRepository,
+  source?: Pick<ForgeRepository, "owner" | "name">,
+): readonly HostApiWrite[] {
+  return [target, ...(source ? [source] : [])].flatMap((project) =>
+    writesUnder(gitLabProjectPath(project), [{ method: "POST", path: "/merge_requests" }]),
+  );
+}
 const Branches = z
   .array(
     z.looseObject({
@@ -47,6 +56,17 @@ const Branches = z
   )
   .max(100);
 const MatchPage = z.array(Match).max(100);
+
+/** The project an MR's branch is in: `repository` itself, or the `head` fork. */
+function sourceRepository(repository: ForgeRepository, head: PrHead | undefined): ForgeRepository {
+  if (
+    !head ||
+    `${head.owner}/${head.name}`.toLowerCase() ===
+      `${repository.owner}/${repository.name}`.toLowerCase()
+  )
+    return repository;
+  return ForgeRepository.parse({ ...repository, ...head });
+}
 
 /** The caller owns primary/head selection and visibility. This adapter proves project IDs. */
 export class GitLabCreation {
@@ -100,20 +120,15 @@ export class GitLabCreation {
     return { branches, truncated: true };
   }
   async #projects(head: PrHead | undefined, signal: AbortSignal, budget: ReadBudget) {
+    const source = sourceRepository(this.repository, head);
     const target = decode(Project, (await this.#api.get(this.#api.root, signal, budget)).body);
-    if (
-      !head ||
-      `${head.owner}/${head.name}`.toLowerCase() ===
-        `${this.repository.owner}/${this.repository.name}`.toLowerCase()
-    )
-      return { target, source: target };
-    const repo = ForgeRepository.parse({ ...this.repository, ...head });
-    const source = decode(
+    if (source === this.repository) return { target, source: target };
+    const fork = decode(
       Metadata,
-      (await this.#api.get(gitLabProjectPath(repo), signal, budget)).body,
+      (await this.#api.get(gitLabProjectPath(source), signal, budget)).body,
     );
-    if (source.forked_from_project?.id !== target.id) throw new ForgeError("conflict");
-    return { target, source };
+    if (fork.forked_from_project?.id !== target.id) throw new ForgeError("conflict");
+    return { target, source: fork };
   }
   async findPr(
     branch: string,
@@ -169,8 +184,9 @@ export class GitLabCreation {
     if (source.id === target.id && input.branch === input.base) throw new ForgeError("no_commits");
     let response;
     try {
+      // Posted to the source project by path, the one admission pins; its id was checked above.
       response = await this.#api.write(
-        `projects/${source.id}/merge_requests`,
+        `${gitLabProjectPath(sourceRepository(this.repository, head))}/merge_requests`,
         "POST",
         {
           source_branch: input.branch,

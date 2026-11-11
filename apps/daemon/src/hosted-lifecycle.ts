@@ -15,7 +15,7 @@ export async function gitLabLifecycleBackend(
   const runner: CommandRunner = await backends.hostRunner(
     cwd,
     repository,
-    gitLabLifecycleWrites,
+    gitLabLifecycleWrites(repository),
     signal,
   );
   return { lifecycle: new GitLabLifecycle(new GitLabApi({ repository, runner })) };

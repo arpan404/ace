@@ -1,3 +1,4 @@
+import type { ForgeRepository } from "@ace/protocol/forge";
 import { z } from "zod";
 import {
   ForgeLifecycleAction,
@@ -5,12 +6,12 @@ import {
   type ForgeLifecycleReceipt,
 } from "@ace/protocol/forge-lifecycle";
 import { ForgePrRef } from "@ace/protocol/forge";
-import { GitLabApi } from "./gitlab-api.ts";
+import { GitLabApi, gitLabProjectPath } from "./gitlab-api.ts";
 import { ForgeError } from "./errors.ts";
 import { decode } from "./gitlab-records.ts";
 import { ForgeMutationOutcome } from "./mutation.ts";
 import { ReadBudget } from "./read-budget.ts";
-import type { HostApiWrite } from "./read-only-api.ts";
+import { writesUnder, type HostApiWrite } from "./read-only-api.ts";
 import type { WriteDispatch } from "./write-dispatch.ts";
 import { assertLifecycleAction, metadataMatches } from "./lifecycle-plan.ts";
 import {
@@ -19,9 +20,12 @@ import {
   gitLabLifecycleSnapshot,
 } from "./gitlab-lifecycle-records.ts";
 
-export const gitLabLifecycleWrites: readonly HostApiWrite[] = [
-  { method: "PUT", endpoint: /^projects\/[A-Za-z0-9%_.~-]+\/merge_requests\/[1-9]\d*$/ },
-];
+/** Editing MRs of `repository` only. */
+export function gitLabLifecycleWrites(repository: ForgeRepository): readonly HostApiWrite[] {
+  return writesUnder(gitLabProjectPath(repository), [
+    { method: "PUT", path: "/merge_requests/[1-9]\\d*" },
+  ]);
+}
 const Users = z
   .array(z.looseObject({ id: z.number().int().positive(), username: z.string() }))
   .max(100);

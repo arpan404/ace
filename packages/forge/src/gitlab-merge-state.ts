@@ -1,25 +1,25 @@
+import type { ForgeRepository } from "@ace/protocol/forge";
 import { z } from "zod";
 import { ForgeMergeCommit, ForgeMergeState } from "@ace/protocol/forge-merge-state";
 import type { MergeMethod } from "./api.ts";
-import { GitLabApi } from "./gitlab-api.ts";
+import { GitLabApi, gitLabProjectPath } from "./gitlab-api.ts";
 import { GitLabChecks } from "./gitlab-checks.ts";
 import { gitLabCi } from "./gitlab-check-records.ts";
 import { ReadBudget } from "./read-budget.ts";
-import type { HostApiWrite } from "./read-only-api.ts";
+import { writesUnder, type HostApiWrite } from "./read-only-api.ts";
 import { ForgeError } from "./errors.ts";
 import { ForgeMutationOutcome, MutationDispatch } from "./mutation.ts";
 import { mergeStateChangeObserved } from "./merge-state.ts";
 
 export type GitLabMergeApi = GitLabApi;
 
-/** Only these two documented writes belong to merge and auto-merge. */
-export const gitlabMergeWrites: readonly HostApiWrite[] = [
-  { method: "PUT", endpoint: /^projects\/[^/?]+\/merge_requests\/[1-9]\d*\/merge$/ },
-  {
-    method: "POST",
-    endpoint: /^projects\/[^/?]+\/merge_requests\/[1-9]\d*\/cancel_merge_when_pipeline_succeeds$/,
-  },
-];
+/** Only these two documented writes belong to merge and auto-merge, in `repository` only. */
+export function gitlabMergeWrites(repository: ForgeRepository): readonly HostApiWrite[] {
+  return writesUnder(gitLabProjectPath(repository), [
+    { method: "PUT", path: "/merge_requests/[1-9]\\d*/merge" },
+    { method: "POST", path: "/merge_requests/[1-9]\\d*/cancel_merge_when_pipeline_succeeds" },
+  ]);
+}
 const sha = z.string().regex(/^[a-fA-F0-9]{40,64}$/);
 const text = z.string().max(65_536);
 const source = z.looseObject({

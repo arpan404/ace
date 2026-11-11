@@ -46,7 +46,7 @@ for (const forge of ["gitea", "forgejo"] as const) {
       const identity = await source.writeIdentity(
         root,
         repository,
-        teaIssueWrites,
+        teaIssueWrites(repository),
         new AbortController().signal,
       );
       const dispatch = new WriteDispatch();

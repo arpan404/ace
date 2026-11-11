@@ -33,9 +33,9 @@ function fixture(
     const path = request.args[1] ?? "";
     const write = request.args[3] !== "GET";
     if (write) {
-      expect(isAdmittedWriteRequest("glab", request, repository.host, gitLabChecksWrites)).toBe(
-        true,
-      );
+      expect(
+        isAdmittedWriteRequest("glab", request, repository.host, gitLabChecksWrites(repository)),
+      ).toBe(true);
       request.dispatch?.record();
       if (options.loseWrite) throw new Error("lost response");
     }

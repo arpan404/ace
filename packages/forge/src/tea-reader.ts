@@ -12,7 +12,7 @@ import { ForgePrCheckout } from "@ace/protocol/forge-worktree";
 import type { ForgeReader } from "./api.ts";
 import type { CommandRunner } from "./command.ts";
 import { ForgeError } from "./errors.ts";
-import { teaGet } from "./tea-api.ts";
+import { teaGet, teaRepoPath } from "./tea-api.ts";
 import { decode, pull, ref, status, labels, row, headRepository, sha } from "./tea-records.ts";
 import { clipText } from "./host-text.ts";
 import { redactData } from "./redact.ts";
@@ -55,7 +55,7 @@ export class TeaReader implements ForgeReader {
     if (!isTeaHost(options.repository.forge)) throw new ForgeError("unsupported");
     this.runner = options.runner;
     this.login = options.login;
-    this.root = `repos/${encodeURIComponent(options.repository.owner)}/${encodeURIComponent(options.repository.name)}`;
+    this.root = teaRepoPath(options.repository);
     this.issues = new TeaIssues(options);
     this.reviews = new TeaReviews(options);
   }

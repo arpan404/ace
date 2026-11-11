@@ -12,6 +12,6 @@ export async function gitlabHostedMerge(options: {
   signal: AbortSignal;
 }): Promise<GitLabHostedMerge> {
   const { backends, cwd, repository, signal } = options;
-  const runner = await backends.hostRunner(cwd, repository, gitlabMergeWrites, signal);
+  const runner = await backends.hostRunner(cwd, repository, gitlabMergeWrites(repository), signal);
   return new GitLabHostedMerge({ repository, runner });
 }

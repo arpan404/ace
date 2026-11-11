@@ -8,7 +8,7 @@ import {
 } from "@ace/protocol/forge-issues";
 import type { ForgeRepository } from "@ace/protocol/forge";
 import type { CommandRunner } from "./command.ts";
-import { teaGet } from "./tea-api.ts";
+import { teaGet, teaRepoPath } from "./tea-api.ts";
 import { decode, person } from "./tea-records.ts";
 import { ForgeError } from "./errors.ts";
 import { clipText, clipLabels } from "./host-text.ts";
@@ -52,7 +52,7 @@ export class TeaIssues {
   private root: string;
   constructor(options: TeaIssues["options"]) {
     this.options = options;
-    this.root = `repos/${encodeURIComponent(options.repository.owner)}/${encodeURIComponent(options.repository.name)}/issues`;
+    this.root = `${teaRepoPath(options.repository)}/issues`;
   }
   private get(path: string, signal: AbortSignal) {
     return teaGet(this.options.runner, this.options.login, `${this.root}${path}`, signal);

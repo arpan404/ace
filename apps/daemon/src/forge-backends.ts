@@ -187,7 +187,7 @@ export class ForgeBackends {
     repository: ForgeRepository,
     signal: AbortSignal,
   ): Promise<{ writer: TeaWriter; account: string }> {
-    const identity = await this.admittedWriter(cwd, repository, teaWrites, signal);
+    const identity = await this.admittedWriter(cwd, repository, teaWrites(repository), signal);
     return {
       writer: new TeaWriter(this.#teaOptions(repository, identity)),
       account: identity.account,
@@ -196,13 +196,19 @@ export class ForgeBackends {
   async teaMergeReader(cwd: string, repository: ForgeRepository, signal: AbortSignal) {
     return new TeaWriter(await this.#teaRead(cwd, repository, signal));
   }
-  async teaReviews(cwd: string, repository: ForgeRepository, signal: AbortSignal) {
-    const identity = await this.admittedWriter(cwd, repository, teaReviewWrites, signal);
+  /** Gitea/Forgejo review writes, admitted only on PR `number` of `repository`. */
+  async teaReviews(cwd: string, repository: ForgeRepository, number: number, signal: AbortSignal) {
+    const identity = await this.admittedWriter(
+      cwd,
+      repository,
+      teaReviewWrites(repository, number),
+      signal,
+    );
     return { reviews: new TeaReviews(this.#teaOptions(repository, identity)) };
   }
   /** Gitea/Forgejo issue writes. */
   async teaIssueWriter(cwd: string, repository: ForgeRepository, signal: AbortSignal) {
-    const identity = await this.admittedWriter(cwd, repository, teaIssueWrites, signal);
+    const identity = await this.admittedWriter(cwd, repository, teaIssueWrites(repository), signal);
     return new TeaIssueWriter(this.#teaOptions(repository, identity));
   }
   /** Gitea/Forgejo issue reads, and recovery reads of earlier issue writes. */

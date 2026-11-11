@@ -5,14 +5,14 @@ import { WriteDispatch } from "./write-dispatch.ts";
 import { TeaReader } from "./tea-reader.ts";
 import { decode, pull, sha, state as pullState, type Pull } from "./tea-records.ts";
 import { teaChecks } from "./tea-checks.ts";
-import { teaGet, teaWrite } from "./tea-api.ts";
+import { teaGet, teaRepoPath, teaWrite } from "./tea-api.ts";
 import { ForgeError } from "./errors.ts";
-import type { HostApiWrite } from "./read-only-api.ts";
+import { writesUnder, type HostApiWrite } from "./read-only-api.ts";
 
-/** Only head-pinned merges; conversation writes belong to TeaReviews. */
-export const teaWrites: readonly HostApiWrite[] = [
-  { method: "POST", endpoint: /^repos\/[^/?]+\/[^/?]+\/pulls\/\d+\/merge$/ },
-];
+/** Only head-pinned merges, in `repository`; conversation writes belong to TeaReviews. */
+export function teaWrites(repository: { owner: string; name: string }): readonly HostApiWrite[] {
+  return writesUnder(teaRepoPath(repository), [{ method: "POST", path: "/pulls/[1-9]\\d*/merge" }]);
+}
 const metadata = z.object({
   archived: z.boolean().default(true),
   permissions: z.object({ push: z.boolean() }),
@@ -28,7 +28,7 @@ export class TeaWriter {
   constructor(options: ConstructorParameters<typeof TeaReader>[0]) {
     this.options = options;
     this.reader = new TeaReader(options);
-    this.root = `repos/${encodeURIComponent(options.repository.owner)}/${encodeURIComponent(options.repository.name)}`;
+    this.root = teaRepoPath(options.repository);
   }
   status(number: number, signal: AbortSignal) {
     return this.reader.status(number, signal);
