@@ -182,7 +182,9 @@ struct ProviderSignInView: View {
     }
     private func retry() {
         if let payload = failedRequest { request(payload) }
-        else { pollProblem = nil; pollAttempt += 1 }
+        // A failed input isn't kept (it held what was typed): Retry clears it and resumes the poll,
+        // and the person enters it again.
+        else { problem = nil; pollProblem = nil; pollAttempt += 1 }
     }
     /// A failed request worth sending again. An input carries the code or address the person typed,
     /// so it is never kept; Retry resumes the poll and they enter it again.
