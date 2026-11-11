@@ -62,7 +62,7 @@ pub(super) fn start(
 ) -> Result<Started, StoreError> {
     let live = engine.live(id);
     let mut jobs = live.jobs.lock().unwrap_or_else(|p| p.into_inner());
-    if *stop.borrow() {
+    if *stop.borrow() || engine.deleting(id) {
         return Ok(Started::Stopped);
     }
     let started = Event::Known(Known::JobStarted {
@@ -107,6 +107,7 @@ pub(super) fn start(
                 .lock()
                 .unwrap_or_else(|p| p.into_inner())
                 .remove(&job);
+            engine.announce(&id);
         })
     };
     jobs.insert(
@@ -117,6 +118,17 @@ pub(super) fn start(
         },
     );
     Ok(Started::Running)
+}
+
+/// Cancels every job of a conversation whose agent is being deleted. Nothing is stored: the
+/// conversation goes with it.
+pub(super) fn cancel_all(live: &super::Live) {
+    let mut jobs = live.jobs.lock().unwrap_or_else(|p| p.into_inner());
+    for (_, job) in jobs.drain() {
+        if let Job::Running { handle, .. } = job {
+            handle.abort();
+        }
+    }
 }
 
 /// Runs the job's tool. `key` is unique across conversations and stable for this job.
@@ -148,6 +160,10 @@ async fn run(engine: &Engine, key: &str, name: &str, arguments: Value) -> ToolOu
 pub(super) async fn keep_trying(mut store: impl FnMut() -> Result<(), StoreError>) {
     let mut wait = Duration::from_millis(250);
     while let Err(error) = store() {
+        // The conversation was deleted with its agent: there is nothing left to keep.
+        if matches!(error, StoreError::NoConversation(_)) {
+            return;
+        }
         tracing::error!(%error, "could not store an event; trying again");
         tokio::time::sleep(wait).await;
         wait = (wait * 2).min(Duration::from_secs(30));

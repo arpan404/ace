@@ -372,7 +372,7 @@ async fn a_deferred_tool_is_found_with_tool_search_and_run_through_call_tool() -
         .unwrap_or_default();
     assert_eq!(
         offered,
-        vec!["tool_search", "call_tool"],
+        vec!["bot_message", "bots_list", "tool_search", "call_tool"],
         "deferred tools are not sent"
     );
     let later: Vec<String> = spade.fake.seen()[2].body["tools"]
@@ -726,6 +726,53 @@ async fn a_write_that_times_out_is_stored_as_unknown_with_the_risk_it_ran_with()
     assert_eq!(
         finished.map(|e| (e["is_error"].clone(), e["uncertain"].clone())),
         Some((json!(true), json!(true)))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn every_model_call_of_a_conversation_carries_that_conversations_session_id() -> Result {
+    let answer = || Script::reply("Hello!").plain(r#"{"title":"Saying hello"}"#);
+    let spade = Spade::start(vec![answer(), answer(), answer(), answer()], Vec::new()).await?;
+    let first = spade.ask("Hi Spade").await?;
+    spade.wait_for(&first, "renamed").await?;
+    let second = spade.ask("Hello again").await?;
+    spade.wait_for(&second, "renamed").await?;
+
+    let sessions: Vec<Option<String>> = spade
+        .fake
+        .seen()
+        .iter()
+        .map(|seen| {
+            seen.headers
+                .iter()
+                .find(|(name, _)| name == "x-session")
+                .map(|(_, value)| value.clone())
+        })
+        .collect();
+    // The reply, then the title, of each conversation.
+    let (a, b) = (Some(first.clone()), Some(second.clone()));
+    assert_ne!(first, second);
+    assert_eq!(sessions, vec![a.clone(), a, b.clone(), b]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn model_calls_identify_themselves_as_this_spade_version() -> Result {
+    let spade = Spade::start(vec![Script::reply("Hello!")], Vec::new()).await?;
+    let id = spade.ask("Hi Spade").await?;
+    spade.wait_for(&id, "reply_finished").await?;
+
+    let seen = spade.fake.seen();
+    let agent = seen.first().and_then(|seen| {
+        seen.headers
+            .iter()
+            .find(|(name, _)| name == "user-agent")
+            .map(|(_, value)| value.clone())
+    });
+    assert_eq!(
+        agent,
+        Some(format!("spade/{}", spade_server::home::VERSION))
     );
     Ok(())
 }

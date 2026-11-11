@@ -122,6 +122,8 @@ pub struct Spade {
     pub engine: Arc<Engine>,
     /// The (mock) keychain this server keeps keys and the ace grant in.
     pub keys: KeyStore,
+    /// The mock store behind `keys`, to make the keychain fail on purpose.
+    pub mock: Arc<mock::Store>,
     /// The connection to ace, when started with `ace_home`.
     pub ace: Option<Arc<AceLink>>,
     stop: Option<oneshot::Sender<()>>,
@@ -136,6 +138,8 @@ pub struct Options {
     pub ace_home: Option<PathBuf>,
     /// Waits for the ace connection, when not the quick ones tests use by default.
     pub ace_retry: Option<Retry>,
+    /// An edited `models.json` from an earlier Spade, to adopt.
+    pub adopt: Option<Catalog>,
 }
 
 impl Default for Options {
@@ -146,6 +150,7 @@ impl Default for Options {
             skills: None,
             ace_home: None,
             ace_retry: None,
+            adopt: None,
         }
     }
 }
@@ -154,8 +159,15 @@ fn catalog(root: &str) -> Result<Catalog> {
     let json = json!({
         "roles": { "main": "fake/m", "fast": "fake/m", "deep": "fake/m" },
         "endpoints": [{ "id": "fake", "name": "Fake", "format": "openai-chat", "base_url": root,
-                        "key": { "env": "FAKE_KEY" },
-                        "models": [{ "id": "m", "name": "M", "capabilities": ["tools", "images"], "price": { "input": 2, "output": 10 } }] }]
+                        "key": { "env": "FAKE_KEY" }, "session_header": "x-session",
+                        "models": [{ "id": "m", "name": "M", "capabilities": ["tools", "images"], "price": { "input": 2, "output": 10 } }] },
+                      // A second preset nobody has a key for: never imported on its own. It shares
+                      // the model id `m` at another price.
+                      { "id": "spare", "name": "Spare", "format": "openai-chat",
+                        "base_url": "https://spare.example/v1/", "key": {},
+                        "models": [{ "id": "m", "name": "Spare M", "context": 1000, "capabilities": ["tools"],
+                                     "price": { "input": 100, "output": 100 } },
+                                   { "id": "s", "name": "S", "context": 1000, "capabilities": ["tools"] }] }]
     });
     Ok(Catalog::from_json(&json.to_string())?)
 }
@@ -207,7 +219,8 @@ impl Spade {
         mut tools: Toolbox,
         options: Options,
     ) -> Result<Self> {
-        let keys = KeyStore::with_store(mock::Store::new()?, spade_keys::SERVICE);
+        let mock = mock::Store::new()?;
+        let keys = KeyStore::with_store(mock.clone(), spade_keys::SERVICE);
         let ace = options.ace_home.clone().map(|home| {
             AceLink::start(
                 AceTarget::Discover(home),
@@ -223,12 +236,28 @@ impl Spade {
         if let Some(link) = &ace {
             tools = tools.with_source(link.clone() as Arc<dyn ToolSource>);
         }
+        // As in Spade: the (mock) keychain first, then the endpoint's variable, which only the
+        // shipped fake endpoint names.
+        let keychain = keys.clone();
         let models = Models::new(
             catalog(&fake.root)?,
-            Keys::new(|_| Some("fake-key".to_owned())),
+            Keys::keychain_then_env(
+                move |endpoint| keychain.get(endpoint).ok().flatten(),
+                |var| (var == "FAKE_KEY").then(|| "fake-key".to_owned()),
+            ),
+            spade_server::home::VERSION,
         )?;
+        let store = Store::open(&dir.path().join("spade.sqlite"))?;
+        // The endpoint is the person's now, kept in the database, and a restarted fake listens
+        // on a new port. Moved here as a person cannot (the API refuses a key's host change).
+        for mut endpoint in store.endpoints()? {
+            if endpoint.id == "fake" {
+                endpoint.base_url = fake.root.clone();
+                store.update_endpoint(&endpoint)?;
+            }
+        }
         let engine = Engine::open(Setup {
-            store: Store::open(&dir.path().join("spade.sqlite"))?,
+            store,
             models,
             tools,
             clock: Arc::new(SystemClock),
@@ -238,6 +267,8 @@ impl Spade {
             limits: options.limits,
             skills: options.skills,
             images: spade_server::images::ImageStore::open(&dir.path().join("images"))?,
+            adopt: options.adopt.clone(),
+            keychain: Some(keys.clone()),
         })?;
         engine.open_for_work();
         let state = AppState {
@@ -259,6 +290,7 @@ impl Spade {
             dir,
             engine,
             keys,
+            mock,
             ace,
             stop: Some(stop),
             task,
@@ -314,6 +346,23 @@ impl Spade {
         Ok((status, response.json().await.unwrap_or(Value::Null)))
     }
 
+    /// Makes the keychain's next read or change of `endpoint`'s key fail, once.
+    pub fn fail_keychain_once(&self, endpoint: &str) -> Result {
+        use keyring_core::api::CredentialStoreApi;
+        let entry = self
+            .mock
+            .build(spade_keys::SERVICE, &format!("endpoint:{endpoint}"), None)?;
+        let cred: &mock::Cred = entry
+            .as_any()
+            .downcast_ref()
+            .ok_or("not a mock credential")?;
+        cred.set_error(keyring_core::Error::Invalid(
+            "store".to_owned(),
+            "locked".to_owned(),
+        ));
+        Ok(())
+    }
+
     /// Shuts the server down the graceful way; fails if it does not finish within `within`.
     pub async fn shut_down(mut self, within: Duration) -> Result {
         if let Some(stop) = self.stop.take() {
@@ -353,13 +402,39 @@ impl Spade {
         Ok((status, response.json().await.unwrap_or(Value::Null)))
     }
 
-    /// Starts a conversation and returns its id.
-    pub async fn ask(&self, text: &str) -> Result<String> {
+    /// Creates a bot on the fake model and returns it as the API shows it.
+    pub async fn new_agent(&self, name: &str, task: &str) -> Result<Value> {
         let (status, body) = self
-            .post("/v1/conversations", json!({ "text": text }))
+            .post(
+                "/v1/agents",
+                json!({ "name": name, "task": task, "model": "fake/m" }),
+            )
             .await?;
         assert_eq!(status, 201, "{body}");
-        Ok(body["id"].as_str().unwrap_or_default().to_owned())
+        Ok(body["agent"].clone())
+    }
+
+    /// Sends `text` to conversation `id`.
+    pub async fn say(&self, id: &str, text: &str) -> Result {
+        let (status, body) = self
+            .post(
+                &format!("/v1/conversations/{id}/messages"),
+                json!({ "text": text }),
+            )
+            .await?;
+        assert_eq!(status, 202, "{body}");
+        Ok(())
+    }
+
+    /// Creates a bot, sends it `text`, and returns its conversation's id.
+    pub async fn ask(&self, text: &str) -> Result<String> {
+        let agent = self.new_agent("Test", "").await?;
+        let id = agent["conversation"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        self.say(&id, text).await?;
+        Ok(id)
     }
 
     /// The conversation's stored events, as `event` objects.

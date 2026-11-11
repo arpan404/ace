@@ -27,6 +27,12 @@ impl Format {
         }
     }
 
+    pub fn parse(name: &str) -> Option<Self> {
+        [Self::OpenAiChat, Self::OpenAiResponses, Self::Anthropic]
+            .into_iter()
+            .find(|f| f.name() == name)
+    }
+
     pub const fn name(self) -> &'static str {
         match self {
             Self::OpenAiChat => "openai-chat",

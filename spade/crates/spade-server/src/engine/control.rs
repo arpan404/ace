@@ -6,7 +6,6 @@ use std::sync::Arc;
 use spade_core::event::Known;
 use spade_core::turn::{stop_requested, unanswered_after};
 use spade_core::{Event, Transcript};
-use spade_models::Role;
 use spade_store::StoreError;
 
 use super::{AnswerError, Engine, jobs};
@@ -101,8 +100,8 @@ impl Engine {
         events.push(close.clone());
         // While closed for an update nothing new starts; reopening answers what is left.
         let admitted = self.admission.load(std::sync::atomic::Ordering::SeqCst);
-        if admitted && unanswered_after(&events, reply) {
-            let model = self.models.for_role(Role::Main).to_owned();
+        if admitted && !self.deleting(id) && unanswered_after(&events, reply) {
+            let model = self.reply_model(id);
             let started = Event::reply_started(self.ids.next("r"), model);
             self.append_events(id, &[close.clone(), started])?;
         } else {

@@ -24,9 +24,44 @@ fn the_shipped_catalogue_is_valid_and_every_role_resolves() -> Result<(), Catalo
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config/models.json");
     let catalog = Catalog::load(&path)?;
     for role in [Role::Main, Role::Fast, Role::Deep] {
-        assert!(catalog.resolve(catalog.role(role)).is_some(), "{role:?}");
+        assert!(
+            catalog
+                .role(role)
+                .and_then(|r| catalog.resolve(r))
+                .is_some(),
+            "{role:?}"
+        );
     }
     Ok(())
+}
+
+#[test]
+fn the_shipped_opencode_go_endpoints_route_by_session() -> Result<(), CatalogError> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config/models.json");
+    let catalog = Catalog::load(&path)?;
+    for id in ["opencode-go", "opencode-go-anthropic"] {
+        let endpoint = catalog.endpoints().iter().find(|e| e.id == id);
+        assert_eq!(
+            endpoint.and_then(|e| e.session_header.as_deref()),
+            Some("x-opencode-session"),
+            "{id}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn a_session_header_that_is_not_a_header_name_is_refused() {
+    let json = file(
+        r#", { "id": "routed", "name": "Routed", "format": "openai-chat",
+              "base_url": "https://routed.example/v1/", "session_header": "x session",
+              "models": [ { "id": "m", "name": "M" } ] }"#,
+    );
+    let found = problems(&json);
+    assert!(
+        found.iter().any(|p| p.contains("routed: session_header")),
+        "{found:?}"
+    );
 }
 
 #[test]
@@ -124,7 +159,6 @@ fn every_problem_is_reported_at_once() {
         problems(json),
         vec![
             "endpoint a has an empty name",
-            "endpoint a lists no models",
             "the main role names a/x, which is not an endpoint/model in this file",
             "the fast role names a/x, which is not an endpoint/model in this file",
             "the deep role names a/x, which is not an endpoint/model in this file",
@@ -136,4 +170,23 @@ fn every_problem_is_reported_at_once() {
 fn a_missing_file_names_the_path() {
     let error = Catalog::load(Path::new("/nonexistent/models.json"));
     assert!(matches!(&error, Err(e) if e.source == "/nonexistent/models.json"));
+}
+
+#[test]
+fn presets_need_no_roles_and_know_a_models_facts_by_id() -> Result<(), CatalogError> {
+    let catalog = Catalog::from_json(
+        r#"{ "endpoints": [ { "id": "go", "name": "Go", "format": "openai-chat",
+              "base_url": "https://go.example/v1", "session_header": "X-Session",
+              "models": [ { "id": "kimi", "name": "Kimi", "context": 9000, "capabilities": ["images"] } ] },
+            { "id": "bare", "name": "Bare", "format": "anthropic", "base_url": "https://b.example/",
+              "models": [] } ] }"#,
+    )?;
+    assert_eq!(catalog.role(Role::Main), None);
+    assert_eq!(catalog.facts("kimi").and_then(|m| m.context), Some(9000));
+    assert!(catalog.facts("unknown").is_none());
+    assert_eq!(
+        catalog.endpoints()[0].session_header.as_deref(),
+        Some("x-session")
+    );
+    Ok(())
 }

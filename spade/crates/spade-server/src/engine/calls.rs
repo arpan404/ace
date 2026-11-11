@@ -101,6 +101,7 @@ pub(super) async fn handle_calls(
         let live = engine.live(id);
         live.waiting_on_you
             .store(true, std::sync::atomic::Ordering::SeqCst);
+        engine.announce(id);
         let handled = tokio::select! {
             _ = live.wake.notified() => Handled::Continue,
             changed = stop.changed() => {
@@ -114,6 +115,7 @@ pub(super) async fn handle_calls(
         };
         live.waiting_on_you
             .store(false, std::sync::atomic::Ordering::SeqCst);
+        engine.announce(id);
         return handled;
     }
     Handled::Continue
@@ -180,6 +182,11 @@ async fn run_tools(
             if let Err(error) = engine.record(id, &started) {
                 return Handled::Failed(error.to_string());
             }
+            let bot = (name == "bot_message")
+                .then(|| arguments.get("bot").and_then(Value::as_str))
+                .flatten()
+                .and_then(|reference| engine.bot_name(id, reference));
+            engine.set_status(id, Some(super::roster::tool_status(&name, bot.as_deref())));
             if background {
                 match super::jobs::start(engine, id, reply, &call.id, &name, arguments, stop) {
                     Ok(super::jobs::Started::Running) => {}

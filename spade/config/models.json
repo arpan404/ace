@@ -12,6 +12,7 @@
       "format": "openai-chat",
       "base_url": "https://opencode.ai/inference/go/openai/v1/",
       "key": { "env": "OPENCODE_API_KEY" },
+      "session_header": "x-opencode-session",
       "models": [
         {
           "id": "kimi-k3.1-pro",
@@ -28,6 +29,7 @@
       "format": "anthropic",
       "base_url": "https://opencode.ai/inference/go/anthropic/v1/",
       "key": { "env": "OPENCODE_API_KEY" },
+      "session_header": "x-opencode-session",
       "models": [
         {
           "id": "claude-haiku-5-5",

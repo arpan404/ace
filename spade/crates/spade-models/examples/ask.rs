@@ -26,10 +26,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let question = args.pop().ok_or("usage: ask [model] \"question\"")?;
     let config = ModelsConfig::from_env(|key| std::env::var(key).ok());
     let catalog = Catalog::load(&config.catalog)?;
-    let models = Models::new(catalog, Keys::from_process_env())?;
+    let models = Models::new(catalog, Keys::from_process_env(), env!("CARGO_PKG_VERSION"))?;
     let model = args
         .pop()
-        .unwrap_or_else(|| models.for_role(Role::Main).to_owned());
+        .or_else(|| models.for_role(Role::Main).map(str::to_owned))
+        .unwrap_or_default();
     eprintln!("{model}");
 
     let mut stream = Box::pin(

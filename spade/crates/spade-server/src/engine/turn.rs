@@ -11,7 +11,7 @@ use spade_core::event::{Call, Known, ReplyEnd, Tokens};
 use spade_core::maintenance::{Pause, Point, halts};
 use spade_core::turn::{Next, next_step, progress, stop_requested, unique_call_ids};
 use spade_core::{Event, Transcript, spending, title};
-use spade_models::{Delta, Role, ToolCall};
+use spade_models::{Delta, ToolCall};
 use tokio::sync::watch;
 
 use super::calls::{Handled, handle_calls};
@@ -78,6 +78,7 @@ pub(super) async fn run(
     *live.current.lock().unwrap_or_else(|p| p.into_inner()) = None;
     live.waiting_on_you.store(false, Ordering::SeqCst);
     live.turn_running.store(false, Ordering::SeqCst);
+    engine.set_status(&id, None);
     if paused {
         // Admission may have reopened while this worker was pausing, after reopening looked for
         // turns without a worker; then this reply carries on now.
@@ -239,7 +240,7 @@ fn turn_model(engine: &Engine, events: &[Event], reply: &str) -> String {
             }
             _ => None,
         })
-        .unwrap_or_else(|| engine.models.for_role(Role::Main).to_owned())
+        .unwrap_or_else(|| engine.default_model())
 }
 
 async fn model_step(
@@ -252,8 +253,10 @@ async fn model_step(
 ) -> Step {
     let model = turn_model(engine, events, reply);
     let images = engine.images_for(&model);
-    let prompt = context::prompt_with(SYSTEM, engine.tools.registry().offered(), events, &images);
+    let prompt = context::prompt_with(SYSTEM, engine.tools.registry().offered(), events, &images)
+        .session(id);
     let live = engine.live(id);
+    engine.set_status(id, Some(super::roster::THINKING.to_owned()));
     // Each step's snapshot starts from its own text.
     *live.current.lock().unwrap_or_else(|p| p.into_inner()) = None;
     let opened = tokio::select! {
@@ -390,8 +393,13 @@ fn finish_unless_steered(engine: &Engine, id: &str, reply: &str) -> Result<bool,
     Ok(true)
 }
 
-/// Names the conversation after its first reply, with the fast model, else its first message.
+/// Names the conversation after its first reply, with the person's fast model (else the agent's
+/// own), else after its first message.
 async fn name_if_untitled(engine: &Arc<Engine>, id: &str) {
+    // Never for an agent being deleted: nothing is spent on a conversation about to go.
+    if engine.deleting(id) {
+        return;
+    }
     let Ok(events) = engine.load(id) else { return };
     let transcript = Transcript::fold(&events);
     if transcript.title.is_some() || transcript.open_reply().is_some() {
@@ -400,10 +408,13 @@ async fn name_if_untitled(engine: &Arc<Engine>, id: &str) {
     let Some(first) = transcript.first_message().map(str::to_owned) else {
         return;
     };
-    let fast = engine.models.for_role(Role::Fast).to_owned();
+    let fast = match engine.fast_model() {
+        Ok(Some(model)) => model,
+        _ => engine.reply_model(id),
+    };
     let suggested = match engine
         .models
-        .generate::<title::Suggestion>(&fast, &title::prompt(&first))
+        .generate::<title::Suggestion>(&fast, &title::prompt(&first).session(id))
         .await
     {
         Ok(generated) => {
@@ -478,6 +489,7 @@ mod tests {
         let models = spade_models::Models::new(
             spade_models::Catalog::from_json(&catalog.to_string())?,
             spade_keys::Keys::new(|_| Some("fake-key".to_owned())),
+            crate::home::VERSION,
         )?;
         Ok(Engine::open(super::super::Setup {
             store: spade_store::Store::open(&dir.join("spade.sqlite"))?,
@@ -490,6 +502,8 @@ mod tests {
             limits: super::super::Limits::default(),
             skills: None,
             images: crate::images::ImageStore::open(&dir.join("images"))?,
+            adopt: None,
+            keychain: None,
         })?)
     }
 

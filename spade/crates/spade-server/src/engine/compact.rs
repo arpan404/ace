@@ -31,9 +31,8 @@ fn last_prompt_tokens(events: &[Event]) -> u32 {
 fn budget(engine: &Engine, model: &str) -> u32 {
     let window = engine
         .models
-        .catalog()
         .resolve(model)
-        .and_then(|r| r.model.context)
+        .and_then(|(_, m)| m.context)
         .map_or(u32::MAX, |c| u32::try_from(c).unwrap_or(u32::MAX));
     window.min(engine.limits.context_budget)
 }
@@ -84,7 +83,8 @@ async fn run(
     // is cache reads. Typed output is not used: it would change the request and miss the cache.
     let images = engine.images_for(model);
     let mut prompt =
-        context::prompt_with(SYSTEM, engine.tools.registry().offered(), events, &images);
+        context::prompt_with(SYSTEM, engine.tools.registry().offered(), events, &images)
+            .session(id);
     prompt.messages.push(Message::Person {
         text: compaction::request(focus),
         images: Vec::new(),

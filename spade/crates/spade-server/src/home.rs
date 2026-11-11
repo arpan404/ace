@@ -16,7 +16,8 @@ use std::path::{Path, PathBuf};
 /// before it (docs/ace-integration.md).
 pub const API_VERSION: u32 = 1;
 
-/// The model catalogue and search settings Spade starts with when the data folder has none.
+/// The presets built in (always read from here, see `presets`), and the search settings Spade
+/// starts with when the data folder has none.
 pub const DEFAULT_MODELS: &str = include_str!("../../../config/models.json");
 pub const DEFAULT_SEARCH: &str = include_str!("../../../config/search.json");
 

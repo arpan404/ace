@@ -168,7 +168,9 @@ impl Transcript {
                     self.awaiting.clear();
                 }
             }
-            Known::SkillsIndexed { .. } | Known::ContextCompacted { .. } => {}
+            Known::SkillsIndexed { .. }
+            | Known::ContextCompacted { .. }
+            | Known::AgentConfigured { .. } => {}
         }
         if self.open_reply().is_none() {
             self.running.clear();

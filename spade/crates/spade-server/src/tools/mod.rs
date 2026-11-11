@@ -3,6 +3,7 @@
 
 mod ace;
 mod ace_link;
+mod bots;
 mod skills;
 mod todo;
 mod web_fetch;
@@ -17,6 +18,7 @@ use serde_json::Value;
 use spade_core::tools::{Registry, ToolDef};
 
 pub use ace_link::{AceLink, AceTarget, GrantError, Retry, grant_slot};
+pub use bots::{BotMessage, BotsList, EngineHandle};
 pub use skills::{AceLibrary, LibraryFuture, SkillLibrary, SkillLoad, SkillSearch};
 pub use todo::Todo;
 pub use web_fetch::WebFetch;
@@ -94,6 +96,12 @@ impl Toolbox {
                 .collect(),
             sources: Vec::new(),
         }
+    }
+
+    /// Adds one of Spade's own tools.
+    pub fn with_tool(mut self, tool: Arc<dyn Tool>) -> Self {
+        self.core.insert(tool.def().spec.name, tool);
+        self
     }
 
     pub fn with_source(mut self, source: Arc<dyn ToolSource>) -> Self {
