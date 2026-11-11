@@ -1,5 +1,5 @@
 import {
-  formatAgo,
+  limitDetails,
   joinNames,
   limitTime,
   roundEstimate,
@@ -7,6 +7,8 @@ import {
   type AccountWindow,
   type UsageLimits,
 } from "@ace/ui-core";
+import { Fragment } from "react";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -132,7 +134,7 @@ function AccountBlock(props: {
         <p className="mt-2 text-ui text-muted-foreground">{entry.signIn}</p>
       ) : (
         entry.windows.length > 0 && (
-          <ul aria-label={`${entry.account.label} limits`} className="mt-2.5 flex flex-col gap-3">
+          <ul aria-label={`${entry.account.label} limits`} className="mt-1.5 flex flex-col gap-0.5">
             {entry.windows.map((window) => (
               <WindowRow key={window.id} window={window} now={props.now} />
             ))}
@@ -176,10 +178,8 @@ function WindowRow(props: { window: AccountWindow; now: number }) {
           : window.resetsAt === null
             ? "Reset not reported"
             : `Resets ${time(window.resetsAt)}`;
-  const resetNote =
-    runsOut && !out && window.resetsAt !== null ? `Resets ${time(window.resetsAt)}` : undefined;
-  return (
-    <li className={rowGrid}>
+  const cells = (
+    <>
       <span title={window.label} className="truncate text-ui text-muted-foreground">
         {window.label}
       </span>
@@ -196,18 +196,59 @@ function WindowRow(props: { window: AccountWindow; now: number }) {
       <div className="col-span-2 @min-[40rem]/limits:order-2 @min-[40rem]/limits:col-span-1">
         <Bar window={window} runsOut={runsOut} />
       </div>
-      <Tip label={resetNote ?? `Read ${formatAgo(window.observedAt, now)}`}>
-        <span
-          // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard
+      <span
+        className={cn(
+          "col-span-2 truncate text-xs tabular-nums @min-[40rem]/limits:order-4 @min-[40rem]/limits:col-span-1 @min-[40rem]/limits:text-right",
+          runsOut ? "text-status-failed" : "text-subtle-foreground",
+        )}
+      >
+        {when}
+      </span>
+    </>
+  );
+  return (
+    <li>
+      <HoverCard>
+        <HoverCardTrigger
+          // Opens once the pointer settles; leaving the row closes it at once.
+          delay={300}
+          closeDelay={0}
+          // A focusable group, so the keyboard opens its card too; its meter stays inside it.
+          render={<div role="group" />}
           tabIndex={0}
+          aria-label={`${window.label}: ${window.stale ? "not used since its reset" : `${window.leftPercent}% left`}, ${when}`}
           className={cn(
-            "col-span-2 w-fit truncate rounded-xs text-xs tabular-nums focus-ring @min-[40rem]/limits:order-4 @min-[40rem]/limits:col-span-1 @min-[40rem]/limits:justify-self-end",
-            runsOut ? "text-status-failed" : "text-subtle-foreground",
+            rowGrid,
+            "-mx-2 rounded-md px-2 py-1.5 transition-colors duration-(--motion-fast) hover:bg-hover focus-ring-inset",
           )}
         >
-          {when}
-        </span>
-      </Tip>
+          {cells}
+        </HoverCardTrigger>
+        <HoverCardContent
+          side="top"
+          align="center"
+          sideOffset={6}
+          aria-label={`${window.label} details`}
+          className="w-72 px-3 py-2.5"
+        >
+          <p className="mb-1.5 text-ui font-medium text-foreground">{window.label}</p>
+          <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-xs tabular-nums">
+            {limitDetails(window, now).map((line) => (
+              <Fragment key={line.label}>
+                <dt className="text-subtle-foreground">{line.label}</dt>
+                <dd
+                  className={cn(
+                    "text-right",
+                    line.tone === "out" ? "text-status-failed" : "text-foreground",
+                  )}
+                >
+                  {line.value}
+                </dd>
+              </Fragment>
+            ))}
+          </dl>
+        </HoverCardContent>
+      </HoverCard>
     </li>
   );
 }

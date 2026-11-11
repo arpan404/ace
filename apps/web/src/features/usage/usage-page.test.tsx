@@ -160,6 +160,18 @@ test("a window used faster than it runs is red with when it runs out; one that l
   expect((await accountBlock("Codex", "Team")).textContent).toMatch(new RegExp(`Resets ${clock}`));
 });
 
+test("hovering a limit opens its details: what is left and used, where its pace leads, when it resets", async () => {
+  const app = harness();
+  report(app.daemon, "codex-team", { five_hour: [10, 4 * hour, 300] });
+  await app.open("/usage");
+  const block = await accountBlock("Codex", "Team");
+  await userEvent.hover(within(block).getByRole("group", { name: /^Session \(5h\):/ }));
+  const card = await screen.findByLabelText("Session (5h) details");
+  expect(card.textContent).toContain("90% left · 10% used");
+  expect(card.textContent).toContain("About 50% left at the reset");
+  expect(card.textContent).toMatch(/Resets.*in 4h/);
+});
+
 test("a window whose reset passed since its reading keeps its place and says how old it is", async () => {
   const app = harness();
   report(app.daemon, "claude-personal", { seven_day: [64, 3 * day] });
