@@ -39,7 +39,7 @@ fn shape(messages: &[Message]) -> Vec<String> {
     messages
         .iter()
         .map(|m| match m {
-            Message::Person { text } => format!("person:{text}"),
+            Message::Person { text, .. } => format!("person:{text}"),
             Message::Spade { text, calls, .. } => {
                 let ids: Vec<&str> = calls.iter().map(|c| c.id.as_str()).collect();
                 format!("spade:{text}:{}", ids.join(","))
@@ -157,6 +157,7 @@ fn stored_context_rides_with_its_message_and_messages_in_a_row_join() {
         Event::Known(Known::UserMessage {
             text: "Plan my day".into(),
             context: Some("Today is Monday.".into()),
+            images: Vec::new(),
         }),
         Event::user_message("Short please"),
     ];

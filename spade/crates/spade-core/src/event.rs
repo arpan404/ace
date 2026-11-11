@@ -13,6 +13,9 @@ pub enum Known {
         /// rebuilding the prompt later gives the same bytes.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         context: Option<String>,
+        /// Images the person attached. The bytes live in Spade's image store, by hash.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        images: Vec<ImageRef>,
     },
     /// The skill index for this conversation, fixed at its first turn so the prompt's top stays
     /// cached; later skills are found with `skill_search`.
@@ -128,6 +131,14 @@ pub enum Known {
     },
 }
 
+/// An attached image, as stored in an event: its SHA-256 (hex), media type and size.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImageRef {
+    pub sha256: String,
+    pub media_type: String,
+    pub bytes: u64,
+}
+
 /// A tool call as stored.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Call {
@@ -182,6 +193,7 @@ impl Event {
         Self::Known(Known::UserMessage {
             text: text.into(),
             context: None,
+            images: Vec::new(),
         })
     }
 

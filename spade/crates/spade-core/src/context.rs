@@ -2,9 +2,9 @@
 //! the events, so each new call repeats the previous prompt byte for byte and adds to its end,
 //! which keeps the provider's cache warm (docs/design.md, Caching).
 
-use spade_models::{Message, Prompt, ToolCall, ToolSpec};
+use spade_models::{Image, Message, Prompt, ToolCall, ToolSpec};
 
-use crate::event::{Event, Known};
+use crate::event::{Event, ImageRef, Known};
 use crate::tools::Registry;
 
 /// Spade's standing instructions.
@@ -47,9 +47,34 @@ pub fn job_result(job: &str, name: &str, content: &str, is_error: bool) -> Strin
     )
 }
 
-/// The prompt for the next model call: instructions and the skill index (fixed for the
-/// conversation), the offered tools, then the conversation.
+/// Where attached images' bytes come from. A failure says why in a few words ("this model cannot
+/// see images"), and the model is told that instead of seeing the image.
+pub trait Images {
+    fn get(&self, image: &ImageRef) -> Result<Image, String>;
+}
+
+/// No images: each attached image is described instead.
+pub struct NoImages;
+
+impl Images for NoImages {
+    fn get(&self, _image: &ImageRef) -> Result<Image, String> {
+        Err("images cannot be shown here".to_owned())
+    }
+}
+
+/// The prompt for the next model call, with attached images described rather than shown.
 pub fn prompt(system: &str, tools: Vec<ToolSpec>, events: &[Event]) -> Prompt {
+    prompt_with(system, tools, events, &NoImages)
+}
+
+/// The prompt for the next model call: instructions and the skill index (fixed for the
+/// conversation), the offered tools, then the conversation, with images from `images`.
+pub fn prompt_with(
+    system: &str,
+    tools: Vec<ToolSpec>,
+    events: &[Event],
+    images: &dyn Images,
+) -> Prompt {
     let skills = events.iter().find_map(|event| match event {
         Event::Known(Known::SkillsIndexed { text }) => Some(text.as_str()),
         _ => None,
@@ -61,7 +86,7 @@ pub fn prompt(system: &str, tools: Vec<ToolSpec>, events: &[Event]) -> Prompt {
     Prompt {
         system: Some(system),
         tools,
-        messages: messages(events),
+        messages: messages_with(events, images),
         max_tokens: None,
     }
 }
@@ -70,6 +95,11 @@ pub fn prompt(system: &str, tools: Vec<ToolSpec>, events: &[Event]) -> Prompt {
 /// placed after those tools' results, since providers require every call to be answered before
 /// anything else; a call whose turn ended without a result gets [`NOT_RUN`].
 pub fn messages(events: &[Event]) -> Vec<Message> {
+    messages_with(events, &NoImages)
+}
+
+/// [`messages`] with attached images taken from `images`.
+pub fn messages_with(events: &[Event], images: &dyn Images) -> Vec<Message> {
     // After a compaction the model sees its summary, then the events it kept word for word.
     let compacted = events.iter().rev().find_map(|event| match event {
         Event::Known(Known::ContextCompacted {
@@ -82,6 +112,7 @@ pub fn messages(events: &[Event]) -> Vec<Message> {
         Some((summary, keep_from)) => {
             out.push(Message::Person {
                 text: format!("<summary>\n{summary}\n</summary>"),
+                images: Vec::new(),
             });
             keep_from.min(events.len())
         }
@@ -90,21 +121,35 @@ pub fn messages(events: &[Event]) -> Vec<Message> {
     let events = reading_order(events, from);
     // Calls of the last Spade step still waiting for results, and messages held until they come.
     let mut pending: Vec<ToolCall> = Vec::new();
-    let mut held: Vec<String> = Vec::new();
+    let mut held: Vec<(String, Vec<Image>)> = Vec::new();
     // Calls that started running, so a missing result is "unknown", not "not run".
     let mut started: Vec<String> = Vec::new();
     for event in events {
         let Event::Known(event) = event else { continue };
         match event {
-            Known::UserMessage { text, context } => {
-                let text = match context {
+            Known::UserMessage {
+                text,
+                context,
+                images: attached,
+            } => {
+                let mut text = match context {
                     Some(context) => format!("<context>\n{context}\n</context>\n\n{text}"),
                     None => text.clone(),
                 };
+                let mut shown = Vec::new();
+                for image in attached {
+                    match images.get(image) {
+                        Ok(image) => shown.push(image),
+                        Err(why) => text.push_str(&format!(
+                            "\n\n[The person attached an image ({}), but {why}.]",
+                            image.media_type
+                        )),
+                    }
+                }
                 if pending.is_empty() {
-                    push_person(&mut out, text);
+                    push_person(&mut out, text, shown);
                 } else {
-                    held.push(text);
+                    held.push((text, shown));
                 }
             }
             Known::JobFinished {
@@ -115,9 +160,9 @@ pub fn messages(events: &[Event]) -> Vec<Message> {
             } => {
                 let text = job_result(job, name, content, *is_error);
                 if pending.is_empty() {
-                    push_person(&mut out, text);
+                    push_person(&mut out, text, Vec::new());
                 } else {
-                    held.push(text);
+                    held.push((text, Vec::new()));
                 }
             }
             Known::StepFinished {
@@ -157,8 +202,8 @@ pub fn messages(events: &[Event]) -> Vec<Message> {
                         is_error: *is_error,
                     });
                     if pending.is_empty() {
-                        for text in held.drain(..) {
-                            push_person(&mut out, text);
+                        for (text, shown) in held.drain(..) {
+                            push_person(&mut out, text, shown);
                         }
                     }
                 }
@@ -225,7 +270,7 @@ fn reading_order(events: &[Event], from: usize) -> Vec<&Event> {
 fn close(
     out: &mut Vec<Message>,
     pending: &mut Vec<ToolCall>,
-    held: &mut Vec<String>,
+    held: &mut Vec<(String, Vec<Image>)>,
     started: &[String],
 ) {
     for call in pending.drain(..) {
@@ -241,18 +286,26 @@ fn close(
             is_error: true,
         });
     }
-    for text in held.drain(..) {
-        push_person(out, text);
+    for (text, shown) in held.drain(..) {
+        push_person(out, text, shown);
     }
 }
 
 /// Adds the person's text, joining it to an immediately preceding message of theirs.
-fn push_person(out: &mut Vec<Message>, text: String) {
-    if let Some(Message::Person { text: previous }) = out.last_mut() {
+fn push_person(out: &mut Vec<Message>, text: String, shown: Vec<Image>) {
+    if let Some(Message::Person {
+        text: previous,
+        images,
+    }) = out.last_mut()
+    {
         previous.push_str("\n\n");
         previous.push_str(&text);
+        images.extend(shown);
     } else {
-        out.push(Message::Person { text });
+        out.push(Message::Person {
+            text,
+            images: shown,
+        });
     }
 }
 

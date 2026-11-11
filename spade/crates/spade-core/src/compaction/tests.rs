@@ -93,7 +93,7 @@ fn the_model_sees_the_summary_then_the_kept_turns_with_the_top_unchanged() {
     assert_eq!(before.system, after.system);
     assert_eq!(before.tools, after.tools);
     let first = match &after.messages[0] {
-        Message::Person { text } => text.clone(),
+        Message::Person { text, .. } => text.clone(),
         other => format!("{other:?}"),
     };
     assert!(
@@ -108,7 +108,7 @@ fn the_model_sees_the_summary_then_the_kept_turns_with_the_top_unchanged() {
         !after
             .messages
             .iter()
-            .any(|m| matches!(m, Message::Person { text } if text.contains("question 0")))
+            .any(|m| matches!(m, Message::Person { text, .. } if text.contains("question 0")))
     );
 }
 
