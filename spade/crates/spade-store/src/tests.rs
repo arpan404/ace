@@ -197,3 +197,202 @@ fn a_database_from_a_newer_spade_is_refused_not_used() -> Result<()> {
     assert_eq!(version, 999, "left as it was");
     Ok(())
 }
+
+fn bot<'a>(id: &'a str, conversation: &'a str, model: &'a str) -> NewAgent<'a> {
+    NewAgent {
+        id,
+        kind: "bot",
+        name: "Trips",
+        task: "Plan trips.",
+        avatar: r#"{"kind":"generated","color":"teal"}"#,
+        model,
+        conversation,
+    }
+}
+
+#[test]
+fn an_agent_and_its_one_conversation_are_created_together() -> Result<()> {
+    let (_dir, path) = temp();
+    let store = Store::open(&path)?;
+    store.create_agent(bot("a1", "c1", "e/m"), &[Event::user_message("first")], 5)?;
+    let agent = store.agent("a1")?.ok_or(StoreError::Poisoned)?;
+    assert_eq!(
+        (agent.conversation.as_str(), agent.model.as_str()),
+        ("c1", "e/m")
+    );
+    assert!(store.conversation("c1")?.is_some());
+    assert_eq!(store.events("c1", 0)?.len(), 1);
+    assert_eq!(
+        store.agent_for_conversation("c1")?.map(|a| a.id),
+        Some("a1".into())
+    );
+    // A clash leaves nothing half made: no second agent and no stray conversation.
+    assert!(store.create_agent(bot("a1", "c2", "e/m"), &[], 6).is_err());
+    assert!(store.conversation("c2")?.is_none());
+    Ok(())
+}
+
+#[test]
+fn deleting_an_agent_deletes_its_conversation_and_events() -> Result<()> {
+    let (_dir, path) = temp();
+    let store = Store::open(&path)?;
+    store.create_agent(bot("a1", "c1", "e/m"), &[Event::user_message("x")], 5)?;
+    store.record_spend("c1", "e/m", 300, 6)?;
+    assert!(store.delete_agent("a1")?);
+    assert!(store.agent("a1")?.is_none());
+    assert!(store.conversation("c1")?.is_none());
+    assert!(store.events("c1", 0)?.is_empty());
+    assert_eq!(
+        store.spent_since(0)?,
+        300,
+        "spending still counts toward the cap"
+    );
+    assert!(!store.delete_agent("a1")?);
+    Ok(())
+}
+
+#[test]
+fn a_task_change_is_stored_on_the_row_and_as_an_event_together() -> Result<()> {
+    let (_dir, path) = temp();
+    let store = Store::open(&path)?;
+    store.create_agent(bot("a1", "c1", "e/m"), &[], 5)?;
+    let stored = store.configure_agent("a1", "Track parcels.", "e/n", 7)?;
+    assert_eq!(stored.seq, 1);
+    let agent = store.agent("a1")?.ok_or(StoreError::Poisoned)?;
+    assert_eq!(
+        (agent.task.as_str(), agent.model.as_str()),
+        ("Track parcels.", "e/n")
+    );
+    assert_eq!(
+        store.events("c1", 0)?.first().map(|e| e.event.to_json()),
+        Some(json!({ "type": "agent_configured", "task": "Track parcels.", "model": "e/n" }))
+    );
+    assert_eq!(store.agents_using_endpoint("e")?, vec!["Trips".to_owned()]);
+    assert!(store.agents_using_endpoint("e2")?.is_empty());
+    Ok(())
+}
+
+#[test]
+fn conversations_from_before_agents_become_bots_with_nothing_lost() -> Result<()> {
+    let (_dir, path) = temp();
+    {
+        // Schema 1 as shipped, with two conversations.
+        let connection = rusqlite::Connection::open(&path)?;
+        connection.execute_batch(
+            "CREATE TABLE conversations (id TEXT PRIMARY KEY, title TEXT,
+                 created_ms INTEGER NOT NULL, updated_ms INTEGER NOT NULL);
+             CREATE INDEX conversations_by_update ON conversations (updated_ms DESC);
+             CREATE TABLE events (conversation_id TEXT NOT NULL REFERENCES conversations (id),
+                 seq INTEGER NOT NULL, at_ms INTEGER NOT NULL, body TEXT NOT NULL,
+                 PRIMARY KEY (conversation_id, seq)) WITHOUT ROWID;
+             CREATE TABLE spend (id INTEGER PRIMARY KEY, conversation_id TEXT NOT NULL,
+                 model TEXT NOT NULL, cost_micros INTEGER NOT NULL, at_ms INTEGER NOT NULL);
+             CREATE INDEX spend_by_time ON spend (at_ms);
+             INSERT INTO conversations VALUES ('c_old', 'A very long title that goes well past forty characters', 1, 10);
+             INSERT INTO conversations VALUES ('c_new', NULL, 2, 20);
+             INSERT INTO events VALUES ('c_old', 1, 3, '{\"type\":\"user_message\",\"text\":\"hi\"}');
+             INSERT INTO events VALUES ('c_old', 2, 4, '{\"type\":\"reply_started\",\"reply\":\"r1\",\"model\":\"go/kimi\"}');
+             INSERT INTO events VALUES ('c_old', 3, 5, '{\"type\":\"reply_finished\",\"reply\":\"r1\",\"text\":\"hello\"}');
+             PRAGMA user_version = 1;",
+        )?;
+    }
+    let store = Store::open(&path)?;
+    let agents = store.agents()?;
+    let summary: Vec<_> = agents
+        .iter()
+        .map(|a| {
+            (
+                a.conversation.as_str(),
+                a.kind.as_str(),
+                a.name.as_str(),
+                a.task.as_str(),
+                a.model.as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        summary,
+        vec![
+            ("c_new", "bot", "Agent", "", ""),
+            (
+                "c_old",
+                "bot",
+                "A very long title that goes well past fo",
+                "",
+                "go/kimi"
+            ),
+        ]
+    );
+    assert!(agents.iter().all(|a| a.avatar.contains("\"generated\"")));
+    assert_eq!(store.events("c_old", 0)?.len(), 3, "every event kept");
+    store.fill_missing_models("preset/main")?;
+    assert_eq!(
+        store.agent_for_conversation("c_new")?.map(|a| a.model),
+        Some("preset/main".into())
+    );
+    Ok(())
+}
+
+#[test]
+fn only_one_main_agent_can_exist() -> Result<()> {
+    let (_dir, path) = temp();
+    let store = Store::open(&path)?;
+    let main = |id, conversation| NewAgent {
+        kind: "main",
+        ..bot(id, conversation, "e/m")
+    };
+    store.create_agent(main("a1", "c1"), &[], 1)?;
+    assert!(store.create_agent(main("a2", "c2"), &[], 2).is_err());
+    store.create_agent(bot("a3", "c3", "e/m"), &[], 3)?;
+    // Main first, whatever its activity.
+    let order: Vec<_> = store.agents()?.into_iter().map(|a| a.id).collect();
+    assert_eq!(order, vec!["a1".to_owned(), "a3".to_owned()]);
+    Ok(())
+}
+
+#[test]
+fn endpoints_models_and_settings_are_kept_and_never_hold_a_key() -> Result<()> {
+    let (_dir, path) = temp();
+    let store = Store::open(&path)?;
+    let endpoint = StoredEndpoint {
+        id: "go".into(),
+        name: "Go".into(),
+        format: "openai-chat".into(),
+        base_url: "https://example.test/v1/".into(),
+        headers: vec![("x-team".into(), "blue".into())],
+        session_header: Some("x-session".into()),
+        needs_key: true,
+        key_env: Some("GO_KEY".into()),
+        created_ms: 1,
+        models: vec![StoredModel {
+            id: "kimi".into(),
+            name: None,
+            context: Some(1000),
+            capabilities: Some(vec!["tools".into()]),
+            source: "preset".into(),
+        }],
+    };
+    store.insert_endpoint(&endpoint)?;
+    assert!(store.insert_endpoint(&endpoint).is_err());
+    let typed = StoredModel {
+        id: "vendor/odd".into(),
+        name: Some("Odd".into()),
+        context: None,
+        capabilities: None,
+        source: "typed".into(),
+    };
+    assert!(store.put_model("go", &typed)?);
+    assert!(!store.put_model("nope", &typed)?);
+    let read = store.endpoints()?;
+    assert_eq!(read.len(), 1);
+    assert_eq!(read[0].headers, endpoint.headers);
+    assert_eq!(read[0].models.len(), 2);
+    assert!(store.delete_model("go", "vendor/odd")?);
+    store.set_setting("fast_model", Some("go/kimi"))?;
+    assert_eq!(store.setting("fast_model")?, Some("go/kimi".into()));
+    store.set_setting("fast_model", None)?;
+    assert_eq!(store.setting("fast_model")?, None);
+    assert!(store.delete_endpoint("go")?);
+    assert!(store.endpoints()?.is_empty());
+    Ok(())
+}

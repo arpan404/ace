@@ -1,8 +1,14 @@
-//! Spade's storage, one SQLite file: conversations, each conversation's append-only event log, and
+//! Spade's storage, one SQLite file: agents (ADR 0126/0127), each with exactly one conversation,
+//! each conversation's append-only event log, the person's endpoints and models, settings, and
 //! the spending ledger. The event log is the source of truth; the conversation row keeps the
-//! title and last update for the list.
+//! title and last update for the list. Keys are never stored here (ADR 0119).
 
+mod agents;
+mod endpoints;
 mod schema;
+
+pub use agents::{AVATAR_COLORS, Agent, NewAgent, generated_color};
+pub use endpoints::{StoredEndpoint, StoredModel};
 
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
@@ -87,7 +93,15 @@ impl Store {
             return Err(format!("integrity check failed: {}", problems.join("; ")));
         }
         // Every table this build reads must be there and readable.
-        for table in ["conversations", "events", "spend"] {
+        for table in [
+            "conversations",
+            "events",
+            "spend",
+            "agents",
+            "endpoints",
+            "models",
+            "settings",
+        ] {
             connection
                 .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
                     row.get::<_, i64>(0)
@@ -167,45 +181,7 @@ impl Store {
     ) -> Result<Vec<StoredEvent>> {
         let mut connection = self.lock()?;
         let tx = connection.transaction()?;
-        let exists: bool = tx
-            .query_row(
-                "SELECT 1 FROM conversations WHERE id = ?1",
-                params![conversation],
-                |_| Ok(true),
-            )
-            .optional()?
-            .unwrap_or(false);
-        if !exists {
-            return Err(StoreError::NoConversation(conversation.to_owned()));
-        }
-        let mut seq: i64 = tx.query_row(
-            "SELECT COALESCE(MAX(seq), 0) FROM events WHERE conversation_id = ?1",
-            params![conversation],
-            |row| row.get(0),
-        )?;
-        let mut stored = Vec::with_capacity(events.len());
-        for event in events {
-            seq += 1;
-            tx.execute(
-                "INSERT INTO events (conversation_id, seq, at_ms, body) VALUES (?1, ?2, ?3, ?4)",
-                params![conversation, seq, now_ms, event.to_json().to_string()],
-            )?;
-            match event {
-                Event::Known(Known::Renamed { title }) => tx.execute(
-                    "UPDATE conversations SET updated_ms = ?2, title = ?3 WHERE id = ?1",
-                    params![conversation, now_ms, title],
-                )?,
-                _ => tx.execute(
-                    "UPDATE conversations SET updated_ms = ?2 WHERE id = ?1",
-                    params![conversation, now_ms],
-                )?,
-            };
-            stored.push(StoredEvent {
-                seq,
-                at_ms: now_ms,
-                event: event.clone(),
-            });
-        }
+        let stored = append_in(&tx, conversation, events, now_ms)?;
         tx.commit()?;
         Ok(stored)
     }
@@ -255,6 +231,55 @@ impl Store {
         )?;
         Ok(u64::try_from(total).unwrap_or(0))
     }
+}
+
+/// Appends `events` to `conversation` inside `tx`, numbered after the rest.
+fn append_in(
+    tx: &rusqlite::Transaction<'_>,
+    conversation: &str,
+    events: &[Event],
+    now_ms: i64,
+) -> Result<Vec<StoredEvent>> {
+    let exists: bool = tx
+        .query_row(
+            "SELECT 1 FROM conversations WHERE id = ?1",
+            params![conversation],
+            |_| Ok(true),
+        )
+        .optional()?
+        .unwrap_or(false);
+    if !exists {
+        return Err(StoreError::NoConversation(conversation.to_owned()));
+    }
+    let mut seq: i64 = tx.query_row(
+        "SELECT COALESCE(MAX(seq), 0) FROM events WHERE conversation_id = ?1",
+        params![conversation],
+        |row| row.get(0),
+    )?;
+    let mut stored = Vec::with_capacity(events.len());
+    for event in events {
+        seq += 1;
+        tx.execute(
+            "INSERT INTO events (conversation_id, seq, at_ms, body) VALUES (?1, ?2, ?3, ?4)",
+            params![conversation, seq, now_ms, event.to_json().to_string()],
+        )?;
+        match event {
+            Event::Known(Known::Renamed { title }) => tx.execute(
+                "UPDATE conversations SET updated_ms = ?2, title = ?3 WHERE id = ?1",
+                params![conversation, now_ms, title],
+            )?,
+            _ => tx.execute(
+                "UPDATE conversations SET updated_ms = ?2 WHERE id = ?1",
+                params![conversation, now_ms],
+            )?,
+        };
+        stored.push(StoredEvent {
+            seq,
+            at_ms: now_ms,
+            event: event.clone(),
+        });
+    }
+    Ok(stored)
 }
 
 #[cfg(test)]
