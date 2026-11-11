@@ -62,6 +62,44 @@ test("moving to another milestone and locking are pinned to the version seen; a 
   });
 });
 
+test("a pull request moves between draft, ready, closed and open as GitHub allows, each from the version seen", async () => {
+  const { ask } = await connected();
+  const open = await manage(ask, 233);
+  expect(open.state).toBe("open");
+  expect(open.lifecycle.map((each) => each.kind)).toEqual([
+    "draft",
+    "close",
+    "update.merge",
+    "update.rebase",
+  ]);
+  expect(open.lifecycle.find((each) => each.kind === "close")?.label).toBe("Close pull request");
+  expect((await apply(ask, 233, open.version, { kind: "draft" })).ok).toBe(true);
+  const draft = await manage(ask, 233);
+  expect(draft.state).toBe("draft");
+  expect(draft.lifecycle.map((each) => each.kind)).toEqual(["ready", "close"]);
+  expect((await apply(ask, 233, draft.version, { kind: "close" })).ok).toBe(true);
+  const closed = await manage(ask, 233);
+  expect(closed.state).toBe("closed");
+  expect(closed.lifecycle.map((each) => each.kind)).toEqual(["reopen"]);
+  // The version from before closing no longer matches: reopening against it is refused.
+  expect(await apply(ask, 233, draft.version, { kind: "reopen" })).toMatchObject({ ok: false });
+  expect((await apply(ask, 233, closed.version, { kind: "reopen" })).ok).toBe(true);
+  expect((await manage(ask, 233)).state).toBe("open");
+});
+
+test("a pull request's title, description and labels read as GitHub has them and change in one edit", async () => {
+  const { ask } = await connected();
+  const before = await manage(ask, 233);
+  // #233 lets this account change its text and labels, not its base or assignees.
+  expect(before.editable).toEqual(["title", "body", "labels"]);
+  const edit = { title: "Phone triage", body: "Triaged on the phone.", labels: ["mobile"] };
+  const reply = await apply(ask, 233, before.version, { kind: "edit", changes: edit });
+  expect(reply.ok).toBe(true);
+  const after = await manage(ask, 233);
+  expect(after.metadata).toMatchObject(edit);
+  expect(after.metadata.baseBranch).toBe(before.metadata.baseBranch);
+});
+
 test("a lifecycle write whose answer is lost is unconfirmed and sent only once", async () => {
   const { ask, sent } = await connected(undefined, undefined, () =>
     Promise.reject(new Error("socket closed")),
