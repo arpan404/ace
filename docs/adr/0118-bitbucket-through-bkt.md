@@ -79,3 +79,12 @@ issue` now exits saying so.
 Bitbucket gets reviews without a new protocol shape. ace depends on a community-maintained CLI;
 its exact request shape is pinned in `read-only-api.ts` and its error format in `command.ts`, so
 a change to either fails closed (refused or uncertain), never as a silent success.
+
+## What is built
+
+`packages/forge`: `bkt-api.ts` (the transport and write rule), `bkt-readiness.ts` (context,
+identity and readiness), `bitbucket-*.ts` (records, pull request reads, build statuses as checks,
+conversation and review writes). `read-only-api.ts` holds the admitted shapes and
+`forgeCapabilities.bitbucket` the capabilities. The daemon resolves each host's CLI in
+`host-cli-identity.ts` and routes Bitbucket through the same `admittedWriter`, review journal and
+conversation reads as Gitea. What is mapped and what is missing is listed in ADR 0117.

@@ -195,3 +195,10 @@ bookkeeping cannot alter good cached prices. SQLite pricing history also stores
 only models seen in usage. The bundled snapshot remains the offline fallback.
 Set `"fetchPrices": false` in `usage-settings.json` in that directory and restart
 the daemon to use only bundled prices, ignoring the downloaded cache.
+
+## Amendment: Bitbucket through bkt
+
+Accepted 2026-11-10 by the repo owner. For Bitbucket only, "the user's own installed, logged-in
+CLI" includes the vetted third-party `bkt` CLI, because Atlassian ships none for Bitbucket. `bkt`
+owns sign-in and keeps the credential in the OS keychain; ace never sees it. See
+[ADR 0118](0118-bitbucket-through-bkt.md).
