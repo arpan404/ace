@@ -6,6 +6,8 @@ export interface Enrollment {
   scope: "read" | "operate";
   project?: WorkspaceId;
   expiresAt: number;
+  /** Set for a lease the daemon holds for its own process (Spade), revoked when it stops. */
+  holder?: "spade";
 }
 export class Enrollments {
   readonly credentials = new CredentialRegistry(() => randomBytes(32).toString("hex"), 64);
@@ -26,6 +28,23 @@ export class Enrollments {
     this.onRevoke = onRevoke;
   }
   enroll(scope: "read" | "operate", ttlMs: number, project?: WorkspaceId) {
+    const expiresAt = this.now() + ttlMs;
+    return this.issue(scope, expiresAt, (id) => this.after(ttlMs, () => this.revoke(id)), project);
+  }
+  /**
+   * A lease for a process the daemon runs (ADR 0117): no expiry, because its holder lives as long
+   * as the daemon lets it; the daemon revokes it when the process stops, and restart ends it.
+   */
+  enrollHeld(holder: "spade", scope: "read" | "operate") {
+    return this.issue(scope, Number.MAX_SAFE_INTEGER, () => () => {}, undefined, holder);
+  }
+  private issue(
+    scope: "read" | "operate",
+    expiresAt: number,
+    schedule: (id: string) => () => void,
+    project?: WorkspaceId,
+    holder?: "spade",
+  ) {
     const id = this.id();
     const lease = this.credentials.issue(
       {
@@ -40,9 +59,10 @@ export class Enrollments {
       id,
       scope,
       ...(project ? { project } : {}),
-      expiresAt: this.now() + ttlMs,
+      ...(holder ? { holder } : {}),
+      expiresAt,
       end: lease.end,
-      cancel: this.after(ttlMs, () => this.revoke(id)),
+      cancel: schedule(id),
     };
     this.entries.set(id, entry);
     return { id, scope, project, expiresAt: entry.expiresAt, bearer: lease.bearer };

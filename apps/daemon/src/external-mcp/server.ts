@@ -62,6 +62,14 @@ export async function externalMcp(context: ServiceContext) {
      * asks for a core or static listing.
      */
     tools: ["context", aceToolSearch, aceToolDispatch, ...registry.names()],
+    /**
+     * An operate bearer for Spade (ADR 0117), kept in memory and handed to Spade's environment
+     * only. Spade's own approval gate runs before each write; `revoke` ends it when Spade stops.
+     */
+    issueForSpade(): { url: string; bearer: string; revoke(): void } {
+      const entry = enrollments.enrollHeld("spade", "operate");
+      return { url: server.url, bearer: entry.bearer, revoke: () => enrollments.revoke(entry.id) };
+    },
     async execute(
       operation: Extract<CliOperation, { op: `mcp.${string}` }>,
     ): Promise<AgentControlResult> {

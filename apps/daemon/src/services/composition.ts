@@ -1,4 +1,5 @@
 import { startExternalMcp } from "./external-mcp.ts";
+import { startSpade } from "./spade.ts";
 import { startStorage } from "./storage.ts";
 import { startSourceControl } from "./source-control.ts";
 import { startProviderInstalls } from "./provider-install.ts";
@@ -221,6 +222,14 @@ export const serviceFactories: readonly ServiceDefinition[] = [
     requires: ["agentControl"],
     after: ["agentControl"],
     start: startExternalMcp,
+  },
+  {
+    // Spade's credentials name the listener's address and an external MCP lease.
+    name: "spade",
+    phase: "listener",
+    requires: ["settings"],
+    after: ["settings", "externalMcp"],
+    start: startSpade,
   },
   { name: "previewClient", phase: "listener", requires: [], after: [], start: startPreviewClient },
   {

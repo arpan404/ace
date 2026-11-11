@@ -5,6 +5,7 @@ import { createRepositoriesSession } from "./repositories.ts";
 import { createSourceControlSession } from "./source-control.ts";
 import { createPromptFilesSession } from "./prompt-files.ts";
 import { createSkillLibrarySession } from "./skill-library.ts";
+import { createSpadeSession } from "./spade-session.ts";
 import { createProviderInstallsSession } from "./provider-install.ts";
 import { createProviderLoginSession } from "./provider-login.ts";
 import { createHostIdentitySession } from "./host-identity.ts";
@@ -88,6 +89,7 @@ export const socketServiceFactories = [
   createCommandsSession,
   createPromptFilesSession,
   createSkillLibrarySession,
+  createSpadeSession,
   // Before files: the files channel claims every binary message on a socket, and the desktop's
   // backend socket sends its video encoder's (ADR 0088).
   createBrowserSession,

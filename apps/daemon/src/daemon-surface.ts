@@ -83,6 +83,7 @@ export function bindLiveServices(serverOptions: ServerOptions, services: Service
     "storage",
     "devices",
     "userBrowser",
+    "spade",
   ] as const)
     Object.defineProperty(serverOptions, key, {
       enumerable: true,
