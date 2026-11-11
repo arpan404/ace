@@ -40,6 +40,7 @@ crates/
   spade-store/     SQLite: conversations, event log, spending ledger
   spade-keys/      endpoint API keys in the OS keychain (ADR 0116)
   spade-search/    web search: your own SearXNG, then Brave with your key
+  spade-ace/       ace's tools (MCP client of the daemon) and skill library (skills.request)
   spade-fetch/     web_fetch: one page as readable text, refusing local and private addresses
   spade-server/    local API and reply engine (in progress)
   spade-testkit/   test-only fake model endpoint (all three formats)
@@ -53,12 +54,14 @@ docs/
 
 ## Settings
 
-| Variable                  | Default              | Meaning                                                                               |
-| ------------------------- | -------------------- | ------------------------------------------------------------------------------------- |
-| `SPADE_LISTEN`            | `127.0.0.1:3000`     | Address to listen on (loopback)                                                       |
-| `RUST_LOG`                | `info`               | Log filter                                                                            |
-| `SPADE_MODEL_CATALOG`     | `config/models.json` | The model catalogue file                                                              |
-| Each endpoint's `key.env` |                      | That endpoint's key when it is not in the OS keychain, for example `OPENCODE_API_KEY` |
+| Variable                                   | Default              | Meaning                                                                               |
+| ------------------------------------------ | -------------------- | ------------------------------------------------------------------------------------- |
+| `SPADE_LISTEN`                             | `127.0.0.1:3000`     | Address to listen on (loopback)                                                       |
+| `RUST_LOG`                                 | `info`               | Log filter                                                                            |
+| `SPADE_MODEL_CATALOG`                      | `config/models.json` | The model catalogue file                                                              |
+| `SPADE_ACE_MCP_URL`, `SPADE_ACE_MCP_TOKEN` | set by the daemon    | ace's loopback MCP endpoint and Spade's bearer for it                                 |
+| `SPADE_ACE_URL`, `SPADE_ACE_TOKEN`         | set by the daemon    | the daemon's loopback WebSocket and its local token, for skills                       |
+| Each endpoint's `key.env`                  |                      | That endpoint's key when it is not in the OS keychain, for example `OPENCODE_API_KEY` |
 
 ## Models
 
