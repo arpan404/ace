@@ -10,6 +10,7 @@ use spade_store::{StoreError, StoredEndpoint, StoredModel};
 use super::Engine;
 
 const PRESETS_IMPORTED: &str = "presets_imported";
+const FILE_ADOPTED: &str = "models_file_adopted";
 const FAST_MODEL: &str = "fast_model";
 const NAME_CHARS: usize = 60;
 const URL_CHARS: usize = 2_048;
@@ -163,6 +164,39 @@ impl Engine {
             }
         }
         self.store.set_setting(PRESETS_IMPORTED, Some("1"))
+    }
+
+    /// Once: the endpoints and models of an edited `models.json` from an earlier Spade become the
+    /// person's. A shipped endpoint is taken only if it has a key (or needs none); one the person
+    /// added is always taken. Models it lists that an endpoint has not saved are added.
+    pub(super) fn adopt_file(&self, file: &spade_models::Catalog) -> Result<(), StoreError> {
+        if self.store.setting(FILE_ADOPTED)?.is_some() {
+            return Ok(());
+        }
+        let stored = self.store.endpoints()?;
+        let shipped = self.models.catalog();
+        for endpoint in file.endpoints() {
+            let is_preset = shipped.endpoints().iter().any(|p| p.id == endpoint.id);
+            if is_preset && endpoint.needs_key && !self.models.has_key(endpoint) {
+                continue;
+            }
+            let mut wanted =
+                self.stored_preset(endpoint, endpoint.id.clone(), endpoint.name.clone());
+            for model in &mut wanted.models {
+                model.source = "typed".to_owned();
+            }
+            match stored.iter().find(|e| e.id == endpoint.id) {
+                Some(have) => {
+                    for model in wanted.models {
+                        if !have.models.iter().any(|m| m.id == model.id) {
+                            self.store.put_model(&have.id, &model)?;
+                        }
+                    }
+                }
+                None => self.store.insert_endpoint(&wanted)?,
+            }
+        }
+        self.store.set_setting(FILE_ADOPTED, Some("1"))
     }
 
     fn stored_preset(&self, preset: &Endpoint, id: String, name: String) -> StoredEndpoint {

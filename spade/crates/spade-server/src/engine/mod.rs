@@ -92,6 +92,7 @@ impl Engine {
     /// for an approval, and answers messages stored while Spade was closing.
     pub fn open(setup: Setup) -> Result<Arc<Self>, StoreError> {
         let handle = EngineHandle::default();
+        let adopt = setup.adopt;
         let tools = setup
             .tools
             .with_tool(Arc::new(BotsList(handle.clone())))
@@ -118,6 +119,9 @@ impl Engine {
         });
         handle.set(&engine);
         engine.import_presets()?;
+        if let Some(file) = &adopt {
+            engine.adopt_file(file)?;
+        }
         engine.sync_endpoints()?;
         engine.store.fill_missing_models(&engine.default_model())?;
         engine.ensure_main()?;

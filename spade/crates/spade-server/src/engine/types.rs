@@ -56,6 +56,9 @@ pub struct Setup {
     pub skills: Option<Arc<dyn SkillLibrary>>,
     /// Where attached images are kept.
     pub images: ImageStore,
+    /// An edited `models.json` an earlier Spade left in the data folder, adopted once into the
+    /// person's endpoints (see `presets`).
+    pub adopt: Option<spade_models::Catalog>,
 }
 
 /// What a live subscriber receives.

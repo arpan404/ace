@@ -6,6 +6,7 @@ pub mod config;
 pub mod engine;
 pub mod home;
 pub mod images;
+pub mod presets;
 pub mod proof;
 pub mod tools;
 

@@ -45,7 +45,7 @@ crates/
   spade-server/    local API and reply engine (in progress)
   spade-testkit/   test-only fake model endpoint (all three formats)
 config/
-  models.json      the model catalogue, read at startup
+  models.json      presets, built into the binary
   search.json      search backends, tried in order
 docs/
   design.md        features, architecture, decisions, build order
@@ -58,7 +58,7 @@ docs/
 | ------------------------------------------ | -------------------- | ------------------------------------------------------------------------------------- |
 | `SPADE_LISTEN`                             | `127.0.0.1:3000`     | Address to listen on (loopback)                                                       |
 | `RUST_LOG`                                 | `info`               | Log filter                                                                            |
-| `SPADE_MODEL_CATALOG`                      | `config/models.json` | The model catalogue file                                                              |
+| `SPADE_MODEL_CATALOG`                      | built in             | A presets file to use instead of the built-in one (development)                       |
 | `SPADE_ACE_HOME`                           | set by the service   | ace's home: Spade finds the daemon from its `daemon-endpoint` and `daemon-token`      |
 | `SPADE_ACE_MCP_URL`, `SPADE_ACE_MCP_TOKEN` | unset                | Development only: ace's MCP endpoint and a bearer, overriding `SPADE_ACE_HOME`        |
 | `SPADE_ACE_URL`, `SPADE_ACE_TOKEN`         | unset                | Development only: the daemon's WebSocket and local token, for skills                  |
@@ -71,7 +71,7 @@ Spade calls any endpoint that speaks one of three formats: **OpenAI Chat Complet
 **OpenAI Responses** (`openai-responses`) or **Anthropic Messages** (`anthropic`).
 
 The endpoints and models Spade calls are the person's own, added in the app and kept in Spade's
-database ([docs/agents.md](docs/agents.md)). `config/models.json`, read at startup, holds presets:
+database ([docs/agents.md](docs/agents.md)). `config/models.json`, built into the binary, holds presets:
 endpoint templates (id, name, format, base URL, the key, optional extra headers and session
 header) and known facts about model ids (name, context size, capabilities such as `tools`,
 `images` or `native-tool-search`, and an optional price per million tokens, including cache read

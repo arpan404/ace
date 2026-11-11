@@ -221,3 +221,53 @@ async fn an_endpoint_an_agent_uses_cannot_be_deleted_and_no_key_is_ever_answered
     assert_eq!(endpoint(&spade, "local").await?, Value::Null);
     Ok(())
 }
+
+#[tokio::test]
+async fn a_persons_endpoint_carries_the_conversations_session_id_and_spades_user_agent() -> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    let routed = spade_testkit::FakeProvider::start("Routed.").await?;
+    let (status, body) = spade
+        .post(
+            "/v1/endpoints",
+            json!({ "name": "Routed", "format": "openai-chat", "base_url": routed.root,
+                    "needs_key": false, "session_header": "x-sess" }),
+        )
+        .await?;
+    assert_eq!(status, 201, "{body}");
+    spade
+        .put("/v1/settings", json!({ "fast_model": "fake/m" }))
+        .await?;
+    let (_, agent) = spade
+        .post(
+            "/v1/agents",
+            json!({ "name": "Router", "model": "routed/r" }),
+        )
+        .await?;
+    let conversation = agent["agent"]["conversation"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    spade.say(&conversation, "One").await?;
+    spade.wait_for(&conversation, "reply_finished").await?;
+    spade.say(&conversation, "Two").await?;
+    spade
+        .wait_for_count(&conversation, "reply_finished", 2)
+        .await?;
+    let seen = routed.seen();
+    assert_eq!(seen.len(), 2);
+    for request in &seen {
+        let header = |name: &str| {
+            request
+                .headers
+                .iter()
+                .find(|(k, _)| k == name)
+                .map(|(_, v)| v.clone())
+        };
+        assert_eq!(header("x-sess").as_deref(), Some(conversation.as_str()));
+        assert_eq!(
+            header("user-agent"),
+            Some(format!("spade/{}", spade_server::home::VERSION))
+        );
+    }
+    Ok(())
+}

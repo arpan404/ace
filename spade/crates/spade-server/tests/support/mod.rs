@@ -136,6 +136,8 @@ pub struct Options {
     pub ace_home: Option<PathBuf>,
     /// Waits for the ace connection, when not the quick ones tests use by default.
     pub ace_retry: Option<Retry>,
+    /// An edited `models.json` from an earlier Spade, to adopt.
+    pub adopt: Option<Catalog>,
 }
 
 impl Default for Options {
@@ -146,6 +148,7 @@ impl Default for Options {
             skills: None,
             ace_home: None,
             ace_retry: None,
+            adopt: None,
         }
     }
 }
@@ -245,6 +248,7 @@ impl Spade {
             limits: options.limits,
             skills: options.skills,
             images: spade_server::images::ImageStore::open(&dir.path().join("images"))?,
+            adopt: options.adopt.clone(),
         })?;
         // The endpoint is the person's now, kept in the database: a restarted fake has a new port.
         engine.update_endpoint(

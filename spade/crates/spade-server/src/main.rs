@@ -3,14 +3,15 @@ use std::time::Duration;
 
 use spade_fetch::{Fetcher, Policy};
 use spade_keys::{KeyStore, Keys};
-use spade_models::{Catalog, Models};
+use spade_models::Models;
 use spade_search::{Search, SearchConfig};
 use spade_server::api::AppState;
 use spade_server::clock::{SystemClock, SystemIds, local_offset_seconds};
 use spade_server::config::Config;
 use spade_server::engine::{Engine, Limits, Setup};
-use spade_server::home::{DEFAULT_MODELS, DEFAULT_SEARCH, Home, HomeError, new_token};
+use spade_server::home::{DEFAULT_SEARCH, Home, HomeError, new_token};
 use spade_server::images::ImageStore;
+use spade_server::presets;
 use spade_server::tools::{
     AceLink, AceTarget, Retry, SkillLibrary, SkillLoad, SkillSearch, Todo, Tool, ToolSource,
     Toolbox, WebFetch, WebSearch,
@@ -111,18 +112,17 @@ async fn run() -> Result<(), Failure> {
         |var| std::env::var(var).ok(),
     );
 
-    let models_path = match env("SPADE_MODEL_CATALOG").filter(|v| !v.trim().is_empty()) {
-        Some(path) => path.into(),
-        None => home
-            .file_or_default("models.json", DEFAULT_MODELS)
-            .map_err(other)?,
-    };
-    let models = Models::new(
-        Catalog::load(&models_path).map_err(other)?,
-        keys.clone(),
-        spade_server::home::VERSION,
+    // Presets are the catalogue built in, so an upgrade sees new shipped facts at once
+    // (SPADE_MODEL_CATALOG swaps in another file for development). A copy an earlier Spade left in
+    // the data folder is adopted once if it was edited, then moved aside.
+    let override_path = env("SPADE_MODEL_CATALOG").filter(|v| !v.trim().is_empty());
+    let startup = presets::load(
+        &home.dir,
+        override_path.as_deref().map(std::path::Path::new),
     )
     .map_err(other)?;
+    let models =
+        Models::new(startup.presets, keys.clone(), spade_server::home::VERSION).map_err(other)?;
     let search_path = home
         .file_or_default("search.json", DEFAULT_SEARCH)
         .map_err(other)?;
@@ -173,8 +173,14 @@ async fn run() -> Result<(), Failure> {
         limits: Limits::default(),
         skills,
         images: ImageStore::open(&home.images()).map_err(other)?,
+        adopt: startup.adopt,
     })
     .map_err(other)?;
+    if let Some(path) = startup.set_aside
+        && let Err(error) = presets::set_aside(&path)
+    {
+        tracing::warn!(%error, "could not move the old models.json aside; it is ignored");
+    }
 
     let token = new_token();
     home.write_token(&token).map_err(other)?;

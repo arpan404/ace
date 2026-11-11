@@ -45,10 +45,16 @@ Every agent has two tools:
 ## Endpoints and models
 
 The person's endpoints and saved models are in Spade's database; keys stay in the OS keychain
-(ADR 0119) or the endpoint's environment variable. `config/models.json` holds presets: endpoint
+(ADR 0119) or the endpoint's environment variable. `config/models.json`, built into the binary and read from there on every start, holds presets: endpoint
 templates and known facts about model ids (context, capabilities, prices). On the first start
 with schema 2, every preset whose key is already present becomes one of the person's endpoints
 with the same id, so existing keys keep working.
+
+Earlier builds copied `models.json` into the data folder and then read only that copy, so an
+upgrade never saw new shipped facts. Now a copy found there is read once: if it equals a file some
+Spade shipped it holds nothing of the person's; if it was edited, its endpoints (shipped ones only
+when they have a key) and models become the person's. Either way it is moved to
+`models.json.old` and never read again.
 
 A model is `endpoint/model`, split at the first `/` (endpoint ids have none; model ids may). Any
 model id on one of the person's endpoints works, saved or not. Its facts come from what the person

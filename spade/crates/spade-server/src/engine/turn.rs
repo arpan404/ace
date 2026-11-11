@@ -498,6 +498,7 @@ mod tests {
             limits: super::super::Limits::default(),
             skills: None,
             images: crate::images::ImageStore::open(&dir.join("images"))?,
+            adopt: None,
         })?)
     }
 
