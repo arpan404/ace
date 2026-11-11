@@ -11,8 +11,8 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { useCopy } from "@/components/use-copy.ts";
 import type { ClientApi } from "@ace/client";
 import { outsideEndpoints, outsideKeys } from "@/features/connected-apps/index.ts";
-import { outsideSettingKeys, settingKeys, type SettingDef } from "./data/setting-keys.ts";
-import { useSettingControl, useSettingsLoaded } from "./data/use-settings.ts";
+import { settingKeys, type SettingDef } from "./data/setting-keys.ts";
+import { useSettingControl } from "./data/use-settings.ts";
 import { DaemonSlot } from "./setting-control.tsx";
 
 const order: readonly OutsideEndpoint["path"][] = ["local", "tailscale", "relay", "custom"];
@@ -70,9 +70,9 @@ function EndpointRow(props: {
     path === "relay"
       ? settingKeys.relayMcp
       : path === "tailscale"
-        ? outsideSettingKeys.tailscaleMcp
+        ? settingKeys.tailscaleMcp
         : undefined;
-  const publicUrl = path === "custom" ? outsideSettingKeys.mcpPublicUrl : undefined;
+  const publicUrl = path === "custom" ? settingKeys.mcpPublicUrl : undefined;
   return (
     <HairlineRow
       id={`outside-${path}`}
@@ -100,16 +100,11 @@ function EndpointRow(props: {
   );
 }
 
-/**
- * A path's on/off. A daemon that doesn't know the setting yet (older than its OAuth work) has
- * nothing to switch, so the switch hides once its settings have loaded without it.
- */
+/** A path's on/off. */
 function PathSwitch(props: { setting: SettingDef<boolean>; title: string }) {
   const id = useId();
   const control = useSettingControl(props.setting, props.title);
-  const settingsLoaded = useSettingsLoaded();
   const queries = useQueryClient();
-  if (settingsLoaded && !control.loaded) return null;
   return (
     <DaemonSlot control={control}>
       <Switch
@@ -128,8 +123,6 @@ function PathSwitch(props: { setting: SettingDef<boolean>; title: string }) {
 
 function EditUrl(props: { setting: SettingDef<string | null>; onEdit(): void }) {
   const control = useSettingControl(props.setting, "Your own URL");
-  const settingsLoaded = useSettingsLoaded();
-  if (settingsLoaded && !control.loaded) return null;
   return (
     <DaemonSlot control={control}>
       <RowAction className="text-foreground" disabled={control.offline} onClick={props.onEdit}>

@@ -62,3 +62,21 @@ test("live grants say what they may do and when they end; revoking one moves it 
     expect(within(screen.getByRole("region", { name: "Ended" })).getByText("Claude")).toBeTruthy(),
   );
 });
+
+test("Connect an app lists the machine's four addresses, with Tailscale's switch and your own URL", async () => {
+  const app = harness();
+  app.daemon.outside.endpoints = [
+    { path: "local", url: "http://127.0.0.1:47811/mcp", on: true },
+    { path: "tailscale", url: null, on: false, problem: "Tailscale isn't running." },
+    { path: "relay", url: null, on: false },
+    { path: "custom", url: "https://ace.example.com/mcp", on: true },
+  ];
+  await app.open("/settings/remote/primary");
+  const section = await screen.findByRole("region", { name: "Connect an app" });
+  expect(await within(section).findByText("http://127.0.0.1:47811/mcp")).toBeTruthy();
+  expect(within(section).getByText("https://ace.example.com/mcp")).toBeTruthy();
+  expect(within(section).getByText("Tailscale isn't running.")).toBeTruthy();
+  expect(await within(section).findByRole("switch", { name: "Tailscale" })).toBeTruthy();
+  expect(within(section).getByRole("switch", { name: "ace's relay" })).toBeTruthy();
+  expect(await within(section).findByRole("button", { name: /^(Add|Change)$/ })).toBeTruthy();
+});
