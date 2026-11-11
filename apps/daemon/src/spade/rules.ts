@@ -2,6 +2,13 @@ import { join } from "node:path";
 import { z } from "zod";
 import type { DeviceScope, SpadeMethod } from "@ace/protocol";
 
+export {
+  checkLivePath,
+  checkSpadePath,
+  readSpadeTokenFile as readTokenFile,
+  type PathCheck,
+} from "@ace/service/spade";
+
 /** Decisions the Spade host makes, with no I/O (ADR 0121). */
 
 export interface Backoff {
@@ -54,45 +61,6 @@ export function readServerFile(text: string, childPid: number): SpadeEndpoint | 
   const port = Number(match?.[1]);
   if (!match || !Number.isInteger(port) || port < 1 || port > 65_535) return undefined;
   return { host: "127.0.0.1", port, version: parsed.data.version };
-}
-
-/** Spade's token file: one line of visible ASCII, 16 to 4096 characters. */
-export function readTokenFile(text: string): string | undefined {
-  const token = text.trim();
-  return /^[\x21-\x7e]{16,4096}$/.test(token) ? token : undefined;
-}
-
-export type PathCheck = { ok: true; path: string } | { ok: false; message: string };
-const refuse = (message: string): PathCheck => ({ ok: false, message });
-const allowedCharacters = /^[A-Za-z0-9\-._~/%?=&+,:@!$'()*;]+$/;
-/**
- * A path the daemon forwards to Spade: `/v1/` and onwards, no dot segments, empty segments,
- * fragments or encoded separators, so a client can never reach `/health` or leave the API.
- */
-export function checkSpadePath(path: string): PathCheck {
-  if (path.length > 2048) return refuse("The path is too long.");
-  if (!path.startsWith("/v1/")) return refuse("Spade paths start with /v1/.");
-  if (!allowedCharacters.test(path)) return refuse("The path has characters Spade doesn't use.");
-  const [pathname = "", ...rest] = path.split("?");
-  if (rest.length > 1) return refuse("The path has more than one query.");
-  if (/%(2e|2f|5c|00)/i.test(pathname)) return refuse("The path encodes a separator.");
-  if (/%(?![0-9a-f]{2})/i.test(path)) return refuse("The path has a broken escape.");
-  const segments = pathname.slice(1).split("/");
-  if (segments.some((segment, index) => segment === "" && index < segments.length - 1))
-    return refuse("The path has an empty segment.");
-  if (segments.some((segment) => segment === "." || segment === ".."))
-    return refuse("The path has a dot segment.");
-  return { ok: true, path };
-}
-
-/** A live path: a Spade API path whose last segment is `live`. */
-export function checkLivePath(path: string): PathCheck {
-  const checked = checkSpadePath(path);
-  if (!checked.ok) return checked;
-  const pathname = path.split("?")[0] ?? "";
-  return pathname.endsWith("/live")
-    ? checked
-    : { ok: false, message: "Live streams are /v1/.../live paths." };
 }
 
 /** `GET` reads; every other method changes something. */

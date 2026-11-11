@@ -1,48 +1,6 @@
-import {
-  maxSpadeImageBytes,
-  maxSpadeRequestBytes,
-  maxSpadeResponseBytes,
-  maxSpadeUploadBytes,
-  type SpadeMethod,
-} from "@ace/protocol";
-
 /** Body rules for `spade.http` (ADR 0121), with no I/O. */
 
-const pathname = (path: string) => path.split("?")[0] ?? "";
-const messageRoute = /^\/v1\/conversations(?:\/[^/]+\/messages)?$/;
-const imageRoute = /^\/v1\/images\/[^/]+$/;
-
-/**
- * The largest request body a route takes: a new conversation or a message, which may carry 8
- * images as base64, takes `maxSpadeUploadBytes`; every other route keeps a small cap.
- */
-export function requestBodyLimit(method: SpadeMethod, path: string): number {
-  return method === "POST" && messageRoute.test(pathname(path))
-    ? maxSpadeUploadBytes
-    : maxSpadeRequestBytes;
-}
-
-/** The largest answer the daemon forwards for a route: one image from `/v1/images/...`. */
-export function responseBodyLimit(method: SpadeMethod, path: string): number {
-  return method === "GET" && imageRoute.test(pathname(path))
-    ? maxSpadeImageBytes
-    : maxSpadeResponseBytes;
-}
-
-/** Whether an answer is forwarded as text; anything else (an image) goes as base64. */
-export function isTextContentType(contentType: string | undefined): boolean {
-  if (!contentType) return true;
-  const type = contentType.split(";")[0]?.trim().toLowerCase() ?? "";
-  return (
-    type.startsWith("text/") ||
-    type === "application/json" ||
-    type.endsWith("+json") ||
-    type === "application/x-ndjson" ||
-    type === "application/javascript" ||
-    type === "application/xml" ||
-    type.endsWith("+xml")
-  );
-}
+export { isTextContentType, requestBodyLimit, responseBodyLimit } from "@ace/service/spade";
 
 export class InvalidBase64 extends Error {
   constructor() {
