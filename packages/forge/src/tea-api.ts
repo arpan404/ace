@@ -1,9 +1,8 @@
 import type { CommandRunner, CommandResult } from "./command.ts";
 import { ForgeError } from "./errors.ts";
-import { ForgeMutationOutcome, MutationDispatch } from "./mutation.ts";
+import { ForgeMutationOutcome, MutationDispatch, refusedWriteStatuses } from "./mutation.ts";
 
-/** Statuses after which Gitea has certainly not applied a write; the same rule as GitLabApi. */
-const refused = new Set([400, 401, 403, 404, 405, 409, 412, 422, 429]);
+const refused = refusedWriteStatuses;
 
 /** A Gitea or Forgejo repository's API path, `repos/<owner>/<name>`: every endpoint's prefix. */
 export function teaRepoPath(repository: { owner: string; name: string }): string {

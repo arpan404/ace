@@ -4,11 +4,10 @@ import type { z } from "zod";
 import type { CommandRequest, CommandRunner } from "./command.ts";
 import { ForgeError } from "./errors.ts";
 import { splitHttp, throwForStatus, type Headers } from "./gitlab-records.ts";
-import { ForgeMutationOutcome, MutationDispatch } from "./mutation.ts";
+import { ForgeMutationOutcome, MutationDispatch, refusedWriteStatuses } from "./mutation.ts";
 import type { ReadBudget } from "./read-budget.ts";
 
-/** Statuses after which GitLab has certainly not applied a write. Anything else is uncertain. */
-const refused = new Set([400, 401, 403, 404, 405, 409, 412, 422, 429]);
+const refused = refusedWriteStatuses;
 
 export type GitLabResponse = { headers: Headers; body: unknown };
 
