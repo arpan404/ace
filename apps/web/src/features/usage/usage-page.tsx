@@ -309,6 +309,7 @@ export function UsagePage() {
                 limits={limits}
                 now={now}
                 onAccount={showAccount}
+                machineOf={(entry) => machineFor(entry.environmentId)}
                 redeem={async (entry, idempotencyKey) => {
                   const machine = machineFor(entry.environmentId);
                   if (!machine?.client) throw new Error("Machine is offline");

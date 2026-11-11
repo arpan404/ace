@@ -185,7 +185,11 @@ export function projectedLeft(
   return atReset <= 0 ? null : Math.round(atReset);
 }
 
-const sessionProviders = new Set(["codex", "claude"]);
+/**
+ * Providers whose every plan has a five-hour session, so an account without one is worth saying.
+ * Not Claude: its Ultra plan may have none.
+ */
+const sessionProviders = new Set(["codex"]);
 
 /** The same login on another machine: provider, agent and who it is signed in as. */
 function identity(account: AccountView): string | undefined {

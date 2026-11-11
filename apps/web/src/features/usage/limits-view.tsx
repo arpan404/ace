@@ -9,7 +9,9 @@ import {
 } from "@ace/ui-core";
 import { Fragment } from "react";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card.tsx";
+import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
+import type { Machine } from "@/lib/machines.ts";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { BankedResetAction, type RedeemReset } from "./banked-resets.tsx";
@@ -24,6 +26,8 @@ import { BankedResetAction, type RedeemReset } from "./banked-resets.tsx";
 export function LimitsView(props: {
   limits: UsageLimits;
   now: number;
+  /** The machine an account was read on, for its mark beside its name. */
+  machineOf?(entry: AccountLimits): Machine | undefined;
   /** Show the account's spend: its name is a button for it. */
   onAccount?(entry: AccountLimits): void;
   redeem?: RedeemReset | undefined;
@@ -44,6 +48,7 @@ export function LimitsView(props: {
           entry={entry}
           provider={group.providerLabel}
           machine={machine}
+          machineOf={props.machineOf}
           now={props.now}
           onShow={props.onAccount && (() => props.onAccount?.(entry))}
           redeem={props.redeem}
@@ -58,6 +63,13 @@ export function LimitsView(props: {
   );
 }
 
+function EntryMachineMark(props: { machine: Machine | undefined }) {
+  if (!props.machine) return null;
+  return (
+    <MachineMark icon={props.machine.icon} primary={props.machine.primary} size={12} decorative />
+  );
+}
+
 /** The provider's plan name as it reads beside the environment: "plus" → "Plus". */
 const planLabel = (plan: string) => plan.charAt(0).toUpperCase() + plan.slice(1);
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
@@ -67,6 +79,7 @@ function AccountBlock(props: {
   entry: AccountLimits;
   provider: string;
   machine: boolean;
+  machineOf?: ((entry: AccountLimits) => Machine | undefined) | undefined;
   now: number;
   first: boolean;
   onShow?: (() => void) | undefined;
@@ -76,15 +89,13 @@ function AccountBlock(props: {
   const banked = entry.bankedResets;
   const canUse = props.redeem !== undefined || entry.account.provider === "claude";
   const name = `${props.provider} · ${entry.account.label}`;
-  const meta = [entry.plan && planLabel(entry.plan), props.machine ? entry.environment : undefined]
-    .filter(Boolean)
-    .join(" · ");
+  const plan = entry.plan && planLabel(entry.plan);
   return (
     <article
       aria-label={`${name} · ${entry.environment}`}
       className={cn("py-4", !props.first && "border-t border-border")}
     >
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <h4 className="flex min-w-0 items-center gap-2 text-md font-medium">
           <ProviderIcon
             provider={entry.account.provider}
@@ -105,7 +116,18 @@ function AccountBlock(props: {
             <span className="truncate">{name}</span>
           )}
         </h4>
-        {meta && <span className="text-xs text-subtle-foreground">{meta}</span>}
+        {(plan || props.machine) && (
+          <span className="flex min-w-0 items-center gap-x-1.5 text-xs text-subtle-foreground">
+            {plan}
+            {plan && props.machine && <span aria-hidden>·</span>}
+            {props.machine && (
+              <span className="flex min-w-0 items-center gap-1">
+                <EntryMachineMark machine={props.machineOf?.(entry)} />
+                <span className="truncate">{entry.environment}</span>
+              </span>
+            )}
+          </span>
+        )}
         {entry.account.isDefault && <span className="sr-only">Used for new threads</span>}
         {banked !== undefined && banked > 0 && (
           <span className="ml-auto flex items-baseline gap-x-1 text-xs text-subtle-foreground">

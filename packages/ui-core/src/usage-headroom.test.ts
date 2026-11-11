@@ -216,3 +216,18 @@ test("set to session, the bars show each account's usable session instead of its
     "Usage: Claude Code · Personal 38% of the session left, Claude Code · Work 43%, Codex 10%",
   );
 });
+
+test("a plan with only a week (Claude's Ultra) has no session: the week never stands in for one", () => {
+  const ultra: Seed = {
+    provider: "claude",
+    id: "claude-ultra",
+    label: "Ultra",
+    session: null,
+    weekly: 30,
+  };
+  // Its week draws on the rail; asked for sessions, it draws nothing rather than its week.
+  expect(bars(railUsage(limits(ultra), undefined))).toEqual([["Claude Code", 70, "ok"]]);
+  expect(bars(railUsage(limits(ultra), undefined, "session"))).toEqual([]);
+  // And the page doesn't call its missing session a gap.
+  expect(limits(ultra).providers[0]?.accounts[0]?.noSessionWindow).toBe(false);
+});

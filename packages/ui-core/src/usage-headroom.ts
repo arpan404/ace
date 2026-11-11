@@ -49,15 +49,20 @@ export interface PooledHeadroom {
 
 const sessionLabels = new Set(["Session (5h)", "Daily"]);
 
+/** A week-long window: the account's own week, or a model's ("Weekly · Fable"). */
+const weekly = (window: AccountWindow) =>
+  window.label === "Weekly" || window.label.startsWith("Weekly ·");
+
 /**
- * The account's session window: its five-hour one, else its daily one, else its shortest. Past
- * its reset it still shows, but counts as unknown.
+ * The account's session window: its five-hour one, else its daily one, else its shortest window
+ * that isn't a week (a monthly quota). None when it reports only weeks: some plans (Claude's
+ * Ultra) have no session limit, and a week never stands in for one. Past its reset it still
+ * shows, but counts as unknown.
  */
 export function sessionWindow(account: AccountLimits): AccountWindow | undefined {
   return (
     account.windows.find((window) => sessionLabels.has(window.label)) ??
-    account.windows.find((window) => window.label !== "Weekly") ??
-    account.windows[0]
+    account.windows.find((window) => !weekly(window))
   );
 }
 
