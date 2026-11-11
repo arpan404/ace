@@ -51,8 +51,8 @@ struct FoundPull: Identifiable, Equatable {
             guard !Task.isCancelled, current == generation else { return }
             // A machine that answered with a refusal (no Git host, a folder that isn't a
             // repository) has no pull requests to offer: that's nothing found, not a failure.
-            // Only a read the connection lost is worth a sentence and Retry.
-            if client.connection == "ready" { found = []; problem = nil; return }
+            // A read that got no answer, or one that couldn't be understood, is worth Retry.
+            if let failure = error as? ServiceFailure, !failure.transport { found = []; problem = nil; return }
             problem = "Couldn't search pull requests. Check the connection and try again."
         }
     }
