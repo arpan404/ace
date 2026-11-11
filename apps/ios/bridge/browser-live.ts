@@ -320,6 +320,8 @@ export class BrowserLive {
         retry: undefined,
       };
       this.#watch = watch;
+      // Each watch starts on the first page of tabs, whatever an earlier one had shown.
+      this.#tabsLimit = 20;
       this.#devices.reset();
       this.#sink.put("browser:presets", () => ({
         type: "browser.presets",
