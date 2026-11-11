@@ -1,7 +1,11 @@
 import {
   applyTextChange,
-  continueList,
+  boldAt,
+  boldEndsAt,
+  breakLine,
+  clearLineStyle,
   editComposerTokens,
+  typeStyled,
   indentList,
   insertAttachmentMarkers,
   mapTextOffset,
@@ -14,11 +18,12 @@ import {
   toggleBold,
   applyTextEdits,
   type ComposerDraft,
+  type ComposerEdited,
   type ComposerToken,
   type TextChange,
 } from "@ace/ui-core";
 import { useLayoutEffect, useRef, useState, type RefObject } from "react";
-import { editorSelection, placeEditorSelection } from "./editor-dom.ts";
+import { editorLineStart, editorSelection, placeEditorSelection } from "./editor-dom.ts";
 import {
   emptyHistory,
   mapHistoryTokens,
@@ -89,6 +94,13 @@ export function useMessageState(
     placeSelection.current = { start: next.caret, end: next.caret };
     input.current?.focus();
   };
+  // What ⌘B at a bare caret asked for the next words typed there: bold, or plain.
+  const pending = useRef<{ at: number; bold: boolean } | undefined>(undefined);
+  /** An edit the composer made of what the person sees, the caret after it. */
+  const commit = (edited: ComposerEdited) => {
+    record({ text: edited.text, tokens: edited.tokens, caret: edited.caret });
+    placeSelection.current = { start: edited.caret, end: edited.caret };
+  };
   /** A list or bold change made where the selection is now. */
   const change = (made: (selection: { start: number; end: number }) => TextChange | undefined) => {
     const range = input.current && editorSelection(input.current);
@@ -134,6 +146,14 @@ export function useMessageState(
       // Numbers count again only where a list item was added or taken away.
       const listed = composing ? undefined : typedListChange(text, words);
       const numbers = listed ? renumberEdits(words, new Set(), listed) : [];
+      // A space typed at the end of bold words is written after their marks (bold can't end in
+      // a space), so the next words typed there carry the bold on, as in a document.
+      const spaced =
+        words.length === text.length + 1 &&
+        /\s/.test(words[caretAt - 1] ?? "") &&
+        boldEndsAt(words, typed, caretAt - 1) &&
+        !boldAt(words, typed, caretAt);
+      pending.current = spaced ? { at: caretAt, bold: true } : undefined;
       if (!numbers.length) {
         record({ text: words, tokens: typed, caret: caretAt });
         if (strays.length) placeSelection.current = { start: caretAt, end: caretAt };
@@ -151,14 +171,52 @@ export function useMessageState(
     edit,
     /** The newline key: the next list item in a list, else a line break for the selection. */
     newline: () => {
-      if (change((range) => continueList(text, range))) return;
       const range = input.current && editorSelection(input.current);
       if (!range) return;
-      const next = text.slice(0, range.start) + "\n" + text.slice(range.end);
-      edit({ text: next, caret: range.start + 1 });
+      commit(breakLine(text, tokens, range));
+      input.current?.focus();
     },
-    /** ⌘B: bold on or off for the selection. */
-    bold: () => void change((range) => toggleBold(text, range, tokens)),
+    /**
+     * ⌘B: bold on or off for the selection; at a bare caret, for what is typed next there (no
+     * words change until then).
+     */
+    bold: () => {
+      const range = input.current && editorSelection(input.current);
+      if (!range) return;
+      if (range.start !== range.end) return void change(() => toggleBold(text, range, tokens));
+      const now =
+        pending.current?.at === range.start
+          ? pending.current.bold
+          : boldAt(text, tokens, range.start);
+      pending.current = { at: range.start, bold: !now };
+    },
+    /** Words about to be typed: put in bold or plain as ⌘B asked; false to let the browser type. */
+    typeText: (typed: string): boolean => {
+      const wanted = pending.current;
+      const range = input.current && editorSelection(input.current);
+      if (!wanted || !range || range.start !== range.end || wanted.at !== range.start) {
+        pending.current = undefined;
+        return false;
+      }
+      if (wanted.bold === boldAt(text, tokens, range.start)) {
+        pending.current = undefined;
+        return false;
+      }
+      const edited = typeStyled(text, tokens, range.start, typed, wanted.bold);
+      commit(edited);
+      // Spaces alone don't settle it: the words after them are still what ⌘B asked.
+      pending.current = typed.trim() ? undefined : { at: edited.caret, bold: wanted.bold };
+      return true;
+    },
+    /** Backspace at the start of a heading or item: off comes its style; false elsewhere. */
+    backspace: (): boolean => {
+      const line = input.current ? editorLineStart(input.current) : undefined;
+      if (line === undefined) return false;
+      const cleared = clearLineStyle(text, tokens, line);
+      if (!cleared) return false;
+      commit(cleared);
+      return true;
+    },
     /** Tab or Shift+Tab: false outside a list, where the key keeps its usual meaning. */
     indent: (outdent: boolean) => change((range) => indentList(text, range, outdent)),
     /** Mark where files were added: at the caret, or where it last was. */

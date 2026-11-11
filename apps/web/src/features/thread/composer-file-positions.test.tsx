@@ -4,8 +4,8 @@ import { configure, fireEvent, screen, waitFor, within } from "@testing-library/
 import userEvent from "@testing-library/user-event";
 import { createHash } from "node:crypto";
 import { afterEach, beforeEach, expect, test } from "vitest";
-import { overrideKeyboardEnv } from "@/lib/keybindings.ts";
 import { harness } from "@/test/harness.tsx";
+import { editorText } from "./composer/editor-dom.ts";
 
 configure({ asyncUtilTimeout: 10000 });
 
@@ -22,7 +22,6 @@ beforeEach(() => {
   URL.revokeObjectURL = () => {};
 });
 afterEach(() => {
-  overrideKeyboardEnv(undefined);
   URL.createObjectURL = original.create;
   URL.revokeObjectURL = original.revoke;
 });
@@ -109,43 +108,6 @@ test("deleting a file's marker from the words removes the file", async () => {
   within(message).getByLabelText("screen.png").remove();
   fireEvent.input(message);
   await waitFor(() => expect(screen.queryByRole("list", { name: "Attachments" })).toBeNull());
-});
-
-test("the newline key continues a list and Tab nests the new item; Enter still sends", async () => {
-  const { message, commands } = await openComposer();
-  pasteText(message, "1. milk");
-  fireEvent.keyDown(message, { key: "Enter", shiftKey: true });
-  await waitFor(() => expect(message.textContent).toBe("1. milk\n2. "));
-  fireEvent.keyDown(message, { key: "Tab" });
-  await waitFor(() => expect(message.textContent).toBe("1. milk\n   1. "));
-  pasteText(message, "oat");
-  expect(message.querySelector('[data-md="number"][data-depth="2"]')?.textContent).toBe("1.");
-  fireEvent.keyDown(message, { key: "Enter" });
-  await waitFor(() =>
-    expect(sent(commands).input).toEqual([{ type: "text", text: "1. milk\n   1. oat" }]),
-  );
-});
-
-test("⌘B starts bold words at the caret, drawn bold and sent as Markdown", async () => {
-  overrideKeyboardEnv({ apple: true, web: true });
-  const { message, commands } = await openComposer();
-  pasteText(message, "make ");
-  fireEvent.keyDown(message, { key: "b", metaKey: true });
-  await waitFor(() => expect(message.textContent).toBe("make ****"));
-  pasteText(message, "this");
-  await waitFor(() =>
-    expect(message.querySelector('[data-md="bold"]')?.textContent).toBe("**this**"),
-  );
-  fireEvent.keyDown(message, { key: "Enter" });
-  await waitFor(() =>
-    expect(sent(commands).input).toEqual([{ type: "text", text: "make **this**" }]),
-  );
-});
-
-test("a heading is drawn as one as soon as its marks are typed", async () => {
-  const { message } = await openComposer();
-  pasteText(message, "## Plan");
-  await waitFor(() => expect(message.querySelector('[data-md="h2"]')?.textContent).toBe("## Plan"));
 });
 
 test("a kept draft brings its file's marker back where it was, and it still goes with its place", async () => {
@@ -247,38 +209,21 @@ test("undo after editing a pasted file keeps the marker, named for the edited co
   expect(within(message).getByLabelText("Pasted 2 lines.txt")).toBeTruthy();
 });
 
-/** Select `[start, end)` of the editor's words (no chips in it). */
-function selectText(el: HTMLElement, start: number, end: number) {
-  const range = document.createRange();
-  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-  let at = 0;
-  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    const length = node.textContent?.length ?? 0;
-    if (start >= at && start <= at + length) range.setStart(node, start - at);
-    if (end >= at && end <= at + length) {
-      range.setEnd(node, end - at);
-      break;
-    }
-    at += length;
-  }
-  document.getSelection()?.removeAllRanges();
-  document.getSelection()?.addRange(range);
-}
-
 test("numbers the person wrote stay as written while they type elsewhere", async () => {
   const { message } = await openComposer();
   pasteText(message, "3. foo\n7. bar");
   pasteText(message, " baz");
-  await waitFor(() => expect(message.textContent).toBe("3. foo\n7. bar baz"));
+  await waitFor(() => expect(editorText(message)).toBe("3. foo\n7. bar baz"));
 });
 
 test("deleting an item counts its list again", async () => {
   const { message } = await openComposer();
   pasteText(message, "1. a\n2. b\n3. c");
-  await waitFor(() => expect(message.textContent).toBe("1. a\n2. b\n3. c"));
-  selectText(message, 5, 10);
-  pasteText(message, "");
-  await waitFor(() => expect(message.textContent).toBe("1. a\n2. c"));
+  await waitFor(() => expect(editorText(message)).toBe("1. a\n2. b\n3. c"));
+  // What the browser leaves after Backspace over the whole second line.
+  message.children[1]?.remove();
+  fireEvent.input(message);
+  await waitFor(() => expect(editorText(message)).toBe("1. a\n2. c"));
 });
 
 test("Tab on an item that can't nest leaves the composer as Tab always does", async () => {
@@ -287,20 +232,4 @@ test("Tab on an item that can't nest leaves the composer as Tab always does", as
   // Not taken: the browser moves focus on.
   expect(fireEvent.keyDown(message, { key: "Tab" })).toBe(true);
   expect(fireEvent.keyDown(message, { key: "Tab", shiftKey: true })).toBe(true);
-});
-
-test("on a Mac, Ctrl+B is left to the system's back-one-letter, and only ⌘B bolds", async () => {
-  overrideKeyboardEnv({ apple: true, web: true });
-  const { message } = await openComposer();
-  pasteText(message, "word");
-  expect(fireEvent.keyDown(message, { key: "b", ctrlKey: true })).toBe(true);
-  expect(message.textContent).toBe("word");
-});
-
-test("elsewhere Ctrl+B bolds", async () => {
-  overrideKeyboardEnv({ apple: false, web: true });
-  const { message } = await openComposer();
-  pasteText(message, "make ");
-  fireEvent.keyDown(message, { key: "b", ctrlKey: true });
-  await waitFor(() => expect(message.textContent).toBe("make ****"));
 });

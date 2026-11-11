@@ -1,106 +1,84 @@
-import {
-  chipSignature,
-  decorationMarks,
-  styleSignature,
-  type ComposerToken,
-  type DecorationNode,
-} from "@ace/ui-core";
+import { blockSignature, type ComposerBlock, type ComposerToken } from "@ace/ui-core";
+import { readEditor, type ChipToken } from "./editor-read.ts";
 
 /*
- * The editor's DOM for a drawing (`decorateComposerText`): text nodes, a span per style
- * (`data-md`) and an empty slot per chip, which React fills. Browser I/O stays here.
+ * The editor's DOM for the blocks the person sees: one `<div data-line>` per line with its style
+ * on data attributes (a list item's bullet or number is drawn by CSS from `data-glyph`, never
+ * text), `<strong>` around bold words, and an empty slot per chip, which React fills. No
+ * Markdown syntax is ever in the DOM. Browser I/O stays here.
  */
 
 export type Slot = { node: HTMLElement; token: ComposerToken };
 
-function build(
-  doc: Document,
-  nodes: readonly DecorationNode[],
-  text: string,
-  tokens: readonly ComposerToken[],
-  slots: Slot[],
-): Node[] {
-  return nodes.flatMap((node): Node[] => {
-    if (node.type === "text")
-      return node.end > node.start ? [doc.createTextNode(text.slice(node.start, node.end))] : [];
-    if (node.type === "token") {
-      const token = tokens[node.index];
-      if (!token) return [];
-      const chip = doc.createElement("span");
-      chip.contentEditable = "false";
-      chip.dataset.tokenText = text.slice(token.start, token.end);
-      chip.setAttribute("aria-label", token.label);
-      slots.push({ node: chip, token });
-      return [chip];
-    }
-    const span = doc.createElement("span");
-    span.dataset.md = node.kind;
-    if (node.depth !== undefined) span.dataset.depth = String(node.depth);
-    span.append(...build(doc, node.children, text, tokens, slots));
-    return [span];
-  });
+const bullets = ["•", "◦", "▪"];
+
+function lineElement(doc: Document, block: ComposerBlock): HTMLElement {
+  const line = doc.createElement("div");
+  line.dataset.line = "";
+  const style = block.style;
+  if (style.kind === "heading") line.dataset.md = `h${style.level}`;
+  if (style.kind === "code") line.dataset.md = "code";
+  if (style.kind === "item") {
+    line.dataset.md = "item";
+    line.dataset.indent = String(style.indent);
+    line.dataset.marker = style.marker;
+    line.dataset.depth = String(style.depth);
+    line.dataset.glyph = /\d/.test(style.marker)
+      ? style.marker
+      : (bullets[(style.depth - 1) % bullets.length] ?? "•");
+    line.style.setProperty("--depth", String(style.depth));
+  }
+  return line;
 }
 
-/** Draw `nodes` as the editor's children; the chip slots, in order. */
-export function renderEditor(
-  el: HTMLElement,
-  nodes: readonly DecorationNode[],
-  text: string,
-  tokens: readonly ComposerToken[],
-): Slot[] {
+/** Draw `blocks` as the editor's children; the chip slots, in order. */
+export function renderEditor(el: HTMLElement, blocks: readonly ComposerBlock[]): Slot[] {
+  const doc = el.ownerDocument;
   const slots: Slot[] = [];
-  const children = build(el.ownerDocument, nodes, text, tokens, slots);
-  // A final newline draws no line of its own: the break after it is the line the caret sits on.
-  if (text.endsWith("\n")) {
-    const tail = el.ownerDocument.createElement("br");
-    tail.dataset.editorTail = "";
-    children.push(tail);
-  }
+  const children = blocks.map((block) => {
+    const line = lineElement(doc, block);
+    let strong: HTMLElement | undefined;
+    for (const run of block.runs) {
+      let node: Node;
+      if (run.type === "chip") {
+        const chip = doc.createElement("span");
+        chip.contentEditable = "false";
+        chip.dataset.tokenText = run.text;
+        if (run.token) {
+          chip.setAttribute("aria-label", run.token.label);
+          slots.push({ node: chip, token: run.token });
+        }
+        node = chip;
+      } else if (run.text) node = doc.createTextNode(run.text);
+      else continue;
+      if (!run.bold) {
+        strong = undefined;
+        line.append(node);
+        continue;
+      }
+      if (!strong) {
+        strong = doc.createElement("strong");
+        line.append(strong);
+      }
+      strong.append(node);
+    }
+    // An empty line keeps a break, so it has height and a place for the caret.
+    if (!line.childNodes.length) line.append(doc.createElement("br"));
+    return line;
+  });
   el.replaceChildren(...children);
   return slots;
 }
 
-/** One node of the editor in signature form; see `editorSignature`. */
-function readSignature(node: Node, index: number): string {
-  if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
-  if (!(node instanceof HTMLElement)) return "";
-  if (node.dataset.editorTail !== undefined) return "";
-  if (node.dataset.tokenText !== undefined) return chipSignature(node.dataset.tokenText);
-  if (node.nodeName === "BR") return "\n";
-  const inner = [...node.childNodes].map(readSignature).join("");
-  const kind = node.dataset.md;
-  if (kind !== undefined && node.nodeName === "SPAN")
-    return (
-      styleSignature(kind, node.dataset.depth ? Number(node.dataset.depth) : undefined) +
-      inner +
-      decorationMarks.close
-    );
-  const block = index > 0 && /^(DIV|P)$/.test(node.tagName) ? "\n" : "";
-  return `${block}${styleSignature(`?${node.tagName}`, undefined)}${inner}${decorationMarks.close}`;
-}
-
 /**
- * What the editor shows, in the signature `decorationSignature` gives a drawing, read as
- * `editorText` reads the text. Anything the browser added on its own (a `<b>`, a `<div>`) reads
- * as a style no drawing has, so the editor is drawn again.
+ * Whether the editor already shows `blocks` exactly as `renderEditor` draws them, so it is left
+ * alone and the browser's own editing (caret, selection, IME) is never disturbed.
  */
-export function editorSignature(el: HTMLElement): string {
-  if (el.childNodes.length === 1 && el.firstChild?.nodeName === "BR") return "";
-  return [...el.childNodes].map(readSignature).join("");
-}
-
-/** Styles whose marks show while the caret is in them, and fade once it leaves. */
-const live = new Set(["bold", "h1", "h2", "h3"]);
-
-/** Mark the styles the caret is in (`data-active`), so their Markdown marks show. */
-export function markActiveStyles(el: HTMLElement): void {
-  const selection = el.ownerDocument.getSelection();
-  const focus = selection?.focusNode;
-  const active = new Set<HTMLElement>();
-  if (focus && el.contains(focus))
-    for (let at: Node | null = focus; at && at !== el; at = at.parentNode)
-      if (at instanceof HTMLElement && live.has(at.dataset.md ?? "")) active.add(at);
-  for (const node of el.querySelectorAll<HTMLElement>("[data-active]"))
-    if (!active.has(node)) delete node.dataset.active;
-  for (const node of active) node.dataset.active = "";
+export function editorShows(
+  el: HTMLElement,
+  blocks: readonly ComposerBlock[],
+  chipToken?: ChipToken,
+): boolean {
+  const read = readEditor(el, chipToken);
+  return read.clean && blockSignature(read.blocks) === blockSignature(blocks);
 }

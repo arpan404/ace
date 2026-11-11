@@ -1,101 +1,69 @@
-/** Text and caret offsets exclude chip decoration. Browser I/O stays here. */
-export function editorText(node: Node): string {
-  // Chromium leaves a single filler break after deleting the final character.
-  // It keeps the caret line alive, but is not an authored newline.
-  if (
-    node instanceof HTMLElement &&
-    node.isContentEditable &&
-    node.childNodes.length === 1 &&
-    node.firstChild?.nodeName === "BR"
-  )
-    return "";
-  if (node instanceof HTMLElement && node.dataset.editorTail !== undefined) return "";
-  if (node instanceof HTMLElement && node.dataset.tokenText !== undefined)
-    return node.dataset.tokenText;
-  if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
-  if (node.nodeName === "BR") return "\n";
-  return [...node.childNodes]
-    .map((child, index) => {
-      const text = editorText(child);
-      return index > 0 && child instanceof HTMLElement && /^(DIV|P)$/.test(child.tagName)
-        ? `\n${text}`
-        : text;
-    })
-    .join("");
+import { offsetPoint, pointOffset, serializeBlocks } from "@ace/ui-core";
+import { domAt, pointAt, readEditor } from "./editor-read.ts";
+
+/*
+ * The editor's words and caret in Markdown terms: the DOM shows only what the person sees, and
+ * every offset here is one in the Markdown that is sent (`composer-blocks.ts`). Browser I/O.
+ */
+
+/** The Markdown the editor shows. */
+export function editorText(el: HTMLElement): string {
+  return serializeBlocks(readEditor(el).blocks).text;
 }
+
+/** Where a DOM boundary point is in the Markdown. */
+function offsetOf(el: HTMLElement, node: Node, offset: number): number {
+  const read = readEditor(el);
+  return pointOffset(serializeBlocks(read.blocks), pointAt(read, node, offset));
+}
+
 export function editorCaret(el: HTMLElement): number {
   const selection = el.ownerDocument.getSelection();
   if (!selection?.focusNode || !el.contains(selection.focusNode)) return editorText(el).length;
-  const range = el.ownerDocument.createRange();
-  range.selectNodeContents(el);
-  range.setEnd(selection.focusNode, selection.focusOffset);
-  return editorText(range.cloneContents()).length;
-}
-/** Styles a caret at their end stays out of: what is typed there follows them, plain. */
-const closedStyles = new Set(["mark", "bold", "bullet", "number", "indent"]);
-
-/** Whether `node` is the last thing drawn inside a style typing at its end leaves. */
-function endsClosedStyle(el: HTMLElement, node: Node): boolean {
-  for (let at: Node | null = node; at && at !== el; at = at.parentNode) {
-    if (at.nextSibling) return false;
-    const parent = at.parentNode;
-    if (parent instanceof HTMLElement && closedStyles.has(parent.dataset.md ?? "")) return true;
-  }
-  return false;
+  return offsetOf(el, selection.focusNode, selection.focusOffset);
 }
 
-/** Set one end of `range` at text offset `position` of the editor; false past its end. */
-function setBoundary(el: HTMLElement, range: Range, position: number, end: boolean): boolean {
-  let left = position;
-  const set = (node: Node, offset: number) => {
-    if (end) range.setEnd(node, offset);
-    else range.setStart(node, offset);
+export function editorSelection(el: HTMLElement): { start: number; end: number } {
+  const selection = el.ownerDocument.getSelection();
+  const read = readEditor(el);
+  const written = serializeBlocks(read.blocks);
+  const range = selection?.rangeCount ? selection.getRangeAt(0) : undefined;
+  if (!range || !el.contains(range.startContainer) || !el.contains(range.endContainer))
+    return { start: written.text.length, end: written.text.length };
+  return {
+    start: pointOffset(written, pointAt(read, range.startContainer, range.startOffset)),
+    end: pointOffset(written, pointAt(read, range.endContainer, range.endOffset)),
   };
-  const around = (node: Node, before: boolean) => {
-    if (end && before) range.setEndBefore(node);
-    else if (end) range.setEndAfter(node);
-    else if (before) range.setStartBefore(node);
-    else range.setStartAfter(node);
-  };
-  const locate = (node: Node): boolean => {
-    if (node instanceof HTMLElement && node.dataset.tokenText !== undefined) {
-      const length = node.dataset.tokenText.length;
-      if (left <= length) {
-        around(node, left === 0);
-        return true;
-      }
-      left -= length;
-      return false;
-    }
-    if (node.nodeType === Node.TEXT_NODE) {
-      const length = node.textContent?.length ?? 0;
-      // At the end of bold words or a marker, the caret goes on to what follows them.
-      if (left < length || (left === length && !endsClosedStyle(el, node))) {
-        set(node, left);
-        return true;
-      }
-      left -= length;
-      return false;
-    }
-    for (const child of node.childNodes) if (locate(child)) return true;
-    return false;
-  };
-  return locate(el);
+}
+
+/**
+ * The line the caret is at the very start of the words of, if it is (a collapsed caret before
+ * the first thing the line shows).
+ */
+export function editorLineStart(el: HTMLElement): number | undefined {
+  const selection = el.ownerDocument.getSelection();
+  const range = selection?.rangeCount ? selection.getRangeAt(0) : undefined;
+  if (!range?.collapsed || !el.contains(range.startContainer)) return undefined;
+  const read = readEditor(el);
+  const point = pointAt(read, range.startContainer, range.startOffset);
+  const before = read.blocks[point.line]?.runs.slice(0, point.run) ?? [];
+  const shown = before.some((run) => run.type === "chip" || run.text.length > 0);
+  return !shown && point.offset === 0 ? point.line : undefined;
 }
 
 export function placeEditorCaret(el: HTMLElement, position: number): void {
   placeEditorSelection(el, position, position);
 }
 
-/** Select text offsets `[start, end)` of the editor; a caret when they're equal. */
+/** Select Markdown offsets `[start, end)` of the editor; a caret when they're equal. */
 export function placeEditorSelection(el: HTMLElement, start: number, end: number): void {
+  const read = readEditor(el);
+  const written = serializeBlocks(read.blocks);
+  const from = domAt(read, el, offsetPoint(read.blocks, written, start));
+  const to = start === end ? from : domAt(read, el, offsetPoint(read.blocks, written, end));
   const range = el.ownerDocument.createRange();
-  range.selectNodeContents(el);
-  range.collapse(false);
-  const tail = range.cloneRange();
-  if (!setBoundary(el, range, start, false)) range.setStart(tail.endContainer, tail.endOffset);
-  if (start === end) range.collapse(true);
-  else if (!setBoundary(el, range, end, true)) range.setEnd(tail.endContainer, tail.endOffset);
+  range.setStart(from.node, from.offset);
+  range.setEnd(to.node, to.offset);
   const selection = el.ownerDocument.getSelection();
   selection?.removeAllRanges();
   selection?.addRange(range);
@@ -133,56 +101,4 @@ function followingContent(el: HTMLElement, node: Node): boolean {
     for (let next = at.nextSibling; next; next = next.nextSibling)
       if (next.nodeType !== Node.TEXT_NODE || next.textContent) return true;
   return false;
-}
-
-/** The text each chip in the editor stands for, in document order. */
-export function editorTokenTexts(el: HTMLElement): string[] {
-  return [...el.querySelectorAll<HTMLElement>("[data-token-text]")].map(
-    (node) => node.dataset.tokenText ?? "",
-  );
-}
-
-export function editorSelection(el: HTMLElement): { start: number; end: number } {
-  const selection = el.ownerDocument.getSelection();
-  if (!selection?.rangeCount) return { start: editorText(el).length, end: editorText(el).length };
-  const selected = selection.getRangeAt(0);
-  if (!el.contains(selected.startContainer) || !el.contains(selected.endContainer))
-    return { start: editorText(el).length, end: editorText(el).length };
-  const before = el.ownerDocument.createRange();
-  before.selectNodeContents(el);
-  before.setEnd(selected.startContainer, selected.startOffset);
-  const start = editorText(before.cloneContents()).length;
-  before.setEnd(selected.endContainer, selected.endOffset);
-  return { start, end: editorText(before.cloneContents()).length };
-}
-
-/**
- * Each chip still in the editor, in order, with where its text starts: one walk of the editor,
- * counting text as `editorText` reads it.
- */
-export function editorChips(el: HTMLElement): { node: HTMLElement; start: number }[] {
-  const found: { node: HTMLElement; start: number }[] = [];
-  if (el.childNodes.length === 1 && el.firstChild?.nodeName === "BR") return found;
-  let at = 0;
-  const walk = (node: Node, index: number) => {
-    if (node.nodeType === Node.TEXT_NODE) {
-      at += node.textContent?.length ?? 0;
-      return;
-    }
-    if (!(node instanceof HTMLElement)) return;
-    if (node.dataset.editorTail !== undefined) return;
-    if (index > 0 && /^(DIV|P)$/.test(node.tagName)) at += 1;
-    if (node.dataset.tokenText !== undefined) {
-      found.push({ node, start: at });
-      at += node.dataset.tokenText.length;
-      return;
-    }
-    if (node.nodeName === "BR") {
-      at += 1;
-      return;
-    }
-    node.childNodes.forEach(walk);
-  };
-  el.childNodes.forEach(walk);
-  return found;
 }

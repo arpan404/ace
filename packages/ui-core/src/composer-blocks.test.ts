@@ -21,8 +21,8 @@ function seen(blocks: readonly ComposerBlock[]): string {
             : style.kind;
       const words = block.runs
         .map((run) => {
-          const shown = run.type === "chip" ? `[${run.token?.label ?? run.text}]` : run.text;
-          return run.bold ? `<b>${shown}</b>` : shown;
+          const face = run.type === "chip" ? `[${run.token?.label ?? run.text}]` : run.text;
+          return run.bold ? `<b>${face}</b>` : face;
         })
         .join("");
       return `${tag}:${words}`;
@@ -106,19 +106,18 @@ describe("written back as Markdown", () => {
   });
 });
 
+/** `|` in the Markdown marks an offset; the result marks the visible point the same way. */
+function shown(marked: string): string {
+  const offset = marked.indexOf("|");
+  const text = marked.replace("|", "");
+  const blocks = composerBlocks(text, []);
+  const written = serializeBlocks(blocks);
+  const point = offsetPoint(blocks, written, offset);
+  // Back in Markdown, where that visible point is written.
+  const back = pointOffset(written, point);
+  return `${text.slice(0, back)}|${text.slice(back)}`;
+}
 describe("caret places", () => {
-  /** `|` in the Markdown marks an offset; the result marks the visible point the same way. */
-  function shown(marked: string): string {
-    const offset = marked.indexOf("|");
-    const text = marked.replace("|", "");
-    const blocks = composerBlocks(text, []);
-    const written = serializeBlocks(blocks);
-    const point = offsetPoint(blocks, written, offset);
-    // Back in Markdown, where that visible point is written.
-    const back = pointOffset(written, point);
-    return `${text.slice(0, back)}|${text.slice(back)}`;
-  }
-
   test.each([
     ["in words, where it is", "ab|c", "ab|c"],
     ["in a heading's marks, at its words", "#| Plan", "# |Plan"],

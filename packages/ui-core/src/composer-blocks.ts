@@ -166,8 +166,9 @@ export function serializeBlocks(blocks: readonly ComposerBlock[]): SerializedBlo
       const first = block.runs[index];
       if (!first) break;
       const bold = !code && first.bold;
-      let end = index + 1;
-      while (end < block.runs.length && !code && block.runs[end]?.bold === bold) end++;
+      // Fenced code is one plain group; elsewhere a group is the runs of one weight.
+      let end = code ? block.runs.length : index + 1;
+      while (end < block.runs.length && block.runs[end]?.bold === bold) end++;
       // Each unit of the group: a character of a text run, or a chip.
       const units: { run: number; k: number; text: string; chip: boolean }[] = [];
       for (let run = index; run < end; run++) {

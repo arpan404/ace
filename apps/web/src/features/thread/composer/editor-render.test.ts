@@ -1,12 +1,12 @@
-import { decorateComposerText, type ComposerToken } from "@ace/ui-core";
+import { composerBlocks, type ComposerToken } from "@ace/ui-core";
 import { afterEach, expect, test } from "vitest";
-import { editorText, placeEditorCaret } from "./editor-dom.ts";
-import { editorSignature, renderEditor } from "./editor-render.ts";
-import { editorInSync } from "./editor-sync.ts";
+import { editorCaret, editorText, placeEditorCaret } from "./editor-dom.ts";
+import { editorShows, renderEditor } from "./editor-render.ts";
 
 /*
- * The editor is drawn from the text's Markdown and left alone while what it shows still matches,
- * so typing keeps the browser's caret and IME; anything else draws it again.
+ * The editor shows what the person sees and never the Markdown that writes it, yet reads back
+ * the exact Markdown, with the caret in Markdown offsets. It is left alone while it still shows
+ * the text's blocks, so typing keeps the browser's caret and IME; anything else draws it again.
  */
 
 afterEach(() => document.body.replaceChildren());
@@ -21,89 +21,88 @@ const chip = (start: number, label: string): ComposerToken => ({
 function drawn(text: string, tokens: readonly ComposerToken[] = []): HTMLElement {
   const el = document.createElement("div");
   el.contentEditable = "true";
+  el.style.whiteSpace = "pre-wrap";
   document.body.append(el);
-  renderEditor(el, decorateComposerText(text, tokens), text, tokens);
+  renderEditor(el, composerBlocks(text, tokens));
   return el;
 }
-const inSync = (el: HTMLElement, text: string, tokens: readonly ComposerToken[] = []) =>
-  editorInSync(editorSignature(el), decorateComposerText(text, tokens), text, tokens);
-/** Type into the text node holding `words`, as the browser would. */
-function typeInto(el: HTMLElement, words: string, next: string) {
+const shows = (el: HTMLElement, text: string, tokens: readonly ComposerToken[] = []) =>
+  editorShows(el, composerBlocks(text, tokens));
+function textNode(el: HTMLElement, words: string): Text {
   const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
   for (let node = walker.nextNode(); node; node = walker.nextNode())
-    if (node.textContent === words) return void (node.textContent = next);
-  throw new Error(`No text node "${words}"`);
+    if (node.textContent === words && node instanceof Text) return node;
+  throw new Error(`No text "${words}"`);
 }
 
-test("a drawn editor reads back its exact Markdown", () => {
-  const text = "# Plan\n- **milk** and @a.ts\n  1. eggs\n";
-  const el = drawn(text, [chip(22, "@a.ts")]);
+const text = "# Plan\n- **milk** and @a.ts\n  1. eggs\n```\n**raw**\n```";
+const tokens = [chip(22, "@a.ts")];
+
+test("the editor shows no Markdown syntax, yet reads back the exact Markdown", () => {
+  const el = drawn(text, tokens);
+  const lines = [...el.children].map((line) => line.textContent);
+  // The chip's slot is empty until React fills it.
+  expect(lines).toEqual(["Plan", "milk and ", "eggs", "```", "**raw**", "```"]);
+  expect(el.querySelector("strong")?.textContent).toBe("milk");
+  expect(el.querySelector('[data-md="h1"]')?.textContent).toBe("Plan");
+  expect(el.querySelector('[data-md="item"][data-depth="2"]')?.getAttribute("data-glyph")).toBe(
+    "1.",
+  );
   expect(editorText(el)).toBe(text);
-  expect(inSync(el, text, [chip(22, "@a.ts")])).toBe(true);
-  expect(el.querySelector('[data-md="h1"]')?.textContent).toBe("# Plan");
-  expect(el.querySelector('[data-md="bold"]')?.textContent).toBe("**milk**");
-  expect(el.querySelector('[data-md="number"]')?.getAttribute("data-depth")).toBe("2");
+  expect(shows(el, text, tokens)).toBe(true);
+});
+
+test("a caret after bold words sits at their end, inside the bold, and reads back the same", () => {
+  const el = drawn("**bold** after");
+  el.focus();
+  placeEditorCaret(el, 8);
+  const focus = document.getSelection()?.focusNode;
+  expect(focus?.parentElement?.closest("strong")?.textContent).toBe("bold");
+  expect(editorCaret(el)).toBe(6);
+});
+
+test("a caret in a heading's hidden marks goes to its words", () => {
+  const el = drawn("## Plan");
+  el.focus();
+  placeEditorCaret(el, 1);
+  expect(editorCaret(el)).toBe(3);
 });
 
 test.each([
   ["typing inside bold words", "a **bold** b", "bold", "bolder", "a **bolder** b", true],
   ["typing in a heading", "# Plan", "Plan", "Plans", "# Plans", true],
-  ["typing in a list item's words", "- milk", " milk", " milks", "- milks", true],
+  ["typing in a list item", "- milk", "milk", "milks", "- milks", true],
   ["a line that just became a heading", "#Plan", "#Plan", "# Plan", "# Plan", false],
   ["words that just became bold", "**a*", "**a*", "**a**", "**a**", false],
-])(
-  "%s redraws the editor only when its drawing changes: %s",
-  (_name, before, words, next, text, kept) => {
-    const el = drawn(before);
-    typeInto(el, words, next);
-    expect(editorText(el)).toBe(text);
-    expect(inSync(el, text)).toBe(kept);
-  },
-);
-
-test("words typed into bold words' closing marks draw the editor again", () => {
-  const el = drawn("**a**");
-  const closing = el.querySelectorAll('[data-md="mark"]')[1]?.firstChild;
-  if (!closing) throw new Error("No closing marks");
-  closing.textContent = "** b";
-  expect(editorText(el)).toBe("**a** b");
-  expect(inSync(el, "**a** b")).toBe(false);
+])("%s: the editor is %s", (_name, before, words, next, after, kept) => {
+  const el = drawn(before);
+  textNode(el, words).textContent = next;
+  expect(editorText(el)).toBe(after);
+  expect(shows(el, after)).toBe(kept);
 });
 
-test("typing beside a chip leaves the editor alone even though the chip's offsets moved", () => {
-  const el = drawn("see @a.ts", [chip(4, "@a.ts")]);
-  typeInto(el, "see ", "now see ");
-  expect(inSync(el, "now see @a.ts", [chip(8, "@a.ts")])).toBe(true);
+test("a heading's words joined onto the line before read as that line's words", () => {
+  const el = drawn("first\n## second");
+  const [first, second] = [...el.children];
+  if (!first || !second) throw new Error("Two lines expected");
+  // What the browser does on Backspace at the start of the heading.
+  first.append(...second.childNodes);
+  second.remove();
+  expect(editorText(el)).toBe("firstsecond");
 });
 
-test("a chip added or taken away draws the editor again", () => {
-  const text = "see @a.ts";
-  expect(inSync(drawn(text), text, [chip(4, "@a.ts")])).toBe(false);
-  expect(inSync(drawn(text, [chip(4, "@a.ts")]), text)).toBe(false);
+test("pasted line breaks read as lines of their own, and draw the editor again", () => {
+  const el = drawn("ab");
+  textNode(el, "ab").textContent = "a\n- b";
+  expect(editorText(el)).toBe("a\n- b");
+  expect(shows(el, "a\n- b")).toBe(false);
 });
 
 test("formatting the browser adds on its own draws the editor again", () => {
   const el = drawn("plain");
   const bold = document.createElement("b");
-  bold.append(document.createTextNode("x"));
-  el.append(bold);
-  expect(inSync(el, "plainx")).toBe(false);
-});
-
-test("a caret at the end of bold words types plain words after them", () => {
-  const el = drawn("**bold** after");
-  el.focus();
-  placeEditorCaret(el, 8);
-  const focus = document.getSelection()?.focusNode;
-  expect(focus?.textContent).toBe(" after");
-  expect(focus?.parentElement?.closest('[data-md="bold"]')).toBeNull();
-});
-
-test("a caret at the end of a heading stays in the heading", () => {
-  const el = drawn("# Plan\nnext");
-  el.focus();
-  placeEditorCaret(el, 6);
-  expect(
-    document.getSelection()?.focusNode?.parentElement?.closest('[data-md="h1"]'),
-  ).not.toBeNull();
+  bold.append("x");
+  el.firstElementChild?.append(bold);
+  expect(editorText(el)).toBe("plain**x**");
+  expect(shows(el, "plain**x**")).toBe(false);
 });

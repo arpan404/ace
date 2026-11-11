@@ -218,3 +218,11 @@ export function typeStyled(
   if (caret === around.start + 2) return insert(around.start, typed, around.start + typed.length);
   return insert(caret, `**${typed}**`, caret + 2 + typed.length);
 }
+
+/** Whether bold words end right at `at`, their closing marks just before it. */
+export function boldEndsAt(text: string, tokens: readonly ComposerToken[], at: number): boolean {
+  const line = lineAt(composerLines(text), at);
+  if (line.kind === "code") return false;
+  const words = line.kind === "heading" || line.kind === "item" ? line.content : line.start;
+  return boldSpans(text, words, line.end, tokens).some((span) => span.end === at);
+}

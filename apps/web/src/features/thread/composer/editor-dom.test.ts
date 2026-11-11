@@ -1,11 +1,5 @@
 import { afterEach, expect, test } from "vitest";
-import {
-  editorCaret,
-  editorChips,
-  editorText,
-  insertEditorText,
-  placeEditorCaret,
-} from "./editor-dom.ts";
+import { editorCaret, editorText, insertEditorText, placeEditorCaret } from "./editor-dom.ts";
 
 function editor(text: string, caret: number): HTMLElement {
   const el = document.createElement("div");
@@ -34,26 +28,4 @@ test("pasting a newline mid-draft leaves the text after it to carry the line", (
   expect(editorText(el)).toBe("Hello\n world");
   expect(editorCaret(el)).toBe(6);
   expect(el.querySelector("br")).toBeNull();
-});
-
-function chip(text: string): HTMLElement {
-  const node = document.createElement("span");
-  node.dataset.tokenText = text;
-  return node;
-}
-
-test("each chip's offset is where its text starts in the editor's words", () => {
-  const el = document.createElement("div");
-  el.contentEditable = "true";
-  const bold = document.createElement("span");
-  bold.dataset.md = "bold";
-  bold.append("**a ", chip("@x.ts"), "**");
-  const line = document.createElement("div");
-  line.append("next ", chip("￼"));
-  el.append("see ", bold, document.createElement("br"), line);
-  document.body.append(el);
-  const text = editorText(el);
-  const chips = editorChips(el);
-  expect(chips.map((found) => found.start)).toEqual([8, 22]);
-  expect(chips.map((found) => text.slice(found.start, found.start + 1))).toEqual(["@", "￼"]);
 });

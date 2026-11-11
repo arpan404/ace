@@ -1,4 +1,4 @@
-import { decorateComposerText, type ComposerToken } from "@ace/ui-core";
+import { composerBlocks, pointOffset, serializeBlocks, type ComposerToken } from "@ace/ui-core";
 import {
   useEffect,
   useEffectEvent,
@@ -11,9 +11,9 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { FileMarkerChip, MentionChip } from "@/components/mention-chip.tsx";
-import { editorCaret, editorChips, editorText, placeEditorCaret } from "./editor-dom.ts";
-import { editorSignature, markActiveStyles, renderEditor, type Slot } from "./editor-render.ts";
-import { editorInSync } from "./editor-sync.ts";
+import { editorCaret, editorSelection, editorText, placeEditorSelection } from "./editor-dom.ts";
+import { pointAt, readEditor } from "./editor-read.ts";
+import { editorShows, renderEditor, type Slot } from "./editor-render.ts";
 
 type Props = Omit<ComponentProps<"div">, "onChange" | "children" | "ref"> & {
   input: RefObject<HTMLDivElement | null>;
@@ -30,34 +30,51 @@ type Props = Omit<ComponentProps<"div">, "onChange" | "children" | "ref"> & {
   onCaret(caret: number): void;
   /** Undo or Redo asked from outside the keyboard (the Edit menu, a context menu). */
   onHistory?: ((step: "undo" | "redo") => void) | undefined;
+  /**
+   * Words about to be typed at the caret; true when the composer put them in itself (bold or
+   * plain, as ⌘B at a bare caret asked), so the browser doesn't.
+   */
+  onTypeText?: ((typed: string) => boolean) | undefined;
 };
 
 /**
- * The chips the editor still shows, each at the offset it moved to; the same list when none
- * moved or went. Read off the DOM, so deleting one of two chips side by side takes that one.
+ * What the editor shows, read off the DOM: the Markdown, the caret in it, and the chips still
+ * there at their new places (the same list when none moved or went). Deleting one of two chips
+ * side by side takes that one; a chip the editor never made (a dropped copy) is no chip.
  */
-function chipsShown(
-  el: HTMLElement,
-  slots: readonly Slot[],
-  tokens: readonly ComposerToken[],
-): readonly ComposerToken[] {
+function shown(el: HTMLElement, slots: readonly Slot[], tokens: readonly ComposerToken[]) {
   const bySlot = new Map(slots.map((slot) => [slot.node, slot.token]));
-  const shown = editorChips(el).flatMap(({ node, start }) => {
-    const token = bySlot.get(node);
-    if (!token) return [];
-    const end = start + (token.end - token.start);
-    return [token.start === start ? token : { ...token, start, end }];
+  const read = readEditor(el, (node) => bySlot.get(node));
+  const written = serializeBlocks(read.blocks);
+  const selection = el.ownerDocument.getSelection();
+  const focus = selection?.focusNode;
+  const caret =
+    focus && el.contains(focus)
+      ? pointOffset(written, pointAt(read, focus, selection.focusOffset))
+      : written.text.length;
+  const moved = written.tokens.map((token) => {
+    const before = tokens.find((each) => each.label === token.label && sameToken(each, token));
+    return before && before.start === token.start && before.end === token.end ? before : token;
   });
-  return shown.length === tokens.length && shown.every((token, index) => token === tokens[index])
-    ? tokens
-    : shown;
+  const same =
+    moved.length === tokens.length && moved.every((token, index) => token === tokens[index]);
+  return { text: written.text, caret, tokens: same ? tokens : moved, clean: read.clean };
+}
+
+/** The same chip at any place: everything but where it is. */
+function sameToken(a: ComposerToken, b: ComposerToken): boolean {
+  return (
+    JSON.stringify(Object.assign({}, a, { start: 0, end: 0 })) ===
+    JSON.stringify(Object.assign({}, b, { start: 0, end: 0 }))
+  );
 }
 
 /**
- * Native editing owns the DOM while typing: the editor is drawn again only when what it shows
- * no longer matches the text's drawing (its Markdown styles and chips), never while an IME is
- * composing, so the caret, selection and IME stay the browser's. Typing inside a style or plain
- * words leaves the DOM alone.
+ * The message box as rich text: the person sees bold words, headings, list bullets and chips, never
+ * the Markdown that writes them, which is what the composer holds and sends. Native editing owns
+ * the DOM while typing: the editor is drawn again only when what it shows no longer matches the
+ * text's blocks (a line that just became a heading, `**word**` just closed), never while an IME
+ * is composing, so the caret, selection and IME stay the browser's.
  */
 export function MessageInput({
   input,
@@ -69,23 +86,28 @@ export function MessageInput({
   onChange,
   onCaret,
   onHistory,
+  onTypeText,
   ...props
 }: Props) {
   const [slots, setSlots] = useState<Slot[]>([]);
   const previous = useRef<readonly ComposerToken[] | undefined>(undefined);
   const composing = useRef(false);
-  // Bumped when a composition ends, so a drawing put off while it ran is made then.
+  // Bumped when a composition ends, or the browser left something the editor didn't draw, so
+  // the editor is drawn again then.
   const [settled, setSettled] = useState(0);
-  const drawing = useMemo(() => decorateComposerText(text, tokens), [text, tokens]);
+  const blocks = useMemo(() => composerBlocks(text, tokens), [text, tokens]);
   useLayoutEffect(() => {
     const el = input.current;
     if (!el || composing.current) return;
-    if (editorInSync(editorSignature(el), drawing, text, tokens)) {
+    const bySlot = new Map(slots.map((slot) => [slot.node, slot.token]));
+    if (editorShows(el, blocks, (node) => bySlot.get(node))) {
       if (previous.current === tokens) return;
       previous.current = tokens;
-      // Chips moved with the text around them: point each at its token, keep the DOM.
+      // Chips moved with the words around them: point each at its token, keep the DOM.
       const nodes = [...el.querySelectorAll<HTMLElement>("[data-token-text]")];
-      const ordered = tokens.toSorted((a, b) => a.start - b.start);
+      const ordered = blocks.flatMap((block) =>
+        block.runs.flatMap((run) => (run.type === "chip" && run.token ? [run.token] : [])),
+      );
       // A chip renamed in place (an edited file) reads by its new name.
       nodes.forEach((node, index) => {
         const label = ordered[index]?.label;
@@ -105,42 +127,48 @@ export function MessageInput({
     }
     previous.current = tokens;
     const focused = document.activeElement === el;
-    const caret = editorCaret(el);
-    setSlots(renderEditor(el, drawing, text, tokens));
-    if (focused) {
-      placeEditorCaret(el, Math.min(caret, text.length));
-      markActiveStyles(el);
-    }
+    const selection = focused ? editorSelection(el) : undefined;
+    setSlots(renderEditor(el, blocks));
+    if (selection)
+      placeEditorSelection(
+        el,
+        Math.min(selection.start, text.length),
+        Math.min(selection.end, text.length),
+      );
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- a composition's end draws what it put off
-  }, [input, text, tokens, drawing, settled]);
+  }, [input, text, tokens, blocks, slots, settled]);
   useLayoutEffect(() => {
     const el = input.current;
     if (autoFocus && el && !el.closest('[inert], [aria-hidden="true"]')) el.focus();
   }, [autoFocus, input]);
   // The browser's own undo can't follow chips or rebuilt text: the composer's history answers.
-  const history = useEffectEvent((event: InputEvent) => {
-    if (event.inputType !== "historyUndo" && event.inputType !== "historyRedo") return;
-    event.preventDefault();
-    onHistory?.(event.inputType === "historyUndo" ? "undo" : "redo");
+  const beforeInput = useEffectEvent((event: InputEvent) => {
+    if (event.inputType === "historyUndo" || event.inputType === "historyRedo") {
+      event.preventDefault();
+      onHistory?.(event.inputType === "historyUndo" ? "undo" : "redo");
+      return;
+    }
+    if (
+      event.inputType === "insertText" &&
+      !event.isComposing &&
+      event.data &&
+      onTypeText?.(event.data)
+    )
+      event.preventDefault();
   });
   useEffect(() => {
     const el = input.current;
     if (!el) return;
-    const listener = (event: InputEvent) => history(event);
-    // The marks of the bold words or heading the caret is in show; elsewhere they fade.
-    const moved = () => {
-      if (el.ownerDocument.activeElement === el) markActiveStyles(el);
-    };
+    const listener = (event: InputEvent) => beforeInput(event);
     el.addEventListener("beforeinput", listener);
-    el.ownerDocument.addEventListener("selectionchange", moved);
-    return () => {
-      el.removeEventListener("beforeinput", listener);
-      el.ownerDocument.removeEventListener("selectionchange", moved);
-    };
+    return () => el.removeEventListener("beforeinput", listener);
   }, [input]);
   const report = (el: HTMLElement, typing: boolean) => {
-    const next = !tokens.length && el.textContent === "" ? "" : editorText(el);
-    onChange(next, next.length ? editorCaret(el) : 0, typing, chipsShown(el, slots, tokens));
+    const now = shown(el, slots, tokens);
+    onChange(now.text, now.caret, typing, now.tokens);
+    // What the browser left isn't the editor's own drawing (a dropped copy of a chip, a stray
+    // element): draw it again even when the words read the same.
+    if (!now.clean && !typing) setSettled((value) => value + 1);
   };
   return (
     <>
@@ -155,7 +183,7 @@ export function MessageInput({
         data-placeholder={placeholder}
         data-empty={text.length === 0 ? "true" : undefined}
         onFocus={(event) => {
-          if (!text.length && !tokens.length) placeEditorCaret(event.currentTarget, 0);
+          if (!text.length && !tokens.length) placeEditorSelection(event.currentTarget, 0, 0);
           props.onFocus?.(event);
         }}
         onDragStart={(event) => {
@@ -179,7 +207,8 @@ export function MessageInput({
         onInput={(event) => report(event.currentTarget, composing.current)}
         onKeyUp={(event) => onCaret(editorCaret(event.currentTarget))}
         onMouseUp={(event) => {
-          if (!editorText(event.currentTarget).length) placeEditorCaret(event.currentTarget, 0);
+          if (!editorText(event.currentTarget).length)
+            placeEditorSelection(event.currentTarget, 0, 0);
           onCaret(editorCaret(event.currentTarget));
         }}
       />

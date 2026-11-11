@@ -1,7 +1,7 @@
 /*
- * The composer's Markdown, drawn as it is typed (`features/thread/composer/editor-render.ts`):
- * headings a little larger, bold words bold with their `**` faded until the caret is in them,
- * list markers as bullets, nesting a little wider than plain spaces. The text stays Markdown.
+ * The composer as rich text (`features/thread/composer/editor-render.ts`): a heading a little
+ * larger, bold words bold, a list item's bullet or number drawn in its indent. No Markdown syntax
+ * is ever shown; the composer sends the Markdown these stand for.
  */
 .message-input [data-md="h1"] {
   font-size: 1.15em;
@@ -14,40 +14,24 @@
 .message-input [data-md="h3"] {
   font-weight: 600;
 }
-.message-input [data-md="bold"] {
+.message-input strong {
   font-weight: 600;
+  font-style: normal;
 }
-.message-input [data-md="mark"] {
-  color: var(--subtle-foreground);
-  font-weight: 400;
-}
-.message-input [data-md="bold"]:not([data-active]) > [data-md="mark"],
-.message-input [data-md^="h"]:not([data-active]) > [data-md="mark"] {
-  opacity: 0.45;
-}
-.message-input [data-md="bullet"] {
+.message-input [data-md="item"] {
+  --indent: 1.375em;
   position: relative;
-  color: transparent;
-  caret-color: var(--foreground);
+  padding-left: calc(var(--depth, 1) * var(--indent));
 }
-.message-input [data-md="bullet"]::after {
-  content: "•";
+.message-input [data-md="item"]::before {
+  content: attr(data-glyph);
   position: absolute;
-  inset: 0;
-  text-align: center;
-  color: var(--muted-foreground);
-  pointer-events: none;
-}
-.message-input [data-md="bullet"]:is([data-depth="2"], [data-depth="5"], [data-depth="8"])::after {
-  content: "◦";
-}
-.message-input [data-md="bullet"]:is([data-depth="3"], [data-depth="6"], [data-depth="9"])::after {
-  content: "▪";
-}
-.message-input [data-md="number"] {
+  left: calc((var(--depth, 1) - 1) * var(--indent));
+  width: var(--indent);
+  padding-right: 0.375em;
+  text-align: right;
   color: var(--muted-foreground);
   font-variant-numeric: tabular-nums;
-}
-.message-input [data-md="indent"] {
-  letter-spacing: 0.25em;
+  pointer-events: none;
+  user-select: none;
 }

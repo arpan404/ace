@@ -318,6 +318,7 @@ function ComposerBody({
           : undefined,
       newline: message.newline,
       bold: message.bold,
+      backspace: message.backspace,
       apple: keyboardEnv().apple,
       indent: message.indent,
       history: step,
@@ -436,6 +437,7 @@ function ComposerBody({
                 }}
                 onCaret={message.setCaret}
                 onHistory={step}
+                onTypeText={message.typeText}
                 onKeyDown={onKeyDown}
                 onPaste={(event) =>
                   pasteIntoComposer(event, { input: input.current, intake, attach })

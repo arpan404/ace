@@ -22,6 +22,8 @@ export interface ComposerKeys {
   bold(): void;
   /** ⌘ and ⌃ are separate keys here (macOS, iOS): Ctrl+B is the system's back one letter. */
   apple: boolean;
+  /** Backspace at the start of a heading or list item; false where it deletes as usual. */
+  backspace(): boolean;
   /** Tab / ⇧Tab in a list item; false outside a list, where Tab keeps its usual meaning. */
   indent(outdent: boolean): boolean;
   history(step: "undo" | "redo"): void;
@@ -93,6 +95,10 @@ export function composerKeyDown(event: KeyboardEvent<HTMLElement>, keys: Compose
       list.dismiss();
       return;
     }
+  }
+  if (key === "Backspace" && !modified && !event.altKey && !event.shiftKey && keys.backspace()) {
+    done();
+    return;
   }
   if (key === "Tab" && !modified && !event.altKey && keys.indent(event.shiftKey)) {
     done();
