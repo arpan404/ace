@@ -7,7 +7,15 @@ import {
   XIcon,
   type Icon,
 } from "@phosphor-icons/react";
-import { formatAgo, prFacts, prGates, type Gate, type GateKey, type GateTone } from "@ace/ui-core";
+import {
+  can,
+  formatAgo,
+  prFacts,
+  prGates,
+  type Gate,
+  type GateKey,
+  type GateTone,
+} from "@ace/ui-core";
 import { Button } from "@/components/ui/button.tsx";
 import { useNow } from "@/lib/time.ts";
 import { cn } from "@/lib/cn.ts";
@@ -157,7 +165,8 @@ export function PrMergeBox(props: {
   const { ended, branchDeleted } = useEnding(actions);
   const blocking = useBlockingItems(detail);
   const state = detail.status.state;
-  if (state === "unknown") return null;
+  // A host that can't merge here (a read-only review) has no merge box to show.
+  if (state === "unknown" || !can(detail, "reviews.merge")) return null;
   if (state === "merged" || state === "closed") {
     const merged = state === "merged";
     const by = ended?.by ? ` by ${ended.by}` : "";

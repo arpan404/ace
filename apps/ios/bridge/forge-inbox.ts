@@ -7,6 +7,7 @@ import {
   type ForgeInboxWrite,
 } from "@ace/protocol";
 import {
+  can,
   actionErrorText,
   inboxReasonWords,
   inboxTarget,
@@ -17,6 +18,7 @@ import {
   type ForgeMark,
 } from "@ace/ui-core";
 import { z } from "zod";
+import { capabilitySource } from "./forge-features.ts";
 import type { Preview } from "./agents.ts";
 import { ForgeRefusal, type ForgeOwner, type ForgeReads } from "./forge-reads.ts";
 
@@ -126,6 +128,8 @@ export async function readInbox(
   request: ForgeInboxRequest,
   preview: Preview,
 ): Promise<InboxReply> {
+  if (!can(await capabilitySource(reads, request.project), "inbox"))
+    throw new ForgeRefusal("forge_unsupported");
   const rows: InboxRowView[] = [];
   const seen = new Set<string>();
   const reasons = new Set<string>();

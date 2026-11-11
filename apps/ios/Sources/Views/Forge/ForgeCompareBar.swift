@@ -6,6 +6,7 @@ struct ForgeCompareBar: View {
     let label: String
     /// "2 of 5 viewed", where GitHub's marks apply.
     let viewed: String?
+    var canCompare = true
     let change: () -> Void
 
     var body: some View {
@@ -18,11 +19,12 @@ struct ForgeCompareBar: View {
                 if let viewed { Text(viewed).meta().monospacedDigit().contentTransition(.numericText()) }
             }
             Spacer(minLength: AceTheme.Spacing.sm)
-            Button("Change", action: change)
+            if canCompare { Button("Change", action: change)
                 .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
                 .frame(minHeight: AceDesign.Size.tap)
                 .accessibilityLabel("Change which commits are shown")
                 .accessibilityIdentifier("forge.files.change")
+            }
         }
         .padding(.horizontal, AceTheme.Spacing.lg)
     }

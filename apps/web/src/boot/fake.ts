@@ -17,6 +17,7 @@ import {
   seedTurnEndings,
   seedLeftRunning,
   seedSettledHeld,
+  seedConnectedApps,
   seedPanels,
   seedRealCatalogs,
   seedRealThreadState,
@@ -31,6 +32,7 @@ import {
   seedLongIssue,
   movingPullRequest,
   seedProjectForge,
+  seedGitLabMirror,
   seedLongLists,
   withLongAutomations,
 } from "@ace/fake-daemon";
@@ -107,6 +109,8 @@ export function bootFake(): {
   // `?fakeWorld=settled-held`: the dev world plus settled threads held at a usage limit or with
   // a command left running: they stay in Settled.
   if (world === "settled-held") seedSettledHeld(daemon, Date.now());
+  // `?fakeWorld=connected-apps`: outside MCP clients' grants, a sign-in request and screen use.
+  if (world === "connected-apps") seedConnectedApps(daemon, Date.now());
   if (world === "thread-activity")
     for (const scenario of turnStatuses())
       new ScenarioPlayer(daemon, scenario, { agoMs: 0 }).runUntilBlocked();
@@ -158,6 +162,8 @@ export function bootFake(): {
     seedLongIssue(daemon, Date.now());
     // The other projects' pull requests, issues and notifications, for the lists across projects.
     seedProjectForge(daemon, Date.now());
+    // Merge requests on ace's GitLab mirror, beside its GitHub reviews.
+    seedGitLabMirror(daemon, Date.now());
     // #229's checks with runs to read, so a failing one quotes its first failure line.
     seedPrChecks(daemon, Date.now());
     seedFakeSkills(daemon, Date.now());

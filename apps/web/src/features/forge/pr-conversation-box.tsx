@@ -1,3 +1,4 @@
+import { can } from "@ace/ui-core";
 import { useRef } from "react";
 import { MarkdownEditor } from "@/components/markdown-editor/markdown-editor.tsx";
 import { draftKeys, useMarkdownDraft } from "@/components/markdown-editor/use-markdown-draft.ts";
@@ -24,6 +25,7 @@ function useViewerAvatar(viewer: string | undefined): string | undefined {
  */
 export function PrConversationBox() {
   const review = usePrReview();
+  const detail = usePrDetail();
   const box = useRef<HTMLDivElement>(null);
   const identity = usePrIdentity();
   const draft = useMarkdownDraft(
@@ -38,7 +40,13 @@ export function PrConversationBox() {
   const avatar = useViewerAvatar(viewer);
   const locked = !!review?.commentsLocked;
   // A locked conversation keeps the box, off, with GitHub's reason.
-  if (!review?.state || (!review.state.canComment && !locked)) return null;
+  if (
+    !detail ||
+    !can(detail, "reviews.comments.write") ||
+    !review?.state ||
+    (!review.state.canComment && !locked)
+  )
+    return null;
   const disabled = !review.ready || review.pending || locked;
   const send = () => {
     const body = draft.text;

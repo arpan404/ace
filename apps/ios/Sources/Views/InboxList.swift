@@ -103,6 +103,17 @@ struct InboxList: View {
                         .inboxRowChrome()
                         .selectionDisabled()
                 }
+                if tab == "inbox", selection == nil {
+                    ForEach(inbox.sessions, id: \.hostId) { session in
+                        ForEach(session.client.outside.screen) { use in
+                            OutsideScreenLine(client: session.client, use: use,
+                                              machine: inbox.names[session.hostId] ?? "This machine",
+                                              named: inbox.showsMachineNames)
+                                .inboxRowChrome()
+                                .selectionDisabled()
+                        }
+                    }
+                }
                 if tab == "inbox", selection == nil, let words = NeedWords.count(needs(shown).count) {
                     NeedsYouLine(words: words) {
                         run = NeedsRunQueue(needs(shown))

@@ -121,6 +121,9 @@
       "$ref": "https://ace.local/protocol/v1/FleetRequest.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/OutsideRequest.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/LockedUseSubscribe.json"
     },
     {
@@ -1033,6 +1036,24 @@
     },
     {
       "$ref": "https://ace.local/protocol/v1/SkillsUnsubscribe.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeStatusRequest.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeHttpRequest.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeHttpPart.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeHttpRead.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeLiveSubscribe.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeLiveUnsubscribe.json"
     },
     {
       "properties": {

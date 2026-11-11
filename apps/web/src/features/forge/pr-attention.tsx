@@ -1,3 +1,4 @@
+import { can } from "@ace/ui-core";
 import { useMemo, type ReactNode } from "react";
 import { XCircleIcon } from "@phosphor-icons/react";
 import type { ForgeCheck, ForgePrDetail } from "@ace/protocol";
@@ -130,7 +131,11 @@ function CheckRow(props: {
   const rerun = useCheckRerun({ workspaceId: props.workspaceId, pr, onDone: props.onRefresh });
   const line = run.data ? firstFailureLine(run.data) : undefined;
   const workflow = run.data?.workflow;
-  const controls = checkControls(check, run.data, props.open);
+  const controls = checkControls(
+    check,
+    run.data,
+    props.open && can(detail, "reviews.checks.write"),
+  );
   return (
     <Row
       item={props.item}
@@ -288,7 +293,9 @@ export function PrAttention(props: {
               actions={
                 <>
                   {fixAction}
-                  {thread && root && <ReplyAction threadId={thread.id} title={title} />}
+                  {thread && root && can(props.detail, "reviews.comments.reply") && (
+                    <ReplyAction threadId={thread.id} title={title} />
+                  )}
                   {item.kind === "review" && !masked && quote && (
                     <TextAction
                       aria-label={`Reply: ${title}`}

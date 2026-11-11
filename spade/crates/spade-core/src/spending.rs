@@ -2,14 +2,20 @@
 
 use spade_models::{Price, Usage};
 
-/// The cost of `usage` at `price`, in millionths of a US dollar. No price (a flat-rate plan)
-/// costs nothing.
+/// The cost of `usage` at `price`, in millionths of a US dollar. No price (a flat-rate plan or a
+/// local server) costs nothing. Input read from the cache is charged at the cache-read price and
+/// input written to it at the cache-write price; each falls back to the input price.
 pub fn cost_micros(price: Option<Price>, usage: &Usage) -> u64 {
     let Some(price) = price else { return 0 };
-    let tokens = |count: Option<u32>| f64::from(count.unwrap_or(0));
+    let count = |value: Option<u32>| f64::from(value.unwrap_or(0));
+    let read = count(usage.cache_read_tokens);
+    let write = count(usage.cache_write_tokens);
+    let plain_input = (count(usage.input_tokens) - read - write).max(0.0);
     // A price per million tokens is the same number as millionths of a dollar per token.
-    let micros =
-        tokens(usage.input_tokens) * price.input + tokens(usage.output_tokens) * price.output;
+    let micros = plain_input * price.input
+        + read * price.cache_read.unwrap_or(price.input)
+        + write * price.cache_write.unwrap_or(price.input)
+        + count(usage.output_tokens) * price.output;
     if micros.is_finite() && micros > 0.0 {
         micros.round() as u64
     } else {
@@ -44,16 +50,13 @@ mod tests {
 
     #[test]
     fn a_reply_costs_its_tokens_at_the_route_price() {
-        let price = Price {
-            input: 2.0,
-            output: 10.0,
-        };
         let usage = Usage {
             input_tokens: Some(1_000),
             output_tokens: Some(500),
+            ..Usage::default()
         };
         // 1,000 × $2/M + 500 × $10/M = $0.002 + $0.005 = 7,000 micros.
-        assert_eq!(cost_micros(Some(price), &usage), 7_000);
+        assert_eq!(cost_micros(Some(sonnet()), &usage), 7_000);
     }
 
     #[test]
@@ -61,13 +64,49 @@ mod tests {
         let usage = Usage {
             input_tokens: Some(1_000),
             output_tokens: Some(1_000),
+            ..Usage::default()
         };
         assert_eq!(cost_micros(None, &usage), 0);
-        let price = Some(Price {
+        assert_eq!(cost_micros(Some(sonnet()), &Usage::default()), 0);
+    }
+
+    /// Claude Sonnet 5.5's listed price.
+    fn sonnet() -> Price {
+        Price {
             input: 2.0,
             output: 10.0,
-        });
-        assert_eq!(cost_micros(price, &Usage::default()), 0);
+            cache_read: Some(0.1),
+            cache_write: Some(2.5),
+        }
+    }
+
+    #[test]
+    fn cached_input_is_charged_at_the_cache_prices() {
+        let usage = Usage {
+            input_tokens: Some(30_000),
+            output_tokens: Some(200),
+            cache_read_tokens: Some(29_000),
+            cache_write_tokens: Some(700),
+        };
+        // 300 plain × 2 + 29,000 read × 0.1 + 700 written × 2.5 + 200 out × 10
+        // = 600 + 2,900 + 1,750 + 2,000 = 7,250 micros.
+        assert_eq!(cost_micros(Some(sonnet()), &usage), 7_250);
+    }
+
+    #[test]
+    fn without_cache_prices_cached_input_costs_the_input_price() {
+        let price = Price {
+            input: 2.0,
+            output: 10.0,
+            cache_read: None,
+            cache_write: None,
+        };
+        let usage = Usage {
+            input_tokens: Some(1_000),
+            cache_read_tokens: Some(900),
+            ..Usage::default()
+        };
+        assert_eq!(cost_micros(Some(price), &usage), 2_000);
     }
 
     #[test]

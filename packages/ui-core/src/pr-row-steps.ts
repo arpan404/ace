@@ -1,9 +1,11 @@
+import { can, type ForgeCapabilitySource } from "./forge-capability.ts";
 import type { SidebarReader } from "@ace/client";
 import type { ForgePrRow, ForgeRepository, VerifyRun } from "@ace/protocol";
 import type { RowGroup } from "./forge-lists.ts";
 import {
   localCheckOf,
   prNextStep,
+  prStatusUnknown,
   prStepsForYou,
   type LocalCheckResult,
   type PrNextStep,
@@ -21,8 +23,8 @@ export interface LinkedThread {
 export type LinkedThreads = ReadonlyMap<string, LinkedThread>;
 
 /** One key per PR or issue: repository and number, case-insensitive like GitHub's names. */
-export function workKey(repository: Pick<ForgeRepository, "owner" | "name">, number: number) {
-  return `${repository.owner}/${repository.name}#${number}`.toLowerCase();
+export function workKey(repository: ForgeRepository, number: number) {
+  return `${repository.forge}@${repository.host}/${repository.owner}/${repository.name}#${number}`.toLowerCase();
 }
 
 /**
@@ -73,6 +75,7 @@ export function rowStep(
   viewer: string | undefined,
   thread: LinkedThread | undefined,
   runs: readonly VerifyRun[],
+  source: ForgeCapabilitySource = row.ref.repository,
 ): RowStep {
   const local = localCheckOf(
     runs,
@@ -86,7 +89,24 @@ export function rowStep(
     linkedNeedsYou: thread?.needsYou === true,
     local,
   });
-  return { step, local };
+  const supported = (() => {
+    switch (step) {
+      case "review":
+        return can(source, "reviews.approvals.write");
+      case "address":
+        return can(source, "reviews.comments.read");
+      case "fix":
+        return can(source, "reviews.checks");
+      case "merge":
+        return can(source, "reviews.merge");
+      case "resolve":
+      case "update":
+        return can(source, "reviews.edit");
+      default:
+        return true;
+    }
+  })();
+  return { step: supported ? step : "wait", local };
 }
 
 const groups = [
@@ -129,10 +149,11 @@ export function groupBySteps(
     .filter((group) => group.rows.length > 0);
 }
 
-/** The quiet word a row waiting on someone else shows; none when nothing more is known. */
+/** The quiet word a row waiting on someone else shows; none when it waits on nothing named. */
 export function waitingWord(row: ForgePrRow, local: LocalCheckResult): string | undefined {
   if (row.ci === "pending" || local === "running") return "Checks running";
   if (row.reviewDecision === "REVIEW_REQUIRED") return "Waiting on review";
+  if (prStatusUnknown(row)) return "Review status unavailable";
   return undefined;
 }
 

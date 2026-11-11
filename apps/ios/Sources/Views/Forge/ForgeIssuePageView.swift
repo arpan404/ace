@@ -108,7 +108,7 @@ struct ForgeIssuePageView: View {
                     .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                     .padding(.horizontal, AceTheme.Spacing.lg)
             }
-            if client.canOperate { commentBox(page) }
+            if client.canOperate, page.writable == true { commentBox(page) }
         }
         .padding(.vertical, AceTheme.Spacing.md)
     }

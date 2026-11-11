@@ -151,3 +151,40 @@ test("the add-account dialog cancels an API-key handoff without storing its inpu
   await waitFor(() => expect(screen.queryByLabelText("OpenAI API key")).toBeNull());
   expect([...storage.data.values()].join(" ")).not.toContain("fake-key-that-must-be-cleared");
 });
+
+test.each([
+  ["claude", "Claude Code"],
+  ["opencode", "OpenCode"],
+] as const)(
+  "a turned-off, signed-in %s says so, offers Turn on instead of sign-in, and recovers",
+  async (provider, name) => {
+    const app = harness();
+    app.daemon.services.settings.write("providers.configuration", [{ provider, enabled: false }]);
+    const status = app.daemon.services.providerStatuses.find((row) => row.provider === provider);
+    if (!status) throw new Error(`Missing ${name} fixture`);
+    // What the daemon reports for a provider it skips checking while it's turned off.
+    const discovered = { installed: status.installed, auth: status.auth };
+    status.installed = null;
+    status.auth = "unknown";
+    await app.open("/settings/providers");
+    const row = await screen.findByRole("group", { name });
+    await within(row).findByText("Turned off");
+    expect(within(row).queryByRole("button", { name: `Sign in to ${name}` })).toBeNull();
+    expect(within(row).queryByRole("button", { name: "Install" })).toBeNull();
+
+    await userEvent.click(within(row).getByRole("link", { name }));
+    await screen.findByText(new RegExp(`${name} is turned off in ace`));
+    expect(screen.queryByRole("list", { name: `${name} accounts` })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Sign in/ })).toBeNull();
+
+    Object.assign(status, discovered);
+    await userEvent.click(screen.getByRole("button", { name: `Turn on ${name}` }));
+    await waitFor(() =>
+      expect(screen.queryByText(new RegExp(`${name} is turned off in ace`))).toBeNull(),
+    );
+    expect(app.daemon.services.settings.get("providers.configuration")).toEqual([
+      expect.objectContaining({ provider, enabled: true }),
+    ]);
+    expect(screen.queryByRole("button", { name: `Turn on ${name}` })).toBeNull();
+  },
+);

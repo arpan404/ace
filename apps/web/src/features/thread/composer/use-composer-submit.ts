@@ -64,20 +64,33 @@ export function useComposerSubmit(args: {
       tokens: withTypedCommand(current.text, current.tokens ?? [], args.entries),
       attachments: attachments.ready,
     });
+    const { positions, ...parts } = content;
     const annotated = args.annotations.handOff();
     const quoted = args.quotes.handOff();
+    // The quoted block goes before the words, so each file's offset counts it too.
+    const lead = quoted?.part.type === "text" ? quoted.part.text.length : 0;
+    const keys = attachments.items.map((item) => item.key);
+    const files = attachments.handOff();
     const message = withAnnotations(
       {
         // What it replies to reads first, then the person's words.
         input: quoted ? [quoted.part, ...content.input] : content.input,
-        files: attachments.handOff(),
+        files: {
+          ...files,
+          local: files.local.map((file, index) => {
+            const at = positions.get(keys[index] ?? Number.NaN);
+            return at === undefined ? file : Object.assign({}, file, { at: at + lead });
+          }),
+        },
       },
       annotated,
       (image) => image,
     );
     const draft: Draft = {
-      text: current.text,
-      ...content,
+      ...parts,
+      attachments: parts.attachments.map((file) =>
+        file.at === undefined ? file : Object.assign({}, file, { at: file.at + lead }),
+      ),
       // Annotated tabs travel as context, so the agent gets each marker's element in its tab.
       threadRefs: [...content.threadRefs, ...(annotated?.items ?? [])],
       input: message.input,

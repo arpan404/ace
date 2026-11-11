@@ -1,5 +1,5 @@
 import { useState, type MouseEvent, type ReactNode } from "react";
-import { prTone, prWords, type MergeMethod } from "@ace/ui-core";
+import { can, forgeDisplayName, prTone, prWords, type MergeMethod } from "@ace/ui-core";
 import {
   Menu,
   MenuContent,
@@ -166,6 +166,17 @@ export function PrPrimaryControl(props: {
   blockingCount?: number | undefined;
 }) {
   const { actions } = props;
+  if (
+    !can(
+      actions.context.detail,
+      actions.primary.kind === "ready"
+        ? "reviews.edit"
+        : actions.primary.kind === "auto-merge" || actions.primary.kind === "auto-merge-ready"
+          ? "reviews.autoMerge"
+          : "reviews.merge",
+    )
+  )
+    return null;
   const working = actions.writes.pending || actions.mergeState.pending || actions.lifecycle.pending;
   return (
     <span className="inline-flex items-center gap-0.5">
@@ -274,7 +285,9 @@ export function PrHeader(props: {
   const toast = useToast();
   const openWeb = useOpenWebAddress();
   const openUrl = (url: string, click?: MouseEvent) =>
-    void openWeb(url, click).catch(() => toast.error({ title: "Couldn't open GitHub" }));
+    void openWeb(url, click).catch(() =>
+      toast.error({ title: `Couldn't open ${forgeDisplayName(repository.forge)}` }),
+    );
   return (
     <header className="shrink-0 pt-2">
       <div className="flex h-8 min-w-0 items-center gap-1 px-[var(--forge-gutter,1rem)]">
@@ -305,7 +318,7 @@ export function PrHeader(props: {
             </span>
           )}
           <ArrowSquareOutIcon aria-hidden size={12} className="shrink-0" />
-          <span className="sr-only">{`#${status.ref.number}, ${status.state}, open on GitHub`}</span>
+          <span className="sr-only">{`#${status.ref.number}, ${status.state}, open on ${forgeDisplayName(repository.forge)}`}</span>
         </button>
         {props.condensed && (
           <div className="min-w-0 flex-1 pl-1">

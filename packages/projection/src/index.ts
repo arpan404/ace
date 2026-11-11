@@ -92,7 +92,8 @@ export function createThreadListView(threads: Thread[] = [], seq = 0): ThreadLis
     seq,
     threads: Object.fromEntries(
       threads
-        .filter((thread) => thread.deletedAt === undefined)
+        // A host thread (ADR 0117) is the daemon's own, never listed.
+        .filter((thread) => thread.deletedAt === undefined && thread.host === undefined)
         .map((thread) => [thread.id, sidebarEntry(thread)]),
     ),
   };
@@ -185,6 +186,8 @@ export function updateThread(thread: Thread, event: Event): void {
     if (payload.delegatedFrom !== undefined)
       thread.delegatedFrom = structuredCopy(payload.delegatedFrom);
     if (payload.startedBy !== undefined) thread.startedBy = payload.startedBy;
+    if (payload.startedByClient !== undefined)
+      thread.startedByClient = structuredCopy(payload.startedByClient);
     if (payload.queuedLaunch === null) delete thread.queuedLaunch;
     else if (payload.queuedLaunch !== undefined)
       thread.queuedLaunch = structuredCopy(payload.queuedLaunch);
@@ -232,7 +235,8 @@ function foldThreadList(view: ThreadListView, event: DeliveryEvent): void {
     put(view.threads, event.threadId, sidebarEntry(event.payload.thread));
   const thread = get(view.threads, event.threadId);
   if (thread && isSidebarEvent(event)) updateThread(thread, event);
-  if (thread?.deletedAt !== undefined) delete view.threads[event.threadId];
+  if (thread?.deletedAt !== undefined || thread?.host !== undefined)
+    delete view.threads[event.threadId];
 }
 
 export function applyEvent(view: ThreadView, event: DeliveryEvent): ApplyResult {

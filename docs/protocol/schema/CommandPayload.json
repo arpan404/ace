@@ -1252,6 +1252,9 @@
       "type": "object"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/ProjectRepositoriesSetCommand.json"
+    },
+    {
       "properties": {
         "type": {
           "const": "workspace.git.lock.clear",
@@ -1594,7 +1597,8 @@
         },
         "reviewers": {
           "items": {
-            "pattern": "^[\\w-]+$",
+            "maxLength": 100,
+            "pattern": "^[\\w.-]+$",
             "type": "string"
           },
           "maxItems": 100,

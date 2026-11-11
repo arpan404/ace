@@ -213,3 +213,43 @@ it("a catch-up filed under a thread found to be a paired machine's still tells t
     threadIds: [local],
   });
 });
+
+it("Spade's hidden host thread never alerts or enters the inbox; a local thread still does", async () => {
+  const f = fixture();
+  const host = ThreadId.parse("spade-host");
+  f.append(
+    [
+      {
+        type: "thread.created",
+        thread: {
+          id: host,
+          workspaceId: WorkspaceId.parse("spade"),
+          title: "Spade",
+          provider: "codex",
+          host: "spade",
+          status: { state: "new" },
+          createdAt: 1000,
+          updatedAt: 1000,
+        },
+      },
+      { type: "thread.updated", status: { state: "working", agents: 1 } },
+      { type: "thread.updated", status: { state: "done" } },
+    ],
+    host,
+  );
+  f.service.notify({
+    id: "spade-says",
+    threadId: host,
+    title: "Spade",
+    status: "agent_says",
+    backgroundCount: 0,
+    actions: [],
+  });
+  await f.flush();
+  expect(f.deliveries).toEqual([]);
+  expect(f.service.feed(f.phone, 0).entries).toEqual([]);
+  f.start();
+  f.end();
+  await f.flush();
+  expect(f.deliveries.map((d) => d.notification.threadId)).toContain(f.threadId);
+});

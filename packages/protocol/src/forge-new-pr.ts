@@ -83,7 +83,7 @@ export type ForgeRepoPrOptions = z.infer<typeof ForgeRepoPrOptions>;
  * its network. The name matters: a fork can share its owner with its parent.
  */
 export const ForgeCompareHead = z.object({
-  owner: login,
+  owner: ForgeRepository.shape.owner,
   name: ForgeRepositoryName,
   branch: ForgeBranchName,
 });

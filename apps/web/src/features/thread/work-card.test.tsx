@@ -353,3 +353,30 @@ test("a subagent whose own turn ended stays with the running ones while its suba
   // Lead's own turn ended, but Helper still runs under it: waiting, never finished.
   expect(within(agents).getByRole("button", { name: "1 waiting · 1 finished" })).toBeTruthy();
 });
+
+test("an Origin review can be opened and linked without offering GitHub merge or review writes", async () => {
+  const repository = {
+    forge: "origin" as const,
+    host: "origin.cursor.com",
+    owner: "acme",
+    name: "relay",
+  };
+  const { card } = await open("changes", {
+    repository,
+    linkedPrs: [
+      {
+        repo: repository,
+        number: 188,
+        state: "open",
+        updatedAt: 1000,
+        url: "https://cursor.com/codebase/acme/relay/pull/188",
+      },
+    ],
+  });
+  expect(await within(card).findByRole("button", { name: /^Open pull request #188/ })).toBeTruthy();
+  expect(within(card).queryByRole("button", { name: "Merge pull request #188" })).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "More git actions" }));
+  expect(await screen.findByRole("menuitem", { name: "Link a pull request…" })).toBeTruthy();
+  expect(screen.queryByRole("menuitem", { name: "Request review…" })).toBeNull();
+  expect(screen.queryByRole("menuitem", { name: /Squash and merge/ })).toBeNull();
+});

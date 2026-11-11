@@ -161,6 +161,30 @@ export const PushAlertPayload = z.object({
   notification: Notification,
 });
 export type PushAlertPayload = z.infer<typeof PushAlertPayload>;
+/**
+ * An outside client waiting for the person to approve its sign-in (ADR 0117), as a push
+ * carries it: who asks and the match code to compare, nothing that signs anyone in. The
+ * scopes, tokens, authorization codes and redirect URLs stay on the machine.
+ */
+export const PushAccessAlert = z.object({
+  requestId: z.string().min(1).max(128),
+  clientName: z.string().min(1).max(256),
+  /** Null: the client's domain is unverified. */
+  domain: z.string().min(1).max(253).nullable(),
+  matchCode: z.string().min(4).max(16),
+  expiresAt: z.number().int().nonnegative(),
+});
+export type PushAccessAlert = z.infer<typeof PushAccessAlert>;
+/**
+ * A push that isn't about a thread. It has no `notification` key, so a phone that only knows
+ * `PushAlertPayload` fails to decode it and keeps the gateway's generic text.
+ */
+export const PushAccessPayload = z.object({
+  v: z.literal(1),
+  hostId: z.string().min(1).max(200),
+  access: PushAccessAlert,
+});
+export type PushAccessPayload = z.infer<typeof PushAccessPayload>;
 export const NotificationDevice = z.object({
   id: DeviceId.and(boundedId),
   address: NotificationAddress,

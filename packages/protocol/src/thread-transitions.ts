@@ -5,6 +5,7 @@ import { ProviderKind } from "./provider.ts";
 import { MessageContext } from "./context.ts";
 import { MessageText } from "./message-limits.ts";
 import { AcpIdentity } from "./agent-registry.ts";
+import { StartedByClient } from "./outside-clients.ts";
 
 export const ForkPoint = z.discriminatedUnion("type", [
   z.object({ type: z.literal("turn"), runId: RunId }),
@@ -221,6 +222,7 @@ export const ThreadTransitionView = z.object({
   delegatedBy: DelegatedBy.optional(),
   delegatedFrom: DelegatedFrom.optional(),
   startedBy: StartedBy.optional(),
+  startedByClient: StartedByClient.optional(),
   queuedLaunch: QueuedLaunch.optional(),
   execution: ExecutionSelection.optional(),
   switch: ThreadSwitch.optional(),

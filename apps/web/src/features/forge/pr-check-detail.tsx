@@ -1,3 +1,4 @@
+import { can } from "@ace/ui-core";
 import { useState, type ReactNode } from "react";
 import { ArrowSquareOutIcon, ArrowsClockwiseIcon, DotsThreeIcon } from "@phosphor-icons/react";
 import type { ForgeCheck, ForgeCheckRun } from "@ace/protocol";
@@ -44,7 +45,7 @@ function Actions(props: {
   const rerun = useCheckRerun({ workspaceId, pr, onDone: context.refresh });
   const agent = useFixWithAgent({ workspaceId, detail, hostThreadId: props.hostThreadId });
   const open = detail.status.state === "open" || detail.status.state === "draft";
-  const controls = checkControls(check, run, open);
+  const controls = checkControls(check, run, open && can(detail, "reviews.checks.write"));
   const workflow = run.workflow;
   const reason = context.disabled ? "Wait for GitHub to refresh" : undefined;
   const blocked = rerun.pending || context.disabled;

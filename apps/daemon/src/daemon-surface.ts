@@ -79,16 +79,24 @@ export function bindLiveServices(serverOptions: ServerOptions, services: Service
     "verify",
     "browsing",
     "computerUsing",
+    "externalMcp",
     "icons",
     "storage",
     "devices",
     "userBrowser",
+    "spade",
   ] as const)
     Object.defineProperty(serverOptions, key, {
       enumerable: true,
       configurable: true,
       get: () => services[key],
     });
+  // ace's relay forwards outside MCP requests to the outside endpoint once it runs (ADR 0117).
+  Object.defineProperty(serverOptions, "outsideMcpHttp", {
+    enumerable: true,
+    configurable: true,
+    get: () => services.externalMcp?.relay,
+  });
   Object.defineProperty(serverOptions, "relay", {
     enumerable: true,
     configurable: true,
@@ -173,6 +181,10 @@ export function daemonHandle({
     get workspaceActions() {
       return services.workspaceActions;
     },
+    /** The endpoint for MCP clients outside ace, with its relay and Tailscale handlers. */
+    get externalMcp() {
+      return services.externalMcp;
+    },
     storage: services.storage,
     engine: services.engine,
     agentControl: services.agentControl,
@@ -185,6 +197,9 @@ export function daemonHandle({
     },
     get skillLibrary() {
       return services.skillLibrary;
+    },
+    get spade() {
+      return services.spade;
     },
     get commands() {
       return services.commands;

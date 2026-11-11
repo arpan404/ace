@@ -96,6 +96,11 @@ export const SettingsValues = z.object({
    */
   "computer.lockedUse": z.boolean(),
   /**
+   * Run Spade, ace's assistant, beside the daemon (ADR 0117). Off by default; it also needs the
+   * Spade binary, from the release bundle or `ACE_SPADE_BIN`. Global, admin only.
+   */
+  "spade.enabled": z.boolean(),
+  /**
    * Android emulators ace starts open their own window too, for its extended controls
    * (sensors, camera, fingerprint). Off by default: ace shows and drives the device itself.
    * Read when an emulator boots, so a change applies to the next boot. Emulators the person
@@ -169,6 +174,49 @@ export const SettingsValues = z.object({
    * matches its version; the hosted one may not.
    */
   "remote.hostedPairingLink": z.boolean(),
+  /**
+   * Whether outside MCP clients, such as hosted assistants, reach this machine through ace's
+   * relay at `https://relay.acehq.dev/m/<hostId>/` (ADR 0117). Off by default. On this path the
+   * relay ends TLS and carries the requests in plain text; the daemon authorizes every one.
+   */
+  "remote.relayMcp": z.boolean(),
+  /**
+   * Whether outside MCP clients on the person's tailnet reach this machine at its ts.net name,
+   * on the Tailscale listener (ADR 0117). Off by default; serves only while Tailscale has issued
+   * the machine's HTTPS certificate.
+   */
+  "remote.tailscaleMcp": z.boolean(),
+  /**
+   * The person's own public HTTPS address for outside MCP clients (Tailscale Funnel, a tunnel or
+   * a reverse proxy to the loopback endpoint), or null (ADR 0117). An origin only: no path,
+   * query, fragment or credentials. Requests whose Host names it are accepted on the loopback
+   * endpoint.
+   */
+  "remote.mcpPublicUrl": z
+    .string()
+    .max(2048)
+    .refine((value) => {
+      try {
+        const url = new URL(value);
+        return (
+          url.protocol === "https:" &&
+          !url.username &&
+          !url.password &&
+          !url.search &&
+          !url.hash &&
+          url.pathname === "/" &&
+          !value.endsWith("/")
+        );
+      } catch {
+        return false;
+      }
+    }, "Use an https origin without a path, such as https://ace.example.com")
+    .meta({
+      "x-ace-constraint":
+        "Null, or an https origin without path, query, fragment, credentials or trailing slash.",
+      examples: [null, "https://ace.example.com"],
+    })
+    .nullable(),
   "remote.relayUrl": z
     .string()
     .max(2048)

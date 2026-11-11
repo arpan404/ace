@@ -1,0 +1,283 @@
+import { mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeAll, expect, test } from "vitest";
+import { z } from "zod";
+import { daemonFixture } from "../agent-control/daemon-test-support.ts";
+import { fakeHeadlessBackend } from "../browser-mcp-test-support.ts";
+import { invoke } from "../cli-test-support.ts";
+import {
+  adminWindow,
+  call,
+  enroll as enrollGrant,
+  listed,
+  toolResult,
+  rpc,
+  type Fixture,
+} from "./outside-test-support.ts";
+
+// One daemon for the file; registered after the fixture's own afterAll, so it closes before
+// its home goes. Each test enrolls its own grants.
+const closers: (() => unknown)[] = [];
+let shared: Promise<Fixture> | undefined;
+beforeAll(() => {
+  shared = daemonFixture(
+    undefined,
+    {
+      browser: {
+        headlessBackend: fakeHeadlessBackend(),
+        // Every public name resolves to one public address, without the network.
+        resolveHost: async () => ["93.184.215.14"],
+      },
+    },
+    // Everything the daemon logs, so the last test can look for tokens in it.
+    { ACE_LOG_LEVEL: "debug" },
+  );
+});
+afterAll(async () => {
+  for (const close of closers.splice(0).toReversed()) await close();
+  await (await shared)?.daemon.close();
+});
+/** Every token this file's grants were given, for the log check. */
+const tokens: string[] = [];
+async function enroll(f: Fixture, args: string[]) {
+  const lease = await enrollGrant(f, args);
+  tokens.push(lease.bearer);
+  return lease;
+}
+async function fixture() {
+  if (!shared) throw new Error("No daemon");
+  return shared;
+}
+test("a read-only grant lists only reads and every change it tries is refused with insufficient_scope", async () => {
+  const f = await fixture();
+  const lease = await enroll(f, ["--scope", "read"]);
+  const names = await listed(lease);
+  expect(names).toEqual(
+    expect.arrayContaining(["ace_projects_list", "ace_models_list", "ace_thread_read"]),
+  );
+  for (const name of ["ace_thread_run", "ace_thread_send", "ace_thread_stop", "browser_open"])
+    expect(names).not.toContain(name);
+  const before = f.daemon.store.listThreads().length;
+  const attempts: [string, unknown, string][] = [
+    [
+      "ace_thread_run",
+      { project: f.workspace, provider: "codex", text: "x", idempotencyKey: "k" },
+      "threads:start",
+    ],
+    [
+      "ace_thread_send",
+      { threadId: f.caller.threadId, text: "x", idempotencyKey: "k" },
+      "threads:message",
+    ],
+    ["ace_thread_stop", { threadId: f.caller.threadId, idempotencyKey: "k" }, "threads:stop"],
+    [
+      "ace_task_control",
+      { operation: { op: "task.cancel", threadId: f.caller.threadId, key: "k" } },
+      "threads:stop",
+    ],
+    ["browser_open", { url: "https://example.com" }, "browser"],
+    ["screen_apps", {}, "computer"],
+  ];
+  for (const [name, args, scope] of attempts) {
+    const refused = await call(lease, name, args);
+    expect(refused.status, name).toBe(403);
+    expect(refused.headers.get("www-authenticate")).toContain('error="insufficient_scope"');
+    expect(refused.headers.get("www-authenticate")).toContain(`scope="${scope}"`);
+  }
+  // A dispatched call is held to the scope of the tool it runs.
+  const dispatched = await call(lease, "tools_call", {
+    name: "ace_thread_stop",
+    arguments: { threadId: f.caller.threadId, idempotencyKey: "k" },
+  });
+  expect(dispatched.status).toBe(403);
+  expect(f.daemon.store.listThreads()).toHaveLength(before);
+  // Reads work.
+  expect(toolResult(await call(lease, "ace_projects_list", {})).structuredContent).toMatchObject({
+    ok: true,
+    data: { projects: [{ id: f.workspace }] },
+  });
+});
+
+test("each scope offers exactly its own tools", async () => {
+  const f = await fixture();
+  const own: Record<string, string[]> = {
+    "threads:start": ["ace_thread_run"],
+    "threads:message": ["ace_thread_send"],
+    "threads:stop": ["ace_thread_stop"],
+    browser: ["browser_open", "browser_act"],
+  };
+  for (const [scope, tools] of Object.entries(own)) {
+    const names = await listed(await enroll(f, ["--allow", scope]));
+    expect(names, scope).toEqual(expect.arrayContaining(["ace_threads_list", ...tools]));
+    for (const [other, theirs] of Object.entries(own))
+      if (other !== scope) for (const tool of theirs) expect(names, scope).not.toContain(tool);
+  }
+});
+
+test("a grant limited to one project neither sees nor starts work in another", async () => {
+  const f = await fixture();
+  await mkdir(join(f.h.home, "other"));
+  const other = f.daemon.store.createWorkspace(join(f.h.home, "other"), "other");
+  const lease = await enroll(f, ["--allow", "threads:start", "--project", f.workspace]);
+  const run = toolResult(
+    await call(lease, "ace_thread_run", {
+      project: other,
+      provider: "codex",
+      text: "elsewhere",
+      idempotencyKey: "other",
+    }),
+  );
+  expect(run.structuredContent).toMatchObject({ ok: false, error: "forbidden" });
+  expect(toolResult(await call(lease, "ace_projects_list", {})).structuredContent).toMatchObject({
+    data: { projects: [{ id: f.workspace }] },
+  });
+  const wide = await enroll(f, ["--scope", "read", "--project", other]);
+  expect(
+    toolResult(await call(wide, "ace_thread_read", { threadId: f.caller.threadId })).isError,
+  ).toBe(true);
+  // A thread in the other project: the limited grant's listing never names that project.
+  const elsewhere = f.controls.delegations.command("other-project-thread", {
+    type: "thread.create",
+    workspaceId: other,
+    provider: "codex",
+    input: [{ type: "text", text: "elsewhere" }],
+  });
+  expect(elsewhere.ok).toBe(true);
+  await f.daemon.engine?.flush();
+  const listing = await call(lease, "ace_threads_list", { limit: 100 });
+  expect(toolResult(listing).isError).not.toBe(true);
+  expect(listing.body).not.toContain(other);
+  expect(listing.body).not.toContain(String(elsewhere.threadId));
+});
+
+test("revoking or expiring a grant ends its token on the next request", async () => {
+  const f = await fixture();
+  const admin = await adminWindow(f, closers);
+  const revoked = await enroll(f, ["--scope", "read"]);
+  expect((await rpc(revoked, "tools/list")).status).toBe(200);
+  expect(await admin({ op: "revoke", grantId: revoked.id })).toEqual({ kind: "revoked" });
+  const after = await rpc(revoked, "tools/list");
+  expect(after.status).toBe(401);
+  expect(after.headers.get("www-authenticate")).toMatch(/^Bearer/);
+  const expiring = await enroll(f, ["--scope", "read"]);
+  const soon = f.h.clock.now() + 60_000;
+  const updated = await admin({ op: "update", grantId: expiring.id, expiresAt: soon });
+  expect(updated).toMatchObject({ kind: "updated", grant: { expiresAt: soon } });
+  expect((await rpc(expiring, "tools/list")).status).toBe(200);
+  f.h.clock.advance(soon);
+  expect((await rpc(expiring, "tools/list")).status).toBe(401);
+  // The revoked grant's row stays, so history can still name the client.
+  const grants = await admin({ op: "grants" });
+  expect(grants).toMatchObject({
+    kind: "grants",
+    grants: expect.arrayContaining([
+      expect.objectContaining({ id: revoked.id, revokedAt: expect.any(Number) }),
+    ]),
+  });
+  expect(JSON.stringify(grants)).not.toContain(revoked.bearer);
+});
+
+test("a grant's browser tabs belong to it and close when it is revoked", async () => {
+  const f = await fixture();
+  const lease = await enroll(f, ["--allow", "browser"]);
+  const opened = toolResult(await call(lease, "browser_open", { url: "https://example.com/" }));
+  expect(opened.isError, JSON.stringify(opened)).not.toBe(true);
+  const session = `external:${lease.id}`;
+  expect(f.daemon.browser.state(session)).toMatchObject({
+    closed: false,
+    url: "https://example.com/",
+  });
+  const revoked = await invoke(join(f.h.home, "daemon"), ["mcp", "revoke", lease.id, "--json"]);
+  expect(revoked.code, revoked.stderr).toBe(0);
+  await expect
+    .poll(() => {
+      try {
+        return f.daemon.browser.state(session).closed;
+      } catch {
+        return true;
+      }
+    })
+    .toBe(true);
+});
+
+test("an operate grant starts and messages threads, which show in the sidebar and in ace_threads_list, titled from its prompt", async () => {
+  const f = await fixture();
+  const lease = await enroll(f, ["--scope", "operate"]);
+  const started = z.object({ ok: z.literal(true), data: z.object({ threadId: z.string() }) }).parse(
+    toolResult(
+      await call(lease, "ace_thread_run", {
+        project: f.workspace,
+        provider: "codex",
+        text: "Summarise the release notes",
+        idempotencyKey: "sidebar-start",
+      }),
+    ).structuredContent,
+  ).data.threadId;
+  await f.daemon.engine?.flush();
+  const page = f.daemon.store.sidebarPage({ limit: 100 });
+  const entry = page.threads.find((thread) => thread.id === started);
+  expect(entry?.title).toContain("Summarise the release notes");
+  const threads = toolResult(await call(lease, "ace_threads_list", { limit: 100 }));
+  expect(JSON.stringify(threads.structuredContent)).toContain(started);
+  // --scope operate also messages the threads it may read.
+  const sent = toolResult(
+    await call(lease, "ace_thread_send", {
+      threadId: started,
+      text: "And the changelog",
+      idempotencyKey: "sidebar-send",
+    }),
+  );
+  expect(sent.structuredContent).toMatchObject({ ok: true });
+});
+
+test("a grant can't delegate to another machine or into a folder outside its project", async () => {
+  const f = await fixture();
+  const lease = await enroll(f, ["--scope", "operate", "--project", f.workspace]);
+  const outside = await mkdtemp(join(tmpdir(), "ace-outside-"));
+  closers.push(() => rm(outside, { recursive: true, force: true }));
+  const spawn = (request: Record<string, unknown>) =>
+    call(lease, "ace_task_control", {
+      operation: {
+        op: "task.spawn",
+        parentId: f.caller.threadId,
+        request: { task: "synthetic", role: "Outside child", provider: "claude", ...request },
+      },
+    });
+  const before = f.daemon.store.listThreads().length;
+  for (const request of [
+    { requestId: "elsewhere-machine", machine: "other-mac", project: "secrets" },
+    { requestId: "elsewhere-path", workspace: { kind: "existing_worktree", path: outside } },
+  ])
+    expect(toolResult(await spawn(request)).structuredContent).toMatchObject({
+      ok: false,
+      error: "forbidden",
+    });
+  expect(f.daemon.store.listThreads()).toHaveLength(before);
+});
+
+test("an outside grant's browser can't reach this machine or its local network", async () => {
+  const f = await fixture();
+  const lease = await enroll(f, ["--allow", "browser"]);
+  for (const url of ["http://127.0.0.1:9/", "http://localhost:3000/", "http://192.168.1.1/"]) {
+    const refused = toolResult(await call(lease, "browser_open", { url }));
+    expect(refused.isError, url).toBe(true);
+    expect(f.daemon.browser.state(`external:${lease.id}`).url).not.toBe(url);
+  }
+});
+
+// Last in the file: every grant above has used its token by now.
+test("the daemon log never contains a grant's token", async () => {
+  const f = await fixture();
+  const files = (await readdir(join(f.h.home, "daemon"), { recursive: true })).filter((name) =>
+    /(^|\/)logs\//.test(name),
+  );
+  const text = (
+    await Promise.all(
+      files.map((name) => readFile(join(f.h.home, "daemon", name), "utf8").catch(() => "")),
+    )
+  ).join("\n");
+  expect(text.length).toBeGreaterThan(0);
+  expect(tokens.length).toBeGreaterThan(5);
+  for (const token of tokens) expect(text).not.toContain(token);
+});

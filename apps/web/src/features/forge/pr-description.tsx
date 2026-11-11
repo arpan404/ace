@@ -1,3 +1,4 @@
+import { can } from "@ace/ui-core";
 import { useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -33,9 +34,11 @@ export function PrDescription(props: {
     observer?.observe(element);
     return () => observer?.disconnect();
   }, [expanded]);
-  const edit = props.extensions?.editDescription
-    ? () => props.extensions?.editDescription?.(props.context)
-    : props.onEdit;
+  const edit = !can(props.context.detail, "reviews.edit")
+    ? undefined
+    : props.extensions?.editDescription
+      ? () => props.extensions?.editDescription?.(props.context)
+      : props.onEdit;
   const { detail } = props.context;
   const at = detail.createdAt ?? detail.updatedAt;
   return (

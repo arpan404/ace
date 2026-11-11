@@ -179,6 +179,10 @@ export class NotificationService {
     this.database.touch(id, this.options.now());
     this.database.catchUp(id, this.options.now());
   }
+  /** Push addresses among these devices that may be alerted now (see `pushable`). */
+  pushAddresses(ids: readonly DeviceId[]): NotificationDevice[] {
+    return this.database.pushable(ids);
+  }
   getPreferences(id: DeviceId) {
     return this.database.device(id)?.preferences;
   }

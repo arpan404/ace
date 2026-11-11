@@ -1,3 +1,4 @@
+import { can } from "@ace/ui-core";
 import type { ReactNode } from "react";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { PrChangesGlance } from "./pr-changes-glance.tsx";
@@ -38,11 +39,13 @@ export function PrSummary(props: {
           onTasks={props.onTasks}
         />
         {props.merge}
-        <PrChangesGlance
-          workspaceId={context.workspaceId}
-          detail={detail}
-          onOpenCode={props.onOpenCode}
-        />
+        {can(detail, "reviews.files") && !detail.unavailableResources?.includes("files") && (
+          <PrChangesGlance
+            workspaceId={context.workspaceId}
+            detail={detail}
+            onOpenCode={props.onOpenCode}
+          />
+        )}
         {props.stack && (
           <PrStackSummary
             workspaceId={context.workspaceId}

@@ -5,6 +5,7 @@ import { ThreadStatus } from "./thread-status.ts";
 import { QueueState } from "./queue.ts";
 import { AgentTaskView } from "./agent-orchestration.ts";
 import { DelegationOutcome } from "./agent-control.ts";
+import { OutsideScope } from "./outside-clients.ts";
 
 /** The `ace sim` verbs; each is the sim_* MCP tool of the same name. */
 export const CliSimVerb = z.enum(["list", "start", "stop", "ui", "act", "screenshot", "logs"]);
@@ -18,11 +19,22 @@ export const CliOperation = z.discriminatedUnion("op", [
     project: WorkspaceId.optional(),
     key: z.string().regex(/^[a-zA-Z0-9_.-]{1,128}$/),
   }),
+  /**
+   * A grant for an outside MCP client that takes a pasted token (ADR 0117). `scope` is the old
+   * shorthand; `allow` names scopes exactly. Null `ttlMs`: until revoked.
+   */
   z.object({
     op: z.literal("mcp.enroll"),
-    scope: z.enum(["read", "operate"]),
-    ttlMs: z.number().int().positive().max(86400000),
-    project: WorkspaceId.optional(),
+    scope: z.enum(["read", "operate"]).optional(),
+    allow: z.array(OutsideScope).min(1).max(OutsideScope.options.length).optional(),
+    ttlMs: z
+      .number()
+      .int()
+      .positive()
+      .max(366 * 86_400_000)
+      .nullable(),
+    projects: z.array(WorkspaceId).min(1).max(256).optional(),
+    name: z.string().min(1).max(256).optional(),
   }),
   z.object({ op: z.literal("mcp.list") }),
   z.object({ op: z.literal("mcp.revoke"), id: z.string().min(1).max(128) }),

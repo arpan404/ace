@@ -2,7 +2,12 @@ import { useClient } from "@ace/client-react";
 import { ItemId, ThreadId } from "@ace/protocol";
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import { DownloadError, saveDownload } from "@/lib/save-download.ts";
-import { filePreviewTab, useOptionalWorkspace } from "@/lib/workspace/index.ts";
+import {
+  filePreviewTab,
+  TextEdits,
+  TextEditsContext,
+  useOptionalWorkspace,
+} from "@/lib/workspace/index.ts";
 import type { PreviewFile } from "./attachment-format.ts";
 import { useToast } from "./ui/toast.tsx";
 
@@ -65,11 +70,13 @@ export const PanelFileOpener = createContext<((file: PreviewFile) => boolean) | 
 
 /**
  * On a thread's screen, files its messages link, carry or save open in its side panel, each by
- * its kind (PDF, video, audio, image, text). With no panel, a linked file downloads.
+ * its kind (PDF, video, audio, image, text). With no panel, a linked file downloads. Text the
+ * composer holds (a long paste) edits in a panel tab through the screen's `TextEdits`.
  */
 export function ThreadLinkedFiles(props: { threadId: string; children: ReactNode }) {
   const download = useLinkedFileDownload();
   const workspace = useOptionalWorkspace(props.threadId);
+  const [edits] = useState(() => new TextEdits());
   const openLinked = useCallback(
     (target: LinkedFileTarget) => {
       if (!workspace) return void download(target);
@@ -106,7 +113,9 @@ export function ThreadLinkedFiles(props: { threadId: string; children: ReactNode
   }, [workspace]);
   return (
     <LinkedFileOpener value={openLinked}>
-      <PanelFileOpener value={openFile}>{props.children}</PanelFileOpener>
+      <PanelFileOpener value={openFile}>
+        <TextEditsContext value={workspace ? edits : undefined}>{props.children}</TextEditsContext>
+      </PanelFileOpener>
     </LinkedFileOpener>
   );
 }

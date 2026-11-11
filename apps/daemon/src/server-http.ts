@@ -25,6 +25,14 @@ export function httpChains(
   maintenance: MaintenanceGate,
   preview: () => DaemonPreview | undefined,
 ): { local: Server; remoteHttp(): ReturnType<typeof transfersHttp> } {
+  // Outside MCP clients at the ts.net name (ADR 0117) come first; everything else is the
+  // paired-device chain below.
+  const outsideFirst =
+    (next: ReturnType<typeof transfersHttp>): ReturnType<typeof transfersHttp> =>
+    (request, response) => {
+      if (options.externalMcp?.tailscale(request, response)) return;
+      next(request, response);
+    };
   const local = httpServer(
     webHttp(
       options.webRoot,
@@ -51,25 +59,27 @@ export function httpChains(
   );
   // Paired devices only: one chain for the static and the runtime-toggled TLS listener.
   const remoteHttp = () =>
-    transfersHttp(
-      () => options.transferTarget,
-      auth.deviceBearer.bind(auth),
-      machineCallsHttp(
-        () => options.machineCalls,
+    outsideFirst(
+      transfersHttp(
+        () => options.transferTarget,
         auth.deviceBearer.bind(auth),
-        webHttp(
-          options.webRoot,
-          attachmentsHttp(
-            options,
-            auth,
-            true,
-            iconsHttp(
+        machineCallsHttp(
+          () => options.machineCalls,
+          auth.deviceBearer.bind(auth),
+          webHttp(
+            options.webRoot,
+            attachmentsHttp(
               options,
               auth,
               true,
-              previewHttp(
-                preview,
-                accessHttp({ ...access, authenticate: auth.deviceBearer.bind(auth) }),
+              iconsHttp(
+                options,
+                auth,
+                true,
+                previewHttp(
+                  preview,
+                  accessHttp({ ...access, authenticate: auth.deviceBearer.bind(auth) }),
+                ),
               ),
             ),
           ),

@@ -23,7 +23,7 @@ const names: Record<PrTab, string> = {
  * Summary · Timeline · Code · Checks as words on the bar's hairline, the current one in full ink
  * and underlined in ink. Focus is the app's own ring, from the keyboard only. Focus shows only from the keyboard.
  */
-const wordTab =
+export const wordTab =
   "h-10 rounded-sm bg-transparent px-2 text-ui font-normal hover:not-data-active:bg-transparent data-active:bg-transparent data-active:font-medium before:pointer-events-none before:absolute before:inset-x-1 before:-bottom-px before:h-0.5 before:rounded-full before:bg-transparent data-active:before:bg-foreground hover:not-data-active:before:bg-border-strong";
 
 /**
@@ -36,6 +36,8 @@ const wordTab =
  * its own copy of those actions) has scrolled away.
  */
 export function PrTabs(props: {
+  /** Tabs the host can show; a tab marked false is left out and falls back to Summary. */
+  available?: Partial<Record<PrTab, boolean>>;
   tab: PrTab;
   onTab(tab: string): void;
   context: Record<PrTab, ReactNode>;
@@ -48,6 +50,8 @@ export function PrTabs(props: {
   /** On a page of its own: the page's column, which every tab (Code too) keeps to. */
   readable?: string | undefined;
 }) {
+  const visible = order.filter((tab) => props.available?.[tab] !== false);
+  const selected = visible.includes(props.tab) ? props.tab : "summary";
   const page = props.readable !== undefined;
   const bar = useRef<HTMLDivElement | null>(null);
   const codeHeight = usePageCodeHeight(bar, page);
@@ -64,12 +68,12 @@ export function PrTabs(props: {
         scroller.scrollTop;
       if (tab === "code" || scroller.scrollTop > top) scroller.scrollTop = top;
     });
-  const pinned = page && stuck ? props.pinned?.[props.tab] : undefined;
+  const pinned = page && stuck ? props.pinned?.[selected] : undefined;
   return (
     <Tabs
-      value={props.tab}
+      value={selected}
       onValueChange={(value) => {
-        if (typeof value !== "string") return;
+        if (typeof value !== "string" || !visible.some((tab) => tab === value)) return;
         props.onTab(value);
         if (page) toBar(value);
       }}
@@ -86,7 +90,7 @@ export function PrTabs(props: {
           )}
         >
           <TabsList aria-label="Pull request detail" className="-ml-2 gap-1">
-            {order.map((tab) => (
+            {visible.map((tab) => (
               <TabsTab key={tab} value={tab} className={wordTab}>
                 {names[tab]}
                 {!!props.counts[tab] && (
@@ -101,12 +105,12 @@ export function PrTabs(props: {
             ))}
           </TabsList>
           <div className="flex min-w-0 items-center gap-2">
-            {props.context[props.tab]}
+            {props.context[selected]}
             {pinned}
           </div>
         </div>
       </div>
-      {order.map((tab) => (
+      {visible.map((tab) => (
         <TabsPanel
           key={tab}
           value={tab}

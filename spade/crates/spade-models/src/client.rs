@@ -1,48 +1,48 @@
-//! The I/O shell: turns Spade prompts into SDK calls on the configured gateway.
-
-use futures_util::{Stream, StreamExt};
-use genai::adapter::AdapterKind;
-use genai::chat::{ChatMessage, ChatOptions, ChatRequest, ChatStreamEvent};
-use genai::resolver::{AuthData, Endpoint};
-use genai::{Client, ModelIden, ServiceTarget};
-use schemars::JsonSchema;
-use serde::de::DeserializeOwned;
+//! The I/O shell: turns Spade prompts into calls on the endpoint a model reference names.
 
 use std::sync::Arc;
 
-use crate::catalog::{Catalog, Price, Role};
-use crate::config::ModelsConfig;
-use crate::error::ModelError;
-use crate::gateway::{self, Gateway, Protocol};
-use crate::prompt::{Delta, Prompt, Reply, Speaker, Usage};
-use crate::typed;
+use futures_util::{Stream, StreamExt};
+use genai::chat::{
+    ChatMessage, ChatOptions, ChatRequest, ChatStreamEvent, ContentPart, MessageContent, Tool,
+    ToolCall as SdkCall, ToolResponse,
+};
+use genai::resolver::{AuthData, Endpoint as ServiceEndpoint};
+use genai::{Client, Headers, ModelIden, ServiceTarget};
+use schemars::JsonSchema;
+use serde::de::DeserializeOwned;
 
-/// Calls Spade's models through one gateway.
+use crate::catalog::{Catalog, Price, Role};
+use crate::error::{self, ModelError};
+use crate::prompt::{Delta, Generated, Message, Prompt, Reply, ToolCall, Usage};
+use crate::{thoughts, typed};
+use spade_keys::{KeyRequest, Keys};
+
+/// Calls the catalogue's models on their endpoints.
 #[derive(Debug, Clone)]
 pub struct Models {
     client: Client,
-    config: ModelsConfig,
     catalog: Arc<Catalog>,
+    keys: Keys,
 }
+
+/// Sent to an endpoint that needs no key (a local server), which ignores it.
+pub const KEYLESS: &str = "no-key";
 
 /// A model resolved for one call.
 struct Call {
-    id: String,
+    reference: String,
     target: ServiceTarget,
+    options: ChatOptions,
 }
 
 impl Models {
-    /// Fails if `catalog` sets no defaults for the configured gateway, so a role always has a
-    /// model.
-    pub fn new(config: ModelsConfig, catalog: Catalog) -> Result<Self, ModelError> {
-        if catalog.default_for(config.gateway, Role::Main).is_none() {
-            return Err(ModelError::NoDefaults(config.gateway));
-        }
+    pub fn new(catalog: Catalog, keys: Keys) -> Result<Self, ModelError> {
         let client = Client::new().map_err(|error| ModelError::Setup(error.to_string()))?;
         Ok(Self {
             client,
-            config,
             catalog: Arc::new(catalog),
+            keys,
         })
     }
 
@@ -50,153 +50,256 @@ impl Models {
         &self.catalog
     }
 
-    /// What the configured gateway charges for `model`; `None` when unlisted or flat-rate.
-    pub fn price(&self, model: &str) -> Option<Price> {
-        self.catalog
-            .find(model)
-            .and_then(|m| m.route(self.config.gateway))
-            .and_then(|route| route.price)
-    }
-
-    pub fn gateway(&self) -> Gateway {
-        self.config.gateway
-    }
-
-    /// The model this gateway uses for `role`.
+    /// The `endpoint/model` set for `role`.
     pub fn for_role(&self, role: Role) -> &str {
-        // `new` checked that this gateway has defaults.
-        self.catalog
-            .default_for(self.config.gateway, role)
-            .unwrap_or_default()
+        self.catalog.role(role)
     }
 
-    pub async fn chat(&self, model: &str, prompt: &Prompt) -> Result<Reply, ModelError> {
-        let call = self.call(model)?;
-        let options = options(prompt);
+    /// What `reference` costs; `None` when unlisted, flat-rate or local.
+    pub fn price(&self, reference: &str) -> Option<Price> {
+        self.catalog.resolve(reference).and_then(|r| r.model.price)
+    }
+
+    pub async fn chat(&self, reference: &str, prompt: &Prompt) -> Result<Reply, ModelError> {
+        let call = self.call(reference, prompt)?;
         let response = self
             .client
-            .exec_chat(call.target, request(prompt), Some(&options))
+            .exec_chat(call.target, request(prompt), Some(&call.options))
             .await
-            .map_err(|error| provider_error(&call.id, &error))?;
+            .map_err(|error| provider_error(&call.reference, &error))?;
         let usage = usage(&response.usage);
-        let text = response
-            .into_first_text()
-            .ok_or_else(|| ModelError::Empty {
-                model: call.id.to_owned(),
-            })?;
+        let calls: Vec<ToolCall> = response
+            .content
+            .tool_calls()
+            .into_iter()
+            .map(from_sdk)
+            .collect();
+        let thoughts = thoughts::read(
+            Some(&response.content),
+            response.reasoning_content.as_deref(),
+        );
+        let text = response.content.joined_texts().unwrap_or_default();
+        if text.is_empty() && calls.is_empty() {
+            return Err(ModelError::Empty {
+                model: call.reference,
+                usage,
+            });
+        }
         Ok(Reply {
-            model: call.id,
+            model: call.reference,
             text,
+            calls,
+            thoughts,
             usage,
         })
     }
 
     /// Asks for a reply shaped as `T` and parses it.
-    pub async fn generate<T>(&self, model: &str, prompt: &Prompt) -> Result<T, ModelError>
+    pub async fn generate<T>(
+        &self,
+        reference: &str,
+        prompt: &Prompt,
+    ) -> Result<Generated<T>, ModelError>
     where
         T: JsonSchema + DeserializeOwned,
     {
-        let call = self.call(model)?;
-        let options = options(prompt).with_response_format(typed::spec::<T>()?);
+        let call = self.call(reference, prompt)?;
+        let options = call.options.with_response_format(typed::spec::<T>()?);
         let response = self
             .client
             .exec_chat(call.target, request(prompt), Some(&options))
             .await
-            .map_err(|error| provider_error(&call.id, &error))?;
+            .map_err(|error| provider_error(&call.reference, &error))?;
+        let cost = usage(&response.usage);
         let text = response.first_text().ok_or_else(|| ModelError::Empty {
-            model: call.id.to_owned(),
+            model: call.reference.clone(),
+            usage: cost,
         })?;
-        typed::parse(&call.id, text)
+        Ok(Generated {
+            value: typed::parse(&call.reference, text).map_err(|e| error::charged(e, cost))?,
+            usage: cost,
+        })
     }
 
     /// Streams the reply. The last item is [`Delta::Done`] unless the stream fails first.
     pub async fn stream(
         &self,
-        model: &str,
+        reference: &str,
         prompt: &Prompt,
     ) -> Result<impl Stream<Item = Result<Delta, ModelError>> + Send + use<>, ModelError> {
-        let call = self.call(model)?;
-        let options = options(prompt).with_capture_usage(true);
+        let call = self.call(reference, prompt)?;
+        let options = call
+            .options
+            .with_capture_usage(true)
+            .with_capture_tool_calls(true)
+            .with_capture_content(true)
+            .with_capture_reasoning_content(true);
         let response = self
             .client
             .exec_chat_stream(call.target, request(prompt), Some(&options))
             .await
-            .map_err(|error| provider_error(&call.id, &error))?;
-        let id = call.id;
-        Ok(response.stream.filter_map(move |event| {
-            let delta = match event {
-                Ok(ChatStreamEvent::Chunk(chunk)) => Some(Ok(Delta::Text(chunk.content))),
-                Ok(ChatStreamEvent::ReasoningChunk(chunk)) => {
-                    Some(Ok(Delta::Reasoning(chunk.content)))
-                }
-                Ok(ChatStreamEvent::End(end)) => Some(Ok(Delta::Done {
-                    usage: end.captured_usage.as_ref().map(usage).unwrap_or_default(),
-                })),
-                // Start and heartbeats carry nothing. Tool calls and thought signatures arrive
-                // only when tools are sent, which comes with the agent loop.
-                Ok(_) => None,
-                Err(error) => Some(Err(provider_error(&id, &error))),
+            .map_err(|error| provider_error(&call.reference, &error))?;
+        let reference = call.reference;
+        Ok(response
+            .stream
+            .filter_map(move |event| {
+                let delta = match event {
+                    Ok(ChatStreamEvent::Chunk(chunk)) => Some(vec![Ok(Delta::Text(chunk.content))]),
+                    Ok(ChatStreamEvent::ReasoningChunk(chunk)) => {
+                        Some(vec![Ok(Delta::Reasoning(chunk.content))])
+                    }
+                    Ok(ChatStreamEvent::End(end)) => {
+                        // Complete tool calls are only known at the end, once arguments are whole.
+                        let mut out: Vec<Result<Delta, ModelError>> = end
+                            .captured_tool_calls()
+                            .unwrap_or_default()
+                            .into_iter()
+                            .map(|call| Ok(Delta::Call(from_sdk(call))))
+                            .collect();
+                        out.push(Ok(Delta::Done {
+                            usage: end.captured_usage.as_ref().map(usage).unwrap_or_default(),
+                            thoughts: thoughts::read(
+                                end.captured_content.as_ref(),
+                                end.captured_reasoning_content.as_deref(),
+                            ),
+                        }));
+                        Some(out)
+                    }
+                    // Start, heartbeats and partial tool-call chunks carry nothing the caller needs.
+                    Ok(_) => None,
+                    Err(error) => Some(vec![Err(provider_error(&reference, &error))]),
+                };
+                std::future::ready(delta)
+            })
+            .flat_map(futures_util::stream::iter))
+    }
+
+    fn call(&self, reference: &str, prompt: &Prompt) -> Result<Call, ModelError> {
+        let resolved = self
+            .catalog
+            .resolve(reference)
+            .ok_or_else(|| ModelError::UnknownModel(reference.to_owned()))?;
+        let endpoint = resolved.endpoint;
+        let auth = if endpoint.needs_key {
+            let request = KeyRequest {
+                endpoint: &endpoint.id,
+                env: endpoint.key_env.as_deref(),
             };
-            std::future::ready(delta)
-        }))
-    }
-
-    fn call(&self, model: &str) -> Result<Call, ModelError> {
-        let target = gateway::resolve(
-            &self.catalog,
-            model,
-            self.config.gateway,
-            self.config.root.as_deref(),
-        )?;
+            let key = self
+                .keys
+                .get(request)
+                .ok_or_else(|| ModelError::MissingKey {
+                    endpoint: endpoint.id.clone(),
+                    var: endpoint.key_env.clone(),
+                })?;
+            AuthData::from_single(key)
+        } else {
+            // The SDK's OpenAI path needs some key; local servers ignore this one.
+            AuthData::from_single(KEYLESS)
+        };
+        let mut options = ChatOptions::default();
+        if let Some(value) = prompt.max_tokens {
+            options = options.with_max_tokens(value);
+        }
+        if !endpoint.headers.is_empty() {
+            options = options.with_extra_headers(Headers::from(endpoint.headers.clone()));
+        }
         Ok(Call {
-            id: target.id,
+            reference: reference.to_owned(),
             target: ServiceTarget {
-                endpoint: Endpoint::from_owned(target.base_url),
-                auth: AuthData::from_single(self.config.key.expose()),
-                model: ModelIden::new(adapter(target.protocol), target.model),
+                endpoint: ServiceEndpoint::from_owned(endpoint.base_url.clone()),
+                auth,
+                model: ModelIden::new(endpoint.format.adapter(), resolved.model.id.as_str()),
             },
+            options,
         })
-    }
-}
-
-fn adapter(protocol: Protocol) -> AdapterKind {
-    match protocol {
-        Protocol::OpenAi => AdapterKind::OpenAI,
-        Protocol::Anthropic => AdapterKind::Anthropic,
-        Protocol::Gemini => AdapterKind::Gemini,
-        Protocol::OpenRouter => AdapterKind::OpenRouter,
     }
 }
 
 fn request(prompt: &Prompt) -> ChatRequest {
-    let messages = prompt
-        .messages
-        .iter()
-        .map(|message| match message.speaker {
-            Speaker::Person => ChatMessage::user(message.text.as_str()),
-            Speaker::Spade => ChatMessage::assistant(message.text.as_str()),
-        })
-        .collect();
-    let request = ChatRequest::new(messages);
-    match &prompt.system {
-        Some(system) => request.with_system(system.as_str()),
-        None => request,
+    let mut request = ChatRequest::new(prompt.messages.iter().map(message).collect());
+    if let Some(system) = &prompt.system {
+        request = request.with_system(system.as_str());
+    }
+    if !prompt.tools.is_empty() {
+        request = request.with_tools(prompt.tools.iter().map(|tool| {
+            Tool::new(tool.name.clone())
+                .with_description(tool.description.clone())
+                .with_schema(tool.schema.clone())
+        }));
+    }
+    request
+}
+
+fn message(message: &Message) -> ChatMessage {
+    match message {
+        Message::Person { text, images } if images.is_empty() => ChatMessage::user(text.as_str()),
+        Message::Person { text, images } => {
+            let mut parts = vec![ContentPart::Text(text.clone())];
+            parts.extend(images.iter().map(|image| {
+                ContentPart::from_binary_base64(image.media_type.clone(), image.data.clone(), None)
+            }));
+            ChatMessage::user(MessageContent::from_parts(parts))
+        }
+        Message::Spade {
+            text,
+            calls,
+            thoughts,
+        } if calls.is_empty() && thoughts.is_empty() => ChatMessage::assistant(text.as_str()),
+        Message::Spade {
+            text,
+            calls,
+            thoughts,
+        } => {
+            // Thoughts first, then text, then the calls: the order providers expect back.
+            let mut parts: Vec<ContentPart> = thoughts::parts(thoughts);
+            if !text.is_empty() {
+                parts.push(ContentPart::Text(text.clone()));
+            }
+            parts.extend(calls.iter().map(|call| {
+                ContentPart::ToolCall(SdkCall {
+                    call_id: call.id.clone(),
+                    fn_name: call.name.clone(),
+                    fn_arguments: call.arguments.clone(),
+                    thought_signatures: None,
+                })
+            }));
+            ChatMessage::assistant(MessageContent::from_parts(parts))
+        }
+        Message::ToolResult {
+            call_id,
+            name,
+            content,
+            is_error,
+        } => {
+            let content = if *is_error {
+                format!("Error: {content}")
+            } else {
+                content.clone()
+            };
+            ChatMessage::from(
+                ToolResponse::new(call_id.as_str(), content).with_fn_name(name.as_str()),
+            )
+        }
     }
 }
 
-fn options(prompt: &Prompt) -> ChatOptions {
-    let options = ChatOptions::default();
-    match prompt.max_tokens {
-        Some(value) => options.with_max_tokens(value),
-        None => options,
+fn from_sdk(call: &SdkCall) -> ToolCall {
+    ToolCall {
+        id: call.call_id.clone(),
+        name: call.fn_name.clone(),
+        arguments: call.fn_arguments.clone(),
     }
 }
 
 fn usage(usage: &genai::chat::Usage) -> Usage {
     let count = |value: Option<i32>| value.and_then(|v| u32::try_from(v).ok());
+    let details = usage.prompt_tokens_details.as_ref();
     Usage {
         input_tokens: count(usage.prompt_tokens),
         output_tokens: count(usage.completion_tokens),
+        cache_read_tokens: count(details.and_then(|d| d.cached_tokens)),
+        cache_write_tokens: count(details.and_then(|d| d.cache_creation_tokens)),
     }
 }
 

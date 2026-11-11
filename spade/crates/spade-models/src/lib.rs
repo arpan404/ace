@@ -1,18 +1,23 @@
-//! Spade's model access. Models are listed in a JSON catalogue file loaded at startup
-//! ([`Catalog`]); callers name them by Spade's own ids or ask for a [`Role`], and the configured
-//! [`Gateway`] decides where calls go. The SDK stays inside this crate.
+//! Spade's model access. Endpoints and their models are listed in a JSON catalogue loaded at
+//! startup ([`Catalog`]). Any endpoint that speaks OpenAI Chat Completions, OpenAI Responses or
+//! Anthropic Messages works. Callers name a model as `endpoint/model` or ask for a [`Role`]. The
+//! SDK stays inside this crate.
 
 pub mod catalog;
 mod client;
 pub mod config;
 mod error;
-pub mod gateway;
+mod format;
 mod prompt;
+mod thoughts;
 mod typed;
 
-pub use catalog::{Catalog, CatalogError, Model, Price, Role, Route};
-pub use client::Models;
-pub use config::{ApiKey, ModelsConfig};
+pub use catalog::{Capability, Catalog, CatalogError, Endpoint, Model, Price, Resolved, Role};
+pub use client::{KEYLESS, Models};
+pub use config::ModelsConfig;
 pub use error::ModelError;
-pub use gateway::{Gateway, Protocol};
-pub use prompt::{Delta, Message, Prompt, Reply, Speaker, Usage};
+pub use format::Format;
+pub use prompt::{
+    Delta, Generated, Image, Message, Prompt, Reply, Thought, ToolCall, ToolSpec, Usage,
+};
+pub use spade_keys::{KeyRequest, Keys};

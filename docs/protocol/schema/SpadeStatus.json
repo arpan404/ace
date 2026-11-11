@@ -1,0 +1,36 @@
+{
+  "$id": "https://ace.local/protocol/v1/SpadeStatus.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "reason": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "state": {
+      "$ref": "https://ace.local/protocol/v1/SpadeState.json"
+    },
+    "thread": {
+      "properties": {
+        "busy": {
+          "type": "boolean"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        }
+      },
+      "required": [
+        "id",
+        "busy"
+      ],
+      "type": "object"
+    },
+    "version": {
+      "maxLength": 64,
+      "type": "string"
+    }
+  },
+  "required": [
+    "state"
+  ],
+  "type": "object"
+}

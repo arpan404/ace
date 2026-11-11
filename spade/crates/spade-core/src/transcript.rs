@@ -32,6 +32,29 @@ pub struct Message {
 pub struct Transcript {
     pub messages: Vec<Message>,
     pub title: Option<String>,
+    /// Tool calls of the open reply that are running now.
+    pub running: Vec<String>,
+    /// Tool calls of the open reply waiting for the person's approval.
+    pub awaiting: Vec<String>,
+    /// Background jobs still running, by job id. They outlive the turn that started them.
+    pub jobs: Vec<String>,
+    /// The person pressed Stop while the open reply ran; it ends as stopped.
+    pub stopping: bool,
+    /// Tools the person allowed "always" in this conversation.
+    pub always_allowed: Vec<String>,
+    /// Which tool each approval asked about, by call id.
+    asked: Vec<(String, String)>,
+}
+
+/// What the open reply is doing, for status and restart recovery.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TurnState {
+    /// Streaming from the model or about to call it.
+    Answering,
+    /// Running one or more tools.
+    RunningTools,
+    /// Stopped until the person answers an approval.
+    WaitingOnYou,
 }
 
 impl Transcript {
@@ -46,18 +69,21 @@ impl Transcript {
     pub fn apply(&mut self, event: &Event) {
         let Event::Known(event) = event else { return };
         match event {
-            Known::UserMessage { text } => self.messages.push(Message {
+            Known::UserMessage { text, .. } => self.messages.push(Message {
                 speaker: Speaker::Person,
                 text: text.clone(),
                 reply: None,
                 outcome: Outcome::Finished,
             }),
-            Known::ReplyStarted { reply, .. } => self.messages.push(Message {
-                speaker: Speaker::Spade,
-                text: String::new(),
-                reply: Some(reply.clone()),
-                outcome: Outcome::Answering,
-            }),
+            Known::ReplyStarted { reply, .. } => {
+                self.stopping = false;
+                self.messages.push(Message {
+                    speaker: Speaker::Spade,
+                    text: String::new(),
+                    reply: Some(reply.clone()),
+                    outcome: Outcome::Answering,
+                });
+            }
             Known::ReplyProgress { reply, text } => self.update(reply, text, None),
             Known::ReplyFinished { reply, text, .. } => {
                 self.update(reply, text, Some(Outcome::Finished));
@@ -72,6 +98,53 @@ impl Transcript {
                 self.update(reply, text, Some(Outcome::Interrupted));
             }
             Known::Renamed { title } => self.title = Some(title.clone()),
+            Known::StepFinished { reply, text, .. } if !text.is_empty() => {
+                self.update(reply, text, None);
+            }
+            Known::ToolStarted { call_id, .. } => self.running.push(call_id.clone()),
+            Known::ToolFinished { call_id, .. } => self.running.retain(|id| id != call_id),
+            Known::ApprovalRequested { call_id, name, .. } => {
+                if !self.stopping {
+                    self.awaiting.push(call_id.clone());
+                }
+                self.asked.push((call_id.clone(), name.clone()));
+            }
+            Known::ApprovalAnswered {
+                call_id,
+                allowed,
+                always,
+                ..
+            } => {
+                self.awaiting.retain(|id| id != call_id);
+                let tool = self
+                    .asked
+                    .iter()
+                    .rev()
+                    .find(|(id, _)| id == call_id)
+                    .map(|(_, name)| name.clone());
+                if let (true, true, Some(tool)) = (*allowed, *always, tool)
+                    && !self.always_allowed.contains(&tool)
+                {
+                    self.always_allowed.push(tool);
+                }
+            }
+            Known::JobStarted { job, .. } => self.jobs.push(job.clone()),
+            Known::JobFinished { job, .. } => self.jobs.retain(|id| id != job),
+            Known::StopRequested { reply, .. } => {
+                let open = self.open_reply().and_then(|m| m.reply.clone());
+                if open.is_some() && open == *reply {
+                    // Nothing waiting can be answered once Stop is pressed.
+                    self.stopping = true;
+                    self.awaiting.clear();
+                }
+            }
+            Known::StepFinished { .. }
+            | Known::SkillsIndexed { .. }
+            | Known::ContextCompacted { .. } => {}
+        }
+        if self.open_reply().is_none() {
+            self.running.clear();
+            self.awaiting.clear();
         }
     }
 
@@ -97,15 +170,44 @@ impl Transcript {
             .find(|m| m.outcome == Outcome::Answering)
     }
 
-    /// The event that closes the open reply after a restart, keeping its last checkpoint.
+    /// What the open reply is doing, if there is one.
+    pub fn turn_state(&self) -> Option<TurnState> {
+        self.open_reply()?;
+        Some(if !self.running.is_empty() {
+            TurnState::RunningTools
+        } else if !self.awaiting.is_empty() {
+            TurnState::WaitingOnYou
+        } else {
+            TurnState::Answering
+        })
+    }
+
+    /// The event that closes the open reply after a restart, keeping its last checkpoint. A reply
+    /// only waiting for the person's approval stays open: the approval survives the restart.
     pub fn close_after_restart(&self) -> Option<Event> {
         let open = self.open_reply()?;
         let reply = open.reply.clone()?;
+        if self.stopping {
+            // Stop was pressed before the restart: the reply ends stopped, approvals and all.
+            return Some(Event::reply_ended(
+                ReplyEnd::Stopped,
+                reply,
+                open.text.clone(),
+            ));
+        }
+        if self.turn_state() == Some(TurnState::WaitingOnYou) {
+            return None;
+        }
         Some(Event::reply_ended(
             ReplyEnd::Interrupted,
             reply,
             open.text.clone(),
         ))
+    }
+
+    /// Whether anything is still working: an open reply or a background job.
+    pub fn busy(&self) -> bool {
+        self.open_reply().is_some() || !self.jobs.is_empty()
     }
 
     /// The first thing the person wrote.
@@ -185,6 +287,143 @@ mod tests {
         }
         assert!(transcript.open_reply().is_none());
         assert_eq!(transcript.close_after_restart(), None);
+    }
+
+    fn call(id: &str) -> crate::event::Call {
+        crate::event::Call {
+            id: id.into(),
+            name: "send_email".into(),
+            arguments: serde_json::json!({}),
+        }
+    }
+
+    fn step_with(reply: &str, calls: Vec<crate::event::Call>) -> Event {
+        Event::Known(Known::StepFinished {
+            reply: reply.into(),
+            text: String::new(),
+            calls,
+            thoughts: Vec::new(),
+            usage: crate::event::Tokens::default(),
+            cost_micros: 0,
+            seen: None,
+        })
+    }
+
+    #[test]
+    fn a_reply_waiting_for_approval_survives_a_restart() {
+        let events = [
+            Event::user_message("Email Sam"),
+            Event::reply_started("r1", "m"),
+            step_with("r1", vec![call("c1")]),
+            Event::Known(Known::ApprovalRequested {
+                reply: "r1".into(),
+                call_id: "c1".into(),
+                name: "send_email".into(),
+                arguments: serde_json::json!({}),
+            }),
+        ];
+        let transcript = Transcript::fold(&events);
+        assert_eq!(transcript.turn_state(), Some(TurnState::WaitingOnYou));
+        assert_eq!(transcript.close_after_restart(), None);
+    }
+
+    #[test]
+    fn a_reply_stopped_while_waiting_for_approval_ends_stopped_after_a_restart() {
+        let events = [
+            Event::user_message("Email Sam"),
+            Event::reply_started("r1", "m"),
+            step_with("r1", vec![call("c1")]),
+            Event::Known(Known::ApprovalRequested {
+                reply: "r1".into(),
+                call_id: "c1".into(),
+                name: "send_email".into(),
+                arguments: serde_json::json!({}),
+            }),
+            Event::Known(Known::StopRequested {
+                reply: Some("r1".into()),
+                jobs: Vec::new(),
+            }),
+        ];
+        let transcript = Transcript::fold(&events);
+        assert!(
+            transcript.awaiting.is_empty(),
+            "the approval can no longer be answered"
+        );
+        assert_eq!(
+            transcript.close_after_restart(),
+            Some(Event::reply_ended(ReplyEnd::Stopped, "r1", ""))
+        );
+    }
+
+    #[test]
+    fn always_allowing_remembers_the_tool_for_the_conversation() {
+        let events = [
+            Event::user_message("Email Sam"),
+            Event::reply_started("r1", "m"),
+            step_with("r1", vec![call("c1")]),
+            Event::Known(Known::ApprovalRequested {
+                reply: "r1".into(),
+                call_id: "c1".into(),
+                name: "send_email".into(),
+                arguments: serde_json::json!({}),
+            }),
+            Event::Known(Known::ApprovalAnswered {
+                reply: "r1".into(),
+                call_id: "c1".into(),
+                allowed: true,
+                always: true,
+            }),
+        ];
+        let transcript = Transcript::fold(&events);
+        assert_eq!(transcript.always_allowed, vec!["send_email".to_owned()]);
+        assert_eq!(transcript.turn_state(), Some(TurnState::Answering));
+    }
+
+    #[test]
+    fn a_reply_cut_off_while_a_tool_ran_is_interrupted_after_a_restart() {
+        let events = [
+            Event::user_message("Search"),
+            Event::reply_started("r1", "m"),
+            step_with("r1", vec![call("c1")]),
+            Event::Known(Known::ToolStarted {
+                reply: "r1".into(),
+                call_id: "c1".into(),
+                name: "web_search".into(),
+            }),
+        ];
+        let transcript = Transcript::fold(&events);
+        assert_eq!(transcript.turn_state(), Some(TurnState::RunningTools));
+        assert!(matches!(
+            transcript.close_after_restart(),
+            Some(Event::Known(Known::ReplyInterrupted { .. }))
+        ));
+    }
+
+    #[test]
+    fn a_background_job_keeps_the_conversation_busy_after_its_turn_ends() {
+        let mut events = vec![
+            Event::user_message("Research flights"),
+            Event::reply_started("r1", "m"),
+            step_with("r1", vec![call("c1")]),
+            Event::Known(Known::JobStarted {
+                reply: "r1".into(),
+                job: "c1".into(),
+                name: "research".into(),
+            }),
+            finished("r1", "Started the research."),
+        ];
+        let transcript = Transcript::fold(&events);
+        assert!(transcript.open_reply().is_none());
+        assert_eq!(transcript.jobs, vec!["c1".to_owned()]);
+        assert!(transcript.busy());
+
+        events.push(Event::Known(Known::JobFinished {
+            job: "c1".into(),
+            name: "research".into(),
+            content: "Three options".into(),
+            is_error: false,
+        }));
+        assert!(!Transcript::fold(&events).busy());
     }
 
     #[test]
