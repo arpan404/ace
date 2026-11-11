@@ -309,7 +309,7 @@ test("the range changes the total, and a ledger row drills into it until a crumb
   expect(await ledgerRow("Claude Code")).toBeTruthy();
 });
 
-test("an account's name shows that account's spend, and Limits keep to it", async () => {
+test("an account's name shows that account's spend, and Limits still list every account", async () => {
   const app = harness();
   report(app.daemon, "codex-personal", { five_hour: [20, hour] });
   report(app.daemon, "claude-personal", { five_hour: [20, hour] });
@@ -328,9 +328,8 @@ test("an account's name shows that account's spend, and Limits keep to it", asyn
   const scope = screen.getByRole("navigation", { name: "Scope" });
   expect(within(scope).getByText("Personal").getAttribute("aria-current")).toBe("location");
   expect(screen.getByRole("button", { name: "Group by: Project" })).toBeTruthy();
-  await waitFor(() =>
-    expect(screen.queryByRole("article", { name: /^Claude Code · Personal/ })).toBeNull(),
-  );
+  // Spend's scope is Spend's alone: the other provider's account stays in Limits.
+  expect(await accountBlock("Claude Code", "Personal")).toBeTruthy();
 });
 
 test("a thread row opens its thread", async () => {

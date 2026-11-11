@@ -90,8 +90,8 @@ const sameTitles = (a: ReadonlyMap<string, string>, b: ReadonlyMap<string, strin
 
 /**
  * Usage (`/usage`): Limits as availability on one timeline, then Spend as one ledger to drill
- * into. Clicking an account's band drills Spend into that account; the scope's provider or
- * account also narrows Limits to it.
+ * into. Clicking an account's name drills Spend into that account; Limits always list every
+ * account, whatever Spend is scoped to.
  */
 export function UsagePage() {
   const now = useNow();
@@ -140,12 +140,8 @@ export function UsagePage() {
     // An offline machine's last accounts aren't counted: the coverage line names it instead.
     accounts: entry.environment.client ? entry.accounts : undefined,
   }));
-  // Limits follow the scope's provider and account; its other steps are about spend only.
-  const scopedProvider = scope.filters.provider?.[0];
-  const scopedAccount = scope.filters.account?.[0];
-  const listed = usageAccounts(machineAccounts, scopedProvider).filter(
-    (entry) => scopedAccount === undefined || entry.account.id === scopedAccount,
-  );
+  // Limits always list every account; Spend's scope narrows Spend only.
+  const listed = usageAccounts(machineAccounts);
   const limits = usageLimits(listed, now);
   const days = useMemo(() => dayRange(span.from, span.to), [span.from, span.to]);
   const report = useMemo(
