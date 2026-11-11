@@ -28,4 +28,7 @@ import Foundation
         return threads.remove(at: index)
     }
     mutating func clear() { threads.removeAll() }
+    /// A new runtime for the same machine holds none of these copies: each reopens cold, its kept
+    /// rows staying on screen until the full read replaces them.
+    func needSnapshots() { for thread in threads { thread.requiresSnapshot = true } }
 }
