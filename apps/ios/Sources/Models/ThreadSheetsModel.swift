@@ -44,11 +44,12 @@ import Observation
     /// A review request went out; its notice answers it.
     func sent(_ requestId: String) { awaitingNotices.insert(requestId) }
     /// The connection left ready: no notice can come for what was sent, so each request still
-    /// waiting reads as refused and its sheet offers Retry instead of "Sending…" for good.
+    /// waiting stops reading "Sending…" for good. It may have reached the computer, so the words
+    /// say the outcome is unknown and ask the person to look before sending it again.
     func connectionLost() {
         for id in awaitingNotices where notices[id] == nil {
             notices[id] = ChangesNotice(requestId: id, action: "", ok: false,
-                                        message: "The connection dropped before your computer answered. Retry when it's back.")
+                                        message: "The connection dropped before your computer answered, so this may have gone through. Check the comments before sending it again.")
         }
         awaitingNotices = []
     }
