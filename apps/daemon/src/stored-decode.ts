@@ -43,6 +43,15 @@ export function storedItem(createdSeq: number, json: string, trustedFrom: number
   return createdSeq >= trustedFrom ? (value as Item) : decodeStoredItem(value);
 }
 /**
+ * An item row the current write transaction stored moments ago from a validated Item, such as
+ * the text preview the item store seeds for the event being written. Never for a row that may
+ * predate this transaction.
+ */
+export function justWrittenItem(json: string): Item {
+  // Trusted: written in this transaction from Event.parse output.
+  return JSON.parse(json) as Item;
+}
+/**
  * An `events` row as an Event, with its size as JSON (what replay pages budget by). A row this
  * build wrote is rebuilt in the schema's field order from its columns and stored JSON, so its
  * size is the stored JSON plus the envelope, without serialising it again. Older rows are
