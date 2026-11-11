@@ -49,6 +49,10 @@ struct FoundPull: Identifiable, Equatable {
             problem = nil
         } catch {
             guard !Task.isCancelled, current == generation else { return }
+            // A machine that answered with a refusal (no Git host, a folder that isn't a
+            // repository) has no pull requests to offer: that's nothing found, not a failure.
+            // Only a read the connection lost is worth a sentence and Retry.
+            if client.connection == "ready" { found = []; problem = nil; return }
             problem = "Couldn't search pull requests. Check the connection and try again."
         }
     }
