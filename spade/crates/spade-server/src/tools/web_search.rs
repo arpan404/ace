@@ -37,6 +37,7 @@ impl Tool for WebSearch {
             risk: Risk::Read,
             untrusted_output: true,
             deferred: false,
+            background: false,
         }
     }
 

@@ -36,6 +36,8 @@ pub struct Transcript {
     pub running: Vec<String>,
     /// Tool calls of the open reply waiting for the person's approval.
     pub awaiting: Vec<String>,
+    /// Background jobs still running, by job id. They outlive the turn that started them.
+    pub jobs: Vec<String>,
     /// Tools the person allowed "always" in this conversation.
     pub always_allowed: Vec<String>,
     /// Which tool each approval asked about, by call id.
@@ -118,6 +120,8 @@ impl Transcript {
                     self.always_allowed.push(tool);
                 }
             }
+            Known::JobStarted { job, .. } => self.jobs.push(job.clone()),
+            Known::JobFinished { job, .. } => self.jobs.retain(|id| id != job),
             Known::StepFinished { .. }
             | Known::SkillsIndexed { .. }
             | Known::ContextCompacted { .. } => {}
@@ -175,6 +179,11 @@ impl Transcript {
             reply,
             open.text.clone(),
         ))
+    }
+
+    /// Whether anything is still working: an open reply or a background job.
+    pub fn busy(&self) -> bool {
+        self.open_reply().is_some() || !self.jobs.is_empty()
     }
 
     /// The first thing the person wrote.
@@ -272,6 +281,7 @@ mod tests {
             signatures: Vec::new(),
             usage: crate::event::Tokens::default(),
             cost_micros: 0,
+            seen: None,
         })
     }
 
@@ -335,6 +345,33 @@ mod tests {
             transcript.close_after_restart(),
             Some(Event::Known(Known::ReplyInterrupted { .. }))
         ));
+    }
+
+    #[test]
+    fn a_background_job_keeps_the_conversation_busy_after_its_turn_ends() {
+        let mut events = vec![
+            Event::user_message("Research flights"),
+            Event::reply_started("r1", "m"),
+            step_with("r1", vec![call("c1")]),
+            Event::Known(Known::JobStarted {
+                reply: "r1".into(),
+                job: "c1".into(),
+                name: "research".into(),
+            }),
+            finished("r1", "Started the research."),
+        ];
+        let transcript = Transcript::fold(&events);
+        assert!(transcript.open_reply().is_none());
+        assert_eq!(transcript.jobs, vec!["c1".to_owned()]);
+        assert!(transcript.busy());
+
+        events.push(Event::Known(Known::JobFinished {
+            job: "c1".into(),
+            name: "research".into(),
+            content: "Three options".into(),
+            is_error: false,
+        }));
+        assert!(!Transcript::fold(&events).busy());
     }
 
     #[test]

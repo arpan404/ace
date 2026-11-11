@@ -17,6 +17,7 @@ fn turn(n: usize, words: usize) -> Vec<Event> {
             signatures: Vec::new(),
             usage: Tokens::default(),
             cost_micros: 0,
+            seen: None,
         }),
         Event::Known(Known::ReplyFinished {
             reply: format!("r{n}"),
@@ -123,6 +124,7 @@ fn completed_writes_are_listed_and_reads_and_failures_are_not() {
             risk: Risk::Write,
             untrusted_output: false,
             deferred: false,
+            background: false,
         },
         ToolDef {
             spec: ToolSpec {
@@ -133,6 +135,7 @@ fn completed_writes_are_listed_and_reads_and_failures_are_not() {
             risk: Risk::Read,
             untrusted_output: false,
             deferred: false,
+            background: false,
         },
     ]);
     let finished = |id: &str, name: &str, is_error: bool| {
@@ -156,6 +159,7 @@ fn completed_writes_are_listed_and_reads_and_failures_are_not() {
             signatures: Vec::new(),
             usage: Tokens::default(),
             cost_micros: 0,
+            seen: None,
         }),
         Event::Known(Known::ApprovalRequested {
             reply: "r".into(),

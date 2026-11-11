@@ -30,6 +30,10 @@ pub enum Known {
         usage: Tokens,
         #[serde(default)]
         cost_micros: u64,
+        /// How many of the conversation's events the step's prompt was built from. A message stored
+        /// at or after this index arrived while the model was answering and is still unanswered.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        seen: Option<usize>,
     },
     /// The gate stopped a tool call to ask the person.
     ApprovalRequested {
@@ -54,6 +58,22 @@ pub enum Known {
     ToolFinished {
         reply: String,
         call_id: String,
+        name: String,
+        content: String,
+        #[serde(default)]
+        is_error: bool,
+    },
+    /// An allowed call was handed to a background job. Its `tool_finished` says so at once; the
+    /// job's own result comes later as `job_finished`.
+    JobStarted {
+        reply: String,
+        job: String,
+        name: String,
+    },
+    /// A background job ended. The model reads it like a message, so it steers an open turn or
+    /// starts a new one.
+    JobFinished {
+        job: String,
         name: String,
         content: String,
         #[serde(default)]

@@ -416,3 +416,40 @@ async fn a_turn_stops_at_its_step_limit() -> Result {
     assert_eq!(steps, 3);
     Ok(())
 }
+
+#[tokio::test]
+async fn a_message_sent_while_the_model_streams_its_answer_is_answered_in_that_turn() -> Result {
+    let spade = Spade::start(
+        vec![
+            Script::reply(&"thinking ".repeat(20))
+                .chunks(20)
+                .delay(Duration::from_millis(30)),
+            Script::reply("Mornings only, noted: flight A."),
+            Script::reply("").plain(r#"{"title":"Flights"}"#),
+        ],
+        Vec::new(),
+    )
+    .await?;
+    let id = spade.ask("Find flights").await?;
+    spade.wait_for(&id, "reply_progress").await?;
+    spade
+        .post(
+            &format!("/v1/conversations/{id}/messages"),
+            json!({ "text": "Only mornings" }),
+        )
+        .await?;
+    let events = spade.wait_for(&id, "renamed").await?;
+    let finished = events.iter().find(|e| e["type"] == "reply_finished");
+    assert_eq!(
+        finished.map(|e| e["text"].clone()),
+        Some(json!("Mornings only, noted: flight A."))
+    );
+    let second = &spade.fake.seen()[1].body["messages"];
+    let last = second.as_array().and_then(|m| m.last()).cloned();
+    assert_eq!(
+        last.map(|m| (m["role"].clone(), m["content"].clone())),
+        Some((json!("user"), json!("Only mornings"))),
+        "the late message comes after the answer it interrupted: {second}"
+    );
+    Ok(())
+}

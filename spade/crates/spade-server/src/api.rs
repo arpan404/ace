@@ -89,8 +89,9 @@ async fn list(State(state): State<AppState>) -> Response {
     match state.engine.conversations() {
         Ok(rows) => Json(
             rows.into_iter()
-                .map(|(c, answering)| {
-                    json!({ "id": c.id, "title": c.title, "updated_at": c.updated_ms, "answering": answering })
+                .map(|(c, activity)| {
+                    json!({ "id": c.id, "title": c.title, "updated_at": c.updated_ms,
+                            "answering": activity.answering, "jobs": activity.jobs })
                 })
                 .collect::<Vec<_>>(),
         )

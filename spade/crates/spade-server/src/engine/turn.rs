@@ -42,7 +42,8 @@ pub(super) async fn run(engine: Arc<Engine>, id: String) {
     let (stop_tx, stop_rx) = watch::channel(false);
     *live.stop.lock().unwrap_or_else(|p| p.into_inner()) = Some(stop_tx);
     let ended = drive(&engine, &id, stop_rx).await;
-    if let Some(reply) = open_reply(&engine, &id) {
+    let driven = open_reply(&engine, &id);
+    if let Some(reply) = driven.clone() {
         let event = match ended {
             Ended::Finished => None,
             Ended::Stopped(text) => Some(Event::reply_ended(ReplyEnd::Stopped, reply, text)),
@@ -59,6 +60,13 @@ pub(super) async fn run(engine: Arc<Engine>, id: String) {
     *live.stop.lock().unwrap_or_else(|p| p.into_inner()) = None;
     *live.current.lock().unwrap_or_else(|p| p.into_inner()) = None;
     live.turn_running.store(false, Ordering::SeqCst);
+    // A message or job result may have opened a new reply after this turn closed but before it
+    // let go; that reply's own spawn was skipped, so drive it now.
+    if let Some(next) = open_reply(&engine, &id)
+        && Some(&next) != driven.as_ref()
+    {
+        engine.spawn_turn(&id);
+    }
     name_if_untitled(&engine, &id).await;
 }
 
@@ -190,6 +198,7 @@ async fn model_step(
                             cache_write: usage.cache_write_tokens,
                         },
                         cost_micros: cost,
+                        seen: Some(events.len()),
                     });
                     if let Err(error) = engine.record(id, &step) {
                         return Step::Failed(String::new(), error.to_string());
@@ -216,9 +225,19 @@ fn finish_unless_steered(engine: &Engine, id: &str, reply: &str) -> Result<bool,
         .iter()
         .rposition(|e| matches!(e, Event::Known(Known::StepFinished { .. })))
         .unwrap_or(0);
-    let steered = events[last_step..]
-        .iter()
-        .any(|e| matches!(e, Event::Known(Known::UserMessage { .. })));
+    // Anything that arrived after the step's prompt was built is unanswered.
+    let seen = match events.get(last_step) {
+        Some(Event::Known(Known::StepFinished {
+            seen: Some(seen), ..
+        })) => (*seen).min(last_step),
+        _ => last_step,
+    };
+    let steered = events[seen..].iter().any(|e| {
+        matches!(
+            e,
+            Event::Known(Known::UserMessage { .. } | Known::JobFinished { .. })
+        )
+    });
     if steered {
         return Ok(false);
     }
@@ -349,6 +368,17 @@ async fn run_tools(
                     name: name.clone(),
                 }),
             );
+            if engine
+                .tools
+                .registry()
+                .get(&name)
+                .is_some_and(|def| def.background)
+            {
+                super::jobs::start(engine, id, reply, &call.id, &name, arguments);
+                let started = ToolOutput::ok(context::job_started(&call.id));
+                finish_tool(engine, id, reply, &call, &name, started);
+                continue;
+            }
             let engine = engine.clone();
             running.push(async move {
                 let output = run_one(&engine, &call.id, &name, arguments).await;
@@ -410,7 +440,7 @@ fn finish_tool(
     }
 }
 
-fn trim(text: &str, longest: usize) -> String {
+pub(super) fn trim(text: &str, longest: usize) -> String {
     let count = text.chars().count();
     if count <= longest {
         return text.to_owned();

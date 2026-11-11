@@ -45,6 +45,7 @@ impl FakeTool {
                 risk,
                 untrusted_output: false,
                 deferred: false,
+                background: false,
             },
             answer: answer.to_owned(),
             delay: Duration::ZERO,
@@ -60,6 +61,11 @@ impl FakeTool {
     pub fn deferred(mut self, description: &str) -> Self {
         self.def.deferred = true;
         self.def.spec.description = description.to_owned();
+        self
+    }
+
+    pub fn background(mut self) -> Self {
+        self.def.background = true;
         self
     }
 
@@ -246,10 +252,15 @@ impl Spade {
 
     /// Waits until some event has type `kind`, and returns all events at that point.
     pub async fn wait_for(&self, id: &str, kind: &str) -> Result<Vec<Value>> {
+        self.wait_for_count(id, kind, 1).await
+    }
+
+    /// Waits until `count` events have type `kind`, and returns all events at that point.
+    pub async fn wait_for_count(&self, id: &str, kind: &str, count: usize) -> Result<Vec<Value>> {
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
             let events = self.events(id).await?;
-            if events.iter().any(|e| e["type"] == kind) {
+            if events.iter().filter(|e| e["type"] == kind).count() >= count {
                 return Ok(events);
             }
             if Instant::now() > deadline {

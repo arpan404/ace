@@ -3,6 +3,7 @@
 //! `spade_core::turn::next_step`, so they resume from storage after a restart.
 
 mod compact;
+mod jobs;
 mod turn;
 
 use std::collections::HashMap;
@@ -31,6 +32,8 @@ pub struct Limits {
     pub longest_message: usize,
     /// Compaction budget in tokens, capped by each model's own context window.
     pub context_budget: u32,
+    /// Longest a background job may run.
+    pub job_timeout: Duration,
 }
 
 impl Default for Limits {
@@ -43,6 +46,7 @@ impl Default for Limits {
             result_chars: 20_000,
             longest_message: 100_000,
             context_budget: 200_000,
+            job_timeout: Duration::from_secs(30 * 60),
         }
     }
 }
@@ -126,6 +130,15 @@ struct Live {
     /// Woken when an approval is answered.
     wake: Notify,
     turn_running: AtomicBool,
+    /// Running background jobs by job id (see `jobs`).
+    jobs: Mutex<HashMap<String, tokio::task::AbortHandle>>,
+}
+
+/// What a conversation is doing, for lists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Activity {
+    pub answering: bool,
+    pub jobs: usize,
 }
 
 pub struct Engine {
@@ -167,6 +180,7 @@ impl Engine {
             } else if transcript.turn_state() == Some(TurnState::WaitingOnYou) {
                 engine.spawn_turn(&conversation.id);
             }
+            jobs::report_lost(&engine, &conversation.id)?;
         }
         Ok(engine)
     }
@@ -175,14 +189,18 @@ impl Engine {
         self.clock.now_ms()
     }
 
-    /// Every conversation, newest first, with whether a reply is open.
-    pub fn conversations(&self) -> Result<Vec<(Conversation, bool)>, StoreError> {
+    /// Every conversation, newest first, with what it is doing.
+    pub fn conversations(&self) -> Result<Vec<(Conversation, Activity)>, StoreError> {
         self.store
             .conversations()?
             .into_iter()
             .map(|c| {
-                let open = self.reply_open(&c.id)?;
-                Ok((c, open))
+                let transcript = Transcript::fold(&self.load(&c.id)?);
+                let activity = Activity {
+                    answering: transcript.open_reply().is_some(),
+                    jobs: transcript.jobs.len(),
+                };
+                Ok((c, activity))
             })
             .collect()
     }
@@ -209,9 +227,16 @@ impl Engine {
         if self.store.conversation(id)?.is_none() {
             return Err(SendError::NotFound);
         }
+        self.deliver(id, &Event::user_message(text.trim()))?;
+        Ok(())
+    }
+
+    /// Stores something the model must read (a message, a job result): it steers the open turn,
+    /// or starts one. Atomic against a turn finishing, so it is never left unanswered.
+    fn deliver(self: &Arc<Self>, id: &str, event: &Event) -> Result<(), StoreError> {
         let start = {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-            self.append(id, &Event::user_message(text.trim()))?;
+            self.append(id, event)?;
             if Transcript::fold(&self.load(id)?).open_reply().is_some() {
                 false
             } else {
@@ -226,17 +251,22 @@ impl Engine {
         Ok(())
     }
 
-    /// Asks the open turn to stop. Returns whether one was running.
+    /// Stops the open turn and the conversation's background jobs. Returns whether anything was
+    /// running.
     pub fn stop(&self, id: &str) -> bool {
         let live = self.live(id);
-        let stop = live.stop.lock().unwrap_or_else(|p| p.into_inner());
-        match stop.as_ref() {
-            Some(sender) => {
-                let _ = sender.send(true);
-                true
+        let turn = {
+            let stop = live.stop.lock().unwrap_or_else(|p| p.into_inner());
+            match stop.as_ref() {
+                Some(sender) => {
+                    let _ = sender.send(true);
+                    true
+                }
+                None => false,
             }
-            None => false,
-        }
+        };
+        let jobs = jobs::stop_all(self, id);
+        turn || jobs > 0
     }
 
     /// Answers an approval the open turn is waiting on.
@@ -371,6 +401,7 @@ impl Engine {
                     stop: Mutex::default(),
                     wake: Notify::new(),
                     turn_running: AtomicBool::new(false),
+                    jobs: Mutex::default(),
                 })
             })
             .clone()

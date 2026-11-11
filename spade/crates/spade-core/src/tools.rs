@@ -27,6 +27,9 @@ pub struct ToolDef {
     pub untrusted_output: bool,
     /// Listed by name only; found with `tool_search` and called through `call_tool`.
     pub deferred: bool,
+    /// Runs as a background job: the call answers at once and the result arrives later as a
+    /// `<job_result>`, so long work (an ace agent, a big download) never holds up the turn.
+    pub background: bool,
 }
 
 pub const TOOL_SEARCH: &str = "tool_search";
@@ -167,6 +170,7 @@ mod tests {
             risk: Risk::Read,
             untrusted_output: false,
             deferred,
+            background: false,
         }
     }
 

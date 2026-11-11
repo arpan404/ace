@@ -163,6 +163,7 @@ mod tests {
             signatures: Vec::new(),
             usage: Tokens::default(),
             cost_micros: cost,
+            seen: None,
         })
     }
 

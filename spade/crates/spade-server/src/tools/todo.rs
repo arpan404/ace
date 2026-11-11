@@ -40,6 +40,7 @@ impl Tool for Todo {
             risk: Risk::Read,
             untrusted_output: false,
             deferred: false,
+            background: false,
         }
     }
 
