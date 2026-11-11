@@ -215,3 +215,32 @@ async fn stop_cancels_a_call_in_flight_while_a_siblings_result_cannot_be_stored(
     );
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stopped_reply_still_closes_when_reading_the_conversation_fails_for_a_while() -> Result {
+    let spade = Spade::start(
+        vec![
+            Script::reply(&"word ".repeat(40))
+                .chunks(40)
+                .delay(Duration::from_millis(40)),
+            Script::reply("").plain(r#"{"title":"Talk"}"#),
+        ],
+        Vec::new(),
+    )
+    .await?;
+    let id = spade.ask("Talk").await?;
+    spade.wait_for(&id, "reply_progress").await?;
+    // Every read and write of events fails until the table is back.
+    let database = spade.database();
+    let hide = rusqlite::Connection::open(&database)?;
+    hide.execute_batch("ALTER TABLE events RENAME TO events_away;")?;
+    let _ = spade
+        .post(&format!("/v1/conversations/{id}/stop"), json!({}))
+        .await;
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    hide.execute_batch("ALTER TABLE events_away RENAME TO events;")?;
+
+    let events = spade.wait_for(&id, "reply_stopped").await?;
+    assert_eq!(count(&events, "reply_stopped"), 1);
+    Ok(())
+}

@@ -47,11 +47,16 @@ pub(super) async fn run(
     let mut driven: Option<String> = open_reply(&engine, &id);
     let ended = drive(&engine, &id, stop_rx, &mut pause_rx, &mut driven).await;
     let paused = matches!(ended, Ended::Paused);
-    if let Some(reply) = open_reply(&engine, &id).filter(|open| Some(open) == driven.as_ref()) {
+    // Decided from the reply this worker drove, not from a fresh read: a read that fails now must
+    // not release the reply still open. Whether it is still open is checked as it is closed.
+    if let Some(reply) = driven.clone() {
         let event = match ended {
             Ended::Finished => None,
             Ended::Paused => {
-                super::maintenance::record_paused(&engine, &id, &reply);
+                // Unless it is known to be closed already; `record_paused` copes with a failed read.
+                if !matches!(still_open(&engine, &id, &reply), Ok(false)) {
+                    super::maintenance::record_paused(&engine, &id, &reply);
+                }
                 None
             }
             Ended::Stopped(text) => {
@@ -94,16 +99,21 @@ pub(super) async fn run(
 /// it lets go. A close that landed despite an error is not stored twice.
 async fn close_durably(engine: &Engine, id: &str, reply: &str, close: &Event) {
     super::jobs::keep_trying(|| {
-        let events = engine.load(id)?;
-        let open = Transcript::fold(&events)
-            .open_reply()
-            .and_then(|m| m.reply.clone());
-        if open.as_deref() != Some(reply) {
+        if !still_open(engine, id, reply)? {
             return Ok(());
         }
         engine.close_reply(id, reply, close)
     })
     .await;
+}
+
+/// Whether `reply` is still the open reply, from a fresh read.
+fn still_open(engine: &Engine, id: &str, reply: &str) -> Result<bool, spade_store::StoreError> {
+    let events = engine.load(id)?;
+    let open = Transcript::fold(&events)
+        .open_reply()
+        .and_then(|m| m.reply.clone());
+    Ok(open.as_deref() == Some(reply))
 }
 
 /// Resolves once Stop is pressed (or the turn's signal goes away).
