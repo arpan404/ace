@@ -2,7 +2,7 @@ import { onSocketMove, type ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import type { SpadeStatus } from "@ace/protocol";
 import { useSyncExternalStore } from "react";
-import { spadeStatusWith, type DirectHealth } from "./spade-route.ts";
+import { daemonStatusWhileAway, spadeStatusWith, type DirectHealth } from "./spade-route.ts";
 import { spadeTransport, type SpadeTransport } from "./spade-transport.ts";
 
 /** How often the desktop app looks at Spade's `/health` itself while someone reads the status. */
@@ -13,9 +13,9 @@ const healthEveryMs = 10_000;
  * connection is ready (and again after every reconnect or socket move, since the daemon's watch
  * ends with the socket), then `spade.status.changed` pushes. In the desktop app also Spade's own
  * `/health`, looked at directly (ADR 0123): Spade answering is ready even while the daemon is
- * down.
+ * down. A ready from the daemon stops counting while its connection is gone.
  */
-class SpadeStatusWatch {
+export class SpadeStatusWatch {
   private daemon: SpadeStatus | undefined;
   private direct: DirectHealth | undefined;
   private status: SpadeStatus | undefined;
@@ -24,8 +24,8 @@ class SpadeStatusWatch {
   private asked = 0;
   private looked = 0;
   private readonly client: ClientApi;
-  private readonly transport: SpadeTransport;
-  constructor(client: ClientApi, transport: SpadeTransport) {
+  private readonly transport: Pick<SpadeTransport, "desktop" | "health">;
+  constructor(client: ClientApi, transport: Pick<SpadeTransport, "desktop" | "health">) {
     this.client = client;
     this.transport = transport;
   }
@@ -37,6 +37,9 @@ class SpadeStatusWatch {
       this.listeners.delete(listener);
       if (this.listeners.size) return;
       for (const stop of this.stops.splice(0)) stop();
+      // Replies still on their way are for a watch that has ended.
+      this.asked++;
+      this.looked++;
     };
   };
   private start() {
@@ -52,7 +55,10 @@ class SpadeStatusWatch {
     }
     this.stops.push(
       connection.subscribe(() => {
-        if (connection.getSnapshot() !== "ready") return;
+        if (connection.getSnapshot() !== "ready") {
+          this.daemonAway();
+          return;
+        }
         this.ask();
         this.look();
       }),
@@ -61,7 +67,9 @@ class SpadeStatusWatch {
         this.look();
       }),
     );
-    this.ask();
+    // What the daemon said may be from a connection that went while nobody watched.
+    if (connection.getSnapshot() === "ready") this.ask();
+    else this.daemonAway();
     this.watchDirect();
   }
   private watchDirect() {
@@ -100,6 +108,14 @@ class SpadeStatusWatch {
       this.direct = direct;
       this.publish();
     });
+  }
+  private daemonAway() {
+    // A reply still on its way belongs to the connection that's gone.
+    this.asked++;
+    const kept = daemonStatusWhileAway(this.daemon);
+    if (kept === this.daemon) return;
+    this.daemon = kept;
+    this.publish();
   }
   private setDaemon(status: SpadeStatus) {
     this.daemon = status;

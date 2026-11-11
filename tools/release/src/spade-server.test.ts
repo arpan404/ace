@@ -1,8 +1,10 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { writeFileSync, mkdirSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { list } from "tar";
+import { desktopAppMarker } from "@ace/service/desktop-update";
+import { bundleRootOfEntry, bundledSpadeServer } from "@ace/service/spade-layout";
 import { expect, test } from "vitest";
 import { createReleaseArchive } from "./archive.ts";
 import { stageSpadeServer, type Cargo } from "./spade-server.ts";
@@ -67,6 +69,47 @@ test.runIf(posix)(
     });
     expect(how).toBe("prebuilt");
     expect(await archived()).toEqual(["bin/node", "release.json", "spade/spade-server"]);
+  },
+);
+
+test.runIf(posix)(
+  "a standalone release's daemon finds the spade-server packaging staged",
+  async ({ onTestFinished }) => {
+    const { dir, root, prebuilt } = await release(onTestFinished);
+    await writeFile(join(root, "ace.mjs"), "");
+    await stageSpadeServer({
+      repo: dir,
+      root,
+      target: "linux-x64",
+      version: "0.5.0",
+      env: { ACE_SPADE_SERVER_BIN: await prebuilt("0.5.0") },
+      cargo: noCargo,
+    });
+    const found = bundledSpadeServer(bundleRootOfEntry(join(root, "ace.mjs"), existsSync), "linux");
+    expect(await readFile(found, "utf8")).toBe(spadeScript("0.5.0"));
+  },
+);
+
+test.runIf(posix)(
+  "the desktop app's daemon finds the spade-server staged in the app's resources",
+  async ({ onTestFinished }) => {
+    const { dir, prebuilt } = await release(onTestFinished);
+    // As apps/desktop/scripts/build.ts lays out dist/, which becomes the app's resources.
+    const resources = join(dir, "resources");
+    await mkdir(join(resources, "daemon"), { recursive: true });
+    await writeFile(join(resources, "daemon/ace.mjs"), "");
+    await writeFile(join(resources, "daemon", desktopAppMarker), "{}\n");
+    await stageSpadeServer({
+      repo: dir,
+      root: resources,
+      target: "darwin-arm64",
+      version: "0.5.0",
+      env: { ACE_SPADE_SERVER_BIN: await prebuilt("0.5.0") },
+      cargo: noCargo,
+    });
+    const entry = join(resources, "daemon/ace.mjs");
+    const found = bundledSpadeServer(bundleRootOfEntry(entry, existsSync), "darwin");
+    expect(await readFile(found, "utf8")).toBe(spadeScript("0.5.0"));
   },
 );
 

@@ -2,6 +2,7 @@ import { execFile, execFileSync } from "node:child_process";
 import { chmod, copyFile, lstat, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { ReleaseTarget as Target } from "@ace/protocol";
+import { bundledSpadeServer, spadeServerFolder } from "@ace/service/spade-layout";
 import { spadeBinaryName } from "@ace/service/spade-service";
 import type { z } from "zod";
 
@@ -19,7 +20,7 @@ type ReleaseTarget = z.infer<typeof Target>;
  * version after a swap. So cargo builds with the release's version, and a binary whose
  * `--version` says anything else is refused.
  */
-export const spadeServerFolder = "spade";
+export { spadeServerFolder };
 
 const triples: Record<ReleaseTarget, string> = {
   "darwin-arm64": "aarch64-apple-darwin",
@@ -46,7 +47,7 @@ const systemVersionOf: VersionOf = (binary) =>
 
 /** Where the staged binary goes under a release or desktop `root`. */
 export const stagedSpadeServer = (root: string, target: ReleaseTarget) =>
-  join(root, spadeServerFolder, spadeBinaryName(target.startsWith("win32") ? "win32" : "linux"));
+  bundledSpadeServer(root, target.startsWith("win32") ? "win32" : "linux");
 
 /**
  * Stages `spade-server` for `target` into `root/spade/`. Returns how it got there, or

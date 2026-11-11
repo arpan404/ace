@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { dirname, join } from "node:path";
+import { existsSync } from "node:fs";
 import { promisify } from "node:util";
 import {
   installSpadeBinary,
@@ -7,9 +7,9 @@ import {
   installedSpadeVersion,
   localSpadePlan,
   removeSpadeService,
-  spadeBinaryName,
   spadeServiceState,
 } from "@ace/service/spade-service";
+import { bundleRootOfEntry, bundledSpadeServer } from "@ace/service/spade-layout";
 import type { SpadeServiceState } from "./rules.ts";
 
 /**
@@ -27,15 +27,20 @@ export interface SpadeServiceControl {
 }
 
 /**
- * The `spade-server` this release carries: `ACE_SPADE_BIN` in development, else the one beside
- * the runtime in the release bundle (`bin/node`, `bin/spade-server`).
+ * The `spade-server` this release carries: `ACE_SPADE_BIN` in development, else the one in the
+ * bundle the daemon's entry script (`ace.mjs`) runs from, laid out as `@ace/service/spade-layout`
+ * says: a standalone release folder or the desktop app's resources.
  */
 export function bundledSpadeBinary(
   env: Readonly<Record<string, string | undefined>>,
-  runtime: string,
+  entry: string | undefined,
   platform: NodeJS.Platform,
+  exists: (path: string) => boolean,
 ): string {
-  return env.ACE_SPADE_BIN?.trim() || join(dirname(runtime), spadeBinaryName(platform));
+  const development = env.ACE_SPADE_BIN?.trim();
+  if (development) return development;
+  if (!entry) throw new Error("This ace runs from source: set ACE_SPADE_BIN to a spade-server.");
+  return bundledSpadeServer(bundleRootOfEntry(entry, exists), platform);
 }
 
 /**
@@ -68,6 +73,8 @@ export function aceSpadeService(input: {
   env: Readonly<Record<string, string | undefined>>;
   /** ace's version: the release folder a release's binary is installed as. */
   version(): Promise<string>;
+  /** The daemon's entry script (`process.argv[1]`), which locates the bundle it runs from. */
+  entry: string | undefined;
 }): SpadeServiceControl {
   let plan: ReturnType<typeof localSpadePlan> | undefined;
   const planned = () => (plan ??= localSpadePlan(input.home));
@@ -75,7 +82,7 @@ export function aceSpadeService(input: {
     state: async () => spadeServiceState(await planned()),
     async installBinary() {
       if ((await installedSpadeVersion(input.home)) !== undefined) return;
-      const source = bundledSpadeBinary(input.env, process.execPath, process.platform);
+      const source = bundledSpadeBinary(input.env, input.entry, process.platform, existsSync);
       const version = await spadeInstallVersion(input.env, input.version, versionOf);
       await installSpadeBinary(input.home, source, version);
     },
