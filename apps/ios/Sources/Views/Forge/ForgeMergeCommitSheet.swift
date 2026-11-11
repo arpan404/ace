@@ -8,6 +8,8 @@ struct ForgeMergeCommitSheet: View {
     let title: String
     var current = true
     @State private var discarding = false
+    /// The title and message the sheet opened with: only a change from them is a draft to keep.
+    @State private var opened: [String]?
     let confirm: (ForgeWriteTarget) -> Void
     @Environment(\.dismiss) private var dismiss
 
@@ -16,6 +18,11 @@ struct ForgeMergeCommitSheet: View {
     }
     private var commitMessage: Binding<String> {
         Binding(get: { target.commit?.message ?? "" }, set: { target.commit?.message = $0 })
+    }
+
+    private var edited: Bool {
+        guard let opened else { return false }
+        return [commitTitle.wrappedValue, commitMessage.wrappedValue] != opened
     }
 
     var body: some View {
@@ -47,9 +54,10 @@ struct ForgeMergeCommitSheet: View {
             }
             .navigationTitle("Commit")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { if commitTitle.wrappedValue.isEmpty && commitMessage.wrappedValue.isEmpty { dismiss() } else { discarding = true } } } }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { if edited { discarding = true } else { dismiss() } } } }
         }
-        .interactiveDismissDisabled(!commitTitle.wrappedValue.isEmpty || !commitMessage.wrappedValue.isEmpty)
+        .interactiveDismissDisabled(edited)
+        .onAppear { if opened == nil { opened = [commitTitle.wrappedValue, commitMessage.wrappedValue] } }
         .confirmationDialog("Discard draft?", isPresented: $discarding, titleVisibility: .visible) {
             Button("Discard", role: .destructive) { dismiss() }
             Button("Keep editing", role: .cancel) {}
