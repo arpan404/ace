@@ -94,8 +94,8 @@ an agent in an ace thread.
 A grant holds scopes: `threads:read` (projects, models, threads, transcripts and
 whole-tree state; always included), `threads:start`, `threads:message` (queue or
 steer), `threads:stop`, `browser` (the agent browser, in a private session of the
-grant's own that closes when the grant ends) and `computer` (the screen tools, under
-every computer-use rule). `--scope read` is `threads:read`; `--scope operate` adds
+grant's own that closes when the grant ends or loses `browser`, and never reaches this machine or its local network) and `computer` (the screen tools, under
+every computer-use rule; Stop on the screen line takes it out of the grant). `--scope read` is `threads:read`; `--scope operate` adds
 start, message and stop; `--allow` names scopes exactly, comma-separated. `--project`
 takes one or more project ids, comma-separated; omitted, the grant covers every
 project. `--ttl` takes `30m`, `12h`, `30d` or `never`. A client lists only the tools its
@@ -111,7 +111,7 @@ do the same over `outside.request`. Enrollment writes the bearer to a private 06
 file. The setup command loads `ACE_MCP_TOKEN` from that file; Claude and Codex config
 reference the variable. The paste-ready commands and config contain no token
 literals. Revocation and expiry remove the credential file. `mcp list` reports the
-endpoint's URL, which changes when the daemon restarts. Launch the provider from the
+endpoint's URL: its port is saved and kept across restarts, and moves only if another program took it, which the daemon log says. Launch the provider from the
 shell where the variable is exported. JSON output also includes the bearer once. No
 provider credential is read or persisted.
 The snippets use [Claude HTTP MCP configuration](https://code.claude.com/docs/en/mcp)
