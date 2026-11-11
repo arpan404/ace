@@ -35,7 +35,7 @@ daemon is away.
 characters>` it also answers `proof`: lowercase hex HMAC-SHA256 with the token file's contents
   as the key and the nonce as the message. Before sending Spade's token or a grant to the address
   in `server.json`, the daemon and the desktop app check the proof against a fresh nonce; a wrong
-  or missing proof means it isn't Spade, and nothing secret is sent. `api` is Spade's HTTP API version;
+  or missing proof means it isn't Spade, and nothing secret is sent. `version` is ace's release version, stamped into the build through `ACE_SPADE_VERSION` (the crate's own version when unset); `spade-server --version` prints it. `api` is Spade's HTTP API version;
   clients accept the current and previous one.
 - **Stop.** SIGTERM: Spade closes admission, lets a running model step finish (up to 5 s for a
   plain stop), records open turns as paused (`turn_paused`), ends its live streams and exits. On
@@ -55,7 +55,7 @@ first, then Spade:
    steps (up to 30 s). Then each open turn is recorded paused.
 3. The updater copies the new binary to `releases/spade/<version>/`, runs
    `spade-server --check-migrations <snapshot>` against a SQLite backup of
-   `<SPADE_DATA_DIR>/spade.sqlite` (exit 0: the new version can open it), flips `current` and
+   `<SPADE_DATA_DIR>/spade.sqlite` (exit 0: the new version can open it; a database written by a newer Spade is refused, never used), flips `current` and
    restarts the service. Any failure keeps the old `current`, reopens admission and reports why.
 4. The new Spade resumes paused turns. A background job that was still running in `now` mode is
    reported as Spade reports a lost job ("unknown outcome").

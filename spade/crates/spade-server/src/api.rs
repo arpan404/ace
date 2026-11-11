@@ -92,7 +92,7 @@ struct Challenge {
 async fn health(State(state): State<AppState>, Query(challenge): Query<Challenge>) -> Response {
     let mut body = json!({
         "ok": true,
-        "version": env!("CARGO_PKG_VERSION"),
+        "version": crate::home::VERSION,
         "api": crate::home::API_VERSION,
     });
     if let Some(nonce) = challenge.nonce {
