@@ -56,10 +56,9 @@ export class SkillWatches<T> {
       if (released) return;
       released = true;
       if (--held.users > 0 || this.held.get(key) !== held) return;
-      held.expire = (this.options.linger ?? lingerTimer)(
-        () => this.drop(key, held),
-        skillWatchLingerMs,
-      );
+      held.expire = (this.options.linger ?? lingerTimer)(() => {
+        if (held.users === 0) this.drop(key, held);
+      }, skillWatchLingerMs);
     };
   }
   /** The listing behind `keys`, from cache while their watches can vouch for it. */
