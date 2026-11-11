@@ -1,5 +1,6 @@
 import { SessionTotalsRequest, SessionTotalPage } from "./session-totals.ts";
 import { z } from "zod";
+import { wireShape } from "@ace/provider-kit/wire-shape";
 import { UsageBurn, UsageQuery, UsageResult } from "@ace/protocol";
 import { UsageBatch } from "./events.ts";
 import { UsageSettings } from "./settings.ts";
@@ -21,8 +22,8 @@ export const WorkerCall = z.discriminatedUnion("method", [
   z.object({ method: z.literal("close") }),
 ]);
 export type WorkerCall = z.infer<typeof WorkerCall>;
-export const WorkerRequest = z.object({ id: seq, call: WorkerCall });
-export const WorkerResponse = z.discriminatedUnion("ok", [
+const WorkerRequest = z.object({ id: seq, call: WorkerCall });
+const WorkerResponse = z.discriminatedUnion("ok", [
   z.object({
     id: seq,
     ok: z.literal(true),
@@ -30,3 +31,12 @@ export const WorkerResponse = z.discriminatedUnion("ok", [
   }),
   z.object({ id: seq, ok: z.literal(false) }),
 ]);
+/**
+ * Messages between the daemon and its usage worker. Both ends are this build (the worker
+ * checks `usageWireShape` when it starts), so they are typed, not parsed on receipt: each call's
+ * arguments are validated by the `UsageWorker` method that takes them, and each reply's value
+ * by the method that returns it.
+ */
+export type WorkerRequest = z.output<typeof WorkerRequest>;
+export type WorkerResponse = z.output<typeof WorkerResponse>;
+export const usageWireShape = wireShape([WorkerConfig, WorkerRequest, WorkerResponse]);
