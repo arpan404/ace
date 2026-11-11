@@ -1,5 +1,6 @@
 import type { PlaceInput } from "@ace/ui-core/thread-place";
 import { FakeComputerAccess } from "./computer-access.ts";
+import { FakeSpade } from "./spade.ts";
 import { fakeRemoteStatus } from "./remote-status.ts";
 import { projectIntent } from "./project-intents.ts";
 import { fakeGoalUpdate } from "./goal-commands.ts";
@@ -168,6 +169,8 @@ export class FakeDaemon implements Host {
   readonly transfers: FakeTransfers;
   /** Locked computer use and Use my Chrome (`computer-access.ts`). */
   readonly computerAccess = new FakeComputerAccess();
+  /** Spade's status, with its host thread (`spade.ts`). */
+  readonly spade = new FakeSpade();
   constructor(options: FakeDaemonOptions) {
     this.options = options;
     this.worktreeCreations = new FakeWorktreeCreations(
@@ -911,6 +914,7 @@ export class FakeDaemon implements Host {
     }
     if (this.transfers.handle(message, connection.push)) return true;
     if (this.computerAccess.handle(message, connection.push)) return true;
+    if (this.spade.handle(message, connection.push)) return true;
     return this.services.handle(message, connection.push, connection.deviceId);
   }
   /** Link this machine to `other` so it can send work there (`FakeTransfers.link`). */
