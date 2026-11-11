@@ -154,7 +154,7 @@ fn catalog(root: &str) -> Result<Catalog> {
     let json = json!({
         "roles": { "main": "fake/m", "fast": "fake/m", "deep": "fake/m" },
         "endpoints": [{ "id": "fake", "name": "Fake", "format": "openai-chat", "base_url": root,
-                        "key": { "env": "FAKE_KEY" },
+                        "key": { "env": "FAKE_KEY" }, "session_header": "x-session",
                         "models": [{ "id": "m", "name": "M", "capabilities": ["tools", "images"], "price": { "input": 2, "output": 10 } }] }]
     });
     Ok(Catalog::from_json(&json.to_string())?)
@@ -226,6 +226,7 @@ impl Spade {
         let models = Models::new(
             catalog(&fake.root)?,
             Keys::new(|_| Some("fake-key".to_owned())),
+            spade_server::home::VERSION,
         )?;
         let engine = Engine::open(Setup {
             store: Store::open(&dir.path().join("spade.sqlite"))?,

@@ -84,7 +84,8 @@ async fn run(
     // is cache reads. Typed output is not used: it would change the request and miss the cache.
     let images = engine.images_for(model);
     let mut prompt =
-        context::prompt_with(SYSTEM, engine.tools.registry().offered(), events, &images);
+        context::prompt_with(SYSTEM, engine.tools.registry().offered(), events, &images)
+            .session(id);
     prompt.messages.push(Message::Person {
         text: compaction::request(focus),
         images: Vec::new(),
