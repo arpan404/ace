@@ -229,7 +229,10 @@ function Bar(props: { window: AccountWindow; runsOut: boolean }) {
       aria-valuemax={100}
       aria-valuenow={window.leftPercent}
       aria-valuetext={valuetext}
-      className="relative h-3 rounded-full bg-faint-foreground/30"
+      className={cn(
+        "relative h-3 rounded-full",
+        window.leftPercent <= 0 && !window.stale ? "bg-status-failed/20" : "bg-faint-foreground/30",
+      )}
     >
       <span className="absolute inset-0 overflow-hidden rounded-full">
         {props.runsOut ? (
@@ -242,7 +245,12 @@ function Bar(props: { window: AccountWindow; runsOut: boolean }) {
           <>
             <span
               style={{ width: `${marker ?? left}%` }}
-              className="absolute inset-y-0 left-0 bg-foreground/85"
+              data-spare={marker !== null ? "" : undefined}
+              className={cn(
+                "absolute inset-y-0 left-0",
+                // What will still be left at the reset is a net; with no marker, what is left now.
+                marker !== null ? "usage-spare" : "bg-foreground/85",
+              )}
             />
             {marker !== null && marker < left && (
               <span

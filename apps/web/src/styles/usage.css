@@ -54,3 +54,22 @@
 [data-provider="antigravity"] {
   --provider: var(--usage-antigravity);
 }
+
+/*
+ * A limit's spare: what its pace still leaves when it resets, drawn as a net over a faint wash
+ * of the ink, so it reads apart from the solid amber the pace will use, without colour.
+ */
+.usage-spare {
+  background-color: color-mix(in oklab, var(--foreground) 14%, transparent);
+  background-image:
+    repeating-linear-gradient(
+      45deg,
+      color-mix(in oklab, var(--foreground) 55%, transparent) 0 1px,
+      transparent 1px 5px
+    ),
+    repeating-linear-gradient(
+      -45deg,
+      color-mix(in oklab, var(--foreground) 55%, transparent) 0 1px,
+      transparent 1px 5px
+    );
+}
