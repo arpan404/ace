@@ -14,6 +14,11 @@ import { assertTestHomeIsolation } from "./test-home-guard.ts";
 import { claimHome, type HomeClaim } from "./home-claim.ts";
 import { carryRelease } from "./home-release.ts";
 import {
+  localFreshStartSpade,
+  type FreshStartSpade,
+  type PausedSpade,
+} from "./spade-fresh-start.ts";
+import {
   HOME_FORMAT_FILE,
   HOME_FORMAT_VERSION,
   NewerDataError,
@@ -43,9 +48,15 @@ export interface FreshStartPorts {
   claim(root: string): HomeClaim;
   /** The format this build writes; tests pass a later one to rehearse a bump. */
   version?: number;
+  /** Stops Spade's service across the rename and starts it again (ADR 0123). */
+  spade?: FreshStartSpade;
 }
 
-const systemPorts: FreshStartPorts = { now: () => new Date(), claim: (root) => claimHome(root) };
+const systemPorts: FreshStartPorts = {
+  now: () => new Date(),
+  claim: (root) => claimHome(root),
+  spade: localFreshStartSpade,
+};
 
 function code(error: unknown): unknown {
   return error instanceof Error && "code" in error ? error.code : undefined;
@@ -163,9 +174,14 @@ export function prepareDaemonHome(
     }
     const claim = ports.claim(root);
     let backup: string;
+    // Spade runs from this home's releases with its data here: it must not run across the move.
+    let spade: PausedSpade | undefined;
     try {
+      spade = ports.spade?.pause(root);
       backup = renameAside(root, plan.from);
     } catch (error) {
+      // Nothing moved: Spade goes back to running where it was.
+      spade?.resume(root);
       if (code(error) === "ENOENT") continue;
       throw error;
     } finally {
@@ -174,6 +190,8 @@ export function prepareDaemonHome(
     create(root, version, ports.now());
     // An install.sh release is the program, not data: it keeps running from the fresh home.
     const release = carryRelease(backup, root);
+    // Spade's binary follows, its data stays in the backup; then it starts again.
+    spade?.resume(backup);
     return {
       state: "fresh",
       root,
