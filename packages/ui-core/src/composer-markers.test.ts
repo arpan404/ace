@@ -163,3 +163,39 @@ describe("a marker character with no file", () => {
     expect(strayMarkerEdits(marked.text, marked.tokens)).toEqual([]);
   });
 });
+
+describe("review fixes", () => {
+  test("hashes already in place leave the same chips", () => {
+    const marked = insertAttachmentMarkers("a", [], 1, [{ key: 1, name: "x.png" }]);
+    const once = withMarkerHashes(marked.tokens, [{ key: 1, sha256: "s1" }]);
+    expect(withMarkerHashes(once, [{ key: 1, sha256: "s1" }])).toBe(once);
+  });
+
+  test("a file sent at a pick's start comes back before the pick", () => {
+    const placed = placeAttachmentMarkers(
+      "/review it",
+      [pick(0, "/review")],
+      [{ sha256: "s1", at: 0, name: "x.png" }],
+    );
+    expect(placed.text).toBe(`${M}/review it`);
+    expect(placed.tokens.map((token) => [token.label, token.start])).toEqual([
+      ["x.png", 0],
+      ["/review", 1],
+    ]);
+  });
+
+  test("a file sent inside a chip's words comes back just before the chip", () => {
+    const placed = placeAttachmentMarkers(
+      "see @a.ts",
+      [file(4, "a.ts")],
+      [{ sha256: "s1", at: 6, name: "x.png" }],
+    );
+    expect(placed.text).toBe(`see ${M}@a.ts`);
+  });
+
+  test("another window's marker for a file still uploading here keeps its chip by key", () => {
+    const marked = insertAttachmentMarkers("a", [], 1, [{ key: 3, name: "x.png" }]);
+    const linked = linkAttachmentMarkers(marked.text, marked.tokens, [{ key: 3 }]);
+    expect(linked.tokens).toEqual(marked.tokens);
+  });
+});

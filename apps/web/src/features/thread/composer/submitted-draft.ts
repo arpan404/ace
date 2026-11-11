@@ -23,7 +23,10 @@ export function composerContent(draft: ComposerDraft) {
   const marked = takeAttachmentMarkers(draft.text, draft.tokens ?? []);
   const { tokens } = marked;
   const references = referenceContext(tokens, mentionsIn(marked.text, new Set(draft.mentions)));
-  const at = new Map(marked.files.flatMap((file) => (file.sha256 ? [[file.sha256, file.at]] : [])));
+  // The same bytes added twice go once, at the first place they were added.
+  const at = new Map<string, number>();
+  for (const file of marked.files)
+    if (file.sha256 && !at.has(file.sha256)) at.set(file.sha256, file.at);
   return {
     text: marked.text,
     input: composerInput(marked.text, tokens),

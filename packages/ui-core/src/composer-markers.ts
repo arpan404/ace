@@ -119,8 +119,8 @@ export function pruneAttachmentMarkers(
 
 /**
  * A stored or returned draft's markers, tied to the chips this composer made for its files:
- * each by its file's hash. A marker without a file here (one still uploading when the draft was
- * kept) goes.
+ * each by its file's hash, or by its chip's key for a file still uploading here (no hash yet).
+ * A marker without a file here goes.
  */
 export function linkAttachmentMarkers(
   text: string,
@@ -129,13 +129,21 @@ export function linkAttachmentMarkers(
 ): { text: string; tokens: readonly ComposerToken[] } {
   const taken = new Set<number>();
   return dropMarkers(text, tokens, (token) => {
+    const hash = token.attachment?.sha256;
+    const key = token.attachment?.key;
     const file = files.find(
       (candidate) =>
         !taken.has(candidate.key) &&
-        candidate.sha256 !== undefined &&
-        candidate.sha256 === token.attachment?.sha256,
+        (hash !== undefined
+          ? candidate.sha256 === hash
+          : key !== undefined && candidate.key === key),
     );
     if (!file) return undefined;
+    // A file still uploading here: the marker keeps its chip's key.
+    if (hash === undefined) {
+      taken.add(file.key);
+      return token;
+    }
     taken.add(file.key);
     return { ...token, attachment: { key: file.key, sha256: file.sha256 } };
   });
@@ -147,14 +155,17 @@ export function withMarkerHashes(
   files: readonly MarkerFile[],
 ): readonly ComposerToken[] {
   if (!tokens.some(isMarker)) return tokens;
-  return tokens.map((token) => {
+  let changed = false;
+  const next = tokens.map((token) => {
     const key = token.attachment?.key;
     if (key === undefined) return token;
     const sha256 = files.find((file) => file.key === key)?.sha256;
-    return sha256 && sha256 !== token.attachment?.sha256
-      ? { ...token, attachment: { key, sha256 } }
-      : token;
+    if (!sha256 || sha256 === token.attachment?.sha256) return token;
+    changed = true;
+    return { ...token, attachment: { key, sha256 } };
   });
+  // Nothing new: the same list, so a draft that didn't change reads as unchanged.
+  return changed ? next : tokens;
 }
 
 /**
@@ -214,8 +225,12 @@ export function placeAttachmentMarkers(
   for (const file of placed) {
     // From a text-part offset to one in the composer's text: add the catalog names before it.
     let at = file.at;
-    for (const token of picks) if (token.start <= at) at += token.end - token.start;
+    // A file at a pick's edge goes before the pick, as the daemon delivers it.
+    for (const token of picks) if (token.start < at) at += token.end - token.start;
     at = Math.min(at, text.length);
+    // One inside a chip's words goes just before the chip.
+    const inside = remaining.find((token) => token.start < at && at < token.end);
+    if (inside) at = inside.start;
     for (const token of remaining.filter((kept) => kept.end <= at)) next.push(shift(token));
     remaining = remaining.filter((token) => token.end > at);
     out += text.slice(from, at) + attachmentMarker;
