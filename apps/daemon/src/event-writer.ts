@@ -54,13 +54,40 @@ interface EventWriteSource {
   nextId(): string;
   wakeSearch(): void;
 }
+/** An envelope before the canonicalising parse; its id is any string `nextId` made. */
+type EventInput = Omit<Event, "id" | "payload"> & { id: string; payload: EventPayload };
 /** Canonical folding and derived-table writes. The caller owns the SQLite transaction. */
 export class EventWriter {
   private readonly source: EventWriteSource;
   constructor(source: EventWriteSource) {
     this.source = source;
   }
+  /**
+   * Fold and store payloads built by ace, each made canonical by `Event.parse` (it fills the
+   * schema's defaults, so the row is in this build's shape). A supplied envelope was parsed when
+   * it was built and is stored as it is.
+   */
   append(threadId: ThreadId, payloads: EventPayload[], at: number, envelopes?: Event[]): Event[] {
+    return this.write(threadId, payloads, at, envelopes, (input) => Event.parse(input));
+  }
+  /**
+   * As `append`, for payloads that already came out of `Event.parse` (a live envelope stored
+   * under a new sequence). Parsing is idempotent on its own output, so they are not parsed
+   * again unless preparing or decorating them built a new payload.
+   */
+  appendParsed(threadId: ThreadId, payloads: EventPayload[], at: number): Event[] {
+    return this.write(threadId, payloads, at, undefined, (input, given) =>
+      // Trusted: `given` is Event.parse output, and seq, id, at and thread id are ace's own.
+      input.payload === given ? (input as Event) : Event.parse(input),
+    );
+  }
+  private write(
+    threadId: ThreadId,
+    payloads: EventPayload[],
+    at: number,
+    envelopes: Event[] | undefined,
+    canonical: (input: EventInput, given: EventPayload) => Event,
+  ): Event[] {
     let seq = this.source.sequences.head();
     const afterSeq = seq;
     const events: Event[] = [];
@@ -69,29 +96,28 @@ export class EventWriter {
     while (followup || inputIndex < payloads.length) {
       // A supplied envelope belongs to its input payload only; a follow-up is a new append.
       const envelope = followup ? undefined : envelopes?.[inputIndex];
+      const isFollowup = followup !== undefined;
       const payload = followup ?? payloads[inputIndex++];
       followup = undefined;
       if (!payload) break;
       const previousSeq = seq;
       const checkout = this.source.checkoutThread(threadId);
       const previous = checkout?.thread;
+      // Runs for an envelope too: it also records the turn's ask, whatever is stored.
       const prepared = previous ? prepareRunClient(this.source.db, previous, payload) : payload;
-      const event =
-        envelope ??
-        Event.parse({
-          seq: (seq = this.source.sequences.next(seq)),
+      let event = envelope;
+      if (!event) {
+        seq = this.source.sequences.next(seq);
+        const input: EventInput = {
+          seq,
           id: this.source.nextId(),
-          threadId,
           at,
-          payload: this.source.toolResults.decorate(
-            threadId,
-            this.source.nativeImages.decorate(
-              threadId,
-              this.source.measurements.decorate(threadId, prepared, seq),
-            ),
-            seq,
-          ),
-        });
+          threadId,
+          payload: this.decorate(threadId, prepared, seq),
+        };
+        // A follow-up was built here from stored rows, never parsed.
+        event = isFollowup ? Event.parse(input) : canonical(input, payload);
+      }
       seq = event.seq;
       if (!Number.isSafeInteger(seq)) throw new Error("Sequence exhausted");
       let thread: Thread;
@@ -154,6 +180,14 @@ export class EventWriter {
     this.source.search.appendCovered(events, afterSeq);
     this.source.wakeSearch();
     return events;
+  }
+  private decorate(threadId: ThreadId, payload: EventPayload, seq: number): EventPayload {
+    const { toolResults, nativeImages, measurements } = this.source;
+    return toolResults.decorate(
+      threadId,
+      nativeImages.decorate(threadId, measurements.decorate(threadId, payload, seq)),
+      seq,
+    );
   }
   /**
    * Store what this event changed in the thread's columns, and nothing when it changed none,

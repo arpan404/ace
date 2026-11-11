@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { normalizeAceCall, aceToolInput } from "@ace/core";
-import { ToolCall, ToolResult, type EventPayload, type ThreadId } from "@ace/protocol";
+import { ToolResult, type EventPayload, type ThreadId } from "@ace/protocol";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
 import { argumentKey } from "./measurement-correlation.ts";
 
@@ -35,7 +35,8 @@ export class ToolResultStore {
   decorate(thread: ThreadId, payload: EventPayload, seq: number): EventPayload {
     if (payload.type !== "item.created" && payload.type !== "item.updated") return payload;
     if (payload.item.type !== "tool_call") return payload;
-    const call = ToolCall.parse(normalizeAceCall(payload.item.call));
+    // The writer's Event.parse makes whatever this returns canonical (event-writer.ts).
+    const call = normalizeAceCall(payload.item.call);
     const match = aceToolInput(call);
     if (!match) return payload;
     this.sql(`INSERT INTO ace_tools VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id)

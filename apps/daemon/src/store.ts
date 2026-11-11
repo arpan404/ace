@@ -211,8 +211,15 @@ export class Store {
       sequences: this.sequences,
       blocked: () => this.writes.isHeld() || this.historyWriting,
       transaction: (run, outcome) => this.transaction(run, outcome),
-      persist: (event) => this.appendEventBatch(event.threadId, [event.payload], event.at, [event]),
-      append: (event) => this.appendEventBatch(event.threadId, [event.payload], event.at),
+      persist: (event) =>
+        this.writeEvents(() =>
+          this.eventWriter.append(event.threadId, [event.payload], event.at, [event]),
+        ),
+      // The stream parsed this payload when it built the envelope.
+      append: (event) =>
+        this.writeEvents(() =>
+          this.eventWriter.appendParsed(event.threadId, [event.payload], event.at),
+        ),
       stored: (event) =>
         this.statement("SELECT 1 FROM events WHERE seq=? AND id=?").get(event.seq, event.id) !==
         undefined,
@@ -1029,16 +1036,12 @@ export class Store {
       .map((row) => decodeThreadRow(row));
   }
   appendEvents(threadId: ThreadId, payloads: EventPayload[], at = this.now()): Event[] {
-    return this.appendEventBatch(threadId, payloads, at);
+    return this.writeEvents(() => this.eventWriter.append(threadId, payloads, at));
   }
-  private appendEventBatch(
-    threadId: ThreadId,
-    payloads: EventPayload[],
-    at: number,
-    envelopes?: Event[],
-  ): Event[] {
+  /** One write of the event writer, in a transaction with the write hooks. */
+  private writeEvents(write: () => Event[]): Event[] {
     return this.transaction(() => {
-      const events = this.eventWriter.append(threadId, payloads, at, envelopes);
+      const events = write();
       this.transactionEvents?.push(...events);
       for (const hook of this.writeHooks) hook(events);
       return events;
