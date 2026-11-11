@@ -321,6 +321,9 @@
         "remote.relay": {
           "type": "boolean"
         },
+        "remote.relayMcp": {
+          "type": "boolean"
+        },
         "remote.relayUrl": {
           "examples": [
             "",
