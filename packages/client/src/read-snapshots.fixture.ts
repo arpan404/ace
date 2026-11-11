@@ -34,9 +34,10 @@ export function view(title = "Cached", seq = 10) {
   return result;
 }
 /** A current read record of `snapshot`, as a client would have written it. */
-export const record = (snapshot: ReturnType<typeof view> = view()) => ({
+export const record = (snapshot: ReturnType<typeof view> = view(), databaseId?: string) => ({
   version: 2,
   view: snapshot,
+  ...(databaseId ? { databaseId } : {}),
 });
 /** A finished root message. */
 export const finished = (id: string, text: string) =>
@@ -139,7 +140,8 @@ export function harness(
     sent,
     deliver,
     closeSocket,
-    async start() {
+    /** Meet the daemon; `databaseId`, when given, is the database its welcome names. */
+    async start(databaseId?: string) {
       await client.start();
       await expect.poll(() => sent.some((message) => message.type === "hello")).toBe(true);
       deliver({
@@ -147,10 +149,11 @@ export function harness(
         hostId,
         protocolVersion: 1,
         headSeq: 10,
+        ...(databaseId ? { databaseId } : {}),
       });
       await expect.poll(() => client.state).toBe("ready");
     },
-    async reconnect(headSeq: number) {
+    async reconnect(headSeq: number, databaseId?: string) {
       const hellos = sent.filter((message) => message.type === "hello").length;
       socket?.close(1006);
       client.reconnectNow();
@@ -162,6 +165,7 @@ export function harness(
         hostId,
         protocolVersion: 1,
         headSeq,
+        ...(databaseId ? { databaseId } : {}),
       });
       await expect.poll(() => client.state).toBe("ready");
     },

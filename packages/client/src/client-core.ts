@@ -236,6 +236,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
               throw new ClientError("identity", "Transport changed daemon identity");
             this.#newSocket();
             this.#hostId = message.hostId;
+            this.#subscriptions.database(message.databaseId);
             this.#snapshots?.identify(message.hostId);
             if (options.storage.hostBinding) {
               void this.#bindHost(message.hostId).then(
