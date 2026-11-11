@@ -114,11 +114,13 @@ protects this the same way it protects admin, because only an admin device can a
 - No grant can answer approvals or questions. Provider approvals stay provider-native, and the
   person answers them in ace.
 - Browser tabs a client opens belong to its grant (ADR 0104), are named after the client and close
-  when the grant is revoked.
+  when the grant is revoked or loses `browser`. An outside client's browser can't open
+  the person's own machine or network: loopback, link-local and private addresses (and names that
+  resolve to them) are refused for it, whatever ace's own agents may open.
 - Computer use keeps every rule it has for agents in ace threads: the "Apps agents can't use" list,
   locked use only when the person turned it on, and one run at a time. While a client is using the
-  screen, ace shows one line, "Claude is using this Mac", with Stop. Stop ends the client's screen
-  work at once; revoking ends all of its work.
+  screen, ace shows one line, "Claude is using this Mac", with Stop. Stop takes `computer` off the grant, so a client calling in a
+  loop can't carry on; the person adds it back in Settings. Revoking ends all of its work.
 - Files and daemon settings are not offered. The scope names are the ones the Spade draft will use,
   so both are one list enforced in one daemon module.
 - Discovery tools are added: projects and models (from the provider catalogue already in the
