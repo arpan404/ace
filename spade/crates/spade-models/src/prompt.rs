@@ -139,6 +139,13 @@ pub struct Reply {
     pub usage: Usage,
 }
 
+/// A typed reply and what it cost in tokens.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Generated<T> {
+    pub value: T,
+    pub usage: Usage,
+}
+
 /// One piece of a streamed reply.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Delta {

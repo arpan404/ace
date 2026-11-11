@@ -45,9 +45,13 @@ turn's total.
 
 Before each model call, if the endpoint's last reported prompt is at least 75% of the budget
 (the model's context window or 200,000 tokens, whichever is smaller), the engine compacts: it cuts
-at a person's message so recent turns of about 35% are kept, asks the conversation's own model for
-a typed summary on its cached prompt, appends every write already carried out (from the events),
-and stores `context_compacted`. If the summary fails, older turns are left out with a note saying
+at a person's message sent while no tool call was waiting for its result, so recent turns of about
+35% are kept. It asks the conversation's own model for a JSON summary by appending the request to
+the current prompt with the same tools (no typed-output option, which would change the request and
+miss the cache), counts that call's cost like any other, appends every write already carried out
+with its call id and exact arguments (from the events, never the summary), and stores
+`context_compacted`. Compaction is the one place earlier prompt bytes change: the system prompt and
+tools stay cached, the conversation before the cut becomes the summary. If the summary fails, older turns are left out with a note saying
 so. `POST /v1/conversations/{id}/compact` with an optional `{"focus": "…"}` compacts between
 turns (409 mid-reply).
 

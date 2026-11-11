@@ -108,6 +108,8 @@ pub enum CompactError {
     Busy,
     #[error("there is nothing to compact yet")]
     Nothing,
+    #[error("today's spending cap is used up")]
+    OverCap,
     #[error("{0}")]
     Failed(String),
 }
@@ -344,6 +346,12 @@ impl Engine {
             .map_err(|e| CompactError::Failed(e.to_string()))?
         {
             return Err(CompactError::Busy);
+        }
+        if !self
+            .within_cap()
+            .map_err(|e| CompactError::Failed(e.to_string()))?
+        {
+            return Err(CompactError::OverCap);
         }
         let model = compact::conversation_model(self, id)
             .unwrap_or_else(|| self.models.for_role(Role::Main).to_owned());

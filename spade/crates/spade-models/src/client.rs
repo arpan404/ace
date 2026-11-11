@@ -14,7 +14,7 @@ use serde::de::DeserializeOwned;
 
 use crate::catalog::{Catalog, Price, Role};
 use crate::error::ModelError;
-use crate::prompt::{Delta, Message, Prompt, Reply, ToolCall, Usage};
+use crate::prompt::{Delta, Generated, Message, Prompt, Reply, ToolCall, Usage};
 use crate::typed;
 use spade_keys::{KeyRequest, Keys};
 
@@ -91,7 +91,11 @@ impl Models {
     }
 
     /// Asks for a reply shaped as `T` and parses it.
-    pub async fn generate<T>(&self, reference: &str, prompt: &Prompt) -> Result<T, ModelError>
+    pub async fn generate<T>(
+        &self,
+        reference: &str,
+        prompt: &Prompt,
+    ) -> Result<Generated<T>, ModelError>
     where
         T: JsonSchema + DeserializeOwned,
     {
@@ -105,7 +109,10 @@ impl Models {
         let text = response.first_text().ok_or_else(|| ModelError::Empty {
             model: call.reference.clone(),
         })?;
-        typed::parse(&call.reference, text)
+        Ok(Generated {
+            value: typed::parse(&call.reference, text)?,
+            usage: usage(&response.usage),
+        })
     }
 
     /// Streams the reply. The last item is [`Delta::Done`] unless the stream fails first.

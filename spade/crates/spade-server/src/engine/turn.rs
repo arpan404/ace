@@ -483,7 +483,15 @@ async fn name_if_untitled(engine: &Arc<Engine>, id: &str) {
         .generate::<title::Suggestion>(&fast, &title::prompt(&first))
         .await
         .ok()
-        .and_then(|s| title::clean(&s.title));
+        .and_then(|generated| {
+            let cost = spending::cost_micros(engine.models.price(&fast), &generated.usage);
+            if cost > 0
+                && let Err(error) = engine.store.record_spend(id, &fast, cost, engine.now_ms())
+            {
+                tracing::error!(%error, "could not record a title's cost");
+            }
+            title::clean(&generated.value.title)
+        });
     let name = suggested.unwrap_or_else(|| title::fallback(&first));
     if let Err(error) = engine.record(id, &Event::renamed(name)) {
         tracing::error!(%error, "could not store a title");

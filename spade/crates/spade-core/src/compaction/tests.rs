@@ -113,7 +113,7 @@ fn the_model_sees_the_summary_then_the_kept_turns_with_the_top_unchanged() {
 }
 
 #[test]
-fn completed_writes_are_listed_and_reads_and_failures_are_not() {
+fn completed_writes_are_listed_with_ids_and_arguments_and_reads_and_failures_are_not() {
     let registry = Registry::new([
         ToolDef {
             spec: ToolSpec {
@@ -151,29 +151,35 @@ fn completed_writes_are_listed_and_reads_and_failures_are_not() {
         Event::Known(Known::StepFinished {
             reply: "r".into(),
             text: "".into(),
-            calls: vec![Call {
-                id: "c1".into(),
-                name: "send_email".into(),
-                arguments: json!({}),
-            }],
+            calls: vec![
+                Call {
+                    id: "c1".into(),
+                    name: "send_email".into(),
+                    arguments: json!({ "to": "sam@example.com" }),
+                },
+                Call {
+                    id: "c4".into(),
+                    name: "call_tool".into(),
+                    arguments: json!({ "name": "send_email", "arguments": { "to": "jo@example.com" } }),
+                },
+            ],
             signatures: Vec::new(),
             usage: Tokens::default(),
             cost_micros: 0,
             seen: None,
         }),
-        Event::Known(Known::ApprovalRequested {
-            reply: "r".into(),
-            call_id: "c1".into(),
-            name: "send_email".into(),
-            arguments: json!({ "to": "sam@example.com" }),
-        }),
+        // Allowed always: no approval request carries the arguments.
         finished("c1", "send_email", false),
         finished("c2", "web_search", false),
         finished("c3", "send_email", true),
+        finished("c4", "send_email", false),
     ];
     assert_eq!(
         carried_out(&events, events.len(), &registry),
-        vec![r#"send_email {"to":"sam@example.com"}"#.to_owned()]
+        vec![
+            r#"send_email (call c1) {"to":"sam@example.com"}"#.to_owned(),
+            r#"send_email (call c4) {"to":"jo@example.com"}"#.to_owned()
+        ]
     );
     let text = render(
         &Summary {
@@ -189,4 +195,58 @@ fn completed_writes_are_listed_and_reads_and_failures_are_not() {
         text.contains("Already carried out (do not repeat):\n- send_email"),
         "{text}"
     );
+}
+
+#[test]
+fn compaction_never_cuts_at_a_message_sent_while_tools_ran() {
+    let call = |id: &str| Call {
+        id: id.into(),
+        name: "search".into(),
+        arguments: json!({}),
+    };
+    let mut events = conversation(3);
+    let steered = events.len() + 2;
+    events.extend([
+        Event::user_message(format!("find flights {}", "word ".repeat(200))),
+        Event::reply_started("r9", "m"),
+        Event::Known(Known::StepFinished {
+            reply: "r9".into(),
+            text: String::new(),
+            calls: vec![call("c1")],
+            signatures: Vec::new(),
+            usage: Tokens::default(),
+            cost_micros: 0,
+            seen: None,
+        }),
+        Event::user_message("only mornings"),
+        Event::Known(Known::ToolFinished {
+            reply: "r9".into(),
+            call_id: "c1".into(),
+            name: "search".into(),
+            content: "word ".repeat(400),
+            is_error: false,
+        }),
+    ]);
+    assert!(matches!(
+        events[steered + 1],
+        Event::Known(Known::UserMessage { .. })
+    ));
+    assert!(!safe_starts(&events, None).contains(&(steered + 1)));
+    let keep_from = plan(&events, 9_000, 10_000).map(|p| p.keep_from);
+    assert_ne!(keep_from, Some(steered + 1));
+    assert_eq!(
+        keep_from,
+        Some(steered - 2),
+        "it cuts at the turn's own first message"
+    );
+}
+
+#[test]
+fn a_summary_is_read_from_a_fenced_or_bare_json_reply() {
+    let fenced = "```json\n{\"goal\":\"Trip\",\"decisions\":[],\"facts\":[],\"open\":[],\"references\":[]}\n```";
+    assert_eq!(
+        parse_summary(fenced).map(|s| s.goal),
+        Some("Trip".to_owned())
+    );
+    assert_eq!(parse_summary("I could not summarise that."), None);
 }

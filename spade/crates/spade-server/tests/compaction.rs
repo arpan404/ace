@@ -191,3 +191,48 @@ async fn compact_on_request_works_between_turns_and_is_refused_mid_reply() -> Re
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn the_summary_call_reuses_the_turns_tools_and_every_model_call_is_paid_for() -> Result {
+    let lookup = support::FakeTool::new("lookup", spade_core::tools::Risk::Read, "12C");
+    let spade = Spade::start_with(
+        vec![
+            Script::reply("Take the train.").cached(100, 0),
+            Script::reply("").plain(r#"{"title":"Oxford trip"}"#),
+            Script::reply("").plain(SUMMARY),
+            Script::reply("Try the Randolph."),
+        ],
+        vec![std::sync::Arc::new(lookup) as std::sync::Arc<dyn spade_server::tools::Tool>],
+        small_budget(),
+    )
+    .await?;
+    let id = spade.ask("How do I get to Oxford?").await?;
+    spade.wait_for(&id, "renamed").await?;
+    spade
+        .post(
+            &format!("/v1/conversations/{id}/messages"),
+            json!({ "text": "Where should I stay?" }),
+        )
+        .await?;
+    let events = spade.wait_for_count(&id, "reply_finished", 2).await?;
+
+    let seen = spade.fake.seen();
+    assert_eq!(seen.len(), 4);
+    assert!(seen[0].body["tools"].is_array());
+    assert_eq!(
+        seen[2].body["tools"], seen[0].body["tools"],
+        "same tools, same cached prefix"
+    );
+    assert!(seen[2].body.get("response_format").is_none());
+
+    // Every call is in the spend table: both steps, the title and the summary (92 micros each
+    // for the last two: 11 input × $2/M + 7 output × $10/M).
+    let steps: u64 = events
+        .iter()
+        .filter(|e| e["type"] == "step_finished")
+        .map(|e| e["cost_micros"].as_u64().unwrap_or(0))
+        .sum();
+    let spent = spade_store::Store::open(&spade.database())?.spent_since(0)?;
+    assert_eq!(spent, steps + 92 + 92);
+    Ok(())
+}

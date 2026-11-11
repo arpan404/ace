@@ -233,11 +233,15 @@ async fn typed_output_works_in_every_format() -> Result {
     let fake = FakeProvider::start_with(Script::reply(r#"{"relevant": true, "score": 7}"#)).await?;
     let models = models(&fake)?;
     for reference in ["chat/kimi", "resp/sol", "msgs/haiku"] {
-        let verdict: Verdict = models
-            .generate(reference, &Prompt::ask("Relevant?"))
+        let generated = models
+            .generate::<Verdict>(reference, &Prompt::ask("Relevant?"))
             .await?;
+        assert!(
+            generated.usage.output_tokens.is_some(),
+            "{reference} reports usage"
+        );
         assert_eq!(
-            verdict,
+            generated.value,
             Verdict {
                 relevant: true,
                 score: 7

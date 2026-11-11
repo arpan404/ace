@@ -3,10 +3,10 @@
 
 use std::sync::Arc;
 
-use spade_core::Event;
-use spade_core::compaction::{self, Plan, Summary};
+use spade_core::compaction::{self, Plan};
 use spade_core::context::{self, SYSTEM};
 use spade_core::event::Known;
+use spade_core::{Event, spending};
 use spade_models::Message;
 
 use super::Engine;
@@ -65,11 +65,7 @@ pub(super) async fn now(
         Event::Known(Known::ContextCompacted { keep_from, .. }) => Some(*keep_from),
         _ => None,
     });
-    let keep_from = events
-        .iter()
-        .rposition(|e| matches!(e, Event::Known(Known::UserMessage { .. })))
-        .filter(|k| already.is_none_or(|a| *k > a));
-    let Some(keep_from) = keep_from else {
+    let Some(keep_from) = compaction::safe_starts(&events, already).last().copied() else {
         return Ok(false);
     };
     run(engine, id, model, &events, Plan { keep_from }, focus).await;
@@ -84,17 +80,35 @@ async fn run(
     plan: Plan,
     focus: Option<&str>,
 ) {
-    // The summary request goes after the whole current prompt, so its input is cache reads.
+    // The summary request goes after the whole current prompt, with the same tools, so its input
+    // is cache reads. Typed output is not used: it would change the request and miss the cache.
     let mut prompt = context::prompt(SYSTEM, engine.tools.registry().offered(), events);
     prompt.messages.push(Message::Person {
         text: compaction::request(focus),
     });
-    prompt.tools.clear();
     let carried = compaction::carried_out(events, plan.keep_from, engine.tools.registry());
-    let summary = match engine.models.generate::<Summary>(model, &prompt).await {
-        Ok(summary) => compaction::render(&summary, &carried),
+    let written = match engine.models.chat(model, &prompt).await {
+        Ok(reply) => {
+            let cost = spending::cost_micros(engine.models.price(model), &reply.usage);
+            if cost > 0
+                && let Err(error) = engine.store.record_spend(id, model, cost, engine.now_ms())
+            {
+                tracing::error!(%error, "could not record a compaction's cost");
+            }
+            if reply.calls.is_empty() {
+                compaction::parse_summary(&reply.text)
+            } else {
+                None
+            }
+        }
         Err(error) => {
             tracing::warn!(%error, "summary failed; leaving older turns out instead");
+            None
+        }
+    };
+    let summary = match written {
+        Some(summary) => compaction::render(&summary, &carried),
+        None => {
             let mut text = LEFT_OUT.to_owned();
             if !carried.is_empty() {
                 text.push_str("\n\nAlready carried out (do not repeat):\n");
