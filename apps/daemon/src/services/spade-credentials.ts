@@ -3,7 +3,7 @@ import { AccessMode, ProviderKind, type ThreadId } from "@ace/protocol";
 import { loadToken } from "../local-files.ts";
 import { ProjectStorage } from "../project-storage.ts";
 import type { SpadeCredentials, SpadeHost } from "../spade/host.ts";
-import { ensureSpadeHostThread } from "../spade/host-thread.ts";
+import { ensureSpadeHostThread, findHostThread } from "../spade/host-thread.ts";
 import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
 import type { ServiceContext } from "./types.ts";
 
@@ -67,6 +67,14 @@ export function spadeCredentials(
             error: error instanceof Error ? error.message : String(error),
           }),
       );
+
+  // The host thread is reported from the start, whether or not Spade runs, so the apps know
+  // Spade's children by their parent even with Spade off or not installed.
+  const existing = findHostThread(store);
+  if (existing) {
+    tracked = existing.threadId;
+    refresh();
+  }
 
   return async () => {
     const issued: Record<string, string> = {};

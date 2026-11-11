@@ -560,6 +560,7 @@ export class FakeDaemon implements Host {
       ...(init.startedBy ? { startedBy: ThreadId.parse(init.startedBy) } : {}),
       ...(init.delegatedFrom ? { delegatedFrom: init.delegatedFrom } : {}),
       ...(init.queuedLaunch ? { queuedLaunch: init.queuedLaunch } : {}),
+      ...(init.host ? { host: init.host } : {}),
       ...(init.execution ? { execution: init.execution } : {}),
       permission: {
         override: init.access ?? null,

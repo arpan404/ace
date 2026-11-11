@@ -18,7 +18,7 @@ export interface SpadeHostThread {
 }
 
 /** The newest host thread that is still there, with the root agent MCP callers need. */
-function findHostThread(store: Store): SpadeHostThread | undefined {
+export function findHostThread(store: Store): SpadeHostThread | undefined {
   const row = store
     .statement(
       `SELECT id FROM threads WHERE json_extract(client,'$.host')='spade'

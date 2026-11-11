@@ -1,3 +1,4 @@
+import { useSidebarThread, useThreadMeta } from "@ace/client-react";
 import { useDaemonQuery } from "./daemon-query.ts";
 
 /**
@@ -25,7 +26,14 @@ export function visibleParent(
   return delegatedBy !== undefined && delegatedBy !== spadeHost ? delegatedBy : undefined;
 }
 
-/** `visibleParent` for a thread's recorded parent. */
+/**
+ * `visibleParent` for a thread's recorded parent. A parent the Threads list doesn't hold is read
+ * itself, so a host thread is known by its own `host` field even when `spade.status` can't say.
+ */
 export function useVisibleParent(delegatedBy: string | undefined): string | undefined {
-  return visibleParent(delegatedBy, useSpadeHostThread());
+  const host = useSpadeHostThread();
+  const listed = useSidebarThread(delegatedBy ?? "");
+  const unlisted = useThreadMeta(delegatedBy !== undefined && !listed ? delegatedBy : undefined);
+  if (unlisted?.host !== undefined) return undefined;
+  return visibleParent(delegatedBy, host);
 }

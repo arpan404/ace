@@ -259,6 +259,22 @@ test("Spade acts as its own hidden host thread: the full agent tool set, delegat
     const second = await connectMcp(again.env);
     opened.push(second.client);
     expect((await second.client.listTools()).tools.map((tool) => tool.name)).toContain("delegate");
+
+    // With Spade off, a restarted daemon still names the host thread, so the apps know Spade's
+    // children by their parent.
+    await daemon.settings.set("spade.enabled", false, { kind: "global" });
+    await until(() => daemon.spade?.status().state === "off", "Spade to stop");
+    for (const client of opened) await client.close().catch(() => {});
+    opened.length = 0;
+    daemon = await f.restart();
+    await until(
+      () => daemon.spade?.status().thread !== undefined,
+      () => `the host thread in Spade's status (${JSON.stringify(daemon.spade?.status())})`,
+    );
+    expect(daemon.spade?.status()).toMatchObject({
+      state: "off",
+      thread: { id: again.hostId, busy: false },
+    });
   } finally {
     for (const client of opened) await client.close().catch(() => {});
     await daemon.close();

@@ -68,7 +68,7 @@ import { GuestBottom } from "./guest/guest-bottom.tsx";
 import { QueuedLaunch } from "./subagent/queued-launch.tsx";
 import { ThreadForgeLinks } from "@/components/forge-links.tsx";
 import { ThreadLinkedFiles } from "@/components/linked-file.tsx";
-import { useSpadeHostThread, visibleParent } from "@/lib/spade-host.ts";
+import { useVisibleParent } from "@/lib/spade-host.ts";
 
 /**
  * A thread New thread started a moment ago, until the daemon names it: its view's code loads
@@ -138,7 +138,7 @@ function ThreadScreen(props: {
 }) {
   const nav = useThreadNav();
   const meta = useThreadMeta(props.threadId);
-  const spadeHost = useSpadeHostThread();
+  const parentThreadId = useVisibleParent(meta?.delegatedBy);
   const requests = useInteractions(props.threadId);
   // Requests are part of opening the thread, never deferred until browser idle time.
   if (requests?.length) use(DeferredComposerStrip.preload());
@@ -252,7 +252,7 @@ function ThreadScreen(props: {
                 {meta.queuedLaunch ? (
                   <QueuedLaunch
                     text={meta.queuedLaunch.text}
-                    parentThreadId={visibleParent(meta.delegatedBy, spadeHost)}
+                    parentThreadId={parentThreadId}
                     slotLimit={meta.queuedLaunch.slotLimit}
                     slotsInUse={meta.queuedLaunch.slotsInUse}
                     queuePosition={meta.queuedLaunch.queuePosition}
