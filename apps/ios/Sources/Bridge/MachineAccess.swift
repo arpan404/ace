@@ -109,6 +109,7 @@ struct BridgeMachineAccess: MachineAccess {
         await withCheckedContinuation { continuation in
             if let runtime = once.runtime { runtime.stop { continuation.resume() } } else { continuation.resume() }
         }
+        once.release()
         return outcome
     }
 }
@@ -131,6 +132,7 @@ private final class Once: @unchecked Sendable {
         state.0?.stop()
         state.1?(.failure(.cancelled))
     }
+    func release() { lock.withLock { storedRuntime = nil; finish = nil } }
     func claim() -> Bool { lock.withLock { if claimed { return false }; claimed = true; return true } }
 }
 

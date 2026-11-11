@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Settings › Archived: archived threads, one machine at a time (the web's Archived screen): most
 /// recently archived first, 20 per page from the SDK's archive window. A thread opens read-only
-/// in Settings' stack; Unarchive returns it to the inbox. Settings closes the window it follows
+/// in Settings' stack; Restore returns it to the inbox. Settings closes the window it follows
 /// once the archive and its threads are gone.
 struct ArchiveView: View {
     let inbox: MachineInbox
@@ -52,6 +52,8 @@ private struct ArchiveRows: View {
     @Bindable var client: ClientModel
     let open: (String) -> Void
     private var archive: ArchiveBrowserModel { client.archive }
+    @State private var restoreProblem: String?
+    @State private var failedRestore: String?
 
     var body: some View {
         let ids = archive.list.ids.filter { client.inbox[$0] != nil }
@@ -65,29 +67,43 @@ private struct ArchiveRows: View {
                     .accessibilityHint("Opens read-only")
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                         if client.canOperate {
-                            Button("Unarchive", systemImage: "tray.and.arrow.up") { Task { _ = await client.unarchive(id) } }
+                            Button("Restore", systemImage: "tray.and.arrow.up") { Task { await restore(id) } }
                                 .tint(AceTheme.Colours.mutedForeground)
                         }
                     }
                     .contextMenu {
                         if client.canOperate {
-                            Button("Unarchive", systemImage: "tray.and.arrow.up") { Task { _ = await client.unarchive(id) } }
+                            Button("Restore", systemImage: "tray.and.arrow.up") { Task { await restore(id) } }
                         }
                     }
                     .onAppear { if id == ids.last { client.loadMoreArchived() } }
             }
         }
+        if let restoreProblem {
+            ServiceProblem(message: restoreProblem)
+            Button("Retry") { if let failedRestore { Task { await restore(failedRestore) } } }.buttonStyle(.textAction())
+        }
         footer(empty: ids.isEmpty).listRowSeparator(.hidden)
     }
+    private func retry() {
+        if archive.list.loaded { client.loadMoreArchived() }
+        else { client.closeArchive(); client.openArchive() }
+    }
+    private func restore(_ id: String) async {
+        if await client.unarchive(id) { restoreProblem = nil; failedRestore = nil }
+        else { restoreProblem = "Couldn’t restore this thread."; failedRestore = id }
+    }
     @ViewBuilder private func footer(empty: Bool) -> some View {
-        if archive.loading || (!archive.list.loaded && client.connection == "ready") {
+        if archive.list.failed {
+            ServiceProblem(message: "Couldn’t load archived threads.")
+            Button("Retry") { retry() }.buttonStyle(.textAction())
+                .accessibilityIdentifier("archive.retry")
+        } else if archive.loading || (!archive.list.loaded && client.connection == "ready") {
             if empty { SkeletonRows(label: "Loading archived threads") }
             else { HStack { Spacer(); ProgressView().accessibilityLabel("Loading older threads"); Spacer() } }
-        } else if archive.list.failed {
-            Button("Retry loading older threads") { client.loadMoreArchived() }
-                .frame(minHeight: AceDesign.Size.tap).accessibilityIdentifier("archive.retry")
+
         } else if !archive.list.loaded {
-            EmptyState(icon: .wifiSlash, title: "Can't reach this machine", line: "Archived threads load once it's connected.")
+            EmptyState(icon: .wifiSlash, title: "Can't reach this machine", line: "Archived threads load once it's connected.") { Button("Retry") { client.retry(); retry() }.buttonStyle(.textAction()) }
         } else if empty {
             EmptyState(systemImage: "archivebox", title: "Nothing archived", line: "Threads you archive on this machine wait here.")
         } else if archive.canLoadMore {
@@ -98,19 +114,21 @@ private struct ArchiveRows: View {
     }
 }
 
-/// Where the composer would be for an archived thread: it's read-only until it's unarchived.
+/// Where the composer would be for an archived thread: it's read-only until it's restored.
 struct ArchivedNote: View {
     let canOperate: Bool
     let unarchive: () async -> Bool
     @State private var working = false
+    @State private var failed = false
     var body: some View {
         HStack(spacing: AceTheme.Spacing.md) {
             Label("Archived", systemImage: "archivebox")
                 .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
+            if failed { Text("Couldn’t restore").font(AceDesign.Typeface.meta).foregroundStyle(AceTheme.StatusText.failed) }
             Spacer(minLength: AceTheme.Spacing.sm)
             if canOperate {
-                Button("Unarchive") { working = true; Task { _ = await unarchive(); working = false } }
-                    .buttonStyle(.bordered).buttonBorderShape(.capsule).disabled(working)
+                Button(failed ? "Retry" : "Restore") { working = true; Task { failed = !(await unarchive()); working = false } }
+                    .buttonStyle(.textAction()).disabled(working)
                     .frame(minHeight: AceDesign.Size.tap)
                     .accessibilityIdentifier("thread.unarchive")
             }

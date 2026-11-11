@@ -46,7 +46,7 @@ struct FleetRulesView: View {
                 Text(connected.count > 1 ? "Set on \(connected.count) connected machines. A machine's own settings can set it apart." : "Set on every connected machine.")
             }
             .insetRowBackground()
-            if let problem { Section { ServiceProblem(message: problem) }.insetRowBackground() }
+            if let problem { Section { ServiceProblem(message: problem); Button("Retry") { Task { await read() } }.buttonStyle(.textAction()) }.insetRowBackground() }
         }
         .insetGroupedList()
         .smoothChange(loaded)
@@ -98,7 +98,7 @@ struct FleetRulesView: View {
     }
 
     private func read() async {
-        guard let first = connected.first else { return }
+        guard let first = connected.first else { problem = "No connected machines. Reconnect and retry."; return }
         do {
             rules = try await first.client.service(["type": "native.fleet", "machine": inbox.name(first.hostId), "request": ["op": "rules"]], as: FleetRulesReply.self).rules
             let keys = rules.map(\.key)

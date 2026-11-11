@@ -21,27 +21,27 @@ struct CreateProjectView: View {
         _drafts = State(initialValue: ProjectCreationDraftModel(hostId: model.hostId ?? "unpaired", cloning: cloning))
     }
     var body: some View {
-        Form {
+        QuietPage {
             Group {
                 if model.connection != "ready" { InboxConnectionBanner(connection: model.connection, retry: model.retry) }
                 if cloning {
-                    Section {
+                    QuietGroup {
                         NavigationLink {
                             GitHubRepositoriesView(model: model) { row in
                                 drafts.edit { $0.url = row.cloneUrl; $0.name = row.name }
                                 problem = nil
                             }
-                        } label: { InsetRow("Choose from GitHub", systemImage: "magnifyingglass", subtitle: "Your repositories, through gh on the machine") }
+                        } label: { HStack { QuietRowText(title: "Choose from GitHub", detail: "Your repositories, through gh on the machine"); RowCaret() } }
                         .accessibilityIdentifier("project.clone.github")
                     }
                 }
-                Section {
+                QuietGroup {
                     if cloning { TextField("Repository URL", text: field(\.url)).accessibilityIdentifier("project.clone.url") }
                     TextField("Project name", text: field(\.name)).accessibilityIdentifier("project.create.name")
-                    TextField("Parent folder on Mac", text: field(\.parent)).accessibilityIdentifier("project.create.parent")
+                    TextField("Parent folder on Mac", text: field(\.parent)).font(AceDesign.Typeface.code).accessibilityIdentifier("project.create.parent")
                 } footer: { Text("Created on your connected machine. The folder and repository are kept there.") }
                 if !cloning {
-                    Section {
+                    QuietGroup {
                         Toggle("Initialise a Git repository", isOn: Binding(get: { draft.git }, set: { value in drafts.edit { $0.git = value } }))
                         if draft.git {
                             TextField("Initial branch (\(initialBranch))", text: field(\.branch))
@@ -60,9 +60,9 @@ struct CreateProjectView: View {
                     .disabled(!ready || busy || !model.canOperate || model.connection != "ready")
                     .accessibilityIdentifier("project.create.submit")
             }
-            .insetRowBackground()
+
         }
-        .insetGroupedList()
+
         .textInputAutocapitalization(.never).autocorrectionDisabled()
         .disabled(busy)
         .navigationTitle(cloning ? "Clone repository" : "New project").navigationBarTitleDisplayMode(.inline)

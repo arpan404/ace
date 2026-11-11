@@ -40,12 +40,12 @@ struct GitHubRepositoriesView: View {
     @State private var problem: String?
 
     var body: some View {
-        List {
+        QuietPage {
             if let context, !context.ready {
-                Section { ServiceProblem(message: context.instructions ?? "Sign in to GitHub with gh on the machine.") }
-                    .insetRowBackground()
+                QuietGroup { ServiceProblem(message: context.instructions ?? "Sign in to GitHub with gh on the machine."); Button("Rescan") { Task { await readContext() } }.buttonStyle(.textAction()) }
+
             }
-            Section {
+            QuietGroup {
                 if let rows {
                     if rows.isEmpty { Text(query.isEmpty ? "No repositories." : "No repositories match \(query).").foregroundStyle(AceDesign.Ink.muted) }
                     ForEach(rows) { row in
@@ -70,13 +70,13 @@ struct GitHubRepositoriesView: View {
                     }
                     .accessibilityHidden(true)
                 }
-                if let problem { ServiceProblem(message: problem) }
+                if let problem { ServiceProblem(message: problem); Button("Retry") { Task { await readContext() } }.buttonStyle(.textAction()) }
             } header: {
                 if let context, context.ready { InsetHeader("\(account.isEmpty ? context.account : account) on \(host)") }
             }
-            .insetRowBackground()
+
             if let context, context.ready {
-                Section {
+                QuietGroup {
                     if context.hosts.count > 1 {
                         Picker("Host", selection: $host) { ForEach(context.hosts, id: \.self) { Text($0).tag($0) } }
                     }
@@ -88,10 +88,10 @@ struct GitHubRepositoriesView: View {
                         Text("Include forks").tag("all"); Text("Exclude forks").tag("no"); Text("Only forks").tag("yes")
                     }
                 } header: { InsetHeader("Filters") }
-                .insetRowBackground()
+
             }
         }
-        .insetGroupedList()
+
         .smoothChange(rows?.map(\.id))
         .smoothChange(problem)
         .searchable(text: $query, prompt: "Search repositories")
@@ -107,6 +107,7 @@ struct GitHubRepositoriesView: View {
     }
 
     private func readContext() async {
+        problem = nil
         guard let found = try? await model.service(["type": "native.project", "request": ["op": "repos.context"]], as: ReposContext.self) else {
             problem = "Couldn't reach the machine. Try again."; return
         }
