@@ -3,6 +3,30 @@ import Testing
 @testable import Ace
 
 @Suite @MainActor struct NotificationTests {
+    @Test func phonePreferencesSavedBeforeUsageLimitsKeepTheirChoicesAndAlertForLimits() throws {
+        let older = #"{"inApp":{"needsYou":false,"failures":true,"finished":true,"agentSays":true},"system":{"needsYou":true,"failures":false,"finished":true,"agentSays":false}}"#
+        let prefs = try JSONDecoder().decode(PhoneNotificationPrefs.self, from: Data(older.utf8))
+        // What the person chose stays; the new category starts on, as on the web.
+        #expect(prefs.inApp.needsYou == false)
+        #expect(prefs.inApp.agentSays)
+        #expect(prefs.system.failures == false)
+        #expect(prefs.inApp.limits)
+        #expect(prefs.system["limits"])
+    }
+
+    @Test func aUsageLimitChangePostsOnceUnderItsOwnKeyAsThePhoneDecided() throws {
+        let frame = #"{"type":"notifications.limit","key":"reached:claude-work:123","title":"Claude Code · work reached its usage limit","body":"Resets 17:00 · in 2h.","delivery":{"post":true,"interrupt":false,"banner":false}}"#
+        guard case .limit(let alert) = try JSONDecoder().decode(NotificationPatch.self, from: Data(frame.utf8)) else {
+            Issue.record("not a limit patch"); return
+        }
+        let content = AlertContent.limit(alert, hostId: "mac")
+        #expect(content.identifier == "limit:mac:reached:claude-work:123")
+        #expect(content.title == "Claude Code · work reached its usage limit")
+        // Quiet hours or banners off: filed in the list without a banner or sound.
+        #expect(content.banner == false)
+        #expect(content.level == .passive)
+    }
+
     @Test func anAlertSeenLiveAndAgainInCatchUpIsPostedOnceUnderItsStableId() async throws {
         let center = FakeCenter()
         let store = LedgerStore(scope: "host", defaults: try defaults())

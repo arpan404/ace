@@ -163,6 +163,9 @@ struct SystemAuthorizer: NotificationAuthorizer {
             note(alert, from: hostId)
             guard delivering(hostId), let ledger = entry?.notifier else { return }
             Task { await ledger.receive(alert) }
+        case .limit(let alert):
+            guard delivering(hostId), alert.delivery?.post != false else { return }
+            desk.post(.limit(alert, hostId: hostId))
         case .feed(let cursor, let entries, let retracted):
             for alert in entries { note(alert, from: hostId) }
             forget(retracted, from: hostId)

@@ -64,6 +64,16 @@ struct AlertContent: Equatable, Sendable {
         content.level = .timeSensitive
         return content
     }
+    /// A usage-limit change on one machine's account (near, reached, can work again), shown as
+    /// the phone's preferences decided in the bridge. Its id is the change's own, so it shows once.
+    static func limit(_ alert: LimitNotification, hostId: String) -> AlertContent {
+        var content = AlertContent(identifier: "limit:\(hostId):\(alert.key)", title: alert.title, body: alert.body,
+                                   threadId: "", group: "limits:\(hostId)")
+        content.hostId = hostId
+        content.banner = alert.delivery?.banner ?? true
+        content.level = alert.delivery?.interrupt == false ? .passive : .active
+        return content
+    }
     /// Several threads that finished close together, as one quiet notification: "3 threads
     /// finished" over their titles, newest first. It opens ace, not one of them.
     static func finishedSummary(count: Int, titles: [String]) -> AlertContent {
