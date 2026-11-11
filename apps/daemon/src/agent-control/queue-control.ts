@@ -10,6 +10,9 @@ import {
 import { controlCommandId } from "./command-id.ts";
 import type { DelegationService } from "./delegations.ts";
 
+/** The queue reads and commands an agent's queue edits go through. */
+export type QueueService = Pick<DelegationService, "queue" | "command">;
+
 export type QueueOperation = Extract<
   AgentControlOperation,
   { op: "queue.list" | "queue.edit" | "queue.cancel" | "queue.steer" | "queue.reorder" }
@@ -39,7 +42,7 @@ function entry(message: QueuedMessage) {
  * an entry already delivered or changed by someone else is refused, never overwritten.
  */
 export function queueControl(
-  service: DelegationService,
+  service: QueueService,
   caller: McpAttribution,
   operation: QueueOperation,
 ): AgentControlResult {
@@ -71,7 +74,7 @@ export function queueControl(
           { type: "text", text: operation.text },
           ...message.input.filter((part) => part.type !== "text"),
         ],
-        ...(message.context ? { context: message.context } : {}),
+        ...(message.context ? { context: editedContext(message, operation.text) } : {}),
       });
     case "queue.steer":
       return run("queue.steer", {
@@ -84,9 +87,20 @@ export function queueControl(
   }
 }
 
+/**
+ * A file's spot is an offset into the message's text, so it only holds while that text does.
+ * New text sends the files after it, as a message without spots always has.
+ */
+function editedContext(message: QueuedMessage, text: string): QueuedMessage["context"] {
+  const context = message.context;
+  const old = message.input.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
+  if (!context || old === text) return context;
+  return { ...context, attachments: context.attachments.map(({ sha256 }) => ({ sha256 })) };
+}
+
 /** Moves each named entry after the one before it, so they lead the queue in the given order. */
 function reorder(
-  service: DelegationService,
+  service: QueueService,
   caller: McpAttribution,
   operation: Extract<QueueOperation, { op: "queue.reorder" }>,
 ): AgentControlResult {
