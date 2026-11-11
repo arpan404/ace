@@ -5,4 +5,8 @@ import Foundation
 struct CacheUsage: Codable, Sendable, Equatable {
     let threads: Int
     let bytes: Int
+    var measured: Bool? = nil
+    var problem: String? = nil
+    var retry: String? = nil
+    var threadId: String? = nil
 }
