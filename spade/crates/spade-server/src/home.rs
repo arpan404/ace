@@ -6,6 +6,10 @@ use std::io::Write;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
+/// Spade's HTTP API version, in `server.json` and `/health`. Clients accept this one and the one
+/// before it (docs/ace-integration.md).
+pub const API_VERSION: u32 = 1;
+
 /// The model catalogue and search settings Spade starts with when the data folder has none.
 pub const DEFAULT_MODELS: &str = include_str!("../../../config/models.json");
 pub const DEFAULT_SEARCH: &str = include_str!("../../../config/search.json");
@@ -78,12 +82,13 @@ impl Home {
         write_atomic(&self.dir.join("token"), token.as_bytes(), true)
     }
 
-    /// Announces readiness: `{address, pid, version}`.
+    /// Announces readiness: `{address, pid, version, api}`.
     pub fn write_server_json(&self, address: SocketAddr, pid: u32) -> Result<(), HomeError> {
         let body = serde_json::json!({
             "address": address.to_string(),
             "pid": pid,
             "version": env!("CARGO_PKG_VERSION"),
+            "api": API_VERSION,
         });
         write_atomic(
             &self.dir.join("server.json"),
@@ -123,4 +128,37 @@ pub fn new_token() -> String {
         uuid::Uuid::new_v4().simple(),
         uuid::Uuid::new_v4().simple()
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn server_json_names_the_address_pid_version_and_api() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let dir = tempfile::tempdir()?;
+        let home = Home::open(dir.path())?;
+        home.write_server_json("127.0.0.1:4567".parse()?, 42)?;
+        let written: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dir.path().join("server.json"))?)?;
+        assert_eq!(
+            written,
+            serde_json::json!({
+                "address": "127.0.0.1:4567",
+                "pid": 42,
+                "version": env!("CARGO_PKG_VERSION"),
+                "api": 1,
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_second_spade_on_the_same_folder_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let _first = Home::open(dir.path())?;
+        assert!(matches!(Home::open(dir.path()), Err(HomeError::Busy(_))));
+        Ok(())
+    }
 }

@@ -28,13 +28,22 @@ const MIGRATIONS: &[&str] = &["
     CREATE INDEX spend_by_time ON spend (at_ms);
 "];
 
+/// The schema version this build brings a database up to.
+pub fn current_version() -> usize {
+    MIGRATIONS.len()
+}
+
+pub fn version(connection: &Connection) -> rusqlite::Result<usize> {
+    let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    Ok(usize::try_from(version).unwrap_or(0))
+}
+
 pub fn prepare(connection: &mut Connection) -> rusqlite::Result<()> {
     connection.pragma_update(None, "journal_mode", "WAL")?;
     connection.pragma_update(None, "synchronous", "NORMAL")?;
     connection.pragma_update(None, "foreign_keys", "ON")?;
     connection.busy_timeout(std::time::Duration::from_secs(5))?;
-    let version: usize =
-        connection.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))? as usize;
+    let version = version(connection)?;
     for (index, migration) in MIGRATIONS.iter().enumerate().skip(version) {
         let tx = connection.transaction()?;
         tx.execute_batch(migration)?;

@@ -15,7 +15,9 @@ use spade_models::{Catalog, Models, ToolSpec};
 use spade_server::api::AppState;
 use spade_server::clock::{CountingIds, SystemClock};
 use spade_server::engine::{Engine, Limits, Setup};
-use spade_server::tools::{SkillLibrary, Tool, ToolFuture, ToolOutput, ToolSource, Toolbox};
+use spade_server::tools::{
+    AceLink, AceTarget, Retry, SkillLibrary, Tool, ToolFuture, ToolOutput, ToolSource, Toolbox,
+};
 use spade_store::Store;
 use spade_testkit::{FakeProvider, Script};
 use tokio::net::TcpListener;
@@ -117,6 +119,11 @@ pub struct Spade {
     pub fake: FakeProvider,
     pub http: reqwest::Client,
     pub dir: Arc<tempfile::TempDir>,
+    pub engine: Arc<Engine>,
+    /// The (mock) keychain this server keeps keys and the ace grant in.
+    pub keys: KeyStore,
+    /// The connection to ace, when started with `ace_home`.
+    pub ace: Option<Arc<AceLink>>,
     stop: Option<oneshot::Sender<()>>,
     task: tokio::task::JoinHandle<std::io::Result<()>>,
 }
@@ -125,6 +132,10 @@ pub struct Options {
     pub cap_usd: f64,
     pub limits: Limits,
     pub skills: Option<Arc<dyn SkillLibrary>>,
+    /// Finds ace from this folder's files, retrying quickly.
+    pub ace_home: Option<PathBuf>,
+    /// Waits for the ace connection, when not the quick ones tests use by default.
+    pub ace_retry: Option<Retry>,
 }
 
 impl Default for Options {
@@ -133,6 +144,8 @@ impl Default for Options {
             cap_usd: 5.0,
             limits: Limits::default(),
             skills: None,
+            ace_home: None,
+            ace_retry: None,
         }
     }
 }
@@ -191,9 +204,25 @@ impl Spade {
     async fn serve_toolbox(
         fake: FakeProvider,
         dir: Arc<tempfile::TempDir>,
-        tools: Toolbox,
+        mut tools: Toolbox,
         options: Options,
     ) -> Result<Self> {
+        let keys = KeyStore::with_store(mock::Store::new()?, spade_keys::SERVICE);
+        let ace = options.ace_home.clone().map(|home| {
+            AceLink::start(
+                AceTarget::Discover(home),
+                Some(keys.clone()),
+                options.ace_retry.unwrap_or(Retry {
+                    first: Duration::from_millis(20),
+                    longest: Duration::from_millis(100),
+                    check: Duration::from_millis(50),
+                    answer: Duration::from_millis(300),
+                }),
+            )
+        });
+        if let Some(link) = &ace {
+            tools = tools.with_source(link.clone() as Arc<dyn ToolSource>);
+        }
         let models = Models::new(
             catalog(&fake.root)?,
             Keys::new(|_| Some("fake-key".to_owned())),
@@ -210,11 +239,11 @@ impl Spade {
             skills: options.skills,
             images: spade_server::images::ImageStore::open(&dir.path().join("images"))?,
         })?;
-        let keys = KeyStore::with_store(mock::Store::new()?, spade_keys::SERVICE);
         let state = AppState {
-            engine,
+            engine: engine.clone(),
             token: TOKEN.into(),
-            keys: Some(keys),
+            keys: Some(keys.clone()),
+            ace: ace.clone(),
         };
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let base = format!("http://{}", listener.local_addr()?);
@@ -227,6 +256,9 @@ impl Spade {
             fake,
             http: reqwest::Client::new(),
             dir,
+            engine,
+            keys,
+            ace,
             stop: Some(stop),
             task,
         })
@@ -244,6 +276,41 @@ impl Spade {
         let _ = (&mut self.task).await;
         let fake = FakeProvider::start_sequence(scripts).await?;
         Self::serve(fake, self.dir.clone(), tools, Options::default()).await
+    }
+
+    /// Stops this server as SIGTERM does (open turns pause, a running model step gets
+    /// `allowance`), then opens a new engine and server on the same database.
+    pub async fn restart_after_stop(
+        self,
+        allowance: Duration,
+        tools: Vec<Arc<dyn Tool>>,
+        scripts: Vec<Script>,
+    ) -> Result<Self> {
+        self.engine.pause_for_stop(allowance).await;
+        self.restart(tools, scripts).await
+    }
+
+    pub async fn delete(&self, path: &str) -> Result<(u16, Value)> {
+        let response = self
+            .http
+            .delete(format!("{}{path}", self.base))
+            .bearer_auth(TOKEN)
+            .send()
+            .await?;
+        let status = response.status().as_u16();
+        Ok((status, response.json().await.unwrap_or(Value::Null)))
+    }
+
+    pub async fn put(&self, path: &str, body: Value) -> Result<(u16, Value)> {
+        let response = self
+            .http
+            .put(format!("{}{path}", self.base))
+            .bearer_auth(TOKEN)
+            .json(&body)
+            .send()
+            .await?;
+        let status = response.status().as_u16();
+        Ok((status, response.json().await.unwrap_or(Value::Null)))
     }
 
     /// Shuts the server down the graceful way; fails if it does not finish within `within`.

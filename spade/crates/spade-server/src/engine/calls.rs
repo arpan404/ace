@@ -9,6 +9,7 @@ use serde_json::Value;
 use spade_core::context;
 use spade_core::event::{Call, Known};
 use spade_core::gate::{self, Decision};
+use spade_core::maintenance::{Pause, Point, halts};
 use spade_core::tools::{CALL_TOOL, Risk, TOOL_SEARCH, describe, unwrap_call_tool};
 use spade_core::turn::{Pending, Status};
 use spade_core::{Event, Transcript};
@@ -23,6 +24,8 @@ const DECLINED: &str = "The person declined this action.";
 pub(super) enum Handled {
     Continue,
     Stopped,
+    /// Spade is closing; tools still running were cut (the caller records each as maybe run).
+    Paused,
     Failed(String),
 }
 
@@ -34,6 +37,7 @@ pub(super) async fn handle_calls(
     events: &[Event],
     calls: Vec<Pending>,
     stop: &mut watch::Receiver<bool>,
+    pause: &mut watch::Receiver<Pause>,
 ) -> Handled {
     let registry = engine.tools.registry();
     let transcript = Transcript::fold(events);
@@ -91,18 +95,26 @@ pub(super) async fn handle_calls(
         }
     }
     if !runnable.is_empty() {
-        return run_tools(engine, id, reply, runnable, stop).await;
+        return run_tools(engine, id, reply, runnable, stop, pause).await;
     }
     if waiting {
         let live = engine.live(id);
-        tokio::select! {
-            _ = live.wake.notified() => {}
+        live.waiting_on_you
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        let handled = tokio::select! {
+            _ = live.wake.notified() => Handled::Continue,
             changed = stop.changed() => {
                 if changed.is_err() || *stop.borrow() {
-                    return Handled::Stopped;
+                    Handled::Stopped
+                } else {
+                    Handled::Continue
                 }
             }
-        }
+            _ = super::turn::pausing(pause, Point::WaitingOnYou) => Handled::Paused,
+        };
+        live.waiting_on_you
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        return handled;
     }
     Handled::Continue
 }
@@ -123,6 +135,7 @@ async fn run_tools(
     reply: &str,
     calls: Vec<(Call, String, Value)>,
     stop: &mut watch::Receiver<bool>,
+    pause: &mut watch::Receiver<Pause>,
 ) -> Handled {
     let limit = engine.limits.max_parallel_tools.max(1);
     let mut queue = calls.into_iter();
@@ -131,6 +144,9 @@ async fn run_tools(
         while running.len() < limit {
             if *stop.borrow() {
                 return Handled::Stopped;
+            }
+            if halts(*pause.borrow(), Point::Between) {
+                return Handled::Paused;
             }
             let Some((call, name, arguments)) = queue.next() else {
                 break;
@@ -183,6 +199,8 @@ async fn run_tools(
             Some((call, name, output)) = running.next() => {
                 finish_tool(engine, id, reply, &call, &name, output);
             }
+            // The running tools are dropped (cancelled) on return.
+            _ = super::turn::pausing(pause, Point::RunningTools) => return Handled::Paused,
         }
     }
 }

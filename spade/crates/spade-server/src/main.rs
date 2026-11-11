@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use spade_ace::{AceConfig, AceSkills, AceTools};
 use spade_fetch::{Fetcher, Policy};
 use spade_keys::{KeyStore, Keys};
 use spade_models::{Catalog, Models};
@@ -13,8 +12,8 @@ use spade_server::engine::{Engine, Limits, Setup};
 use spade_server::home::{DEFAULT_MODELS, DEFAULT_SEARCH, Home, HomeError, new_token};
 use spade_server::images::ImageStore;
 use spade_server::tools::{
-    AceLibrary, AceSource, SkillLibrary, SkillLoad, SkillSearch, Todo, Tool, Toolbox, WebFetch,
-    WebSearch,
+    AceLink, AceTarget, Retry, SkillLibrary, SkillLoad, SkillSearch, Todo, Tool, ToolSource,
+    Toolbox, WebFetch, WebSearch,
 };
 use spade_store::Store;
 use tokio::net::TcpListener;
@@ -28,6 +27,12 @@ const BUSY: u8 = 3;
 
 #[tokio::main]
 async fn main() -> std::process::ExitCode {
+    let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    if let Some(flag) = args.first()
+        && flag == "--check-migrations"
+    {
+        return check_migrations(args.get(1));
+    }
     // The HTML parser's own logs carry page text, so they are dropped by a separate layer that no
     // RUST_LOG setting can turn back on.
     tracing_subscriber::registry()
@@ -43,6 +48,26 @@ async fn main() -> std::process::ExitCode {
         }
         Err(Failure::Other(error)) => {
             tracing::error!(%error, "spade could not start");
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+/// `spade-server --check-migrations <path>`: an updater asks whether this build can open a
+/// snapshot of Spade's database (docs/ace-integration.md, "Updates"). Migrates and checks that
+/// file only; never touches the data folder. Exit 0 if usable, else 1 with one line saying why.
+fn check_migrations(path: Option<&std::ffi::OsString>) -> std::process::ExitCode {
+    let Some(path) = path else {
+        eprintln!("usage: spade-server --check-migrations <path to a copy of spade.sqlite>");
+        return std::process::ExitCode::from(2);
+    };
+    match Store::check(std::path::Path::new(path)) {
+        Ok(()) => {
+            println!("ok");
+            std::process::ExitCode::SUCCESS
+        }
+        Err(why) => {
+            eprintln!("{why}");
             std::process::ExitCode::FAILURE
         }
     }
@@ -95,11 +120,12 @@ async fn run() -> Result<(), Failure> {
         Duration::from_secs(10),
     )
     .map_err(other)?;
-    // ace's tools and skill library, when the daemon started Spade (docs/ace-integration.md).
-    let ace = match AceConfig::from_env(env) {
-        Ok(ace) => Some(ace),
-        Err(error) => {
-            tracing::warn!(%error, "running without ace's tools and skills");
+    // ace's tools and skill library, found from ace's home with the grant ace handed over (or
+    // the SPADE_ACE_* variables in development). Absent while ace is away.
+    let ace = match AceTarget::from_env(env) {
+        Some(target) => Some(AceLink::start(target, keychain.clone(), Retry::default())),
+        None => {
+            tracing::warn!("SPADE_ACE_HOME is not set; running without ace's tools and skills");
             None
         }
     };
@@ -113,20 +139,15 @@ async fn run() -> Result<(), Failure> {
         Arc::new(Todo),
     ];
     let mut skills: Option<Arc<dyn SkillLibrary>> = None;
-    let mut source = None;
-    if let Some(ace) = ace {
-        let library: Arc<dyn SkillLibrary> =
-            Arc::new(AceLibrary(Arc::new(AceSkills::new(ace.skills))));
+    if let Some(link) = &ace {
+        let library: Arc<dyn SkillLibrary> = link.clone();
         core.push(Arc::new(SkillSearch(library.clone())));
         core.push(Arc::new(SkillLoad(library.clone())));
         skills = Some(library);
-        // ace's `wait` can block for up to ten minutes; the engine's own limits still apply.
-        let tools = ace.tools.with_timeout(Duration::from_secs(11 * 60));
-        source = Some(AceSource::start(Arc::new(AceTools::new(tools))));
     }
     let mut tools = Toolbox::new(core);
-    if let Some(source) = source {
-        tools = tools.with_source(source);
+    if let Some(link) = &ace {
+        tools = tools.with_source(link.clone() as Arc<dyn ToolSource>);
     }
 
     let engine = Engine::open(Setup {
@@ -152,18 +173,26 @@ async fn run() -> Result<(), Failure> {
     tracing::info!(%address, "spade listening");
 
     let state = AppState {
-        engine,
+        engine: engine.clone(),
         token: token.into(),
         keys: keychain,
+        ace,
     };
-    let served = spade_server::serve(listener, state, shutdown_signal()).await;
+    let stopping = async move {
+        shutdown_signal().await;
+        tracing::info!("stopping: pausing open turns");
+        engine
+            .pause_for_stop(spade_core::maintenance::STOP_STEP_ALLOWANCE)
+            .await;
+    };
+    let served = spade_server::serve(listener, state, stopping).await;
     home.clear_server_json();
     served.map_err(other)?;
     tracing::info!("spade stopped");
     Ok(())
 }
 
-/// Resolves on Ctrl-C, or on SIGTERM from whatever started Spade (the ace daemon or systemd).
+/// Resolves on Ctrl-C, or on SIGTERM from the service manager or an updater.
 async fn shutdown_signal() {
     let ctrl_c = async {
         if let Err(error) = tokio::signal::ctrl_c().await {

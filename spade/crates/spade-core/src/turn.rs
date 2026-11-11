@@ -179,6 +179,25 @@ pub fn unanswered_after(events: &[Event], reply: &str) -> bool {
     })
 }
 
+/// Whether the conversation has something for the model and no reply open to answer it: a
+/// message or job result stored while turns could not start (Spade was closing for an update).
+/// When turns can start again, such a conversation opens a reply.
+pub fn needs_reply(events: &[Event]) -> bool {
+    let last = events.iter().rev().find_map(|event| match event {
+        Event::Known(Known::ReplyStarted { reply, .. }) => Some(reply.as_str()),
+        _ => None,
+    });
+    match last {
+        None => events.iter().any(|event| match event {
+            Event::Known(Known::UserMessage { .. }) => true,
+            Event::Known(Known::JobFinished { job, .. }) => !job_stopped(events, job),
+            _ => false,
+        }),
+        Some(_) if open_reply(events).is_some() => false,
+        Some(reply) => unanswered_after(events, reply),
+    }
+}
+
 /// Steps taken and money spent by the open turn.
 pub fn progress(events: &[Event]) -> Progress {
     let Some((_, start)) = open_reply(events) else {
@@ -469,6 +488,56 @@ mod tests {
             unanswered_after(&later, "r1"),
             "arrived while the step streamed"
         );
+    }
+
+    #[test]
+    fn a_message_stored_while_turns_could_not_start_needs_a_reply() {
+        let first = vec![Event::user_message("Hi")];
+        assert!(
+            needs_reply(&first),
+            "a conversation started during an update"
+        );
+        let mut events = vec![
+            Event::user_message("Hi"),
+            Event::reply_started("r1", "m"),
+            step(Vec::new(), 0),
+        ];
+        assert!(!needs_reply(&events), "the open reply answers it");
+        events.push(Event::Known(Known::ReplyFinished {
+            reply: "r1".into(),
+            text: String::new(),
+            input_tokens: None,
+            output_tokens: None,
+            cost_micros: 0,
+        }));
+        assert!(!needs_reply(&events), "answered");
+        events.push(Event::user_message("And another thing"));
+        assert!(needs_reply(&events));
+    }
+
+    #[test]
+    fn a_stopped_jobs_result_needs_no_reply() {
+        let events = vec![
+            Event::user_message("Research"),
+            Event::reply_started("r1", "m"),
+            Event::Known(Known::JobStarted {
+                reply: "r1".into(),
+                job: "j1".into(),
+                name: "research".into(),
+            }),
+            Event::Known(Known::StopRequested {
+                reply: Some("r1".into()),
+                jobs: vec!["j1".into()],
+            }),
+            Event::reply_ended(ReplyEnd::Stopped, "r1", ""),
+            Event::Known(Known::JobFinished {
+                job: "j1".into(),
+                name: "research".into(),
+                content: "late".into(),
+                is_error: false,
+            }),
+        ];
+        assert!(!needs_reply(&events));
     }
 
     #[test]

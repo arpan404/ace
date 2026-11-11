@@ -7,9 +7,11 @@ mod compact;
 mod control;
 mod index;
 mod jobs;
+mod maintenance;
 mod turn;
 mod types;
 
+pub use maintenance::MaintenanceState;
 pub use types::{
     Activity, AnswerError, CompactError, Frame, Limits, SendError, Setup, Snapshot, Subscription,
 };
@@ -19,8 +21,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use spade_core::event::Known;
-use spade_core::turn::job_stopped;
-use spade_core::{Event, Transcript, TurnState, spending};
+use spade_core::maintenance::Pause;
+use spade_core::turn::{job_stopped, needs_reply};
+use spade_core::{Event, Transcript, spending};
 use spade_models::{Models, Role};
 use spade_store::{Conversation, Store, StoreError, StoredEvent};
 use tokio::sync::{Notify, broadcast, watch};
@@ -38,6 +41,8 @@ struct Live {
     /// Woken when an approval is answered.
     wake: Notify,
     turn_running: AtomicBool,
+    /// The running worker is waiting for the person to answer an approval.
+    waiting_on_you: AtomicBool,
     /// Background jobs not yet stored as finished, by job id (see `jobs`).
     jobs: Mutex<HashMap<String, jobs::Job>>,
 }
@@ -60,11 +65,18 @@ pub struct Engine {
     /// Each conversation's activity, so listing conversations folds only those that changed.
     /// Every stored event goes through `append_events`, which drops the entry.
     activity: Mutex<HashMap<String, Activity>>,
+    /// False while Spade closes for an update or a stop: messages are stored, no turn starts.
+    /// Read under `record_lock`, so reopening never misses a message stored as it closed.
+    admission: AtomicBool,
+    /// What turn workers are told: run, or pause (see `maintenance`).
+    pause: watch::Sender<Pause>,
+    /// Counts maintenance requests, so a newer one (or reopening) retires an older one's task.
+    maintenance: std::sync::atomic::AtomicU64,
 }
 
 impl Engine {
-    /// Opens the engine: closes replies a restart cut off and resumes turns waiting for an
-    /// approval.
+    /// Opens the engine: closes replies a restart cut off, resumes paused turns and turns waiting
+    /// for an approval, and answers messages stored while Spade was closing.
     pub fn open(setup: Setup) -> Result<Arc<Self>, StoreError> {
         let engine = Arc::new(Self {
             store: setup.store,
@@ -80,6 +92,9 @@ impl Engine {
             live: Mutex::default(),
             record_lock: Mutex::default(),
             activity: Mutex::default(),
+            admission: AtomicBool::new(true),
+            pause: watch::channel(Pause::Off).0,
+            maintenance: std::sync::atomic::AtomicU64::new(0),
         });
         for conversation in engine.store.conversations()? {
             let events = engine.load(&conversation.id)?;
@@ -92,16 +107,10 @@ impl Engine {
                         engine.record(&conversation.id, &close)?;
                     }
                 }
-                if Transcript::fold(&engine.load(&conversation.id)?)
-                    .open_reply()
-                    .is_some()
-                {
-                    engine.spawn_turn(&conversation.id);
-                }
-            } else if transcript.turn_state() == Some(TurnState::WaitingOnYou) {
-                engine.spawn_turn(&conversation.id);
             }
             jobs::report_lost(&engine, &conversation.id)?;
+            // Paused turns, turns waiting on the person, and anything stored while closed.
+            engine.resume(&conversation.id)?;
         }
         Ok(engine)
     }
@@ -226,7 +235,8 @@ impl Engine {
                 Event::Known(Known::JobFinished { job, .. }) => job_stopped(&events, job),
                 _ => false,
             };
-            if quiet || Transcript::fold(&events).open_reply().is_some() {
+            let admitted = self.admission.load(Ordering::SeqCst);
+            if quiet || !admitted || Transcript::fold(&events).open_reply().is_some() {
                 self.append(id, event)?;
                 false
             } else {
@@ -352,6 +362,7 @@ impl Engine {
                     stop: Mutex::default(),
                     wake: Notify::new(),
                     turn_running: AtomicBool::new(false),
+                    waiting_on_you: AtomicBool::new(false),
                     jobs: Mutex::default(),
                 })
             })
@@ -399,6 +410,26 @@ impl Engine {
         cost
     }
 
+    /// Starts what the conversation is owed: a reply for anything stored while turns could not
+    /// start, and a worker for an open reply that has none (paused, or waiting on the person).
+    fn resume(self: &Arc<Self>, id: &str) -> Result<(), StoreError> {
+        let open = {
+            let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+            let events = self.load(id)?;
+            if needs_reply(&events) {
+                let model = self.models.for_role(Role::Main).to_owned();
+                self.append(id, &Event::reply_started(self.ids.next("r"), model))?;
+                true
+            } else {
+                Transcript::fold(&events).open_reply().is_some()
+            }
+        };
+        if open {
+            self.spawn_turn(id);
+        }
+        Ok(())
+    }
+
     fn spawn_turn(self: &Arc<Self>, id: &str) {
         let live = self.live(id);
         if live
@@ -419,8 +450,9 @@ impl Engine {
         };
         let (stop_tx, stop_rx) = watch::channel(false);
         *live.stop.lock().unwrap_or_else(|p| p.into_inner()) = Some((reply, stop_tx));
+        let pause_rx = self.pause.subscribe();
         let engine = self.clone();
         let id = id.to_owned();
-        tokio::spawn(async move { turn::run(engine, id, stop_rx).await });
+        tokio::spawn(async move { turn::run(engine, id, stop_rx, pause_rx).await });
     }
 }

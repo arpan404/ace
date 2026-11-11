@@ -1,10 +1,8 @@
-//! ace's own tools (threads, agents, browser, screen, automations) through the daemon's loopback
-//! MCP endpoint (spade-ace). The list is fetched at start and again whenever ace says it changed;
-//! every tool is offered deferred, so the model finds them with `tool_search` and the tool list
-//! it is sent never changes.
+//! How ace's own tools (threads, agents, browser, screen, automations) are offered and called.
+//! Every tool is offered deferred, so the model finds them with `tool_search` and the tool list it
+//! is sent never changes; [`super::AceLink`] keeps the list current.
 
-use std::sync::{Arc, RwLock};
-use std::time::Duration;
+use std::sync::Arc;
 
 use serde_json::Value;
 use spade_ace::{AceTool, AceToolResult, AceTools, Part, Risk as AceRisk, ToolsError};
@@ -12,10 +10,7 @@ use spade_core::context::MAYBE_RAN;
 use spade_core::tools::{Risk, ToolDef};
 use spade_models::ToolSpec;
 
-use super::{Tool, ToolFuture, ToolOutput, ToolSource};
-
-/// How often the list is fetched again when ace sends no change notice.
-const REFRESH: Duration = Duration::from_secs(300);
+use super::{Tool, ToolFuture, ToolOutput};
 
 /// ace's tools whose output is only ace's own state, never text from outside (web pages, agents'
 /// output, other people). Every other ace tool's output is untrusted, so writes after it ask.
@@ -142,64 +137,16 @@ pub fn output(result: Result<AceToolResult, ToolsError>) -> ToolOutput {
     }
 }
 
-/// ace's tools as they are now.
-pub struct AceSource {
-    client: Arc<AceTools>,
-    current: RwLock<Vec<Arc<dyn Tool>>>,
-}
-
-impl AceSource {
-    /// Starts listing ace's tools now, again whenever ace says the list changed, and every few
-    /// minutes otherwise.
-    pub fn start(client: Arc<AceTools>) -> Arc<Self> {
-        let source = Arc::new(Self {
-            client,
-            current: RwLock::default(),
-        });
-        let weak = Arc::downgrade(&source);
-        tokio::spawn(async move {
-            let Some(mut changes) = weak.upgrade().map(|s| s.client.changes()) else {
-                return;
-            };
-            loop {
-                let Some(source) = weak.upgrade() else { return };
-                source.refresh().await;
-                drop(source);
-                tokio::select! {
-                    changed = changes.changed() => if changed.is_err() { return },
-                    _ = tokio::time::sleep(REFRESH) => {}
-                }
-            }
-        });
-        source
-    }
-
-    async fn refresh(&self) {
-        match self.client.tools().await {
-            Ok(tools) => {
-                let tools: Vec<Arc<dyn Tool>> = tools
-                    .iter()
-                    .map(|tool| {
-                        Arc::new(AceCall {
-                            def: def(tool),
-                            client: self.client.clone(),
-                        }) as Arc<dyn Tool>
-                    })
-                    .collect();
-                *self.current.write().unwrap_or_else(|p| p.into_inner()) = tools;
-            }
-            Err(error) => tracing::warn!(%error, "could not list ace's tools"),
-        }
-    }
-}
-
-impl ToolSource for AceSource {
-    fn tools(&self) -> Vec<Arc<dyn Tool>> {
-        self.current
-            .read()
-            .unwrap_or_else(|p| p.into_inner())
-            .clone()
-    }
+/// Spade's tools for ace's `list`, each calling through `client`.
+pub(crate) fn tools(client: &Arc<AceTools>, list: &[AceTool]) -> Vec<Arc<dyn Tool>> {
+    list.iter()
+        .map(|tool| {
+            Arc::new(AceCall {
+                def: def(tool),
+                client: client.clone(),
+            }) as Arc<dyn Tool>
+        })
+        .collect()
 }
 
 struct AceCall {

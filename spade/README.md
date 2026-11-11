@@ -18,7 +18,7 @@ Rust 1.95.0 is pinned in `rust-toolchain.toml`. If another Rust is first on your
 export PATH="$HOME/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin:$PATH"
 cp .env.example .env
 cargo run -p spade-server
-curl localhost:3000/health   # {"ok":true}
+curl localhost:3000/health   # {"ok":true,"version":"0.1.0","api":1}
 ```
 
 ## Commands
@@ -59,8 +59,9 @@ docs/
 | `SPADE_LISTEN`                             | `127.0.0.1:3000`     | Address to listen on (loopback)                                                       |
 | `RUST_LOG`                                 | `info`               | Log filter                                                                            |
 | `SPADE_MODEL_CATALOG`                      | `config/models.json` | The model catalogue file                                                              |
-| `SPADE_ACE_MCP_URL`, `SPADE_ACE_MCP_TOKEN` | set by the daemon    | ace's loopback MCP endpoint and Spade's bearer for it                                 |
-| `SPADE_ACE_URL`, `SPADE_ACE_TOKEN`         | set by the daemon    | the daemon's loopback WebSocket and its local token, for skills                       |
+| `SPADE_ACE_HOME`                           | set by the service   | ace's home: Spade finds the daemon from its `daemon-endpoint` and `daemon-token`      |
+| `SPADE_ACE_MCP_URL`, `SPADE_ACE_MCP_TOKEN` | unset                | Development only: ace's MCP endpoint and a bearer, overriding `SPADE_ACE_HOME`        |
+| `SPADE_ACE_URL`, `SPADE_ACE_TOKEN`         | unset                | Development only: the daemon's WebSocket and local token, for skills                  |
 | Each endpoint's `key.env`                  |                      | That endpoint's key when it is not in the OS keychain, for example `OPENCODE_API_KEY` |
 
 ## Models

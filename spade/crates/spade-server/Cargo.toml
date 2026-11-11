@@ -32,7 +32,14 @@ uuid.workspace = true
 [dev-dependencies]
 keyring-core.workspace = true
 reqwest = { workspace = true, features = ["stream"] }
+# For the fake daemon MCP endpoint shared with spade-ace's tests.
+rmcp = { version = "3.9.0", default-features = false, features = [
+  "server",
+  "transport-streamable-http-server",
+] }
 spade-testkit = { path = "../spade-testkit" }
+tokio-util = "0.7"
+tower = "0.5"
 
 [lints]
 workspace = true

@@ -54,6 +54,49 @@ impl Store {
         })
     }
 
+    /// Whether this build can use the existing database at `path`: brings that file's schema up
+    /// to date and checks its integrity. Run against a copy (an updater's snapshot): it writes to
+    /// the file. Never creates one. The error is one line saying why not.
+    pub fn check(path: &Path) -> std::result::Result<(), String> {
+        let flags =
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX;
+        let one_line = |e: rusqlite::Error| e.to_string().replace('\n', " ");
+        let mut connection = Connection::open_with_flags(path, flags)
+            .map_err(|e| format!("cannot open {}: {}", path.display(), one_line(e)))?;
+        let found = schema::version(&connection)
+            .map_err(|e| format!("not a Spade database: {}", one_line(e)))?;
+        let known = schema::current_version();
+        if found > known {
+            return Err(format!(
+                "the database is at schema {found}, newer than this Spade's {known}"
+            ));
+        }
+        schema::prepare(&mut connection)
+            .map_err(|e| format!("migrating failed: {}", one_line(e)))?;
+        let problems: Vec<String> = {
+            let mut statement = connection
+                .prepare("PRAGMA integrity_check")
+                .map_err(|e| format!("cannot check integrity: {}", one_line(e)))?;
+            let rows = statement
+                .query_map([], |row| row.get::<_, String>(0))
+                .map_err(|e| format!("cannot check integrity: {}", one_line(e)))?;
+            rows.collect::<rusqlite::Result<_>>()
+                .map_err(|e| format!("cannot check integrity: {}", one_line(e)))?
+        };
+        if problems != ["ok"] {
+            return Err(format!("integrity check failed: {}", problems.join("; ")));
+        }
+        // Every table this build reads must be there and readable.
+        for table in ["conversations", "events", "spend"] {
+            connection
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .map_err(|e| format!("table {table} is unreadable: {}", one_line(e)))?;
+        }
+        Ok(())
+    }
+
     fn lock(&self) -> Result<MutexGuard<'_, Connection>> {
         self.connection.lock().map_err(|_| StoreError::Poisoned)
     }
