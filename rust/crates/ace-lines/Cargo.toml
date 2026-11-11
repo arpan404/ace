@@ -1,0 +1,21 @@
+[package]
+name = "ace-lines"
+description = "Finds line boundaries in byte buffers, such as provider JSONL transcripts."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+memchr.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "line_ends"
+harness = false
+
+[lints]
+workspace = true

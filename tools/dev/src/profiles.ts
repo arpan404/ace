@@ -57,6 +57,16 @@ function daemon(layout: DevLayout): ProcessSpec {
   };
 }
 
+/** Rebuilds the Rust add-on on change; the daemon's watch then restarts it (ADR 0125). */
+function native(layout: DevLayout): ProcessSpec {
+  return {
+    name: "rust",
+    command: process.execPath,
+    args: ["tools/dev/src/native-watch.ts"],
+    cwd: layout.repo,
+  };
+}
+
 function web(layout: DevLayout, fake: boolean): ProcessSpec {
   return {
     name: fake ? "web:fake" : "web",
@@ -93,11 +103,11 @@ function desktop(layout: DevLayout, fake: boolean): ProcessSpec {
 export function profile(name: ProfileName, layout: DevLayout): ProcessSpec[] {
   switch (name) {
     case "daemon":
-      return [daemon(layout)];
+      return [daemon(layout), native(layout)];
     case "dev:web":
-      return [daemon(layout), web(layout, false)];
+      return [daemon(layout), native(layout), web(layout, false)];
     case "dev":
-      return [daemon(layout), web(layout, false), desktop(layout, false)];
+      return [daemon(layout), native(layout), web(layout, false), desktop(layout, false)];
     case "dev:fake":
       return [web(layout, true)];
     case "dev:desktop:fake":

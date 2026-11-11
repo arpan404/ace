@@ -137,6 +137,9 @@ export async function bundleDaemon(
                 contents = contents.replace('"./host-entry.ts"', '"./cursor-sdk-host.mjs"');
               if (args.path.endsWith("/workspace/src/descriptor.ts"))
                 contents = contents.replace('"../dist/descriptor.node"', '"./descriptor.node"');
+              // ace's Rust add-on (ADR 0125) ships beside the bundle like descriptor.node.
+              if (args.path.endsWith("/native/src/binding.ts"))
+                contents = contents.replace('"../dist/ace-native.node"', '"./ace-native.node"');
               // A Windows bundle's Windows binding loads the same addon a second time.
               if (target.startsWith("win32-") && args.path.endsWith("/workspace/src/descriptor.ts"))
                 contents = contents.replaceAll('"../dist/descriptor.node"', '"./descriptor.node"');
@@ -278,6 +281,8 @@ export async function bundleDaemon(
   // becomes visible only after helper builds have contributed their inputs.
   if ([...inputs].some((input) => input.endsWith("packages/workspace/src/descriptor.ts")))
     await cp(join(repo, "packages/workspace/dist/descriptor.node"), join(root, "descriptor.node"));
+  if ([...inputs].some((input) => input.endsWith("packages/native/src/binding.ts")))
+    await cp(join(repo, "packages/native/dist/ace-native.node"), join(root, "ace-native.node"));
   // esbuild reports output paths relative to the working directory.
   await assertAsciiScripts(scripts.map((path) => resolve(path)));
   await assertNoKoffi(scripts.map((path) => resolve(path)));

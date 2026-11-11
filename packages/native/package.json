@@ -1,0 +1,19 @@
+{
+  "name": "@ace/native",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./toolchain": "./src/toolchain.ts"
+  },
+  "scripts": {
+    "typecheck": "node ../../scripts/typecheck.ts --workspace",
+    "build:native": "node build.ts",
+    "bench": "bun bench/check.ts"
+  },
+  "dependencies": {
+    "@ace/perf-kit": "workspace:*",
+    "zod": "^4.6.5"
+  }
+}

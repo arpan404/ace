@@ -1,0 +1,22 @@
+# Tests may unwrap, index and panic: a failed test is the point.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true
+allow-dbg-in-tests = true
+avoid-breaking-exported-api = false
+too-many-lines-threshold = 80
+too-many-arguments-threshold = 5
+cognitive-complexity-threshold = 20
+large-error-threshold = 64
+# AGENTS.md: clocks, randomness and the environment are injected, never reached for in logic.
+disallowed-methods = [
+  { path = "std::time::SystemTime::now", reason = "inject a clock" },
+  { path = "std::time::Instant::now", reason = "inject a clock; benches use #[expect] with a reason" },
+  { path = "std::env::var", reason = "pass configuration in from the caller" },
+  { path = "std::env::var_os", reason = "pass configuration in from the caller" },
+  { path = "std::env::set_var", reason = "process-global state" },
+  { path = "std::process::exit", reason = "the add-on runs inside the daemon; return an error" },
+  { path = "std::process::abort", reason = "the add-on runs inside the daemon; return an error" },
+  { path = "std::thread::sleep", reason = "never block a caller's thread on time" },
+]

@@ -5,6 +5,7 @@
     "": {
       "name": "@ace/monorepo",
       "devDependencies": {
+        "@ace/native": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "@ace/service": "workspace:*",
         "@lobehub/icons-static-svg": "1.95.1",
@@ -793,6 +794,13 @@
         "@ace/settings": "workspace:*",
       },
     },
+    "packages/native": {
+      "name": "@ace/native",
+      "dependencies": {
+        "@ace/perf-kit": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
     "packages/native-host": {
       "name": "@ace/native-host",
       "dependencies": {
@@ -1222,6 +1230,8 @@
     "@ace/mcp-server": ["@ace/mcp-server@workspace:packages/mcp-server"],
 
     "@ace/models": ["@ace/models@workspace:packages/models"],
+
+    "@ace/native": ["@ace/native@workspace:packages/native"],
 
     "@ace/native-host": ["@ace/native-host@workspace:packages/native-host"],
 

@@ -1,0 +1,22 @@
+[package]
+name = "ace-node"
+description = "ace's Node-API add-on: exposes the pure ace-* crates to the daemon (ADR 0125)."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+ace-lines.workspace = true
+napi.workspace = true
+napi-derive.workspace = true
+
+[build-dependencies]
+napi-build.workspace = true
+
+[lints]
+workspace = true

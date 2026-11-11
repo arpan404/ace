@@ -1,0 +1,44 @@
+# Supply-chain policy for ace's in-process Rust (ADR 0125). Code here runs inside the daemon
+# with the person's full file access, so every dependency is a trust decision: `check:rust`
+# fails on a known vulnerability, a yanked or unmaintained crate, a licence outside this list,
+# or a crate from anywhere but crates.io.
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+unmaintained = "all"
+unsound = "all"
+ignore = []
+
+[licenses]
+version = 2
+allow = [
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "MIT",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Unicode-3.0",
+  "Zlib",
+]
+confidence-threshold = 0.93
+# The list is the allowed set, not the used set; later crates may need the rest.
+unused-allowed-license = "allow"
+
+[bans]
+multiple-versions = "deny"
+wildcards = "deny"
+allow-wildcard-paths = true
+highlight = "all"
+# Duplicate versions pulled in only by dev-dependencies (criterion) are tolerated.
+skip-tree = [{ crate = "criterion", reason = "bench-only; never linked into the add-on" }]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

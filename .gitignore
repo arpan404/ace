@@ -44,3 +44,6 @@ apps/web/public/markit/
 
 # Per-file test timings from scripts/test-run.ts (bun run test, test:fast, ...).
 /test-timings/
+
+# ace's Rust add-on build output (ADR 0125).
+/rust/target/
