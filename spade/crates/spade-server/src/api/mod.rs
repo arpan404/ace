@@ -118,6 +118,9 @@ async fn health(State(state): State<AppState>, Query(challenge): Query<Challenge
         "ok": true,
         "version": crate::home::VERSION,
         "api": crate::home::API_VERSION,
+        // Setup that reads keys runs after Spade listens; until it is done, why not.
+        "starting": state.engine.starting().is_some(),
+        "starting_reason": state.engine.starting(),
     });
     if let Some(nonce) = challenge.nonce {
         match crate::proof::answer(&state.token, &nonce) {

@@ -142,6 +142,36 @@ pub struct Options {
     pub adopt: Option<Catalog>,
     /// Every keychain read takes this long, as one blocked on a prompt does.
     pub keychain_delay: Option<Duration>,
+    /// Every keychain read waits until this opens, as on a prompt nobody has answered yet.
+    pub keychain_gate: Option<Gate>,
+    /// How long admission waits for setup.
+    pub settle_deadline: Duration,
+}
+
+/// A keychain prompt: reads wait until [`Gate::open`].
+#[derive(Clone, Default)]
+pub struct Gate(Arc<(Mutex<bool>, std::sync::Condvar)>);
+
+impl Gate {
+    pub fn open(&self) {
+        let (open, wake) = &*self.0;
+        if let Ok(mut open) = open.lock() {
+            *open = true;
+        }
+        wake.notify_all();
+    }
+
+    fn wait(&self) {
+        let (open, wake) = &*self.0;
+        if let Ok(mut guard) = open.lock() {
+            while !*guard {
+                guard = match wake.wait(guard) {
+                    Ok(guard) => guard,
+                    Err(_) => return,
+                };
+            }
+        }
+    }
 }
 
 impl Default for Options {
@@ -154,6 +184,8 @@ impl Default for Options {
             ace_retry: None,
             adopt: None,
             keychain_delay: None,
+            keychain_gate: None,
+            settle_deadline: spade_server::startup::SETTLE_DEADLINE,
         }
     }
 }
@@ -243,12 +275,16 @@ impl Spade {
         // shipped fake endpoint names.
         let keychain = keys.clone();
         let delay = options.keychain_delay;
+        let gate = options.keychain_gate.clone();
         let models = Models::new(
             catalog(&fake.root)?,
             Keys::keychain_then_env(
                 move |endpoint| {
                     if let Some(delay) = delay {
                         std::thread::sleep(delay);
+                    }
+                    if let Some(gate) = &gate {
+                        gate.wait();
                     }
                     keychain.get(endpoint).ok().flatten()
                 },
@@ -293,8 +329,9 @@ impl Spade {
         }));
         // As Spade starts: listening first, then the setup that reads keys. Tests wait for it
         // unless they test a slow keychain.
-        let finishing = spade_server::startup::finish(engine.clone(), None, None);
-        if options.keychain_delay.is_none() {
+        let finishing =
+            spade_server::startup::finish(engine.clone(), None, None, options.settle_deadline);
+        if options.keychain_delay.is_none() && options.keychain_gate.is_none() {
             finishing.await?;
         }
         Ok(Self {

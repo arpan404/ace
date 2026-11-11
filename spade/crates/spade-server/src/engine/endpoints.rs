@@ -255,6 +255,7 @@ impl Engine {
 
     /// Adds an endpoint, from a preset or from scratch. Its id is a slug of its name.
     pub fn create_endpoint(&self, input: EndpointInput) -> Result<EndpointView, EndpointError> {
+        let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
         let preset = match &input.preset {
             Some(id) => Some(
                 self.models
@@ -328,6 +329,7 @@ impl Engine {
         id: &str,
         input: EndpointInput,
     ) -> Result<EndpointView, EndpointError> {
+        let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
         let before = self.endpoint_view(id)?.stored;
         let mut stored = before.clone();
         apply(&mut stored, input)?;
@@ -379,6 +381,7 @@ impl Engine {
 
     /// Deletes an endpoint no agent uses. The fast model is cleared if it was on it.
     pub fn delete_endpoint(&self, id: &str) -> Result<(), EndpointError> {
+        let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
         if !self.store.endpoints()?.iter().any(|e| e.id == id) {
             return Err(EndpointError::NotFound);
         }
@@ -463,6 +466,7 @@ impl Engine {
         endpoint: &str,
         input: ModelInput,
     ) -> Result<EndpointView, EndpointError> {
+        let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
         let id = input.id.trim().to_owned();
         if id.is_empty() || id.len() > 300 || id.chars().any(char::is_control) {
             return Err(invalid(
@@ -541,6 +545,7 @@ impl Engine {
 
     /// Forgets a saved model. Agents on it keep working, with defaults.
     pub fn delete_model(&self, endpoint: &str, id: &str) -> Result<bool, EndpointError> {
+        let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
         let deleted = self.store.delete_model(endpoint, id)?;
         self.sync_endpoints()?;
         Ok(deleted)

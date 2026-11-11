@@ -37,10 +37,16 @@ characters>` it also answers `proof`: lowercase hex HMAC-SHA256 with the token f
   in `server.json`, the daemon and the desktop app check the proof against a fresh nonce; a wrong
   or missing proof means it isn't Spade, and nothing secret is sent. `version` is ace's release version, stamped into the build through `ACE_SPADE_VERSION` (the crate's own version when unset); `spade-server --version` prints it. `api` is Spade's HTTP API version;
   clients accept the current and previous one. Nothing before binding touches the keychain or
-  the network, so a keychain prompt (a re-signed binary) or ace being away never delays it: the
-  setup that reads keys (adopting an old `models.json`, importing presets that have a key,
-  creating Spade) runs after binding, in the background, with admission closed; messages sent
-  meanwhile are stored and answered once it opens.
+  the network, so a keychain prompt (a re-signed binary) or ace being away never delays it. Spade,
+  the main agent, is created from the database before binding, so it is listed from the first
+  answer. The setup that reads keys (adopting an old `models.json`, importing presets that have a
+  key, giving Spade the person's first usable model if it still has a placeholder) runs after
+  binding, in the background, retried until it works. Admission stays closed while it runs
+  (messages are stored and answered once it opens), at most 15 s: after that admission opens
+  anyway and setup finishes by itself whenever the keychain answers. Until it has,
+  `GET /health` and `GET /v1/models` answer `"starting": true` with `"starting_reason"` (`setting
+  up endpoints`, `waiting for the keychain`, or `setting up endpoints failed; trying again`);
+  then `"starting": false` and `null`.
 - **Stop.** SIGTERM: Spade closes admission, lets a running model step finish (up to 5 s for a
   plain stop), records open turns as paused (`turn_paused`), ends its live streams and exits. On
   start, each paused turn resumes from its stored events.

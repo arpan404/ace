@@ -99,7 +99,14 @@ pub struct Engine {
     adopt: Mutex<Option<spade_models::Catalog>>,
     /// True once [`Engine::settle`] has run.
     settled: watch::Sender<bool>,
+    /// Why setup is not done yet, while it is not (see [`Engine::starting`]).
+    starting: Mutex<&'static str>,
+    /// Held while endpoints are written, by the person's changes and by setup alike.
+    endpoint_lock: Mutex<()>,
 }
+
+/// What `starting` says until setup has run long enough to say more.
+const STARTING: &str = "setting up endpoints";
 
 impl Engine {
     /// Opens the engine from the database alone: closes replies a restart cut off and reports
@@ -138,9 +145,13 @@ impl Engine {
             agent_lock: Mutex::default(),
             adopt: Mutex::new(adopt),
             settled: watch::channel(false).0,
+            starting: Mutex::new(STARTING),
+            endpoint_lock: Mutex::default(),
         });
         handle.set(&engine);
         engine.sync_endpoints()?;
+        // Spade exists from the first answer, whatever setup does later.
+        engine.ensure_main()?;
         for conversation in engine.store.conversations()? {
             let events = engine.load(&conversation.id)?;
             let transcript = Transcript::fold(&events);
@@ -170,18 +181,32 @@ impl Engine {
     /// re-signed binary): adopts an old `models.json`, imports presets that have a key, gives
     /// migrated agents a model and creates Spade if there is none. Blocking; the server runs it
     /// after it is listening, before [`Engine::open_for_work`]. Runs once.
-    pub fn settle(&self) -> Result<(), StoreError> {
-        let adopt = self.adopt.lock().unwrap_or_else(|p| p.into_inner()).take();
-        // The person's old edits first, so presets imported after never overwrite them.
-        if let Some(file) = &adopt {
-            self.adopt_file(file)?;
-        }
-        self.import_presets()?;
-        self.sync_endpoints()?;
-        self.store.fill_missing_models(&self.default_model())?;
-        self.ensure_main()?;
+    pub fn settle(&self) -> Result<(), String> {
+        // Kept until it has worked, so a retry after a failure adopts it still.
+        let adopt = self.adopt.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        self.settle_endpoints(adopt.as_ref())
+            .map_err(|e| e.to_string())?;
+        *self.adopt.lock().unwrap_or_else(|p| p.into_inner()) = None;
+        self.store
+            .fill_missing_models(&self.default_model())
+            .map_err(|e| e.to_string())?;
+        self.correct_main_model().map_err(|e| e.to_string())?;
         self.settled.send_replace(true);
         Ok(())
+    }
+
+    /// While setup is not done: a few words on why (`waiting for the keychain`). `None` once it
+    /// is. Shown by `/health` and `/v1/models` so the app can say so.
+    pub fn starting(&self) -> Option<&'static str> {
+        if *self.settled.borrow() {
+            return None;
+        }
+        Some(*self.starting.lock().unwrap_or_else(|p| p.into_inner()))
+    }
+
+    /// Records why setup is not done yet.
+    pub fn set_starting(&self, why: &'static str) {
+        *self.starting.lock().unwrap_or_else(|p| p.into_inner()) = why;
     }
 
     /// Resolves once [`Engine::settle`] has run.

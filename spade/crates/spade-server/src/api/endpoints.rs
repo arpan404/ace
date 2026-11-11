@@ -153,6 +153,8 @@ pub(super) async fn models(State(state): State<AppState>) -> Response {
         "presets": presets,
         "fast_model": fast,
         "keychain": state.keys.is_some(),
+        "starting": engine.starting().is_some(),
+        "starting_reason": engine.starting(),
     }))
     .into_response()
 }

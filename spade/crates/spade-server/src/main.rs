@@ -181,7 +181,12 @@ async fn run() -> Result<(), Failure> {
     home.write_token(&token).map_err(other)?;
     let listener = TcpListener::bind(config.listen).await.map_err(other)?;
     let address = listener.local_addr().map_err(other)?;
-    spade_server::startup::finish(engine.clone(), ace.clone(), startup.set_aside);
+    spade_server::startup::finish(
+        engine.clone(),
+        ace.clone(),
+        startup.set_aside,
+        spade_server::startup::SETTLE_DEADLINE,
+    );
     home.write_server_json(address, std::process::id())
         .map_err(other)?;
     tracing::info!(%address, "spade listening");
