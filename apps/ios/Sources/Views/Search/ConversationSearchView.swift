@@ -82,7 +82,12 @@ struct ConversationSearchView: View {
     @ViewBuilder private var results: some View {
         if let problem = search.problem {
             QuietProblemRow(title: problem, action: "Try again", identifier: "conversation.retry") {
-                Task { await run() }
+                // A failed "Show more" asks for that page again, keeping the pages already read.
+                if search.cursor != nil, !search.hits.isEmpty {
+                    Task { await search.more(model: model, text: text, kind: kind, threadId: threadId) }
+                } else {
+                    Task { await run() }
+                }
             }
         } else if search.loading, search.hits.isEmpty {
             SkeletonRows(count: 3, label: "Searching conversations")
