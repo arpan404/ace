@@ -106,7 +106,7 @@ export class GrantPrincipals implements Authenticator {
   }
   private arm(grantId: string, expiresAt: number | null): () => void {
     if (expiresAt === null) return () => {};
-    let cancel = () => {};
+    let cancel: (() => void) | undefined;
     const check = () => {
       const grant = this.grants.live(grantId);
       if (!grant) return this.end(grantId);
@@ -118,6 +118,6 @@ export class GrantPrincipals implements Authenticator {
       Math.max(1, Math.min(expiresAt - this.now(), longestTimerMs)),
       check,
     );
-    return () => cancel();
+    return () => cancel?.();
   }
 }

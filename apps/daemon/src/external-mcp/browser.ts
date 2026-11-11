@@ -13,6 +13,11 @@ import type { GrantStore } from "./grants.ts";
 import { grantOfCaller } from "./principals.ts";
 
 const ProjectRow = z.object({ id: z.string() });
+/** Who acts in a grant's tabs: its one caller. */
+const actor = (caller: BrowserCaller) => ({
+  kind: "agent" as const,
+  ...(caller.agentId ? { agentId: caller.agentId } : {}),
+});
 
 /**
  * ace's browser for outside clients (ADR 0117, ADR 0104): each grant has one private session of
@@ -43,10 +48,6 @@ export function outsideBrowserToolkit(
     }
     throw new PublicToolError("tool_unavailable");
   };
-  const actor = (caller: BrowserCaller) => ({
-    kind: "agent" as const,
-    ...(caller.agentId ? { agentId: caller.agentId } : {}),
-  });
   const ensure = async (caller: BrowserCaller, signal: AbortSignal) => {
     signal.throwIfAborted();
     const threadId = ThreadId.parse(caller.threadId);

@@ -99,7 +99,7 @@ export class AccessRequests {
     return () => void this.listeners.delete(listener);
   }
   close(): void {
-    for (const entry of [...this.pending.values()]) entry.settle({ decision: "expired" });
+    for (const entry of this.pending.values()) entry.settle({ decision: "expired" });
   }
   private matchCode(): string {
     const bytes = this.options.random(6);

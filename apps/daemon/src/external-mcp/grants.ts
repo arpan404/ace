@@ -143,11 +143,12 @@ export class GrantStore {
         const parsed = ThreadId.safeParse(row["thread_id"]);
         return parsed.success ? [parsed.data] : [];
       });
-    return this.list().map((grant) => ({
-      ...grant,
-      started: read(grant.id, "started"),
-      messaged: read(grant.id, "messaged"),
-    }));
+    return this.list().map((grant) =>
+      Object.assign(grant, {
+        started: read(grant.id, "started"),
+        messaged: read(grant.id, "messaged"),
+      }),
+    );
   }
   /** Marks the grant revoked and keeps its row; false when it was already gone. */
   revoke(id: string): boolean {

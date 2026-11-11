@@ -12,7 +12,7 @@ function timers() {
       return () => void pending.delete(entry);
     },
     fire() {
-      for (const entry of [...pending]) {
+      for (const entry of Array.from(pending)) {
         pending.delete(entry);
         entry.run();
       }

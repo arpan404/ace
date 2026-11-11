@@ -9,6 +9,8 @@ import { expect, test } from "vitest";
 import { z } from "zod";
 import { daemonFixture } from "../agent-control/daemon-test-support.ts";
 import { invoke } from "../cli-test-support.ts";
+import { ThreadId } from "@ace/protocol";
+import { call, enroll, toolResult } from "./outside-test-support.ts";
 const execute = promisify(execFile);
 
 test("revoking an external enrollment during workspace preparation prevents its child admission", async () => {
@@ -107,5 +109,52 @@ test("revoking an external enrollment during workspace preparation prevents its 
     child?.kill("SIGKILL");
     await client.close();
     await f.daemon.close();
+  }
+});
+
+test("a grant, its token and an idempotent start survive a daemon restart", async () => {
+  const f = await daemonFixture();
+  let restarted: Awaited<ReturnType<typeof f.restart>> | undefined;
+  try {
+    const lease = await enroll(f, ["--scope", "operate", "--name", "Synthetic assistant"]);
+    const start = {
+      project: f.workspace,
+      provider: "codex",
+      text: "outside work",
+      idempotencyKey: "restart-start",
+    };
+    const Started = z.object({ ok: z.literal(true), data: z.object({ threadId: ThreadId }) });
+    const first = Started.parse(
+      toolResult(await call(lease, "ace_thread_run", start)).structuredContent,
+    );
+    const threadId = first.data.threadId;
+    await f.daemon.engine?.flush();
+    // The thread and its first message name the client that sent them; neither carries a token.
+    const read = await call(lease, "ace_thread_read", { threadId });
+    expect(read.body).toContain('"kind":"mcp_client"');
+    expect(read.body).not.toContain(lease.bearer);
+    restarted = await f.restart();
+    const client = { kind: "mcp_client", grantId: lease.id, name: "Synthetic assistant" };
+    expect(restarted.store.getThread(threadId)?.startedByClient).toEqual(client);
+    const listed = await invoke(join(f.h.home, "daemon"), ["mcp", "list", "--json"]);
+    const list = z
+      .object({
+        url: z.url(),
+        grants: z.array(z.object({ id: z.string(), started: z.array(z.string()) }).loose()),
+      })
+      .parse(JSON.parse(listed.stdout));
+    expect(list.grants).toContainEqual(
+      expect.objectContaining({ id: lease.id, started: [threadId] }),
+    );
+    // The same token works at the restarted endpoint, and the retried start runs once.
+    const moved = { url: list.url, bearer: lease.bearer };
+    const before = restarted.store.listThreads().length;
+    const again = Started.parse(
+      toolResult(await call(moved, "ace_thread_run", start)).structuredContent,
+    );
+    expect(again.data.threadId).toBe(threadId);
+    expect(restarted.store.listThreads()).toHaveLength(before);
+  } finally {
+    await (restarted ?? f.daemon).close();
   }
 });

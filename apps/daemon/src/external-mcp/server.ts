@@ -1,4 +1,4 @@
-import { aceToolDispatch, aceToolSearch, nodeScheduler, startMcpServer } from "@ace/mcp-server";
+import { aceToolDispatch, aceToolSearch, startMcpServer } from "@ace/mcp-server";
 import { computerToolNames } from "@ace/screen";
 import {
   WorkspaceId,
@@ -27,7 +27,7 @@ export type ExternalMcp = Awaited<ReturnType<typeof externalMcp>>;
  */
 export async function externalMcp(context: ServiceContext) {
   const files = tokenFiles(context.config.dataDir);
-  let toolsChanged = () => {};
+  let toolsChanged: (() => void) | undefined;
   const outside = new OutsideAccess({
     store: context.store,
     now: context.now,
@@ -40,7 +40,7 @@ export async function externalMcp(context: ServiceContext) {
           context.log.log("warn", `Closing an outside client's tabs failed: ${String(error)}`),
         );
     },
-    changed: () => toolsChanged(),
+    changed: () => toolsChanged?.(),
   });
   // Token files whose grants ended while the daemon was stopped.
   files.sweep((grantId) => outside.grants.live(grantId) !== undefined);
@@ -119,7 +119,7 @@ export async function externalMcp(context: ServiceContext) {
     ): Promise<AgentControlResult> {
       switch (operation.op) {
         case "mcp.list":
-          return { ok: true, data: { grants: outside.grants.entries() } };
+          return { ok: true, data: { url: server.url, grants: outside.grants.entries() } };
         case "mcp.revoke":
           // Name what was revoked, so the CLI has something to confirm.
           return outside.revoke(operation.id)

@@ -6,6 +6,7 @@ import {
   ThreadId,
   WorkspaceId,
   ProviderKind,
+  type CatalogModel,
   type McpAttribution,
   type OutsideGrant,
 } from "@ace/protocol";
@@ -24,8 +25,53 @@ const output = z.object({
   error: z.string().optional(),
 });
 const idempotencyKey = z.string().regex(/^[a-zA-Z0-9_.-]{1,128}$/);
-const ProjectRow = z.object({ id: z.string(), name: z.string() });
+const ProjectRows = z.array(z.object({ id: z.string(), name: z.string() }));
+const ProjectsInput = z.object({});
+const ModelsInput = z.object({
+  provider: ProviderKind.optional(),
+  offset: z.number().int().min(0).max(40960).default(0),
+});
+const ThreadsInput = z.object({
+  before: ThreadListCursor.optional(),
+  limit: z.number().int().min(1).max(100).default(20),
+  project: WorkspaceId.optional(),
+});
+const ReadInput = z.object({
+  threadId: ThreadId,
+  before: z.number().int().positive().optional(),
+  limit: z.number().int().min(1).max(100).default(20),
+});
+const StatusInput = z.object({ threadId: ThreadId });
+const RunInput = z.object({
+  project: WorkspaceId,
+  provider: ProviderKind,
+  text: z.string().min(1).max(16384),
+  model: z.string().max(256).optional(),
+  idempotencyKey,
+});
+const SendInput = z.object({
+  threadId: ThreadId,
+  text: z.string().min(1).max(16384),
+  delivery: z.enum(["queue", "steer"]).default("queue"),
+  idempotencyKey,
+});
+const StopInput = z.object({ threadId: ThreadId, idempotencyKey });
+const TaskInput = z.object({
+  operation: z.union([
+    z.object({ op: z.literal("task.spawn"), parentId: ThreadId, request: DelegationRequest }),
+    z.object({ op: z.literal("task.status"), threadId: ThreadId }),
+    z.object({ op: z.literal("task.cancel"), threadId: ThreadId, key: idempotencyKey }),
+  ]),
+});
 
+/** One model as an outside client picks it: what ace_thread_run takes, and little else. */
+function modelRow(model: CatalogModel) {
+  const row: { provider: string; model: string; name: string; default?: true; efforts?: string[] } =
+    { provider: model.provider, model: model.id, name: model.displayName };
+  if (model.isDefault) row.default = true;
+  if (model.efforts.length) row.efforts = model.efforts.map((effort) => effort.id);
+  return row;
+}
 /** The device an outside grant's commands are recorded under (ADR 0117). */
 export function grantDevice(grantId: string): DeviceId {
   return DeviceId.parse(`mcp-grant:${grantId}`);
@@ -67,20 +113,17 @@ export function externalTools(
     return value;
   };
   const projects = (grant: OutsideGrant) =>
-    z
-      .array(ProjectRow)
-      .parse(
-        context.store
-          .statement(
-            "SELECT id,name FROM workspaces WHERE NOT EXISTS(SELECT 1 FROM workspace_unregistered WHERE workspace_id=workspaces.id) ORDER BY rowid DESC LIMIT 256",
-          )
-          .all(),
-      )
-      .filter((row) => projectAllowed(grant.projects, WorkspaceId.parse(row.id)));
+    ProjectRows.parse(
+      context.store
+        .statement(
+          "SELECT id,name FROM workspaces WHERE NOT EXISTS(SELECT 1 FROM workspace_unregistered WHERE workspace_id=workspaces.id) ORDER BY rowid DESC LIMIT 256",
+        )
+        .all(),
+    ).filter((row) => projectAllowed(grant.projects, WorkspaceId.parse(row.id)));
   registry.register({
     name: "ace_projects_list",
     description: "List the projects this grant may use, with the ids other tools take.",
-    input: z.object({}),
+    input: ProjectsInput,
     output,
     riskClass: "read-only",
     capability: null,
@@ -94,10 +137,7 @@ export function externalTools(
     name: "ace_models_list",
     description:
       "List models of the person's installed coding-agent CLIs, for ace_thread_run's provider and model.",
-    input: z.object({
-      provider: ProviderKind.optional(),
-      offset: z.number().int().min(0).max(40960).default(0),
-    }),
+    input: ModelsInput,
     output,
     riskClass: "read-only",
     capability: null,
@@ -114,17 +154,7 @@ export function externalTools(
       return {
         ok: true,
         data: {
-          models: page.models
-            .filter((model) => !model.hidden && !model.deprecated)
-            .map((model) => ({
-              provider: model.provider,
-              model: model.id,
-              name: model.displayName,
-              ...(model.isDefault ? { default: true } : {}),
-              ...(model.efforts.length
-                ? { efforts: model.efforts.map((effort) => effort.id) }
-                : {}),
-            })),
+          models: page.models.filter((model) => !model.hidden && !model.deprecated).map(modelRow),
           ...(page.nextOffset === undefined ? {} : { nextOffset: page.nextOffset }),
         },
       };
@@ -133,11 +163,7 @@ export function externalTools(
   registry.register({
     name: "ace_threads_list",
     description: "List threads in this grant's projects. Results are bounded.",
-    input: z.object({
-      before: ThreadListCursor.optional(),
-      limit: z.number().int().min(1).max(100).default(20),
-      project: WorkspaceId.optional(),
-    }),
+    input: ThreadsInput,
     output,
     riskClass: "read-only",
     capability: null,
@@ -172,11 +198,7 @@ export function externalTools(
   registry.register({
     name: "ace_thread_read",
     description: "Read a bounded transcript page from a thread in this grant's projects.",
-    input: z.object({
-      threadId: ThreadId,
-      before: z.number().int().positive().optional(),
-      limit: z.number().int().min(1).max(100).default(20),
-    }),
+    input: ReadInput,
     output,
     riskClass: "read-only",
     capability: null,
@@ -202,7 +224,7 @@ export function externalTools(
     name: "ace_thread_status",
     description:
       "Read canonical whole-tree state. Human interactions and active descendants prevent completion.",
-    input: z.object({ threadId: ThreadId }),
+    input: StatusInput,
     output,
     riskClass: "read-only",
     capability: null,
@@ -220,13 +242,7 @@ export function externalTools(
     name: "ace_thread_run",
     description:
       "Start independent work using the person's installed CLI in an allowed project. Retry with the same idempotency key.",
-    input: z.object({
-      project: WorkspaceId,
-      provider: ProviderKind,
-      text: z.string().min(1).max(16384),
-      model: z.string().max(256).optional(),
-      idempotencyKey,
-    }),
+    input: RunInput,
     output,
     capability: "thread_control",
     timeoutMs: 15000,
@@ -269,12 +285,7 @@ export function externalTools(
     name: "ace_thread_send",
     description:
       "Queue or steer a message on a thread in an allowed project. This grants no permission approval authority.",
-    input: z.object({
-      threadId: ThreadId,
-      text: z.string().min(1).max(16384),
-      delivery: z.enum(["queue", "steer"]).default("queue"),
-      idempotencyKey,
-    }),
+    input: SendInput,
     output,
     capability: "thread_control",
     timeoutMs: 15000,
@@ -303,7 +314,7 @@ export function externalTools(
   registry.register({
     name: "ace_thread_stop",
     description: "Stop a thread's work, its delegated children included, in an allowed project.",
-    input: z.object({ threadId: ThreadId, idempotencyKey }),
+    input: StopInput,
     output,
     capability: "thread_control",
     timeoutMs: 15000,
@@ -325,13 +336,7 @@ export function externalTools(
     name: "ace_task_control",
     description:
       "Spawn (threads:start), inspect, or cancel (threads:stop) a delegated task in an allowed project. Cannot approve permissions.",
-    input: z.object({
-      operation: z.union([
-        z.object({ op: z.literal("task.spawn"), parentId: ThreadId, request: DelegationRequest }),
-        z.object({ op: z.literal("task.status"), threadId: ThreadId }),
-        z.object({ op: z.literal("task.cancel"), threadId: ThreadId, key: idempotencyKey }),
-      ]),
-    }),
+    input: TaskInput,
     output,
     capability: "agents",
     timeoutMs: 15000,
