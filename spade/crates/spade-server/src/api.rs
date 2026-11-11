@@ -70,20 +70,43 @@ pub fn router(state: AppState) -> Router {
                 .delete(end_maintenance),
         )
         .route_layer(middleware::from_fn_with_state(state.clone(), authorize))
+        .with_state(state.clone());
+    let open = Router::new()
+        .route("/health", get(health))
         .with_state(state);
     Router::new()
-        .route("/health", get(health))
+        .merge(open)
         .nest("/v1", v1)
         .fallback(|| async { problem(StatusCode::NOT_FOUND, "not found") })
 }
 
+#[derive(Deserialize, Default)]
+struct Challenge {
+    #[serde(default)]
+    nonce: Option<String>,
+}
+
 /// Open without a token, so the daemon and updater can tell Spade is up and which API it speaks.
-async fn health() -> Json<Value> {
-    Json(json!({
+/// With `?nonce=`, it also proves it holds the token file's token (see `proof`), so nobody sends a
+/// secret to a process that merely took Spade's old port.
+async fn health(State(state): State<AppState>, Query(challenge): Query<Challenge>) -> Response {
+    let mut body = json!({
         "ok": true,
         "version": env!("CARGO_PKG_VERSION"),
         "api": crate::home::API_VERSION,
-    }))
+    });
+    if let Some(nonce) = challenge.nonce {
+        match crate::proof::answer(&state.token, &nonce) {
+            Some(proof) => body["proof"] = Value::String(proof),
+            None => {
+                return problem(
+                    StatusCode::BAD_REQUEST,
+                    "nonce must be 16 to 64 hex characters",
+                );
+            }
+        }
+    }
+    Json(body).into_response()
 }
 
 async fn authorize(State(state): State<AppState>, request: Request, next: Next) -> Response {

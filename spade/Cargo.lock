@@ -2744,6 +2744,7 @@ dependencies = [
  "base64",
  "chrono",
  "futures-util",
+ "hmac",
  "keyring-core",
  "reqwest",
  "rmcp",

@@ -129,3 +129,36 @@ async fn a_key_is_stored_reported_as_set_and_deleted_but_never_returned() -> Res
     assert_eq!(gone["endpoints"][0]["key_set"], false);
     Ok(())
 }
+
+#[tokio::test]
+async fn health_proves_spade_holds_its_token_without_revealing_it() -> Result {
+    let spade = Spade::start(vec![Script::reply("hi")], Vec::new()).await?;
+    let nonce = "00112233445566778899aabbccddeeff";
+    let answer: serde_json::Value = spade
+        .http
+        .get(format!("{}/health?nonce={nonce}", spade.base))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(
+        answer["proof"].as_str(),
+        spade_server::proof::answer(support::TOKEN, nonce).as_deref()
+    );
+    assert!(!answer.to_string().contains(support::TOKEN));
+    let plain: serde_json::Value = spade
+        .http
+        .get(format!("{}/health", spade.base))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert!(plain.get("proof").is_none());
+    let bad = spade
+        .http
+        .get(format!("{}/health?nonce=xyz", spade.base))
+        .send()
+        .await?;
+    assert_eq!(bad.status(), 400);
+    Ok(())
+}
