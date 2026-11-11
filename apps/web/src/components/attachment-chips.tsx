@@ -4,6 +4,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { AttachmentChipImage } from "./attachment-chip-image.tsx";
+import { editableTextBytes } from "./attachment-content.ts";
 import { FileGlyph, FileName } from "./attachment-face.tsx";
 import type { ChipAttachment, FileSource, ImageSource, ShownImage } from "./attachment-format.ts";
 import { describeFile, fileMeta } from "./attachment-kind.ts";
@@ -14,12 +15,15 @@ import { useFilePreview, useLightbox } from "./attachment-open.tsx";
  * rows scroll). Each chip names its kind by glyph and words ("12 KB · TypeScript"); uploads draw
  * a progress ring, failures say why and offer Retry. A chip opens its preview on click or Enter,
  * and Delete or Backspace removes it, moving focus to the next chip or back to the message.
+ * With `onEdit`, an editable chip (a long paste) opens its text for editing, and Save puts the
+ * edited text in its place.
  * `threadId` lets a chip restored from a saved draft preview the copy the daemon holds.
  */
 export function AttachmentChipRow(props: {
   items: readonly ChipAttachment[];
   onRemove(key: number): void;
   onRetry?: ((key: number) => void) | undefined;
+  onEdit?: ((key: number, text: string) => void) | undefined;
   threadId?: string | undefined;
 }) {
   const list = useRef<HTMLUListElement>(null);
@@ -46,8 +50,15 @@ export function AttachmentChipRow(props: {
         source: fileSource(item, props.threadId),
       },
       element,
+      editable(item) ? (text) => props.onEdit?.(item.key, text) : undefined,
     );
   };
+  const editable = (item: ChipAttachment) =>
+    !!props.onEdit &&
+    !!item.editable &&
+    !!item.file &&
+    item.file.size <= editableTextBytes &&
+    describeFile(item).preview === "text";
   // Focus moves on before the chip goes, so the keyboard never lands on the page's body.
   const remove = (key: number, from: HTMLElement) => {
     const chips = [...(list.current?.querySelectorAll<HTMLElement>("[data-chip-open]") ?? [])];

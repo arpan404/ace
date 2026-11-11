@@ -9,6 +9,7 @@ import { imageStill } from "@/components/image-still.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
+import { editedName, isPasted } from "./large-paste.ts";
 
 export interface PendingAttachment extends ChipAttachment {
   /** Size in bytes; unknown for a draft restored after a reload. */
@@ -304,6 +305,7 @@ export function useAttachments(thread: ThreadRef, restored: readonly DraftFile[]
             bytes: file.size,
             state: error ? "failed" : "uploading",
             progress: 0,
+            editable: isPasted(file.name),
             ...(error ? { error, retryable: false } : {}),
           },
         ]);
@@ -367,6 +369,58 @@ export function useAttachments(thread: ThreadRef, restored: readonly DraftFile[]
           description: "Check the connection and try again.",
         }),
     );
+  };
+  /**
+   * Put edited text in an editable chip's place: a new file under the chip's name (a paste's name
+   * follows its new line count) uploads where the old one stood, and the old one goes as Remove
+   * would take it, released in the background once no other chip holds the same bytes.
+   */
+  const edit = (key: number, text: string) => {
+    const old = known.current.get(key)?.file;
+    if (!old) return;
+    const file = new File([text], editedName(old.name, text), { type: old.type || "text/plain" });
+    const fresh = ++next.current;
+    const others = [...known.current].filter(([other]) => other !== key);
+    const error = attachmentSizeProblem(
+      file.size,
+      others.reduce((sum, [, held]) => sum + held.bytes, 0),
+    );
+    known.current.set(fresh, { file, bytes: error ? 0 : file.size });
+    setItems((list) =>
+      list.map((item) =>
+        item.key === key
+          ? {
+              key: fresh,
+              name: file.name,
+              file,
+              mimeType: file.type || undefined,
+              bytes: file.size,
+              state: error ? "failed" : "uploading",
+              progress: 0,
+              editable: item.editable,
+              ...(error ? { error, retryable: false } : {}),
+            }
+          : item,
+      ),
+    );
+    if (!error) files.current.set(fresh, file);
+    const outcome = error ? Promise.resolve<Outcome>({ error }) : upload(fresh, file);
+    // The message sends its files in chip order, so the new one takes the old one's place.
+    outcomes.current = new Map(
+      [...outcomes.current].map(([other, value]) =>
+        other === key ? [fresh, outcome] : [other, value],
+      ),
+    );
+    const hash = known.current.get(key)?.id?.split("\0")[0];
+    if (inFlight.current.has(key)) removed.current.add(key);
+    drop(key);
+    if (hash && ![...known.current.values()].some((held) => held.id?.startsWith(`${hash}\0`)))
+      void sources.context.release(thread, hash).catch(() =>
+        toast.error({
+          title: "Couldn't remove the unedited copy",
+          description: "Open Attachments from the thread menu and try removing it again.",
+        }),
+      );
   };
   const clear = () => {
     for (const url of previews.current) URL.revokeObjectURL(url);
@@ -477,6 +531,7 @@ export function useAttachments(thread: ThreadRef, restored: readonly DraftFile[]
     add,
     remove,
     retry,
+    edit,
     clear,
     settled,
     handOff,
@@ -495,6 +550,8 @@ export function AttachmentChips(props: {
   items: readonly PendingAttachment[];
   onRemove(key: number): void;
   onRetry?: ((key: number) => void) | undefined;
+  /** Save edited text in place of a text file this device holds. */
+  onEdit?: ((key: number, text: string) => void) | undefined;
   /** The thread the files go to, for previewing a restored draft's files; none for a draft. */
   threadId?: string | undefined;
 }) {

@@ -378,6 +378,7 @@ function ComposerBody({
               items={attachments.items}
               onRemove={attachments.remove}
               onRetry={attachments.retry}
+              onEdit={attachments.edit}
               threadId={props.thread.draft ? undefined : props.thread.id}
             />
             <ReplyQuotes quotes={quotes} />

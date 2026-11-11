@@ -72,6 +72,50 @@ test("a long paste goes along as a text file, not into the message", async () =>
   expect(message.textContent).toBe("");
 });
 
+test("a pasted file can be edited before sending, and the edited text is what goes", async () => {
+  const user = userEvent.setup();
+  const { app, message } = await openComposer();
+  await user.click(message);
+  pasteText(message, Array.from({ length: 60 }, (_, line) => `error at line ${line}`).join("\n"));
+  const chips = await screen.findByRole("list", { name: "Attachments" });
+  await waitFor(() => expect(within(chips).queryByRole("progressbar")).toBeNull());
+
+  await user.click(within(chips).getByRole("button", { name: "Preview Pasted 60 lines.txt" }));
+  const dialog = await screen.findByRole("dialog", { name: "Pasted 60 lines.txt" });
+  const contents = await within(dialog).findByRole("textbox", { name: "File contents" });
+  expect(within(dialog).getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(true);
+  await user.clear(contents);
+  await user.type(contents, "error at line 7{Enter}error at line 9");
+  await user.click(within(dialog).getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+  expect(within(chips).queryByRole("button", { name: "Preview Pasted 60 lines.txt" })).toBeNull();
+  within(chips).getByRole("button", { name: "Preview Pasted 2 lines.txt" });
+  await waitFor(() => expect(within(chips).queryByRole("progressbar")).toBeNull());
+  const edited = createHash("sha256").update("error at line 7\nerror at line 9").digest("hex");
+  await waitFor(async () => {
+    const held = await app.client.request({
+      type: "context.request",
+      operation: { op: "attachment.list", threadId: ThreadId.parse(thread.id) },
+    });
+    expect(held.result).toMatchObject({
+      kind: "attachments",
+      attachments: [expect.objectContaining({ name: "Pasted 2 lines.txt", sha256: edited })],
+    });
+  });
+
+  await user.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => {
+    const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse(thread.id) });
+    if (!view || !("items" in view)) throw new Error("Missing transcript");
+    const sent = Object.values(view.items).find(
+      (item) => item.type === "message" && item.role === "user" && item.attachments?.length,
+    );
+    if (sent?.type !== "message") throw new Error("Attachment message not admitted");
+    expect(sent.attachments?.map((file) => file.sha256)).toEqual([edited]);
+  });
+});
+
 test("a short paste goes into the message as text", async () => {
   const { message } = await openComposer();
   await userEvent.click(message);
