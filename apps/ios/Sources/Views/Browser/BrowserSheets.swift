@@ -66,7 +66,7 @@ struct BrowserTabsSheet: View {
                     .accessibilityIdentifier("browser.tab.\(tab.id)")
                 }
                 if let more = state?.moreTabs, more > 0 {
-                    Text("\(more) more tabs").foregroundStyle(AceDesign.Ink.muted)
+                    Button("Show \(more) more tabs") { model.action(["type": "browser", "action": ["kind": "tabs.more"]]) }.buttonStyle(.textAction())
                         .browserRow()
                 }
             }

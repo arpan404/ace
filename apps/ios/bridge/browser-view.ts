@@ -28,6 +28,7 @@ export type Navigation =
   | { tabId: string; url: string; from: string | undefined; failure: BrowserFailure };
 
 export interface ViewContext {
+  tabsLimit?: number;
   preview: Preview;
   /** The agent's name ("Claude", "Reviewer") for an agent id; `undefined` reads "An agent". */
   agentName(agentId: string | undefined): string;
@@ -104,7 +105,7 @@ export function browserViewState(state: BrowserState, context: ViewContext) {
       (navigation !== undefined && !navigation.failure && navigation.tabId === shown?.tabId),
     loadError: state.loadError ? preview(state.loadError, 512) : null,
     activeTabId: state.activeTabId ?? null,
-    tabs: tabs.slice(0, tabLimit).map((tab) => {
+    tabs: tabs.slice(0, context.tabsLimit ?? tabLimit).map((tab) => {
       const who = control(tab, context);
       return {
         id: tab.tabId,
@@ -116,7 +117,7 @@ export function browserViewState(state: BrowserState, context: ViewContext) {
         private: who.private,
       };
     }),
-    moreTabs: Math.max(0, tabs.length - tabLimit),
+    moreTabs: Math.max(0, tabs.length - (context.tabsLimit ?? tabLimit)),
     /** The address the bar shows: what loads or failed here, else the shown tab's own. */
     address: preview(displayAddress(url), 2048),
     addressUrl: preview(blank(url) ? "" : url, 8192),

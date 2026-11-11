@@ -47,6 +47,7 @@ const Viewport = z.object({
 /** The picture's drawn size in the view (it fits the view's width, times the person's zoom). */
 const Picture = z.object({ width: z.number().finite(), height: z.number().finite() });
 const BrowserAction = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("tabs.more") }),
   /** Whether the thread has a browser now (the agent may have opened one since it was opened). */
   z.object({
     kind: z.literal("probe"),
@@ -270,6 +271,8 @@ export class BrowserLive {
       .catch(() => put(false));
   }
   /** False when the action can't be read or needs an open view that isn't there. */
+  #tabsLimit = 20;
+
   action(raw: unknown): boolean {
     const parsed = BrowserAction.safeParse(raw);
     const device = parsed.success ? undefined : DeviceAction.safeParse(raw);
@@ -332,6 +335,10 @@ export class BrowserLive {
     const watch = this.#watch;
     if (!watch) return false;
     switch (action.kind) {
+      case "tabs.more":
+        this.#tabsLimit += 20;
+        this.#putView(watch);
+        return true;
       case "viewport": {
         const viewport = captureViewport(action.viewport);
         const before = watch.viewport;
@@ -509,6 +516,7 @@ export class BrowserLive {
         device: this.#devices.view(watch),
         state: state
           ? browserViewState(state, {
+              tabsLimit: this.#tabsLimit,
               preview: this.#preview,
               agentName: (agentId) => context.agentName(watch.threadId, agentId),
               navigation: this.#tools.navigation,
