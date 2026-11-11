@@ -44,6 +44,16 @@ pub fn prepare(connection: &mut Connection) -> rusqlite::Result<()> {
     connection.pragma_update(None, "foreign_keys", "ON")?;
     connection.busy_timeout(std::time::Duration::from_secs(5))?;
     let version = version(connection)?;
+    if version > MIGRATIONS.len() {
+        // Written by a newer Spade: this build doesn't know that schema and must not use it.
+        return Err(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_MISMATCH),
+            Some(format!(
+                "this database was written by a newer Spade (schema {version}); this build knows up to {}",
+                MIGRATIONS.len()
+            )),
+        ));
+    }
     for (index, migration) in MIGRATIONS.iter().enumerate().skip(version) {
         let tx = connection.transaction()?;
         tx.execute_batch(migration)?;

@@ -1,6 +1,12 @@
 //! Spade's data folder: the single-instance lock, the API token and `server.json`, as
 //! `docs/ace-integration.md` specifies. Only Spade writes here.
 
+/// The version this build reports: ace's release version, stamped in at build time through
+/// `ACE_SPADE_VERSION` (ADR 0123: Spade ships at ace's version), else the crate's own.
+pub const VERSION: &str = match option_env!("ACE_SPADE_VERSION") {
+    Some(version) => version,
+    None => env!("CARGO_PKG_VERSION"),
+};
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::net::SocketAddr;
@@ -87,7 +93,7 @@ impl Home {
         let body = serde_json::json!({
             "address": address.to_string(),
             "pid": pid,
-            "version": env!("CARGO_PKG_VERSION"),
+            "version": VERSION,
             "api": API_VERSION,
         });
         write_atomic(
@@ -147,7 +153,7 @@ mod tests {
             serde_json::json!({
                 "address": "127.0.0.1:4567",
                 "pid": 42,
-                "version": env!("CARGO_PKG_VERSION"),
+                "version": VERSION,
                 "api": 1,
             })
         );

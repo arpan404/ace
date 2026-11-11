@@ -176,3 +176,24 @@ fn a_database_from_a_newer_spade_is_refused_by_the_check() -> Result<()> {
     assert!(why.contains("newer"), "{why}");
     Ok(())
 }
+
+#[test]
+fn a_database_from_a_newer_spade_is_refused_not_used() -> Result<()> {
+    let (_dir, path) = temp();
+    Store::open(&path)?.create_conversation("a", 1)?;
+    {
+        let connection = rusqlite::Connection::open(&path)?;
+        connection.pragma_update(None, "user_version", 999)?;
+    }
+    let refused = Store::open(&path);
+    assert!(
+        matches!(&refused, Err(StoreError::Sqlite(e)) if e.to_string().contains("newer Spade")),
+        "{:?}",
+        refused.err()
+    );
+    let version: i64 =
+        rusqlite::Connection::open(&path)?
+            .query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    assert_eq!(version, 999, "left as it was");
+    Ok(())
+}

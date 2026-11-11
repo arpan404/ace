@@ -28,6 +28,10 @@ const BUSY: u8 = 3;
 #[tokio::main]
 async fn main() -> std::process::ExitCode {
     let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    if args.first().is_some_and(|flag| flag == "--version") {
+        println!("{}", spade_server::home::VERSION);
+        return std::process::ExitCode::SUCCESS;
+    }
     if let Some(flag) = args.first()
         && flag == "--check-migrations"
     {
