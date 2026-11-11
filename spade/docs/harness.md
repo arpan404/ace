@@ -51,6 +51,23 @@ turn's total.
 - **Restart:** a turn cut off mid-stream or mid-tool closes as `reply_interrupted`; a turn only
   waiting for an approval resumes.
 
+## Tools
+
+Spade's own tools are always offered in full, in name order: `web_search` (SearXNG, then Brave),
+`web_fetch` (one page as text, a window at a time, refusing local and private addresses),
+`todo`, and, when ace started Spade, `skill_search` and `skill_load`. Output from `web_search`,
+`web_fetch` and most of ace's tools is untrusted, so a write later in that turn asks.
+
+ace's tools (threads, agents, browser, screen, automations) come from the daemon's MCP endpoint
+and can change while Spade runs. All of them are deferred: the model finds them with
+`tool_search` and runs them through `call_tool`, so the offered list never changes and the cached
+prompt top stays valid. Their risk comes from their annotations (unlabelled means write); ace's
+`wait` runs as a background job. When every search backend fails and ace is there, `web_search`
+tells the model to have an ace agent search on the cheapest model the person has.
+
+Each conversation gets a skill index (up to 40 skills by name, manual ones left out) frozen into
+its instructions before its first model call; skills added later are found with `skill_search`.
+
 ## Compaction
 
 Before each model call, if the endpoint's last reported prompt is at least 75% of the budget

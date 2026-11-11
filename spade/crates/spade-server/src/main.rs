@@ -87,12 +87,6 @@ async fn run() -> Result<(), Failure> {
         Duration::from_secs(10),
     )
     .map_err(other)?;
-    let fetcher = Fetcher::new(Policy::default(), Duration::from_secs(30));
-    let mut core: Vec<Arc<dyn Tool>> = vec![
-        Arc::new(WebSearch(Arc::new(search))),
-        Arc::new(WebFetch(Arc::new(fetcher))),
-        Arc::new(Todo),
-    ];
     // ace's tools and skill library, when the daemon started Spade (docs/ace-integration.md).
     let ace = match AceConfig::from_env(env) {
         Ok(ace) => Some(ace),
@@ -101,6 +95,15 @@ async fn run() -> Result<(), Failure> {
             None
         }
     };
+    let fetcher = Fetcher::new(Policy::default(), Duration::from_secs(30));
+    let mut core: Vec<Arc<dyn Tool>> = vec![
+        Arc::new(WebSearch {
+            search: Arc::new(search),
+            ace_fallback: ace.is_some(),
+        }),
+        Arc::new(WebFetch(Arc::new(fetcher))),
+        Arc::new(Todo),
+    ];
     let mut skills: Option<Arc<dyn SkillLibrary>> = None;
     let mut source = None;
     if let Some(ace) = ace {
