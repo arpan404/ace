@@ -181,6 +181,14 @@ export function remoteDirect(deps: {
      */
     refreshCertificate: (waitMs: number) =>
       serving.tailscale && trusted ? trusted.retry(waitMs) : Promise.resolve(),
+    /**
+     * The ts.net name and port while Tailscale serves with its browser-trusted certificate, for
+     * outside MCP clients on the tailnet (ADR 0122); undefined otherwise.
+     */
+    tailnet(): { name: string; port: number } | undefined {
+      if (!listener || !serving.tailscale || port === undefined || !trusted?.active()) return;
+      return { name: trusted.name, port };
+    },
     serving: () => serving,
     errors: () => errors,
     open: () => listener !== undefined,

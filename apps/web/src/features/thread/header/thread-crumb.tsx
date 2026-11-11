@@ -9,6 +9,7 @@ import { Tip } from "@/components/ui/tooltip.tsx";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
 import { useScopedMachine } from "@/lib/machines.ts";
 import { useIsChatThread, useProjectName, type ChatTestEntry } from "@/lib/projects.ts";
+import { useVisibleParent } from "@/lib/spade-host.ts";
 
 /**
  * A child ace delegated names its parent thread before its title, as a link back. Any other
@@ -17,7 +18,8 @@ import { useIsChatThread, useProjectName, type ChatTestEntry } from "@/lib/proje
  */
 export function ThreadCrumb(props: { threadId: string }) {
   const meta = useThreadMeta(props.threadId);
-  if (meta?.delegatedBy) return <ParentCrumb threadId={meta.delegatedBy} />;
+  const parent = useVisibleParent(meta?.delegatedBy);
+  if (parent) return <ParentCrumb threadId={parent} />;
   if (meta?.delegatedFrom) return <RemoteParentCrumb from={meta.delegatedFrom} />;
   return null;
 }
@@ -25,7 +27,8 @@ export function ThreadCrumb(props: { threadId: string }) {
 /** Whether the thread's header shows a parent before its title (`ThreadCrumb`). */
 export function useHasParentCrumb(threadId: string): boolean {
   const meta = useThreadMeta(threadId);
-  return meta?.delegatedBy !== undefined || meta?.delegatedFrom !== undefined;
+  const parent = useVisibleParent(meta?.delegatedBy);
+  return parent !== undefined || meta?.delegatedFrom !== undefined;
 }
 
 /**

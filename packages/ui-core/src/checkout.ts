@@ -1,3 +1,6 @@
+import { can, type ForgeCapabilitySource } from "./forge-capability.ts";
+import { forgeDisplayName } from "./forge-hosts.ts";
+import { reviewNoun } from "./hosted-reviews.ts";
 import type { ForgePrStatus, ForgeRepository, ThreadDetails } from "@ace/protocol";
 
 /** A thread's pull request: the linked one from details, refined by the forge's live status. */
@@ -82,6 +85,8 @@ function linkedPr(
   // The forge's live status refines the link only when it describes the same PR.
   const same =
     status?.ref.number === linked.number &&
+    status.ref.repository.forge === linked.repo.forge &&
+    status.ref.repository.host === linked.repo.host &&
     status.ref.repository.owner === linked.repo.owner &&
     status.ref.repository.name === linked.repo.name;
   if (!same) return { ...linked };
@@ -94,13 +99,29 @@ function linkedPr(
 }
 
 /** Why a checkout can't open a pull request, or undefined when it can. */
-export function prBlocker(checkout: Checkout): string | undefined {
-  if (checkout.repository?.forge === "gitlab")
-    return "GitLab merge requests aren't supported yet: open one on GitLab.";
+export function prBlocker(
+  checkout: Checkout,
+  source: ForgeCapabilitySource | undefined = checkout.repository,
+): string | undefined {
+  if (checkout.repository && !can(source, "reviews.create")) {
+    const provider = forgeDisplayName(checkout.repository.forge);
+    return `Creating ${provider} ${reviewNoun(checkout.repository.forge)}s isn't supported yet: open one on ${provider}.`;
+  }
   if (!checkout.branch) return "The checkout is on a detached HEAD.";
   if (checkout.baseBranch !== undefined && checkout.branch === checkout.baseBranch)
     return `The checkout is on ${checkout.baseBranch}, the branch a PR would merge into.`;
-  if (!checkout.repository) return "ace found no GitHub or GitLab remote for this checkout.";
+  if (!checkout.repository) return "ace found no supported Git remote for this checkout.";
+  return undefined;
+}
+
+/** Linking an existing review only needs a read adapter, not a mutation backend. */
+export function linkPrBlocker(
+  checkout: Checkout,
+  source: ForgeCapabilitySource | undefined = checkout.repository,
+): string | undefined {
+  if (!checkout.repository) return "ace found no supported Git remote for this checkout.";
+  if (!can(source, "reviews.read"))
+    return "Linking pull requests for this Git provider isn't supported yet.";
   return undefined;
 }
 
@@ -117,11 +138,14 @@ const live = (pr: CheckoutPr | undefined): pr is CheckoutPr =>
  * The next step towards a merged change: commit what is uncommitted, push what the remote
  * lacks, open a PR, then follow the open PR. A merged or closed PR starts the walk again.
  */
-export function nextGitStep(checkout: Checkout): GitStep {
+export function nextGitStep(
+  checkout: Checkout,
+  source: ForgeCapabilitySource | undefined = checkout.repository,
+): GitStep {
   if (checkout.changed > 0) return { kind: "commit" };
   if (checkout.ahead > 0) return { kind: "push" };
   if (live(checkout.pr)) return { kind: "pr", pr: checkout.pr };
-  return { kind: "create-pr", blocked: prBlocker(checkout) };
+  return { kind: "create-pr", blocked: prBlocker(checkout, source) };
 }
 
 const commits = (count: number) => `${count} ${count === 1 ? "commit" : "commits"}`;

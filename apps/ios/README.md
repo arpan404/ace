@@ -687,6 +687,16 @@ background presence and runs approval actions through the SDK outbox. With the f
 [draft](../../docs/adr/drafts/ios-push-notifications.md). Local Live Activities use the
 foreground SDK state described below.
 
+Outside apps' sign-ins (ADR 0122) alert too: `NotificationCoordinator+Access.swift` posts one
+alert per request a connected machine lists while ace is in the background, and withdraws it
+when the machine stops listing it. The daemon also pushes each request to admin phones that
+have a push address (`{ v: 1, hostId, access }`, decoded by `AccessAlert.push`), but this app
+doesn't register one yet, since ADR 0106's notification service extension isn't built. A tap
+sends `outside.open` to the bridge, which opens the sheet on that request or says it ended. To
+see it, stage `curl -X POST localhost:9841/review/outside -d '"ask"'`, send the app to the
+background and `xcrun simctl push <udid> app.ace.ios` a payload whose `userInfo` carries
+`hostId`, `accessRequestId`, `accessClient` and `accessExpiresAt` (strings).
+
 ## Archive, settings and appearance
 
 - **Snooze end while offline.** `inboxStatus(thread, now)` and `inboxNextChange` in

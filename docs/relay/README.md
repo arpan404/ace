@@ -39,6 +39,8 @@ Registration uses Noise instead of an Ed25519 challenge to prove possession of t
 
 A client connects outbound to `/client?hostId=...`. The relay creates a single-use, random 256-bit ticket valid for 10 seconds and offers it over the encrypted control session. The host opens an outbound `/join?ticket=...` socket. Expiry or rejection closes the waiting client. Once paired, the relay sends a one-byte readiness marker and forwards binary messages. Premature client data and text messages are rejected.
 
+ace's hosted relay also forwards plain HTTPS requests to a daemon that registered with `features=http`: it sends an `http` ticket over the control session and the daemon opens `/serve?ticket=...` for one request and its response. This relay never sends `http` tickets. See [Public HTTP to a machine](accounts.md#public-http-to-a-machine).
+
 The client initiates Noise XX on the stream, and the host responds. Its prologue is `ace daemon relay stream v1`. The client verifies the responder key against the paired fingerprint before completing the handshake. Handshake payloads are empty. The relay sees public handshake values, host ids, addresses, tickets, timing and ciphertext sizes. It cannot read daemon messages or impersonate a pinned host. Modification, replay and reordering fail authentication and close the channel.
 
 ## Framing, limits and backpressure

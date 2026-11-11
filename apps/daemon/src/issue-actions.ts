@@ -64,7 +64,7 @@ export class IssueActions {
   }
   async execute(
     command: Command,
-    backend: GitHubForge,
+    backend: Pick<GitHubForge, "writeIssue" | "reconcileIssue">,
     allowed: () => boolean,
     signal: AbortSignal,
   ): Promise<Omit<CommandResult, "commandId">> {

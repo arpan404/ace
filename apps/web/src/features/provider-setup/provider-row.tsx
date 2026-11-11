@@ -84,6 +84,8 @@ export function ProviderSetupRow({
     plan.status !== "ready" &&
     plan.status !== "sign_in" &&
     (missing || plan.action !== "install");
+  // Turned off in Settings: Turn on is the one action. Sign-in is refused until then.
+  const off = !missing && props.view?.state === "off";
   // Older than ace supports: Update is the one action, whatever the sign-in says.
   const needsUpdate = !missing && props.view?.primary === "update";
   const needsSignIn =
@@ -179,6 +181,16 @@ export function ProviderSetupRow({
             >
               Get {plan.prerequisite.name}
             </a>
+          ) : off ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              aria-label={`Turn on ${name}`}
+              disabled={preferences.disabled}
+              onClick={() => void preferences.update((row) => ({ ...row, enabled: true }))}
+            >
+              Turn on
+            </Button>
           ) : failed ||
             progress?.state === "cancelled" ||
             (missing && provider !== "cursor" && plan?.status !== "sign_in") ||

@@ -9,16 +9,22 @@ struct ForgeLinks: Equatable, Sendable {
     let host: String
     let owner: String
     let name: String
+    /// A review on a host ace only reads: its references open by the bridge's templates instead.
+    var hosted: ForgeHostedLinks? = nil
 
-    init(host: String, owner: String, name: String) {
+    init(host: String, owner: String, name: String, hosted: ForgeHostedLinks? = nil) {
         self.host = host
         self.owner = owner
         self.name = name
+        self.hosted = hosted
     }
-    init?(_ repository: ForgeRepository?) {
+    init?(_ repository: ForgeRepository?, hosted: ForgeHostedLinks? = nil) {
         guard let repository, !repository.host.isEmpty else { return nil }
-        self.init(host: repository.host, owner: repository.owner, name: repository.name)
+        self.init(host: repository.host, owner: repository.owner, name: repository.name, hosted: hosted)
     }
+
+    /// The scheme of an address that opens a review of this repository as ace's own page.
+    static let reviewScheme = "ace-review"
 
     private var site: String { "https://\(host)" }
     private var repository: String { "\(site)/\(owner)/\(name)" }
@@ -38,6 +44,7 @@ struct ForgeLinks: Equatable, Sendable {
 
     /// The page a GitHub reference opens: a person or team, an issue or pull request, a commit.
     func reference(kind: String, target: String) -> URL? {
+        if let hosted { return hostedReference(hosted, kind: kind, target: target) }
         switch kind {
         case "pull_request": return URL(string: target).flatMap { link($0) }
         case "file": return file(target)
@@ -65,6 +72,39 @@ struct ForgeLinks: Equatable, Sendable {
         default:
             return nil
         }
+    }
+
+    /// A reference in a read-only review's text: `#N` of this repository (an issue on the host,
+    /// or the review N in ace), a commit or a person, by the host's templates; else inert.
+    private func hostedReference(_ links: ForgeHostedLinks, kind: String, target: String) -> URL? {
+        let safe = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_./#"))
+        guard !target.isEmpty, target.unicodeScalars.allSatisfy(safe.contains) else { return nil }
+        switch kind {
+        case "issue":
+            let parts = target.split(separator: "#", omittingEmptySubsequences: false)
+            guard parts.count == 2, let number = Int(parts[1]), number > 0 else { return nil }
+            if !parts[0].isEmpty {
+                guard let slash = parts[0].lastIndex(of: "/") else { return nil }
+                let named = (owner: parts[0][..<slash], name: parts[0][parts[0].index(after: slash)...])
+                guard named.owner.lowercased() == owner.lowercased(), named.name.lowercased() == name.lowercased() else { return nil }
+            }
+            if links.review { return URL(string: "\(Self.reviewScheme):\(number)") }
+            return links.issue.flatMap { URL(string: $0.replacingOccurrences(of: "{number}", with: String(number))) }
+        case "commit":
+            guard (7...40).contains(target.count), target.allSatisfy(\.isHexDigit) else { return nil }
+            return links.commit.flatMap { URL(string: $0.replacingOccurrences(of: "{sha}", with: target)) }
+        case "mention":
+            guard target != ".", target != "..", !target.contains("/"), !target.contains("#") else { return nil }
+            return links.mention.flatMap { URL(string: $0.replacingOccurrences(of: "{login}", with: target)) }
+        default:
+            return nil
+        }
+    }
+
+    /// The review number an `ace-review:N` address opens, or nil for any other address.
+    static func reviewNumber(_ url: URL) -> Int? {
+        guard url.scheme == reviewScheme else { return nil }
+        return Int(url.absoluteString.dropFirst(reviewScheme.count + 1)).flatMap { $0 > 0 ? $0 : nil }
     }
 
     /// A path in the repository, with an optional `:line`, at the default branch on the forge.

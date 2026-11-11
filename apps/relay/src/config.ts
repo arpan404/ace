@@ -91,8 +91,26 @@ export function readRelayConfig(env: Record<string, string | undefined>) {
       : {}),
   };
 }
+/**
+ * Relay to daemon, over the encrypted registration session. `http` asks the daemon to open a
+ * `/serve` socket for one forwarded HTTP request (ADR 0122); the relay sends it only to a daemon
+ * that registered with {@link HTTP_FEATURE}, since older daemons drop the session on any
+ * message they don't know.
+ */
 export const ControlMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("registered"), hostId: HostId }),
   z.object({ type: z.literal("client"), ticket: Ticket }),
+  z.object({ type: z.literal("http"), ticket: Ticket }),
 ]);
-export const HostControlMessage = z.object({ type: z.literal("reject"), ticket: Ticket });
+/**
+ * Daemon to relay: it won't take this ticket. For an `http` ticket, `off` means the person
+ * hasn't turned the path on (the caller gets 404) and `busy` that it's at its limit (503).
+ * Older relays ignore the reason.
+ */
+export const HostControlMessage = z.object({
+  type: z.literal("reject"),
+  ticket: Ticket,
+  reason: z.enum(["off", "busy"]).optional(),
+});
+/** The `/host` `features` value a daemon sends when it serves forwarded HTTP requests. */
+export const HTTP_FEATURE = "http";

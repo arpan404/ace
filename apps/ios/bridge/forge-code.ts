@@ -1,6 +1,7 @@
 import { ForgeRepository, type ForgeFile, type ForgePrFiles } from "@ace/protocol";
 import {
   codeCaveats,
+  forgeDisplayName,
   hostedFileShow,
   lockedText,
   renderedKind,
@@ -8,6 +9,7 @@ import {
   viewedMarks,
   type HostedFileShow,
   type ViewedState,
+  can,
 } from "@ace/ui-core";
 import { mobileFileDiff, type MobileDiffLine } from "@ace/ui-core/mobile";
 import { z } from "zod";
@@ -65,6 +67,7 @@ const markOf = (state: ViewedState | undefined): ViewedMark | null =>
 
 export interface FilesReply {
   type: "forge.pull.files";
+  canCompare: boolean;
   /** The PR's head, which a Viewed mark is set at. */
   headSha: string;
   /** The range shown and its words; null for All commits. */
@@ -99,6 +102,7 @@ export interface LineView extends MobileDiffLine {
 }
 export interface FileReply {
   type: "forge.pull.file";
+  suggestions: boolean;
   number: number;
   repository: ForgeRepository;
   path: string;
@@ -127,6 +131,8 @@ export interface FileReply {
   viewed: ViewedMark | null;
   /** The exact commits this diff is between, which its rendered and image views read too. */
   revisions: FileRevisions;
+  /** The host's name, for what it shows of the file ("GitHub", "GitLab"). */
+  host: string;
 }
 
 /**
@@ -203,9 +209,9 @@ export async function readFiles(
   const shas = { headSha, baseSha: detail.baseSha };
   const { range } = request;
   const [state, history] = await Promise.all([
-    prReviewState(reads, request),
+    can(detail, "reviews.comments.write") ? prReviewState(reads, request) : undefined,
     // A range is named by its commits' titles; a missing list leaves their short hashes.
-    range
+    range && can(detail, "reviews.commits")
       ? prCommitHistory(reads, request, headSha).catch(() => ({ commits: [], truncated: false }))
       : undefined,
   ]);
@@ -220,9 +226,13 @@ export async function readFiles(
   }
   const marks = viewedMarks(state, range ? { headSha, commit: range.commit } : { headSha });
   // Conversations belong to All commits: a range shows its own diff alone.
-  const open = range ? [] : detail.status.reviewThreads.filter((thread) => !thread.resolved);
+  const open =
+    range || !can(detail, "reviews.comments.read")
+      ? []
+      : detail.status.reviewThreads.filter((thread) => !thread.resolved);
   return {
     type: "forge.pull.files",
+    canCompare: can(detail, "reviews.commits"),
     headSha,
     range: range
       ? {
@@ -268,14 +278,17 @@ export async function readFile(
 ): Promise<FileReply> {
   const detail = await prDetail(reads, request);
   const shas = { headSha: detail.status.headSha, baseSha: detail.baseSha };
+  // A read-only review has no review state or lifecycle: no marks, comments or drafts.
+
   const [found, state, lifecycle] = await Promise.all([
     findFile(reads, request, shas),
-    prReviewState(reads, request),
-    prLifecycle(reads, request),
+    can(detail, "reviews.comments.write") ? prReviewState(reads, request) : undefined,
+    can(detail, "reviews.edit") ? prLifecycle(reads, request) : undefined,
   ]);
   const { file } = found;
   const locked = lockedOut(lifecycle);
   const conversation: Conversation = {
+    capabilities: detail,
     state,
     url: detail.status.url,
     repository: detail.status.ref.repository,
@@ -286,9 +299,10 @@ export async function readFile(
   const { range } = request;
   const diff = mobileFileDiff(file.patch ?? "", file.truncated, undefined, preview);
   // Conversations, pending comments and new ones belong to All commits at the head.
-  const threads = range
-    ? []
-    : detail.status.reviewThreads.filter((thread) => thread.file === file.path);
+  const threads =
+    range || !can(detail, "reviews.comments.read")
+      ? []
+      : detail.status.reviewThreads.filter((thread) => thread.file === file.path);
   const placed = new Set<string>();
   const drafts = range
     ? []
@@ -323,6 +337,7 @@ export async function readFile(
   const live = detail.status.state === "open" || detail.status.state === "draft";
   return {
     type: "forge.pull.file",
+    suggestions: can(detail, "reviews.suggestions"),
     number: detail.status.ref.number,
     repository: detail.status.ref.repository,
     path: preview(file.path, 4_096),
@@ -362,5 +377,6 @@ export async function readFile(
       previousPath: file.previousPath ?? null,
       status: file.status,
     },
+    host: forgeDisplayName(detail.status.ref.repository.forge),
   };
 }

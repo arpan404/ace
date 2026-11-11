@@ -464,7 +464,7 @@ test("a checkout without a remote can't start a PR and says why", async () => {
   await screen.findByRole("feed", { name: "Transcript" });
   const create = within(await openGitMenu()).getByRole("menuitem", { name: /^Create PR…/ });
   expect(create.getAttribute("aria-disabled")).toBe("true");
-  expect(create.textContent).toContain("ace found no GitHub or GitLab remote for this checkout.");
+  expect(create.textContent).toContain("ace found no supported Git remote for this checkout.");
 });
 
 test("the card says when the thread's directory isn't a git checkout, and offers no git step", async () => {

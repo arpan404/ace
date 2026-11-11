@@ -15,6 +15,8 @@ import {
   WrenchIcon,
   FlowArrowIcon,
 } from "@phosphor-icons/react";
+import { kindGlyph } from "./attachment-face.tsx";
+import { describeFile } from "./attachment-kind.ts";
 import { Icon } from "./icon.tsx";
 
 export type MentionKind = CatalogKind | "file" | "thread" | "tab";
@@ -63,6 +65,20 @@ export function MentionChip(props: {
       className="inline-flex max-w-full items-baseline gap-1 align-baseline font-medium text-link"
     >
       <MentionIcon kind={props.kind} />
+      <span className="truncate">{props.name}</span>
+    </span>
+  );
+}
+
+/** Where a file was added in the message being written: its kind's glyph and its name. */
+export function FileMarkerChip(props: { name: string }) {
+  return (
+    <span className="inline-flex max-w-full items-baseline gap-1 align-baseline font-medium text-link">
+      <Icon
+        icon={kindGlyph(describeFile({ name: props.name }).kind)}
+        size={14}
+        className="self-center shrink-0 text-muted-foreground"
+      />
       <span className="truncate">{props.name}</span>
     </span>
   );

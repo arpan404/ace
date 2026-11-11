@@ -1,0 +1,28 @@
+{
+  "$id": "https://ace.local/protocol/v1/SpadeLiveFrame.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "data": {
+      "maxLength": 1048576,
+      "type": "string"
+    },
+    "event": {
+      "maxLength": 128,
+      "type": "string"
+    },
+    "requestId": {
+      "type": "string"
+    },
+    "type": {
+      "const": "spade.live.frame",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "event",
+    "data"
+  ],
+  "type": "object"
+}

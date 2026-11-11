@@ -29,7 +29,13 @@ import {
 } from "@/features/home/index.ts";
 import { SearchHost } from "@/features/search/index.ts";
 import { SignInHost } from "@/features/sign-in/index.ts";
-import { AppSidebar, GlobalHotkeys, SidebarFrame, ShortcutHost } from "@/features/shell/index.ts";
+import {
+  AppSidebar,
+  GlobalHotkeys,
+  SidebarFrame,
+  ShortcutHost,
+  SpadePlace,
+} from "@/features/shell/index.ts";
 import { useDesktopUpdates } from "@/boot/desktop-updates.ts";
 import { useStartupShell } from "@/lib/startup/startup.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -177,9 +183,29 @@ function UsageNav(props: { current: boolean }) {
 }
 const usageNav = (current: boolean) => <UsageNav current={current} />;
 
-/** The sidebar with what other slices own: the thread list, Code review's and Usage's places. */
+/** Spade's place in the rail with its needs-you dot, loaded after the first paint. */
+const SpadeRailPlaceLoaded = deferredComponent(() =>
+  import("@/features/spade/index.ts").then((m) => m.SpadeRailPlace),
+);
+
+/** Spade in the rail; until its code arrives, the plain mark. */
+function SpadeNav(props: { current: boolean; to: string; search: object }) {
+  const plain = <SpadePlace current={props.current} last={props} />;
+  return (
+    <LocalBoundary label="Spade button" fallback={plain}>
+      <Suspense fallback={plain}>
+        <SpadeRailPlaceLoaded.Component {...props} />
+      </Suspense>
+    </LocalBoundary>
+  );
+}
+const spadeNav = (current: boolean, to: string, search: object) => (
+  <SpadeNav current={current} to={to} search={search} />
+);
+
+/** The sidebar with what other slices own: the thread list, Code review's, Usage's and Spade's places. */
 function ShellSidebar() {
-  return <AppSidebar threads={threads} forge={forgeNav} usage={usageNav} />;
+  return <AppSidebar threads={threads} forge={forgeNav} usage={usageNav} spade={spadeNav} />;
 }
 
 function ShellHotkeys() {

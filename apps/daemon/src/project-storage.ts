@@ -6,11 +6,13 @@ import {
   ProjectDefaults,
   ProjectNote,
   ThreadId,
+  type ProjectRepositoryConfig,
   type WorkspaceId,
   type WorkspaceChanged,
 } from "@ace/protocol";
 import type { Store } from "./store.ts";
 import { ProjectError } from "./project-policy.ts";
+import { ProjectRepositoryConfigs } from "./project-repository-config.ts";
 
 const recentRow = z.object({ path: Project.shape.path, opened_at: z.number().nonnegative() });
 const folderRow = z.object({ opened_at: z.number().nonnegative().nullable() });
@@ -41,6 +43,20 @@ export function migrateProjects(db: DatabaseSync): void {
   if (!columns.has("defaults")) db.exec("ALTER TABLE workspace_metadata ADD COLUMN defaults TEXT");
   if (!columns.has("notes")) db.exec("ALTER TABLE workspace_metadata ADD COLUMN notes TEXT");
   if (!columns.has("kind")) db.exec("ALTER TABLE workspace_metadata ADD COLUMN kind TEXT");
+  // A project's saved repository choices (ADR 0120); NULL is "no choices".
+  if (!columns.has("repositories"))
+    db.exec("ALTER TABLE workspace_metadata ADD COLUMN repositories TEXT");
+}
+
+/**
+ * Whether a workspace is Spade's own hidden project (ADR 0121): an empty folder, never a
+ * repository, which no list shows and nothing reads Git or forge data from.
+ */
+export function isSpadeProject(store: Pick<Store, "statement">, id: string): boolean {
+  return (
+    store.statement("SELECT kind FROM workspace_metadata WHERE workspace_id=?").get(id)?.kind ===
+    "spade"
+  );
 }
 
 /** Every project column a `Project` decodes from (`decodeProjectRow`), with `w` the workspace. */
@@ -141,6 +157,20 @@ export class ProjectStorage {
     this.emit({ type: "workspace.changed", change: "added", workspaceId: workspace.id, workspace });
     return workspace;
   }
+  /**
+   * Register Spade's folder as its hidden `spade` project (ADR 0121), registered again if it was
+   * removed. Clients never see it: it is left out of every list and announces no change.
+   */
+  registerSpade(path: string): WorkspaceId {
+    return this.store.atomic((db) => {
+      const id = this.store.createWorkspace(path, "Spade", this.now());
+      db.prepare(
+        "INSERT INTO workspace_metadata(workspace_id,kind) VALUES (?,'spade') ON CONFLICT(workspace_id) DO UPDATE SET kind='spade'",
+      ).run(id);
+      db.prepare("DELETE FROM workspace_unregistered WHERE workspace_id=?").run(id);
+      return id;
+    });
+  }
   /** Unregister a project without touching its threads; a chat's last thread already went. */
   forget(id: WorkspaceId): void {
     this.store
@@ -165,7 +195,7 @@ export class ProjectStorage {
       db
         .prepare(`${projectSelect} WHERE w.id>? AND NOT EXISTS
       (SELECT 1 FROM workspace_unregistered u WHERE u.workspace_id=w.id)
-      ORDER BY w.id LIMIT ?`)
+      AND coalesce(m.kind,'')<>'spade' ORDER BY w.id LIMIT ?`)
         .all(after ?? "", limit + 1)
         .map(decodeProjectRow),
     );
@@ -235,6 +265,20 @@ export class ProjectStorage {
     const project = this.get(id);
     const notes = change(project.notes ?? []);
     return notes ? this.update(id, project.name, { notes }) : undefined;
+  }
+  /** Replace the project's repository choices (ADR 0120) and tell every client to read them. */
+  setRepositories(
+    id: WorkspaceId,
+    config: ProjectRepositoryConfig | null,
+    expected?: ProjectRepositoryConfig | null,
+  ): Project {
+    const workspace = this.store.atomic(() => {
+      this.get(id);
+      new ProjectRepositoryConfigs(this.store).set(id, config, expected);
+      return this.get(id);
+    });
+    this.emit({ type: "workspace.changed", change: "updated", workspaceId: id, workspace });
+    return workspace;
   }
   rename(id: WorkspaceId, name: string): Project {
     return this.update(id, name, {}, "renamed");

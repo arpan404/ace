@@ -113,6 +113,10 @@
     "hasSentMessage": {
       "type": "boolean"
     },
+    "host": {
+      "const": "spade",
+      "type": "string"
+    },
     "id": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"
     },
@@ -203,6 +207,9 @@
     },
     "startedBy": {
       "$ref": "https://ace.local/protocol/v1/StartedBy.json"
+    },
+    "startedByClient": {
+      "$ref": "https://ace.local/protocol/v1/StartedByClient.json"
     },
     "status": {
       "$ref": "https://ace.local/protocol/v1/ThreadStatus.json"

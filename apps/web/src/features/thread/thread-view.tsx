@@ -1,3 +1,4 @@
+import { startedByWords } from "@ace/ui-core/outside-clients";
 import { useInteractions, useThreadError, useThreadMeta } from "@ace/client-react";
 import type { ForkPoint } from "@ace/protocol";
 import {
@@ -68,6 +69,7 @@ import { GuestBottom } from "./guest/guest-bottom.tsx";
 import { QueuedLaunch } from "./subagent/queued-launch.tsx";
 import { ThreadForgeLinks } from "@/components/forge-links.tsx";
 import { ThreadLinkedFiles } from "@/components/linked-file.tsx";
+import { useVisibleParent } from "@/lib/spade-host.ts";
 
 /**
  * A thread New thread started a moment ago, until the daemon names it: its view's code loads
@@ -137,6 +139,7 @@ function ThreadScreen(props: {
 }) {
   const nav = useThreadNav();
   const meta = useThreadMeta(props.threadId);
+  const parentThreadId = useVisibleParent(meta?.delegatedBy);
   const requests = useInteractions(props.threadId);
   // Requests are part of opening the thread, never deferred until browser idle time.
   if (requests?.length) use(DeferredComposerStrip.preload());
@@ -215,6 +218,9 @@ function ThreadScreen(props: {
               (title ?? "")
             )
           }
+          subtitle={
+            meta?.startedByClient && !error ? startedByWords(meta.startedByClient.name) : undefined
+          }
           progress={meta && !error ? <SyncingNote threadId={id} /> : undefined}
           menu={
             thread && (
@@ -250,7 +256,7 @@ function ThreadScreen(props: {
                 {meta.queuedLaunch ? (
                   <QueuedLaunch
                     text={meta.queuedLaunch.text}
-                    parentThreadId={meta.delegatedBy}
+                    parentThreadId={parentThreadId}
                     slotLimit={meta.queuedLaunch.slotLimit}
                     slotsInUse={meta.queuedLaunch.slotsInUse}
                     queuePosition={meta.queuedLaunch.queuePosition}

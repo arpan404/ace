@@ -59,6 +59,7 @@ import type { MainSocket } from "./main-socket.ts";
 export type { ServerOptions } from "./server-options.ts";
 import type { ServerOptions } from "./server-options.ts";
 import { computerName } from "./computer-name.ts";
+import { unreachable, type ReachFacts } from "./external-mcp/reach.ts";
 import { remoteDeflate } from "./compression-policy.ts";
 export async function startServer(options: ServerOptions): Promise<{
   relayHostId?: string | undefined;
@@ -73,6 +74,7 @@ export async function startServer(options: ServerOptions): Promise<{
   fingerprint?: string | undefined;
   /** Shutdown stages that started and have not finished. */
   pendingShutdown(): string[];
+  outsideReach(): ReachFacts;
   close(): Promise<void>;
 }> {
   options.hostName ??= await computerName();
@@ -745,6 +747,8 @@ export async function startServer(options: ServerOptions): Promise<{
     get relayHostId() {
       return dynamicRemote?.relayHostId ?? transports?.relayHostId;
     },
+    /** Tailscale and ace's relay as outside MCP clients reach them (ADR 0122). */
+    outsideReach: () => dynamicRemote?.outsideReach() ?? unreachable,
     maintenance,
     url: `ws://127.0.0.1:${port}`,
     httpUrl: `http://127.0.0.1:${port}`,

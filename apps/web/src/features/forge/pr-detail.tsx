@@ -4,6 +4,10 @@ import { useQueryClient, type Query } from "@tanstack/react-query";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import type { ForgePrDetail, ForgePrStatus, ForgeRepository } from "@ace/protocol";
 import {
+  can,
+  forgeDisplayName,
+  hostedReviewLine,
+  knownFileCount,
   allCommits,
   prParticipants,
   prPollInterval,
@@ -11,12 +15,14 @@ import {
   type GateKey,
 } from "@ace/ui-core";
 import { Button } from "@/components/ui/button.tsx";
+import { DiffStat } from "@/components/diff-stat.tsx";
 import { cn } from "@/lib/cn.ts";
 import { PrActivity } from "./pr-activity.tsx";
 import { PrHeader } from "./pr-header.tsx";
 import { PrPageHeader } from "./pr-page-header.tsx";
 import { PrSummary } from "./pr-summary.tsx";
 import { PrChecks } from "./pr-checks.tsx";
+import { PrChecksTally } from "./pr-checks-list.tsx";
 import { PrPeople } from "./pr-people.tsx";
 import { TextAction } from "./pr-text-action.tsx";
 import { PrQuoteProvider } from "./pr-quote.tsx";
@@ -40,7 +46,8 @@ import { PrMergeCommitDialog } from "./pr-merge-commit.tsx";
 import { PrWriteStatus } from "./pr-write-status.tsx";
 import { PrFailure } from "./pr-detail-states.tsx";
 import { PrPageSkeleton, type PrSeed } from "./pr-page-skeleton.tsx";
-import { PrGatesRow } from "./pr-gates-row.tsx";
+import { PrMergeBox } from "./pr-merge-box.tsx";
+import { useBlockingItems } from "./pr-attention.tsx";
 import { prShortcut } from "./pr-shortcuts.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { ForgeContentScope } from "./rich/scope.ts";
@@ -107,6 +114,17 @@ function PrDetailLoaded(props: {
   const { context } = props;
   const readable = props.page ? pageWidth : undefined;
   const { detail } = context;
+  // The tabs this host can fill: a read-only host may have no code, checks or conversation.
+  const available = {
+    summary: true,
+    code: can(detail, "reviews.files"),
+    checks: can(detail, "reviews.checks"),
+    timeline:
+      can(detail, "reviews.comments.read") ||
+      can(detail, "reviews.comments.write") ||
+      can(detail, "reviews.commits"),
+  };
+  const shownTab = available[props.tab] ? props.tab : "summary";
   const [dialog, setDialog] = useState<PrDialog>();
   const [commitWhen, setCommitWhen] = useState<"now" | "auto">();
   const actions = usePrActions({
@@ -116,7 +134,6 @@ function PrDetailLoaded(props: {
     openConflicts: () => setDialog("conflicts"),
     editCommit: setCommitWhen,
   });
-  const [behindOpen, setBehindOpen] = useState(false);
   const [checkFocus, setCheckFocus] = useState<{ id: string; seq: number }>();
   const [codeFocus, setCodeFocus] = useState<{ path: string; line?: number; seq: number }>();
   // Which commits Code shows, held here so a commit in the Timeline opens there.
@@ -139,7 +156,7 @@ function PrDetailLoaded(props: {
     props.onTab("checks");
     if (id) setCheckFocus((current) => ({ id, seq: (current?.seq ?? 0) + 1 }));
   };
-  // A gate jumps to its detail: the checks, the reviewers, the conflicts, the update menu.
+  // A gate in the merge box jumps to its detail: the checks, the reviewers, the conflicts.
   const onGate = (key: GateKey) => {
     if (key === "checks") openCheck();
     else if (key === "reviews") {
@@ -148,20 +165,17 @@ function PrDetailLoaded(props: {
         .getElementById("pr-reviewers")
         ?.scrollIntoView?.({ block: "start", behavior: "smooth" });
     } else if (key === "conflicts" && actions.primary.kind === "resolve") void actions.runPrimary();
-    else if (key === "branch" && actions.mergeState.state?.mergeState === "BEHIND")
-      setBehindOpen(true);
     else if (key === "ended") props.onTab("timeline");
   };
-  // Blocked, the header's merge says so in words and leads here: the Summary's Blocking the merge.
+  // Blocked, the header's merge says so in words and leads here: the Summary's merge box.
   const showBlocking = () => {
     props.onTab("summary");
     requestAnimationFrame(() =>
-      document
-        .getElementById("pr-attention")
-        ?.scrollIntoView?.({ block: "start", behavior: "smooth" }),
+      document.getElementById("pr-merge")?.scrollIntoView?.({ block: "start", behavior: "smooth" }),
     );
   };
-  const [order, setOrder] = useState<"newest" | "oldest">("newest");
+  const blocking = useBlockingItems(detail);
+  const [order, setOrder] = useState<"newest" | "oldest">("oldest");
   // Each tab keeps its own fold: scrolled down in Code, the header stays folded there only.
   const [condensed, setCondensed] = useState<Record<PrTab, boolean>>({
     summary: false,
@@ -185,14 +199,17 @@ function PrDetailLoaded(props: {
     if (!shortcut) return;
     event.preventDefault();
     if (shortcut === "open")
-      void openWeb(status.url).catch(() => toast.error({ title: "Couldn't open GitHub" }));
+      void openWeb(status.url).catch(() =>
+        toast.error({ title: `Couldn't open ${forgeDisplayName(status.ref.repository.forge)}` }),
+      );
     else props.onTab(shortcut);
   };
-  const editable = !!actions.lifecycle.snapshot?.editableFields.length;
+  const editable =
+    can(detail, "reviews.edit") && !!actions.lifecycle.snapshot?.editableFields.length;
   const repository = detail.status.ref.repository;
   const scope = useMemo(
-    () => ({ workspaceId: context.workspaceId, repository }),
-    [context.workspaceId, repository],
+    () => ({ workspaceId: context.workspaceId, repository, capabilities: detail.capabilities }),
+    [context.workspaceId, repository, detail.capabilities],
   );
   // A ticked task box edits the description against the version it was read at, and only
   // while that version's body is the one on screen.
@@ -223,7 +240,8 @@ function PrDetailLoaded(props: {
   // A locked conversation takes comments only from collaborators who can push.
   const conversation = actions.lifecycle.snapshot?.conversation;
   const lockedOut = !!conversation?.locked && !conversation.viewerCanComment;
-  const canRequestReview = detail.status.state === "open";
+  const canRequestReview =
+    can(detail, "reviews.reviewers.request") && detail.status.state === "open";
   const participants = useCallback(() => prParticipants(detail), [detail]);
   // Shortcuts work anywhere in the panel; `contents` keeps the layout the article's. On a
   // page it is the page's one scroller instead.
@@ -257,9 +275,6 @@ function PrDetailLoaded(props: {
                         <PrPageHeader
                           actions={actions}
                           extensions={props.extensions}
-                          behindOpen={behindOpen}
-                          onBehindOpen={setBehindOpen}
-                          onGate={onGate}
                           onBlocked={showBlocking}
                           onBack={props.onBack}
                           menu={menu}
@@ -268,13 +283,10 @@ function PrDetailLoaded(props: {
                         <PrHeader
                           actions={actions}
                           extensions={props.extensions}
-                          condensed={condensed[props.tab]}
-                          behindOpen={behindOpen}
-                          onBehindOpen={setBehindOpen}
-                          gates={<PrGatesRow actions={actions} onSelect={onGate} />}
+                          condensed={condensed[shownTab]}
                           onBack={props.onBack}
-                          onOpen={props.onOpen}
                           onBlocked={showBlocking}
+                          blockingCount={blocking.length}
                           menu={menu}
                         />
                       )}
@@ -291,6 +303,19 @@ function PrDetailLoaded(props: {
                           </Button>
                         </p>
                       )}
+                      {!can(detail, "reviews.comments.write") && (
+                        <p className="flex flex-wrap items-center gap-x-1.5 px-[var(--forge-gutter,1rem)] pb-2 text-xs text-muted-foreground">
+                          <span>{hostedReviewLine(repository.forge)}</span>
+                          <a
+                            href={status.url}
+                            target="_blank"
+                            rel="noreferrer noopener"
+                            className="rounded-xs font-medium text-foreground/90 focus-ring hover:text-foreground"
+                          >
+                            Open on {forgeDisplayName(repository.forge)}
+                          </a>
+                        </p>
+                      )}
                       <PrWriteStatus actions={actions} refreshing={props.refreshing} />
                       <PrSuggestionBatch />
                     </div>
@@ -298,23 +323,38 @@ function PrDetailLoaded(props: {
                 }
               >
                 <PrTabs
-                  tab={props.tab}
+                  available={available}
+                  tab={shownTab}
                   onTab={props.onTab}
                   onScroll={onScroll}
                   readable={readable}
                   // Finish review stays in reach once the header (with its Review) scrolls away.
                   pinned={{ code: <PrReviewButton finish /> }}
                   counts={{
-                    timeline: detail.status.comments.length,
-                    code: detail.changedFiles,
+                    ...(can(detail, "reviews.comments.read")
+                      ? { timeline: detail.status.comments.length }
+                      : {}),
+                    ...(knownFileCount(detail) === null ? {} : { code: detail.changedFiles }),
                     checks: detail.status.checks.length,
                   }}
                   context={{
                     // On a page the Summary needs no counter; how many files are viewed is Code's.
-                    summary: props.page ? null : <SummaryContext detail={detail} />,
+                    summary: props.page ? (
+                      detail.additions !== undefined && detail.deletions !== undefined ? (
+                        <DiffStat
+                          additions={detail.additions}
+                          deletions={detail.deletions}
+                          className="text-xs"
+                        />
+                      ) : null
+                    ) : (
+                      <SummaryContext detail={detail} />
+                    ),
                     timeline: (
                       <div className="flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums">
-                        <span>{counted(detail.status.comments.length, "comment")}</span>
+                        {can(detail, "reviews.comments.read") && (
+                          <span>{counted(detail.status.comments.length, "comment")}</span>
+                        )}
                         <span aria-hidden className="text-subtle-foreground">
                           ·
                         </span>
@@ -331,20 +371,35 @@ function PrDetailLoaded(props: {
                       </div>
                     ),
                     code: null,
-                    checks: props.page ? null : <PrChecksPill status={detail.status} />,
+                    checks: props.page ? (
+                      <PrChecksTally checks={detail.status.checks} />
+                    ) : (
+                      <PrChecksPill status={detail.status} />
+                    ),
                   }}
                   panels={{
                     summary: (
                       <PrSummary
                         context={context}
                         extensions={props.extensions}
-                        hostThreadId={props.hostThreadId}
                         stack={actions.stack}
                         onOpen={props.onOpen}
                         onOpenCode={openCode}
-                        onOpenCheck={openCheck}
-                        onTimeline={() => props.onTab("timeline")}
                         onEdit={editable ? () => setDialog("edit") : undefined}
+                        merge={
+                          <PrMergeBox
+                            actions={actions}
+                            onGate={onGate}
+                            attention={{
+                              workspaceId: context.workspaceId,
+                              hostThreadId: props.hostThreadId,
+                              disabled: context.disabled,
+                              onRefresh: context.refresh,
+                              onOpenCode: openCode,
+                              onOpenCheck: openCheck,
+                            }}
+                          />
+                        }
                         about={
                           <PrDetails
                             actions={actions}

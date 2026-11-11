@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ComponentType } from "react";
 import { CaretRightIcon } from "@phosphor-icons/react";
 import type { ForgePrStatus } from "@ace/protocol";
 import { useMarkdownDraft } from "@/components/markdown-editor/use-markdown-draft.ts";
@@ -6,9 +6,9 @@ import { MarkdownEditor } from "@/components/markdown-editor/markdown-editor.tsx
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { PrComment } from "./pr-comment.tsx";
-import { plural, previewOf, threadPlace } from "@ace/ui-core";
+import { can, plural, previewOf, threadPlace } from "@ace/ui-core";
 import { appendTo, useQuotedInto } from "./pr-quote.tsx";
-import { lockedText, usePrIdentity, usePrReview } from "./pr-review-context.tsx";
+import { lockedText, usePrDetail, usePrIdentity, usePrReview } from "./pr-review-context.tsx";
 import { useFocusAsk, useFold, useReplyOpen } from "./pr-ui-store.tsx";
 import { PrThreadEarlierCode } from "./pr-earlier-code.tsx";
 import { useFixingNow } from "./pr-fix-marks.ts";
@@ -46,6 +46,8 @@ export function PrReplyField(props: {
   /** GitHub takes replies on the thread's first comment. */
   rootCommentId: number;
   place?: ReplyPlace;
+  /** How the closed field shows under its conversation; a quiet "Reply" word by default. */
+  closed?: ComponentType<{ onOpen(): void }> | undefined;
   className?: string | undefined;
 }) {
   const review = usePrReview();
@@ -76,7 +78,9 @@ export function PrReplyField(props: {
     place === "thread",
   );
   const own = useOwnWrite();
-  const canComment = !!review?.state?.canComment;
+  const detail = usePrDetail();
+  // Replying inside a thread is its own capability: some hosts take comments but no replies.
+  const canComment = !!review?.state?.canComment && can(detail, "reviews.comments.reply");
   const locked = !!review?.commentsLocked;
   const disabled = !review?.ready || own.saving || !canComment || locked;
   if (!review?.state || (!canComment && !locked)) return null;
@@ -112,17 +116,15 @@ export function PrReplyField(props: {
         if (ok && draft.clear(body)) close();
       });
   };
+  const Closed = props.closed;
+  const opener = () => {
+    setAsked(true);
+    askFocus();
+  };
   if (!open)
-    return place === "thread" ? (
-      <TextAction
-        onClick={() => {
-          setAsked(true);
-          askFocus();
-        }}
-      >
-        Reply
-      </TextAction>
-    ) : null;
+    return place === "thread"
+      ? (Closed && <Closed onOpen={opener} />) || <TextAction onClick={opener}>Reply</TextAction>
+      : null;
   return (
     <div ref={box} className={cn("space-y-2", props.className)}>
       <MarkdownEditor
@@ -172,7 +174,7 @@ export function PrReplyField(props: {
 }
 
 /** Resolve or unresolve a review thread, where GitHub lets the viewer. */
-export function PrResolveButton(props: { thread: ReviewThread }) {
+export function PrResolveButton(props: { thread: ReviewThread; className?: string | undefined }) {
   const review = usePrReview();
   const own = useOwnWrite();
   if (!review?.state?.resolvableThreads.includes(props.thread.id)) return null;
@@ -181,6 +183,7 @@ export function PrResolveButton(props: { thread: ReviewThread }) {
     <>
       {own.status?.state === "failed" && <OwnWriteNote status={own.status} />}
       <TextAction
+        className={props.className}
         disabled={!review.ready || own.saving}
         onClick={() =>
           void own.send({
@@ -196,17 +199,11 @@ export function PrResolveButton(props: { thread: ReviewThread }) {
 }
 
 /**
- * One review conversation: its comments in order, a reply field, and Resolve. A resolved one
- * starts folded to a single line. `place` names the file and line, for lists away from the diff.
+ * A conversation's view state: open or folded (resolved ones start folded; the person's own
+ * choice holds until it is resolved or reopened, and survives the row scrolling away), which
+ * comments are expanded, and whether an agent is fixing it.
  */
-export function PrThread(props: {
-  thread: ReviewThread;
-  place?: boolean;
-  className?: string | undefined;
-}) {
-  const { thread } = props;
-  // Resolved conversations start folded. The person's own choice holds until the conversation
-  // is resolved or reopened, and survives the row scrolling away (`pr-ui-store`).
+export function useThreadView(thread: ReviewThread) {
   const [fold, setFold] = useFold(thread.id);
   const open = fold && fold.resolved === thread.resolved ? fold.open : !thread.resolved;
   const setOpen = (next: boolean) => setFold({ open: next, resolved: thread.resolved });
@@ -221,6 +218,20 @@ export function PrThread(props: {
       if (!next.delete(id)) next.add(id);
       return next;
     });
+  return { open, setOpen, expanded, toggle, fixing, first, preview };
+}
+
+/**
+ * One review conversation: its comments in order, a reply field, and Resolve. A resolved one
+ * starts folded to a single line. `place` names the file and line, for lists away from the diff.
+ */
+export function PrThread(props: {
+  thread: ReviewThread;
+  place?: boolean;
+  className?: string | undefined;
+}) {
+  const { thread } = props;
+  const { open, setOpen, expanded, toggle, fixing, first, preview } = useThreadView(thread);
   const marks = (
     <>
       {thread.outdated && <span className="shrink-0 text-xs text-subtle-foreground">Outdated</span>}

@@ -259,6 +259,9 @@
       "type": "object"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/ProjectRepositoriesSetCommand.json"
+    },
+    {
       "properties": {
         "type": {
           "const": "workspace.git.lock.clear",

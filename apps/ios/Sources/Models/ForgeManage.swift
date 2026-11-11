@@ -31,6 +31,8 @@ struct ForgeNewPrContext: Decodable, Sendable, Equatable {
     let bases: [String]
     let head: Head
     let template: String
+    /// "Opens on GitLab · acme/ace", only when the project uses more than one repository.
+    var opensOn: String? = nil
 }
 
 /// What a pull request of two branches would hold (`forge.newpr.compare`).

@@ -16,6 +16,7 @@ import { allocateRoom } from "@/lib/shell-room.ts";
 import { whenIdle } from "@/lib/idle.ts";
 import { withViewTransition } from "@/lib/motion.ts";
 import {
+  PanelRoomContext,
   usePreferredSize,
   useScopeWorkspace,
   useWorkspaceActions,
@@ -271,92 +272,94 @@ export function Workspace(props: {
   );
   return (
     <WorkspaceWebLinks scope={scope} definition={definition}>
-      <div ref={outer} data-workspace className="relative flex min-h-0 flex-1 flex-col">
-        <WorkspaceHotkeys
-          workspace={workspace}
-          definition={definition}
-          actions={actions}
-          root={() => outer.current}
-        />
-        <KindOverlays scope={scope} definition={definition} />
-        {(shown || bottomShown) && (
-          <LocalBoundary label="the close confirmation" fallback={null}>
-            <Suspense fallback={null}>
-              <CloseConfirm.Component />
-            </Suspense>
-          </LocalBoundary>
-        )}
-        <div className={cn("relative flex min-h-0 flex-1", bottom && !expanded && "flex-col")}>
-          {/* In full view the column steps aside but stays mounted: the transcript keeps its place. */}
-          <div
-            hidden={expanded}
-            // Beside a docked panel the header stops at the panel's edge, short of the window's.
-            data-beside-panel={topBar || undefined}
-            className="flex min-h-0 min-w-0 flex-1 flex-col"
-          >
-            {props.header(topBar ? undefined : controls("header"))}
-            <div className={`${canvasClass} flex-col`}>
-              <div className="@container/work-body relative flex min-h-0 min-w-0 flex-1 flex-col">
-                {props.notice}
-                {props.contextPanel ? (
-                  <div className="flex min-h-0 flex-1 flex-col @min-[832px]/work-body:flex-row">
-                    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-                      {props.children}
+      <PanelRoomContext value={!phone}>
+        <div ref={outer} data-workspace className="relative flex min-h-0 flex-1 flex-col">
+          <WorkspaceHotkeys
+            workspace={workspace}
+            definition={definition}
+            actions={actions}
+            root={() => outer.current}
+          />
+          <KindOverlays scope={scope} definition={definition} />
+          {(shown || bottomShown) && (
+            <LocalBoundary label="the close confirmation" fallback={null}>
+              <Suspense fallback={null}>
+                <CloseConfirm.Component />
+              </Suspense>
+            </LocalBoundary>
+          )}
+          <div className={cn("relative flex min-h-0 flex-1", bottom && !expanded && "flex-col")}>
+            {/* In full view the column steps aside but stays mounted: the transcript keeps its place. */}
+            <div
+              hidden={expanded}
+              // Beside a docked panel the header stops at the panel's edge, short of the window's.
+              data-beside-panel={topBar || undefined}
+              className="flex min-h-0 min-w-0 flex-1 flex-col"
+            >
+              {props.header(topBar ? undefined : controls("header"))}
+              <div className={`${canvasClass} flex-col`}>
+                <div className="@container/work-body relative flex min-h-0 min-w-0 flex-1 flex-col">
+                  {props.notice}
+                  {props.contextPanel ? (
+                    <div className="flex min-h-0 flex-1 flex-col @min-[832px]/work-body:flex-row">
+                      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+                        {props.children}
+                      </div>
+                      <Activity mode={workspace.open ? "hidden" : "visible"}>
+                        {props.contextPanel}
+                      </Activity>
                     </div>
-                    <Activity mode={workspace.open ? "hidden" : "visible"}>
-                      {props.contextPanel}
-                    </Activity>
-                  </div>
-                ) : (
-                  props.children
-                )}
-                {/* Under the conversation only: the side panel keeps the window's full height. */}
-                {bottomFits && bottomShown && (
-                  <Suspense fallback={null}>
-                    <WhenKindsReady definition={definition}>
-                      <BottomPanel.Component
-                        scope={scope}
-                        definition={definition}
-                        bounds={bottomBounds(size.height)}
-                      />
-                    </WhenKindsReady>
-                  </Suspense>
-                )}
+                  ) : (
+                    props.children
+                  )}
+                  {/* Under the conversation only: the side panel keeps the window's full height. */}
+                  {bottomFits && bottomShown && (
+                    <Suspense fallback={null}>
+                      <WhenKindsReady definition={definition}>
+                        <BottomPanel.Component
+                          scope={scope}
+                          definition={definition}
+                          bounds={bottomBounds(size.height)}
+                        />
+                      </WhenKindsReady>
+                    </Suspense>
+                  )}
+                </div>
               </div>
             </div>
+            {shown && (
+              <Suspense fallback={null}>
+                <WhenKindsReady definition={definition} visible={workspace.open}>
+                  <WorkspacePanel.Component
+                    scope={scope}
+                    definition={definition}
+                    workspace={workspace}
+                    actions={actions}
+                    layout={{
+                      mode: place,
+                      topBar,
+                      bounds: bottom
+                        ? { min: 180, max: Math.max(180, size.height * 0.75) }
+                        : room.bounds,
+                      size: bottom ? (workspace.bottomSize ?? 360) : room.panel,
+                    }}
+                    leading={leading}
+                    // On a phone Back to chat is the way out; full view and the toggle mean nothing
+                    // when the panel already has the whole canvas.
+                    controls={phone ? undefined : controls(topBar ? "top bar" : "panel")}
+                    notice={expanded ? props.notice : undefined}
+                    restoreFocus={() =>
+                      outer.current?.querySelector<HTMLElement>(
+                        'header button[aria-label="More actions"]',
+                      ) ?? null
+                    }
+                  />
+                </WhenKindsReady>
+              </Suspense>
+            )}
           </div>
-          {shown && (
-            <Suspense fallback={null}>
-              <WhenKindsReady definition={definition} visible={workspace.open}>
-                <WorkspacePanel.Component
-                  scope={scope}
-                  definition={definition}
-                  workspace={workspace}
-                  actions={actions}
-                  layout={{
-                    mode: place,
-                    topBar,
-                    bounds: bottom
-                      ? { min: 180, max: Math.max(180, size.height * 0.75) }
-                      : room.bounds,
-                    size: bottom ? (workspace.bottomSize ?? 360) : room.panel,
-                  }}
-                  leading={leading}
-                  // On a phone Back to chat is the way out; full view and the toggle mean nothing
-                  // when the panel already has the whole canvas.
-                  controls={phone ? undefined : controls(topBar ? "top bar" : "panel")}
-                  notice={expanded ? props.notice : undefined}
-                  restoreFocus={() =>
-                    outer.current?.querySelector<HTMLElement>(
-                      'header button[aria-label="More actions"]',
-                    ) ?? null
-                  }
-                />
-              </WhenKindsReady>
-            </Suspense>
-          )}
         </div>
-      </div>
+      </PanelRoomContext>
     </WorkspaceWebLinks>
   );
 }

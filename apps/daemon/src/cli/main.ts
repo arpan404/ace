@@ -21,7 +21,7 @@ ace triage [--provider claude|codex|cursor|opencode] [--print]
 ace doctor [--fix] [--dry-run] [--provider claude|codex|cursor|opencode]
 ace support-bundle PATH
 ace stop|kill-all [--thread ID|--provider PROVIDER|--project ID]
-ace mcp enroll --scope read|operate --ttl DURATION [--project ID]
+ace mcp enroll --scope read|operate|--allow SCOPE,... --ttl 30m|12h|30d|never [--project ID,...] [--name NAME]
 ace mcp list|revoke ID
 ace capabilities|providers status|login codex|claude
 ace login [--origin URL]|logout   (this machine's ace account)

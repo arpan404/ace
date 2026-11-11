@@ -25,6 +25,7 @@ export type NotificationAccess = Pick<
   | "cursor"
   | "ingest"
   | "connectDevice"
+  | "pushAddresses"
   | "register"
   | "unregister"
   | "getPreferences"
@@ -401,6 +402,7 @@ export function createDaemonNotifications(
     cursor: (abort) => use((worker) => worker.cursor(abort)),
     ingest: (events, coverage) => use((worker) => worker.ingest(events, coverage)),
     connectDevice: (device) => use((worker) => worker.connectDevice(device)),
+    pushAddresses: (devices) => use((worker) => worker.pushAddresses(devices)),
     register: (device, address) => use((worker) => worker.register(device, address)),
     unregister: (device) => use((worker) => worker.unregister(device)),
     getPreferences: (device) => use((worker) => worker.getPreferences(device)),

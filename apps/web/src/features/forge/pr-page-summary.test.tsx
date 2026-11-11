@@ -167,11 +167,11 @@ async function openPage(value: ForgePrDetail, merge = mergeState()) {
 }
 
 const blocking = (page: ReturnType<typeof within>) =>
-  within(page.getByRole("region", { name: "Blocking the merge" }));
+  within(page.getByRole("region", { name: "Merge status" }));
 
 test("the Summary leads with what blocks the merge, each in its author's words", async () => {
   const { page } = await openPage(detail());
-  await waitFor(() => page.getByRole("region", { name: "Blocking the merge" }), {
+  await waitFor(() => page.getByRole("region", { name: "Merge status" }), {
     timeout: 10_000,
   });
   const rows = blocking(page);
@@ -187,9 +187,9 @@ test("the Summary leads with what blocks the merge, each in its author's words",
   expect(
     await rows.findByText("reconnects after visibility change: expected 1 call, got 0"),
   ).toBeTruthy();
-  // The header says the same facts in words.
+  // Each gate heads its section of the merge box.
   const facts = within(page.getByRole("navigation", { name: "Merge gates" }));
-  expect(facts.getByRole("button", { name: "Checks: 1 of 2 checks failing" })).toBeTruthy();
+  expect(facts.getByRole("button", { name: "Checks: 1 failing · 1 ok" })).toBeTruthy();
   // Show in code opens the conversation's file in the Code tab.
   await userEvent.click(rows.getByRole("button", { name: "Show in code: src/socket.ts:42" }));
   await waitFor(() =>
@@ -197,29 +197,35 @@ test("the Summary leads with what blocks the merge, each in its author's words",
   );
 });
 
-test("Open log takes a failing check to the Checks tab, failures first, with how long it ran", async () => {
+test("Open log takes a failing check to the Checks tab, failures first, with how long it ran, and selects it", async () => {
   const { page } = await openPage(detail());
-  await waitFor(() => page.getByRole("region", { name: "Blocking the merge" }), {
+  await waitFor(() => page.getByRole("region", { name: "Merge status" }), {
     timeout: 10_000,
   });
   await userEvent.click(blocking(page).getByRole("button", { name: "Open log" }));
   await waitFor(() =>
     expect(page.getByRole("tab", { name: "Checks" }).getAttribute("aria-selected")).toBe("true"),
   );
-  const checks = within(page.getByRole("region", { name: "1 of 2 failing" }));
+  const checks = within(page.getByRole("region", { name: "Checks" }));
   const rows = checks.getAllByRole("button", { name: /: (Failed|Passed)$/ });
   expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual([
     "test (web): Failed",
     "lint: Passed",
   ]);
   expect(rows[0]?.textContent).toContain("2m 30s");
-  // Opened from there, the failing check already shows its log.
-  expect(rows[0]?.getAttribute("aria-expanded")).toBe("true");
+  // Opened from there, the failing check is the one shown beside the list.
+  expect(rows[0]?.getAttribute("aria-current")).toBe("true");
+  expect(rows[1]?.getAttribute("aria-current")).toBeNull();
+  expect(
+    within(checks.getByRole("region", { name: "Check" })).getByRole("heading", {
+      name: "test (web)",
+    }),
+  ).toBeTruthy();
 });
 
 test("Fix with agent on a PR no thread works on starts a new thread with the request in its composer", async () => {
   const { page } = await openPage(detail());
-  await waitFor(() => page.getByRole("region", { name: "Blocking the merge" }), {
+  await waitFor(() => page.getByRole("region", { name: "Merge status" }), {
     timeout: 10_000,
   });
   const fix = () =>

@@ -35,6 +35,10 @@ export const WorkerCall = z.discriminatedUnion("method", [
   z.object({ method: z.literal("unregister"), device: DeviceId.and(z.string().max(200)) }),
   z.object({ method: z.literal("connectDevice"), device: DeviceId.and(z.string().max(200)) }),
   z.object({
+    method: z.literal("pushAddresses"),
+    devices: z.array(DeviceId.and(z.string().max(200))).max(128),
+  }),
+  z.object({
     method: z.literal("preferences"),
     device: DeviceId.and(z.string().max(200)),
     preferences: NotificationPreferences,
@@ -91,6 +95,8 @@ export const FromWorker = z.discriminatedUnion("type", [
         seq,
         NotificationFeed,
         NotificationPreferences,
+        /** `pushAddresses`: devices with a push address that may be alerted now. */
+        z.array(NotificationDevice).max(128),
         /** `closeSleep`: the spans in which queued agent notices are too old to send. */
         z.array(z.object({ after: seq, before: seq }).strict()).max(64),
       ])

@@ -45,7 +45,10 @@ const Payload = z.discriminatedUnion("type", [
           archivedAt: Timestamp.optional(),
           deletedAt: Timestamp.optional(),
           snoozedUntil: Timestamp.optional(),
-          /** Delegated here by a paired machine's agent: its owner is alerted there. */
+          /**
+           * Never alerted here: delegated by a paired machine's agent (its owner is alerted
+           * there), or a host thread the daemon holds for Spade (ADR 0121), which no list shows.
+           */
           remote: z.literal(true).optional(),
         })
         .strict(),
@@ -130,7 +133,7 @@ export function metadata(event: Event): MetadataEvent | undefined {
           archivedAt: p.thread.archivedAt,
           deletedAt: p.thread.deletedAt,
           snoozedUntil: p.thread.snoozedUntil,
-          ...(p.thread.delegatedFrom ? { remote: true } : {}),
+          ...(p.thread.delegatedFrom || p.thread.host ? { remote: true } : {}),
         },
       };
       break;

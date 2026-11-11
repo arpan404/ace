@@ -1,0 +1,46 @@
+{
+  "$id": "https://ace.local/protocol/v1/PushAccessAlert.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "clientName": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "domain": {
+      "anyOf": [
+        {
+          "maxLength": 253,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "expiresAt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "matchCode": {
+      "maxLength": 16,
+      "minLength": 4,
+      "type": "string"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "requestId",
+    "clientName",
+    "domain",
+    "matchCode",
+    "expiresAt"
+  ],
+  "type": "object"
+}

@@ -27,7 +27,7 @@ import type { EngineRepository } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
 import type { EngineLimits } from "./limits.ts";
 import { retireUncertainInputs } from "./stale-inputs.ts";
-import { guestRefusal } from "./guest-admission.ts";
+import { guestRefusal, hostRefusal } from "./guest-admission.ts";
 
 export function engineHandler(
   repo: EngineRepository,
@@ -53,7 +53,9 @@ export function engineHandler(
       const payload = command.payload;
       if ("threadId" in payload && payload.threadId) {
         const thread = repo.store.getThread(ThreadId.parse(payload.threadId));
-        const refused = guestRefusal(command.id, payload, thread?.details);
+        const refused =
+          guestRefusal(command.id, payload, thread?.details) ??
+          hostRefusal(command.id, payload, thread?.host);
         if (refused) return refused;
       }
       if (payload.type === "thread.send" && repo.store.getThread(payload.threadId)?.imported) {

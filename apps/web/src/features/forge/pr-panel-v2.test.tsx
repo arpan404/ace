@@ -111,11 +111,11 @@ test("a PR no task is linked to offers Link to merge, which links this task and 
 
 test("Fix with agent shows the linked task's composer and puts the request there without sending it", async () => {
   await open();
-  await waitFor(() => panel().getByRole("region", { name: "Blocking the merge" }), {
+  await waitFor(() => panel().getByRole("region", { name: "Merge status" }), {
     timeout: 10_000,
   });
   await userEvent.click(
-    within(panel().getByRole("region", { name: "Blocking the merge" })).getByRole("button", {
+    within(panel().getByRole("region", { name: "Merge status" })).getByRole("button", {
       name: "Fix with agent: links",
     }),
   );

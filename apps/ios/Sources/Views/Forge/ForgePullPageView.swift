@@ -46,7 +46,9 @@ struct ForgePullPageView: View {
 
     var body: some View {
         ScrollView {
-            if let page { content(page) }
+            if let page {
+                content(page)
+            }
             else if let failure {
                 EmptyState(icon: nil, title: "Couldn't load this pull request", line: failure, failed: true) {
                     Button("Try again") { Task { await load() } }
@@ -58,16 +60,16 @@ struct ForgePullPageView: View {
         }
         .background(AceTheme.Colours.background)
         .refreshable { await load() }
-        .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { if let page { bar(page) } }
+        .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { if let page, page.can("reviews.merge") || page.can("reviews.autoMerge") { bar(page) } }
         .navigationTitle(Text(verbatim: "#\(route.number)"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if let page, let link = URL(string: page.url) {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Button("Open on GitHub", ace: .arrowSquareOut) { openURL(link) }
-                        ShareLink(item: link) { Label("Share", ace: .export) }
-                        Button("Copy link", ace: .copy) { UIPasteboard.general.url = link }
+                        Button("Open on \(page.hosted?.provider ?? "GitHub")") { openURL(link) }
+                        ShareLink("Share", item: link)
+                        Button("Copy link") { UIPasteboard.general.url = link }
                     } label: { Image(ace: .dotsThree) }
                         .accessibilityLabel("More").accessibilityIdentifier("forge.pull.more")
                 }
@@ -109,32 +111,41 @@ struct ForgePullPageView: View {
             }
             ForgeThreadsSection(threads: page.threads, machineId: route.machineId, openThread: openThread)
             if !page.body.isEmpty, let desk {
-                ForgeText(text: page.body, scope: desk.scope, tick: descriptionTicker(page, desk))
+                ForgeText(text: page.body, scope: desk.scope, tick: descriptionTicker(page, desk), hosted: page.repository.forge == "github" ? nil : page.hosted?.links, issueReferences: page.can("issues.read"), reviewReferences: page.can("reviews.read"), media: page.can("media"))
                     .padding(.horizontal, AceTheme.Spacing.lg)
                 if let message = desk.message {
                     Text(message).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTone.failed.text)
                         .padding(.horizontal, AceTheme.Spacing.lg)
                 }
             }
-            ForgeSection(title: nil) {
-                ForgeLinkRow(title: "Timeline", detail: page.conversation, identifier: "forge.pull.timeline") {
+            if page.can("reviews.comments.read") || page.can("reviews.comments.write") || page.can("reviews.approvals.write") {
+                ForgeSection(title: nil) {
+                    ForgeLinkRow(title: "Timeline", detail: page.conversation, identifier: "forge.pull.timeline") {
                     open(ForgeRoute(kind: .timeline, machineId: route.machineId, project: route.project, number: route.number, repository: route.repository))
+                    }
                 }
             }
-            if let desk { ForgeReviewersSection(desk: desk, compose: { composing = $0 }) }
-            if let desk { ForgeManageSection(desk: desk, route: route, open: open) }
-            ForgeWorkSection(client: client, route: route, target: target(page), push: open, openThread: openThread, startThread: startThread, title: page.title)
-            ForgeChecksSection(client: client, route: route, target: target(page), shown: page.checks, open: open)
+            if page.can("reviews.approvals.read") || page.can("reviews.approvals.write"), let desk { ForgeReviewersSection(desk: desk, compose: { composing = $0 }) }
+            if page.can("reviews.edit"), let desk { ForgeManageSection(desk: desk, route: route, open: open) }
+            ForgeWorkSection(client: client, route: route, target: target(page), push: open, openThread: openThread, startThread: startThread, title: page.title, stacks: page.can("reviews.stacks"))
+            if page.can("reviews.checks") { ForgeChecksSection(client: client, route: route, target: target(page), shown: page.checks, open: open) }
             ForgeSection(title: nil) {
-                ForgeLinkRow(title: "Files changed", detail: page.changedFiles == 1 ? "1 file" : "\(page.changedFiles) files", identifier: "forge.pull.files") {
+                if let unavailable = page.hosted?.filesUnavailable { Text(unavailable).meta().padding(.horizontal, AceTheme.Spacing.lg) }
+                else if page.can("reviews.files") { ForgeLinkRow(title: "Files changed", detail: page.changedFiles.map { $0 == 1 ? "1 file" : "\($0) files" } ?? "", identifier: "forge.pull.files") {
                     open(ForgeRoute(kind: .files, machineId: route.machineId, project: route.project, number: route.number, repository: route.repository))
                 }
-                ForgeLinkRow(title: "Commits", detail: page.commits == 1 ? "1 commit" : "\(page.commits) commits", identifier: "forge.pull.commits") {
+                }
+                if page.can("reviews.commits") { ForgeLinkRow(title: "Commits", detail: commitWords(page) ?? "", identifier: "forge.pull.commits") {
                     open(ForgeRoute(kind: .commits, machineId: route.machineId, project: route.project, number: route.number, repository: route.repository))
+                }
                 }
             }
         }
         .padding(.vertical, AceTheme.Spacing.md)
+    }
+
+    private func commitWords(_ page: ForgePullPage) -> String? {
+        page.commits.map { $0 == 1 ? "1 commit" : "\($0) commits" }
     }
 
     private func target(_ page: ForgePullPage) -> ForgePullTarget {
@@ -158,13 +169,14 @@ struct ForgePullPageView: View {
             Text(page.title).aceFont(AceTheme.Typography.title, relativeTo: .title3)
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .textSelection(.enabled)
-            Text("\(page.author) · \(page.commits == 1 ? "1 commit" : "\(page.commits) commits")").meta()
+            Text([page.author, commitWords(page)].compactMap { $0 }.joined(separator: " · ")).meta()
             Text("\(page.headBranch) → \(page.baseBranch)").aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
                 .foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(1).truncationMode(.middle)
             if let additions = page.additions, let deletions = page.deletions {
                 ForgeDiffStat(additions: additions, deletions: deletions)
             }
             ForgeLabels(labels: page.labels, limit: 8)
+            if !page.can("reviews.comments.write"), let line = page.hosted?.line { Text(line).meta() }
         }
         .padding(.horizontal, AceTheme.Spacing.lg)
         .accessibilityIdentifier("forge.pull.header")

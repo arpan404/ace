@@ -1,4 +1,9 @@
-import { connectHostToRelay, type HostChannel, type RelayRefusedError } from "@ace/relay";
+import {
+  connectHostToRelay,
+  type HostChannel,
+  type HostHttpOptions,
+  type RelayRefusedError,
+} from "@ace/relay";
 import { randomUUID } from "node:crypto";
 import { attachRelayService, type RelayServices } from "./services/relay-channel.ts";
 import { mayCompress } from "./compression-policy.ts";
@@ -32,6 +37,8 @@ export async function startFilesRelay(
     onRegistration?: ((registered: boolean) => void) | undefined;
     /** Serves a main conversation channel (a hello without `channel`). */
     relayMain?: ((entry: RelayedMain) => void) | undefined;
+    /** Forwarded HTTP from ace's hosted relay (`relay-http.ts`, ADR 0122). */
+    http?: HostHttpOptions | undefined;
   },
 ) {
   const clients = new Map<HostChannel, string>();
@@ -60,6 +67,7 @@ export async function startFilesRelay(
       ...(options.relayAccount ? { account: options.relayAccount } : {}),
       ...(options.onRefused ? { onRefused: options.onRefused } : {}),
       ...(options.onRegistration ? { onRegistration: options.onRegistration } : {}),
+      ...(options.http ? { http: options.http } : {}),
       async onClientChannel(channel) {
         const hello = await channel.receive();
         if (hello.type === "pair.redeem") {

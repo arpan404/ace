@@ -62,6 +62,8 @@ struct InboxView: View {
 
     var body: some View {
         sheets
+            // An outside app's sign-in opens over whatever the person is doing (ADR 0122).
+            .outsideAccessPrompt(inbox)
             .modifier(InboxRename(inbox: inbox, key: $renamingRow))
             .confirmationDialog("Snooze until", isPresented: Binding(get: { snoozing != nil }, set: { if !$0 { snoozing = nil } }), presenting: snoozing) { key in
                 ForEach(inbox.merged.snooze) { option in

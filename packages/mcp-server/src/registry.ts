@@ -70,6 +70,15 @@ export type ToolFailureReporter = (failure: {
   caller: McpAttribution;
   error: unknown;
 }) => string | undefined;
+/**
+ * An extra abort signal the host gives one call, for work it can end on its own (an outside
+ * client's screen work when the person presses Stop). Undefined: the call has none.
+ */
+export type CallSignal = (
+  tool: string,
+  capability: McpCapability | null,
+  caller: McpAttribution,
+) => AbortSignal | undefined;
 type RiskClass = import("@ace/protocol").ApprovalTarget["riskClass"];
 /** What every registration shares: identity, annotations and placement. */
 export interface ToolMetadata {
@@ -167,6 +176,7 @@ export class ToolRegistry {
     | undefined;
   readonly observeCall: CallObserver | undefined;
   private reportFailure: ToolFailureReporter | undefined;
+  private callSignal: CallSignal | undefined;
   constructor(options: {
     scheduler: Scheduler;
     maxTools?: number;
@@ -174,8 +184,10 @@ export class ToolRegistry {
     maxCallsPerThread?: number;
     observeCall?: CallObserver;
     reportFailure?: ToolFailureReporter;
+    callSignal?: CallSignal;
   }) {
     this.scheduler = options.scheduler;
+    this.callSignal = options.callSignal;
     this.observeCall = options.observeCall;
     this.reportFailure = options.reportFailure;
     this.maxTools = options.maxTools ?? 128;
@@ -410,7 +422,14 @@ export class ToolRegistry {
     if (principal.signal.aborted) return failure("session_ended");
     const { sessionId, threadId, agentId } = principal.scope;
     const controller = new AbortController();
-    const signal = AbortSignal.any([principal.signal, requestSignal, controller.signal]);
+    const entry = this.entry(name);
+    const host = entry && this.callSignal?.(entry.name, entry.capability, principal.scope);
+    const signal = AbortSignal.any([
+      principal.signal,
+      requestSignal,
+      controller.signal,
+      ...(host ? [host] : []),
+    ]);
     const context: ToolContext = {
       caller: { sessionId, threadId, agentId },
       capabilities: principal.scope.capabilities,
@@ -430,7 +449,6 @@ export class ToolRegistry {
       }
       return result;
     };
-    const entry = this.entry(name);
     if (!entry || !this.allowed(entry, principal))
       return finish(toolFailure(new PublicToolError("tool_unavailable")));
     if (

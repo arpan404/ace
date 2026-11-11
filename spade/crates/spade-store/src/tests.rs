@@ -105,3 +105,26 @@ fn spending_counts_only_from_the_given_time() -> Result<()> {
     assert_eq!(store.spent_since(301)?, 0);
     Ok(())
 }
+
+#[test]
+fn events_appended_together_are_numbered_in_order_after_the_rest() -> Result<()> {
+    let (_dir, path) = temp();
+    let store = Store::open(&path)?;
+    store.create_conversation("a", 1)?;
+    store.append("a", &Event::user_message("one"), 10)?;
+    let together = store.append_all(
+        "a",
+        &[Event::user_message("two"), Event::reply_started("r1", "m")],
+        11,
+    )?;
+    let seqs: Vec<i64> = together.iter().map(|e| e.seq).collect();
+    assert_eq!(seqs, vec![2, 3]);
+    assert_eq!(store.events("a", 0)?.len(), 3);
+    assert!(
+        store
+            .append_all("missing", &[Event::user_message("x")], 12)
+            .is_err()
+    );
+    assert!(store.events("missing", 0)?.is_empty());
+    Ok(())
+}

@@ -1,4 +1,5 @@
 import { oldestTitleInput } from "../engine/title-input.ts";
+import { hostCaller } from "./host-delegation.ts";
 import { provisionalTitle } from "../engine/thread-title.ts";
 import {
   AgentControlOperation,
@@ -273,7 +274,8 @@ export function createAgentControlPort(
         const startedAt = service.now();
         /** Every refusal a task can meet before anything is created, so a batch never half-starts. */
         const check = async (request: DelegationRequest) => {
-          if (request.project && !request.machine)
+          // A host thread (Spade) names a local project this way; other agents keep to theirs.
+          if (request.project && !request.machine && !hostCaller(store, caller))
             throw new AgentControlError(
               "invalid_arguments",
               "project_without_machine",

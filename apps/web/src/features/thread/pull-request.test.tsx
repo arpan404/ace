@@ -302,17 +302,14 @@ test("a forge refusal reads as a sentence with its fix, not its code", async () 
   expect(await screen.findAllByText(/, then retry\./)).not.toHaveLength(0);
 });
 
-test("a GitLab checkout says merge requests aren't supported before anything is tried", async () => {
+test("a GitLab checkout on a daemon that reports no capabilities offers no review creation", async () => {
   await withPr(undefined, {
     repository: { forge: "gitlab", host: "gitlab.com", owner: "acme", name: "api" },
   });
   const menu = await openGitMenu();
-  const create = within(menu).getByRole("menuitem", { name: /^Create PR…/ });
-  expect(create.getAttribute("aria-disabled")).toBe("true");
-  expect(create.textContent).toContain(
-    "GitLab merge requests aren't supported yet: open one on GitLab.",
-  );
-  expect(within(menu).queryByRole("menuitem", { name: /^Link a pull request/ })).toBeNull();
+  // An older daemon says nothing about what GitLab supports, so only reads are assumed.
+  expect(within(menu).queryByRole("menuitem", { name: /^Create PR…/ })).toBeNull();
+  expect(within(menu).getByRole("menuitem", { name: /^Link a pull request/ })).toBeTruthy();
 });
 
 test("switching branch with uncommitted changes offers to bring them along", async () => {

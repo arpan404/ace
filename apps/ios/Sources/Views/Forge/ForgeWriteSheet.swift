@@ -21,7 +21,7 @@ struct ForgeWriteSheet: View {
                     .focused($focused)
                     .disabled(compose.off != nil)
                 if let suggestion = compose.suggestion, compose.off == nil {
-                    Button("Suggest changes", ace: .plusMinus) {
+                    Button("Suggest changes") {
                         let block = "```suggestion\n\(suggestion)\n```\n"
                         compose.text = compose.text.isEmpty ? block : compose.text + "\n" + block
                     }
