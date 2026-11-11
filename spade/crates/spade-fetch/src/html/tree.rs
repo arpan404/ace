@@ -190,7 +190,7 @@ pub fn build(source: &str) -> Tree {
         alt: None,
         children: Vec::new(),
     };
-    let mut builder = Builder {
+    let builder = Builder {
         tree: Tree {
             nodes: vec![Node::Element(root)],
             parents: vec![Tree::ROOT],
@@ -211,11 +211,10 @@ pub fn build(source: &str) -> Tree {
         title: Title::NotYet,
         stopped: false,
     };
-    let (source, cut) = super::attrs::within_limit(source);
-    builder.tree.truncated = cut;
+    let source = super::attrs::within_limit(source);
     let tokenizer = Tokenizer::new(Sink(RefCell::new(builder)), TokenizerOpts::default());
     let input = BufferQueue::default();
-    input.push_back(StrTendril::from_slice(source));
+    input.push_back(StrTendril::from_slice(&source));
     if matches!(tokenizer.feed(&input), TokenizerResult::Done) {
         tokenizer.end();
     }

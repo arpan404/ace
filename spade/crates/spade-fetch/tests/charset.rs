@@ -62,7 +62,11 @@ fn the_encoding_comes_from_the_bom_then_the_header_then_a_meta_tag_then_utf8() {
         "h\u{e9}"
     );
     // Meta tags count only in HTML.
-    assert_eq!(decode(meta, None, false).chars().last(), Some('\u{fffd}'));
+    let meta_utf8 = "<meta charset=iso-8859-1>\u{e9}".as_bytes();
+    assert_eq!(
+        decode(meta_utf8, None, false).chars().last(),
+        Some('\u{e9}')
+    );
     // An unknown label falls back to UTF-8.
     assert_eq!(
         decode("h\u{e9}".as_bytes(), Some("no-such-charset"), false),
@@ -107,31 +111,25 @@ fn last_char(bytes: &[u8]) -> Option<char> {
     decode(bytes, None, true).chars().last()
 }
 
+// The page ends in é as UTF-8 (C3 A9). Read as windows-1252 that is "Ã©", ending in ©.
+const READ_AS_UTF8: char = '\u{e9}';
+const READ_AS_1252: char = '\u{a9}';
+
 #[test]
 fn the_prescan_matches_whole_meta_declarations_only() {
-    // é in windows-1252 is the single byte E9; in UTF-8 that byte is invalid.
     let cases: [(&[u8], char); 9] = [
-        (b"<!--<meta charset=windows-1252>--><p>\xe9", '\u{fffd}'),
-        (b"<!--><meta charset=windows-1252><p>\xe9", '\u{e9}'),
-        (b"<meta data-charset=windows-1252><p>\xe9", '\u{fffd}'),
+        (b"<!--<meta charset=windows-1252>--><p>\xc3\xa9", READ_AS_UTF8),
+        (b"<!--><meta charset=windows-1252><p>\xc3\xa9", READ_AS_1252),
+        (b"<meta data-charset=windows-1252><p>\xc3\xa9", READ_AS_UTF8),
+        (b"<meta content=\"text/html; charset=windows-1252\"><p>\xc3\xa9", READ_AS_UTF8),
         (
-            b"<meta content=\"text/html; charset=windows-1252\"><p>\xe9",
-            '\u{fffd}',
+            b"<meta http-equiv=\"Content-Type\" content=\"text/html; charset=windows-1252\">\xc3\xa9",
+            READ_AS_1252,
         ),
-        (
-            b"<meta http-equiv=\"Content-Type\" content=\"text/html; charset=windows-1252\">\xe9",
-            '\u{e9}',
-        ),
-        (
-            b"<div title=\"<meta charset=windows-1252>\"><p>\xe9",
-            '\u{fffd}',
-        ),
-        (b"<META CHARSET='Windows-1252'><p>\xe9", '\u{e9}'),
-        (b"<meta charset=x-user-defined><p>\xe9", '\u{e9}'),
-        (
-            b"<meta charset=windows-1252 charset=utf-8><p>\xe9",
-            '\u{e9}',
-        ),
+        (b"<div title=\"<meta charset=windows-1252>\"><p>\xc3\xa9", READ_AS_UTF8),
+        (b"<META CHARSET='Windows-1252'><p>\xc3\xa9", READ_AS_1252),
+        (b"<meta charset=x-user-defined><p>\xc3\xa9", READ_AS_1252),
+        (b"<meta charset=windows-1252 charset=utf-8><p>\xc3\xa9", READ_AS_1252),
     ];
     for (bytes, expected) in cases {
         assert_eq!(
@@ -144,18 +142,34 @@ fn the_prescan_matches_whole_meta_declarations_only() {
 }
 
 #[test]
+fn a_page_with_no_declared_encoding_that_is_not_utf8_reads_as_windows_1252() {
+    assert_eq!(
+        decode(b"<p>Caf\xe9 \x93ok\x94", None, true),
+        "<p>Caf\u{e9} \u{201c}ok\u{201d}"
+    );
+    assert_eq!(decode(b"Caf\xe9", None, false), "Caf\u{e9}");
+    // Valid UTF-8 stays UTF-8, and a declared encoding is never second-guessed.
+    assert_eq!(decode("Caf\u{e9}".as_bytes(), None, true), "Caf\u{e9}");
+    assert_eq!(decode(b"Caf\xe9", Some("utf-8"), true), "Caf\u{fffd}");
+}
+
+#[test]
 fn a_meta_charset_counts_only_when_it_ends_within_the_first_1024_bytes() {
     let meta = b"<meta charset=windows-1252>";
     let at = |pad: usize| {
         let mut page = vec![b' '; pad];
         page.extend_from_slice(meta);
-        page.extend_from_slice(b"<p>\xe9");
+        page.extend_from_slice(b"<p>\xc3\xa9");
         last_char(&page)
     };
-    assert_eq!(at(1024 - meta.len()), Some('\u{e9}'), "ends on byte 1024");
+    assert_eq!(
+        at(1024 - meta.len()),
+        Some(READ_AS_1252),
+        "ends on byte 1024"
+    );
     assert_eq!(
         at(1024 - meta.len() + 1),
-        Some('\u{fffd}'),
+        Some(READ_AS_UTF8),
         "ends past byte 1024"
     );
 }

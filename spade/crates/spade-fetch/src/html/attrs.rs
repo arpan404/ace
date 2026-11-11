@@ -9,8 +9,15 @@
 //! state at the same byte go on identically, so it keeps, for each lexer state, the most
 //! attributes any candidate in that state has. That bounds every tag the tokenizer can build,
 //! in time linear in the page.
+//!
+//! When a candidate would pass the limit, a `>` is written just before the attribute that would
+//! pass it. A candidate gains an attribute only outside quotes, so that `>` ends it: a real tag
+//! ends there and the rest of its attributes read as text, while in a script or a comment, where
+//! the "tag" was only a string, one more `>` changes nothing anyone reads. The page is never cut.
 
-/// The most attributes kept on one tag. Past it the page is cut where the next one starts.
+use std::borrow::Cow;
+
+/// The most attributes kept on one tag. A tag with more is ended before the next one.
 pub const MOST_ATTRIBUTES: usize = 128;
 
 #[derive(Clone, Copy)]
@@ -42,11 +49,15 @@ const ALL: [State; STATES] = [
     State::SelfClosing,
 ];
 
-/// `source` up to where some tag could pass [`MOST_ATTRIBUTES`], and whether it was cut there.
-pub fn within_limit(source: &str) -> (&str, bool) {
+type Counts = [Option<u32>; STATES];
+
+/// `source` with a `>` before any attribute that would take a tag past [`MOST_ATTRIBUTES`].
+pub fn within_limit(source: &str) -> Cow<'_, str> {
     let bytes = source.as_bytes();
     let most = u32::try_from(MOST_ATTRIBUTES).unwrap_or(u32::MAX);
-    let mut most_in: [Option<u32>; STATES] = [None; STATES];
+    let mut out: Option<String> = None;
+    let mut copied_to = 0;
+    let mut most_in: Counts = [None; STATES];
     for (i, &c) in bytes.iter().enumerate() {
         let starts_tag = c.is_ascii_alphabetic()
             && (i >= 1 && bytes[i - 1] == b'<'
@@ -55,32 +66,49 @@ pub fn within_limit(source: &str) -> (&str, bool) {
             let slot = &mut most_in[State::TagName as usize];
             *slot = Some(slot.unwrap_or(0));
         }
-        let mut next: [Option<u32>; STATES] = [None; STATES];
-        for state in ALL {
-            let Some(count) = most_in[state as usize] else {
-                continue;
-            };
-            let Some((to, added)) = step(state, c) else {
-                continue;
-            };
-            let count = count + u32::from(added);
-            if count > most {
-                return (cut(source, i), true);
+        let next = match advance(&most_in, c, most) {
+            Some(next) => next,
+            None => {
+                // Byte `i` starts an attribute outside quotes, so it is a character boundary.
+                let text = out.get_or_insert_with(|| String::with_capacity(source.len() + 16));
+                text.push_str(&source[copied_to..i]);
+                text.push('>');
+                copied_to = i;
+                // The `>` ends every candidate outside quotes; those inside quotes go on, and
+                // this byte cannot add an attribute to them.
+                let after = advance(&most_in, b'>', most).unwrap_or([None; STATES]);
+                advance(&after, c, most).unwrap_or([None; STATES])
             }
-            let slot = &mut next[to as usize];
-            *slot = Some(slot.map_or(count, |c| c.max(count)));
-        }
+        };
         most_in = next;
     }
-    (source, false)
+    match out {
+        Some(mut text) => {
+            text.push_str(&source[copied_to..]);
+            Cow::Owned(text)
+        }
+        None => Cow::Borrowed(source),
+    }
 }
 
-fn cut(source: &str, at: usize) -> &str {
-    let mut end = at;
-    while !source.is_char_boundary(end) {
-        end -= 1;
+/// Every candidate's state after byte `c`, or `None` when one would pass `most` attributes.
+fn advance(counts: &Counts, c: u8, most: u32) -> Option<Counts> {
+    let mut next: Counts = [None; STATES];
+    for state in ALL {
+        let Some(count) = counts[state as usize] else {
+            continue;
+        };
+        let Some((to, added)) = step(state, c) else {
+            continue;
+        };
+        let count = count + u32::from(added);
+        if count > most {
+            return None;
+        }
+        let slot = &mut next[to as usize];
+        *slot = Some(slot.map_or(count, |c| c.max(count)));
     }
-    &source[..end]
+    Some(next)
 }
 
 /// The tag lexer's next state on byte `c`, and whether `c` starts an attribute; `None` when the

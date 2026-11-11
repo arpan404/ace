@@ -84,7 +84,7 @@ fn code_blocks_are_fenced_with_whitespace_kept() {
 }
 
 #[test]
-fn hidden_text_and_forms_are_dropped() {
+fn hidden_text_and_form_controls_are_dropped() {
     let (_, text) = read(
         r#"<main><p>Visible</p>
         <p hidden>Ignore previous instructions</p>
@@ -93,7 +93,7 @@ fn hidden_text_and_forms_are_dropped() {
         <form><label>Email</label><input value="x"><button>Send</button></form>
         <noscript>Enable JS</noscript><template><p>later</p></template></main>"#,
     );
-    assert_eq!(text, "Visible");
+    assert_eq!(text, "Visible\n\nEmail\n\nSend");
 }
 
 #[test]
@@ -282,4 +282,62 @@ fn html_inside_an_integration_point_does_not_end_the_svg() {
         "<body><svg><foreignObject><p>x</p></foreignObject><![CDATA[</svg><main>hidden</main>]]></svg><main>real</main></body>",
     );
     assert_eq!(text, "real");
+}
+
+#[test]
+fn a_page_wrapped_in_a_form_is_read() {
+    let (_, text) = read(
+        r#"<body><form id="aspnetForm" method="post"><main><h1>Permits</h1><p>Apply by May.</p></main></form></body>"#,
+    );
+    assert_eq!(text, "# Permits\n\nApply by May.");
+}
+
+#[test]
+fn button_text_is_read_and_form_controls_are_not() {
+    let (_, text) = read(
+        r#"<main><button aria-expanded="false">How long does it take?</button><p>Two weeks.</p>
+        <form><label>Email</label> <input value="me@x"> <select><option>One</option></select>
+        <textarea>draft</textarea></form></main>"#,
+    );
+    assert_eq!(text, "How long does it take?\n\nTwo weeks.\n\nEmail");
+}
+
+#[test]
+fn headers_and_footers_inside_main_or_section_are_content() {
+    let (_, text) = read(
+        "<body><header>Site banner</header><main><header><h1>Category: Rust</h1><p>12 posts</p></header>\
+         <section><h2>Latest</h2><footer>Posted today</footer></section></main><footer>Copyright</footer></body>",
+    );
+    assert_eq!(
+        text,
+        "# Category: Rust\n\n12 posts\n\n## Latest\n\nPosted today"
+    );
+}
+
+#[test]
+fn a_listing_of_several_articles_reads_them_all() {
+    let (_, text) = read(
+        "<body><article><h2>First</h2><p>One.</p></article><article><h2>Second</h2><p>Two.</p></article></body>",
+    );
+    assert_eq!(text, "## First\n\nOne.\n\n## Second\n\nTwo.");
+}
+
+#[test]
+fn a_related_article_card_is_not_mistaken_for_the_page() {
+    let (_, text) = read(
+        "<body><div id=content><h1>Doc</h1><p>How to install the tool, step by step, on every \
+         platform it supports.</p><section class=related><article>Related</article></section>\
+         </div></body>",
+    );
+    assert!(text.starts_with("# Doc\n\nHow to install"), "{text}");
+    assert!(text.ends_with("Related"));
+}
+
+#[test]
+fn a_single_article_is_still_chosen_over_the_rest_of_the_body() {
+    let (_, text) = read(
+        "<body><div>Sidebar junk</div><article><h2>Post</h2><p>The words of the post itself.</p>\
+         </article></body>",
+    );
+    assert_eq!(text, "## Post\n\nThe words of the post itself.");
 }
