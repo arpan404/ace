@@ -184,6 +184,14 @@ struct ProviderSignInView: View {
         if let payload = failedRequest { request(payload) }
         else { pollProblem = nil; pollAttempt += 1 }
     }
+    /// A failed request worth sending again. An input carries the code or address the person typed,
+    /// so it is never kept; Retry resumes the poll and they enter it again.
+    static func repeatable(_ payload: [String: Any]) -> Bool {
+        switch payload["type"] as? String {
+        case "provider.login.start", "provider.login.cancel": true
+        default: false
+        }
+    }
     private func request(_ payload: [String: Any]) {
         query = ""
         var payload = payload
@@ -198,7 +206,10 @@ struct ProviderSignInView: View {
                 if pollProblem != nil { pollProblem = nil; pollAttempt += 1 }
                 progress = reply.result.progress
                 lifetime.unfinishedSession = progress.flatMap { $0.finished ? nil : $0.session }
-            } catch { failedRequest = payload; problem = error.localizedDescription }
+            } catch {
+                failedRequest = Self.repeatable(payload) ? payload : nil
+                problem = error.localizedDescription
+            }
         }
     }
 }
