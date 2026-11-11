@@ -65,9 +65,13 @@ private struct CatalogInvokeView: View {
     @State private var saved = false
     @State private var saving = false
     var body: some View {
-        Form {
-            Text(entry.description)
+        ScrollView {
+            QuietSection {
+            QuietSectionRow { Text(entry.description) }
+            QuietSectionRow {
             TextField("Instructions or arguments", text: $words, axis: .vertical).lineLimit(3...8)
+            }
+            QuietSectionRow {
             Button(saved ? "Saved for delivery" : "Use \(entry.name)") {
                 saving = true
                 Task {
@@ -77,9 +81,12 @@ private struct CatalogInvokeView: View {
                     }
                     saving = false
                 }
-            }.disabled(!model.canOperate || saving || saved)
+            }.buttonStyle(.textAction(.prominent)).disabled(!model.canOperate || saving || saved)
+            }
             if let error = model.error { ServiceProblem(message: error) }
+            }.padding(.vertical, AceDesign.Space.related)
         }
+        .background(AceDesign.Surface.background)
         .navigationTitle(entry.title ?? entry.name).navigationBarTitleDisplayMode(.inline)
     }
 }

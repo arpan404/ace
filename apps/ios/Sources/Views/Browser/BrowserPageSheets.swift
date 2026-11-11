@@ -156,21 +156,21 @@ struct BrowserSizesSheet: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .transition(.opacity)
                 } else {
-                    List {
-                        Section {
+                    ScrollView {
+                        QuietSection("Sizes") {
                             ForEach(Self.sizes, id: \.id) { size in
                                 Button { toggle(size.id) } label: {
-                                    InsetRow(systemImage: nil, title: size.title, subtitle: "\(size.width) px wide") {
+                                    QuietSectionRow {
+                                        QuietRowText(title: size.title, detail: "\(size.width) px wide")
                                         if chosen.contains(size.id) { AceIcon(.check).foregroundStyle(AceDesign.Ink.primary) }
                                     }
                                 }
-                                .buttonStyle(.plain).insetRowBackground()
+                                .buttonStyle(.plain)
                                 .accessibilityAddTraits(chosen.contains(size.id) ? .isSelected : [])
                                 .accessibilityIdentifier("browser.sizes.\(size.id)")
                             }
-                        } header: { InsetHeader("Sizes") }
+                        }.padding(.vertical, AceDesign.Space.related)
                     }
-                    .insetGroupedList()
                     .transition(.opacity)
                 }
             }
