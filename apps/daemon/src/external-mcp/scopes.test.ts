@@ -1,12 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { WorkspaceId, type OutsideScope } from "@ace/protocol";
-import {
-  missingScope,
-  normalScopes,
-  projectAllowed,
-  shorthandScopes,
-  withheldTools,
-} from "./scopes.ts";
+import { missingScope, normalScopes, projectAllowed, withheldTools } from "./scopes.ts";
 
 const read: OutsideScope[] = ["threads:read"];
 const every: OutsideScope[] = [
@@ -80,16 +74,6 @@ test("a read grant is offered only the read tools", () => {
     "notify",
   ]);
   expect(withheldTools(every, tools)).toEqual(["notify"]);
-});
-
-test("the old enroll scopes map onto the split ones", () => {
-  expect(shorthandScopes("read")).toEqual(["threads:read"]);
-  expect(shorthandScopes("operate")).toEqual([
-    "threads:read",
-    "threads:start",
-    "threads:message",
-    "threads:stop",
-  ]);
 });
 
 test("read is always part of a grant, and scopes keep the table's order", () => {

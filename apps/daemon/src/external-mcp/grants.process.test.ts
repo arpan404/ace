@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "vitest";
@@ -9,7 +9,7 @@ import { invoke } from "../cli-test-support.ts";
 import {
   adminWindow,
   call,
-  enroll,
+  enroll as enrollGrant,
   listed,
   toolResult,
   rpc,
@@ -21,18 +21,30 @@ import {
 const closers: (() => unknown)[] = [];
 let shared: Promise<Fixture> | undefined;
 beforeAll(() => {
-  shared = daemonFixture(undefined, {
-    browser: {
-      headlessBackend: fakeHeadlessBackend(),
-      // Every public name resolves to one public address, without the network.
-      resolveHost: async () => ["93.184.215.14"],
+  shared = daemonFixture(
+    undefined,
+    {
+      browser: {
+        headlessBackend: fakeHeadlessBackend(),
+        // Every public name resolves to one public address, without the network.
+        resolveHost: async () => ["93.184.215.14"],
+      },
     },
-  });
+    // Everything the daemon logs, so the last test can look for tokens in it.
+    { ACE_LOG_LEVEL: "debug" },
+  );
 });
 afterAll(async () => {
   for (const close of closers.splice(0).toReversed()) await close();
   await (await shared)?.daemon.close();
 });
+/** Every token this file's grants were given, for the log check. */
+const tokens: string[] = [];
+async function enroll(f: Fixture, args: string[]) {
+  const lease = await enrollGrant(f, args);
+  tokens.push(lease.bearer);
+  return lease;
+}
 async function fixture() {
   if (!shared) throw new Error("No daemon");
   return shared;
@@ -189,7 +201,7 @@ test("a grant's browser tabs belong to it and close when it is revoked", async (
     .toBe(true);
 });
 
-test("a thread an outside client starts shows in the sidebar and in ace_threads_list, titled from its prompt", async () => {
+test("an operate grant starts and messages threads, which show in the sidebar and in ace_threads_list, titled from its prompt", async () => {
   const f = await fixture();
   const lease = await enroll(f, ["--scope", "operate"]);
   const started = z.object({ ok: z.literal(true), data: z.object({ threadId: z.string() }) }).parse(
@@ -208,6 +220,15 @@ test("a thread an outside client starts shows in the sidebar and in ace_threads_
   expect(entry?.title).toContain("Summarise the release notes");
   const threads = toolResult(await call(lease, "ace_threads_list", { limit: 100 }));
   expect(JSON.stringify(threads.structuredContent)).toContain(started);
+  // --scope operate also messages the threads it may read.
+  const sent = toolResult(
+    await call(lease, "ace_thread_send", {
+      threadId: started,
+      text: "And the changelog",
+      idempotencyKey: "sidebar-send",
+    }),
+  );
+  expect(sent.structuredContent).toMatchObject({ ok: true });
 });
 
 test("a grant can't delegate to another machine or into a folder outside its project", async () => {
@@ -243,4 +264,20 @@ test("an outside grant's browser can't reach this machine or its local network",
     expect(refused.isError, url).toBe(true);
     expect(f.daemon.browser.state(`external:${lease.id}`).url).not.toBe(url);
   }
+});
+
+// Last in the file: every grant above has used its token by now.
+test("the daemon log never contains a grant's token", async () => {
+  const f = await fixture();
+  const files = (await readdir(join(f.h.home, "daemon"), { recursive: true })).filter((name) =>
+    /(^|\/)logs\//.test(name),
+  );
+  const text = (
+    await Promise.all(
+      files.map((name) => readFile(join(f.h.home, "daemon", name), "utf8").catch(() => "")),
+    )
+  ).join("\n");
+  expect(text.length).toBeGreaterThan(0);
+  expect(tokens.length).toBeGreaterThan(5);
+  for (const token of tokens) expect(text).not.toContain(token);
 });
