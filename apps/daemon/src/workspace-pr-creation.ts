@@ -14,17 +14,18 @@ export class WorkspacePrCreation {
   constructor(ctx: WorkspaceForgeContext) {
     this.ctx = ctx;
   }
-  /** Every repository a PR created from this checkout may land in: origin, and its parent. */
+  /** Every repository a PR created from this checkout may land in: its head's, and its parent. */
   async prRepositories(cwd: string): Promise<ForgeRepository[]> {
-    const pushed = await this.ctx.backends.repository(cwd);
+    const { head, project, metadata } = await this.ctx.backends.prHead(cwd);
+    const pushed = head.pushed.repository;
+    const primary = project.resolved.primary?.repository;
+    const own = primary && repositoryKey(primary) !== repositoryKey(pushed) ? [primary] : [];
     try {
-      const metadata = await (
-        await this.ctx.backends.backend(cwd, pushed)
-      ).repositoryMetadata(this.ctx.signal);
-      return metadata.parent ? [pushed, metadata.parent.repository] : [pushed];
+      const parent = (await metadata()).parent;
+      return parent ? [pushed, parent.repository, ...own] : [pushed, ...own];
     } catch {
       this.ctx.signal.throwIfAborted();
-      return [pushed];
+      return [pushed, ...own];
     }
   }
   /** Host-owned unique branches make remote lookup a durable create receipt. */
@@ -41,25 +42,23 @@ export class WorkspacePrCreation {
       return permitted();
     };
     const parsed = ForgeCreatePrInput.parse(input);
-    const checkout = await this.ctx.backends.checkoutRepository(cwd);
+    // The branch was pushed to the PR head's repository: the primary, or its fork (ADR 0116).
+    const { head, project, metadata } = await this.ctx.backends.prHead(cwd);
+    const checkout = { repository: head.pushed.repository, remotes: project.remotes };
     const pushed = await this.ctx.backends.backend(cwd, checkout.repository);
     if (!allowed()) throw new Error("forbidden");
     // The daemon owns the base: a reviewed draft's base, else the thread's recorded base, else
     // the forge's default branch. A fork's PR opens on its parent, from `fork-owner:branch`.
     const reviewed =
       guard && parsed.base ? forgeBranchName(parsed.base, checkout.remotes) : undefined;
-    const target = prCreateTarget(
-      checkout.repository,
-      await pushed.repositoryMetadata(this.ctx.signal),
-      {
-        reviewed,
-        recorded: recordedPrBase(
-          this.ctx.store.getThread(id)?.details,
-          parsed.branch,
-          checkout.remotes,
-        ),
-      },
-    );
+    const target = prCreateTarget(checkout.repository, await metadata(), {
+      reviewed,
+      recorded: recordedPrBase(
+        this.ctx.store.getThread(id)?.details,
+        parsed.branch,
+        checkout.remotes,
+      ),
+    });
     const value = { ...parsed, base: target.base };
     const backend =
       repositoryKey(target.repository) === repositoryKey(checkout.repository)

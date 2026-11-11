@@ -17,6 +17,7 @@ import { ForgeFileContentOperations, ForgeFileContentResults } from "./forge-fil
 import { ForgePeopleOperations, ForgePeopleResults } from "./forge-people.ts";
 import { ForgeMediaOperations, ForgeMediaResults } from "./forge-media.ts";
 import { z } from "zod";
+import { ProjectRepositories } from "./project-repositories.ts";
 import { ForgeCommit, ForgeFile } from "./forge-changes.ts";
 import { ForgeNewPrOperations, ForgeNewPrResults } from "./forge-new-pr.ts";
 import { ForgePrRef, ForgePrStatus, ForgeRepository } from "./forge.ts";
@@ -252,6 +253,11 @@ export const ForgeBrowserOperations = [
   z.object({ op: z.literal("forge.open-work"), ...scope }),
   /** The project's own repository, read from its checkout's remote: no request to the host. */
   z.object({ op: z.literal("forge.repository"), workspaceId: WorkspaceId }),
+  /**
+   * Every repository the project uses (ADR 0116), from its checkout's remotes and its saved
+   * choices: no request to the host. Clients list reviews from each visible, available one.
+   */
+  z.object({ op: z.literal("forge.repositories"), workspaceId: WorkspaceId }),
   z.object({ op: z.literal("forge.group-counts"), ...scope, grouping: ForgeGroupCounting }),
   z.object({ op: z.literal("forge.pr.detail"), ...scope, number: z.number().int().positive() }),
   z.object({
@@ -301,6 +307,7 @@ export const ForgeBrowserResult = z.discriminatedUnion("resource", [
   z.object({ resource: z.literal("prList"), value: ForgePrList }),
   z.object({ resource: z.literal("openWork"), value: ForgeOpenWork }),
   z.object({ resource: z.literal("repository"), value: ForgeRepository }),
+  z.object({ resource: z.literal("repositories"), value: ProjectRepositories }),
   z.object({
     resource: z.literal("groupCounts"),
     /** Each group's total by id: every item counted once, in its first group. */

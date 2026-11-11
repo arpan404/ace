@@ -22,6 +22,7 @@ import {
 import { z } from "zod";
 import type { Preview } from "./agents.ts";
 import { prDetail } from "./forge-pr-reads.ts";
+import { globalRemote } from "./push-remote.ts";
 import { ForgeRefusal, type ForgeOwner, type ForgeReads } from "./forge-reads.ts";
 
 /*
@@ -258,8 +259,13 @@ export async function writeConflicts(
   };
   const push = async () => {
     try {
-      // Pushes the head branch without force: a branch that moved on GitHub refuses.
-      const result = await owner.command({ type: "git.push", threadId, remote: "origin" });
+      // Pushes the head branch without force: a branch that moved on GitHub refuses. It names
+      // the global remote, as every push does (the web's `readPushRemote`).
+      const result = await owner.command({
+        type: "git.push",
+        threadId,
+        remote: await globalRemote(owner),
+      });
       reads.forget(request.project);
       return result.ok ? write(true, `Pushed the merge to ${detail.headBranch}`) : refused(result);
     } catch (error) {

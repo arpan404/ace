@@ -140,6 +140,7 @@ export * from "./history.ts";
 export * from "./badge-color.ts";
 export * from "./projects.ts";
 export * from "./project-notes.ts";
+export * from "./project-repositories.ts";
 export * from "./project-commands.ts";
 export * from "./project-requests.ts";
 export * from "./long-thread.ts";

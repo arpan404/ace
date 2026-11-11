@@ -9,16 +9,16 @@
       "sha256": "b076a5b134ee8fe6eba1d4a7d409dd6680d8e7bf278945ea6f63af7b27df3848"
     },
     "commands.md": {
-      "bytes": 57921,
-      "sha256": "58893dc8ab0738cbc3d1126c84feb866b3c7845670e4b5a61c27752373549732"
+      "bytes": 58174,
+      "sha256": "023853d0de36925e313e0f5ca48f9c85c38eedc6573bc3478fb1449ecc9c19de"
     },
     "events.md": {
       "bytes": 21794,
       "sha256": "21aa29c3f73acf763564ec809790834daeb7a9fdc35132d37e1791ab809a2dab"
     },
     "forge.md": {
-      "bytes": 138256,
-      "sha256": "2d6cdbb60ae5ea759a512522914bf143848cd7dd0aac28023772ed262d26bc25"
+      "bytes": 138214,
+      "sha256": "237da8f8b02d498a1ed98e90a0b0127a2bed1a220cfc6e9ce660f65bc3f55be1"
     },
     "mcp.md": {
       "bytes": 62040,
@@ -37,8 +37,8 @@
       "sha256": "08516d48fae36f8e6191acb2ee92fbbfb590caafc1981536aba3765e18a6ca8a"
     },
     "requests.md": {
-      "bytes": 109801,
-      "sha256": "907f8a4fa3b9251ff180a3cbed84cf6088b8be293217a9418c975b1381d62fbe"
+      "bytes": 109990,
+      "sha256": "ec54a487aec3afec0cb446ece2b4af0009a410acb3a74f82513d15201a06ac1f"
     },
     "schema/AccessMode.json": {
       "bytes": 224,
@@ -925,8 +925,8 @@
       "sha256": "9d81a29a1e885281a89e8c1e208cd8d84e18683844c6a6182d25e21455f7a3d0"
     },
     "schema/CommandPayload.json": {
-      "bytes": 52823,
-      "sha256": "84f3e112ba6316f2cf44c668f11137ff01e609f52aa8954759b2aead994f9fb6"
+      "bytes": 52917,
+      "sha256": "4ef60873aede8e89288670fff1083ec98ed7dcfda87bbdff220bfda0785fc553"
     },
     "schema/CommandPlan.json": {
       "bytes": 1803,
@@ -1333,8 +1333,8 @@
       "sha256": "740c7ea597e74820ca088e49a096553184f5e492e94189f7f9452eab4b695307"
     },
     "schema/ForgeBrowserResult.json": {
-      "bytes": 12249,
-      "sha256": "5444060693600edbd3d32963ef20654ddce0a815df1338fa3e04b3ede0f11eda"
+      "bytes": 12580,
+      "sha256": "f227c64a8bad779c6210c3498a5cf0296833877cd13c2b74fe7b3cd3f69da0e7"
     },
     "schema/ForgeCheck.json": {
       "bytes": 1217,
@@ -1457,8 +1457,8 @@
       "sha256": "69ff68bd9f9ff6f2d5cdf187c329efe44f1ed8b5d3c751935dbc9b7066be6d20"
     },
     "schema/ForgeInboxList.json": {
-      "bytes": 872,
-      "sha256": "53a91b5435e21b9b5e42f898143a405b35afde27da21a856d673d795056d9928"
+      "bytes": 1048,
+      "sha256": "9e4615257b63e6fff07d2a492fa1e58fd2633d7eeda7820ec43ee3317ec92987"
     },
     "schema/ForgeInboxQuery.json": {
       "bytes": 881,
@@ -3049,8 +3049,8 @@
       "sha256": "8d07f91c745360ff9a2bd8c09821524b7f9c861f756ccacb25e05e9d98be455a"
     },
     "schema/ProjectCommand.json": {
-      "bytes": 6584,
-      "sha256": "27d558b6ca330f42e6154c377e370dd6b7bb6a9f0686ed08c408981e65738d23"
+      "bytes": 6678,
+      "sha256": "5291ce85e5cebf8eb6b4a58dbe954b41dfe000a07f1119de0066fb0f5841871b"
     },
     "schema/ProjectDefaults.json": {
       "bytes": 861,
@@ -3095,6 +3095,26 @@
     "schema/ProjectNoteEdit.json": {
       "bytes": 379,
       "sha256": "dd5379d210400c2883657a8720918a35ff7fb2ebd679fffc451902a48c907b72"
+    },
+    "schema/ProjectRepositories.json": {
+      "bytes": 902,
+      "sha256": "4986ce7ebd710b823e5de9f5fe5c5c06a3b085c50c92fe0719b1259040dff19d"
+    },
+    "schema/ProjectRepositoriesSetCommand.json": {
+      "bytes": 828,
+      "sha256": "eaf27a17e043c513dc0deda38502fbef44decf598b13e7768d9bf3804b292b27"
+    },
+    "schema/ProjectRepository.json": {
+      "bytes": 816,
+      "sha256": "8eb4fd9fd165bc0619a8c2dfd5180a10afbd226e3f0b98def8cc7eed3785c836"
+    },
+    "schema/ProjectRepositoryConfig.json": {
+      "bytes": 751,
+      "sha256": "f0dcfeb2c1fe0234e0d8d57198f956144c7a52db71e656c3850ba628db3fb3c4"
+    },
+    "schema/ProjectRepositoryUnavailable.json": {
+      "bytes": 278,
+      "sha256": "2dafd40da3a5bf2bcaf8a70ce6e597d46e04abbf05f9623d54d79b4bd49cc2a0"
     },
     "schema/ProjectsRequest.json": {
       "bytes": 5236,
@@ -4589,8 +4609,8 @@
       "sha256": "16b66d38698fb7af77f8b21acb25cdcb25507ab1ec3f77e4e28de23538d3b426"
     },
     "schema/WorkspaceActionRequest.json": {
-      "bytes": 30034,
-      "sha256": "c9891e37ce66543f7dd4ee873fa785210d4119cbb99e745e37ebfc1aa39a3c39"
+      "bytes": 30427,
+      "sha256": "f083f730459eaca27a803fc6a1486dce143bf47afcc70475d178c9381eb69dbd"
     },
     "schema/WorkspaceActionResult.json": {
       "bytes": 9905,
@@ -4905,10 +4925,10 @@
       "sha256": "326c4363558fb07a275e1864fb409008dd263601f205b8caaf79afe7141a9242"
     },
     "types.md": {
-      "bytes": 993173,
-      "sha256": "9a135a1af2e5e31530b14b622f8038bb63070328f75cd0a0e8079e2aa62e9023"
+      "bytes": 997373,
+      "sha256": "b8a28bbf9220ae9d5044d0856ea88b89f2d9e7ec483cf58e0ca26c28c9ef9570"
     }
   },
-  "input": "d002e5740bf32b04fe350e685bb23b6f3896c3a76c72e9896c3c0cf8f2234b13",
+  "input": "30e29106748668a13789b0a6720944e1bf29e06312bac35add51c64826362649",
   "version": 1
 }

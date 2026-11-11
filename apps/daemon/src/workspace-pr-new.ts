@@ -35,9 +35,11 @@ export class WorkspaceNewPr {
   }
   /** Where a PR from this checkout opens, read now: what every create uses. */
   private async resolveTarget(cwd: string) {
-    const checkout = await this.ctx.backends.checkoutRepository(cwd);
+    // The same head a thread's PR is pushed to (ADR 0116): the primary, or its fork.
+    const head = await this.ctx.backends.prHead(cwd);
+    const checkout = { repository: head.head.pushed.repository };
     const pushed = await this.ctx.backends.backend(cwd, checkout.repository);
-    const metadata = await pushed.repositoryMetadata(this.ctx.signal);
+    const metadata = await head.metadata();
     const target = prCreateTarget(checkout.repository, metadata, {});
     const backend =
       repositoryKey(target.repository) === repositoryKey(checkout.repository)

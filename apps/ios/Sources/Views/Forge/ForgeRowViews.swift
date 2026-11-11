@@ -31,8 +31,8 @@ struct ForgePullRowView: View {
         ForgeRowLayout(title: row.title, updatedAt: row.updatedAt) {
             ForgePullGlyph(state: row.state, merged: row.merged, conflicting: row.conflicting, size: AceDesign.Size.icon)
         } line: {
-            ForgeRowLine(number: row.number, author: row.author, step: row.step, needsYou: row.stepNeedsYou,
-                         quiet: row.quiet, thread: row.thread)
+            ForgeRowLine(number: row.number, repository: row.repositoryLabel, author: row.author, step: row.step,
+                         needsYou: row.stepNeedsYou, quiet: row.quiet, thread: row.thread)
         } marks: {
             if let review = row.review { ForgeStateMark(kind: .review, mark: review) }
             if let checks = row.checks { ForgeStateMark(kind: .checks, mark: checks) }
@@ -49,7 +49,8 @@ struct ForgeIssueRowView: View {
         ForgeRowLayout(title: row.title, updatedAt: row.updatedAt) {
             ForgeIssueGlyph(state: row.state, size: AceDesign.Size.icon)
         } line: {
-            ForgeRowLine(number: row.number, author: row.author, step: nil, needsYou: false, quiet: row.milestone, thread: row.thread)
+            ForgeRowLine(number: row.number, repository: row.repositoryLabel, author: row.author, step: nil, needsYou: false,
+                         quiet: row.milestone, thread: row.thread)
         } marks: {
             EmptyView()
         }
@@ -94,9 +95,11 @@ private struct ForgeRowLayout<Glyph: View, Line: View, Marks: View>: View {
 }
 
 /// "#412 · arpan · Review requested": the number, the author, then the step (or what it waits
-/// on). A linked thread that needs the person says so in its place when nothing else does.
+/// on). A linked thread that needs the person says so in its place when nothing else does. A
+/// project with several repositories names the row's after its number.
 private struct ForgeRowLine: View {
     let number: Int
+    let repository: String?
     let author: String
     let step: String?
     let needsYou: Bool
@@ -105,6 +108,9 @@ private struct ForgeRowLine: View {
 
     var body: some View {
         Text(verbatim: "#\(number)").monospacedDigit().foregroundStyle(AceTheme.Colours.subtleForeground).fixedSize()
+        if let repository {
+            Text(verbatim: "· \(repository)").foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(1).layoutPriority(-1)
+        }
         Text("· \(author)").foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).layoutPriority(-1)
         if let step {
             Text("· \(step)")

@@ -8,14 +8,17 @@ import {
   ForgeListCaches,
   OriginListSnapshots,
   repositoryKey,
+  repositoryWriteRefusal,
+  resolveProjectRepositories,
   type CommandRunner,
 } from "@ace/forge";
 import { readableForges, type ForgeRepository, type LinkedPullRequest } from "@ace/protocol";
 import type { ForgeReplyReceipts } from "./forge-reply-receipts.ts";
 import type { SourceControl } from "./source-control.ts";
 import type { WorkspaceForgeGit } from "./workspace-forge-context.ts";
-import { workspaceRepository } from "./workspace-repository.ts";
+import type { ProjectRepositoryConfigs } from "./project-repository-config.ts";
 import { remotePushesTo } from "./workspace-push.ts";
+import { prHeadMetadata, resolvePrHead } from "./pr-head.ts";
 
 /** How many GitLab or Origin pull requests one state refresh reads at once. */
 const stateReadConcurrency = 4;
@@ -35,6 +38,7 @@ export class ForgeBackends {
   private sourceControl: SourceControl | undefined;
   private replyReceipts: ForgeReplyReceipts;
   private signal: AbortSignal;
+  private configs: Pick<ProjectRepositoryConfigs, "forCheckout">;
   constructor(options: {
     git: WorkspaceForgeGit;
     now: () => number;
@@ -42,7 +46,10 @@ export class ForgeBackends {
     sourceControl: SourceControl | undefined;
     replyReceipts: ForgeReplyReceipts;
     signal: AbortSignal;
+    /** Each checkout's project repository choices; none keeps today's single repository. */
+    configs?: Pick<ProjectRepositoryConfigs, "forCheckout">;
   }) {
+    this.configs = options.configs ?? { forCheckout: () => undefined };
     this.git = options.git;
     this.now = options.now;
     this.runner = options.runner;
@@ -59,14 +66,57 @@ export class ForgeBackends {
   async repository(cwd: string): Promise<ForgeRepository> {
     return (await this.checkoutRepository(cwd)).repository;
   }
-  /** The selected remote's repository, with SSH host aliases resolved, and the remote names. */
+  /** The project's primary repository, with SSH host aliases resolved, and the remote names. */
   async checkoutRepository(cwd: string) {
+    const { resolved, remotes } = await this.projectRepositories(cwd);
+    const repository = resolved.primary?.repository;
+    if (!repository) throw new ForgeError("unsupported");
+    return { repository, remotes };
+  }
+  /** Every repository of the checkout's project (ADR 0116), read from Git and saved choices. */
+  async projectRepositories(cwd: string) {
     const info = await this.git.repositoryInfo(cwd);
     const preferences = await this.sourceControl?.preferences();
     const aliases = await this.hostAliases(info.remotes);
-    const repository = workspaceRepository(info.remotes, preferences, aliases);
-    if (!repository) throw new ForgeError("unsupported");
-    return { repository, remotes: info.remotes.map((remote) => remote.name) };
+    const config = this.configs.forCheckout(cwd);
+    return {
+      resolved: resolveProjectRepositories({ remotes: info.remotes, preferences, aliases, config }),
+      config,
+      globalRemote: preferences?.remote ?? "origin",
+      remotes: info.remotes.map((remote) => remote.name),
+    };
+  }
+  /**
+   * Where a new pull request's branch is pushed (`resolvePrHead`), with the project's
+   * repositories. `metadata` reads what PR creation needs to find where the PR opens.
+   */
+  async prHead(cwd: string) {
+    const project = await this.projectRepositories(cwd);
+    const read = async (entry: { repository: ForgeRepository }) =>
+      (await this.backend(cwd, entry.repository)).repositoryMetadata(this.signal);
+    const head = await resolvePrHead({
+      resolved: project.resolved,
+      globalRemote: project.globalRemote,
+      metadata: read,
+    });
+    return {
+      head,
+      project,
+      /** The pushed repository's metadata, its parent cleared when the project refuses it. */
+      metadata: () => prHeadMetadata(head, project.resolved, read),
+    };
+  }
+  /** The GitHub backend for a write, refused when the project hides or can't use `repository`. */
+  async writer(cwd: string, repository: ForgeRepository): Promise<GitHubForge> {
+    // Without saved choices nothing is hidden, so a write goes exactly where it always did,
+    // without reading Git first: a checkout Git can't read must not refuse the write.
+    if (!this.configs.forCheckout(cwd)) return this.backend(cwd, repository);
+    const refusal = repositoryWriteRefusal(
+      (await this.projectRepositories(cwd)).resolved,
+      repository,
+    );
+    if (refusal) throw new Error(refusal);
+    return this.backend(cwd, repository);
   }
   async hostAliases(remotes: readonly { fetchUrls: readonly string[] }[]) {
     return (

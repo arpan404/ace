@@ -513,6 +513,7 @@ export class WorkspaceRuntime {
       op.op === "forge.pr.list" ||
       op.op === "forge.open-work" ||
       op.op === "forge.repository" ||
+      op.op === "forge.repositories" ||
       op.op === "forge.group-counts" ||
       op.op === "forge.pr.detail" ||
       op.op === "forge.pr.commits" ||
@@ -901,7 +902,9 @@ export class WorkspaceRuntime {
               asPerson(() => this.git.push(options)),
             repositoryInfo: (path: string) => this.git.repositoryInfo(path),
           };
-          await pushWorkspace(git, this.options.sourceControl, cwd, p, allowed, review);
+          await pushWorkspace(git, this.options.sourceControl, cwd, p, allowed, review, () =>
+            this.forge.prPushTarget(cwd),
+          );
         } catch (error) {
           const remoteHead = rejectedRemoteHead(error);
           if (!remoteHead) throw error;

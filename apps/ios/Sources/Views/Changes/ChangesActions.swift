@@ -66,7 +66,7 @@ private struct ChangesActions<Header: View>: ViewModifier {
         }
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { status }
             .sheet(isPresented: $editing) {
-                if let step { GitMessageSheet(model: model, kind: step.kind, submitLabel: step.label, initialTitle: title) { send($0) } }
+                if let step { GitMessageSheet(model: model, kind: step.kind, submitLabel: step.label, initialTitle: title, opensOn: step.opensOn) { send($0) } }
             }
             .confirmationDialog("\(step.map(label) ?? "Merge") PR #\(step?.pr?.number ?? 0)?", isPresented: $confirmingMerge, titleVisibility: .visible) {
                 Button(step.map(label) ?? "Merge") { send(["kind": "merge", "method": method?.method ?? "squash"]) }
