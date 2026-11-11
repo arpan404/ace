@@ -23,6 +23,10 @@ function machine() {
     journal: () => undefined,
     now: () => 1000,
     limit: () => undefined,
+    schedule: () => () => {},
+    report: (error) => {
+      throw error;
+    },
   });
   opened.push({ store, home, threads });
   return { store, home, threads, catalog: new ProjectStorage(store, () => 1000) };
