@@ -1,8 +1,8 @@
+import { can } from "@ace/ui-core";
 import { ClientError } from "@ace/client";
 import {
   maxCommitMessageLength,
   maxForgeTextLength,
-  SourceControlPreferences,
   ThreadId,
   type CommandPayload,
   type CommandResult,
@@ -18,6 +18,7 @@ import { z } from "zod";
 import type { PatchSink, Preview } from "./agents.ts";
 import { WorkspaceRefusal, type ChangesOwner, type ChangesSession } from "./changes.ts";
 import { draftContext } from "./git-drafts.ts";
+import { globalRemote } from "./push-remote.ts";
 
 /*
  * The Changes sheet's next step through the daemon's guarded git and forge commands, the same
@@ -71,24 +72,20 @@ async function run(owner: ChangesOwner, payload: CommandPayload): Promise<Comman
   return result;
 }
 
-/** Push where the person's source-control preferences say, as the web does. */
+/**
+ * Push where the person's source-control preferences say, as the web does: every push names the
+ * global remote name. The push before a new pull request names it too; the daemon pushes that
+ * one to the PR's head (the primary, or the person's fork of it, ADR 0116).
+ */
 async function push(
   owner: ChangesOwner,
   threadId: ThreadId,
   target?: Extract<CommandPayload, { type: "git.push" }>["target"],
 ): Promise<void> {
-  const response = await owner.request({
-    type: "settings.get",
-    key: "sourceControl.preferences",
-    scope: {},
-  });
-  const entry = response.entries.find((item) => item.key === "sourceControl.preferences");
-  if (!response.ok || !entry) throw new WorkspaceRefusal("forge_preferences_changed");
-  const preferences = SourceControlPreferences.parse(entry.value);
   await run(owner, {
     type: "git.push",
     threadId,
-    remote: preferences.remote,
+    remote: await globalRemote(owner),
     ...(target ? { target } : {}),
   });
 }
@@ -104,9 +101,9 @@ async function perform(owner: ChangesOwner, session: ChangesSession, action: Git
   };
   // The step the sheet offered must still be the step, and not blocked, when it runs. A review
   // request rides on the open PR's step, which the merge gate doesn't block.
-  const step = changesNextStep(details, reads?.pr, totals);
+  const step = changesNextStep(details, reads?.pr, totals, session.capabilitySource);
   const expected = action.kind === "request-review" ? "merge" : action.kind;
-  if (action.kind !== "push" && step.kind !== expected)
+  if (action.kind !== "push" && action.kind !== "request-review" && step.kind !== expected)
     throw new WorkspaceRefusal("pr_link_changed");
   if (step.blocked && step.kind === expected && action.kind !== "request-review")
     throw new Error(step.blocked);
@@ -191,6 +188,11 @@ async function perform(owner: ChangesOwner, session: ChangesSession, action: Git
   const pr = reads?.pr;
   if (!pr) throw new WorkspaceRefusal("pr_not_linked");
   if (action.kind === "request-review") {
+    if (
+      !(pr.state === "open" || pr.state === "draft") ||
+      !can(session.capabilitySource, "reviews.reviewers.request")
+    )
+      throw new WorkspaceRefusal("forge_unsupported");
     const reviewers = reviewersOf(action.reviewers);
     if (!reviewers.length) throw new Error("Name at least one reviewer.");
     await requestReview(owner, session.threadId, pr.ref, reviewers);

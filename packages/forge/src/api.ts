@@ -135,3 +135,7 @@ export interface ForgeBrowser {
   /** The forge's image-only emoji, shortcode to image URL. */
   emojiImages(signal: AbortSignal): Promise<Record<string, string>>;
 }
+
+/** Read surface shared by hosts whose mutation integration is not admitted yet. */
+export type ForgeReader = Pick<Forge, "status"> &
+  Pick<ForgeBrowser, "listPrs" | "prDetail" | "prFiles" | "prCheckout">;

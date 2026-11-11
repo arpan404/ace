@@ -3,7 +3,9 @@ import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
 import type { WorkspaceDefinition } from "./definition.ts";
 import type { CloseWarning } from "./registry.ts";
 import type { PanelPlace } from "./places.ts";
+import { transientTabKinds } from "./text-edit-tab.ts";
 import {
+  closeTab,
   emptyWorkspace,
   rememberClosed,
   seedWorkspace,
@@ -73,7 +75,7 @@ export class WorkspaceStore {
     this.bottomSize = stored?.preferred.bottom ?? defaultBottomSize;
     this.place = stored?.preferred.place ?? "bottom";
     for (const [scope, workspace] of stored?.scopes.slice(-this.capacity) ?? [])
-      this.scopes.set(scope, sanitize(workspace));
+      this.scopes.set(scope, lasting(sanitize(workspace)));
   }
 
   /** The scope's workspace; a scope never seen starts from `initial` (not persisted yet). */
@@ -269,8 +271,18 @@ export class WorkspaceStore {
 
   private save() {
     this.dirty = false;
-    const scopes = [...this.scopes].filter(([scope]) => !this.seeded.has(scope));
+    const scopes = [...this.scopes]
+      .filter(([scope]) => !this.seeded.has(scope))
+      .map(([scope, workspace]) => [scope, lasting(workspace)] as const);
     const preferred = { right: this.preferredSize, bottom: this.bottomSize, place: this.place };
     writeJson(this.storage, storageKey, { preferred, scopes });
   }
+}
+
+/** The workspace without the tabs that live only as long as the page (an edit in progress). */
+function lasting(workspace: ScopeWorkspace): ScopeWorkspace {
+  return workspace.tabs.reduce(
+    (next, tab) => (transientTabKinds.has(tab.kind) ? closeTab(next, tab.key) : next),
+    workspace,
+  );
 }

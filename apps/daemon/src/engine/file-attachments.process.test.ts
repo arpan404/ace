@@ -25,6 +25,7 @@ const capabilities = Capabilities.parse({
     format: "claude",
     documents: ["application/pdf"],
     embeddedContext: false,
+    interleaved: true,
     maxInlineBytes: 4096,
   },
 });
@@ -48,7 +49,7 @@ async function upload(service: ContextService, threadId: ThreadId, name: string,
   return { sha256 };
 }
 
-test("a held send keeps text, PDF and binary attachments across engine and storage restart", async () => {
+test("a held send keeps text, PDF and binary attachments, and where the PDF sits, across engine and storage restart", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-engine-files-"));
   let sequence = 0;
   const options = {
@@ -70,7 +71,8 @@ test("a held send keeps text, PDF and binary attachments across engine and stora
     const id = await h.create();
     const attachments = [
       await upload(context, id, "code.ts", Buffer.from("export const answer = 42;")),
-      await upload(context, id, "report.pdf", Buffer.from("%PDF-1.7\nexample")),
+      // The person put the PDF after "Read ".
+      { ...(await upload(context, id, "report.pdf", Buffer.from("%PDF-1.7\nexample"))), at: 5 },
       await upload(context, id, "archive.zip", Buffer.from([80, 75, 3, 4, 0, 255])),
     ];
     expect(
@@ -113,13 +115,15 @@ test("a held send keeps text, PDF and binary attachments across engine and stora
     const sent = sends.at(-1);
     if (sent?.type !== "send") throw new Error("No provider input");
     expect(JSON.stringify(sent.input)).toContain("export const answer = 42;");
-    expect(sent.input).toContainEqual(
+    expect(sent.input.slice(0, 3)).toEqual([
+      { type: "text", text: "Read " },
       expect.objectContaining({
         type: "file",
         mimeType: "application/pdf",
         content: { encoding: "base64", data: Buffer.from("%PDF-1.7\nexample").toString("base64") },
       }),
-    );
+      { type: "text", text: "all files" },
+    ]);
     const binary = await context.uploads.attachment("device", id, attachments[2]?.sha256 ?? "");
     expect(JSON.stringify(sent.input)).toContain(binary.path);
     expect(await readFile(binary.path)).toEqual(Buffer.from([80, 75, 3, 4, 0, 255]));

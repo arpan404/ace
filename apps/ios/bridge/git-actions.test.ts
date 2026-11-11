@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { facts } from "@ace/fake-daemon";
-import type { CommandPayload } from "@ace/protocol";
+import { WorkspaceId, type CommandPayload, type ForgeRepository } from "@ace/protocol";
 import type { ChangesStep } from "@ace/ui-core/mobile";
 import { ChangesSession, type ChangesOwner } from "./changes.ts";
 import { gitAction } from "./git-actions.ts";
@@ -23,7 +23,15 @@ const patch = [
 ].join("\n");
 
 /** A thread with one changed file on a branch off main, read by an open Changes sheet. */
-async function opened() {
+async function opened(
+  capabilities?: string[],
+  repository: ForgeRepository = {
+    forge: "github",
+    host: "github.com",
+    owner: "arpan404",
+    name: "ace",
+  },
+) {
   const { daemon, client } = sheetFixture();
   closers.push(() => client.close());
   daemon.createThread({
@@ -38,7 +46,7 @@ async function opened() {
       head: "b".repeat(40),
       ahead: 0,
       diff: { files: 1, additions: 1, deletions: 1 },
-      repository: { forge: "github", host: "github.com", owner: "arpan404", name: "ace" },
+      repository,
     },
   });
   daemon.apply("git", [facts.rootAgent("codex"), facts.turn("root"), facts.endTurn("root")]);
@@ -57,9 +65,41 @@ async function opened() {
       sent.push(payload);
       return client.command(payload);
     },
-    request: ((input: Parameters<ChangesOwner["request"]>[0], options) => {
+    request: (async (input: Parameters<ChangesOwner["request"]>[0], options) => {
       if (input.type === "workspace.request") operations.push(input.operation.op);
-      return client.request(input, options);
+      const reply = await client.request(input, options);
+      if (
+        capabilities &&
+        input.type === "workspace.request" &&
+        input.operation.op === "forge.repositories"
+      ) {
+        return {
+          ...reply,
+          result: {
+            kind: "forge",
+            data: {
+              resource: "repositories",
+              value: {
+                workspaceId: "ace",
+                primary: repository,
+                config: null,
+                repositories: [
+                  {
+                    repository,
+                    capabilities,
+                    visible: true,
+                    available: true,
+                    primary: true,
+                    source: "remote",
+                    remote: "origin",
+                  },
+                ],
+              },
+            },
+          },
+        };
+      }
+      return reply;
     }) as ChangesOwner["request"],
   };
   const sink = new RecordingSink();
@@ -256,4 +296,74 @@ describe("Merging and reviews from the Changes sheet", () => {
       reviewers: ["ana"],
     });
   });
+});
+
+describe("Pushing a project with several repositories", () => {
+  const gitlab = { forge: "gitlab", host: "gitlab.com", owner: "acme", name: "ace" } as const;
+
+  test("a plain push names the global remote even when the project chose its mirror as primary", async () => {
+    const { owner, act, sent, daemon } = await opened();
+    daemon.projects.repositories.addMirror("ace");
+    const saved = await owner.command({
+      type: "workspace.repositories.set",
+      workspaceId: WorkspaceId.parse("ace"),
+      repositories: { added: [], hidden: [], primary: gitlab },
+    });
+    expect(saved).toMatchObject({ ok: true });
+    await act({ kind: "commit", message: "Fix the queue", push: true }, "m1");
+    expect(sent.find((payload) => payload.type === "git.push")).toMatchObject({ remote: "origin" });
+  });
+
+  test("a project without saved choices pushes to the remote source control settings name", async () => {
+    const { act, sent } = await opened();
+    await act({ kind: "commit", message: "Fix the queue", push: true }, "m2");
+    expect(sent.find((payload) => payload.type === "git.push")).toMatchObject({ remote: "origin" });
+  });
+});
+
+test("Changes offers creation on GitLab when its repository declares it", async () => {
+  const fixture = await opened(["reviews.read", "reviews.create"], {
+    forge: "gitlab",
+    host: "gitlab.com",
+    owner: "arpan404",
+    name: "ace",
+  });
+  await fixture.act({ kind: "commit", message: "Fix the queue", push: true }, "c");
+  await until(() => step(fixture.sink).kind === "create-pr", "create-pr step");
+  expect(step(fixture.sink).blocked).toBeNull();
+  expect(fixture.sink.read("changes:summary")?.openOn).toBe("Open on GitLab");
+});
+
+test("Changes refuses creation on GitHub when the repository explicitly grants no capabilities", async () => {
+  const fixture = await opened([]);
+  await fixture.act({ kind: "commit", message: "Fix the queue", push: true }, "c");
+  await until(() => step(fixture.sink).kind === "create-pr", "create-pr step");
+  expect(step(fixture.sink).blocked).toBeTruthy();
+});
+
+test("a repository that can ask for reviewers offers a review request while merge is unavailable", async () => {
+  const fixture = await opened(["reviews.create", "reviews.reviewers.request"]);
+  await fixture.act({ kind: "commit", message: "Fix the queue", push: true }, "c");
+  await fixture.act({ kind: "create-pr", title: "Fix the queue" }, "p");
+  await until(() => step(fixture.sink).pr !== null, "linked review");
+  expect(step(fixture.sink).kind).toBe("none");
+  expect(fixture.sink.read("changes:summary")?.canRequestReview).toBe(true);
+  expect(await fixture.act({ kind: "request-review", reviewers: "ana" }, "r")).toMatchObject({
+    ok: true,
+  });
+  expect(fixture.sent.find((command) => command.type === "forge.review.request")).toMatchObject({
+    reviewers: ["ana"],
+  });
+});
+
+test("a repository that can approve but not ask for reviewers offers no review request", async () => {
+  const fixture = await opened(["reviews.create", "reviews.approvals.write"]);
+  await fixture.act({ kind: "commit", message: "Fix the queue", push: true }, "c");
+  await fixture.act({ kind: "create-pr", title: "Fix the queue" }, "p");
+  await until(() => step(fixture.sink).pr !== null, "linked review");
+  expect(fixture.sink.read("changes:summary")?.canRequestReview).toBe(false);
+  expect(await fixture.act({ kind: "request-review", reviewers: "ana" }, "r")).toMatchObject({
+    ok: false,
+  });
+  expect(fixture.sent.some((command) => command.type === "forge.review.request")).toBe(false);
 });

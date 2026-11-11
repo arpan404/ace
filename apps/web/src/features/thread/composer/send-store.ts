@@ -36,7 +36,8 @@ export interface StagedSend {
   mentions: string[];
   input?: ContentPart[] | undefined;
   context?: MessageContext | undefined;
-  attachments: (LocalAttachment & { sha256?: string | undefined })[];
+  /** Each with where the person put it in the words (`at`), when they did. */
+  attachments: (LocalAttachment & { sha256?: string | undefined; at?: number | undefined })[];
   options?: TurnOptions | undefined;
   delivery?: "steer" | "queue" | undefined;
   /** Why it can't go as it is, in words; undefined while its files upload. */

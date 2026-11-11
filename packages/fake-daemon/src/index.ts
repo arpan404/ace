@@ -91,7 +91,12 @@ export { seedIndex } from "./scenarios/seed-index.ts";
 export * as facts from "./scenarios/facts.ts";
 export { workbenchServices } from "./scenarios/services.ts";
 export { pullRequestDetails } from "./catalog/pull-request-details.ts";
-export { seedForgeBrowse, seedLongIssue, seedProjectForge } from "./scenarios/forge-browse.ts";
+export {
+  seedForgeBrowse,
+  seedGitLabMirror,
+  seedLongIssue,
+  seedProjectForge,
+} from "./scenarios/forge-browse.ts";
 export { longIssueReads } from "./catalog/long-issue.ts";
 export { movingPullRequest } from "./catalog/moving-pull-request.ts";
 export { sketchPullRequests, type PrSketch } from "./catalog/forge-browse.ts";

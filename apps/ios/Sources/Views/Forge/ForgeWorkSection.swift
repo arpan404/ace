@@ -13,6 +13,7 @@ struct ForgeWorkSection: View {
     let startThread: (() -> Void)?
     /// The pull request's title, as New thread names it.
     let title: String
+    let stacks: Bool
     @State private var work: ForgeWorkPage?
     @State private var stack: ForgeStackPage?
     @State private var writing: String?
@@ -24,7 +25,7 @@ struct ForgeWorkSection: View {
     private var stackRequest: [String: Any] { ClientModel.forgeStackRead(pushed(.stack), threadId: nil, method: "squash") }
 
     init(client: ClientModel, route: ForgeRoute, target: ForgePullTarget, push: @escaping (ForgeRoute) -> Void,
-         openThread: @escaping (InboxKey) -> Void, startThread: (() -> Void)?, title: String = "") {
+         openThread: @escaping (InboxKey) -> Void, startThread: (() -> Void)?, title: String = "", stacks: Bool = true) {
         self.client = client
         self.route = route
         self.target = target
@@ -32,6 +33,7 @@ struct ForgeWorkSection: View {
         self.openThread = openThread
         self.startThread = startThread
         self.title = title
+        self.stacks = stacks
         _work = State(initialValue: client.kept(ClientModel.forgeWorkRead(route), as: ForgeWorkPage.self))
     }
 
@@ -57,6 +59,7 @@ struct ForgeWorkSection: View {
         .animation(.default, value: stack)
         .task(id: client.readGeneration(request)) { await load(fresh: false) }
         .task(id: client.readGeneration(stackRequest)) {
+            guard stacks else { return }
             stack = try? await client.forgeWorkRead(stackRequest, as: ForgeStackPage.self)
         }
         .sensoryFeedback(.success, trigger: outcome) { _, now in now?.ok == true }

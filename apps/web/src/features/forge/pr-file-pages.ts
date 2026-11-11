@@ -1,3 +1,4 @@
+import { can } from "@ace/ui-core";
 import { useCallback, useEffect, useMemo } from "react";
 import { hashKey, useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useClient, useConnectionState } from "@ace/client-react";
@@ -59,7 +60,10 @@ export function usePrFilePages(props: {
   const query = useInfiniteQuery({
     queryKey,
     meta: { daemonClient: client },
-    enabled: ready,
+    enabled:
+      ready &&
+      can(props.detail, "reviews.files") &&
+      !props.detail.unavailableResources?.includes("files"),
     retry: false,
     staleTime: prContentStaleMs,
     initialPageParam: 1,

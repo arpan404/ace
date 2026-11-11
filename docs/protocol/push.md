@@ -1277,7 +1277,7 @@ Example:
         "pr": {
           "number": 8,
           "repository": {
-            "forge": "gitlab",
+            "forge": "origin",
             "host": "M4r6s",
             "name": "N.hPXs",
             "owner": "XBP1/-h/c/VO_"
@@ -3341,23 +3341,136 @@ Example:
 
 ```json
 {
-  "seq": 9,
+  "seq": 5,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
-    "keep": [],
-    "kind": "threads",
-    "seq": 9,
-    "threads": {},
-    "window": {
-      "before": {
-        "at": 9,
-        "id": "example"
+    "agentChildren": {},
+    "agents": {},
+    "backgroundTasks": {},
+    "contextMeters": {},
+    "interactions": {},
+    "itemOrder": [],
+    "items": {},
+    "itemsBefore": 4,
+    "kind": "thread",
+    "queue": {
+      "paused": false,
+      "reason": null,
+      "resumeAt": null,
+      "revision": 7
+    },
+    "runs": {},
+    "seq": 5,
+    "thread": {
+      "activitySeq": 1,
+      "backend": "cursor-sdk",
+      "createdAt": 8,
+      "details": {
+        "branch": null,
+        "continuedFrom": {
+          "at": 6,
+          "hostId": "example",
+          "name": "example",
+          "threadId": "example"
+        },
+        "linkedPr": null,
+        "repository": {
+          "forge": "gitbucket",
+          "host": "LXq",
+          "name": "Lv",
+          "owner": "C/swNtq/_Kqv_r/DV/sWrbqNSNy7a/WmI/mv7N/_3TNN/aytY"
+        },
+        "workspace": {
+          "defaultIcon": null,
+          "id": "example",
+          "kind": "chat",
+          "name": "example",
+          "path": "example"
+        },
+        "worktree": "example",
+        "worktreeCreation": {
+          "actions": [],
+          "attempt": 3,
+          "cleanupComplete": false,
+          "commandId": "example",
+          "details": [],
+          "elapsedMs": 2,
+          "message": "example",
+          "startedAt": 1,
+          "state": "done",
+          "step": "preparing",
+          "steps": []
+        },
+        "worktreeSetup": {
+          "at": 8,
+          "details": [],
+          "state": "failed"
+        }
       },
-      "counts": [],
-      "revision": 6,
-      "total": 9
-    }
+      "effectiveCapabilities": {
+        "approvals": "none",
+        "backgroundTaskControl": true,
+        "backgroundVisibility": "none",
+        "childControls": "native",
+        "fork": true,
+        "forkMode": "native",
+        "goals": false,
+        "imageInput": false,
+        "interruptCascades": false,
+        "planMode": true,
+        "resume": false,
+        "rewindFiles": false,
+        "sessionOptions": true,
+        "steer": false,
+        "steeringMode": "interrupt-restart",
+        "subagentTranscripts": true,
+        "tokenUsage": true
+      },
+      "id": "example",
+      "movedFrom": {
+        "links": {},
+        "workspaceId": "example"
+      },
+      "permission": {
+        "custom": "example",
+        "effective": "auto-review",
+        "override": null,
+        "pending": false
+      },
+      "pinned": true,
+      "prSettled": 3,
+      "prSettledKey": "example",
+      "provider": "opencode",
+      "queue": {
+        "lastFailure": {
+          "code": "example",
+          "title": "example"
+        },
+        "paused": false,
+        "reason": "model_unavailable",
+        "resumeAt": null,
+        "revision": 9
+      },
+      "readAt": 5,
+      "settleWhenDone": true,
+      "snoozeWake": {
+        "on": "needs_you"
+      },
+      "snoozeWoke": {
+        "at": 4,
+        "on": "time"
+      },
+      "status": {
+        "interactions": 1,
+        "state": "needs_you"
+      },
+      "title": "example",
+      "updatedAt": 5,
+      "workspaceId": "example"
+    },
+    "usage": {},
+    "usageSnapshots": {}
   }
 }
 ```
@@ -3457,7 +3570,7 @@ Example:
   "pr": {
     "number": 8,
     "repository": {
-      "forge": "gitlab",
+      "forge": "origin",
       "host": "ueb",
       "name": "rwi7MeEWPo",
       "owner": "hf-naCim.RD/r6wcBWPcN9/JcQn5zArB/OR/oG/bIq/ZOD/Qi_/P6Ny"
@@ -3482,7 +3595,7 @@ Example:
       "fork": true,
       "id": 9,
       "repository": {
-        "forge": "gitlab",
+        "forge": "origin",
         "host": "ObU1h8aWz",
         "name": "kK",
         "owner": "GuThyiWGE/.mSm4Wym/v/EMIrcilN5g/Z8Pf/Xfua3.Vxqr/h/djGIfqFZZW"

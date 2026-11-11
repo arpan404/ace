@@ -1,3 +1,4 @@
+import { can, forgeDisplayName } from "@ace/ui-core";
 import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useSidebarAll } from "@ace/client-react";
@@ -115,6 +116,7 @@ export function PrOverflowMenu(props: {
     kind: "ready" | "draft" | "reopen" | "update.merge" | "update.rebase",
     glyph: typeof LinkIcon,
   ) =>
+    can(detail, "reviews.edit") &&
     lifecycle.can(kind) && (
       <MenuItem
         icon={icon(glyph)}
@@ -237,7 +239,7 @@ export function PrOverflowMenu(props: {
               </MenuSub>
             )
           )}
-          {status.state === "open" && (
+          {can(detail, "reviews.reviewers.request") && status.state === "open" && (
             <MenuItem
               icon={icon(UserPlusIcon)}
               disabled={writes.fenced || context.disabled}
@@ -283,58 +285,64 @@ export function PrOverflowMenu(props: {
           )}
           {props.extensions?.overflow?.(context)}
         </MenuGroup>
-        {open && (
-          <>
-            <MenuSeparator />
-            <MenuGroup>
-              {lifecycleItem("ready", EyeIcon)}
-              {lifecycleItem("draft", EyeIcon)}
-              {actions.primary.kind !== "merge" && status.state === "open" && (
-                <MenuItem
-                  icon={icon(GitMergeIcon)}
-                  disabled={actions.mergeBlocked !== undefined}
-                  reason={actions.mergeBlocked}
-                  onClick={() => void actions.merge()}
-                >
-                  Merge now
-                </MenuItem>
-              )}
-              {mergeState.state?.autoMerge ? (
-                <MenuItem
-                  icon={icon(TimerIcon)}
-                  disabled={mergeState.blocked !== undefined || !mergeState.state.canDisable}
-                  reason={mergeState.blocked}
-                  onClick={() => void mergeState.run("disable", actions.method)}
-                >
-                  Disable auto-merge
-                </MenuItem>
-              ) : (
-                status.state === "open" && (
+        {open &&
+          (can(detail, "reviews.merge") ||
+            can(detail, "reviews.edit") ||
+            can(detail, "reviews.autoMerge")) && (
+            <>
+              <MenuSeparator />
+              <MenuGroup>
+                {lifecycleItem("ready", EyeIcon)}
+                {lifecycleItem("draft", EyeIcon)}
+                {can(detail, "reviews.merge") &&
+                  actions.primary.kind !== "merge" &&
+                  status.state === "open" && (
+                    <MenuItem
+                      icon={icon(GitMergeIcon)}
+                      disabled={actions.mergeBlocked !== undefined}
+                      reason={actions.mergeBlocked}
+                      onClick={() => void actions.merge()}
+                    >
+                      Merge now
+                    </MenuItem>
+                  )}
+                {can(detail, "reviews.autoMerge") &&
+                  (mergeState.state?.autoMerge ? (
+                    <MenuItem
+                      icon={icon(TimerIcon)}
+                      disabled={mergeState.blocked !== undefined || !mergeState.state.canDisable}
+                      reason={mergeState.blocked}
+                      onClick={() => void mergeState.run("disable", actions.method)}
+                    >
+                      Disable auto-merge
+                    </MenuItem>
+                  ) : (
+                    status.state === "open" && (
+                      <MenuItem
+                        icon={icon(TimerIcon)}
+                        disabled={actions.autoMergeBlocked !== undefined}
+                        reason={actions.autoMergeBlocked}
+                        onClick={() => void actions.enableAutoMerge()}
+                      >
+                        Enable auto-merge
+                      </MenuItem>
+                    )
+                  ))}
+                {can(detail, "reviews.autoMerge") && mergeState.state?.queue && (
                   <MenuItem
-                    icon={icon(TimerIcon)}
-                    disabled={actions.autoMergeBlocked !== undefined}
-                    reason={actions.autoMergeBlocked}
-                    onClick={() => void actions.enableAutoMerge()}
+                    icon={icon(QueueIcon)}
+                    disabled={mergeState.blocked !== undefined || !mergeState.state.canDequeue}
+                    reason={mergeState.blocked}
+                    onClick={() => void mergeState.run("dequeue", actions.method)}
                   >
-                    Enable auto-merge
+                    Leave merge queue
                   </MenuItem>
-                )
-              )}
-              {mergeState.state?.queue && (
-                <MenuItem
-                  icon={icon(QueueIcon)}
-                  disabled={mergeState.blocked !== undefined || !mergeState.state.canDequeue}
-                  reason={mergeState.blocked}
-                  onClick={() => void mergeState.run("dequeue", actions.method)}
-                >
-                  Leave merge queue
-                </MenuItem>
-              )}
-              {lifecycleItem("update.merge", GitBranchIcon)}
-              {lifecycleItem("update.rebase", GitBranchIcon)}
-            </MenuGroup>
-          </>
-        )}
+                )}
+                {lifecycleItem("update.merge", GitBranchIcon)}
+                {lifecycleItem("update.rebase", GitBranchIcon)}
+              </MenuGroup>
+            </>
+          )}
         <MenuSeparator />
         <MenuGroup>
           <MenuItem
@@ -343,7 +351,7 @@ export function PrOverflowMenu(props: {
             resolve={false}
             onClick={() => openOnGitHub(status.url)}
           >
-            Open on GitHub
+            Open on {forgeDisplayName(status.ref.repository.forge)}
           </MenuItem>
           <MenuItem
             icon={icon(CopyIcon)}

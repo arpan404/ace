@@ -32,6 +32,11 @@ const Token = classic.object({
   file: Mention.optional(),
   thread: ThreadRefContextItem.optional(),
   browserTab: BrowserTabContextItem.optional(),
+  /** Where a file was added: its marker, tied to the file again by hash on restore. */
+  attachment: classic
+    .object({ key: classic.number().int().optional(), sha256: classic.string().optional() })
+    .optional()
+    .catch(undefined),
 });
 const Held = classic.object({ sha256: classic.string(), name: classic.string() });
 const Annotated = classic.object({ annotation: BrowserAnnotation, crop: Held.optional() });

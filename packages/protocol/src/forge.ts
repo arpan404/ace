@@ -6,8 +6,59 @@ import { z } from "zod";
 /** The longest pull request description or comment, GitHub's own body limit. */
 export const maxForgeTextLength = 65_536;
 const text = z.string().max(maxForgeTextLength);
+export const ForgeKind = z.enum([
+  "github",
+  "gitlab",
+  "gitbucket",
+  "bitbucket",
+  "gitea",
+  "forgejo",
+  "origin",
+]);
+export type ForgeKind = z.infer<typeof ForgeKind>;
+/**
+ * Public hosts whose provider is fixed. Any other host, including self-hosted installations,
+ * is mapped explicitly in source control settings and never guessed from its name.
+ */
+export const publicForgeHosts: Readonly<Record<string, ForgeKind>> = {
+  "github.com": "github",
+  "gitlab.com": "gitlab",
+  "bitbucket.org": "bitbucket",
+  "codeberg.org": "forgejo",
+  "origin.cursor.com": "origin",
+};
+/**
+ * The provider a saved host entry names: its explicit `forge`, else the public host's fixed
+ * provider, else GitHub (settings saved before providers existed). The one rule settings
+ * validation and every reader of settings share.
+ */
+export function configuredForge(entry: { host: string; forge?: ForgeKind | undefined }): ForgeKind {
+  return entry.forge ?? publicForgeHosts[entry.host] ?? "github";
+}
+/** Each configured host's provider, by host. */
+export function configuredForges(
+  hosts: readonly { host: string; forge?: ForgeKind | undefined }[],
+): Record<string, ForgeKind> {
+  return Object.fromEntries(hosts.map((entry) => [entry.host, configuredForge(entry)]));
+}
+
+/** Cursor Origin is one hosted service: its API host is the only host it can have. */
+export const originApiHost = "origin.cursor.com";
+/** Providers ace can read pull requests from: GitHub through gh, GitLab through glab, Cursor
+ * Origin through origin, Gitea and Forgejo through tea and Bitbucket Cloud through bkt. Others
+ * are saved hosts with no pull request reads yet. */
+export const readableForges: readonly ForgeKind[] = [
+  "github",
+  "gitlab",
+  "origin",
+  "gitea",
+  "forgejo",
+  "bitbucket",
+];
+/** Providers ace reads issues from: GitHub only. Issues lists leave the others' repositories out. */
+export const issueReadableForges: readonly ForgeKind[] = ["github", "gitea", "forgejo"];
 export const ForgeRepository = z.object({
-  forge: z.enum(["github", "gitlab"]),
+  forge: ForgeKind,
   host: z
     .string()
     .regex(/^[a-zA-Z0-9.-]+$/)
@@ -209,7 +260,12 @@ export const ForgeCommand = z.discriminatedUnion("type", [
     type: z.literal("forge.review.request"),
     link: ForgeThreadLink,
     reviewers: z
-      .array(z.string().regex(/^[\w-]+$/))
+      .array(
+        z
+          .string()
+          .regex(/^[\w.-]+$/)
+          .max(100),
+      )
       .min(1)
       .max(100),
   }),

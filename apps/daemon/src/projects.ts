@@ -411,6 +411,7 @@ export class Projects {
           return await this.roots.remove(p, () => this.check(allowed));
         if (
           p.type === "workspace.rename" ||
+          p.type === "workspace.repositories.set" ||
           p.type === "workspace.update" ||
           p.type === "workspace.remove"
         ) {
@@ -437,6 +438,11 @@ export class Projects {
               }),
             };
           }
+          if (p.type === "workspace.repositories.set")
+            return {
+              ok: true,
+              workspace: this.catalog.setRepositories(p.workspaceId, p.repositories, p.expected),
+            };
           if (p.type === "workspace.rename")
             return { ok: true, workspace: this.catalog.rename(p.workspaceId, p.name) };
           await this.removeProject(input, p.workspaceId, p.stopRunning, allowed);

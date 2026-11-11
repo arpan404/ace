@@ -1,3 +1,4 @@
+import { can } from "@ace/ui-core";
 import { useState } from "react";
 import {
   ArrowSquareOutIcon,
@@ -206,7 +207,7 @@ export function PrCheckDetail(props: {
     );
   const run = query.data;
   const open = detail.status.state === "open" || detail.status.state === "draft";
-  const controls = checkControls(check, run, open);
+  const controls = checkControls(check, run, open && can(detail, "reviews.checks.write"));
   const workflow = run.workflow;
   const reason = context.disabled ? "Wait for GitHub to refresh" : undefined;
   const blank =

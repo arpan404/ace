@@ -1,3 +1,4 @@
+import type { ForgeCapability } from "@ace/protocol";
 import { WorkspaceId, type ForgeBrowserResult } from "@ace/protocol";
 import { browseIssues, browsePullRequests } from "../catalog/forge-browse.ts";
 import { inboxNotifications } from "../catalog/inbox.ts";
@@ -7,6 +8,7 @@ import {
   projectNotifications,
   projectPullRequests,
 } from "../catalog/forge-projects.ts";
+import { gitlabMirrorPullRequests } from "../catalog/gitlab-mirror.ts";
 import { pullRequestDetails } from "../catalog/pull-request-details.ts";
 import { richIssueReads, richPullRequest } from "../catalog/rich-content.ts";
 import type { FakeDaemon } from "../daemon.ts";
@@ -26,6 +28,20 @@ export function seedForgeBrowse(daemon: FakeDaemon, now: number, project = "ace"
   const rich = { number: 246, reads: richIssueReads(now) };
   const issues = [...browseIssues(now), rich].map((issue) => Object.assign(issue, { project }));
   seedIssues(daemon, issues);
+}
+
+/**
+ * `ace`'s GitLab mirror (a `mirror` remote on gitlab.com) and its merge requests beside the
+ * GitHub reviews (ADR 0116), for Code review reading both of a project's repositories. Apart
+ * from `seedForgeBrowse`, so projects without it list one repository, as they always did.
+ */
+export function seedGitLabMirror(
+  daemon: FakeDaemon,
+  now: number,
+  capabilities?: readonly ForgeCapability[],
+): void {
+  daemon.projects.repositories.addMirror("ace", capabilities);
+  daemon.workspace.addPullRequests(gitlabMirrorPullRequests(now));
 }
 
 /**

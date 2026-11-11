@@ -1,9 +1,12 @@
+import { can, forgeDisplayName } from "@ace/ui-core";
 import { useEffect, useCallback, useMemo, useState, type KeyboardEvent } from "react";
 import { useConnectionState } from "@ace/client-react";
 import { useQueryClient, type Query } from "@tanstack/react-query";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import type { ForgePrDetail, ForgePrStatus, ForgeRepository } from "@ace/protocol";
 import {
+  hostedReviewLine,
+  knownFileCount,
   allCommits,
   prParticipants,
   prPollInterval,
@@ -107,6 +110,16 @@ function PrDetailLoaded(props: {
   const { context } = props;
   const readable = props.page ? pageWidth : undefined;
   const { detail } = context;
+  const available = {
+    summary: true,
+    code: can(detail, "reviews.files"),
+    checks: can(detail, "reviews.checks"),
+    timeline:
+      can(detail, "reviews.comments.read") ||
+      can(detail, "reviews.comments.write") ||
+      can(detail, "reviews.commits"),
+  };
+  const shownTab = available[props.tab] ? props.tab : "summary";
   const [dialog, setDialog] = useState<PrDialog>();
   const [commitWhen, setCommitWhen] = useState<"now" | "auto">();
   const actions = usePrActions({
@@ -185,14 +198,17 @@ function PrDetailLoaded(props: {
     if (!shortcut) return;
     event.preventDefault();
     if (shortcut === "open")
-      void openWeb(status.url).catch(() => toast.error({ title: "Couldn't open GitHub" }));
+      void openWeb(status.url).catch(() =>
+        toast.error({ title: `Couldn't open ${forgeDisplayName(status.ref.repository.forge)}` }),
+      );
     else props.onTab(shortcut);
   };
-  const editable = !!actions.lifecycle.snapshot?.editableFields.length;
+  const editable =
+    can(detail, "reviews.edit") && !!actions.lifecycle.snapshot?.editableFields.length;
   const repository = detail.status.ref.repository;
   const scope = useMemo(
-    () => ({ workspaceId: context.workspaceId, repository }),
-    [context.workspaceId, repository],
+    () => ({ workspaceId: context.workspaceId, repository, capabilities: detail.capabilities }),
+    [context.workspaceId, repository, detail.capabilities],
   );
   // A ticked task box edits the description against the version it was read at, and only
   // while that version's body is the one on screen.
@@ -223,7 +239,8 @@ function PrDetailLoaded(props: {
   // A locked conversation takes comments only from collaborators who can push.
   const conversation = actions.lifecycle.snapshot?.conversation;
   const lockedOut = !!conversation?.locked && !conversation.viewerCanComment;
-  const canRequestReview = detail.status.state === "open";
+  const canRequestReview =
+    can(detail, "reviews.reviewers.request") && detail.status.state === "open";
   const participants = useCallback(() => prParticipants(detail), [detail]);
   // Shortcuts work anywhere in the panel; `contents` keeps the layout the article's. On a
   // page it is the page's one scroller instead.
@@ -268,7 +285,7 @@ function PrDetailLoaded(props: {
                         <PrHeader
                           actions={actions}
                           extensions={props.extensions}
-                          condensed={condensed[props.tab]}
+                          condensed={condensed[shownTab]}
                           behindOpen={behindOpen}
                           onBehindOpen={setBehindOpen}
                           gates={<PrGatesRow actions={actions} onSelect={onGate} />}
@@ -291,6 +308,19 @@ function PrDetailLoaded(props: {
                           </Button>
                         </p>
                       )}
+                      {!can(detail, "reviews.comments.write") && (
+                        <p className="flex flex-wrap items-center gap-x-1.5 px-[var(--forge-gutter,1rem)] pb-2 text-xs text-muted-foreground">
+                          <span>{hostedReviewLine(repository.forge)}</span>
+                          <a
+                            href={status.url}
+                            target="_blank"
+                            rel="noreferrer noopener"
+                            className="rounded-xs font-medium text-foreground/90 focus-ring hover:text-foreground"
+                          >
+                            Open on {forgeDisplayName(repository.forge)}
+                          </a>
+                        </p>
+                      )}
                       <PrWriteStatus actions={actions} refreshing={props.refreshing} />
                       <PrSuggestionBatch />
                     </div>
@@ -298,15 +328,18 @@ function PrDetailLoaded(props: {
                 }
               >
                 <PrTabs
-                  tab={props.tab}
+                  available={available}
+                  tab={shownTab}
                   onTab={props.onTab}
                   onScroll={onScroll}
                   readable={readable}
                   // Finish review stays in reach once the header (with its Review) scrolls away.
                   pinned={{ code: <PrReviewButton finish /> }}
                   counts={{
-                    timeline: detail.status.comments.length,
-                    code: detail.changedFiles,
+                    ...(can(detail, "reviews.comments.read")
+                      ? { timeline: detail.status.comments.length }
+                      : {}),
+                    ...(knownFileCount(detail) === null ? {} : { code: detail.changedFiles }),
                     checks: detail.status.checks.length,
                   }}
                   context={{
@@ -314,7 +347,9 @@ function PrDetailLoaded(props: {
                     summary: props.page ? null : <SummaryContext detail={detail} />,
                     timeline: (
                       <div className="flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums">
-                        <span>{counted(detail.status.comments.length, "comment")}</span>
+                        {can(detail, "reviews.comments.read") && (
+                          <span>{counted(detail.status.comments.length, "comment")}</span>
+                        )}
                         <span aria-hidden className="text-subtle-foreground">
                           ·
                         </span>

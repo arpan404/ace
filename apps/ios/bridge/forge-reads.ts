@@ -8,6 +8,8 @@ import {
   type ForgeIssueSearch,
   type ForgePrList,
   type ForgePrSearch,
+  type ForgeRepository,
+  type ProjectRepositories,
 } from "@ace/protocol";
 import { linkedWork, type LinkedThreads } from "@ace/ui-core";
 
@@ -36,6 +38,9 @@ type Operation = ForgeBrowserOperation extends infer Each
     ? Omit<Each, "workspaceId"> & { workspaceId: string }
     : never
   : never;
+
+/** A read of one of the project's repositories names it; none reads the primary. */
+const on = (repository: ForgeRepository | undefined) => (repository ? { repository } : {});
 
 /** How long a list page is answered from memory. */
 export const listFreshMs = 30_000;
@@ -111,18 +116,33 @@ export class ForgeReads {
     return reply.result.data;
   }
 
-  async prPage(project: string, query: ForgePrSearch, page: number): Promise<ForgePrList> {
+  async prPage(
+    project: string,
+    query: ForgePrSearch,
+    page: number,
+    repository?: ForgeRepository,
+  ): Promise<ForgePrList> {
     const value = await this.read(
-      { op: "forge.pr.list", workspaceId: project, query: { ...query, page } },
+      { op: "forge.pr.list", workspaceId: project, ...on(repository), query: { ...query, page } },
       true,
     );
     if (value.resource !== "prList") throw new ForgeRefusal("forge_invalid_data");
     return value.value;
   }
 
-  async issuePage(project: string, query: ForgeIssueSearch, page: number): Promise<ForgeIssueList> {
+  async issuePage(
+    project: string,
+    query: ForgeIssueSearch,
+    page: number,
+    repository?: ForgeRepository,
+  ): Promise<ForgeIssueList> {
     const value = await this.read(
-      { op: "forge.issue.list", workspaceId: project, query: { ...query, page } },
+      {
+        op: "forge.issue.list",
+        workspaceId: project,
+        ...on(repository),
+        query: { ...query, page },
+      },
       true,
     );
     if (value.resource !== "issueList") throw new ForgeRefusal("forge_invalid_data");
@@ -132,13 +152,21 @@ export class ForgeReads {
   async groupCounts(
     project: string,
     grouping: ForgeGroupCounting,
+    repository?: ForgeRepository,
   ): Promise<Record<string, number>> {
     const value = await this.read(
-      { op: "forge.group-counts", workspaceId: project, grouping },
+      { op: "forge.group-counts", workspaceId: project, ...on(repository), grouping },
       true,
     );
     if (value.resource !== "groupCounts") throw new ForgeRefusal("forge_invalid_data");
     return value.counts;
+  }
+
+  /** Every repository the project lists (ADR 0116), read from its checkout: no host request. */
+  async repositories(project: string): Promise<ProjectRepositories> {
+    const value = await this.read({ op: "forge.repositories", workspaceId: project }, true);
+    if (value.resource !== "repositories") throw new ForgeRefusal("forge_invalid_data");
+    return value.value;
   }
 
   /** Which PRs and issues this runtime's threads are linked to, as the web's rows name them. */
