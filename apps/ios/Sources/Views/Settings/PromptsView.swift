@@ -118,6 +118,8 @@ private struct PromptEditor: View {
     /// The operation that last failed, so Retry repeats it instead of guessing from `loaded`.
     @State private var failure: PromptFailure?
     @State private var saved = false
+    /// Asking before a conflict's reload replaces the person's unsaved edits.
+    @State private var replacing = false
     var body: some View {
         Form {
             Group {
@@ -130,7 +132,7 @@ private struct PromptEditor: View {
                     if let retried = failure.retry {
                         Button("Retry") { Task { await retry(retried) } }.buttonStyle(.textAction()).disabled(busy)
                     } else {
-                        Button("Reload from machine") { Task { await reload() } }.buttonStyle(.textAction()).disabled(busy)
+                        Button("Reload from machine") { replacing = true }.buttonStyle(.textAction()).disabled(busy)
                     }
                 }
                 if draft.reloadAvailable && failure != .conflict {
@@ -145,6 +147,10 @@ private struct PromptEditor: View {
         .insetGroupedList()
         .navigationTitle(file?.title ?? "New prompt").navigationBarTitleDisplayMode(.inline)
         .readWhenConnected(model) { await read() }
+        .confirmationDialog("Replace your edits with the machine's copy?", isPresented: $replacing, titleVisibility: .visible) {
+            Button("Replace my edits", role: .destructive) { Task { await reload() } }
+            Button("Keep editing", role: .cancel) {}
+        } message: { Text("The prompt changed on the machine. Copy anything you want to keep first.") }
         .onChange(of: draft.text) { saved = false }
     }
     private var scope: Any {
