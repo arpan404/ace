@@ -429,9 +429,9 @@ async fn run_tools(
                 finish_tool(engine, id, reply, &call, &name, started);
                 continue;
             }
-            let engine = engine.clone();
+            let (engine, id) = (engine.clone(), id.to_owned());
             running.push(async move {
-                let output = run_one(&engine, &call.id, &name, arguments).await;
+                let output = run_one(&engine, &id, &call.id, &name, arguments).await;
                 (call, name, output)
             });
         }
@@ -451,7 +451,13 @@ async fn run_tools(
     }
 }
 
-async fn run_one(engine: &Arc<Engine>, call_id: &str, name: &str, arguments: Value) -> ToolOutput {
+async fn run_one(
+    engine: &Arc<Engine>,
+    id: &str,
+    call_id: &str,
+    name: &str,
+    arguments: Value,
+) -> ToolOutput {
     if name == TOOL_SEARCH {
         let query = arguments.get("query").and_then(Value::as_str).unwrap_or("");
         let registry = engine.tools.registry();
@@ -461,7 +467,9 @@ async fn run_one(engine: &Arc<Engine>, call_id: &str, name: &str, arguments: Val
     let Some(tool) = engine.tools.get(name) else {
         return ToolOutput::error(format!("There is no tool named {name}."));
     };
-    match tokio::time::timeout(engine.limits.tool_timeout, tool.run(call_id, arguments)).await {
+    // Unique across conversations, and the same on every retry of this call.
+    let key = format!("{id}.{call_id}");
+    match tokio::time::timeout(engine.limits.tool_timeout, tool.run(&key, arguments)).await {
         Ok(output) => output,
         Err(_) => ToolOutput::error(format!(
             "{name} did not finish within {} seconds.",

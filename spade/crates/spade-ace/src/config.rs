@@ -54,6 +54,13 @@ impl ToolsConfig {
     pub fn timeout(&self) -> Duration {
         self.timeout
     }
+
+    /// The same endpoint and bearer, with calls allowed `timeout`; ace's `wait` can take minutes.
+    #[must_use]
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
 }
 
 /// The daemon's loopback WebSocket and its local token.

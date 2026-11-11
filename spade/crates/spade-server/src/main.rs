@@ -120,7 +120,9 @@ async fn run() -> Result<(), Failure> {
         core.push(Arc::new(SkillSearch(library.clone())));
         core.push(Arc::new(SkillLoad(library.clone())));
         skills = Some(library);
-        source = Some(AceSource::start(Arc::new(AceTools::new(ace.tools))));
+        // ace's `wait` can block for up to ten minutes; the engine's own limits still apply.
+        let tools = ace.tools.with_timeout(Duration::from_secs(11 * 60));
+        source = Some(AceSource::start(Arc::new(AceTools::new(tools))));
     }
     let mut tools = Toolbox::new(core);
     if let Some(source) = source {

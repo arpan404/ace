@@ -51,6 +51,28 @@ pub fn def(tool: &AceTool) -> ToolDef {
     }
 }
 
+/// Gives each task of a `delegate` call a request id derived from the call's key, unless the
+/// model chose one. ace returns the same child for a repeated request id, so a retried call,
+/// even after a restart, never starts a second agent.
+pub fn with_request_ids(name: &str, key: &str, mut arguments: Value) -> Value {
+    if name != "delegate" {
+        return arguments;
+    }
+    if let Some(tasks) = arguments.get_mut("tasks").and_then(Value::as_array_mut) {
+        for (index, task) in tasks.iter_mut().enumerate() {
+            if let Some(task) = task.as_object_mut()
+                && !task.contains_key("requestId")
+            {
+                task.insert(
+                    "requestId".to_owned(),
+                    Value::String(format!("{key}.{index}")),
+                );
+            }
+        }
+    }
+    arguments
+}
+
 /// What a call's answer tells the model.
 pub fn output(result: Result<AceToolResult, ToolsError>) -> ToolOutput {
     match result {
@@ -159,8 +181,9 @@ impl Tool for AceCall {
         self.def.clone()
     }
 
-    fn run(&self, _call_id: &str, arguments: Value) -> ToolFuture {
+    fn run(&self, key: &str, arguments: Value) -> ToolFuture {
         let (client, name) = (self.client.clone(), self.def.spec.name.clone());
+        let arguments = with_request_ids(&name, key, arguments);
         Box::pin(async move { output(client.call(&name, arguments).await) })
     }
 }
@@ -193,6 +216,25 @@ mod tests {
         assert_eq!(
             def(&tool("delete", AceRisk::Destructive)).risk,
             Risk::Destructive
+        );
+    }
+
+    #[test]
+    fn each_delegated_task_gets_a_stable_request_id_unless_the_model_gave_one() {
+        let arguments = json!({ "tasks": [
+            { "task": "fix the bug", "role": "Fix-bug" },
+            { "task": "write docs", "role": "Docs", "requestId": "mine" }
+        ]});
+        let keyed = with_request_ids("delegate", "c_1.call_7", arguments.clone());
+        assert_eq!(keyed["tasks"][0]["requestId"], "c_1.call_7.0");
+        assert_eq!(keyed["tasks"][1]["requestId"], "mine");
+        assert_eq!(
+            with_request_ids("delegate", "c_1.call_7", arguments.clone()),
+            keyed
+        );
+        assert_eq!(
+            with_request_ids("thread_start", "c_1.call_7", arguments.clone()),
+            arguments
         );
     }
 
