@@ -1,6 +1,6 @@
 # 0126: Spade is a set of agents, each with one conversation, on models the person picks
 
-Status: accepted. Date: 2026-11-11. Decided by: the owner (2026-11-11: "one agent has one
+Status: accepted. Date: 2026-11-11. Decisions 1 to 3 amended by [ADR 0127](0127-spade-main-bot-and-chat.md). Decided by: the owner (2026-11-11: "one agent has one
 conversation and we should be able to have multiple agents on one computer. When the user first
 sees it, they create an agent: name, task/description and avatar", and "I should be able to choose
 the model properly instead of predefined" ones). Builds on [ADR 0119](0119-spade-endpoint-keys.md)
