@@ -2,6 +2,8 @@ import type { ClientApi } from "@ace/client";
 import { expect, test } from "vitest";
 import { ConversationFollow } from "./conversation-follow.ts";
 
+const selection = <T>(value: T) => ({ getSnapshot: () => value, subscribe: () => () => {} });
+
 /**
  * A ready connection whose `spade.http` history reads wait until the test answers them, and
  * which records every one-way message the follow sends.
@@ -9,7 +11,6 @@ import { ConversationFollow } from "./conversation-follow.ts";
 function fakeClient() {
   const sent: { type: string; requestId?: string; path?: string }[] = [];
   const reads: ((body: string) => void)[] = [];
-  const selection = <T>(value: T) => ({ getSnapshot: () => value, subscribe: () => () => {} });
   const client = {
     state: "ready",
     connectionState: () => selection("ready"),
