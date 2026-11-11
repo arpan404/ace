@@ -81,7 +81,7 @@ function Row(props: { bot: RosterBot; current: boolean; now: number }) {
     <Link
       to="/spade/$agentId"
       params={{ agentId: bot.id }}
-      search={bot.machine.primary ? {} : { machine: bot.machine.key }}
+      search={bot.machine.primary ? {} : { on: bot.machine.key }}
       aria-current={props.current ? "page" : undefined}
       data-panel-row=""
       className="flex h-14 w-full min-w-0 items-center gap-2.5 rounded-md px-2.5 text-left transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-hover aria-[current=page]:bg-active"

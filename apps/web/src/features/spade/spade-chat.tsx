@@ -7,13 +7,13 @@ import {
   type SpadeImageRef,
   type SpadeView,
 } from "@ace/ui-core/spade-chat";
-import { useClient } from "@ace/client-react";
 import { memo, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
 import { SpadeFace } from "./spade-face.tsx";
 import { holdSpadePicture } from "./spade-images.ts";
+import { useSpadeClient } from "./spade-machine.tsx";
 
 /** The bot whose conversation this is, and the faces of other bots that write into it. */
 export interface ChatBot {
@@ -220,7 +220,7 @@ function SentImages(props: { images: readonly SpadeImageRef[] }) {
 }
 
 function SentImage(props: { hash: string }) {
-  const client = useClient();
+  const client = useSpadeClient();
   const [shown, setShown] = useState<{ hash: string; url?: string; failed?: true }>();
   useEffect(() => {
     let live = true;

@@ -1,12 +1,12 @@
-import { useClient } from "@ace/client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/components/ui/toast.tsx";
 import { deleteAgent } from "./spade-api.ts";
 import { agentsKey } from "./use-spade-roster.ts";
+import { useSpadeClient } from "./spade-machine.tsx";
 
 /** Deletes a bot on the machine in scope; resolves whether it went, and says why it didn't. */
 export function useDeleteBot() {
-  const client = useClient();
+  const client = useSpadeClient();
   const cache = useQueryClient();
   const toast = useToast();
   return async (bot: { id: string; name: string }): Promise<boolean> => {

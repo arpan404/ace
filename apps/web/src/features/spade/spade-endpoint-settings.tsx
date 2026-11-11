@@ -1,4 +1,3 @@
-import { useClient } from "@ace/client-react";
 import { spadeFormatNames, spadeModelFacts, type SpadeEndpoint } from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
@@ -8,6 +7,7 @@ import { Input } from "@/components/ui/input.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { removeEndpoint, removeKey, removeModel, saveModel, setKey } from "./spade-api.ts";
 import { modelsKey } from "./use-spade-models.ts";
+import { useSpadeClient } from "./spade-machine.tsx";
 
 const fault = (error: unknown) => (error instanceof Error ? error.message : "Try again.");
 
@@ -18,7 +18,7 @@ const fault = (error: unknown) => (error instanceof Error ? error.message : "Try
  */
 export function EndpointSection(props: { endpoint: SpadeEndpoint; keychain: boolean }) {
   const { endpoint } = props;
-  const client = useClient();
+  const client = useSpadeClient();
   const cache = useQueryClient();
   const toast = useToast();
   const [refusal, setRefusal] = useState<string>();
@@ -64,7 +64,12 @@ export function EndpointSection(props: { endpoint: SpadeEndpoint; keychain: bool
           density="compact"
           inline
         >
-          <Button size="sm" variant="ghost" onClick={() => void dropModel(model.id)}>
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-label={`Remove ${model.name}`}
+            onClick={() => void dropModel(model.id)}
+          >
             Remove
           </Button>
         </SettingRow>
@@ -88,6 +93,7 @@ export function EndpointSection(props: { endpoint: SpadeEndpoint; keychain: bool
           size="sm"
           variant="ghost"
           tone="danger"
+          aria-label={`Remove ${endpoint.name}`}
           disabled={removing}
           onClick={() => void remove()}
         >
@@ -100,7 +106,7 @@ export function EndpointSection(props: { endpoint: SpadeEndpoint; keychain: bool
 
 /** Saves a model id the endpoint serves, typed in, so it is offered first. */
 function AddModelRow(props: { endpoint: SpadeEndpoint }) {
-  const client = useClient();
+  const client = useSpadeClient();
   const cache = useQueryClient();
   const toast = useToast();
   const field = useId();
@@ -152,7 +158,7 @@ function AddModelRow(props: { endpoint: SpadeEndpoint }) {
  */
 function KeyRow(props: { endpoint: SpadeEndpoint; keychain: boolean }) {
   const { endpoint } = props;
-  const client = useClient();
+  const client = useSpadeClient();
   const cache = useQueryClient();
   const toast = useToast();
   const field = useId();

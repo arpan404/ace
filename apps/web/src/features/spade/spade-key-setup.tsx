@@ -1,4 +1,3 @@
-import { useClient } from "@ace/client-react";
 import { spadeHasUsableEndpoint } from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -8,6 +7,7 @@ import { Input } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { addEndpoint, setKey } from "./spade-api.ts";
 import { modelsKey, useSpadeModels } from "./use-spade-models.ts";
+import { useSpadeClient } from "./spade-machine.tsx";
 
 /**
  * While none of the person's endpoints can be used (each needs a key and has none), Spade can't
@@ -15,7 +15,7 @@ import { modelsKey, useSpadeModels } from "./use-spade-models.ts";
  * here, or Settings for anything more. The key goes to Spade in one request and the field empties.
  */
 export function SpadeKeySetup() {
-  const client = useClient();
+  const client = useSpadeClient();
   const cache = useQueryClient();
   const models = useSpadeModels(true);
   const field = useId();

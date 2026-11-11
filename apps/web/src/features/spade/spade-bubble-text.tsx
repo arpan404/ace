@@ -59,7 +59,7 @@ function Inlines(props: { inlines: readonly SpadeInline[] }) {
         );
       case "code":
         return (
-          <code key={index} className="rounded-xs bg-fill-strong px-1 font-mono text-[0.87em]">
+          <code key={index} className="rounded-xs bg-fill-strong px-1 font-mono text-ui">
             {inline.text}
           </code>
         );

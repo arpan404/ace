@@ -1,9 +1,9 @@
-import { useClient } from "@ace/client-react";
 import { spadeAvatarFill, type SpadeAvatar } from "@ace/ui-core/spade-chat";
 import { useEffect, useState } from "react";
 import { SpadeMark } from "@/components/spade-mark.tsx";
 import { cn } from "@/lib/cn.ts";
 import { holdSpadePicture } from "./spade-images.ts";
+import { useSpadeClient } from "./spade-machine.tsx";
 
 /**
  * A bot's face (ADR 0127): the Spade mark for Spade itself, else the person's uploaded picture or
@@ -63,7 +63,7 @@ export function SpadeFace(props: {
 
 /** An uploaded face, read once from Spade and held while shown. */
 function Picture(props: { hash: string }) {
-  const client = useClient();
+  const client = useSpadeClient();
   const [url, setUrl] = useState<string>();
   useEffect(() => {
     const held = holdSpadePicture(client, props.hash);

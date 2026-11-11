@@ -1,4 +1,3 @@
-import { useClient } from "@ace/client-react";
 import {
   spadeFormatNames,
   spadeFormats,
@@ -20,6 +19,7 @@ import { Input, Textarea } from "@/components/ui/input.tsx";
 import { Select, type SelectOption } from "@/components/ui/select.tsx";
 import { addEndpoint } from "./spade-api.ts";
 import { modelsKey } from "./use-spade-models.ts";
+import { useSpadeClient } from "./spade-machine.tsx";
 
 /** `Name: value` lines as headers; a line without a colon is left out. */
 export function parseHeaderLines(text: string): Record<string, string> {
@@ -63,7 +63,7 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
     headers: useId(),
     session: useId(),
   };
-  const client = useClient();
+  const client = useSpadeClient();
   const cache = useQueryClient();
   const [from, setFrom] = useState(custom);
   const [name, setName] = useState("");

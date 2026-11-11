@@ -1,4 +1,3 @@
-import { useClient } from "@ace/client-react";
 import { spadeStateLine, type SpadeModels } from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
@@ -14,6 +13,7 @@ import { EndpointSection } from "./spade-endpoint-settings.tsx";
 import { useSpadeEnabled } from "./use-spade-enabled.ts";
 import { modelsKey, useSpadeModels } from "./use-spade-models.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
+import { useSpadeClient } from "./spade-machine.tsx";
 
 /**
  * Settings › Spade: on or off and its state; the fast model; then each of the person's model
@@ -82,7 +82,7 @@ const ownModel = "own";
 
 /** The fast model: titles and other small jobs; each bot's own model when none is set. */
 function FastModelRow(props: { models: SpadeModels }) {
-  const client = useClient();
+  const client = useSpadeClient();
   const cache = useQueryClient();
   const toast = useToast();
   const id = useId();

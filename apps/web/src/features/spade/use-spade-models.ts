@@ -1,7 +1,7 @@
 import { mergeSpadeModels, type SpadeEndpoint } from "@ace/ui-core/spade-chat";
-import { useDaemonQuery } from "@/lib/daemon-query.ts";
+import { useQuery } from "@tanstack/react-query";
 import { readLiveModels, readModels } from "./spade-api.ts";
-import { useSpadeMachine } from "./spade-machine.tsx";
+import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 
 /** Every Spade models read; one machine's under `[...modelsKey, machine key]`. */
 export const modelsKey = ["spade", "models"] as const;
@@ -9,9 +9,10 @@ export const modelsKey = ["spade", "models"] as const;
 /** The person's endpoints, presets and fast model, on the machine in scope. */
 export function useSpadeModels(ready: boolean) {
   const machine = useSpadeMachine().key;
-  return useDaemonQuery({
+  const client = useSpadeClient();
+  return useQuery({
     queryKey: [...modelsKey, machine],
-    read: (client, signal) => readModels(client, { signal }),
+    queryFn: ({ signal }) => readModels(client, { signal }),
     enabled: ready,
   });
 }
@@ -22,9 +23,10 @@ export function useSpadeModels(ready: boolean) {
  */
 export function useEndpointModels(endpoint: SpadeEndpoint | undefined) {
   const machine = useSpadeMachine().key;
-  const live = useDaemonQuery({
+  const client = useSpadeClient();
+  const live = useQuery({
     queryKey: [...modelsKey, machine, "live", endpoint?.id ?? ""],
-    read: (client, signal) => readLiveModels(client, endpoint?.id ?? "", { signal }),
+    queryFn: ({ signal }) => readLiveModels(client, endpoint?.id ?? "", { signal }),
     enabled: endpoint !== undefined && (!endpoint.needsKey || endpoint.keySet),
     staleTime: 60_000,
     retry: false,

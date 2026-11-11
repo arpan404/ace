@@ -1,4 +1,3 @@
-import { useClient } from "@ace/client-react";
 import { spadeAgentNameMax, spadeAgentTaskMax } from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -16,7 +15,7 @@ import { Input, Textarea } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { createAgent, editAgent, type SpadeAgentDraft } from "./spade-api.ts";
 import { AvatarChoice, type AvatarDraft } from "./spade-avatar-choice.tsx";
-import { SpadeMachineScope, spadeMachineKey } from "./spade-machine.tsx";
+import { SpadeMachineScope, spadeMachineKey, useSpadeClient } from "./spade-machine.tsx";
 import { SpadeModelPicker } from "./spade-model-picker.tsx";
 import { agentsKey, type RosterBot, type SpadeHost } from "./use-spade-roster.ts";
 
@@ -71,7 +70,7 @@ export function NewBotDialog(props: { hosts: readonly SpadeHost[]; onClose(): vo
       void navigate({
         to: "/spade/$agentId",
         params: { agentId: agent.id },
-        search: host.spade.primary ? {} : { machine: host.spade.key },
+        search: host.spade.primary ? {} : { on: host.spade.key },
       });
     } catch (error) {
       setProblem(fault(error));
@@ -159,7 +158,7 @@ export function NewBotDialog(props: { hosts: readonly SpadeHost[]; onClose(): vo
 export function EditBotDialog(props: { bot: RosterBot; onClose(): void }) {
   const { bot } = props;
   const ids = { name: useId(), task: useId(), model: useId() };
-  const client = useClient();
+  const client = useSpadeClient();
   const cache = useQueryClient();
   const main = bot.kind === "main";
   const [name, setName] = useState(bot.name);

@@ -74,7 +74,7 @@ export function SpadeHomeScreen() {
       <Navigate
         to="/spade/$agentId"
         params={{ agentId: main.id }}
-        search={main.machine.primary ? {} : { machine: main.machine.key }}
+        search={main.machine.primary ? {} : { on: main.machine.key }}
         replace
       />
     );
@@ -95,7 +95,7 @@ export function SpadeHomeScreen() {
   );
 }
 
-/** `/spade/<agent id>` (with `machine` when the bot runs on another machine): its conversation. */
+/** `/spade/<agent id>` (with `on` when the bot runs on another machine): its conversation. */
 export function SpadeAgentScreen(props: { agentId: string; machine: string | undefined }) {
   const line = useSpadeLine();
   const roster = useSpadeRoster(line.ready);
