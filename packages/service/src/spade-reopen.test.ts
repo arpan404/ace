@@ -1,12 +1,14 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { expect, test } from "vitest";
 import { withInstallLock } from "./files.ts";
 import type { Runner } from "./process.ts";
 import { spadeServicePlan } from "./spade-plan.ts";
-import { spadeProof } from "./spade-proof.ts";
 import { reopenSpadeAdmission } from "./spade-update.ts";
+import { spadeProof } from "./spade/proof.ts";
 
 const token = "t".repeat(32);
 
@@ -17,9 +19,24 @@ async function setup(onTestFinished: (fn: () => Promise<void>) => void, state: s
   const home = join(root, ".ace");
   await mkdir(join(home, "spade"), { recursive: true });
   await writeFile(join(home, "spade/token"), token);
+  const sent: string[] = [];
+  // Spade's HTTP API on loopback: /health answers with the proof, the rest is recorded.
+  const server = createServer((request, response) => {
+    const at = new URL(request.url ?? "/", "http://spade");
+    if (at.pathname === "/health") {
+      const proof = spadeProof(token, at.searchParams.get("nonce") ?? "");
+      response.end(JSON.stringify({ ok: true, version: "0.4.0", api: 1, proof }));
+      return;
+    }
+    sent.push(`${request.method} ${at.pathname}`);
+    response.end(JSON.stringify({ admission: "open", running_turns: 0, running_jobs: 0 }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  onTestFinished(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  const { port } = server.address() as AddressInfo;
   await writeFile(
     join(home, "spade/server.json"),
-    JSON.stringify({ address: "127.0.0.1:4100", pid: 7 }),
+    JSON.stringify({ address: `127.0.0.1:${port}`, pid: 7, version: "0.4.0", api: 1 }),
   );
   const plan = spadeServicePlan(home, "darwin", { userHome: root, uid: 501 });
   await mkdir(dirname(plan.file), { recursive: true });
@@ -29,20 +46,10 @@ async function setup(onTestFinished: (fn: () => Promise<void>) => void, state: s
     stderr: "",
     stdout: `\tpath = ${plan.file}\n\tstate = ${state}\n\tprogram = ${plan.command[0]}\n\targuments = {\n\t\t${plan.command[0]}\n\t}\n`,
   });
-  const sent: string[] = [];
-  const fetcher = (async (url: string | URL | Request, init?: RequestInit) => {
-    const at = new URL(String(url));
-    if (at.pathname === "/health") {
-      const nonce = at.searchParams.get("nonce") ?? "";
-      return Response.json({ ok: true, version: "0.4.0", proof: spadeProof(token, nonce) });
-    }
-    sent.push(`${init?.method ?? "GET"} ${at.pathname}`);
-    return Response.json({ admission: "open", running_turns: 0, running_jobs: 0 });
-  }) as typeof fetch;
   const reopen = () =>
     reopenSpadeAdmission(home, {
       plan,
-      io: { fetch: fetcher, service: { run, wait: async () => {} } },
+      io: { service: { run, wait: async () => {} } },
     });
   return { home, sent, reopen };
 }

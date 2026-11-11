@@ -1,11 +1,12 @@
 import { existsSync } from "node:fs";
 import { copyFile, mkdir, open, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { z } from "zod";
 import { DatabaseSync, backup } from "@ace/provider-kit/sqlite";
 import { runProcess, type Runner } from "./process.ts";
 import { spadeBinaryName, type SpadeServicePlan } from "./spade-plan.ts";
-import { checkSpadeProof, newSpadeNonce } from "./spade-proof.ts";
+import { proveSpade, spadeRequest, type SpadeConnection } from "./spade/client.ts";
+import { readSpadeServerFile, readSpadeTokenFile } from "./spade/endpoint.ts";
+import { newSpadeNonce } from "./spade/proof.ts";
 import { systemSpadePorts, type SpadeServicePorts } from "./spade-registration.ts";
 import {
   flipSpadeCurrent,
@@ -16,20 +17,6 @@ import {
 import { restartSpadeService, spadeServiceState, stopSpadeService } from "./spade-service.ts";
 import { SpadeMaintenance, type SpadeSwapPorts } from "./spade-swap.ts";
 
-/** Spade's `server.json`: where it listens and which process, written once it is ready. */
-const SpadeServer = z.object({
-  address: z.string().regex(/^127\.0\.0\.1:\d{1,5}$/),
-  pid: z.number().int().positive().optional(),
-  version: z.string().max(80).optional(),
-});
-const SpadeHealth = z.object({
-  ok: z.literal(true),
-  version: z.string().max(80),
-  proof: z.string().max(128).optional(),
-});
-/** The token file's contents, which are both the bearer and the proof's key. */
-const Token = z.string().min(16).max(512).regex(/^\S+$/);
-
 export interface SpadeSwapIo {
   home: string;
   plan: SpadeServicePlan;
@@ -37,7 +24,6 @@ export interface SpadeSwapIo {
   source: string;
   version: string;
   run?: Runner;
-  fetch?: typeof fetch;
   service?: SpadeServicePorts;
   nonce?: () => string;
   now?: () => number;
@@ -47,45 +33,43 @@ export interface SpadeSwapIo {
 export function localSpadeSwapPorts(io: SpadeSwapIo): SpadeSwapPorts {
   const { home, plan, source, version } = io;
   const run = io.run ?? runProcess;
-  const send = io.fetch ?? fetch;
   const service = io.service ?? systemSpadePorts;
   const nonce = io.nonce ?? newSpadeNonce;
   const dataDir = join(home, "spade");
   const database = join(dataDir, "spade.sqlite");
   const snapshotDir = join(home, ".spade-update-snapshot");
   const checkDir = join(home, ".spade-migration-check");
+  /** Where Spade says it listens (`server.json`) and the token it wrote, read afresh each time. */
   const endpoint = async () => {
-    const server = SpadeServer.parse(
-      JSON.parse(await readFile(join(dataDir, "server.json"), "utf8")),
-    );
-    return { ...server, token: Token.parse(await readFile(join(dataDir, "token"), "utf8")) };
+    const server = readSpadeServerFile(await readFile(join(dataDir, "server.json"), "utf8"));
+    if (!server.ok) throw new Error(`Spade's server.json is ${server.reason.replace("_", " ")}`);
+    const token = readSpadeTokenFile(await readFile(join(dataDir, "token"), "utf8"));
+    if (token === undefined) throw new Error("Spade's token file is unreadable");
+    const { host, port, pid } = server.endpoint;
+    const connection: SpadeConnection = { host, port, token };
+    return { connection, pid };
   };
-  /** Spade's health at `address`, believed only with the proof that it holds `token`. */
-  const proven = async (address: string, token: string) => {
-    const challenge = nonce();
-    const response = await send(`http://${address}/health?nonce=${challenge}`, {
-      signal: AbortSignal.timeout(2_000),
-    });
-    const health = SpadeHealth.parse(await response.json());
-    return checkSpadeProof(token, challenge, health.proof) ? health : undefined;
-  };
+  const proven = (connection: SpadeConnection) =>
+    proveSpade(connection, nonce(), AbortSignal.timeout(2_000));
   const request = async (method: string, path: string, body?: unknown) => {
-    const { address, token } = await endpoint();
+    const { connection } = await endpoint();
     // The token goes only to the Spade that proves it already holds it.
-    if (!(await proven(address, token)))
-      throw new Error(`The process at ${address} isn't Spade: it didn't prove its token`);
-    const response = await send(`http://${address}${path}`, {
-      method,
-      headers: {
-        authorization: `Bearer ${token}`,
-        ...(body === undefined ? {} : { "content-type": "application/json" }),
+    if (!(await proven(connection)))
+      throw new Error(`The process at port ${connection.port} isn't Spade: no proof of its token`);
+    const answer = await spadeRequest(
+      connection,
+      {
+        method,
+        path,
+        ...(body === undefined ? {} : { body: Buffer.from(JSON.stringify(body)) }),
       },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      signal: AbortSignal.timeout(10_000),
-    });
-    const text = await response.text();
-    if (!response.ok) throw new Error(`Spade answered ${response.status} to ${method} ${path}`);
-    return text;
+      { signal: AbortSignal.timeout(10_000), maxBytes: 64 * 1024 },
+    );
+    if (answer.kind !== "response" || answer.status < 200 || answer.status > 299)
+      throw new Error(
+        `Spade answered ${answer.kind === "response" ? answer.status : "too much"} to ${method} ${path}`,
+      );
+    return answer.body.toString("utf8");
   };
   const status = async () =>
     SpadeMaintenance.parse(JSON.parse(await request("GET", "/v1/maintenance")));
@@ -157,9 +141,9 @@ export function localSpadeSwapPorts(io: SpadeSwapIo): SpadeSwapPorts {
       // A restart writes a new token, port and pid, so all three are read again on every try.
       for (let attempt = 0; attempt < 60; attempt++) {
         try {
-          const { address, pid, token } = await endpoint();
-          if (pid !== undefined && pid !== oldPid) {
-            const health = await proven(address, token);
+          const { connection, pid } = await endpoint();
+          if (pid !== oldPid) {
+            const health = await proven(connection);
             if (health?.version === target) return true;
           }
         } catch {}
