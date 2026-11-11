@@ -6,6 +6,9 @@ struct ReviewReplyDraft {
     private(set) var pending = false
     private var submitted = ""
 
+    /// Written out: a private stored property makes the memberwise initializer private too.
+    init(text: String = "") { self.text = text }
+
     var tooLong: Bool { text.utf16.count > 4096 }
     var canSubmit: Bool { !pending && !tooLong && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
