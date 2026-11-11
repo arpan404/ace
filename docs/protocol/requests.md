@@ -1428,7 +1428,7 @@ Example:
 
 ```json
 {
-  "key": "threads.unresponsiveAfter",
+  "key": "threads.settleOnMerge",
   "requestId": "example",
   "scope": {},
   "type": "settings.get"
@@ -1519,7 +1519,7 @@ Example:
 ```json
 {
   "keys": [
-    "remote.transferIgnoredFiles"
+    "remote.hostedPairingLink"
   ],
   "requestId": "example",
   "scope": {

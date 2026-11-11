@@ -12,8 +12,9 @@ export interface AccessRequestInput {
   /** Null: unverified (DCR). */
   domain: string | null;
   scopes: readonly OutsideScope[];
-  /** Set for a step-up on an existing grant. */
-  grantId?: string;
+  /** Where the code goes if approved (`redirectTarget`), so the person can judge it. */
+  redirectHost: string;
+  redirectKind: "web" | "this-device";
 }
 /**
  * How a request ended: the person's choice and the admin device that made it (the grant's
@@ -61,7 +62,8 @@ export class AccessRequests {
       scopes: [...input.scopes],
       matchCode: this.matchCode(),
       expiresAt: this.options.now() + ttl,
-      ...(input.grantId ? { grantId: input.grantId } : {}),
+      redirectHost: input.redirectHost,
+      redirectKind: input.redirectKind,
     };
     const settled = Promise.withResolvers<AccessOutcome>();
     const entry: Pending = {

@@ -117,6 +117,44 @@ provider credential is read or persisted.
 The snippets use [Claude HTTP MCP configuration](https://code.claude.com/docs/en/mcp)
 and [Codex HTTP MCP configuration](https://developers.openai.com/codex/mcp).
 
+Clients that sign in by themselves use OAuth instead of a pasted token. Each way in
+serves the MCP endpoint at `<base>/mcp` and is its own authorization server (issuer
+`<base>`): protected-resource metadata at `/.well-known/oauth-protected-resource/mcp`
+(path inserted before the resource path, as the 401's `resource_metadata` names it),
+authorization-server metadata at `/.well-known/oauth-authorization-server`, and
+`/authorize`, `/token` and `/register`. Codes need PKCE S256, last 60 seconds and work
+once; refresh tokens rotate. `resource` must name that base's MCP URL, and a token
+works only there: one issued at the relay is refused at Tailscale or on loopback.
+Clients with an HTTPS `client_id` (a metadata document) are fetched by the daemon from
+public addresses only and shown with their domain; clients registered through
+`/register` are shown as unverified and expire after a day unless approved. Redirects
+may be HTTPS, `http://localhost`/`127.0.0.1` (a registration without a port allows any
+port) or an app's own scheme such as `cursor://`; the person approving is shown where the
+code goes, with a warning when it goes to an app on the signing-in device. The sign-in
+page decides nothing: it shows the client, what it asks for and a match code, and the
+person approves in ace (`outside.request` `decide`). Every sign-in makes its own grant; a
+client that needs more scopes signs in again, and an existing grant widens only when the
+person edits it in ace.
+
+The ways in, each listed with its URL by `outside.request` `endpoints`:
+
+| Path      | Setting               | URL                                                                                         |
+| --------- | --------------------- | ------------------------------------------------------------------------------------------- |
+| local     | always on             | `http://127.0.0.1:<port>/mcp`                                                               |
+| tailscale | `remote.tailscaleMcp` | `https://<machine>.<tailnet>.ts.net:<port>/mcp`, while Tailscale has issued the certificate |
+| relay     | `remote.relayMcp`     | `https://relay.acehq.dev/m/<hostId>/mcp`, while signed in to ace's relay                    |
+| custom    | `remote.mcpPublicUrl` | `<your origin>/mcp`                                                                         |
+
+For the custom path, point Tailscale Funnel, a tunnel or a reverse proxy at the loopback
+endpoint (`http://127.0.0.1:<port>`, the port `ace mcp list` shows) and set
+`remote.mcpPublicUrl` to the public `https` origin, without a path. The proxy must end
+TLS and keep the original `Host` header: the daemon serves a loopback request as the
+custom URL only when its `Host` names that origin, and refuses unknown hosts. A proxy that
+rewrites `Host` to `127.0.0.1` doesn't work: a request carrying `Forwarded` or any
+`X-Forwarded-*` header is never served as the loopback endpoint, so pasted tokens stay
+usable from this computer only.
+For example, with Caddy: `ace.example.com { reverse_proxy 127.0.0.1:<port> }`.
+
 Login uses the reviewed supervised native CLI device/browser flow. Verification
 URLs and device codes go to stderr, or typed JSONL records. Providers without an
 SSH-compatible reviewed flow return needs-human with native terminal instructions.

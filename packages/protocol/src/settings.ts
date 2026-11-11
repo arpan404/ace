@@ -175,6 +175,43 @@ export const SettingsValues = z.object({
    * relay ends TLS and carries the requests in plain text; the daemon authorizes every one.
    */
   "remote.relayMcp": z.boolean(),
+  /**
+   * Whether outside MCP clients on the person's tailnet reach this machine at its ts.net name,
+   * on the Tailscale listener (ADR 0117). Off by default; serves only while Tailscale has issued
+   * the machine's HTTPS certificate.
+   */
+  "remote.tailscaleMcp": z.boolean(),
+  /**
+   * The person's own public HTTPS address for outside MCP clients (Tailscale Funnel, a tunnel or
+   * a reverse proxy to the loopback endpoint), or null (ADR 0117). An origin only: no path,
+   * query, fragment or credentials. Requests whose Host names it are accepted on the loopback
+   * endpoint.
+   */
+  "remote.mcpPublicUrl": z
+    .string()
+    .max(2048)
+    .refine((value) => {
+      try {
+        const url = new URL(value);
+        return (
+          url.protocol === "https:" &&
+          !url.username &&
+          !url.password &&
+          !url.search &&
+          !url.hash &&
+          url.pathname === "/" &&
+          !value.endsWith("/")
+        );
+      } catch {
+        return false;
+      }
+    }, "Use an https origin without a path, such as https://ace.example.com")
+    .meta({
+      "x-ace-constraint":
+        "Null, or an https origin without path, query, fragment, credentials or trailing slash.",
+      examples: [null, "https://ace.example.com"],
+    })
+    .nullable(),
   "remote.relayUrl": z
     .string()
     .max(2048)

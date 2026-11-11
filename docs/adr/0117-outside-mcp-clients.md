@@ -66,6 +66,10 @@ daemon decides that, the same way on every path.
   only, public addresses only, size and time capped, cached) and checks the redirect URI against
   it. DCR stays, for clients without CIMD: registrations are stored, and one never used for an
   approved grant expires after a day. Clients registered through DCR are shown as unverified.
+- Redirect URIs may be HTTPS, loopback HTTP, or a native app's private-use scheme (RFC 8252
+  §7.1, such as Cursor's `cursor://…`), because desktop clients register those and refusing them
+  locks those apps out; a private-use or loopback redirect reaches whatever app on the signing-in
+  device claims it, so ace tells the approver the code goes to an app on that device.
 - `ace mcp enroll` stays for terminal agents that take a pasted token, which the spec allows. It
   creates the same kind of grant, without OAuth.
 
@@ -109,8 +113,10 @@ protects this the same way it protects admin, because only an admin device can a
 | `computer`        | The screen tools                                            |
 
 - A client only sees tools its grant allows. Calling a tool it lacks returns HTTP 403 with
-  `insufficient_scope` and the needed scope, so a client can ask the person for more (step-up),
-  which goes through the same approval in ace.
+  `insufficient_scope` and the needed scope, so a client can ask the person for more. Asking
+  again is a new sign-in, approved in ace like the first, and makes a new grant: a metadata
+  document's client_id is shared by everyone using that app, so it can't say whose grant to
+  widen. An existing grant widens only when the person edits it in ace.
 - No grant can answer approvals or questions. Provider approvals stay provider-native, and the
   person answers them in ace.
 - Browser tabs a client opens belong to its grant (ADR 0104), are named after the client and close

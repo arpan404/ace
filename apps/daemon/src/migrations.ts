@@ -17,7 +17,7 @@ import {
 
 import { retiredWorkflowMigration } from "./retired-workflow-migration.ts";
 import { machineCodeTables } from "./account-access/tables.ts";
-import { outsideGrantTables } from "./external-mcp/tables.ts";
+import { outsideGrantTables, outsideOAuthTables } from "./external-mcp/tables.ts";
 
 const migrations = [
   `CREATE TABLE events (
@@ -177,6 +177,8 @@ const migrations = [
   `ALTER TABLE devices ADD COLUMN account_link TEXT;`,
   // Outside MCP clients' grants and hashed tokens (ADR 0117); none existed on disk before it.
   outsideGrantTables,
+  // Token pairs bound to the resource they were issued for, and DCR clients (ADR 0117).
+  outsideOAuthTables,
 ];
 /**
  * Oldest schema an existing database is upgraded from. Each step after it must carry the

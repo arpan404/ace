@@ -66,7 +66,20 @@ export const OutsideAccessRequest = z.object({
   scopes,
   matchCode: z.string().min(4).max(16),
   expiresAt: timestamp,
-  /** Set when an existing grant asks for more access (step-up). */
+  /**
+   * Where the code goes if the person approves: the redirect URI's host, or its scheme (such as
+   * `cursor:`) for an app's own. Absent from daemons before it.
+   */
+  redirectHost: z.string().min(1).max(253).optional(),
+  /**
+   * `web`: an HTTPS site. `this-device`: an app on whatever device the sign-in happens on (a
+   * localhost address or an app's own scheme), which nothing can vouch for; warn before approving.
+   */
+  redirectKind: z.enum(["web", "this-device"]).optional(),
+  /**
+   * Older daemons set this for a client that already had a grant. No longer sent: every sign-in
+   * makes its own grant, and a grant widens only when the person edits it in ace.
+   */
   grantId: grantId.optional(),
 });
 export type OutsideAccessRequest = z.infer<typeof OutsideAccessRequest>;

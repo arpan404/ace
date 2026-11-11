@@ -190,6 +190,11 @@ export function remoteRelays(deps: {
       const running = [...entries.values()].filter((entry) => entry.handle);
       return (running.find((entry) => entry.plan.chosen) ?? running[0])?.handle?.relayHostId;
     },
+    /** ace's relay while this machine is registered on it: its address and the host id. */
+    hosted(): { url: string; hostId: string } | undefined {
+      const entry = [...entries.values()].find((item) => item.plan.hosted && item.handle);
+      return entry?.handle ? { url: entry.plan.url, hostId: entry.handle.relayHostId } : undefined;
+    },
     /** Whether the person's own relay (not ace's) is running, for pairing links. */
     selfHosted(): boolean {
       return [...entries.values()].some((entry) => entry.handle && !entry.plan.hosted);

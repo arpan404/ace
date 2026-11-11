@@ -36,3 +36,17 @@ export const outsideGrantTables = `
     at INTEGER NOT NULL,
     PRIMARY KEY (grant_id, thread_id, kind)
   );`;
+/**
+ * OAuth sign-in for outside clients (ADR 0117): each token pair names the resource (MCP URL) it
+ * was issued for, and clients registered through DCR are kept until they expire unused. Only
+ * pasted tokens existed before this step, and they bind to no resource.
+ */
+export const outsideOAuthTables = `
+  ALTER TABLE outside_grant_tokens ADD COLUMN resource TEXT;
+  CREATE TABLE IF NOT EXISTS outside_oauth_clients (
+    client_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    redirect_uris TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    used_at INTEGER
+  );`;

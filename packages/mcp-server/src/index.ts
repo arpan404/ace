@@ -22,9 +22,11 @@ export {
 } from "./registry.ts";
 export { aceToolDispatch, aceToolSearch, bareToolName, toolNamePattern } from "./tool-names.ts";
 export {
+  nodeListener,
   startMcpServer,
   type McpServerOptions,
   type NotificationStreamLimits,
+  type ResourceFetch,
   type ScopeChallenge,
 } from "./http.ts";
 export { registerBuiltins, type McpIntentPort } from "./builtins.ts";

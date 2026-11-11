@@ -24,9 +24,9 @@ import type { CallToolResult } from "@modelcontextprotocol/server";
 import { createMetaRegistry, foundFamilies } from "./meta-tools.ts";
 import { PrincipalEventBus, listenStreamsPerLease } from "./principal-bus.ts";
 import { randomBytes } from "node:crypto";
-import { createServer, type IncomingMessage } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { CredentialRegistry, type Authenticator, type Principal } from "./credentials.ts";
-import { scopeRefusal, type ScopeChallenge } from "./scope-challenge.ts";
+import { bearerChallenge, scopeRefusal, type ScopeChallenge } from "./scope-challenge.ts";
 import {
   nodeScheduler,
   type CatalogTool,
@@ -36,6 +36,17 @@ import {
 } from "./registry.ts";
 
 export type { ScopeChallenge } from "./scope-challenge.ts";
+/**
+ * Serves one MCP request that arrived at `resource`, the MCP URL the client used (ADR 0117):
+ * the bearer must be valid there, a tool call outside its scope gets 403, and challenges name
+ * that resource. The caller has already checked how the request arrived (Host, Origin).
+ */
+export type ResourceFetch = (request: Request, resource: string) => Promise<Response>;
+/**
+ * The resource a request was authenticated at, from `serve` to the MCP handler inside. Always
+ * overwritten on the way in, so a client's own copy of the header never counts.
+ */
+const resourceHeader = "x-ace-mcp-resource";
 export interface McpServerOptions<A extends Authenticator = CredentialRegistry> {
   registry: ToolRegistry;
   status?: StatusReader;
@@ -49,6 +60,12 @@ export interface McpServerOptions<A extends Authenticator = CredentialRegistry> 
    * principal's scope doesn't cover is refused with 403 `insufficient_scope` before it runs.
    */
   challenge?: ScopeChallenge;
+  /**
+   * Set: the host serves every loopback request itself (ADR 0117). It checks Host and Origin,
+   * decides the resource URL the request arrived at, answers its own paths (OAuth) and hands
+   * MCP requests to `serve`. Unset: only `/mcp` on localhost Host and Origin is served.
+   */
+  loopback?: (request: Request, serve: ResourceFetch) => Promise<Response>;
   port?: number;
   /**
    * Set: when `port` is taken, listen on a free one instead and report the taken port.
@@ -117,6 +134,57 @@ export async function startMcpServer<A extends Authenticator = CredentialRegistr
   let runtime: Promise<Awaited<ReturnType<typeof createHandler>>> | undefined;
   const streams = { ...defaultStreamLimits, ...options.notificationStreams };
   const load = () => (runtime ??= createHandler(options, streams, credentials, status, awareness));
+  const maxBody = options.maxBodyBytes ?? 64 * 1024;
+  const serve: ResourceFetch = async (request, resource) => {
+    if (closing) return new Response(null, { status: 503 });
+    const { fetch } = await load();
+    const principal = credentials.authenticate(
+      bearer(request.headers.get("authorization") ?? undefined),
+      resource,
+    );
+    if (!principal)
+      return new Response(null, {
+        status: 401,
+        headers: {
+          "www-authenticate": bearerChallenge(options.challenge?.parameters?.(resource) ?? {}),
+        },
+      });
+    const headers = new Headers(request.headers);
+    headers.set(resourceHeader, resource);
+    const method = request.method;
+    let body: ReadableStream<Uint8Array> | string | null = request.body;
+    if (options.challenge && method === "POST") {
+      const checked = await scopeRefusal(
+        streamChunks(request.body),
+        principal,
+        options.challenge,
+        maxBody,
+        resource,
+      );
+      if (checked.kind === "refuse")
+        return new Response(checked.body, { status: checked.status, headers: checked.headers });
+      // A JSON-RPC body that passed the check: text, as the handler reads it.
+      body = checked.body.toString("utf8");
+    }
+    return fetch(
+      new Request(request.url, {
+        method,
+        headers,
+        signal: request.signal,
+        ...(method === "GET" || method === "HEAD" ? {} : { body, duplex: "half" }),
+      }),
+    );
+  };
+  let loopback: ReturnType<typeof import("@modelcontextprotocol/node").toNodeHandler> | undefined;
+  const loopbackHandler = async () => {
+    const host = options.loopback;
+    if (!host) return undefined;
+    const { toNodeHandler } = await import("@modelcontextprotocol/node");
+    return (loopback ??= toNodeHandler(
+      { fetch: (request: Request) => host(request, serve) },
+      { maxRequestBodySize: maxBody },
+    ));
+  };
   let active = 0;
   let closing = false;
   const http = createServer(
@@ -136,9 +204,10 @@ export async function startMcpServer<A extends Authenticator = CredentialRegistr
       };
       response.once("close", release);
       response.once("finish", release);
-      void load()
-        .then(({ nodeHandler, validateHost, validateOrigin }) => {
+      void Promise.all([load(), loopbackHandler()])
+        .then(([{ nodeHandler, validateHost, validateOrigin }, hosted]) => {
           if (closing || response.destroyed) return;
+          if (hosted) return hosted(nodeRequest(request), response);
           if (!validateHost(request, response) || !validateOrigin(request, response)) return;
           if (request.url !== "/mcp") {
             response.writeHead(404).end();
@@ -147,14 +216,20 @@ export async function startMcpServer<A extends Authenticator = CredentialRegistr
           const principal = credentials.authenticate(bearer(request.headers.authorization));
           if (!principal) {
             response
-              .writeHead(401, { "www-authenticate": challengeHeader(options.challenge) })
+              .writeHead(401, {
+                "www-authenticate": bearerChallenge(
+                  options.challenge?.parameters?.(undefined) ?? {},
+                ),
+              })
               .end();
             return;
           }
+          // Only `serve` says which resource a request arrived at.
+          const { [resourceHeader]: _ignored, ...headers } = request.headers;
           const forward = (body?: Buffer) =>
             nodeHandler(
               {
-                headers: request.headers,
+                headers,
                 ...(request.method === undefined ? {} : { method: request.method }),
                 ...(request.url === undefined ? {} : { url: request.url }),
                 [Symbol.asyncIterator]: body
@@ -166,12 +241,7 @@ export async function startMcpServer<A extends Authenticator = CredentialRegistr
               response,
             );
           if (!options.challenge || request.method !== "POST") return forward();
-          return scopeRefusal(
-            request,
-            principal,
-            options.challenge,
-            options.maxBodyBytes ?? 64 * 1024,
-          ).then((checked) => {
+          return scopeRefusal(request, principal, options.challenge, maxBody).then((checked) => {
             if (closing || response.destroyed) return;
             if (checked.kind === "forward") return forward(checked.body);
             response.writeHead(checked.status, checked.headers).end(checked.body);
@@ -220,6 +290,8 @@ export async function startMcpServer<A extends Authenticator = CredentialRegistr
   let stopped: Promise<void> | undefined;
   return {
     url: `http://127.0.0.1:${address.port}/mcp`,
+    /** Serves an MCP request that arrived elsewhere (Tailscale, a relay) at `resource`. */
+    serve,
     credentials,
     awareness,
     toolsChanged(): void {
@@ -250,15 +322,44 @@ export async function startMcpServer<A extends Authenticator = CredentialRegistr
     },
   };
 }
+/**
+ * A Node request listener over a web handler, for hosts serving outside requests on listeners of
+ * their own (the Tailscale listener). Bodies are capped like the MCP listener's.
+ */
+export async function nodeListener(
+  fetch: (request: Request) => Promise<Response>,
+  maxBodyBytes = 64 * 1024,
+) {
+  const { toNodeHandler } = await import("@modelcontextprotocol/node");
+  const handle = toNodeHandler({ fetch }, { maxRequestBodySize: maxBodyBytes });
+  return (request: IncomingMessage, response: ServerResponse) =>
+    handle(nodeRequest(request), response);
+}
+/** The parts of a Node request the SDK's adapter reads, with no optional fields left unset. */
+function nodeRequest(request: IncomingMessage) {
+  return {
+    headers: request.headers,
+    method: request.method ?? "GET",
+    url: request.url ?? "/",
+    [Symbol.asyncIterator]: () => request[Symbol.asyncIterator](),
+  };
+}
 function isAddressInUse(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "EADDRINUSE";
 }
-/** `WWW-Authenticate` for a request without a valid token (RFC 6750, RFC 9728). */
-function challengeHeader(challenge: ScopeChallenge | undefined): string {
-  const parameters = Object.entries(challenge?.parameters?.() ?? {});
-  return parameters.length
-    ? `Bearer ${parameters.map(([key, value]) => `${key}="${value}"`).join(", ")}`
-    : "Bearer";
+/** A web body as chunks, for the bounded scope check. */
+async function* streamChunks(body: ReadableStream<Uint8Array> | null): AsyncGenerator<Uint8Array> {
+  if (!body) return;
+  const reader = body.getReader();
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return;
+      yield value;
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }
 function bearer(header: IncomingMessage["headers"]["authorization"]): string {
   return header?.startsWith("Bearer ") ? header.slice(7) : "";
@@ -288,6 +389,7 @@ async function createHandler(
   const factory: import("@modelcontextprotocol/server").McpServerFactory = ({ requestInfo }) => {
     const principal = credentials.authenticate(
       bearer(requestInfo?.headers.get("authorization") ?? undefined),
+      requestInfo?.headers.get(resourceHeader) ?? undefined,
     );
     if (!principal) throw new Error("Unauthorized");
     const caller = principal;
@@ -494,34 +596,29 @@ async function createHandler(
     bus,
   });
   const authenticate = (request: Request) =>
-    credentials.authenticate(bearer(request.headers.get("authorization") ?? undefined));
+    credentials.authenticate(
+      bearer(request.headers.get("authorization") ?? undefined),
+      request.headers.get(resourceHeader) ?? undefined,
+    );
   const legacy = await legacySessions(factory, authenticate, {
     total: streams.total,
     overflow: (request) => handler.fetch(request),
   });
+  const fetch = async (request: Request): Promise<Response> => {
+    if (request.headers.get("X-Ace-Notifications") === "stream" && (await isLegacyRequest(request)))
+      return legacy.fetch(request);
+    // A listen stream opened by this request belongs to its lease (`principal-bus.ts`).
+    const principal = authenticate(request);
+    // The SDK refuses a listen whose Mcp-Method header disagrees with its body.
+    if (principal && request.headers.get("mcp-method") === "subscriptions/listen")
+      return bus.listening(principal, (signal) =>
+        handler.fetch(new Request(request, { signal: AbortSignal.any([request.signal, signal]) })),
+      );
+    return bus.serving(principal, () => handler.fetch(request));
+  };
   const nodeHandler = toNodeHandler(
-    {
-      fetch: async (request: Request) => {
-        if (
-          request.headers.get("X-Ace-Notifications") === "stream" &&
-          (await isLegacyRequest(request))
-        )
-          return legacy.fetch(request);
-        // A listen stream opened by this request belongs to its lease (`principal-bus.ts`).
-        const principal = authenticate(request);
-        // The SDK refuses a listen whose Mcp-Method header disagrees with its body.
-        if (principal && request.headers.get("mcp-method") === "subscriptions/listen")
-          return bus.listening(principal, (signal) =>
-            handler.fetch(
-              new Request(request, { signal: AbortSignal.any([request.signal, signal]) }),
-            ),
-          );
-        return bus.serving(principal, () => handler.fetch(request));
-      },
-    },
-    {
-      maxRequestBodySize: options.maxBodyBytes ?? 64 * 1024,
-    },
+    { fetch },
+    { maxRequestBodySize: options.maxBodyBytes ?? 64 * 1024 },
   );
   announce = (principal) => {
     bus.publishTo(principal, { kind: "tools_list_changed" });
@@ -529,7 +626,7 @@ async function createHandler(
   };
   const validateHost = localhostHostValidation();
   const validateOrigin = localhostOriginValidation();
-  return { handler, legacy, nodeHandler, validateHost, validateOrigin };
+  return { handler, legacy, fetch, nodeHandler, validateHost, validateOrigin };
 }
 function noop(): void {}
 
