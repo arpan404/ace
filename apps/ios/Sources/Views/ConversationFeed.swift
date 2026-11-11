@@ -428,9 +428,14 @@ struct ConversationFeed: View {
                 let shown = reading.shown ?? thread
                 let rows = TranscriptFeedRow.rows(shown)
                 let top = intent.metrics.topInset
-                let item = rows.filter({ (anchor.frames[$0.id]?.maxY ?? -.infinity) > top + 1 })
-                    .min(by: { (anchor.frames[$0.id]?.minY ?? .infinity) < (anchor.frames[$1.id]?.minY ?? .infinity) })?.block.row.items.first
-                    ?? reading.lastAnchorItemId
+                let frames: [String: CGRect] = anchor.frames
+                let visible = rows.filter { row in (frames[row.id]?.maxY ?? -.infinity) > top + 1 }
+                let first = visible.min { a, b in
+                    let aTop: CGFloat = frames[a.id]?.minY ?? .infinity
+                    let bTop: CGFloat = frames[b.id]?.minY ?? .infinity
+                    return aTop < bTop
+                }
+                let item = first?.block.row.items.first ?? reading.lastAnchorItemId
                 if let item { reading.rebuild(model: model, live: thread, anchorItemId: item) }
             }
             restoreSessionIfReady()
