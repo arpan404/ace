@@ -138,6 +138,19 @@ describe("a file reaches an interleaving provider where the person put it", () =
     ).toEqual([shot, skill, text("fix it")]);
   });
 
+  it("puts a file before the mentions of a message that has no text", () => {
+    expect(place([skill], [shot], [{ part: 0, name: "s.png", at: 0 }], true)).toEqual([
+      shot,
+      skill,
+    ]);
+  });
+
+  it("never splits a surrogate pair that spans two text parts", () => {
+    expect(
+      place([text("a\ud83d"), text("\ude00b")], [shot], [{ part: 0, name: "s.png", at: 2 }], true),
+    ).toEqual([text("a"), shot, text("\ud83d"), text("\ude00b")]);
+  });
+
   it("sends the files after the text when their spots would pass the part limit", () => {
     const input = Array.from({ length: 200 }, (_, index) => text(`p${index} `));
     const files = Array.from({ length: 30 }, (_, index) => ({
@@ -160,6 +173,14 @@ describe("a provider that joins text names a native file at its spot", () => {
     expect(
       place([text("look here")], [shot], [{ part: 0, name: "shot.png", at: 5 }], false),
     ).toEqual([text("look [Attached image 1: shot.png]here"), shot]);
+  });
+
+  it("counts images already in the message when numbering", () => {
+    const own = image("own");
+    const shot = image("shot");
+    expect(
+      place([own, text("look here")], [shot], [{ part: 0, name: "shot.png", at: 5 }], false),
+    ).toEqual([own, text("look [Attached image 2: shot.png]here"), shot]);
   });
 
   it("numbers files as they follow the text", () => {

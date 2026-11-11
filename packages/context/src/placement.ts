@@ -35,9 +35,10 @@ function low(code: number): boolean {
 /**
  * Split the person's text at each file's offset (UTF-16 units into the text parts joined in
  * order) and leave a placeholder there. Offsets past the end clamp to the end; an offset inside
- * a surrogate pair moves to the pair's start. A catalog mention adds no text, so a file at its
- * edge goes before it. Without text or offsets, or when the spots would take the message past
- * the part limit, the input is unchanged and the files go after the text.
+ * a surrogate pair, even one split across parts, moves to the pair's start. A catalog mention
+ * adds no text, so a file at its edge goes before it, also in a message of only mentions.
+ * Without offsets, or when the spots would take the message past the part limit, the input is
+ * unchanged and the files go after the text.
  */
 export function markPlaces(
   input: readonly ContentPart[],
@@ -57,24 +58,31 @@ export function markPlaces(
     .map((at, file) => ({ at, file }))
     .filter((entry): entry is { at: number; file: number } => entry.at !== undefined);
   // Each spot adds a placeholder and may split a text part in two.
-  if (!texts.length || !positioned.length || input.length + 2 * positioned.length > maxParts)
+  if (!positioned.length || input.length + 2 * positioned.length > maxParts)
     return { input: [...input], places: none };
+  // Without text every offset is the start: a message that opens with mentions takes its files
+  // before them; any other message sends them after, as today.
+  if (!texts.length) {
+    if (input[0]?.type !== "mention") return { input: [...input], places: none };
+    const path = `${prefix}0`;
+    const files = positioned.map((entry) => entry.file);
+    return {
+      input: [{ type: "file", path }, ...input],
+      places: { slots: new Map([[path, { files, before: false, after: false }]]) },
+    };
+  }
   // Stable: files at the same offset keep the order they were attached in.
   positioned.sort((a, b) => Math.min(a.at, length) - Math.min(b.at, length));
   const cuts = new Map<number, Map<number, number[]>>();
   const leading = new Map<number, number[]>();
+  // A pair can span two text parts, so surrogates are checked against the joined text.
+  const joined = texts.map((text) => text.text).join("");
   for (const { at, file } of positioned) {
-    const x = Math.min(at, length);
+    let x = Math.min(at, length);
+    if (x > 0 && x < length && high(joined.charCodeAt(x - 1)) && low(joined.charCodeAt(x))) x--;
     const owner = texts.find((text) => x <= text.start + text.text.length);
     if (!owner) continue;
-    let k = x - owner.start;
-    if (
-      k > 0 &&
-      k < owner.text.length &&
-      high(owner.text.charCodeAt(k - 1)) &&
-      low(owner.text.charCodeAt(k))
-    )
-      k--;
+    const k = x - owner.start;
     let before = owner.index;
     if (k === 0) while (input[before - 1]?.type === "mention") before--;
     if (before < owner.index) {
@@ -124,8 +132,8 @@ function kind(part: ContentPart): string {
  * `interleaved` providers keep part order in their native message, so each file's own part
  * goes at its spot. Others join a message's text into one prompt and send files beside it:
  * a file that became text joins the text at its spot on lines of its own, and a native file is
- * named there (`[Attached image 1: screen.png]`, numbered as it follows the text) and sent
- * after the text.
+ * named there (`[Attached image 1: screen.png]`, numbered in the order files reach the
+ * provider) and sent after the text.
  */
 export function fillPlaces(
   message: readonly ContentPart[],
@@ -154,6 +162,12 @@ export function fillPlaces(
   const trailing = context.filter((_part, index) => !placed.has(index));
   const labels = new Map<number, string>();
   const counts = new Map<string, number>();
+  // Numbers follow native delivery order: files already in the message go before the context.
+  for (const part of message) {
+    if (part.type !== "image" && part.type !== "file") continue;
+    if (part.type === "file" && places.slots.has(part.path)) continue;
+    counts.set(kind(part), (counts.get(kind(part)) ?? 0) + 1);
+  }
   for (const [index, part] of context.entries()) {
     if (placed.has(index) || part.type === "text") continue;
     const word = kind(part);
