@@ -1,51 +1,99 @@
 # How ace and Spade fit together
 
-Date: 2026-11-10. Status: the contract the build follows. Spade runs on the person's own machine
-beside the ace daemon. The daemon starts and stops it, hands it credentials for ace's own tools,
-and carries every client's traffic to it, so desktop, web, the iPhone and the relay reach Spade
-the same way they reach the daemon.
+Date: 2026-11-11. Status: the contract the build follows. Spade runs on the person's own machine
+as its own per-user service beside the ace daemon ([ADR 0123](../../docs/adr/0123-spade-runs-as-its-own-service.md)).
+The daemon never starts or stops it. The desktop app talks to Spade directly; every other client
+(the web app in a browser, the iPhone, other machines) reaches it through the daemon's `spade.*`
+family. Spade uses ace's tools as a client, with a durable grant, and keeps working while the
+daemon is away.
 
-## The Spade process
+## The Spade service
 
-- **Binary.** `spade-server` from the release bundle (`bin/spade-server`), or `ACE_SPADE_BIN` in
-  development (for example `spade/target/release/spade-server`). No binary means Spade is off.
-- **Started by the daemon** when Spade is enabled in settings, with this environment:
+- **Binary.** Each release carries `spade-server` for its target. Installing or updating copies it
+  to `<ACE_HOME>/releases/spade/<version>/spade-server` and points
+  `<ACE_HOME>/releases/spade/current` at that folder; the service runs
+  `<ACE_HOME>/releases/spade/current/spade-server`. In development, `ACE_SPADE_BIN` names a build
+  (for example `spade/target/release/spade-server`) and `ace spade on` registers that instead.
+- **Registration** (`@ace/service`, beside the daemon's): launchd `dev.ace.next.spade` (RunAtLoad,
+  KeepAlive, ThrottleInterval as the daemon's), systemd `ace-next-spade.service` (`--user`,
+  `Restart=on-failure`, `RestartSec=1`), Windows Task Scheduler task `ace-next-spade` (logon
+  trigger, restart on failure). The service's environment is exactly `SPADE_DATA_DIR=<ACE_HOME>/spade`,
+  `SPADE_ACE_HOME=<ACE_HOME>`, `SPADE_LISTEN=127.0.0.1:0` and `RUST_LOG=info`; logs go to
+  `<ACE_HOME>/logs/spade.log` (rotated like the daemon's). The `@ace/service` API:
+  `spadeServicePlan(home, platform)`, `installSpadeService(plan)`, `removeSpadeService(plan)`,
+  `spadeServiceState(plan)` (`absent`, `stopped`, `running`).
+- **On and off.** `spade.enabled` is the one switch. Turning it on (Settings or `ace spade on`)
+  installs the binary copy if missing, registers and starts the service, then makes Spade's grant
+  (below). Turning it off revokes the grant and removes the service. Builds with
+  `DISABLE_SPADE=1` never register it.
+- **One instance.** Spade holds `<SPADE_DATA_DIR>/lock`; a second instance exits with code 3, and
+  the service manager does not restart a code-3 exit in a tight loop (its throttle applies).
+- **Ready.** After binding, Spade writes `<SPADE_DATA_DIR>/token` (mode 0600, rewritten on every
+  start) and then `<SPADE_DATA_DIR>/server.json` atomically:
+  `{"address":"127.0.0.1:PORT","pid":1234,"version":"0.4.0","api":1}`. `GET /health` answers
+  `{"ok":true,"version":"0.4.0","api":1}` without a token. `api` is Spade's HTTP API version;
+  clients accept the current and previous one.
+- **Stop.** SIGTERM: Spade closes admission, lets a running model step finish (up to 5 s for a
+  plain stop), records open turns as paused (`turn_paused`), ends its live streams and exits. On
+  start, each paused turn resumes from its stored events.
 
-  | Variable                                   | Value                                                                                               |
-  | ------------------------------------------ | --------------------------------------------------------------------------------------------------- |
-  | `SPADE_DATA_DIR`                           | `<ACE_HOME>/spade` (created by the daemon)                                                          |
-  | `SPADE_LISTEN`                             | `127.0.0.1:0` (Spade picks a free port)                                                             |
-  | `SPADE_ACE_MCP_URL`, `SPADE_ACE_MCP_TOKEN` | ace's loopback MCP endpoint and a bearer the daemon issues for Spade                                |
-  | `SPADE_ACE_URL`, `SPADE_ACE_TOKEN`         | the daemon's loopback WebSocket and the local token, for protocol requests such as `skills.request` |
-  | `RUST_LOG`                                 | `info`                                                                                              |
+## Updates
 
-  stdout and stderr go to the daemon's log, tagged `spade`. Spade inherits the rest of the
-  daemon's environment, including the person's own `SPADE_*` settings, except `ACE_*`.
-  `SPADE_ACE_MCP_URL` is `http://127.0.0.1:PORT/mcp` (MCP Streamable HTTP, protocol
-  2025-11-25, the bearer in `Authorization`). Send `X-Ace-Notifications: stream` on every MCP
-  request, or the server answers statelessly with no session and no list-changed stream; send no
-  `X-Ace-Tools` header, so every tool is listed with its `readOnlyHint` and `destructiveHint`.
-  The bearer is new for each Spade run and revoked when the run ends. `SPADE_ACE_URL` is `ws://127.0.0.1:PORT`: send
-  `{"type":"hello","protocolVersion":1,"deviceId":"spade","token":"<SPADE_ACE_TOKEN>"}` and wait
-  for `welcome` before any request.
+Every updater path installs both programs and never stops both at once: the desktop restart
+(ADR 0091), `ace update apply` (ADR 0041) and the machine update (ADR 0113). The daemon is swapped
+first, then Spade:
 
-- **Model catalogue.** If `<SPADE_DATA_DIR>/models.json` does not exist, Spade writes its built-in
-  default there on first start; `SPADE_MODEL_CATALOG` still overrides the path.
-- **One instance.** Spade holds `<SPADE_DATA_DIR>/lock`; a second instance exits with code 3.
-- **Ready.** After binding, Spade writes `<SPADE_DATA_DIR>/token` (mode 0600) and then
-  `<SPADE_DATA_DIR>/server.json` atomically: `{"address":"127.0.0.1:PORT","pid":1234,"version":"0.1.0"}`.
-  The daemon waits for a `server.json` whose `pid` is its child, then `GET /health`.
-- **Stop.** SIGTERM; Spade finishes open requests, ends its live streams and exits within 5
-  seconds, or the daemon kills it. The daemon restarts a crashed Spade with backoff (1 s, doubling, at most 60 s) and reports
-  each failure.
+1. `POST /v1/maintenance` `{"mode":"idle"|"now","deadline_ms":N}` (Spade's token) closes
+   admission: messages are still stored and answered after the restart; no turn starts.
+   `GET /v1/maintenance` answers `{"admission":"open"|"closed","running_turns":N,"running_jobs":N}`;
+   `DELETE /v1/maintenance` reopens admission (an aborted update).
+2. `idle` waits until no turn runs and no background job runs; `now` waits only for running model
+   steps (up to 30 s). Then each open turn is recorded paused.
+3. The updater copies the new binary to `releases/spade/<version>/`, runs
+   `spade-server --check-migrations <snapshot>` against a SQLite backup of
+   `<SPADE_DATA_DIR>/spade.sqlite` (exit 0: the new version can open it), flips `current` and
+   restarts the service. Any failure keeps the old `current`, reopens admission and reports why.
+4. The new Spade resumes paused turns. A background job that was still running in `now` mode is
+   reported as Spade reports a lost job ("unknown outcome").
 
-## Clients reach Spade through the daemon
+## Spade's grant for ace
+
+- **Made by the daemon** when Spade is turned on: a durable `spade` grant (stored, listed and
+  revoked like ADR 0122's grants, surviving restarts), bound to Spade's host thread, whose lease is
+  the provider-session tool set (see "How Spade calls ace's tools"). Turning Spade off or revoking
+  the grant ends it.
+- **Handed to Spade** over Spade's local API, authenticated with Spade's token file:
+  `PUT /v1/ace` `{"grant":"<token>"}` → 204. Spade stores it in the OS keychain (service
+  `dev.acehq.spade`, account `ace:grant`), never in its database or logs, and starts using it.
+  `DELETE /v1/ace` forgets it. `GET /v1/ace` answers `{"grant":true|false,"connected":bool}`
+  and never returns the token. If Spade is not running when the grant is made, the daemon hands it
+  over when Spade's `server.json` next appears.
+- **Finding the daemon.** Spade reads `<SPADE_ACE_HOME>/daemon-endpoint` (the daemon's
+  `http://127.0.0.1:PORT`) each time it connects: MCP at `<endpoint>/mcp` with the grant as the
+  bearer; protocol requests (`skills.request`) over `ws://` on the same port, authenticated with
+  `<SPADE_ACE_HOME>/daemon-token`. While the file is missing or the daemon refuses, Spade retries
+  with backoff (1 s, doubling, at most 30 s) and its ace tools are absent.
+- In development, `SPADE_ACE_MCP_URL`, `SPADE_ACE_MCP_TOKEN`, `SPADE_ACE_URL` and
+  `SPADE_ACE_TOKEN` still override the above.
+
+## The desktop app talks to Spade directly
+
+The desktop main process reads `<ACE_HOME>/spade/server.json` and the token file, watches them for
+changes, and exposes `window.aceDesktop.spade` through the preload bridge:
+`{ endpoint(): Promise<{ address: string; token: string; api: number } | null> }`. The renderer
+calls Spade's HTTP API and live stream at that address with the token; when it is `null` or a
+request fails to connect, it falls back to the daemon's `spade.*` family. The token never leaves
+the desktop process tree and is never persisted by the renderer.
+
+## Other clients reach Spade through the daemon
 
 New request family in `@ace/protocol`, served by the daemon:
 
 - `spade.status` → `spade.status.result` `{status: {state: "off" | "starting" | "ready" |
 "failed", version?, reason?}}`; afterwards that socket gets `spade.status.changed` on every
-  change.
+  change. The daemon no longer runs Spade: it reads the state from the service's registration,
+  `server.json` and `GET /health` (`off` when the service is absent, `starting` until `/health`
+  answers, `failed` with the reason when the service is registered but Spade isn't answering).
 - `spade.http` `{requestId, method, path, body?, encoding?, contentType?, parts?}` →
   `spade.http.result` with `result` `{kind: "response", status, body, encoding, contentType?,
 parts?}` or `{kind: "error", code, message}` (`forbidden`, `invalid_path`, `unavailable`,
@@ -84,16 +132,16 @@ The daemon passes bodies through without interpreting them; Spade owns their sch
 [chat-core.md](chat-core.md)). Caps are per route, as above; each live event is at most 1 MiB.
 ADR 0121 records the daemon side.
 
-## Spade uses ace's tools through the daemon
+## Spade uses ace's tools
 
 - **ace tools** (threads, agent status and messages, delegation, browser, screen and computer
   use, notifications, automations, skills and guides): Spade is an MCP client of the daemon's
-  loopback MCP endpoint, using `SPADE_ACE_MCP_URL` and `SPADE_ACE_MCP_TOKEN`. The lease is a
+  loopback MCP endpoint, with its grant (see "Spade's grant for ace"). The lease is a
   provider session's: operate scope, every agent tool group, the daemon's usual per-tool rules,
   except `ask` and `browser_request_help`, which wait on the person inside the hidden host
   thread; Spade asks through its own `ask_user`.
-  Spade's approval gate runs before every write. The bearer is new on each start and revoked
-  when Spade stops, crashes or is turned off.
+  Spade's approval gate runs before every write. The grant lasts across restarts of either
+  program and ends when Spade is turned off or the grant is revoked.
 - **Spade's host thread.** Spade's calls act as a hidden ace thread the daemon holds for it
   (`spade.status` `thread.id`). What Spade delegates becomes that thread's children: ordinary,
   visible threads. Nothing runs in the host thread itself, so Spade never gets a wake when a
