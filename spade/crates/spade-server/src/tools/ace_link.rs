@@ -90,6 +90,7 @@ pub struct AceLink {
     keys: Option<KeyStore>,
     grant: Mutex<Option<Secret>>,
     /// Changes whenever the grant does, so a connection made with an old grant offers nothing.
+    /// Changed and read under the `grant` lock, so a grant and its generation are seen together.
     grants: AtomicU64,
     /// Set once the stored grant has been read (or there is nothing to read).
     loaded: AtomicBool,
@@ -101,6 +102,12 @@ pub struct AceLink {
     /// Every client made since the grant last changed. A grant change closes them all, so a call
     /// still holding an old one (a tool kept by a running turn) sends nothing more with it.
     clients: Mutex<Vec<Weak<AceTools>>>,
+}
+
+/// How to reach ace, with the grant generation its credential belongs to.
+struct Attempt {
+    config: AceConfig,
+    grants: u64,
 }
 
 /// Why a connection ended.
@@ -180,8 +187,11 @@ impl AceLink {
             Some(keys) => keys.set_ace_grant(&grant_slot(&self.target), grant)?,
             None => tracing::warn!("no keychain; Spade keeps its ace grant until it stops"),
         }
-        *self.grant.lock().unwrap_or_else(|p| p.into_inner()) = Some(Secret::new(grant));
-        self.grants.fetch_add(1, Ordering::SeqCst);
+        {
+            let mut held = self.grant.lock().unwrap_or_else(|p| p.into_inner());
+            *held = Some(Secret::new(grant));
+            self.grants.fetch_add(1, Ordering::SeqCst);
+        }
         self.retire_clients();
         self.wake.notify_one();
         Ok(())
@@ -189,8 +199,11 @@ impl AceLink {
 
     /// Forgets the grant and disconnects.
     pub fn forget_grant(&self) -> Result<(), GrantError> {
-        *self.grant.lock().unwrap_or_else(|p| p.into_inner()) = None;
-        self.grants.fetch_add(1, Ordering::SeqCst);
+        {
+            let mut held = self.grant.lock().unwrap_or_else(|p| p.into_inner());
+            *held = None;
+            self.grants.fetch_add(1, Ordering::SeqCst);
+        }
         self.retire_clients();
         self.disconnect();
         self.wake.notify_one();
@@ -234,8 +247,8 @@ impl AceLink {
         self.load_grant().await;
         let mut wait: Option<Duration> = None;
         loop {
-            let ended = match self.config() {
-                Ok(config) => self.connect_and_stay(config).await,
+            let ended = match self.attempt() {
+                Ok(attempt) => self.connect_and_stay(attempt).await,
                 Err(why) => {
                     tracing::debug!(%why, "ace is not reachable yet");
                     Ended::Lost { connected: false }
@@ -261,25 +274,27 @@ impl AceLink {
     }
 
     /// How to reach ace now: the files are read again each time, as the daemon may have moved.
-    fn config(&self) -> Result<AceConfig, String> {
-        match &self.target {
-            AceTarget::Fixed(config) => Ok(config.clone()),
+    /// The grant and its generation are read under one lock, so a credential is never paired with
+    /// a newer generation (and let through) after the grant changed.
+    fn attempt(&self) -> Result<Attempt, String> {
+        let (grant, grants) = {
+            let held = self.grant.lock().unwrap_or_else(|p| p.into_inner());
+            (held.clone(), self.grants.load(Ordering::SeqCst))
+        };
+        let config = match &self.target {
+            AceTarget::Fixed(config) => config.clone(),
             AceTarget::Discover(home) => {
-                let grant = self
-                    .grant
-                    .lock()
-                    .unwrap_or_else(|p| p.into_inner())
-                    .clone()
-                    .ok_or("Spade has no grant for ace yet")?;
-                discover(home, grant).map_err(|e| e.to_string())
+                let grant = grant.ok_or("Spade has no grant for ace yet")?;
+                discover(home, grant).map_err(|e| e.to_string())?
             }
-        }
+        };
+        Ok(Attempt { config, grants })
     }
 
     /// Connects, offers ace's tools, and keeps them current until the daemon goes away or the
-    /// grant changes.
-    async fn connect_and_stay(&self, config: AceConfig) -> Ended {
-        let grants = self.grants.load(Ordering::SeqCst);
+    /// grant changes. Only offered while the grant is still the one `attempt` was made with.
+    async fn connect_and_stay(&self, attempt: Attempt) -> Ended {
+        let Attempt { config, grants } = attempt;
         let client = Arc::new(AceTools::new(config.tools.with_timeout(CALL_TIMEOUT)));
         if !self.register(grants, &client) {
             return Ended::Woken;
@@ -466,5 +481,65 @@ mod tests {
             matches!(&home, Some(AceTarget::Discover(path)) if path == Path::new("/home/me/.ace"))
         );
         assert!(AceTarget::from_env(env(&[("SPADE_ACE_HOME", "  ")])).is_none());
+    }
+
+    /// A link that does not connect by itself, so a test drives each step.
+    fn idle(target: AceTarget) -> AceLink {
+        AceLink {
+            target,
+            keys: None,
+            grant: Mutex::new(None),
+            grants: AtomicU64::new(0),
+            loaded: AtomicBool::new(true),
+            retry: Retry {
+                answer: Duration::from_millis(300),
+                ..Retry::default()
+            },
+            current: RwLock::default(),
+            connected: AtomicBool::new(false),
+            wake: Notify::new(),
+            clients: Mutex::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_credential_read_before_the_grant_is_forgotten_never_reaches_ace()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let port = listener.local_addr()?.port();
+        let reached = Arc::new(AtomicBool::new(false));
+        let seen = reached.clone();
+        tokio::spawn(async move {
+            // Holds each connection open without answering.
+            let mut held = Vec::new();
+            while let Ok((socket, _)) = listener.accept().await {
+                seen.store(true, Ordering::SeqCst);
+                held.push(socket);
+            }
+        });
+        let mcp = format!("http://127.0.0.1:{port}/mcp");
+        let ws = format!("ws://127.0.0.1:{port}/");
+        let config = AceConfig::from_env(|key| match key {
+            "SPADE_ACE_MCP_URL" => Some(mcp.clone()),
+            "SPADE_ACE_URL" => Some(ws.clone()),
+            "SPADE_ACE_MCP_TOKEN" | "SPADE_ACE_TOKEN" => Some("old".to_owned()),
+            _ => None,
+        })?;
+        let link = idle(AceTarget::Fixed(config));
+
+        let attempt = link.attempt()?;
+        // DELETE /v1/ace lands between reading the credential and connecting with it.
+        link.forget_grant()?;
+        // The wake-up it rings is for the connect loop, which is not running here.
+        let _ = tokio::time::timeout(Duration::ZERO, link.wake.notified()).await;
+
+        let ended = link.connect_and_stay(attempt).await;
+        assert!(matches!(ended, Ended::Woken));
+        assert!(
+            !reached.load(Ordering::SeqCst),
+            "the old credential was sent"
+        );
+        assert!(!link.connected());
+        Ok(())
     }
 }
