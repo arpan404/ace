@@ -13,7 +13,9 @@ const attention =
   "COALESCE(json_extract(provider_metadata, '$.queue.paused'), 0) = 1 AND json_extract(provider_metadata, '$.queue.resumeAt') IS NULL AND json_extract(provider_metadata, '$.queue.reason') IS NOT NULL AND json_extract(provider_metadata, '$.queue.reason') NOT IN ('limit', 'snooze') AND NOT (json_extract(provider_metadata, '$.queue.reason') = 'manual' AND COALESCE(json_extract(provider_metadata, '$.queue.pendingCount'), 0) = 0)";
 /** Paged with the history below the live threads; may be NULL, which is neither. */
 export const sidebarSettled = `COALESCE(json_extract(client, '$.pinned'), 0) != 1 AND json_extract(client, '$.settledAt') IS NOT NULL AND json_extract(status, '$.state') NOT IN ('working', 'needs_you') AND (COALESCE(json_extract(client, '$.settledReason'), '') = 'manual' OR NOT (${attention}))`;
-export const sidebarDeleted = "json_extract(client, '$.deletedAt') IS NOT NULL";
+/** Gone from every list: deleted, or a host thread the daemon holds for itself (ADR 0117). */
+export const sidebarDeleted =
+  "(json_extract(client, '$.deletedAt') IS NOT NULL OR json_extract(client, '$.host') IS NOT NULL)";
 export const sidebarActivity = "COALESCE(json_extract(client, '$.activityAt'), updated_at)";
 export function sidebarPageStorage(
   statement: (sql: string) => StatementSync,

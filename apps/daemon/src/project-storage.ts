@@ -141,6 +141,20 @@ export class ProjectStorage {
     this.emit({ type: "workspace.changed", change: "added", workspaceId: workspace.id, workspace });
     return workspace;
   }
+  /**
+   * Register Spade's folder as its hidden `spade` project (ADR 0117), registered again if it was
+   * removed. Clients never see it: it is left out of every list and announces no change.
+   */
+  registerSpade(path: string): WorkspaceId {
+    return this.store.atomic((db) => {
+      const id = this.store.createWorkspace(path, "Spade", this.now());
+      db.prepare(
+        "INSERT INTO workspace_metadata(workspace_id,kind) VALUES (?,'spade') ON CONFLICT(workspace_id) DO UPDATE SET kind='spade'",
+      ).run(id);
+      db.prepare("DELETE FROM workspace_unregistered WHERE workspace_id=?").run(id);
+      return id;
+    });
+  }
   /** Unregister a project without touching its threads; a chat's last thread already went. */
   forget(id: WorkspaceId): void {
     this.store
@@ -165,7 +179,7 @@ export class ProjectStorage {
       db
         .prepare(`${projectSelect} WHERE w.id>? AND NOT EXISTS
       (SELECT 1 FROM workspace_unregistered u WHERE u.workspace_id=w.id)
-      ORDER BY w.id LIMIT ?`)
+      AND coalesce(m.kind,'')<>'spade' ORDER BY w.id LIMIT ?`)
         .all(after ?? "", limit + 1)
         .map(decodeProjectRow),
     );

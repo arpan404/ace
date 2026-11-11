@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ThreadId } from "./ids.ts";
 
 /**
  * Spade, ace's assistant, reached through the daemon (ADR 0117). The daemon forwards requests to
@@ -18,6 +19,11 @@ export const SpadeStatus = z.object({
   version: z.string().max(64).optional(),
   /** Why Spade is off or failed, in words a person can read. */
   reason: z.string().max(1024).optional(),
+  /**
+   * Spade's host thread, once the daemon has made it: the parent of every thread Spade's tools
+   * delegate. `busy` while any thread under it is still working or waiting on a person.
+   */
+  thread: z.object({ id: ThreadId, busy: z.boolean() }).optional(),
 });
 export type SpadeStatus = z.infer<typeof SpadeStatus>;
 

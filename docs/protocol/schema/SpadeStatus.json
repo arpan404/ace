@@ -9,6 +9,21 @@
     "state": {
       "$ref": "https://ace.local/protocol/v1/SpadeState.json"
     },
+    "thread": {
+      "properties": {
+        "busy": {
+          "type": "boolean"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        }
+      },
+      "required": [
+        "id",
+        "busy"
+      ],
+      "type": "object"
+    },
     "version": {
       "maxLength": 64,
       "type": "string"
