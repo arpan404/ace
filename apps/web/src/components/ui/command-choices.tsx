@@ -9,12 +9,14 @@ import {
   commandStepField,
   stepFieldKey,
 } from "./command-step.tsx";
-import { backHint, escapeHint, KeyHints, navigateHint, selectHint } from "./key-hints.tsx";
+import { fieldHints, KeyHints, navigateHint, selectHint } from "./key-hints.tsx";
 
 export interface CommandChoice {
   id: string;
   label: string;
   icon: IconGlyph;
+  /** Drawn instead of the icon when set: a project's own badge. */
+  mark?: ReactNode;
   /** Muted text after the label; also searched. */
   detail?: string | undefined;
   /** Shown at the right (a machine's status). */
@@ -127,7 +129,7 @@ export function CommandChoices(props: {
               onPoint={() => setActive(at)}
               onPick={() => choose(choice)}
             >
-              <Icon icon={choice.icon} />
+              {choice.mark ?? <Icon icon={choice.icon} />}
               <span className="min-w-0 flex-1 truncate">
                 {choice.label}
                 {choice.detail && (
@@ -150,8 +152,7 @@ export function CommandChoices(props: {
           ...(props.onSwitchMachines
             ? [{ keys: ["ctrl+m"] as const, label: props.switchLabel ?? "Machine" }]
             : []),
-          ...(props.onBack ? [backHint] : []),
-          escapeHint(text),
+          ...fieldHints(text, props.onBack),
         ]}
       />
     </>

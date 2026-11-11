@@ -47,6 +47,15 @@
   contain-intrinsic-size: none;
 }
 
+/*
+ * A code block's visually hidden "Copied" status is absolutely positioned. Anchor it to its block,
+ * or it anchors to whatever positioned box sits outside the scroller and stretches that box by the
+ * block's depth in the document (a long file in the Files tab grew a second scrollbar).
+ */
+.markit-ace .mk-codeblock {
+  position: relative;
+}
+
 .markit-ace :is(p, h1, h2, h3, h4, h5, h6, ul, ol, pre, blockquote, table) {
   margin: 0 0 12px;
 }

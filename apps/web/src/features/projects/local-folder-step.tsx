@@ -3,7 +3,6 @@ import {
   FolderPlusIcon,
   FolderSimpleIcon,
   FolderSimpleStarIcon,
-  GitBranchIcon,
 } from "@phosphor-icons/react";
 import {
   choosePath,
@@ -12,18 +11,9 @@ import {
   pathInput,
   rowPath,
   startText,
-  stepHighlight,
   type PathIntent,
 } from "@ace/ui-core";
-import {
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type ReactNode,
-} from "react";
+import { useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import {
@@ -33,14 +23,19 @@ import {
   commandStepField,
   stepFieldKey,
 } from "@/components/ui/command-step.tsx";
-import { backHint, escapeHint, navigateHint } from "@/components/ui/key-hints.tsx";
-import { ListSkeleton } from "@/components/ui/skeleton.tsx";
+import { fieldHints, navigateHint } from "@/components/ui/key-hints.tsx";
+import {
+  ListStatus,
+  ListViewport,
+  OptionSkeletons,
+  optionGeometry,
+} from "@/components/ui/list-viewport.tsx";
+import { useListHighlight } from "@/components/ui/use-list-highlight.ts";
 import { LongRows, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
-import { applePlatform } from "@/lib/keymap.ts";
 import type { Machine } from "@/lib/machines.ts";
 import type { PaletteStart } from "@/lib/layout.tsx";
 import { AllowFolder } from "./allow-folder.tsx";
-import { AllowedPlaces, Badge, Notice, RefusedNotice, offlineIcon } from "./folder-notices.tsx";
+import { AllowedPlaces, RefusedNotice, RowMeta } from "./folder-notices.tsx";
 import { Problem } from "./form-parts.tsx";
 import { useNativePicker } from "./native-picker.ts";
 import { useAddFolder } from "./use-add-folder.ts";
@@ -68,10 +63,6 @@ export function LocalFolderStep(props: {
 }) {
   const { machine } = props;
   const [typed, setTyped] = useState<string>();
-  const [active, setActive] = useState<number>();
-  // Whether the highlight came from the pointer rather than the keys.
-  const [pointed, setPointed] = useState(false);
-  const listId = useId();
   const virtual = useRef<VirtualRowsHandle>(null);
   // A refused attempt shows why, and the field starts in the folder it was in.
   const [attempt] = useState(props.attempt);
@@ -101,28 +92,17 @@ export function LocalFolderStep(props: {
   const text = typed ?? start;
   const folder = useLocalFolder(machine, text);
   const { rows, home } = folder;
-  const current = active !== undefined && active < rows.length ? active : undefined;
+  const list = useListHighlight({
+    count: rows.length,
+    reveal: (at) => virtual.current?.scrollToIndex(at),
+  });
+  const { listId, current } = list;
   const highlighted = current === undefined ? undefined : rows[current];
   const offline = machine.client === undefined;
 
-  useEffect(() => {
-    if (current === undefined) return;
-    const element = document.getElementById(`${listId}-${current}`);
-    if (element) element.scrollIntoView?.({ block: "nearest" });
-    else virtual.current?.scrollToIndex(current);
-  }, [current, listId]);
-
   const type = (next: string) => {
     setTyped(next);
-    setActive(undefined);
-  };
-  const point = (at: number) => {
-    setActive(at);
-    setPointed(true);
-  };
-  const leaveList = () => {
-    if (pointed) setActive(undefined);
-    setPointed(false);
+    list.reset();
   };
   const act = (intent: PathIntent) => {
     if (intent.kind === "browse") type(pathInput(intent.path, home?.path));
@@ -135,13 +115,14 @@ export function LocalFolderStep(props: {
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing) return;
     if (stepFieldKey(event, { text, onBack: props.onBack, onClear: () => type("") })) return;
-    const mod = applePlatform ? event.metaKey : event.ctrlKey;
+    const action = list.key(event, () => !added.adding);
+    if (action.kind === "moved") return;
     const atEnd = event.currentTarget.selectionStart === text.length;
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      setActive(stepHighlight(current, event.key === "ArrowDown" ? 1 : -1, rows.length));
-      setPointed(false);
-    } else if (event.key === "Enter") {
-      if (!added.adding) choose(highlighted, mod ? "add" : "open");
+    if (action.kind === "pick")
+      choose(rows[action.at], action.how === "alternate" ? "add" : "open");
+    // Enter with nothing highlighted adds the folder the field names.
+    else if (event.key === "Enter" && !event.shiftKey) {
+      if (!added.adding) choose(undefined, "add");
     } else if (event.key === "ArrowRight" && atEnd && highlighted && highlighted.kind !== "create")
       choose(highlighted, "open");
     else if (event.key === "Tab" && !event.shiftKey) {
@@ -160,10 +141,18 @@ export function LocalFolderStep(props: {
   const problem = added.problem;
   let state: ReactNode = null;
   if (offline)
+    state = <ListStatus>{machine.name} isn't connected. Folders come back once it is.</ListStatus>;
+  else if (folder.homeFailed)
     state = (
-      <Notice icon={offlineIcon}>
-        {machine.name} isn't connected. Folders come back once it is.
-      </Notice>
+      <ListStatus
+        actions={
+          <Button size="sm" variant="ghost" onClick={folder.retryHome}>
+            Retry
+          </Button>
+        }
+      >
+        Couldn't read the home folder on {machine.name}.
+      </ListStatus>
     );
   else if (folder.failure)
     state = (
@@ -175,18 +164,14 @@ export function LocalFolderStep(props: {
         onRetry={folder.retry}
         allow={
           folder.failure.canAllow && folder.directory ? (
-            <AllowFolder
-              client={machine.client}
-              path={folder.directory}
-              roots={home?.roots ?? []}
-              onAllowed={folder.retry}
-            />
+            <AllowFolder client={machine.client} path={folder.directory} onAllowed={folder.retry} />
           ) : undefined
         }
       />
     );
   else if (!rows.length && folder.loading)
-    state = <ListSkeleton label="folders" shape="row" rows={6} />;
+    state = <OptionSkeletons label="folders" rows={6} geometry={optionGeometry} />;
+  else if (!rows.length) state = <ListStatus>No folders here.</ListStatus>;
 
   return (
     <>
@@ -197,7 +182,7 @@ export function LocalFolderStep(props: {
           aria-expanded
           aria-controls={listId}
           aria-autocomplete="list"
-          aria-activedescendant={highlighted ? `${listId}-${current}` : undefined}
+          aria-activedescendant={current === undefined ? undefined : list.optionId(current)}
           // oxlint-disable-next-line jsx-a11y/no-autofocus -- A palette step opens to its field.
           autoFocus
           value={text}
@@ -211,15 +196,9 @@ export function LocalFolderStep(props: {
         />
         {props.trailing}
       </CommandStepRow>
-      <div className="h-[min(320px,46dvh)] overflow-y-auto overscroll-contain p-1">
+      <ListViewport className="h-[min(320px,46dvh)]" onPointerLeave={list.leave}>
         {state}
-        <div
-          id={listId}
-          role="listbox"
-          aria-label="Folders"
-          hidden={state !== null}
-          onPointerLeave={leaveList}
-        >
+        <div id={listId} role="listbox" aria-label="Folders" hidden={state !== null}>
           <LongRows
             items={rows}
             rowKey={(row) => `${row.kind}\u0000${rowPath(row)}`}
@@ -228,22 +207,17 @@ export function LocalFolderStep(props: {
             handle={virtual}
             render={(row, at) => (
               <FolderRow
-                id={`${listId}-${at}`}
+                id={list.optionId(at)}
                 row={row}
                 home={home?.path}
                 active={at === current}
-                onPoint={() => point(at)}
+                onPoint={() => list.point(at)}
                 onPick={() => choose(row, "open")}
               />
             )}
           />
-          {!rows.length && !folder.loading && (
-            <div role="status" className="py-8 text-center text-ui text-muted-foreground">
-              No folders here
-            </div>
-          )}
         </div>
-      </div>
+      </ListViewport>
       {problem && (
         <div className="px-3 pb-2">
           <Problem
@@ -252,7 +226,7 @@ export function LocalFolderStep(props: {
                 <Button
                   size="sm"
                   disabled={added.adding}
-                  onClick={() => added.allowAndAdd(problem.path, home?.roots ?? [])}
+                  onClick={() => added.allowAndAdd(problem.path)}
                 >
                   Allow and add
                 </Button>
@@ -265,7 +239,7 @@ export function LocalFolderStep(props: {
             {problem.message}
             {problem.denied && !problem.canAllow && (
               <AllowedPlaces
-                className="mt-1 justify-start"
+                className="mt-1 flex"
                 roots={home?.roots ?? []}
                 home={home?.path}
                 onGo={(path) => type(pathInput(path, home?.path))}
@@ -288,8 +262,7 @@ export function LocalFolderStep(props: {
               : target
                 ? [{ keys: ["enter"], label: "Add" }]
                 : []),
-          ...(props.onBack ? [backHint] : []),
-          escapeHint(text),
+          ...fieldHints(text, props.onBack),
         ]}
       >
         {native && (
@@ -372,8 +345,8 @@ function FolderRow(props: {
     >
       <Icon icon={entry.project ? FolderSimpleStarIcon : FolderSimpleIcon} />
       <span className="min-w-0 flex-1 truncate">{entry.name}</span>
-      {entry.project && <Badge>Project</Badge>}
-      {entry.git && <Badge icon={GitBranchIcon}>Git</Badge>}
+      {entry.project && <RowMeta>Project</RowMeta>}
+      {entry.git && <RowMeta>Git</RowMeta>}
     </CommandOption>
   );
 }

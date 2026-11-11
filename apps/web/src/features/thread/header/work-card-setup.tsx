@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
 import { failure } from "./use-git-flow.tsx";
-import { RowAction, RowLabel, RowStatic } from "./work-card-parts.tsx";
+import { RowAction, RowLabel, RowProblem, RowStatic } from "./work-card-parts.tsx";
 
 /**
  * The setup script of a worktree made when the thread first ran, in the Work card: a failure
@@ -36,16 +36,17 @@ export function WorktreeSetupRow(props: { thread: ThreadRef }) {
   const output = setup.details.join("\n");
   return (
     <>
-      <RowStatic label="Setup script failed" className="flex-wrap">
-        <WarningCircleIcon aria-hidden size={16} className="shrink-0 text-status-failed" />
-        <RowLabel>Setup script failed</RowLabel>
-        <RowAction className="ml-0" disabled={busy} onClick={() => choose("retry")}>
+      <RowProblem
+        label="Setup script failed"
+        glyph={<WarningCircleIcon aria-hidden size={16} className="shrink-0 text-status-failed" />}
+      >
+        <RowAction className="mx-0" disabled={busy} onClick={() => choose("retry")}>
           Retry
         </RowAction>
-        <RowAction className="ml-0" disabled={busy} onClick={() => choose("continue")}>
+        <RowAction className="mx-0" disabled={busy} onClick={() => choose("continue")}>
           Continue without setup
         </RowAction>
-      </RowStatic>
+      </RowProblem>
       {output && (
         <pre
           role="log"

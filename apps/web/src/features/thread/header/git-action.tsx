@@ -121,7 +121,9 @@ function LoadedGitAction(props: {
   className: string | undefined;
 }) {
   const git = useGitFlow(props.thread);
-  if (!git.checkout) return git.dialog;
+  // A checkout whose folder is gone has nothing to commit, push or open a PR from.
+  const gone = useThreadMeta(props.thread.id)?.details?.worktreeMissing === true;
+  if (!git.checkout || gone) return git.dialog;
   return (
     <>
       <GitAction git={git} checkout={git.checkout} className={props.className} />

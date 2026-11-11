@@ -139,8 +139,9 @@ const TaskValue = z.object({
   status: z.string(),
   ambient: z.boolean().optional(),
   stoppable: z.boolean().optional(),
-  wakesAgent: z.literal(false).optional(),
-  listening: z.array(z.number()).optional(),
+  kind: z.enum(["shell", "monitor", "subagent", "other"]).catch("other"),
+  internal: z.literal(true).optional(),
+  blocksPrompts: z.literal(true).optional(),
 });
 const RunValue = z.object({ agentId: z.string(), state: z.string() });
 const OwnedValue = z.object({ agentId: z.string() });
@@ -204,8 +205,8 @@ export function readTurnWork(
     const ours = (agentId: string, seq: number) =>
       owned.has(agentId) || (agentId === rootAgentId && inTurn(seq));
     const runs = open("runs");
-    // Each agent's latest run: work it left running after a turn that completed is over for the
-    // run, as for the thread, once the agent won't come back for it (ADR 0109).
+    // Each agent's latest run: commands it left running after a turn that completed are over
+    // for the run, as for the thread (ADR 0116).
     const latest = new Map<string, { seq: number; state: string }>();
     for (const { value, seq } of runs) {
       const run = RunValue.safeParse(value);
@@ -216,14 +217,16 @@ export function readTurnWork(
     const tasks = open("backgroundTasks").flatMap(({ id, value, seq }) => {
       const task = TaskValue.safeParse(value);
       if (!task.success || task.data.status !== "running") return [];
-      const { ambient = false, wakesAgent, listening, agentId } = task.data;
+      const { ambient = false, kind, internal, blocksPrompts, agentId } = task.data;
       const holds = holdsThread(
         {
           ambient,
-          ...(wakesAgent === false ? { wakesAgent } : {}),
-          ...(listening ? { listening } : {}),
+          kind,
+          ...(internal ? { internal } : {}),
+          ...(blocksPrompts ? { blocksPrompts } : {}),
         },
-        latest.get(agentId)?.state === "completed",
+        latest.get(agentId)?.state === "completed" &&
+          (rootAgentId === undefined || latest.get(rootAgentId)?.state === "completed"),
       );
       return holds && ours(agentId, seq) ? [{ id, stoppable: task.data.stoppable === true }] : [];
     });

@@ -284,3 +284,15 @@ test("threads and projects read by the project's name, never its id", async () =
   );
   expect(options().some((option) => option.includes(id))).toBe(false);
 });
+
+test("the palette's Close is a word, says Esc is its key, and closes", async () => {
+  await openApp();
+  await palette();
+  const close = screen.getByRole("button", { name: "Close command palette" });
+  expect(close.textContent).toBe("Close");
+  expect(close.getAttribute("aria-keyshortcuts")).toBe("Escape");
+  await userEvent.click(close);
+  await waitFor(() =>
+    expect(screen.queryByRole("combobox", { name: "Search commands" })).toBeNull(),
+  );
+});

@@ -127,7 +127,9 @@ test("shell output appends only new suffixes and completion cannot erase survivi
   h.recv({ type: "tool_execution_update", toolCallId: "shell", partialResult: result("abc") });
   h.recv({ type: "tool_execution_update", toolCallId: "shell", partialResult: result("abcdef") });
   h.recv(settled);
-  expect(h.state.status.state).toBe("waiting");
+  // Settled with the shell still running: listed, not waited on (ADR 0116).
+  expect(h.state.status.state).toBe("done");
+  expect(Object.values(h.state.tasks).some((task) => task.status === "running")).toBe(true);
   h.recv({
     type: "tool_execution_end",
     toolCallId: "shell",

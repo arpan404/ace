@@ -48,7 +48,7 @@ test("an address with credentials in it is refused before anything is sent", asy
   await userEvent.type(await address(), "https://me:hunter2@github.com/acme/web.git");
   expect(await screen.findByText(/Take the user name and password out/)).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Clone" }));
-  expect(screen.queryByRole("progressbar")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Cancel clone" })).toBeNull();
   expect(registered(made)).toEqual([]);
   expect(sent).toEqual([]);
 });
@@ -65,10 +65,9 @@ test("a clone names its folder after the repository, shows Git's progress and op
   );
   await userEvent.click(screen.getByRole("button", { name: "Clone" }));
 
-  const bar = await screen.findByRole("progressbar", { name: "Clone progress" });
-  expect(bar.getAttribute("aria-valuetext")).toBe("Connecting…");
+  expect(await screen.findByText("Cloning acme/weather-app…")).toBeTruthy();
   await step();
-  await waitFor(() => expect(bar.getAttribute("aria-valuetext")).toBe("Receiving objects, 24%"));
+  expect(await screen.findByText("Cloning acme/weather-app… 24%")).toBeTruthy();
   for (let stage = 0; stage < 4; stage++) await step();
 
   await screen.findByRole("button", { name: "Project: weather-app" });
@@ -82,11 +81,11 @@ test("Cancel stops a clone and nothing is added", async () => {
   await userEvent.type(await address(), "https://github.com/acme/big-repo.git");
   await userEvent.click(screen.getByRole("button", { name: "Clone" }));
   await step();
-  await screen.findByText("Receiving objects");
+  await screen.findByText("Cloning acme/big-repo… 24%");
   await userEvent.click(screen.getByRole("button", { name: "Cancel clone" }));
 
-  await waitFor(() => expect(screen.queryByRole("progressbar")).toBeNull());
-  expect(screen.getByRole("button", { name: "Clone" })).toBeTruthy();
+  await screen.findByRole("button", { name: "Clone" });
+  expect(screen.queryByText(/Cloning acme\/big-repo/)).toBeNull();
   expect(registered(made)).toEqual([]);
 });
 
@@ -113,13 +112,23 @@ test("GitHub's owner/repo is read by the daemon into an address and a folder", a
     "weather-app",
   );
   await userEvent.keyboard("{Control>}{Enter}{/Control}");
-  await screen.findByRole("progressbar", { name: "Clone progress" });
+  await screen.findByText("Cloning acme/weather-app…");
   for (let stage = 0; stage < 5; stage++) await step();
   await screen.findByRole("button", { name: "Project: weather-app" });
   expect(registered(made)).toEqual([`${home}/weather-app`]);
 });
 
-test("a clone Git refuses says why and Retry runs it again", async () => {
+test("cloning shows Cancel clone instead of the Clone button", async () => {
+  const { made } = stepped();
+  await openClone(made);
+  await userEvent.type(await address(), "https://github.com/acme/web.git");
+  await userEvent.click(screen.getByRole("button", { name: "Clone" }));
+  await screen.findByRole("button", { name: "Cancel clone" });
+  expect(screen.queryByRole("button", { name: "Clone" })).toBeNull();
+  expect(screen.getByText("Cloning acme/web…")).toBeTruthy();
+});
+
+test("retry after a failed clone uses the edited destination", async () => {
   const { made, step } = stepped();
   await openClone(made);
   made.daemon.refuseCommands("git_auth_failed", "workspace.clone");
@@ -127,13 +136,62 @@ test("a clone Git refuses says why and Retry runs it again", async () => {
   await userEvent.click(screen.getByRole("button", { name: "Clone" }));
   expect(await screen.findByText(/Git couldn't sign in to that repository/)).toBeTruthy();
   expect(registered(made)).toEqual([]);
+  // One action: Clone runs what the fields say now.
+  expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
 
   made.daemon.restoreRequests();
-  await userEvent.click(screen.getByRole("button", { name: "Retry" }));
-  await screen.findByRole("progressbar", { name: "Clone progress" });
+  const folder = screen.getByRole("textbox", { name: "Folder name" });
+  await userEvent.clear(folder);
+  await userEvent.type(folder, "private-app");
+  await userEvent.click(screen.getByRole("button", { name: "Clone" }));
+  await screen.findByText("Cloning acme/private…");
   for (let stage = 0; stage < 5; stage++) await step();
-  await screen.findByRole("button", { name: "Project: private" });
-  expect(registered(made)).toEqual([`${home}/private`]);
+  await screen.findByRole("button", { name: "Project: private-app" });
+  expect(registered(made)).toEqual([`${home}/private-app`]);
+});
+
+test("failed clone keeps the folder name", async () => {
+  const { made } = stepped();
+  await openClone(made);
+  made.daemon.refuseCommands("git_failed", "workspace.clone");
+  await userEvent.type(await address(), "https://github.com/acme/site.git");
+  const folder = screen.getByRole("textbox", { name: "Folder name" });
+  await userEvent.clear(folder);
+  await userEvent.type(folder, "marketing");
+  await userEvent.click(screen.getByRole("button", { name: "Clone" }));
+  await screen.findByText(/Git couldn't finish/);
+
+  // Coming back to the step later shows the same address, folder name and place.
+  await userEvent.click(screen.getByRole("button", { name: "Close command palette" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  await openClone(made);
+  expect(await address()).toHaveProperty("value", "https://github.com/acme/site.git");
+  expect(screen.getByRole("textbox", { name: "Folder name" })).toHaveProperty("value", "marketing");
+  expect(await screen.findByText("~/marketing")).toBeTruthy();
+  expect(screen.getByText(/Git couldn't finish/)).toBeTruthy();
+});
+
+test("failed clone into an existing partial folder explains it and offers another location", async () => {
+  const { made, step } = stepped();
+  await openClone(made);
+  made.daemon.refuseCommands("git_failed", "workspace.clone");
+  await userEvent.type(await address(), "https://github.com/acme/api.git");
+  expect(screen.getByRole("textbox", { name: "Folder name" })).toHaveProperty("value", "api");
+  // Git stopped part way and its folder stayed behind (ADR 0063).
+  made.daemon.projects.seedFolders(home, [{ path: `${home}/api` }]);
+  await userEvent.click(screen.getByRole("button", { name: "Clone" }));
+
+  expect(await screen.findByText(/The failed clone left a folder at ~\/api/)).toBeTruthy();
+  // The same destination can't be tried again; a free name is one click away.
+  await userEvent.click(screen.getByRole("button", { name: "Clone" }));
+  expect(screen.queryByRole("button", { name: "Cancel clone" })).toBeNull();
+  made.daemon.restoreRequests();
+  await userEvent.click(screen.getByRole("button", { name: "Use api-2" }));
+  expect(screen.getByRole("textbox", { name: "Folder name" })).toHaveProperty("value", "api-2");
+  await userEvent.click(screen.getByRole("button", { name: "Clone" }));
+  for (let stage = 0; stage < 5; stage++) await step();
+  await screen.findByRole("button", { name: "Project: api-2" });
+  expect(registered(made)).toEqual([`${home}/api-2`]);
 });
 
 test("a clone that finishes after the palette closed says so and opens on request", async () => {
@@ -141,8 +199,7 @@ test("a clone that finishes after the palette closed says so and opens on reques
   await openClone(made);
   await userEvent.type(await address(), "https://github.com/acme/docs.git");
   await userEvent.click(screen.getByRole("button", { name: "Clone" }));
-  await screen.findByRole("progressbar");
-  // Closing the palette leaves the clone running.
+  expect(await screen.findByText(/^Cloning acme\/docs…/)).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Close command palette" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   for (let stage = 0; stage < 5; stage++) await step();

@@ -11,7 +11,8 @@ export type { Project } from "./project-cache.ts";
 /** The daemon pages `workspaces.list` at 100; every page is read, however many projects. */
 const pageSize = 100;
 
-async function readProjects(client: ClientApi, signal: AbortSignal): Promise<Project[]> {
+/** Every project the daemon lists, page by page. */
+export async function readProjects(client: ClientApi, signal?: AbortSignal): Promise<Project[]> {
   const projects: Project[] = [];
   let after: string | undefined;
   for (;;) {
@@ -20,7 +21,7 @@ async function readProjects(client: ClientApi, signal: AbortSignal): Promise<Pro
         type: "workspace.request",
         operation: { op: "workspaces.list", limit: pageSize, ...(after ? { after } : {}) },
       },
-      { signal },
+      signal ? { signal } : {},
     );
     const result = reply.result;
     if (result.kind !== "workspaces") throw new Error("ace didn't list its projects.");

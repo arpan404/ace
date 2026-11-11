@@ -29,13 +29,20 @@ export const defaultUsagePorts = (now: () => number): UsagePorts => ({
     if (!info.isFile() || info.size > maxFileBytes) throw new Error("Not a credential file");
     return readFile(path, "utf8");
   },
-  async readSqlite({ path, table, keyColumn, key, valueColumn }) {
+  async readSqlite({ path, table, keyColumn, key, valueColumn, prefer }) {
     // Identifiers are schema-checked declaration data; only the key is a bound value.
     const db = new DatabaseSync(path, { readOnly: true });
     try {
+      // A store from before the preferred column existed still reads, in no particular order.
+      const ordered =
+        prefer !== undefined &&
+        db.prepare(`SELECT 1 FROM pragma_table_info(?) WHERE name = ?`).get(table, prefer) !==
+          undefined;
       const row = db
         .prepare(
-          `SELECT "${valueColumn}" AS value FROM "${table}" WHERE "${keyColumn}" = ? LIMIT 1`,
+          `SELECT "${valueColumn}" AS value FROM "${table}" WHERE "${keyColumn}" = ?` +
+            (ordered ? ` ORDER BY "${prefer}" DESC` : "") +
+            " LIMIT 1",
         )
         .get(key);
       return typeof row?.["value"] === "string" ? row["value"] : undefined;

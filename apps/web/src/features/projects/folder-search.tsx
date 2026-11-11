@@ -2,33 +2,37 @@ import {
   FolderOpenIcon,
   FolderSimpleIcon,
   FolderSimpleStarIcon,
-  GitBranchIcon,
-  HouseSimpleIcon,
   MagnifyingGlassIcon,
 } from "@phosphor-icons/react";
 import { crumbs, displayPath, pathInput, upInput } from "@ace/ui-core";
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { Kbd } from "@/components/ui/kbd.tsx";
-import { ListSkeleton } from "@/components/ui/skeleton.tsx";
+import { KeyHintList } from "@/components/ui/key-hints.tsx";
+import { ListStatus, ListViewport, OptionSkeletons } from "@/components/ui/list-viewport.tsx";
+import { canPick } from "@/components/ui/list-keys.ts";
 import { Spinner } from "@/components/ui/spinner.tsx";
+import { useListHighlight } from "@/components/ui/use-list-highlight.ts";
 import { LongRows, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
 import { cn } from "@/lib/cn.ts";
 import { applePlatform } from "@/lib/keymap.ts";
 import { AllowFolder } from "./allow-folder.tsx";
-import { Badge, Notice, RefusedNotice, offlineIcon } from "./folder-notices.tsx";
+import { tabCompletes } from "./path-completion.ts";
+import { RefusedNotice, RowMeta } from "./folder-notices.tsx";
 import type { FolderRow, FolderSearch } from "./use-folder-search.ts";
 
 /** Rows of a folder this long and longer mount only near the viewport. */
 const virtualAbove = 120;
+/** A folder option's size and insets, which its loading rows take too. */
+const folderOptionGeometry = "h-[30px] gap-2 px-2";
 const mod = (event: KeyboardEvent) => (applePlatform ? event.metaKey : event.ctrlKey);
 
 /**
  * The location box over a daemon's folders, as a combobox: letters search, `/`, `~` and `./`
  * browse a path. ↑/↓ (and Ctrl-N/P) move, Enter or Tab goes into the highlighted folder (Tab
- * completes a typed path), Backspace on an empty segment and ⌘↑ go up, Esc clears. ⌘Enter is
- * left to the form.
+ * completes a typed path), Backspace on an empty segment and ⌘↑ go up, Esc clears. Tab with
+ * nothing to complete moves focus on, and Enter with nothing highlighted, like ⌘Enter, is left
+ * to the form.
  */
 export function FolderSearchBox(props: {
   label: string;
@@ -44,20 +48,25 @@ export function FolderSearchBox(props: {
 }) {
   const { search, text, onText } = props;
   const { query, rows, sections, home } = search;
-  const listId = useId();
-  // Nothing is highlighted until a row is pointed at.
-  const [active, setActive] = useState<number>();
-  const chosen = active;
-  const current = Math.min(chosen ?? 0, Math.max(0, rows.length - 1));
+  const virtual = useRef<VirtualRowsHandle>(null);
+  // Nothing is highlighted until a key or the pointer moves to a row.
+  const list = useListHighlight({
+    count: rows.length,
+    // A folder's rows past the first sections may need mounting before they show.
+    reveal: (at) => {
+      const children = sections.find((section) => section.id === "children");
+      const offset = children ? rows.indexOf(children.rows[0] as FolderRow) : -1;
+      if (offset >= 0 && at >= offset) virtual.current?.scrollToIndex(at - offset);
+    },
+  });
+  const { listId, optionId, current } = list;
   // Rows still cached from before the machine went away, or from a folder now refused, stay
   // out of reach.
   const blocked = search.offline || search.failure !== undefined;
-  const pointed = blocked || chosen === undefined ? undefined : rows[current];
+  const pointed = blocked || current === undefined ? undefined : rows[current];
   // A row still showing from the previous query is never chosen for this one.
-  const highlighted = pointed?.stale ? undefined : pointed;
-  const virtual = useRef<VirtualRowsHandle>(null);
+  const highlighted = canPick(pointed, blocked) ? pointed : undefined;
   const roots = home?.roots ?? [];
-  const optionId = (index: number) => `${listId}-${index}`;
   // What the box holds now, for replies that arrive later: the text and the machine it's for.
   const latest = useRef({ text, machine: search.machineId });
   useEffect(() => {
@@ -72,24 +81,15 @@ export function FolderSearchBox(props: {
     return () => completing.current?.abort();
   }, [machineId]);
 
-  // Keep the highlighted folder in view; one in a long folder may need mounting first.
-  useEffect(() => {
-    const element = document.getElementById(optionId(current));
-    if (element) element.scrollIntoView?.({ block: "nearest" });
-    else {
-      const children = sections.find((section) => section.id === "children");
-      const offset = children ? rows.indexOf(children.rows[0] as FolderRow) : -1;
-      if (offset >= 0 && current >= offset) virtual.current?.scrollToIndex(current - offset);
-    }
-  });
-
   const type = (next: string) => {
     onText(next);
-    setActive(undefined);
+    list.reset();
   };
   const browse = (path: string) => type(pathInput(path, home?.path));
+  // Keys and pointer pick through here alike: a stale row, or any row of a blocked list, does
+  // nothing.
   const choose = (row: FolderRow | undefined) => {
-    if (row) browse(row.path);
+    if (row && canPick(row, blocked)) browse(row.path);
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -97,23 +97,24 @@ export function FolderSearchBox(props: {
     const caretAtEnd =
       event.currentTarget.selectionStart === text.length &&
       event.currentTarget.selectionEnd === text.length;
-    const count = rows.length;
-    if (key === "ArrowDown" || (event.ctrlKey && key === "n"))
-      setActive(count && chosen !== undefined ? (current + 1) % count : 0);
-    else if (key === "ArrowUp" && mod(event)) {
+    const action = list.key(event, (at) => canPick(rows[at], blocked));
+    if (action.kind === "moved") return;
+    // ⌘Enter is the form's.
+    if (action.kind === "pick") {
+      if (action.how === "alternate") return;
+      choose(rows[action.at]);
+    } else if (key === "ArrowUp" && mod(event)) {
       const up = query.kind === "path" ? upInput(query, home?.path) : undefined;
       if (up === undefined) return;
       type(up);
-    } else if (key === "ArrowUp" || (event.ctrlKey && key === "p"))
-      setActive(count ? (current - 1 + count) % count : 0);
-    else if (key === "Enter") {
-      if (mod(event)) return;
-      choose(highlighted);
     } else if (key === "Tab" && !event.shiftKey && !event.altKey && !mod(event)) {
+      const fallback = query.kind === "path" && query.segment ? highlighted : undefined;
       if (query.kind === "path") {
+        // Nothing to complete and nothing to go into: Tab moves on, as it does anywhere.
+        const names = search.loading && !rows.length ? undefined : rows.map((row) => row.name);
+        if (!tabCompletes({ segment: query.segment, names, intoHighlighted: !!fallback })) return;
         // The daemon completes. Its reply applies only to the same text on the same machine.
         const typed = { text, machine: search.machineId };
-        const fallback = highlighted && query.segment ? highlighted : undefined;
         completing.current?.abort();
         const controller = new AbortController();
         completing.current = controller;
@@ -144,9 +145,19 @@ export function FolderSearchBox(props: {
   let state: ReactNode = null;
   if (search.offline)
     state = (
-      <Notice icon={offlineIcon}>
-        That machine isn't connected. Folders come back once it is.
-      </Notice>
+      <ListStatus>{search.machineName} isn't connected. Folders come back once it is.</ListStatus>
+    );
+  else if (search.homeFailed)
+    state = (
+      <ListStatus
+        actions={
+          <Button size="sm" variant="ghost" onClick={search.retryHome}>
+            Retry
+          </Button>
+        }
+      >
+        Couldn't read the home folder on {search.machineName}.
+      </ListStatus>
     );
   else if (search.failure)
     state = (
@@ -158,21 +169,16 @@ export function FolderSearchBox(props: {
         onRetry={search.retry}
         allow={
           search.failure.canAllow && query.kind === "path" ? (
-            <AllowFolder
-              client={search.client}
-              path={query.directory}
-              roots={roots}
-              onAllowed={search.retry}
-            />
+            <AllowFolder client={search.client} path={query.directory} onAllowed={search.retry} />
           ) : undefined
         }
       />
     );
   else if (!rows.length && search.loading)
-    state = <ListSkeleton label="folders" shape="row" rows={6} />;
+    state = <OptionSkeletons label="folders" rows={5} geometry={folderOptionGeometry} />;
   else if (!rows.length)
     state = (
-      <Notice icon={FolderSimpleIcon}>
+      <ListStatus>
         {query.kind === "path"
           ? query.segment
             ? `No folders in ${displayPath(query.directory, home?.path)} start with “${query.segment}”.`
@@ -180,7 +186,7 @@ export function FolderSearchBox(props: {
           : text
             ? `No folders match “${text}”.`
             : "No folders here yet."}
-      </Notice>
+      </ListStatus>
     );
 
   // Each section's first option index, so ids run on across sections.
@@ -201,7 +207,7 @@ export function FolderSearchBox(props: {
           aria-expanded
           aria-controls={listId}
           aria-autocomplete="list"
-          aria-activedescendant={pointed ? optionId(current) : undefined}
+          aria-activedescendant={pointed && current !== undefined ? optionId(current) : undefined}
           aria-describedby={`${listId}-path`}
           placeholder={props.placeholder}
           value={text}
@@ -233,7 +239,6 @@ export function FolderSearchBox(props: {
                   onClick={() => browse(crumb.path)}
                   className="inline-flex h-[22px] min-w-0 items-center gap-1 rounded-sm px-1.5 focus-ring transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground focus-visible:bg-accent aria-[current]:text-foreground"
                 >
-                  {crumb.home && <Icon icon={HouseSimpleIcon} size={13} />}
                   <span className="truncate">{crumb.label}</span>
                 </button>
               </li>
@@ -241,12 +246,7 @@ export function FolderSearchBox(props: {
           </ol>
         </nav>
       )}
-      <div
-        className={cn(
-          "h-72 overflow-y-auto overscroll-contain rounded-md bg-secondary p-1",
-          props.listClassName,
-        )}
-      >
+      <ListViewport className={cn("h-72", props.listClassName)}>
         {state}
         <div id={listId} role="listbox" aria-label={props.listLabel} hidden={state !== null}>
           {sections.map((section, place) => {
@@ -257,8 +257,8 @@ export function FolderSearchBox(props: {
                 row={row}
                 active={first + at === current}
                 home={home?.path}
-                onPoint={() => setActive(first + at)}
-                onPick={() => browse(row.path)}
+                onPoint={() => list.point(first + at)}
+                onPick={() => choose(row)}
               />
             );
             return (
@@ -285,7 +285,7 @@ export function FolderSearchBox(props: {
             );
           })}
         </div>
-      </div>
+      </ListViewport>
       {state === null && (search.restFailed || search.capped) && (
         <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
           {search.restFailed
@@ -293,7 +293,7 @@ export function FolderSearchBox(props: {
             : "Showing the first 5,000 folders here. Type more of a name to narrow them."}
           {search.restFailed && (
             <Button size="sm" variant="ghost" onClick={search.retry}>
-              Try again
+              Retry
             </Button>
           )}
         </p>
@@ -302,24 +302,15 @@ export function FolderSearchBox(props: {
         <span id={`${listId}-path`} className="min-w-0 flex-1 truncate font-mono text-xs">
           {highlighted ? displayPath(highlighted.path, home?.path) : ""}
         </span>
-        <KeyHints />
+        <KeyHintList
+          className="shrink-0 max-sm:hidden"
+          hints={[
+            ...(highlighted ? [{ keys: ["enter"], label: "Go in" }] : []),
+            ...(query.kind === "path" ? [{ keys: ["tab"], label: "Complete" }] : []),
+          ]}
+        />
       </div>
     </div>
-  );
-}
-
-function KeyHints() {
-  return (
-    <span aria-hidden className="hidden shrink-0 items-center gap-2.5 sm:flex">
-      <span className="inline-flex items-center gap-1">
-        <Kbd>↵</Kbd>
-        go in
-      </span>
-      <span className="inline-flex items-center gap-1">
-        <Kbd>tab</Kbd>
-        complete
-      </span>
-    </span>
   );
 }
 
@@ -365,7 +356,8 @@ function FolderOption(props: {
       onMouseDown={(event) => event.preventDefault()}
       onClick={props.onPick}
       className={cn(
-        "flex h-[30px] cursor-default items-center gap-2 rounded-sm px-2 text-ui text-foreground select-none",
+        folderOptionGeometry,
+        "flex cursor-default items-center rounded-sm text-ui text-foreground select-none",
         props.active && "bg-accent",
         row.stale && "opacity-60",
       )}
@@ -381,8 +373,8 @@ function FolderOption(props: {
       <span className="min-w-0 flex-1 truncate font-mono text-xs text-subtle-foreground">
         {props.active ? displayPath(row.path, props.home) : ""}
       </span>
-      {row.project && <Badge>Project</Badge>}
-      {row.git && <Badge icon={GitBranchIcon}>Git</Badge>}
+      {row.project && <RowMeta>Project</RowMeta>}
+      {row.git && <RowMeta>Git</RowMeta>}
     </div>
   );
 }

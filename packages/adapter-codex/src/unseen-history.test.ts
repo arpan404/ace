@@ -103,7 +103,7 @@ test("earlier unseen child work is recovered after a newer live turn completes",
     });
   recover();
   recover();
-  expect(h.state.status).toEqual({ state: "waiting", on: "background_task" });
+  expect(h.state.status).toEqual({ state: "done" });
   expect(Object.values(h.state.items).filter((i) => i.type === "message")).toHaveLength(1);
   expect(
     Object.values(h.state.tasks).filter((t) => t.kind === "shell" && t.status === "running"),

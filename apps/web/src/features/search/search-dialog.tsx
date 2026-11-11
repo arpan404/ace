@@ -319,7 +319,7 @@ function SearchBody(props: { initial: string; onClose(): void }) {
             className="h-auto py-10"
           />
         ) : !results.hits || (results.updating && !hits.length) ? (
-          <ListSkeleton label="results" shape="row" rows={4} />
+          <ListSkeleton label="results" shape="row" rows={4} className="px-2.5" />
         ) : !hits.length ? (
           <EmptyState
             variant="inline"

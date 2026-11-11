@@ -17,7 +17,8 @@ type Put = (key: string, read: () => Record<string, unknown> | undefined) => voi
 export function workLine(store: Pick<WorkStore, "thread" | "queue">, preview: Preview) {
   const problem = checkoutProblem(store.thread?.details);
   if (problem?.failed) {
-    const moves = problem.kind !== "setup-failed";
+    // A gone project folder leaves no checkout to change to.
+    const moves = problem.kind !== "setup-failed" && problem.kind !== "project-missing";
     return {
       kind: problem.kind,
       label: problem.label,

@@ -34,7 +34,13 @@ const Method = z
   })
   .passthrough();
 const Integration = z
-  .object({ id: z.string(), name: z.string(), methods: z.array(Method).catch([]) })
+  .object({
+    id: z.string(),
+    name: z.string(),
+    methods: z.array(Method).catch([]),
+    /** Saved logins and environment keys: only their count is read, never what they hold. */
+    connections: z.array(z.unknown()).max(256).catch([]).default([]),
+  })
   .passthrough();
 export type OpenCodeIntegration = z.infer<typeof Integration>;
 const Attempt = z

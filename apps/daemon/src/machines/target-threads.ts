@@ -157,10 +157,15 @@ export class TargetThreads {
     const outcomeEnds =
       payload.type === "run.started" ||
       (payload.type === "thread.client.updated" && payload.changes.deletedAt !== undefined);
+    // Codex can end a turn on systemError and only then report the usage limit: an outcome kept
+    // without that reason is read again, so the other machine hears what stopped it.
+    const limitArrived = payload.type === "thread.updated" && payload.status?.state === "limited";
     const notice = deliveryNotice(event);
-    if (!outcomeEnds && !notice) return;
+    if (!outcomeEnds && !notice && !limitArrived) return;
     if (!this.owner(event.threadId)) return;
     if (outcomeEnds) this.outcomes.forget(event.threadId);
+    else if (limitArrived && this.outcomes.get(event.threadId)?.failure?.code !== "usage_limited")
+      this.outcomes.forget(event.threadId);
     const engine = this.deps.engine();
     if (!notice || !engine) return;
     if (!engine.messageFacts(event.threadId, CommandId.parse(notice.commandId)).fromParent) return;

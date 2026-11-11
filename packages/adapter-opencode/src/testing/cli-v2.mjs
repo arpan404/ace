@@ -228,6 +228,20 @@ const signInIntegrations = [
   { id: "anthropic", name: "Anthropic", methods: [{ type: "key" }] },
   { id: "poe", name: "Poe", methods: [{ type: "oauth", id: "browser", label: "Login with Poe" }] },
   { id: "mcp_fixture", name: "Fixture MCP", methods: [{ type: "oauth", id: "mcp_fixture" }] },
+  // OpenCode 2.2.6 also lists every key-only service, each with its saved connections.
+  {
+    id: "groq",
+    name: "Groq",
+    methods: [{ type: "key" }, { type: "env", names: ["GROQ_API_KEY"] }],
+    connections: [{ type: "credential", id: "cred_groq", label: "Default", method: "key" }],
+  },
+  {
+    id: "wafer.ai",
+    name: "Wafer",
+    methods: [{ type: "key" }, { type: "env", names: ["WAFER_API_KEY"] }],
+  },
+  { id: "lmstudio", name: "LMStudio", methods: [{ type: "key" }] },
+  { id: "env-only", name: "Env Only", methods: [{ type: "env", names: ["ENV_ONLY_KEY"] }] },
 ];
 const signInPages = {
   opencode: {
