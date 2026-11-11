@@ -183,7 +183,8 @@ struct ForgeFileView: View {
     private func attachFix() {
         guard let desk, let fixer else { return }
         let client = client, drafts = drafts, target = desk.target
-        desk.fix = fixer.available(client, target) ? { request in fixer.fix(request, client: client, target: target, drafts: drafts) } : nil
+        // Offered wherever the phone can act; the pull request's thread is found when it's asked.
+        desk.fix = client.canOperate ? { request in await fixer.fix(request, client: client, target: target, drafts: drafts) } : nil
     }
 
     private func load() async {

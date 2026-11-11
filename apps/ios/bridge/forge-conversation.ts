@@ -154,7 +154,8 @@ export function commentView(conversation: Conversation, comment: ForgeComment): 
         ? null
         : conversation.preview(
             commentFixRequest(comment, { number: conversation.number, url: conversation.url }),
-            66_000,
+            // The whole request, as the web's: a 64k comment quoted line by line can pass 90k.
+            200_000,
           ),
   };
 }

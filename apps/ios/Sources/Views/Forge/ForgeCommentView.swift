@@ -74,7 +74,13 @@ struct ForgeCommentView: View {
                 Button("Copy link", ace: .linkSimple) { UIPasteboard.general.url = link }
             }
             if let request = comment.fix, let fix = actions.desk.fix {
-                Button("Fix with agent") { _ = fix(request) }
+                Button("Fix with agent") {
+                    Task {
+                        if await !fix(request) {
+                            actions.desk.report("Couldn't hand this to an agent. Open the pull request's thread and try again.")
+                        }
+                    }
+                }
                     .accessibilityIdentifier("forge.comment.fix")
             }
             if comment.edit || comment.hide || comment.unhide || comment.remove {

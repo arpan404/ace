@@ -11,23 +11,19 @@ struct ForgeFixer {
     /// Nil where the phone can't start threads.
     let startThread: (() -> Void)?
 
-    /// The pull request page this phone last read, which names its threads, head and title.
-    @MainActor func page(_ client: ClientModel, _ target: ForgePullTarget) -> ForgePullPage? {
+    /// The pull request page, which names its threads, head and title: the one this phone last
+    /// read when there is one, read from the machine when not (a timeline opened on its own).
+    @MainActor func page(_ client: ClientModel, _ target: ForgePullTarget) async -> ForgePullPage? {
         let saved = UserDefaults.standard.string(forKey: "ace.git.mergeMethod") ?? ""
         let read = ClientModel.forgePullRead(project: target.project, number: target.number, repository: target.repository,
                                              method: saved.isEmpty ? "squash" : saved)
-        return client.kept(read, as: ForgePullPage.self)
-    }
-
-    /// Whether a request can go anywhere: a thread to take it, or a new one to start.
-    @MainActor func available(_ client: ClientModel, _ target: ForgePullTarget) -> Bool {
-        guard client.canOperate, let page = page(client, target) else { return false }
-        return page.threads.contains { !$0.archived } || startThread != nil
+        if let kept = client.kept(read, as: ForgePullPage.self) { return kept }
+        return try? await client.read(read, as: ForgePullPage.self)
     }
 
     /// Hands `request` on; false when nothing could take it.
-    @MainActor func fix(_ request: String, client: ClientModel, target: ForgePullTarget, drafts: ThreadDrafts?) -> Bool {
-        guard let page = page(client, target) else { return false }
+    @MainActor func fix(_ request: String, client: ClientModel, target: ForgePullTarget, drafts: ThreadDrafts?) async -> Bool {
+        guard client.canOperate, let page = await page(client, target) else { return false }
         if let thread = page.threads.first(where: { !$0.archived }) {
             guard client.handOff(request, to: thread.id, drafts: drafts) else { return false }
             openThread(InboxKey(machineId: machineId, id: thread.id))
