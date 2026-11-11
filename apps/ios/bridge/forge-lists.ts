@@ -1,4 +1,5 @@
 import type {
+  ForgeRepository,
   ForgeIssueList,
   ForgeIssueRow,
   ForgePrList,
@@ -113,6 +114,8 @@ export interface IssuesReply {
   authors: string[];
   labels: string[];
   canCreate: boolean;
+  /** The repository New issue opens on (the primary, as the web's): null where it can't. */
+  createOn: ForgeRepository | null;
 }
 
 const identity = (row: ForgePrRow) => keyOf(row);
@@ -292,6 +295,9 @@ export async function readIssues(
   const first = lists[0]?.first;
   const complete = answeredInFull(sources, lists, unlisted);
   const primary = answers.find((answer) => answer.source.repository === undefined);
+  const creatable =
+    !!primary?.value.first.canCreate &&
+    can(primary.source.capabilitySource ?? primary.value.first.repository, "issues.write");
   return {
     type: "forge.issues",
     repository: first ? `${first.repository.owner}/${first.repository.name}` : "",
@@ -319,9 +325,8 @@ export async function readIssues(
       search,
     ),
     // New issues open on the primary, which is read without naming it.
-    canCreate:
-      !!primary?.value.first.canCreate &&
-      can(primary.source.capabilitySource ?? primary.value.first.repository, "issues.write"),
+    canCreate: creatable,
+    createOn: creatable && primary ? primary.value.first.repository : null,
   };
 }
 

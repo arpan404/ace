@@ -38,6 +38,8 @@ export interface IssueReply {
   /** GitHub's own updatedAt, which an edit or a state change names to stay current. */
   revision: string;
   body: string;
+  /** The body is whole, not shortened for the phone: only then can an edit start from it. */
+  bodyComplete: boolean;
   /** The body's task boxes tick and save. */
   tasks: boolean;
   labels: ForgeLabelView[];
@@ -129,6 +131,7 @@ export async function readIssue(
     updatedAt: epoch(issue.updatedAt),
     revision: issue.updatedAt,
     body: preview(issue.body, 32_768),
+    bodyComplete: preview(issue.body, 32_768) === issue.body,
     writable,
     tasks: writable && issue.permissions.edit,
     labels: issue.labels.slice(0, 20).map((name) => ({

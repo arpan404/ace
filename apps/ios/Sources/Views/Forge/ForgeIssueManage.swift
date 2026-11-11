@@ -65,8 +65,10 @@ struct ForgeIssueManageSection: View {
                 }
             }
         }
-        .sheet(isPresented: $editing) {
-            ForgeIssueEditSheet(page: page) { edit in await apply(edit) }
+        .sheet(isPresented: $editing, onDismiss: { Task { await changed() } }) {
+            ForgeIssueEditSheet(page: page) { input in
+                await client.forgeIssueChange(project: project, repository: page.repository, input: input)
+            }
         }
     }
 
@@ -82,18 +84,18 @@ struct ForgeIssueManageSection: View {
             await changed()
         }
     }
+}
 
-    /// The edit's writes in order (text, then labels, then assignees), stopping at the first GitHub
-    /// refuses so the sheet keeps what is left.
-    private func apply(_ edit: ForgeIssueEdit) async -> ForgeIssueChangeOutcome {
-        var last = ForgeIssueChangeOutcome(ok: true, message: "", uncertain: false)
-        for input in edit.inputs(number: page.number, revision: page.revision ?? "", base: (page.title, page.body)) {
-            last = await client.forgeIssueChange(project: project, repository: page.repository, input: input)
-            if !last.ok { break }
-        }
-        await changed()
-        return last
-    }
+/// What an issue looked like when its edit sheet opened: every change is measured from it, and a
+/// retry after a partial save never measures again from a page someone else has changed since.
+struct ForgeIssueBaseline: Equatable {
+    let title: String
+    let body: String
+    let labels: [String]
+    let assignees: [String]
+    let revision: String
+    /// The body arrived whole: only then can the text be edited from it.
+    let bodyComplete: Bool
 }
 
 /// The issue edit the sheet built: the text if it changed, and labels and assignees as what to add
@@ -101,74 +103,76 @@ struct ForgeIssueManageSection: View {
 struct ForgeIssueEdit: Equatable {
     var title: String?
     var body: String?
-    var labels: (add: [String], remove: [String]) = ([], [])
-    var assignees: (add: [String], remove: [String]) = ([], [])
-    var isEmpty: Bool {
-        title == nil && body == nil && labels.add.isEmpty && labels.remove.isEmpty && assignees.add.isEmpty && assignees.remove.isEmpty
-    }
-    static func == (a: ForgeIssueEdit, b: ForgeIssueEdit) -> Bool {
-        a.title == b.title && a.body == b.body && a.labels.add == b.labels.add && a.labels.remove == b.labels.remove
-            && a.assignees.add == b.assignees.add && a.assignees.remove == b.assignees.remove
-    }
+    var labels = ForgeIssueEdit.Change()
+    var assignees = ForgeIssueEdit.Change()
+    struct Change: Equatable { var add: [String] = []; var remove: [String] = []; var isEmpty: Bool { add.isEmpty && remove.isEmpty } }
+    var isEmpty: Bool { title == nil && body == nil && labels.isEmpty && assignees.isEmpty }
 
-    /// What changed from the page: lists one per line, compared as sets, kept in the order typed.
-    static func from(was: (title: String, body: String, labels: [String], assignees: [String]),
-                     title: String, body: String, labels: String, assignees: String) -> ForgeIssueEdit {
+    /// What changed from `was`: lists one per line, compared as sets and without regard to case
+    /// (GitHub matches names so), kept in the order and spelling typed.
+    static func from(was: ForgeIssueBaseline, title: String, body: String, labels: String, assignees: String) -> ForgeIssueEdit {
         var edit = ForgeIssueEdit()
         let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        if title != was.title || body != was.body {
+        if title != was.title || (was.bodyComplete && body != was.body) {
             edit.title = title
-            edit.body = body
+            edit.body = was.bodyComplete ? body : was.body
         }
-        let labelList = ForgePullEdit.list(labels), assigneeList = ForgePullEdit.list(assignees)
-        edit.labels = (labelList.filter { !was.labels.contains($0) }, was.labels.filter { !labelList.contains($0) })
-        edit.assignees = (assigneeList.filter { !was.assignees.contains($0) }, was.assignees.filter { !assigneeList.contains($0) })
+        edit.labels = change(from: was.labels, to: ForgePullEdit.list(labels))
+        edit.assignees = change(from: was.assignees, to: ForgePullEdit.list(assignees))
         return edit
     }
+    static func change(from old: [String], to new: [String]) -> Change {
+        let had = Set(old.map { $0.lowercased() }), has = Set(new.map { $0.lowercased() })
+        return Change(add: new.filter { !had.contains($0.lowercased()) }, remove: old.filter { !has.contains($0.lowercased()) })
+    }
 
-    func inputs(number: Int, revision: String, base: (title: String, body: String)) -> [[String: Any]] {
-        var inputs: [[String: Any]] = []
+    /// The writes, each with the name the sheet tracks it by, in the order they go.
+    func inputs(number: Int, was: ForgeIssueBaseline) -> [(step: String, input: [String: Any])] {
+        var inputs: [(String, [String: Any])] = []
         if let title, let body {
-            inputs.append(["action": "edit", "number": number, "expectedUpdatedAt": revision, "title": title, "body": body,
-                           "base": ["title": base.title, "body": base.body]])
+            inputs.append(("text", ["action": "edit", "number": number, "expectedUpdatedAt": was.revision, "title": title, "body": body,
+                                    "base": ["title": was.title, "body": was.body]]))
         }
-        if !labels.add.isEmpty || !labels.remove.isEmpty {
-            inputs.append(["action": "labels", "number": number, "add": labels.add, "remove": labels.remove])
-        }
-        if !assignees.add.isEmpty || !assignees.remove.isEmpty {
-            inputs.append(["action": "assignees", "number": number, "add": assignees.add, "remove": assignees.remove])
+        if !labels.isEmpty { inputs.append(("labels", ["action": "labels", "number": number, "add": labels.add, "remove": labels.remove])) }
+        if !assignees.isEmpty {
+            inputs.append(("assignees", ["action": "assignees", "number": number, "add": assignees.add, "remove": assignees.remove]))
         }
         return inputs
     }
 }
 
 /// An issue's title, description, labels and assignees, sent as the writes that changed; the sheet
-/// closes only once GitHub took them all.
+/// closes only once GitHub took them all. A write that landed isn't sent again on Save.
 struct ForgeIssueEditSheet: View {
-    let page: ForgeIssuePage
-    let save: (ForgeIssueEdit) async -> ForgeIssueChangeOutcome
+    let number: Int
+    let send: ([String: Any]) async -> ForgeIssueChangeOutcome
+    @State private var was: ForgeIssueBaseline
     @State private var title: String
     @State private var text: String
     @State private var labels: String
     @State private var assignees: String
+    /// The steps GitHub already took (text, labels, assignees).
+    @State private var done: Set<String> = []
     @State private var saving = false
+    @State private var unconfirmed = false
     @State private var problem: String?
     @State private var discarding = false
     @Environment(\.dismiss) private var dismiss
 
-    init(page: ForgeIssuePage, save: @escaping (ForgeIssueEdit) async -> ForgeIssueChangeOutcome) {
-        self.page = page
-        self.save = save
+    init(page: ForgeIssuePage, send: @escaping ([String: Any]) async -> ForgeIssueChangeOutcome) {
+        number = page.number
+        self.send = send
+        _was = State(initialValue: ForgeIssueBaseline(title: page.title, body: page.body, labels: page.labels.map(\.name),
+                                                      assignees: page.assignees, revision: page.revision ?? "",
+                                                      bodyComplete: page.bodyComplete ?? false))
         _title = State(initialValue: page.title)
         _text = State(initialValue: page.body)
         _labels = State(initialValue: page.labels.map(\.name).joined(separator: "\n"))
         _assignees = State(initialValue: page.assignees.joined(separator: "\n"))
     }
 
-    private var edit: ForgeIssueEdit {
-        .from(was: (page.title, page.body, page.labels.map(\.name), page.assignees),
-              title: title, body: text, labels: labels, assignees: assignees)
-    }
+    private var edit: ForgeIssueEdit { .from(was: was, title: title, body: text, labels: labels, assignees: assignees) }
+    private var pending: [(step: String, input: [String: Any])] { edit.inputs(number: number, was: was).filter { !done.contains($0.step) } }
 
     var body: some View {
         NavigationStack {
@@ -177,8 +181,13 @@ struct ForgeIssueEditSheet: View {
                     if let problem { ForgeSheetProblem(text: problem) }
                     ForgeSheetField("Title") { TextField("Title", text: $title).accessibilityIdentifier("forge.issue.edit.title") }
                     ForgeSheetField("Description") {
-                        TextField("Description", text: $text, axis: .vertical).lineLimit(4...12)
-                            .accessibilityIdentifier("forge.issue.edit.body")
+                        if was.bodyComplete {
+                            TextField("Description", text: $text, axis: .vertical).lineLimit(4...12)
+                                .accessibilityIdentifier("forge.issue.edit.body")
+                        } else {
+                            Text("This description is too long to edit on the phone. Edit it on GitHub.")
+                                .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote).foregroundStyle(AceDesign.Ink.muted)
+                        }
                     }
                     ForgeSheetField("Labels") {
                         TextField("One label per line", text: $labels, axis: .vertical).lineLimit(1...6)
@@ -196,19 +205,19 @@ struct ForgeIssueEditSheet: View {
             .navigationTitle("Edit issue").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { if edit.isEmpty { dismiss() } else { discarding = true } }
+                    Button("Cancel") { if pending.isEmpty { dismiss() } else { discarding = true } }.disabled(saving)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     if saving { ProgressView().accessibilityLabel("Saving") }
                     else {
                         Button("Save") { Task { await submit() } }
-                            .disabled(edit.isEmpty || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            .disabled(pending.isEmpty || unconfirmed || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                             .accessibilityIdentifier("forge.issue.edit.save")
                     }
                 }
             }
         }
-        .interactiveDismissDisabled(!edit.isEmpty || saving)
+        .interactiveDismissDisabled(!pending.isEmpty || saving)
         .confirmationDialog("Discard your edits?", isPresented: $discarding, titleVisibility: .visible) {
             Button("Discard", role: .destructive) { dismiss() }
             Button("Keep editing", role: .cancel) {}
@@ -218,21 +227,32 @@ struct ForgeIssueEditSheet: View {
 
     private func submit() async {
         saving = true; problem = nil
-        let outcome = await save(edit)
-        saving = false
-        if outcome.ok { dismiss() } else { problem = outcome.message }
+        defer { saving = false }
+        for step in pending {
+            let outcome = await send(step.input)
+            guard outcome.ok else {
+                // A lost answer may have landed: it isn't sent again from here.
+                unconfirmed = outcome.uncertain
+                problem = outcome.uncertain ? "GitHub didn't confirm the change. Close this and check the issue before trying again." : outcome.message
+                return
+            }
+            done.insert(step.step)
+        }
+        dismiss()
     }
 }
 
-/// A new issue on the project's repository: a title and a description, opened once GitHub has it.
+/// A new issue on the repository the project's issues open on: a title and a description, opened
+/// once GitHub has it. One whose answer was lost is never sent again from here.
 struct ForgeNewIssueSheet: View {
     let client: ClientModel
     let project: String
+    let repository: ForgeRepository
     let opened: (Int) -> Void
-    @State private var repository: ForgeRepository?
     @State private var title = ""
     @State private var text = ""
     @State private var saving = false
+    @State private var unconfirmed = false
     @State private var problem: String?
     @Environment(\.dismiss) private var dismiss
 
@@ -248,43 +268,42 @@ struct ForgeNewIssueSheet: View {
                         TextField("Steps, what you expected, what happened", text: $text, axis: .vertical).lineLimit(4...12)
                             .accessibilityIdentifier("forge.newissue.body")
                     }
-                    if let repository {
-                        Text("Opens on \(repository.owner)/\(repository.name)")
-                            .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote).foregroundStyle(AceDesign.Ink.muted)
-                            .padding(.horizontal, AceDesign.Space.margin)
-                    }
+                    Text("Opens on \(repository.owner)/\(repository.name)")
+                        .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote).foregroundStyle(AceDesign.Ink.muted)
+                        .padding(.horizontal, AceDesign.Space.margin)
                 }
                 .padding(.vertical, AceDesign.Space.related)
             }
             .background(AceDesign.Surface.background)
             .navigationTitle("New issue").navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button(unconfirmed ? "Done" : "Cancel") { dismiss() }.disabled(saving) }
                 ToolbarItem(placement: .confirmationAction) {
                     if saving { ProgressView().accessibilityLabel("Opening") }
                     else {
                         Button("Open") { Task { await submit() } }
-                            .disabled(repository == nil || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            .disabled(unconfirmed || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                             .accessibilityIdentifier("forge.newissue.open")
                     }
                 }
             }
-            .task {
-                do { repository = try await client.forgeNewPrContext(project: project).repository }
-                catch { problem = "Couldn't find this project's repository. \(error.localizedDescription)" }
-            }
         }
-        .interactiveDismissDisabled(dirty || saving)
+        .interactiveDismissDisabled((dirty && !unconfirmed) || saving)
         .presentationDetents([.medium, .large])
     }
 
     private func submit() async {
-        guard let repository else { return }
         saving = true; problem = nil
+        defer { saving = false }
         let outcome = await client.forgeIssueChange(project: project, repository: repository, input: [
             "action": "create", "title": title.trimmingCharacters(in: .whitespacesAndNewlines), "body": text,
         ])
-        saving = false
+        if outcome.uncertain {
+            // It may have been opened: a second Open could make a duplicate.
+            unconfirmed = true
+            problem = "GitHub didn't confirm the issue. It may have opened: check the Issues list before opening it again."
+            return
+        }
         guard outcome.ok, let number = outcome.opened else { problem = outcome.ok ? "Opened, but GitHub didn't say its number." : outcome.message; return }
         dismiss()
         opened(number)
