@@ -47,13 +47,16 @@ struct QuietRowText: View {
     var detail: String? = nil
     var mono = false
     var tone: Color = AceDesign.Ink.primary
+    @Environment(\.dynamicTypeSize) private var typeSize
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             Group {
                 if mono { Text(verbatim: title).aceMonospace(AceDesign.TextRole.rowTitle, relativeTo: .callout) }
                 else { Text(title).aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout) }
             }
-            .foregroundStyle(tone).lineLimit(1).truncationMode(.middle)
+            // One line, cut in the middle; at accessibility sizes the whole title wraps instead,
+            // so names that differ only at their end stay apart.
+            .foregroundStyle(tone).lineLimit(typeSize.isAccessibilitySize ? nil : 1).truncationMode(.middle)
             if let detail, !detail.isEmpty {
                 Text(detail).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
                     .foregroundStyle(AceDesign.Ink.muted).lineLimit(2)
