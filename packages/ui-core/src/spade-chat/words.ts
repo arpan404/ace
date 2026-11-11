@@ -180,7 +180,14 @@ export function spadeJobsLine(jobs: readonly { name: string; agents: number | un
 }
 
 /** The quiet line when a background job ends. */
-export function spadeJobEndLine(name: string, failed: boolean): string {
+export function spadeJobEndLine(name: string, outcome: "done" | "failed" | "stopped"): string {
+  if (outcome === "stopped") {
+    if (name === "delegate") return "Stopped the agents";
+    if (name === "wait") return "Stopped waiting for agents";
+    const doing = spadeToolWords(name).doing;
+    return `Stopped ${doing.charAt(0).toLowerCase()}${doing.slice(1)}`;
+  }
+  const failed = outcome === "failed";
   if (name === "delegate") return failed ? "The agents' work failed" : "The agents finished";
   if (name === "wait") return failed ? "Couldn't wait for the agents" : "Done waiting for agents";
   const words = spadeToolWords(name);

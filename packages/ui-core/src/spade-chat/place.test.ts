@@ -149,6 +149,8 @@ test("an events page keeps every event it can read, in order", () => {
 });
 
 test("a background job's end reads in words, agents' work as the agents'", () => {
-  expect(spadeJobEndLine("delegate", false)).toBe("The agents finished");
-  expect(spadeJobEndLine("research", true)).toBe("Couldn't research in the background");
+  expect(spadeJobEndLine("delegate", "done")).toBe("The agents finished");
+  expect(spadeJobEndLine("research", "failed")).toBe("Couldn't research in the background");
+  expect(spadeJobEndLine("delegate", "stopped")).toBe("Stopped the agents");
+  expect(spadeJobEndLine("research", "stopped")).toBe("Stopped researching");
 });

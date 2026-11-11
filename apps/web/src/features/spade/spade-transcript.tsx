@@ -9,7 +9,7 @@ import {
 import { useClient } from "@ace/client-react";
 import { memo, useEffect, useState } from "react";
 import { formatBytes } from "@/components/format-bytes.ts";
-import { spadePicture } from "./spade-images.ts";
+import { holdSpadePicture } from "./spade-images.ts";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { WorkingIndicator } from "@/components/working-indicator.tsx";
@@ -24,7 +24,8 @@ const quiet = "text-ui text-muted-foreground";
  * A conversation's entries in order: the person's bubbles on the right, Spade's words as prose,
  * each tool call it made as one quiet line once it has an outcome (the Working line names the one
  * running), how a reply ended when it didn't finish, a background job's end, and a quiet line
- * where the conversation was compacted. The Working line, with Stop, closes the open reply.
+ * where the conversation was compacted. While anything is open (a reply, a tool, an approval, a
+ * background job) the Working line closes the conversation, with Stop for all of it.
  */
 export function SpadeTranscript(props: {
   conversation: string;
@@ -50,12 +51,12 @@ export function SpadeTranscript(props: {
             from={view.working.since}
             moving={view.working.moving}
           />
-          {view.answering && (
+          {view.busy && (
             <Button
               size="xs"
               variant="ghost"
               disabled={props.stopping}
-              aria-label="Stop Spade's reply"
+              aria-label="Stop Spade"
               onClick={props.onStop}
             >
               {props.stopping ? "Stopping…" : "Stop"}
@@ -94,7 +95,7 @@ const Entry = memo(function Entry(props: { entry: SpadeEntry; conversation: stri
         </p>
       );
     case "job":
-      return <p className={quiet}>{spadeJobEndLine(entry.name, entry.failed)}</p>;
+      return <p className={quiet}>{spadeJobEndLine(entry.name, entry.outcome)}</p>;
   }
 });
 
@@ -122,12 +123,14 @@ function SentImage(props: { image: SpadeImageRef }) {
   const [shown, setShown] = useState<{ hash: string; url?: string; failed?: true }>();
   useEffect(() => {
     let live = true;
-    spadePicture(client, hash).then(
+    const picture = holdSpadePicture(client, hash);
+    picture.url.then(
       (url) => live && setShown({ hash, url }),
       () => live && setShown({ hash, failed: true }),
     );
     return () => {
       live = false;
+      picture.release();
     };
   }, [client, hash]);
   const state = shown?.hash === hash ? shown : undefined;
@@ -140,7 +143,11 @@ function SentImage(props: { image: SpadeImageRef }) {
       aria-busy={state ? undefined : true}
       className="grid h-24 w-32 place-items-center rounded-lg bg-bubble px-3 text-xs text-muted-foreground"
     >
-      {state?.failed ? `Image · ${formatBytes(props.image.bytes)}` : null}
+      {state?.failed
+        ? props.image.bytes > 0
+          ? `Image · ${formatBytes(props.image.bytes)}`
+          : "Image"
+        : null}
     </span>
   );
 }

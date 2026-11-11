@@ -435,3 +435,64 @@ describe("delegation", () => {
     expect(uncounted.view().working?.label).toBe("Waiting for agents");
   });
 });
+
+describe("stopping", () => {
+  test("a job Stop ended reads as stopped, not failed; one that failed on its own as failed", () => {
+    const c = conversation();
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.stored({ type: "job_started", reply: "r1", job: "j1", name: "delegate" });
+    c.stored({ type: "job_started", reply: "r1", job: "j2", name: "research" });
+    c.stored({ type: "step_finished", reply: "r1", text: "On it." });
+    c.stored({ type: "reply_finished", reply: "r1", text: "On it." });
+    c.stored({ type: "job_finished", job: "j2", name: "research", content: "", is_error: true });
+    c.stored({ type: "stop_requested", jobs: ["j1"] });
+    c.stored({ type: "job_finished", job: "j1", name: "delegate", content: "", is_error: true });
+    expect(c.view().entries.slice(-2)).toMatchObject([
+      { kind: "job", name: "research", outcome: "failed" },
+      { kind: "job", name: "delegate", outcome: "stopped" },
+    ]);
+    expect(c.view().busy).toBe(false);
+  });
+
+  test("stopping a reply stops the jobs it started and hides its approval", () => {
+    const c = conversation();
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.stored({ type: "job_started", reply: "r1", job: "j1", name: "research" });
+    c.stored({
+      type: "step_finished",
+      reply: "r1",
+      text: "",
+      calls: [{ id: "c1", name: "send_email", arguments: {} }],
+    });
+    c.stored({
+      type: "approval_requested",
+      reply: "r1",
+      call_id: "c1",
+      name: "send_email",
+      arguments: {},
+    });
+    c.stored({ type: "stop_requested", reply: "r1", jobs: [] });
+    expect(c.view().approvals).toEqual([]);
+    c.stored({ type: "reply_stopped", reply: "r1", text: "" });
+    c.stored({ type: "job_finished", job: "j1", name: "research", content: "", is_error: true });
+    expect(c.view().entries.at(-1)).toMatchObject({ kind: "job", outcome: "stopped" });
+  });
+});
+
+test("a job's end reads above the words that answer it", () => {
+  const c = conversation();
+  c.stored({ type: "reply_started", reply: "r1" });
+  c.stored({ type: "job_started", reply: "r1", job: "j1", name: "research" });
+  c.stored({ type: "step_finished", reply: "r1", text: "Started it." });
+  c.stored({ type: "reply_finished", reply: "r1", text: "Started it." });
+  // The result reopens a turn, which answers it.
+  c.stored({ type: "reply_started", reply: "r2" });
+  c.frame("delta", { reply: "r2", text: "Here is what" });
+  c.stored({ type: "job_finished", job: "j1", name: "research", content: "found" });
+  c.frame("delta", { reply: "r2", text: " I found." });
+  expect(said(c.view().entries)).toEqual([
+    "spade: Started it. (finished)",
+    "job",
+    "spade: Here is what I found.…",
+  ]);
+});

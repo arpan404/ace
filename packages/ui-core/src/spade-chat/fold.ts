@@ -4,6 +4,8 @@ import type { SpadeImageRef, SpadeKnownEvent, SpadeLiveInput, SpadeStored } from
 export interface SpadeJob {
   name: string;
   agents: number | undefined;
+  /** The reply that started it, whose Stop also stops it. */
+  reply: string;
 }
 
 const record = (value: unknown): Record<string, unknown> | undefined =>
@@ -73,7 +75,10 @@ export type SpadeEntry =
   /** The model now reads a summary of what came before. */
   | { kind: "compacted"; key: string }
   /** A background job ended; its result went to Spade. */
-  | { kind: "job"; key: string; name: string; failed: boolean };
+  | { kind: "job"; key: string; name: string; outcome: SpadeJobOutcome };
+
+/** How a background job ended: on its own, with an error, or because the person pressed Stop. */
+export type SpadeJobOutcome = "done" | "failed" | "stopped";
 
 export interface SpadeApproval {
   reply: string;
@@ -102,6 +107,8 @@ export interface SpadeConversationState {
   approvals: SpadeApproval[];
   /** Background jobs still running, by job id (the id of the call that started each). */
   jobs: Map<string, SpadeJob>;
+  /** Jobs a Stop asked to end: their errored end reads as stopped, not failed. */
+  stopping: Set<string>;
   /** Stored events of types this client doesn't read, kept count of and otherwise ignored. */
   unknown: number;
 }
@@ -125,6 +132,7 @@ export function emptySpadeConversation(): SpadeConversationState {
     running: new Map(),
     approvals: [],
     jobs: new Map(),
+    stopping: new Set(),
     unknown: 0,
   };
 }
@@ -249,12 +257,17 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       state.jobs.set(event.job, {
         name: event.name,
         agents: delegatedTasks(state.calls.get(event.job)?.arguments),
+        reply: event.reply,
       });
       return true;
-    case "job_finished":
+    case "job_finished": {
       state.jobs.delete(event.job);
-      state.entries.push({ kind: "job", key, name: event.name, failed: event.is_error === true });
+      const stopped = state.stopping.delete(event.job);
+      const outcome = event.is_error ? (stopped ? "stopped" : "failed") : "done";
+      // Its result goes to Spade like a message: what Spade says about it reads below it.
+      steer(state, { kind: "job", key, name: event.name, outcome });
       return true;
+    }
     case "reply_finished":
       return closeReply(state, event.reply, { kind: "finished" }, event.text);
     case "reply_stopped":
@@ -267,8 +280,15 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       state.entries.push({ kind: "compacted", key });
       return true;
     // Stop's own record: the reply's end and the jobs' ends that follow it say what happened.
-    case "stop_requested":
-      return false;
+    case "stop_requested": {
+      for (const job of event.jobs) state.stopping.add(job);
+      for (const [job, running] of state.jobs)
+        if (event.reply && running.reply === event.reply) state.stopping.add(job);
+      // An approval for a stopped reply can no longer be answered.
+      const before = state.approvals.length;
+      if (event.reply) state.approvals = state.approvals.filter((a) => a.reply !== event.reply);
+      return state.approvals.length !== before;
+    }
     case "renamed":
       if (state.title === event.title) return false;
       state.title = event.title;

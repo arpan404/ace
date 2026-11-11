@@ -112,8 +112,8 @@ function Conversation(props: { conversationId: string }) {
   const line = useSpadeLine();
   const toast = useToast();
   const [stopping, setStopping] = useState(false);
-  // Stopping lasts until the reply closes.
-  if (stopping && !view.answering) setStopping(false);
+  // Stopping lasts until nothing is open: the reply and its background jobs.
+  if (stopping && !view.busy) setStopping(false);
   const stop = () => {
     setStopping(true);
     conversation.stop().catch((error: unknown) => {
@@ -165,12 +165,16 @@ function Conversation(props: { conversationId: string }) {
                 approval={approval}
                 more={view.approvals.length - 1}
                 onAnswer={(allowed, always) =>
-                  conversation
-                    .answer(approval.callId, allowed, always)
-                    .then(() => undefined)
-                    .catch((error: unknown) => {
-                      toast.error({ title: "Couldn't answer Spade", description: message(error) });
-                    })
+                  conversation.answer(approval.callId, allowed, always).then(
+                    () => true,
+                    (error: unknown) => {
+                      toast.error({
+                        title: "Couldn't answer Spade",
+                        description: message(error),
+                      });
+                      return false;
+                    },
+                  )
                 }
               />
             )
