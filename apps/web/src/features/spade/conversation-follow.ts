@@ -1,5 +1,3 @@
-import { onSocketMove, type ClientApi } from "@ace/client";
-import type { SpadeLiveEndReason } from "@ace/protocol";
 import {
   emptySpadeConversation,
   foldSpade,
@@ -10,10 +8,10 @@ import {
   type SpadeView,
 } from "@ace/ui-core/spade-chat";
 import { segment, spadeHttp, SpadeRequestError } from "./spade-requests.ts";
+import type { LiveEnd, SpadeTransport } from "./spade-transport.ts";
 
-/** What the shell can't control: ids, the frame clock and timers. */
+/** What the shell can't control: the frame clock and timers. */
 export interface FollowDeps {
-  id(): string;
   /** Run `callback` before the next paint; frames that arrive together render once. */
   frame(callback: () => void): void;
   later(delay: number, callback: () => void): () => void;
@@ -28,21 +26,23 @@ export interface FollowSnapshot {
 /** Events per page when a conversation first opens. */
 const pageSize = 200;
 
-/** Ends after which a new subscription picks up where the last left off. */
-const resumable = new Set<SpadeLiveEndReason>(["restarted", "closed", "unavailable", "limit"]);
+/** Ends after which a new stream picks up where the last left off, after a pause. */
+const resumable = new Set<LiveEnd>(["restarted", "closed", "unavailable", "limit"]);
 
 /**
- * One conversation followed live through `spade.live.subscribe`. Every subscription asks for
- * events after the last `seq` already folded, and the fold drops any it has seen, so a
- * reconnect, a socket move or a Spade restart never repeats or loses a message. A new
- * subscription starts when the connection is ready and Spade is (`setReady`).
+ * One conversation followed live, straight from Spade or through the daemon (`SpadeTransport`).
+ * Every stream asks for events after the last `seq` already folded, and the fold drops any it
+ * has seen, so a reconnect, a socket move, a switch between the two ways or a Spade restart
+ * never repeats or loses a message. A new stream opens when the transport can open one and
+ * Spade is ready (`setReady`).
  */
 export class ConversationFollow {
   private state = emptySpadeConversation();
   private snapshot: FollowSnapshot;
   private listeners = new Set<() => void>();
   private stops: (() => void)[] = [];
-  private requestId: string | undefined;
+  /** The open stream; ended or closed streams are never this. */
+  private stream: { close(): void } | undefined;
   private spadeReady = false;
   private framePending = false;
   /** The first open reads the history in pages before it follows live. */
@@ -53,12 +53,12 @@ export class ConversationFollow {
   private sends: { key: string; resolve(reached: boolean): void; cancel(): void }[] = [];
   private retryTimer: (() => void) | undefined;
   private retries = 0;
-  private readonly client: ClientApi;
+  private readonly link: SpadeTransport;
   private readonly conversation: string;
   private readonly deps: FollowDeps;
 
-  constructor(client: ClientApi, conversation: string, deps: FollowDeps) {
-    this.client = client;
+  constructor(link: SpadeTransport, conversation: string, deps: FollowDeps) {
+    this.link = link;
     this.conversation = conversation;
     this.deps = deps;
     this.snapshot = { view: spadeView(this.state), problem: undefined };
@@ -78,23 +78,7 @@ export class ConversationFollow {
 
   start(): void {
     this.stopped = false;
-    const connection = this.client.connectionState();
-    try {
-      this.stops.push(this.client.onMessage((message) => this.receive(message)));
-    } catch {
-      this.setProblem("Couldn't follow this conversation live. Reload to try again.");
-    }
-    this.stops.push(
-      connection.subscribe(() => {
-        // The daemon ends a socket's streams with it.
-        if (connection.getSnapshot() !== "ready") this.requestId = undefined;
-        else this.open();
-      }),
-      onSocketMove(this.client, () => {
-        this.requestId = undefined;
-        this.open();
-      }),
-    );
+    this.stops.push(this.link.onOpenable(() => this.open()));
     this.open();
   }
 
@@ -108,8 +92,7 @@ export class ConversationFollow {
   /** Spade is ready (or not) to stream; a subscription opens once it is. */
   setReady(ready: boolean): void {
     this.spadeReady = ready;
-    if (!ready) this.requestId = undefined;
-    else this.open();
+    if (ready) this.open();
   }
 
   /** Try again after a problem. */
@@ -152,13 +135,7 @@ export class ConversationFollow {
   }
 
   private open() {
-    if (
-      this.stopped ||
-      this.requestId ||
-      this.paging ||
-      !this.spadeReady ||
-      this.client.state !== "ready"
-    )
+    if (this.stopped || this.stream || this.paging || !this.spadeReady || !this.link.canOpen())
       return;
     if (this.snapshot.problem) return;
     if (!this.paged) {
@@ -170,14 +147,19 @@ export class ConversationFollow {
       });
       return;
     }
-    const requestId = `spade-live-${this.deps.id()}`;
-    this.requestId = requestId;
     const path = `/v1/conversations/${segment(this.conversation)}/live?after=${this.state.lastSeq}`;
-    try {
-      this.client.send({ type: "spade.live.subscribe", requestId, path });
-    } catch {
-      this.requestId = undefined;
-    }
+    const stream = { close: () => {} };
+    this.stream = stream;
+    stream.close = this.link.open(path, {
+      frame: (event, data) => {
+        if (this.stream === stream) this.frame(event, data);
+      },
+      ended: (reason, status) => {
+        if (this.stream !== stream) return;
+        this.stream = undefined;
+        this.ended(reason, status);
+      },
+    });
   }
 
   /**
@@ -190,7 +172,7 @@ export class ConversationFollow {
       let body: string;
       try {
         body = await spadeHttp(
-          this.client,
+          this.link,
           "GET",
           `/v1/conversations/${segment(this.conversation)}/events?after=${after}&limit=${pageSize}`,
         );
@@ -210,32 +192,26 @@ export class ConversationFollow {
   }
 
   private close() {
-    const requestId = this.requestId;
-    this.requestId = undefined;
-    if (!requestId || this.client.state !== "ready") return;
-    try {
-      this.client.send({ type: "spade.live.unsubscribe", requestId });
-    } catch {
-      // The socket closed first; the daemon ended the stream with it.
-    }
+    const stream = this.stream;
+    this.stream = undefined;
+    stream?.close();
   }
 
-  private receive(message: Parameters<Parameters<ClientApi["onMessage"]>[0]>[0]) {
-    if (message.type === "spade.live.frame" && message.requestId === this.requestId) {
-      const input = parseSpadeLiveFrame(message.event, message.data);
-      if (input && foldSpade(this.state, input)) {
-        this.retries = 0;
-        this.schedule();
-      }
-      // Caught up: anything sent before this that Spade stored has arrived by now.
-      this.settleSends(input?.kind === "caught_up");
-      return;
+  private frame(event: string, data: string) {
+    const input = parseSpadeLiveFrame(event, data);
+    if (input && foldSpade(this.state, input)) {
+      this.retries = 0;
+      this.schedule();
     }
-    if (message.type !== "spade.live.ended" || message.requestId !== this.requestId) return;
-    this.requestId = undefined;
-    const { reason } = message;
+    // Caught up: anything sent before this that Spade stored has arrived by now.
+    this.settleSends(input?.kind === "caught_up");
+  }
+
+  private ended(reason: LiveEnd, status: number | undefined) {
     if (reason === "unsubscribed") return;
-    if (reason === "refused" && message.status === 404)
+    // The way it went is gone: open again at once, the other way or when this one is back.
+    if (reason === "dropped") return this.open();
+    if (reason === "refused" && status === 404)
       return this.setProblem("This conversation isn't in Spade any more.");
     if (!resumable.has(reason)) return this.setProblem("Couldn't follow this conversation live.");
     // Open again soon, backing off so a stream that keeps ending doesn't spin. While Spade
