@@ -1,12 +1,12 @@
 import { z } from "zod";
 import { ForgePrReviewers } from "@ace/protocol/forge-people";
-import { ForgeComment, ForgeReviewThread, type ForgeRepository } from "@ace/protocol/forge";
+import { ForgeComment, ForgeReviewThread } from "@ace/protocol/forge";
 import type { ForgeReviewAction, ForgeReviewDraft } from "@ace/protocol/forge-review";
 import type { WriteDispatch } from "./write-dispatch.ts";
 import { writesUnder, type HostApiWrite } from "./read-only-api.ts";
 import { bitbucketRepoPath, bktWrite } from "./bkt-api.ts";
 import { BitbucketPulls, type BitbucketOptions } from "./bitbucket-pulls.ts";
-import { account, decode, name, type Account, type Pull } from "./bitbucket-records.ts";
+import { account, decode, name, pageFields, type Account, type Pull } from "./bitbucket-records.ts";
 import { writeMarkerHash } from "./github-reviews.ts";
 import { ForgeError } from "./errors.ts";
 import { clipText } from "./host-text.ts";
@@ -46,6 +46,7 @@ const comment = z.looseObject({
   resolution: z.looseObject({}).nullable().optional(),
 });
 type Comment = z.infer<typeof comment>;
+const CommentPage = z.looseObject({ values: z.array(comment).max(100), ...pageFields });
 const viewer = account.extend({ uuid: z.string().min(1) });
 
 /**
@@ -75,7 +76,7 @@ export class BitbucketReviews {
   #comments(number: number, signal: AbortSignal): Promise<Comment[]> {
     return this.#pulls.all(
       `${this.#pulls.root}/pullrequests/${number}/comments?pagelen=100`,
-      comment,
+      CommentPage,
       2000,
       signal,
     );

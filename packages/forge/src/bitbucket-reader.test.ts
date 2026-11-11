@@ -171,23 +171,25 @@ test("files are read only at the head and base the reader asked for", async () =
   await expect(stale).rejects.toMatchObject({ kind: "head_moved" });
 });
 
+/** A commit as GET …/pullrequests/<n>/commits lists it. */
+const commitRow = (hash: string) => ({
+  hash,
+  message: "m",
+  date: null,
+  author: { raw: "Bob <b@x>" },
+});
+
 test("commits come in pages of 100, oldest first within a page, newest page first", async () => {
   const hashes = Array.from({ length: 150 }, (_, i) =>
     i === 0 ? head : i.toString(16).padStart(40, "0"),
   );
-  const commit = (hash: string) => ({
-    hash,
-    message: "m",
-    date: null,
-    author: { raw: "Bob <b@x>" },
-  });
   const replies = {
     [`${root}/pullrequests/7/commits?pagelen=100`]: {
-      values: hashes.slice(0, 100).map(commit),
+      values: hashes.slice(0, 100).map(commitRow),
       next: `https://api.bitbucket.org${root}/pullrequests/7/commits?pagelen=100&page=opaque2`,
     },
     [`${root}/pullrequests/7/commits?pagelen=100&page=opaque2`]: {
-      values: hashes.slice(100).map(commit),
+      values: hashes.slice(100).map(commitRow),
     },
   };
   const newest = await reader(replies).prCommits(7, undefined, head, signal);

@@ -33,9 +33,13 @@ export class BitbucketPulls {
     return bktGet(this.options.runner, this.options.login, endpoint, signal);
   }
   /** Every row of a paged list, following `next` within `endpoint`, at most `max` rows. */
-  async all<T>(endpoint: string, row: z.ZodType<T>, max: number, signal: AbortSignal) {
+  async all<T>(
+    endpoint: string,
+    Page: z.ZodType<{ values: T[]; next?: string | undefined }>,
+    max: number,
+    signal: AbortSignal,
+  ): Promise<T[]> {
     const rows: T[] = [];
-    const Page = z.looseObject({ values: z.array(row).max(100), next: z.string().optional() });
     let next: string | undefined = endpoint;
     for (let index = 0; next !== undefined; index++) {
       if (index === 20) throw new ForgeError("limit");

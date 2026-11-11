@@ -205,19 +205,29 @@ test("an explicit refusal definitely failed; a lost reply or a server error is u
   }
 });
 
+/** One comment on the pull request, as GET …/comments lists it. */
+const oneComment = (user: unknown, raw: string, inline = { path: "src/a.ts", to: 12 }) => ({
+  [`${pr}/comments?pagelen=100`]: {
+    values: [{ id: 9, content: { raw }, user, created_on: "2026-11-02", inline }],
+  },
+});
+/** The viewer's participant entry, approved or not. */
+const viewerApproved = (approved: boolean) => ({
+  [pr]: pullRequest({
+    participants: [
+      { user: me, role: "PARTICIPANT", approved, state: approved ? "approved" : null },
+    ],
+  }),
+});
+
 test("an uncertain comment reconciles as landed only when the viewer's marked comment is on the pull request", async () => {
   const action: ForgeReviewAction = { kind: "line.comment", headSha: head, anchor, body: "Rename" };
-  const comment = (user: unknown, raw: string, inline = { path: "src/a.ts", to: 12 }) => ({
-    [`${pr}/comments?pagelen=100`]: {
-      values: [{ id: 9, content: { raw }, user, created_on: "2026-11-02", inline }],
-    },
-  });
-  const landed = reviews({ replies: comment(me, `Rename\n\n${marker}`) }).reviews;
+  const landed = reviews({ replies: oneComment(me, `Rename\n\n${marker}`) }).reviews;
   await expect(landed.reconcile(7, action, "op-1", signal)).resolves.toBe(true);
   for (const replies of [
-    comment(me, "Rename"),
-    comment(author, `Rename\n\n${marker}`),
-    comment(me, `Rename\n\n${marker}`, { path: "src/a.ts", to: 13 }),
+    oneComment(me, "Rename"),
+    oneComment(author, `Rename\n\n${marker}`),
+    oneComment(me, `Rename\n\n${marker}`, { path: "src/a.ts", to: 13 }),
   ])
     await expect(reviews({ replies }).reviews.reconcile(7, action, "op-1", signal)).resolves.toBe(
       false,
@@ -232,18 +242,11 @@ test("an uncertain approval reconciles from the viewer's participant state", asy
     body: "",
     draftIds: [],
   };
-  const state = (approved: boolean) => ({
-    [pr]: pullRequest({
-      participants: [
-        { user: me, role: "PARTICIPANT", approved, state: approved ? "approved" : null },
-      ],
-    }),
-  });
   await expect(
-    reviews({ replies: state(true) }).reviews.reconcile(7, action, "op-1", signal),
+    reviews({ replies: viewerApproved(true) }).reviews.reconcile(7, action, "op-1", signal),
   ).resolves.toBe(true);
   await expect(
-    reviews({ replies: state(false) }).reviews.reconcile(7, action, "op-1", signal),
+    reviews({ replies: viewerApproved(false) }).reviews.reconcile(7, action, "op-1", signal),
   ).resolves.toBe(false);
 });
 

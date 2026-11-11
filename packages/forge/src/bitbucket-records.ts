@@ -48,14 +48,12 @@ export const pull = z.looseObject({
   participants: z.array(participant).max(1000).optional(),
 });
 export type Pull = z.infer<typeof pull>;
-/** One page of a Bitbucket list: `values`, and `next` while more remain. */
-export function page<T extends z.ZodType>(row: T, max: number) {
-  return z.looseObject({
-    values: z.array(row).max(max),
-    next: z.string().optional(),
-    size: z.number().int().nonnegative().optional(),
-  });
-}
+/** The fields beside `values` on every page of a Bitbucket list; `next` while more remain. */
+export const pageFields = {
+  next: z.string().optional(),
+  size: z.number().int().nonnegative().optional(),
+  page: z.number().int().positive().optional(),
+};
 
 export function decode<T>(schema: z.ZodType<T>, value: unknown): T {
   const result = schema.safeParse(value);

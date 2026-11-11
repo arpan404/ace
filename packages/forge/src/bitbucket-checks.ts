@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ForgeCheck } from "@ace/protocol/forge";
 import type { CommandRunner } from "./command.ts";
 import { bktGet, nextEndpoint } from "./bkt-api.ts";
-import { decode, page, sha } from "./bitbucket-records.ts";
+import { decode, pageFields, sha } from "./bitbucket-records.ts";
 import { ForgeError } from "./errors.ts";
 import { clipText } from "./host-text.ts";
 
@@ -14,7 +14,7 @@ const status = z.looseObject({
   updated_on: z.string().nullable().optional(),
   links: z.looseObject({ commit: z.looseObject({ href: z.string() }).optional() }).optional(),
 });
-const StatusPage = page(status, 100);
+const StatusPage = z.looseObject({ values: z.array(status).max(100), ...pageFields });
 
 export type BitbucketCi = "none" | "pending" | "success" | "failure" | "unknown";
 
@@ -69,7 +69,7 @@ export async function bitbucketChecks(
         conclusion: s.state.slice(0, 100),
         completedAt: done ? (s.updated_on ?? null) : null,
         jobId: null,
-        url: s.url && /^https:\/\//.test(s.url) ? clipText(s.url) : null,
+        url: s.url?.startsWith("https://") ? clipText(s.url) : null,
       }),
     );
   }

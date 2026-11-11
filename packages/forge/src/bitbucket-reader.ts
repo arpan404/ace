@@ -23,7 +23,7 @@ import {
   account,
   decode,
   name,
-  page,
+  pageFields,
   pull,
   ref,
   row,
@@ -45,8 +45,9 @@ const commit = z.looseObject({
   date: z.string().nullable().optional(),
   author: z.looseObject({ raw: z.string().optional(), user: account.optional() }).optional(),
 });
-const PullPage = page(pull, 25).extend({ page: z.number().int().positive().optional() });
-const FilePage = page(diffstat, 25).extend({ page: z.number().int().positive().optional() });
+const PullPage = z.looseObject({ values: z.array(pull).max(25), ...pageFields });
+const FilePage = z.looseObject({ values: z.array(diffstat).max(25), ...pageFields });
+const CommitPage = z.looseObject({ values: z.array(commit).max(100), ...pageFields });
 
 /** Bitbucket Cloud pull request reads through the user's identity-pinned bkt context. */
 export class BitbucketReader implements ForgeReader {
@@ -239,7 +240,7 @@ export class BitbucketReader implements ForgeReader {
     // serve pages of 100, oldest first within a page, newest page first.
     const all = await this.#pulls.all(
       `${this.#pulls.root}/pullrequests/${number}/commits?pagelen=100`,
-      commit,
+      CommitPage,
       1000,
       signal,
     );
