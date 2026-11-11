@@ -1,5 +1,6 @@
 import { RepositoryPublishInput } from "./hosted-repositories.ts";
 import { z } from "zod";
+import { ProjectRepositoriesSetCommand } from "./project-repositories.ts";
 import { WorkspaceId } from "./ids.ts";
 import { BadgeColor } from "./badge-color.ts";
 import { ProviderKind } from "./provider-data.ts";
@@ -213,6 +214,7 @@ export const ProjectCommands = [
     notes: z.array(ProjectNoteEdit).max(maxProjectNotes).optional(),
   }),
   z.object({ type: z.literal("workspace.rename"), workspaceId: WorkspaceId, name: ProjectName }),
+  ProjectRepositoriesSetCommand,
   /**
    * "Clear stale lock" from New thread, after the person confirms: retire Git mutation leases
    * fencing the project's repository whose owning daemon is definitively gone, then retry the

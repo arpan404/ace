@@ -1,6 +1,17 @@
 import { ForgeIntents, WriteDispatch, repositoryKey, type GitHubForge } from "@ace/forge";
 import { ForgeHostedChecksCommand } from "@ace/protocol";
 
+type ChecksBackend = {
+  checks: Pick<GitHubForge["checks"], "cancel" | "rerun" | "runFinished"> & {
+    rerunLanded(
+      runId: number,
+      attempt: number,
+      signal: AbortSignal,
+      mode?: "failed" | "all",
+    ): Promise<boolean>;
+  };
+};
+
 /**
  * Re-runs and cancels of a PR's GitHub Actions workflow runs. The run itself is GitHub's
  * durable receipt: a write whose result was lost is settled by reading the run (past its
@@ -10,7 +21,7 @@ export class WorkspaceForgeChecks {
   readonly #intents = new ForgeIntents();
   execute(
     input: unknown,
-    backend: GitHubForge,
+    backend: ChecksBackend,
     signal: AbortSignal,
     allowed: () => boolean,
   ): Promise<void> {
@@ -30,7 +41,12 @@ export class WorkspaceForgeChecks {
             const landed =
               action.kind === "cancel"
                 ? await backend.checks.runFinished(action.runId, signal)
-                : await backend.checks.rerunLanded(action.runId, action.attempt, signal);
+                : await backend.checks.rerunLanded(
+                    action.runId,
+                    action.attempt,
+                    signal,
+                    action.jobs,
+                  );
             if (landed) return;
           } catch {
             /* Unconfirmed: report the uncertainty, never a failure that invites a blind retry. */

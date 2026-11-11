@@ -15,18 +15,20 @@ struct ForgePullsList: View {
     var body: some View {
         ForgeListFrame(loaded: model.list != nil, empty: model.list?.groups.isEmpty ?? true, emptyTitle: "No pull requests match",
                        icon: .gitPullRequest, failure: model.failure, stale: model.stale, hasMore: model.list?.more ?? false,
-                       loading: model.loading, refresh: refresh, more: more) {
+                       loading: model.loading, notes: model.list?.failed ?? [], refresh: refresh, more: more) {
             // Rows open where they were read, even while another project's rows load.
             if let scope = model.scope { ForEach(model.list?.groups ?? []) { group in
                 ForgeGroupHeader(label: group.label, count: group.count).forgeRowChrome()
                 ForEach(group.rows) { row in
-                    let route = ForgeRoute(kind: .pull, machineId: scope.machineId, project: scope.project, number: row.number)
+                    // The full identity (provider, host, owner, name, number): a GitLab or Origin row opens
+                    // its own read-only page, never a same-numbered review elsewhere.
+                    let route = ForgeRoute(kind: .pull, machineId: scope.machineId, project: scope.project, number: row.number, repository: row.repository)
                     Button { open(route) } label: { ForgePullRowView(row: row) }
                         .buttonStyle(RowPressStyle(selected: openRow == route))
                         .accessibilityAddTraits(openRow == route ? .isSelected : [])
                     .accessibilityIdentifier("forge.pull.\(row.number)")
                     .forgeRowChrome()
-                    .forgeRowActions(url: row.url, thread: row.thread.map { InboxKey(machineId: scope.machineId, id: $0.id) }, openThread: openThread)
+                    .forgeRowActions(url: row.url, host: row.host, thread: row.thread.map { InboxKey(machineId: scope.machineId, id: $0.id) }, openThread: openThread)
                 }
             } }
         }
@@ -46,17 +48,19 @@ struct ForgeIssuesList: View {
     var body: some View {
         ForgeListFrame(loaded: model.list != nil, empty: model.list?.groups.isEmpty ?? true, emptyTitle: "No issues match",
                        icon: .record, failure: model.failure, stale: model.stale, hasMore: model.list?.more ?? false,
-                       loading: model.loading, refresh: refresh, more: more) {
+                       loading: model.loading, notes: model.list?.failed ?? [], refresh: refresh, more: more) {
             if let scope = model.scope { ForEach(model.list?.groups ?? []) { group in
                 if group.id != "all" { ForgeGroupHeader(label: group.label, count: group.count).forgeRowChrome() }
                 ForEach(group.rows) { row in
-                    let route = ForgeRoute(kind: .issue, machineId: scope.machineId, project: scope.project, number: row.number)
+                    // The row's full identity, whatever its label says: an issue opens in its own repository.
+                    let route = ForgeRoute(kind: .issue, machineId: scope.machineId, project: scope.project, number: row.number,
+                                           repository: row.repository)
                     Button { open(route) } label: { ForgeIssueRowView(row: row) }
                         .buttonStyle(RowPressStyle(selected: openRow == route))
                         .accessibilityAddTraits(openRow == route ? .isSelected : [])
                     .accessibilityIdentifier("forge.issue.\(row.number)")
                     .forgeRowChrome()
-                    .forgeRowActions(url: row.url, thread: row.thread.map { InboxKey(machineId: scope.machineId, id: $0.id) }, openThread: openThread)
+                    .forgeRowActions(url: row.url, host: row.host, thread: row.thread.map { InboxKey(machineId: scope.machineId, id: $0.id) }, openThread: openThread)
                 }
             } }
         }
@@ -65,7 +69,8 @@ struct ForgeIssuesList: View {
 
 /// The list around the rows: skeleton on the first read, the error state with Try again when
 /// nothing could be read, the empty state, a dimmed list while a changed filter reads, a quiet
-/// line when a refresh failed over rows already shown, Show more, and pull to refresh.
+/// line when a refresh failed over rows already shown (or one of several repositories couldn't be
+/// read), Show more, and pull to refresh.
 struct ForgeListFrame<Rows: View>: View {
     let loaded: Bool
     let empty: Bool
@@ -75,6 +80,8 @@ struct ForgeListFrame<Rows: View>: View {
     let stale: Bool
     let hasMore: Bool
     let loading: Bool
+    /// Repositories that couldn't be read, said over the rows the others gave.
+    var notes: [String] = []
     let refresh: () async -> Void
     let more: () async -> Void
     @ViewBuilder let rows: () -> Rows
@@ -95,9 +102,15 @@ struct ForgeListFrame<Rows: View>: View {
                 EmptyState(icon: icon, title: emptyTitle) { EmptyView() }
                     .padding(.top, AceDesign.Space.pageState)
                     .forgeRowChrome()
+                ForEach(notes, id: \.self) { note in
+                    Text(note).meta().padding(.horizontal, AceTheme.Spacing.rowInner).forgeRowChrome()
+                }
             } else {
                 if let failure {
                     Text(failure).meta().padding(.horizontal, AceTheme.Spacing.rowInner).forgeRowChrome()
+                }
+                ForEach(notes, id: \.self) { note in
+                    Text(note).meta().padding(.horizontal, AceTheme.Spacing.rowInner).forgeRowChrome()
                 }
                 rows()
                 if hasMore {
@@ -132,15 +145,16 @@ extension View {
     /// The lists' row chrome: the inbox's insets, no rules, the page colour behind.
     func forgeRowChrome() -> some View { inboxRowChrome() }
 
-    /// A row's quick actions without opening it: GitHub on a swipe; in its menu, GitHub, the
+    /// A row's quick actions without opening it: its host on a swipe; in its menu, its host, the
     /// link, and the thread working on it.
-    func forgeRowActions(url: String, thread: InboxKey?, openThread: @escaping (InboxKey) -> Void) -> some View {
-        modifier(ForgeRowActions(url: url, thread: thread, openThread: openThread))
+    func forgeRowActions(url: String, host: String?, thread: InboxKey?, openThread: @escaping (InboxKey) -> Void) -> some View {
+        modifier(ForgeRowActions(url: url, host: host ?? "GitHub", thread: thread, openThread: openThread))
     }
 }
 
 private struct ForgeRowActions: ViewModifier {
     let url: String
+    let host: String
     let thread: InboxKey?
     let openThread: (InboxKey) -> Void
     @Environment(\.openURL) private var openURL
@@ -149,12 +163,12 @@ private struct ForgeRowActions: ViewModifier {
         content
             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                 if let link = URL(string: url) {
-                    Button("GitHub", ace: .arrowSquareOut) { openURL(link) }.tint(Color(uiColor: .systemGray2))
+                    Button(host, ace: .arrowSquareOut) { openURL(link) }.tint(Color(uiColor: .systemGray2))
                 }
             }
             .contextMenu {
                 if let link = URL(string: url) {
-                    Button("Open on GitHub", ace: .arrowSquareOut) { openURL(link) }
+                    Button("Open on \(host)", ace: .arrowSquareOut) { openURL(link) }
                     Button("Copy link", ace: .copy) { UIPasteboard.general.url = link }
                 }
                 if let thread { Button("Open thread", ace: .chats) { openThread(thread) } }

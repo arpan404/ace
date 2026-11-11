@@ -7,7 +7,8 @@ import {
 import { MenuItem } from "@/components/ui/menu.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
-import { formatAgo } from "@ace/ui-core";
+import type { ForgeKind } from "@ace/protocol";
+import { forgeDisplayName, formatAgo } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
 import { useNow } from "@/lib/time.ts";
 
@@ -36,15 +37,15 @@ export function Dot() {
 export const rowActionClass =
   "inline-flex h-6 items-center rounded-sm px-1.5 text-xs font-medium text-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover disabled:opacity-50";
 
-/** Open a pull request or issue on GitHub, saying so when the browser can't be reached. */
-export function useOpenOnGitHub() {
+/** Open a pull request or issue on its host, reporting browser failures. */
+export function useOpenOnHost() {
   const openWeb = useOpenWebAddress();
   const toast = useToast();
   return (url: string) =>
-    void openWeb(url).catch(() => toast.error({ title: "Couldn't open GitHub" }));
+    void openWeb(url).catch(() => toast.error({ title: "Couldn't open the host page" }));
 }
 
-/** ⌘/Ctrl-click on a row's link opens it on GitHub instead of in ace. */
+/** ⌘/Ctrl-click on a row's link opens it on its host instead of in ace. */
 export function onModifiedClick(url: string | undefined, open: (url: string) => void) {
   return (event: MouseEvent<HTMLElement>) => {
     if (!url || !(event.metaKey || event.ctrlKey)) return;
@@ -55,12 +56,14 @@ export function onModifiedClick(url: string | undefined, open: (url: string) => 
 
 /**
  * A row of a list box: a hairline under it but the last, and a right-click menu with what it
- * offers without opening it (the row's own items, New thread, Open on GitHub, Copy link).
+ * offers without opening it (the row's own items, New thread, Open on its host, Copy link).
  */
 export function RowShell(props: {
   /** Names the row's menu: "#229 Reconnect the client worker". */
   label: string;
   url: string | undefined;
+  /** The row's provider, which names "Open on GitHub" or "Open on GitLab". */
+  forge: ForgeKind;
   onNewThread?: (() => void) | undefined;
   /** Further menu items, before New thread. */
   menu?: ReactNode;
@@ -68,7 +71,7 @@ export function RowShell(props: {
   last?: boolean | undefined;
   children: ReactNode;
 }) {
-  const openOnGitHub = useOpenOnGitHub();
+  const openOnHost = useOpenOnHost();
   const url = props.url;
   return (
     <ContextMenu>
@@ -90,7 +93,9 @@ export function RowShell(props: {
         {props.onNewThread && <MenuItem onClick={props.onNewThread}>New thread</MenuItem>}
         {url && (
           <>
-            <MenuItem onClick={() => openOnGitHub(url)}>Open on GitHub</MenuItem>
+            <MenuItem onClick={() => openOnHost(url)}>
+              Open on {forgeDisplayName(props.forge)}
+            </MenuItem>
             <MenuItem onClick={() => void navigator.clipboard?.writeText(url)}>Copy link</MenuItem>
           </>
         )}

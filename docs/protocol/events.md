@@ -93,17 +93,17 @@ Example:
 {
   "thread": {
     "activityAt": 2,
-    "archivedAt": 9,
     "autoSettle": false,
     "capabilitiesRef": "example",
-    "createdAt": 3,
+    "createdAt": 6,
+    "delegatedBy": "example",
     "effectiveCapabilities": {
       "accessModes": [],
       "attachmentInput": {
         "documents": [],
         "embeddedContext": false,
         "format": "claude",
-        "maxInlineBytes": 9
+        "maxInlineBytes": 8
       },
       "backgroundTaskControl": false,
       "backgroundVisibility": "full",
@@ -127,6 +127,11 @@ Example:
       "subagentTranscripts": true,
       "tokenUsage": true
     },
+    "execution": {
+      "instanceId": "example",
+      "options": {},
+      "provider": "cursor"
+    },
     "goal": {
       "checks": 2,
       "objective": "example",
@@ -135,13 +140,13 @@ Example:
     },
     "id": "example",
     "imported": {
-      "importedAt": 9,
+      "importedAt": 3,
       "instanceId": "example",
       "native": {
-        "acpAgentId": "example",
+        "aliases": [],
         "forkedFromNativeId": "example",
-        "nativeId": "example",
-        "provider": "cursor"
+        "path": "example",
+        "provider": "acp"
       },
       "sourceId": "example"
     },
@@ -158,7 +163,6 @@ Example:
     },
     "queuedLaunch": {
       "queuePosition": 8,
-      "slotLimit": 4,
       "text": "example"
     },
     "readAt": 4,
@@ -175,23 +179,27 @@ Example:
       ]
     },
     "snoozedUntil": 2,
-    "startedBy": "example",
     "status": {
-      "state": "failed"
+      "on": "network",
+      "queuePosition": 10,
+      "slotLimit": 10,
+      "slotsInUse": 5,
+      "state": "waiting"
     },
     "switch": {
-      "at": 2,
-      "error": "example",
-      "lossy": false,
+      "at": 1,
+      "lossy": true,
+      "recommendation": "delegate_task",
       "selection": {
         "instanceId": "example",
-        "provider": "cursor"
+        "model": "example",
+        "provider": "acp"
       },
-      "state": "queued"
+      "state": "applied"
     },
     "title": "example",
     "titleSource": "person",
-    "updatedAt": 5,
+    "updatedAt": 1,
     "workspaceId": "example"
   },
   "type": "thread.created"

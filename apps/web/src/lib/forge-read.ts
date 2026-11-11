@@ -4,16 +4,20 @@ import {
   type ForgeBrowserOperation,
   type ForgeBrowserResult,
 } from "@ace/protocol";
-import { actionErrorText, outcomeUncertain } from "@ace/ui-core";
+import type { ForgeKind } from "@ace/protocol/forge";
+import { actionErrorText, forgeErrorText, outcomeUncertain } from "@ace/ui-core";
 import { CommandRefused, daemonErrorCode } from "@/lib/daemon-command.ts";
 
-/** A forge read the daemon refused, keeping its code so views can tell offline from GitHub. */
+/** A forge read the daemon refused, keeping its code so views can tell offline from GitHub,
+ * and the Git host it named, when it named one, so the sentence names that host's CLI. */
 export class ForgeReadError extends Error {
   readonly code: string;
-  constructor(code: string) {
-    super(actionErrorText(code));
+  readonly forge: ForgeKind | undefined;
+  constructor(code: string, forge?: ForgeKind) {
+    super(forgeErrorText(code, forge));
     this.name = "ForgeReadError";
     this.code = code;
+    this.forge = forge;
   }
 }
 
@@ -30,8 +34,9 @@ export async function readForge(
     WorkspaceActionRequest.parse({ type: "workspace.request", requestId: "forge-read", operation }),
     { signal },
   );
-  if (reply.result.kind === "error") throw new ForgeReadError(reply.result.code);
-  if (reply.result.kind !== "forge") throw new ForgeReadError("forge_invalid_data");
+  const forge = "repository" in operation ? operation.repository?.forge : undefined;
+  if (reply.result.kind === "error") throw new ForgeReadError(reply.result.code, forge);
+  if (reply.result.kind !== "forge") throw new ForgeReadError("forge_invalid_data", forge);
   return reply.result.data;
 }
 

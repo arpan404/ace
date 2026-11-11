@@ -6,6 +6,7 @@ use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 
 use crate::error::ModelError;
+use crate::prompt::Usage;
 
 /// The response format asking for `T`.
 pub(crate) fn spec<T: JsonSchema>() -> Result<JsonSpec, ModelError> {
@@ -14,6 +15,7 @@ pub(crate) fn spec<T: JsonSchema>() -> Result<JsonSpec, ModelError> {
             model: String::new(),
             type_name: std::any::type_name::<T>(),
             reason: format!("schema could not be built: {error}"),
+            usage: Usage::default(),
         })?;
     Ok(JsonSpec::new(spec_name::<T>(), schema))
 }
@@ -42,6 +44,7 @@ pub(crate) fn parse<T: DeserializeOwned>(model: &str, text: &str) -> Result<T, M
         model: model.to_owned(),
         type_name: std::any::type_name::<T>(),
         reason: error.to_string(),
+        usage: Usage::default(),
     })
 }
 

@@ -7,8 +7,8 @@ const hostedBody = z.string().max(65_536);
 const sha = z.string().regex(/^[a-fA-F0-9]{40,64}$/);
 const reviewerLogin = z
   .string()
-  .regex(/^[\w-]+$/)
-  .max(39);
+  .regex(/^[\w.-]+$/)
+  .max(100);
 /** A team as review requests name it: its slug within the repository's organization. */
 const teamSlug = z
   .string()

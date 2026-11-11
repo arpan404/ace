@@ -1,3 +1,4 @@
+import { prCreateText } from "./pr-create-text.ts";
 import { randomUUID } from "node:crypto";
 import { ForgePrCheckout } from "@ace/protocol/forge-worktree";
 import { BrowserPr } from "./github-browser-schemas.ts";
@@ -433,29 +434,9 @@ export class GitHubForge implements Forge, ForgeBrowser {
     signal: AbortSignal,
     head?: PrHead,
   ): Promise<ForgePrRef> {
-    const value = ForgeCreatePrInput.parse(input);
-    if (value.base === undefined) throw new ForgeError("base_missing");
-    const fields: Record<string, string> = {
-      threadId: z.string().min(1).max(256).parse(threadId),
-      branch: value.branch,
-      title: value.title,
-      summary: value.summary,
-    };
-    const render = (template: string) =>
-      template.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => {
-        const field = fields[key];
-        if (!Object.hasOwn(fields, key) || field === undefined)
-          throw new ForgeError("invalid_data");
-        return field;
-      });
-    const title = z.string().min(1).max(256).parse(render(value.template.title));
-    const body = z.string().max(65_536).parse(render(value.template.body));
-    return this.openPr(
-      { branch: value.branch, base: value.base, title, body, draft: value.draft },
-      signal,
-      head,
-    );
+    return this.openPr(prCreateText(threadId, input), signal, head);
   }
+
   /**
    * Open a pull request from `branch` into `base` as written: the one create every entry point
    * shares. `head` names the fork holding the branch; none, this repository. Callers look for an

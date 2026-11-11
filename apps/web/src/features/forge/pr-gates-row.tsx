@@ -1,3 +1,4 @@
+import { can } from "@ace/ui-core";
 import type { ReactNode } from "react";
 import { formatAgo, prFacts, prGates, type Gate, type GateKey } from "@ace/ui-core";
 import { hairlineGrid } from "@/components/ui/rules.ts";
@@ -90,6 +91,7 @@ export function PrGatesRow(props: { actions: PrActions; onSelect(key: GateKey): 
     local: actions.local.result,
   });
   const open = detail.status.state === "open" || detail.status.state === "draft";
+  if (!can(detail, "reviews.merge")) return null;
   const branchLoading = open && actions.mergeState.query.isPending;
   return (
     <nav
@@ -126,7 +128,7 @@ export function PrGatesLine(props: {
   const { detail, workspaceId } = actions.context;
   const outcomes = useReviewOutcomes(workspaceId, detail);
   const open = detail.status.state === "open" || detail.status.state === "draft";
-  if (!open) return null;
+  if (!open || !can(detail, "reviews.merge")) return null;
   const facts = prFacts({
     status: detail.status,
     reviewDecision: detail.reviewDecision,

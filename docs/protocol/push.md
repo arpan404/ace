@@ -25,13 +25,47 @@ Example:
 
 ```json
 {
-  "at": 3,
+  "at": 8,
   "id": "example",
   "payload": {
-    "raw": null,
-    "type": "unknown"
+    "archivedAt": 0,
+    "backend": "cursor-sdk",
+    "effectiveCapabilities": {
+      "approvals": "interactive",
+      "attachmentInput": {
+        "documents": [],
+        "embeddedContext": true,
+        "format": "codex",
+        "interleaved": false,
+        "maxInlineBytes": 3
+      },
+      "backgroundTaskControl": false,
+      "backgroundVisibility": "full",
+      "fork": true,
+      "forkPoints": [],
+      "forkTranscript": true,
+      "imageInput": false,
+      "interruptCascades": false,
+      "permissions": {
+        "guarantees": [],
+        "modes": [],
+        "nativeAutoReview": true,
+        "toolGate": false
+      },
+      "planMode": true,
+      "resume": false,
+      "rewindFiles": false,
+      "steer": false,
+      "steerTiming": "after_tool",
+      "steeringMode": "interrupt-restart",
+      "subagentTranscripts": false,
+      "tokenUsage": true
+    },
+    "goal": null,
+    "type": "thread.updated",
+    "workspaceId": "example"
   },
-  "seq": 8,
+  "seq": 6,
   "threadId": "example"
 }
 ```
@@ -1239,7 +1273,7 @@ Example:
         "pr": {
           "number": 8,
           "repository": {
-            "forge": "gitlab",
+            "forge": "origin",
             "host": "M4r6s",
             "name": "N.hPXs",
             "owner": "XBP1/-h/c/VO_"
@@ -3444,103 +3478,14 @@ Example:
 
 ```json
 {
-  "seq": 8,
+  "seq": 7,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
-    "agentChildren": {},
-    "agents": {},
-    "backgroundTasks": {},
-    "interactions": {},
-    "itemOrder": [],
-    "items": {},
-    "kind": "thread",
-    "queue": {
-      "paused": false,
-      "pendingCount": 7,
-      "reason": null,
-      "resumeAt": 1,
-      "revision": 3
-    },
-    "runs": {},
-    "seq": 8,
-    "thread": {
-      "activityAt": 7,
-      "autoSettleAt": 8,
-      "capabilities": {
-        "approvals": "none",
-        "attachmentInput": {
-          "documents": [],
-          "embeddedContext": false,
-          "format": "codex",
-          "maxInlineBytes": 8
-        },
-        "backgroundTaskControl": false,
-        "backgroundVisibility": "full",
-        "fork": false,
-        "forkSubagents": true,
-        "imageInput": true,
-        "interruptCascades": false,
-        "permissionModes": [],
-        "planMode": false,
-        "resume": false,
-        "rewindFiles": true,
-        "steer": true,
-        "steeringMode": "interrupt-restart",
-        "subagentTranscripts": true,
-        "tokenUsage": false
-      },
-      "createdAt": 6,
-      "goal": {
-        "objective": "example",
-        "status": "paused"
-      },
-      "handoff": {
-        "bytes": 6,
-        "sourceThreadId": "example",
-        "truncated": true
-      },
-      "id": "example",
-      "listOrder": 3,
-      "live": {
-        "model": "example",
-        "runningSubagentCount": 0,
-        "step": "tests"
-      },
-      "prSettled": 9,
-      "prSettledKey": "example",
-      "provider": "opencode",
-      "queue": {
-        "exited": false,
-        "paused": false,
-        "pendingCount": 2,
-        "reason": "stopped",
-        "resumeAt": null,
-        "revision": 6
-      },
-      "readAt": 2,
-      "rootAgentId": "example",
-      "snoozeWake": {
-        "on": "needs_you"
-      },
-      "snoozeWoke": {
-        "at": 0,
-        "on": "needs_you",
-        "outcome": "asking"
-      },
-      "snoozedUntil": 3,
-      "startedBy": "example",
-      "status": {
-        "agents": 7,
-        "state": "working"
-      },
-      "title": "example",
-      "titleSource": "person",
-      "unread": true,
-      "updatedAt": 8,
-      "workspaceId": "example"
-    },
-    "usage": {}
+    "keep": [],
+    "kind": "threads",
+    "seq": 7,
+    "threads": {}
   }
 }
 ```
@@ -3673,7 +3618,7 @@ Example:
   "pr": {
     "number": 5,
     "repository": {
-      "forge": "gitlab",
+      "forge": "forgejo",
       "host": "l",
       "name": "cb",
       "owner": "Cs2ZuIk/XfVtJ.L83Kr/w81/U8rcdum/j0qIzY0d3r/QmFeK7hrF"

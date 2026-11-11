@@ -40,21 +40,26 @@ export function useLightbox(images: readonly ShownImage[]) {
 
 /**
  * One file, opened: on a thread's screen a file the daemon holds opens in the side panel;
- * otherwise (or a file only this browser has) the preview dialog. `show` opens it, `preview` is
- * the dialog to render.
+ * otherwise (or a file only this browser has) the preview dialog. `show` opens it, editable
+ * when given `onSave`; `preview` is the dialog to render.
  */
 export function useFilePreview() {
   const panel = useContext(PanelFileOpener);
-  const [open, setOpen] = useState<PreviewFile>();
+  const [open, setOpen] = useState<{ file: PreviewFile; onSave?: (text: string) => void }>();
   const opener = useRef<HTMLElement | null>(null);
-  const show = (file: PreviewFile, element: HTMLElement) => {
-    if (panel?.(file)) return;
+  const show = (file: PreviewFile, element: HTMLElement, onSave?: (text: string) => void) => {
+    if (!onSave && panel?.(file)) return;
     opener.current = element;
-    setOpen(file);
+    setOpen(onSave ? { file, onSave } : { file });
   };
   const preview = open && (
     <Suspense fallback={null}>
-      <Preview.Component file={open} onClose={() => setOpen(undefined)} finalFocus={opener} />
+      <Preview.Component
+        file={open.file}
+        onSave={open.onSave}
+        onClose={() => setOpen(undefined)}
+        finalFocus={opener}
+      />
     </Suspense>
   );
   return { show, preview };

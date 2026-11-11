@@ -2,6 +2,7 @@ import type { ForgePrRow } from "@ace/protocol";
 import type { RowGroup } from "./forge-lists.ts";
 import { prTone, prWords } from "./forge-marks.ts";
 import {
+  prStatusUnknown,
   prStepLabels,
   prStepsForYou,
   type LocalCheckResult,
@@ -90,6 +91,7 @@ function waitingWords(row: ForgePrRow, local: LocalCheckResult): PrStatusWords {
     return { words: "Changes requested", tone: "idle" };
   if (row.reviewDecision === "REVIEW_REQUIRED") return { words: waitingOn(row), tone: "idle" };
   if (row.behind) return { words: `Behind ${row.baseBranch ?? "base"}`, tone: "idle" };
+  if (prStatusUnknown(row)) return { words: "Review status unavailable", tone: undefined };
   return { words: "Waiting", tone: "idle" };
 }
 

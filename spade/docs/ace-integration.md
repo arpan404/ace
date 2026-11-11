@@ -115,3 +115,21 @@ ADR 0117 records the daemon side.
   list and each skill's text, so Spade and ace share one skill library.
 - **CLI brains (later):** Spade asks the daemon to run a turn on a provider CLI with Spade's tools
   attached; the daemon's existing provider sessions carry it.
+
+## How Spade calls ace's tools
+
+- Every MCP request carries `X-Ace-Notifications: stream` and no `X-Ace-Tools` or
+  `X-Ace-Client` header, so Spade gets the full listing with `readOnlyHint` and
+  `destructiveHint` and a list-changed stream. The bearer lives in memory only and is new on
+  every start.
+- The list is fetched at start, on every change notice and every five minutes. Every ace tool is
+  offered deferred (found with `tool_search`, run through `call_tool`), so the tools sent to the
+  model never change. Risk comes from the annotations; an unlabelled tool is a write.
+- A call is never sent twice: a call on an expired session comes back "not run", one cut off after
+  sending comes back "unknown outcome" and the model is told to check before retrying.
+- `delegate`: each task without a `requestId` gets `<conversation>.<call>.<index>`, so a retried
+  call, even after a restart, returns the same child. Children are ordinary threads under Spade's
+  host thread; a child finishing does not wake anything, so Spade reads results with `wait` (run
+  as a background job, up to ten minutes) or `agents_status`.
+- When every web search backend fails, `web_search` tells the model to ask an ace agent on the
+  cheapest model the person has to search instead.

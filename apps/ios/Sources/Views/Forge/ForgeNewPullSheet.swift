@@ -46,6 +46,11 @@ struct ForgeNewPullSheet: View {
                     pickerRow("Into", selection: $base, choices: context.bases, identifier: "forge.newpr.base")
                     pickerRow("From", selection: $head, choices: context.head.branches, identifier: "forge.newpr.head")
                 }
+                if let opensOn = context.opensOn {
+                    Text(opensOn).meta().lineLimit(1).truncationMode(.middle)
+                        .padding(.horizontal, AceTheme.Spacing.lg)
+                        .accessibilityIdentifier("forge.newpr.repository")
+                }
                 if let compare {
                     VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
                         Text(compare.blocked ?? compare.summary).meta().lineLimit(2)
