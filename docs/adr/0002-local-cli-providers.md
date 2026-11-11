@@ -1,6 +1,8 @@
 # 0002: Providers are reached only through the user's local CLIs
 
-Date: 2026-10-02. Status: accepted.
+Date: 2026-10-02. Status: accepted. Narrowly amended by
+[ADR 0116](0116-spade-endpoint-keys.md): Spade keeps the API keys of endpoints the person adds in the
+OS keychain; CLI logins are unchanged.
 
 ## Context
 

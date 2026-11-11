@@ -12,6 +12,7 @@ genai.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+spade-keys = { path = "../spade-keys" }
 thiserror.workspace = true
 
 [dev-dependencies]

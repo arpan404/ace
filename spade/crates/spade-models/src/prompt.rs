@@ -55,16 +55,20 @@ impl Prompt {
     }
 }
 
-/// Token counts as the provider reported them. A provider may omit either.
+/// Token counts as the endpoint reported them. A count the endpoint did not give is `None`.
+/// `input_tokens` is all input, including the cached part: `cache_read_tokens` were served from
+/// the cache and `cache_write_tokens` were written to it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Usage {
     pub input_tokens: Option<u32>,
     pub output_tokens: Option<u32>,
+    pub cache_read_tokens: Option<u32>,
+    pub cache_write_tokens: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reply {
-    /// Spade's id for the model that answered.
+    /// The `endpoint/model` that answered.
     pub model: String,
     pub text: String,
     pub usage: Usage,
