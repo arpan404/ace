@@ -151,7 +151,16 @@ export async function restartSpadeService(
   await rotateSpadeLog(plan.logFile);
   if (plan.platform === "win32") return restartSpadeTask(plan, ports);
   if (plan.platform === "darwin") {
-    await checked(ports.run, "launchctl", ["kickstart", "-k", plan.domain]);
+    // A registration launchd doesn't hold (logged out since, or booted out) is loaded instead.
+    const kicked = await ports.run("launchctl", ["kickstart", "-k", plan.domain]);
+    if (kicked.code === 113)
+      await checked(ports.run, "launchctl", [
+        "bootstrap",
+        plan.domain.slice(0, plan.domain.lastIndexOf("/")),
+        plan.file,
+      ]);
+    else if (kicked.code !== 0)
+      throw new Error(`launchctl failed (${kicked.code}): ${kicked.stderr}`);
     return;
   }
   await systemd(ports.run, ["restart", plan.unit]);
