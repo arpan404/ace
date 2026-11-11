@@ -23,19 +23,19 @@ import {
   taskActive,
 } from "./service-identity.ts";
 /** `systemctl --user` found no user manager: containers, WSL without systemd, `su` shells. */
-const noUserManager =
+export const noUserManager =
   /Failed to connect to (?:user scope )?bus|\$DBUS_SESSION_BUS_ADDRESS|\$XDG_RUNTIME_DIR|No medium found/;
 
 const noSession =
   "ace's service needs a systemd user session (systemctl --user), and this environment has none, as is common in containers and WSL without systemd. Run the daemon in the foreground with `ace start` instead, or log in through a session that starts systemd --user.";
 
-function managerFailure(code: number, stderr: string): Error {
+export function managerFailure(code: number, stderr: string): Error {
   if (noUserManager.test(stderr)) return new Error(noSession);
   return new Error(`systemctl failed (${code}): ${stderr}`);
 }
 
 /** Runs `systemctl --user`; a system without systemctl at all has no user session either. */
-async function systemctl(run: Runner, args: readonly string[]) {
+export async function systemctl(run: Runner, args: readonly string[]) {
   try {
     return await run("systemctl", ["--user", ...args]);
   } catch (error) {
