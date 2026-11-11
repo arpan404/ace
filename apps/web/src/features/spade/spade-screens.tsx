@@ -1,0 +1,164 @@
+import { useClient } from "@ace/client-react";
+import { parseSpadeCreated, spadeStateLine } from "@ace/ui-core/spade-chat";
+import { useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { Button } from "@/components/ui/button.tsx";
+import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
+import { useToast } from "@/components/ui/toast.tsx";
+import { Screen } from "@/features/shell/index.ts";
+import { readingColumn } from "@/features/thread/index.ts";
+import { SpadeApprovalStrip } from "./spade-approval-strip.tsx";
+import { SpadeComposer } from "./spade-composer.tsx";
+import { spadeHttp } from "./spade-requests.ts";
+import { SpadeStateStrip } from "./spade-state.tsx";
+import { SpadeTranscript } from "./spade-transcript.tsx";
+import { useSpadeConversation } from "./use-spade-conversation.ts";
+import { conversationsKey } from "./use-spade-conversations.ts";
+import { useSpadeEnabled } from "./use-spade-enabled.ts";
+import { useSpadeStatus } from "./use-spade-status.ts";
+
+/** Spade's state line while it isn't running, for the composer's blocked reason. */
+function useSpadeLine() {
+  const [enabled] = useSpadeEnabled();
+  return spadeStateLine(useSpadeStatus(), enabled);
+}
+
+/** A scroller that stays at its end while the person is there, as the conversation grows. */
+function Scroller(props: { children: ReactNode }) {
+  const scroller = useRef<HTMLDivElement>(null);
+  const atEnd = useRef(true);
+  useLayoutEffect(() => {
+    const element = scroller.current;
+    if (element && atEnd.current) element.scrollTop = element.scrollHeight;
+  });
+  return (
+    <div
+      ref={scroller}
+      onScroll={(event) => {
+        const element = event.currentTarget;
+        atEnd.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48;
+      }}
+      className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable_both-edges]"
+    >
+      <div className={`${readingColumn} pt-6 pb-16`}>{props.children}</div>
+    </div>
+  );
+}
+
+/** `/spade`: a new conversation. The first message starts it and opens it. */
+export function SpadeNewScreen() {
+  const client = useClient();
+  const cache = useQueryClient();
+  const navigate = useNavigate();
+  const line = useSpadeLine();
+  const start = async (text: string) => {
+    const id = parseSpadeCreated(
+      await spadeHttp(client, "POST", "/v1/conversations", { body: { text } }),
+    );
+    if (!id) throw new Error("Spade started the conversation but didn't say where it is.");
+    void cache.invalidateQueries({ queryKey: conversationsKey });
+    await navigate({ to: "/spade/$conversationId", params: { conversationId: id } });
+  };
+  return (
+    <Screen title="Spade" namedByPanel>
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="min-h-0 flex-1" />
+        {!line.ready && (
+          <div className={readingColumn}>
+            <SpadeStateStrip line={line} className="flex items-center gap-2 px-1 pb-3 text-ui" />
+          </div>
+        )}
+        <SpadeComposer
+          draftKey="spade:new"
+          answering={false}
+          blocked={line.ready ? undefined : line.sentence}
+          placeholder="Ask Spade anything"
+          send={start}
+        />
+      </div>
+    </Screen>
+  );
+}
+
+/** `/spade/<id>`: one conversation, live. */
+export function SpadeConversationScreen(props: { conversationId: string }) {
+  return <Conversation key={props.conversationId} conversationId={props.conversationId} />;
+}
+
+function Conversation(props: { conversationId: string }) {
+  const conversation = useSpadeConversation(props.conversationId);
+  const { view, problem } = conversation;
+  const line = useSpadeLine();
+  const toast = useToast();
+  const [stopping, setStopping] = useState(false);
+  // Stopping lasts until the reply closes.
+  if (stopping && !view.answering) setStopping(false);
+  const stop = () => {
+    setStopping(true);
+    conversation.stop().catch((error: unknown) => {
+      setStopping(false);
+      toast.error({ title: "Couldn't stop Spade", description: message(error) });
+    });
+  };
+  const approval = view.approvals[0];
+  return (
+    <Screen title={view.title || "New conversation"}>
+      <div className="flex h-full min-h-0 flex-col">
+        <Scroller>
+          {problem ? (
+            <div role="alert" className="flex items-center gap-2 text-ui text-muted-foreground">
+              <span className="min-w-0 flex-1">{problem}</span>
+              <Button size="xs" variant="ghost" onClick={conversation.retry}>
+                Try again
+              </Button>
+            </div>
+          ) : !view.loaded ? (
+            line.ready ? (
+              <LoadingRegion label="Conversation" className="flex flex-col gap-3">
+                <Skeleton className="ml-auto h-9 w-48 rounded-lg" />
+                <Skeleton className="h-3.5 w-3/4" />
+                <Skeleton className="h-3.5 w-1/2" />
+              </LoadingRegion>
+            ) : (
+              <SpadeStateStrip line={line} className="flex items-center gap-2 text-ui" />
+            )
+          ) : (
+            <SpadeTranscript
+              conversation={props.conversationId}
+              view={view}
+              onStop={stop}
+              stopping={stopping}
+            />
+          )}
+        </Scroller>
+        <SpadeComposer
+          draftKey={`spade:${props.conversationId}`}
+          answering={view.answering}
+          blocked={line.ready ? undefined : line.sentence}
+          placeholder={view.answering ? "Steer Spade's reply" : "Message Spade"}
+          send={conversation.send}
+          attached={
+            approval && (
+              <SpadeApprovalStrip
+                key={approval.callId}
+                approval={approval}
+                more={view.approvals.length - 1}
+                onAnswer={(allowed, always) =>
+                  conversation
+                    .answer(approval.callId, allowed, always)
+                    .then(() => undefined)
+                    .catch((error: unknown) => {
+                      toast.error({ title: "Couldn't answer Spade", description: message(error) });
+                    })
+                }
+              />
+            )
+          }
+        />
+      </div>
+    </Screen>
+  );
+}
+
+const message = (error: unknown) => (error instanceof Error ? error.message : "Try again.");

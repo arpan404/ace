@@ -72,7 +72,7 @@ function ThreadPlace(props: {
 
 /**
  * The sidebar's rail, under the window's top bar: the app's places as bare glyphs, Threads (the
- * folders glyph: it lists projects), Chats (the speech bubbles) and Spade (not live yet), a short hairline, then
+ * folders glyph: it lists projects), Chats (the speech bubbles) and Spade (its mark), a short hairline, then
  * Code review, Automations and Skills; the app's update when there is one, Usage, Settings and the
  * profile at the foot. The current place takes the active fill: Chats while a chat is open, Threads for
  * any other thread. Off Threads or Chats, a dot on its glyph says one of its own threads waits.
@@ -87,6 +87,7 @@ export function AppRail(props: {
   const signals = usePlaceSignals();
   const threads = useLastPlace(current === "home", "/new");
   const chats = useLastPlace(current === "chats", "/chats");
+  const spade = useLastPlace(current === "spade", "/spade");
   return (
     <nav
       aria-label="App"
@@ -110,7 +111,7 @@ export function AppRail(props: {
           last={chats}
           signal={signals.chats}
         />
-        <SpadeSoon />
+        <SpadePlace current={current === "spade"} last={spade} />
         <span aria-hidden className="my-1.5 h-px w-5 shrink-0 bg-border" />
         {props.forge?.(current === "forge")}
         {railViews.map((view) => (
@@ -145,20 +146,21 @@ export function AppRail(props: {
 }
 
 /**
- * Spade, ace's cloud agent, before it launches: its mark dimmed, "Coming soon" in its tooltip.
- * It is a picture, not a control: nothing to press or tab to.
+ * Spade, ace's assistant: its mark, back to the conversation the person last had open there.
+ * The mark dims while Spade isn't current, as the other places' glyphs stay regular weight.
  */
-function SpadeSoon() {
+function SpadePlace(props: { current: boolean; last: Place }) {
   return (
-    <Tip label="Spade · Coming soon">
-      <span
-        role="img"
-        aria-label="Spade, coming soon"
-        data-slot="spade-soon"
-        className="grid size-10 shrink-0 cursor-default place-items-center text-muted-foreground"
+    <Tip label="Spade">
+      <Link
+        to={props.last.to}
+        search={props.last.search}
+        aria-label="Spade"
+        aria-current={props.current ? "page" : undefined}
+        className={railPlaceClass}
       >
-        <SpadeMark size={20} className="opacity-50" />
-      </span>
+        <SpadeMark size={20} className={props.current ? undefined : "opacity-75"} />
+      </Link>
     </Tip>
   );
 }

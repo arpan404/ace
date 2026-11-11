@@ -9,6 +9,7 @@ export {
   PromptsSettingsScreen,
   AppearanceSettingsScreen,
   ComputerUseSettingsScreen,
+  SpadeSettingsScreen,
   GeneralSettingsScreen,
   ProfileSettingsScreen,
   KeyboardSettingsScreen,
