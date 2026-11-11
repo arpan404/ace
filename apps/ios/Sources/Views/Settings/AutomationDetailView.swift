@@ -12,8 +12,12 @@ struct AutomationDetailView: View {
     @State private var pollMs = 60_000
     @State private var runsLoaded = false
     @State private var olderLoading = false
+    @State private var olderProblem: String?
     @State private var busy = false
+    private enum FailedAction { case refresh, run(String?), enabled(Bool), retry, duplicate, remove }
+    @State private var failedAction = FailedAction.refresh
     @State private var problem: String?
+    @State private var historyProblem: String?
     @State private var editing = false
     @State private var deleting = false
     @State private var noting = false
@@ -43,6 +47,19 @@ struct AutomationDetailView: View {
                 summary(row)
                 if let attention = row.attention { attentionSection(attention) }
                 actions(row)
+            }
+            if row == nil && problem == nil { Section { SkeletonRows(count: 2, label: "Loading automation") }.insetRowBackground() }
+            if let problem {
+                Section {
+                    ServiceProblem(message: problem)
+                    Button("Retry") { Task { await retryFailure() } }.buttonStyle(.textAction()).disabled(busy)
+                }.insetRowBackground()
+            }
+            if let historyProblem {
+                Section {
+                    ServiceProblem(message: historyProblem)
+                    Button("Retry") { Task { await readRuns() } }.buttonStyle(.textAction())
+                }.insetRowBackground()
             }
             runsSection
         }
@@ -87,7 +104,6 @@ struct AutomationDetailView: View {
                     .foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
             }
             .padding(.vertical, AceDesign.Space.tight)
-            ServiceProblem(message: problem)
         }
         .insetRowBackground()
     }
@@ -142,9 +158,9 @@ struct AutomationDetailView: View {
 
     @ViewBuilder private var runsSection: some View {
         Section {
-            if !runsLoaded {
+            if !runsLoaded && problem == nil && historyProblem == nil {
                 ForEach(0..<2, id: \.self) { _ in AutomationRowPlaceholder() }
-            } else if runs.isEmpty {
+            } else if runsLoaded && runs.isEmpty && problem == nil && historyProblem == nil {
                 Text("No runs yet. Run it now, or wait for it to start.")
                     .font(AceDesign.Typeface.title)
                     .foregroundStyle(AceDesign.Ink.muted)
@@ -155,8 +171,9 @@ struct AutomationDetailView: View {
                                   open: opener(run.threadId),
                                   runAgain: { Task { await runNow(note: nil) } })
             }
+            ServiceProblem(message: olderProblem)
             if before != nil {
-                textRow(olderLoading ? "Loading older runs…" : "Show older runs", id: "automation.olderRuns") {
+                textRow(olderLoading ? "Loading older runs…" : olderProblem == nil ? "Show older runs" : "Retry", id: "automation.olderRuns") {
                     Task { await older() }
                 }
                 .disabled(olderLoading)
@@ -189,31 +206,34 @@ struct AutomationDetailView: View {
     private var source: String { row?.source ?? "person" }
 
     private func refresh() async {
+        problem = nil; failedAction = .refresh
         await readRow()
         await readRuns()
     }
 
     /// The row as the list now has it; gone means it was deleted elsewhere.
     private func readRow() async {
-        guard let page = try? await model.read(["type": "automations.page", "zone": zone, "fresh": true], as: AutomationPage.self),
-              page.ok else { return }
-        if let next = ((page.person ?? []) + (page.threads ?? [])).first(where: { $0.id == id }) { row = next }
-        else { dismiss() }
+        do {
+            let page = try await model.read(["type": "automations.page", "zone": zone, "fresh": true], as: AutomationPage.self)
+            guard page.ok else { throw ServiceFailure(message: page.error ?? "Couldn't load this automation.") }
+            if let next = ((page.person ?? []) + (page.threads ?? [])).first(where: { $0.id == id }) { row = next }
+            else { dismiss() }
+        } catch { if !Task.isCancelled { failedAction = .refresh; problem = error.localizedDescription } }
     }
 
     private func readRuns() async {
         do {
             let history = try await model.service(["type": "automations.history", "automationId": id, "source": source, "zone": zone],
                                                   as: AutomationHistory.self)
-            guard history.ok else { problem = history.error; return }
+            guard history.ok else { throw ServiceFailure(message: history.error ?? "Couldn't load runs.") }
             let first = history.runs ?? []
             // Older pages already read stay below the newest page.
-            let older = runs.filter { run in !first.contains { $0.id == run.id } && run.startedAt < (first.last?.startedAt ?? .infinity) }
-            runs = first + (before == nil ? [] : older)
+            runs = refreshedAutomationHistory(first, keeping: runs, startedAt: { $0.startedAt })
             if !runsLoaded { before = history.before }
+            runsLoaded = true
             pollMs = history.pollMs ?? 60_000
-        } catch { problem = error.localizedDescription }
-        runsLoaded = true
+            historyProblem = nil
+        } catch { if !Task.isCancelled { historyProblem = error.localizedDescription } }
     }
 
     private func older() async {
@@ -222,7 +242,8 @@ struct AutomationDetailView: View {
         defer { olderLoading = false }
         guard let history = try? await model.service(["type": "automations.history", "automationId": id, "source": source,
                                                       "zone": zone, "before": cursor], as: AutomationHistory.self),
-              history.ok else { problem = "Couldn't load older runs. Try again."; return }
+              history.ok else { olderProblem = "Couldn't load older runs."; return }
+        olderProblem = nil
         runs += (history.runs ?? []).filter { run in !runs.contains { $0.id == run.id } }
         before = history.before
     }
@@ -258,7 +279,19 @@ struct AutomationDetailView: View {
         await write(["type": "automations.write", "request": request])
     }
 
+    private func retryFailure() async {
+        switch failedAction {
+        case .refresh: await refresh()
+        case .run(let note): await runNow(note: note)
+        case .enabled(let enabled): await setEnabled(enabled)
+        case .retry: await retry()
+        case .duplicate: await duplicate()
+        case .remove: await remove()
+        }
+    }
+
     private func runNow(note: String?) async {
+        failedAction = .run(note)
         var request: [String: Any] = ["type": "automation.run", "id": id, "variables": [String: String](), "source": source]
         if let note, !note.isEmpty { request["message"] = note }
         // A run that has to wait shows as Queued or Skipped in Runs.
@@ -266,18 +299,21 @@ struct AutomationDetailView: View {
     }
 
     private func setEnabled(_ enabled: Bool) async {
+        failedAction = .enabled(enabled)
         var request: [String: Any] = ["type": "automation.setEnabled", "id": id, "enabled": enabled, "source": source]
         if let revision = row?.revision { request["expectedRevision"] = revision }
         if await act(request) != nil { await refresh() }
     }
 
     private func retry() async {
+        failedAction = .retry
         var request: [String: Any] = ["type": "automation.retry", "id": id]
         if let revision = row?.revision { request["expectedRevision"] = revision }
         if await act(request) != nil { await refresh() }
     }
 
     private func duplicate() async {
+        failedAction = .duplicate
         guard let row else { return }
         // One id per Duplicate: pressed again after a lost reply, it sends the same copy, which
         // the bridge counts as made instead of making a second.
@@ -290,94 +326,13 @@ struct AutomationDetailView: View {
     }
 
     private func remove() async {
+        failedAction = .remove
         var request: [String: Any] = ["type": "automation.remove", "id": id, "source": source]
         if let revision = row?.revision { request["expectedRevision"] = revision }
         if await act(request) != nil {
             // The list offers Undo; it makes the automation again from this definition.
             if let row { links?.undo.deleted = .init(title: row.title, automation: row.automation) }
             dismiss()
-        }
-    }
-}
-
-/// One run: when it started and how it went, what it said, and the way into its thread.
-struct AutomationRunView: View {
-    @Environment(\.aceReduceMotion) private var reduceMotion
-    let run: AutomationRunRow
-    let canRun: Bool
-    let open: (() -> Void)?
-    let runAgain: () -> Void
-    @State private var expanded = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-            HStack(spacing: AceDesign.Space.tight) {
-                if let head = run.head { StateLabel(status: head.status) }
-                Text([run.when, run.detail].compactMap { $0 }.joined(separator: " · "))
-                    .foregroundStyle(AceDesign.Ink.muted).monospacedDigit()
-            }
-            .font(AceDesign.Typeface.meta)
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("automation.run.\(run.id)")
-            if run.live {
-                (Text("Working for ") + Text(Date(timeIntervalSince1970: run.startedAt / 1000), style: .timer))
-                    .font(AceDesign.Typeface.title)
-                    .foregroundStyle(AceDesign.Ink.muted).monospacedDigit()
-            } else if let note = run.note {
-                Text(note).font(AceDesign.Typeface.title)
-                    .foregroundStyle(AceDesign.Ink.muted)
-            }
-            if let body = run.body {
-                Text(body).font(AceDesign.Typeface.title)
-                    .foregroundStyle(run.muted ? AceDesign.Ink.muted : AceDesign.Ink.primary)
-                    .lineLimit(expanded ? nil : 4)
-                    .textSelection(.enabled)
-            }
-            HStack(spacing: AceDesign.Space.margin) {
-                if let open {
-                    Button("Open thread", action: open).accessibilityIdentifier("automation.run.open.\(run.id)")
-                }
-                if run.runAgain {
-                    Button("Run again", action: runAgain).disabled(!canRun)
-                        .accessibilityIdentifier("automation.run.again.\(run.id)")
-                }
-                if (run.body?.count ?? 0) > 220 {
-                    Button(expanded ? "Show less" : "Show all") { withAnimation { expanded.toggle() } }
-                }
-            }
-            .buttonStyle(.borderless)
-            .font(AceDesign.Typeface.body)
-            .foregroundStyle(AceDesign.Ink.primary)
-            .frame(minHeight: AceDesign.Size.tap)
-        }
-        .padding(.top, AceDesign.Space.tight)
-    }
-}
-
-/// "Run now with a note": extra instructions for this run only, added after the saved prompt.
-struct AutomationRunNote: View {
-    let run: (String) -> Void
-    @State private var note = ""
-    @Environment(\.dismiss) private var dismiss
-    @FocusState private var focused: Bool
-    var body: some View {
-        NavigationStack {
-            Form {
-                TextField("Anything extra for this run", text: $note, axis: .vertical)
-                    .lineLimit(3...10).focused($focused)
-                    .accessibilityIdentifier("automation.note")
-                    .insetRowBackground()
-            }
-            .insetGroupedList()
-            .navigationTitle("Run with a note").navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Run") { run(note.trimmingCharacters(in: .whitespacesAndNewlines)); dismiss() }
-                        .disabled(note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
-            .onAppear { focused = true }
         }
     }
 }

@@ -7,6 +7,8 @@ import SwiftUI
 struct AppearanceView: View {
     /// Fits a custom accent through any connected machine's runtime.
     var inbox: MachineInbox? = nil
+    @State private var accentProblem: String?
+    @State private var accentRetry = 0
     @AppStorage(PhoneLook.densityKey) private var density = "comfortable"
     @AppStorage("ace.appearance") private var appearance = "system"
     @AppStorage(PhoneLook.transcriptKey) private var transcriptSize = "default"
@@ -16,7 +18,7 @@ struct AppearanceView: View {
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.accessibilityReduceTransparency) private var systemReduceTransparency
-    private let columns = [GridItem(.adaptive(minimum: 92), spacing: AceDesign.Space.row)]
+    private let columns = [GridItem(.adaptive(minimum: AceDesign.Size.tap * 2 + AceDesign.Space.tight), spacing: AceDesign.Space.row)]
 
     var body: some View {
         List {
@@ -42,13 +44,21 @@ struct AppearanceView: View {
             } header: { InsetHeader("Theme") }
             Section {
                 AccentSwatches(theme: chosenTheme, chosen: chosenAccent, scheme: scheme) { accent in
+                    accentProblem = nil
                     change { palette?.choose(accent: accent) }
                 } custom: {
-                    CustomAccentPicker(inbox: inbox, chosen: chosenAccent == "custom", start: palette?.custom?.colour) { fitted in
+                    CustomAccentPicker(inbox: inbox, chosen: chosenAccent == "custom", start: palette?.custom?.colour,
+                                       problem: $accentProblem, retry: accentRetry) { fitted in
                         change { palette?.choose(custom: fitted) }
                     }
                 }
                 .pickerRow()
+                if let accentProblem {
+                    ServiceProblem(message: accentProblem).listRowBackground(Color.clear)
+                    Button("Retry") { accentRetry += 1 }.buttonStyle(.textAction())
+                        .disabled(inbox?.sessions.contains(where: { $0.client.connection == "ready" }) != true)
+                        .listRowBackground(Color.clear)
+                }
             } header: { InsetHeader("Accent") } footer: {
                 if inbox?.sessions.contains(where: { $0.client.connection == "ready" }) != true {
                     Text("A custom colour needs a connected machine.")

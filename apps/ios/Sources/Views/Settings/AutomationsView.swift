@@ -63,7 +63,7 @@ struct AutomationsView: View {
                     .transition(.opacity)
             } else if person.isEmpty && threads.isEmpty && problem == nil {
                 Section {
-                    Text("Automations run a task for you on a schedule, when a pull request or issue changes, or when files change. Each run opens its own thread.")
+                    Text("No automations yet. Schedule a task or choose a trigger.")
                         .font(AceDesign.Typeface.title)
                         .foregroundStyle(AceDesign.Ink.muted)
                         .padding(.vertical, AceDesign.Space.related)
@@ -190,8 +190,8 @@ struct AutomationRowPlaceholder: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
             // The bars trace a row's name and its schedule line: content geometry.
-            SkeletonBar(width: 180, height: 12)
-            SkeletonBar(width: 120, height: 10)
+            SkeletonBar(width: AceDesign.Size.tap * 4, height: AceDesign.Space.row)
+            SkeletonBar(width: AceDesign.Size.tap * 3, height: AceDesign.Space.related)
         }
         .padding(.vertical, AceDesign.Space.related)
         .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)

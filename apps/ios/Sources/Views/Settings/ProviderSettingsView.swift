@@ -77,10 +77,14 @@ struct ProviderSignInView: View {
     var initial: LoginProgress? = nil
     @State private var progress: LoginProgress?
     @State private var problem: String?
+    @State private var pollProblem: String?
     @State private var busy = false
     @State private var code = ""
     @State private var returnAddress = ""
     @State private var query = ""
+    @State private var lifetime = SignInLifetime()
+    @State private var pollAttempt = 0
+    @State private var failedRequest: [String: Any]?
     /// Past this many choices the list is searched by name (OpenCode offers about 240 services).
     private static let searchFrom = 12
     var body: some View {
@@ -132,29 +136,39 @@ struct ProviderSignInView: View {
                         if !progress.finished { Button("Cancel sign-in", role: .cancel) { request(["type": "provider.login.cancel", "session": progress.session]) } }
                     } header: { InsetHeader(progress.finished ? "Result" : "Continue sign-in") }.disabled(busy || !model.canOperate)
                 }
-                ServiceProblem(message: problem)
+                ServiceProblem(message: problem ?? pollProblem)
+                if problem != nil || pollProblem != nil {
+                    Button("Retry", action: retry).buttonStyle(.textAction()).disabled(busy)
+                }
             }
             .insetRowBackground()
         }
         .insetGroupedList()
         .modifier(ServiceSearch(enabled: (progress?.choices?.count ?? 0) > Self.searchFrom, query: $query))
         .navigationTitle(name).navigationBarTitleDisplayMode(.inline)
-        .onAppear { if progress == nil { progress = initial } }
-        .task(id: progress?.session) {
+        .onAppear {
+            lifetime.cancel = { [weak model] session in
+                guard let model else { return }
+                Task { _ = try? await model.service(["type": "provider.login.cancel", "session": session], as: LoginReply.self) }
+            }
+            if progress == nil { progress = initial }
+            lifetime.unfinishedSession = progress.flatMap { $0.finished ? nil : $0.session }
+        }
+        .onChange(of: progress?.state) { _, _ in
+            lifetime.unfinishedSession = progress.flatMap { $0.finished ? nil : $0.session }
+        }
+        .task(id: "\(progress?.session ?? "")/\(pollAttempt)") {
             while let current = progress, !current.finished, !Task.isCancelled {
                 do {
                     try await Task.sleep(for: .seconds(2))
                     let reply = try await model.service(["type": "provider.login.poll", "session": current.session], as: LoginReply.self)
                     guard reply.result.ok else { throw ServiceFailure(message: reply.result.error ?? "Sign-in unavailable") }
+                    pollProblem = nil
                     progress = reply.result.progress
-                } catch { if !Task.isCancelled { problem = error.localizedDescription }; return }
+                    lifetime.unfinishedSession = progress.flatMap { $0.finished ? nil : $0.session }
+                } catch { if !Task.isCancelled { pollProblem = error.localizedDescription }; return }
             }
             if progress?.state == "succeeded" { model.refreshMachine() }
-        }
-        .onDisappear {
-            code = ""
-            returnAddress = ""
-            if let progress, !progress.finished { request(["type": "provider.login.cancel", "session": progress.session]) }
         }
     }
     /// The choices whose name or id holds every typed word; "other" (any provider) always stays.
@@ -164,6 +178,20 @@ struct ProviderSignInView: View {
         return choices.filter { choice in
             let text = "\(choice.label) \(choice.id)".lowercased()
             return choice.id == "other" || words.allSatisfy { text.contains($0) }
+        }
+    }
+    private func retry() {
+        if let payload = failedRequest { request(payload) }
+        // A failed input isn't kept (it held what was typed): Retry clears it and resumes the poll,
+        // and the person enters it again.
+        else { problem = nil; pollProblem = nil; pollAttempt += 1 }
+    }
+    /// A failed request worth sending again. An input carries the code or address the person typed,
+    /// so it is never kept; Retry resumes the poll and they enter it again.
+    static func repeatable(_ payload: [String: Any]) -> Bool {
+        switch payload["type"] as? String {
+        case "provider.login.start", "provider.login.cancel": true
+        default: false
         }
     }
     private func request(_ payload: [String: Any]) {
@@ -176,8 +204,14 @@ struct ProviderSignInView: View {
             do {
                 let reply = try await model.service(payload, as: LoginReply.self)
                 guard reply.result.ok else { throw ServiceFailure(message: reply.result.error ?? "Sign-in unavailable") }
+                failedRequest = nil
+                if pollProblem != nil { pollProblem = nil; pollAttempt += 1 }
                 progress = reply.result.progress
-            } catch { problem = error.localizedDescription }
+                lifetime.unfinishedSession = progress.flatMap { $0.finished ? nil : $0.session }
+            } catch {
+                failedRequest = Self.repeatable(payload) ? payload : nil
+                problem = error.localizedDescription
+            }
         }
     }
 }

@@ -317,7 +317,7 @@ function modelsPage(input: ProviderPageInput, catalog: ModelCatalog): ProviderMo
           label: preview(choice.current?.label ?? "None", 128),
           note: choice.missing ? "Unavailable" : choice.current?.userDefault ? "Your choice" : null,
           resettable: choice.missing || !!choice.current?.userDefault,
-          choices: choice.choices.slice(0, 200).map((model) => ({
+          choices: choice.choices.map((model) => ({
             key: model.key,
             id: model.key.slice(model.key.indexOf("\u0000") + 1),
             label: preview(model.label, 128),

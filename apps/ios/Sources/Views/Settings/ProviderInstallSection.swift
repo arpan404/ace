@@ -47,7 +47,7 @@ struct ProviderInstallSection: View {
                             .frame(minHeight: AceDesign.Size.tap)
                     } else {
                         Button(confirm.label) { act(["kind": "run"]) }
-                            .buttonStyle(.bordered).buttonBorderShape(.capsule).tint(AceDesign.Ink.accent)
+                            .buttonStyle(.textAction(.prominent))
                             .frame(minHeight: AceDesign.Size.tap)
                             .accessibilityIdentifier("install.confirm")
                     }

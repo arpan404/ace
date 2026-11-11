@@ -301,3 +301,52 @@ test("reloading a chat removes its saved tool logs before the reopened view can 
   await reopened;
   expect(shown).toBeUndefined();
 });
+
+test("a failed clear reports the failure and retains the actual cache usage for retry", async () => {
+  const sink = new RecordingSink();
+  await handleCacheAction(
+    { type: "cache.clear" },
+    {
+      client: {
+        clearReadSnapshots: async () => {
+          throw new Error("disk refused");
+        },
+        forgetThread: async () => {},
+      },
+      snapshots: { usage: async () => ({ threads: 3, bytes: 90 }) },
+      sink,
+      openThread: () => undefined,
+      leave() {},
+      reopen() {},
+    },
+  );
+  expect(sink.read("cache.usage")).toMatchObject({
+    threads: 3,
+    bytes: 90,
+    problem: expect.any(String),
+    retry: "cache.clear",
+  });
+});
+
+test("a failed usage read reports a retry instead of leaving Settings reading forever", async () => {
+  const sink = new RecordingSink();
+  await handleCacheAction(
+    { type: "cache.read" },
+    {
+      client: { clearReadSnapshots: async () => {}, forgetThread: async () => {} },
+      snapshots: {
+        usage: async () => {
+          throw new Error("disk refused");
+        },
+      },
+      sink,
+      openThread: () => undefined,
+      leave() {},
+      reopen() {},
+    },
+  );
+  expect(sink.read("cache.usage")).toMatchObject({
+    problem: expect.any(String),
+    retry: "cache.read",
+  });
+});
