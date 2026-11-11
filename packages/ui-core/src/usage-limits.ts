@@ -37,6 +37,13 @@ export interface AccountWindow {
   evenLeftPercent: number | undefined;
   /** When it runs out at the pace so far, if that is before it resets; else null. */
   runsOutAt: number | null;
+  /** When the window began (its reset less its length); null without both. */
+  startsAt: number | null;
+  /**
+   * The share left when it resets, if use carries on at its pace so far: the bar's marker. Null
+   * when it runs out first, or without the window's length and reset time.
+   */
+  leftAtReset: number | null;
 }
 
 export interface AccountLimits {
@@ -158,7 +165,31 @@ export function windowRunsOutAt(
   return at < resetsAt ? Math.round(at) : null;
 }
 
-const sessionProviders = new Set(["codex", "claude"]);
+/**
+ * The share left when a window resets, if use carries on at its pace so far (used share over
+ * elapsed time). Null when it runs out before then, without its length and reset time, or before
+ * it has run five minutes; the share left now when nothing is used yet.
+ */
+export function projectedLeft(
+  usedPercent: number,
+  resetsAt: number | null,
+  durationMins: number | undefined,
+  now: number,
+): number | null {
+  const elapsed = elapsedShare(resetsAt, durationMins, now);
+  if (elapsed === undefined || resetsAt === null) return null;
+  if (usedPercent <= 0) return 100;
+  const ran = elapsed.share * elapsed.length;
+  if (ran < 5 * minute) return null;
+  const atReset = 100 - usedPercent - (usedPercent / ran) * (resetsAt - now);
+  return atReset <= 0 ? null : Math.round(atReset);
+}
+
+/**
+ * Providers whose every plan has a five-hour session, so an account without one is worth saying.
+ * Not Claude: its Ultra plan may have none.
+ */
+const sessionProviders = new Set(["codex"]);
 
 /** The same login on another machine: provider, agent and who it is signed in as. */
 function identity(account: AccountView): string | undefined {
@@ -281,6 +312,11 @@ function accountLimits(
         stale,
         evenLeftPercent: stale ? undefined : evenLeftPercent(window.resetsAt, mins, now),
         runsOutAt: stale ? null : windowRunsOutAt(window.usedPercent, window.resetsAt, mins, now),
+        startsAt:
+          window.resetsAt !== null && mins !== undefined && mins > 0
+            ? window.resetsAt - mins * minute
+            : null,
+        leftAtReset: stale ? null : projectedLeft(window.usedPercent, window.resetsAt, mins, now),
       };
     }),
     noSessionWindow:

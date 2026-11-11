@@ -49,15 +49,20 @@ export interface PooledHeadroom {
 
 const sessionLabels = new Set(["Session (5h)", "Daily"]);
 
+/** A week-long window: the account's own week, or a model's ("Weekly · Fable"). */
+const weekly = (window: AccountWindow) =>
+  window.label === "Weekly" || window.label.startsWith("Weekly ·");
+
 /**
- * The account's session window: its five-hour one, else its daily one, else its shortest. Past
- * its reset it still shows, but counts as unknown.
+ * The account's session window: its five-hour one, else its daily one, else its shortest window
+ * that isn't a week (a monthly quota). None when it reports only weeks: some plans (Claude's
+ * Ultra) have no session limit, and a week never stands in for one. Past its reset it still
+ * shows, but counts as unknown.
  */
 export function sessionWindow(account: AccountLimits): AccountWindow | undefined {
   return (
     account.windows.find((window) => sessionLabels.has(window.label)) ??
-    account.windows.find((window) => window.label !== "Weekly") ??
-    account.windows[0]
+    account.windows.find((window) => !weekly(window))
   );
 }
 
@@ -148,9 +153,18 @@ export interface RailUsage {
   bars: HeadroomBar[];
   /** The icon's spoken name, which says the state in words. */
   label: string;
+  /** The accounts the bars draw, in their order: the card lists the same ones. */
+  accounts: AccountLimits[];
+  /** Whether they are the person's pins, rather than the accounts used most this week. */
+  pinned: boolean;
 }
 
-const railBars = 4;
+/** The most accounts the rail shows, so the most that can be pinned to it. */
+export const railBars = 4;
+
+/** Accounts pinned to the rail on a device, by account id, in the order pinned. */
+export const RailPins = z.array(z.string().min(1).max(512)).max(railBars);
+export type RailPins = z.infer<typeof RailPins>;
 
 /**
  * The window a rail bar shows: the account's weekly one, else its longest (Gemini's daily quota,
@@ -195,6 +209,7 @@ export function railUsage(
   limits: UsageLimits,
   used: ReadonlyMap<string, number> | undefined,
   measure: RailMeasure = "week",
+  pins: RailPins = [],
 ): RailUsage {
   const readable = limits.providers.flatMap((group) =>
     group.accounts.flatMap((entry) => {
@@ -204,26 +219,36 @@ export function railUsage(
         group.accounts.length > 1
           ? `${group.providerLabel} · ${entry.account.label}`
           : group.providerLabel;
-      return [
-        {
-          key: entry.key,
-          id: entry.account.id,
-          label,
-          left: room.left,
-          span: room.span,
-          tone: headroomTone(room.left),
-        },
-      ];
+      const bar = {
+        key: entry.key,
+        label,
+        left: room.left,
+        span: room.span,
+        tone: headroomTone(room.left),
+      };
+      return [{ entry, bar }];
     }),
   );
-  // Most used this week first; the rest keep the page's order and fill the icon up to four.
-  const tokens = (bar: { id: string }) => used?.get(bar.id) ?? 0;
-  const shown = readable
-    .map((bar, index) => ({ bar, index }))
-    .toSorted((a, b) => tokens(b.bar) - tokens(a.bar) || a.index - b.index)
-    .slice(0, railBars)
-    .map(({ bar: { id: _id, ...bar } }) => bar);
-  return { bars: shown, label: railLabel(shown) };
+  const pinnedHere = pins.flatMap(
+    (id) => readable.find((each) => each.entry.account.id === id) ?? [],
+  );
+  // Pins, in the order pinned; with none here, the accounts used most this week, the rest in the
+  // page's order, up to four.
+  const tokens = (each: { entry: AccountLimits }) => used?.get(each.entry.account.id) ?? 0;
+  const shown = pinnedHere.length
+    ? pinnedHere
+    : readable
+        .map((each, index) => ({ each, index }))
+        .toSorted((a, b) => tokens(b.each) - tokens(a.each) || a.index - b.index)
+        .slice(0, railBars)
+        .map(({ each }) => each);
+  const bars = shown.map((each) => each.bar);
+  return {
+    bars,
+    label: railLabel(bars),
+    accounts: shown.map((each) => each.entry),
+    pinned: pinnedHere.length > 0,
+  };
 }
 
 /** "Usage: Claude Code · Personal 59% of the week left, Codex 78%, Gemini CLI 29% of the day". */
@@ -276,20 +301,19 @@ function backIn(entry: PooledHeadroom, now: number): string {
   return entry.backAt === null ? "" : formatCountdown(entry.backAt - now);
 }
 
-/** The hover card's one sentence about the tightest provider. */
-export function headroomSentence(headroom: readonly PooledHeadroom[], now: number): string {
+/**
+ * The one thing the card's rows can't say: a provider whose every account is out, and when the
+ * first comes back. A window that runs out says so in its own row. Undefined otherwise.
+ */
+export function headroomAlert(
+  headroom: readonly PooledHeadroom[],
+  now: number,
+): { text: string; tone: "out" } | undefined {
   const [first] = outProviders(headroom);
-  if (first) {
-    const back = backIn(first, now);
-    return `${first.providerLabel} is out${back ? `; it's back in ${back}` : ""}.`;
-  }
-  const tight = tightestProvider(headroom);
-  if (!tight) return "No limits read yet.";
-  const resets = tight.session?.resetsAt;
-  const resetPart = resets ? `; it resets in ${formatCountdown(resets - now)}` : "";
-  const runsOut = tight.session?.runsOutAt;
-  if (runsOut)
-    return `${tight.providerLabel}'s session runs out in ${approximately(runsOut - now)} at this pace${resetPart}.`;
-  const left = tight.currentLeft ?? tight.sessionLeft ?? 0;
-  return `${tight.providerLabel} is the tightest, with ${left}% of the session left${resetPart}.`;
+  if (!first) return undefined;
+  const back = backIn(first, now);
+  return {
+    text: `${first.providerLabel} is out${back ? `; it's back in ${back}` : ""}.`,
+    tone: "out",
+  };
 }
