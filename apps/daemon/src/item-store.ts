@@ -1,4 +1,4 @@
-import { decodeStoredItem } from "./stored-decode.ts";
+import { decodeStoredItem, storedItem, untrusted, type StoredTrust } from "./stored-decode.ts";
 import { ItemTextStore } from "./item-text-store.ts";
 import { recordSkillUsage } from "./skill-usage.ts";
 import { ItemPageCapacityExceeded } from "./item-page-capacity.ts";
@@ -73,10 +73,16 @@ export class ItemStore {
   private readonly texts: ItemTextStore;
   private readonly db: DatabaseSync;
   private readonly statement: (sql: string) => StatementSync;
-  constructor(db: DatabaseSync, statement: (sql: string) => StatementSync) {
+  private readonly trust: StoredTrust;
+  constructor(
+    db: DatabaseSync,
+    statement: (sql: string) => StatementSync,
+    trust: StoredTrust = untrusted(),
+  ) {
     this.statement = statement;
     this.db = db;
     this.texts = new ItemTextStore(db);
+    this.trust = trust;
   }
   /** Rebuild encoding metadata once after migration, recovering old chunks from the event log. */
   initialize(): void {
@@ -160,8 +166,13 @@ export class ItemStore {
       "UPDATE item_heads SET size = size + ?, text_prefix = 0, text_last_unit = ? WHERE id = ?",
     ).run(size, lastUnit, delta.itemId);
   }
-  private materialize(id: string, body: unknown): Item {
-    const item = decodeStoredItem(JSON.parse(String(body)));
+  /** A missing row keeps the old behaviour: decoding `undefined` throws. */
+  private materializeRow(id: string, row: Record<string, unknown> | undefined): Item {
+    return this.materialize(id, row?.item, row?.created_seq);
+  }
+  /** `created` (the item's creation sequence) decides whether this build wrote the body (see `storedItem`). */
+  private materialize(id: string, body: unknown, created: unknown): Item {
+    const item = storedItem(Number(created), String(body), this.trust.from);
     let field: unknown;
     const appends: string[] = [];
     // Stream rows instead of retaining their objects. Accepted fields share one append target.
@@ -232,7 +243,10 @@ export class ItemStore {
   private pageItem(id: string, type: string): Item {
     return type === "message" || type === "notice" || type === "reasoning"
       ? this.texts.read(id)
-      : this.materialize(id, this.statement("SELECT item FROM items WHERE id = ?").get(id)?.item);
+      : this.materializeRow(
+          id,
+          this.statement("SELECT item, created_seq FROM items WHERE id = ?").get(id),
+        );
   }
   /** The newest item created before `before`, as a page shows it, with its creation cursor. */
   newestBefore(threadId: ThreadId, before: number): { item: Item; seq: number } | undefined {
@@ -286,11 +300,10 @@ export class ItemStore {
       head.item_type === "reasoning"
     )
       return this.texts.read(itemId);
-    const row = this.statement("SELECT item FROM items WHERE id = ? AND thread_id = ?").get(
-      itemId,
-      threadId,
-    );
-    return row ? this.materialize(itemId, row.item) : undefined;
+    const row = this.statement(
+      "SELECT item, created_seq FROM items WHERE id = ? AND thread_id = ?",
+    ).get(itemId, threadId);
+    return row ? this.materialize(itemId, row.item, row.created_seq) : undefined;
   }
   createdSeq(threadId: ThreadId, itemId: string): number | undefined {
     const row = this.statement("SELECT created_seq FROM item_heads WHERE thread_id=? AND id=?").get(
@@ -455,9 +468,9 @@ export class ItemStore {
     const kept = tail.kept.flatMap((entry) => {
       const item = preview
         ? this.stepItem(threadId, entry.id)
-        : this.materialize(
+        : this.materializeRow(
             entry.id,
-            this.statement("SELECT item FROM items WHERE id = ?").get(entry.id)?.item,
+            this.statement("SELECT item, created_seq FROM items WHERE id = ?").get(entry.id),
           );
       return item ? [{ item, seq: entry.seq ?? 0 }] : [];
     });
@@ -509,10 +522,10 @@ export class ItemStore {
       ? [oversized]
       : count
         ? this.statement(
-            "SELECT id, item FROM items WHERE thread_id = ? AND created_seq >= ? AND created_seq < ? ORDER BY created_seq",
+            "SELECT id, item, created_seq FROM items WHERE thread_id = ? AND created_seq >= ? AND created_seq < ? ORDER BY created_seq",
           )
             .all(threadId, oldest, before)
-            .map((row) => this.materialize(String(row.id), row.item))
+            .map((row) => this.materialize(String(row.id), row.item, row.created_seq))
         : [];
     return {
       threadId,

@@ -1,4 +1,5 @@
-import { decodeStoredPayload } from "./stored-decode.ts";
+import { storedEvent, untrusted } from "./stored-decode.ts";
+import { storedEventShape, trustedSequenceStart } from "./stored-shape.ts";
 import { ThreadReads } from "./thread-reads.ts";
 import { LongThreadQueries } from "./long-thread/queries.ts";
 import { SidebarReads } from "./sidebar-reads.ts";
@@ -69,7 +70,7 @@ import { McpData } from "./mcp-data.ts";
 import { Devices } from "./devices.ts";
 import { MachineCodes } from "./account-access/machine-codes.ts";
 import { SqlitePairingCodes } from "./pairing-codes.ts";
-import { migrate } from "./migrations.ts";
+import { migrate, schemaVersion } from "./migrations.ts";
 import { StatusStore } from "./status-store.ts";
 import { UsageReplay } from "./usage-replay.ts";
 import { PayloadStore } from "./payload-store.ts";
@@ -90,6 +91,8 @@ export interface StoreOptions extends Partial<CredentialRuntime> {
   bufferScheduler?: BufferScheduler;
   /** Opens the connection that checkpoints the WAL off the event loop. */
   checkpointWorker?: CheckpointWorkerFactory;
+  /** The stored-event shape fingerprint; tests change it to stand in for a schema change. */
+  eventShape?: string;
 }
 type Listener = (events: Event[]) => void;
 /** Passes of the search writer (100 ms apart by default) between refreshes of streaming items. */
@@ -153,6 +156,8 @@ export class Store {
   private notifyingHistory = false;
   private publishing = false;
   private publishedSeq = 0;
+  /** Rows from here on were written by this build and are read without validating again. */
+  private readonly trust = untrusted();
   constructor(
     path: string,
     onError: (error: unknown) => void = console.error,
@@ -215,7 +220,12 @@ export class Store {
       report: (error) => this.onError(error),
       quarantined: (thread, error) => this.quarantine(thread, error),
     });
-    this.payloads = new PayloadStore(this.db, this.nextId, (sql) => this.statement(sql));
+    this.payloads = new PayloadStore(
+      this.db,
+      this.nextId,
+      (sql) => this.statement(sql),
+      this.trust,
+    );
     this.status = new StatusStore(this.db, (sql) => this.statement(sql));
     try {
       this.db.exec(
@@ -237,6 +247,10 @@ export class Store {
       });
       migrate(this.db);
       this.sequences.initialize();
+      this.trust.from = trustedSequenceStart(
+        this.db,
+        options.eventShape ?? storedEventShape(schemaVersion),
+      );
       migrateSidebarRevisions(this.db);
       migrateProjects(this.db);
       this.workspaceReservations = new WorkspaceReservations(this.db, (sql) => this.statement(sql));
@@ -1083,15 +1097,9 @@ export class Store {
     const events: Event[] = [];
     let bytes = 0;
     for (const row of rows) {
-      const event = Event.parse({
-        seq: row.seq,
-        id: row.id,
-        threadId: row.thread_id,
-        at: row.at,
-        payload: decodeStoredPayload(JSON.parse(String(row.payload))),
-      });
+      const { event, bytes: size } = storedEvent(row, this.trust.from);
       events.push(event);
-      bytes += Buffer.byteLength(JSON.stringify(event));
+      bytes += size;
       // Include the crossing event so replay's caller can distinguish overflow from completion.
       if (bytes > (options.byteLimit ?? Infinity)) break;
     }
