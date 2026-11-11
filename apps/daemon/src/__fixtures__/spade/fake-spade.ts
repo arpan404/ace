@@ -3,8 +3,12 @@
  * directory's lock, binds `SPADE_LISTEN`, writes `token` and then `server.json` atomically,
  * answers `/health` without a token and everything else only with it, and exits on SIGTERM.
  *
+ * - `PUT /v1/ace` `{grant}` → 204, `DELETE /v1/ace` → 204, `GET /v1/ace` → `{grant, connected}`:
+ *   the grant for ace, kept in memory (the real Spade keeps it in the OS keychain).
+ *
  * Routes for tests:
- * - `GET /v1/env`: the `SPADE_ACE_*` variables it was started with, and its pid.
+ * - `GET /v1/env`: its pid, the grant it holds (null when none), how many grants it was handed,
+ *   and the names of the `ACE_*` variables it was started with.
  * - `POST /v1/conversations`: `201`, echoing the body it received.
  * - `GET /v1/conversations/{id}/live?after=N`: server-sent events, `stored` with seq N + 1 first.
  * - `POST /v1/conversations/{id}/messages`: `202` with the body's size and SHA-256, and a `delta`
@@ -44,6 +48,9 @@ function holdLock(path: string): boolean {
 if (!holdLock(join(dataDir, "lock"))) process.exit(3);
 
 const token = randomBytes(32).toString("hex");
+const version = "0.1.0-fake";
+let grant: string | null = null;
+let handed = 0;
 /** A stored image `GET /v1/images/{n}` answers: `n` bytes in a fixed pattern. */
 const imageBytes = (size: number) =>
   Buffer.from(Array.from({ length: size }, (_, index) => (index * 31 + 7) % 256));
@@ -58,7 +65,7 @@ const json = (response: ServerResponse, status: number, value: unknown) => {
 const server = createServer((request, response) => {
   const url = new URL(request.url ?? "/", "http://spade.invalid");
   if (request.method === "GET" && url.pathname === "/health")
-    return json(response, 200, { ok: true });
+    return json(response, 200, { ok: true, version, api: 1 });
   if (request.headers.authorization !== `Bearer ${token}`) return json(response, 401, {});
   const chunks: Buffer[] = [];
   request.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -69,12 +76,33 @@ const server = createServer((request, response) => {
     if (request.method === "GET" && url.pathname === "/v1/env")
       return json(response, 200, {
         pid: process.pid,
-        aceUrl: process.env.SPADE_ACE_URL,
-        aceToken: process.env.SPADE_ACE_TOKEN,
-        mcpUrl: process.env.SPADE_ACE_MCP_URL,
-        mcpToken: process.env.SPADE_ACE_MCP_TOKEN,
+        grant,
+        handed,
         aceKeys: Object.keys(process.env).filter((key) => key.startsWith("ACE_")),
       });
+    if (url.pathname === "/v1/ace") {
+      if (request.method === "GET")
+        return json(response, 200, { grant: grant !== null, connected: false });
+      if (request.method === "DELETE") {
+        grant = null;
+        response.writeHead(204).end();
+        return;
+      }
+      if (request.method === "PUT") {
+        let value: unknown;
+        try {
+          value = JSON.parse(body);
+        } catch {
+          return json(response, 400, {});
+        }
+        const given = typeof value === "object" && value !== null && Reflect.get(value, "grant");
+        if (typeof given !== "string" || !given) return json(response, 400, {});
+        grant = given;
+        handed++;
+        response.writeHead(204).end();
+        return;
+      }
+    }
     if (request.method === "POST" && url.pathname === "/v1/conversations")
       return json(response, 201, { id: "c1", received: body });
     if (request.method === "GET" && live?.[1]) {
@@ -114,7 +142,7 @@ server.listen(Number(port), host, () => {
   const address = server.address();
   if (!address || typeof address === "string") process.exit(2);
   writeFileSync(join(dataDir, "token"), token, { mode: 0o600 });
-  const info = { address: `127.0.0.1:${address.port}`, pid: process.pid, version: "0.1.0-fake" };
+  const info = { address: `127.0.0.1:${address.port}`, pid: process.pid, version, api: 1 };
   writeFileSync(join(dataDir, "server.json.tmp"), JSON.stringify(info));
   renameSync(join(dataDir, "server.json.tmp"), join(dataDir, "server.json"));
 });
