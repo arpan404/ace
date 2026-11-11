@@ -73,6 +73,7 @@ const server = createServer((request, response) => {
         aceToken: process.env.SPADE_ACE_TOKEN,
         mcpUrl: process.env.SPADE_ACE_MCP_URL,
         mcpToken: process.env.SPADE_ACE_MCP_TOKEN,
+        aceKeys: Object.keys(process.env).filter((key) => key.startsWith("ACE_")),
       });
     if (request.method === "POST" && url.pathname === "/v1/conversations")
       return json(response, 201, { id: "c1", received: body });

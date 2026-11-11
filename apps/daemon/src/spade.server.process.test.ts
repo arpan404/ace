@@ -93,6 +93,11 @@ test("the daemon runs Spade while it is enabled, forwards requests and live stre
   const binary = join(root, "spade-server");
   await writeFile(binary, `#!/bin/sh\nexec "${process.execPath}" "${fakeSpade}"\n`);
   await chmod(binary, 0o755);
+  // A setting of ace's own in the daemon's environment, which Spade must not inherit.
+  process.env.ACE_PROBE_SETTING = "daemon-only";
+  onTestFinished(() => {
+    delete process.env.ACE_PROBE_SETTING;
+  });
   const daemon = await startDaemon({
     engine: noProviderDiscovery,
     config: readConfig({ ACE_HOME: home, ACE_PORT: "0" }),
@@ -133,6 +138,8 @@ test("the daemon runs Spade while it is enabled, forwards requests and live stre
   // Spade got the daemon's address, the local token and an MCP lease that works.
   const env = (await http(client, "h1", "GET", "/v1/env")).body;
   expect(env).toMatchObject({ aceUrl: daemon.url, aceToken: token });
+  // None of ace's own settings reach Spade, even those the daemon itself runs with.
+  expect(env.aceKeys).toEqual([]);
   const mcpUrl = String(env.mcpUrl);
   const firstLease = String(env.mcpToken);
   expect(await mcpStatus(mcpUrl, firstLease)).not.toBe(401);

@@ -7,6 +7,18 @@ import type { SpadeHostRuntime } from "./host.ts";
 /** Longest Spade output line copied into the daemon's log. */
 const maxLoggedLine = 4096;
 
+/**
+ * Every `ACE_*` variable set to undefined. The supervisor spawns with the daemon's own
+ * environment under the one it is given, and spawn drops a variable whose value is undefined,
+ * so this is what keeps ace's settings (its home, ports, tokens) away from Spade.
+ */
+function withoutAce(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const keys = new Set([...Object.keys(process.env), ...Object.keys(env)]);
+  return Object.fromEntries(
+    [...keys].filter((key) => key.startsWith("ACE_")).map((key) => [key, undefined]),
+  );
+}
+
 export function isExecutable(path: string): boolean {
   try {
     accessSync(path, constants.X_OK);
@@ -41,7 +53,7 @@ export function nodeSpadeRuntime(input: {
     spawn({ command, env }) {
       const child = spawnSupervised({
         command,
-        env: { ...inherited, ...env },
+        env: { ...inherited, ...withoutAce(input.env), ...env },
         name: "spade",
         maxLineBytes: 1024 * 1024,
       });
