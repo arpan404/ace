@@ -102,3 +102,33 @@ test("successive physical usage isolate failures back off and a later query can 
     await rm(home, { recursive: true, force: true });
   }
 });
+
+test("a usage worker from another build refuses to start, so no reply in another shape is taken", async () => {
+  const worker = new UsageWorker(
+    ":memory:",
+    {},
+    {
+      // What a daemon of another build sends: its own channel shape.
+      spawn: (url, options) =>
+        new Worker(url, { ...options, workerData: { ...options.workerData, shape: "other" } }),
+      delay: () => () => {},
+    },
+  );
+  try {
+    await expect(worker.cursor()).rejects.toThrow();
+  } finally {
+    await worker.close().catch(() => {});
+  }
+});
+
+test("a burn query's account and clock are bounded before they reach the usage worker", async () => {
+  const worker = new UsageWorker(":memory:");
+  const window = { id: "5h", unit: "tokens", start: 0, end: 1000, remaining: 80 };
+  try {
+    await expect(worker.burn("a".repeat(513), window, 10)).rejects.toThrow();
+    await expect(worker.burn("acc", window, -1)).rejects.toThrow();
+    await expect(worker.burn("acc", window, 10)).resolves.toMatchObject({ windowId: "5h" });
+  } finally {
+    await worker.close();
+  }
+});
