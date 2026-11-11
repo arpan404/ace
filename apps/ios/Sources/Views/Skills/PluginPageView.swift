@@ -82,7 +82,7 @@ struct PluginPageView: View {
                             }
                         }
                         .buttonStyle(.row)
-                        Button { removing = true } label: {
+                        Button(role: .destructive) { removing = true } label: {
                             QuietSectionRow {
                                 Text("Remove plugin").aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
                                     .foregroundStyle(AceTheme.StatusText.failed)

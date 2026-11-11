@@ -45,7 +45,7 @@ struct SkillPageView: View {
                             QuietProblem(message: deleteProblem, id: "skill.delete.problem")
                         }
                         QuietSection {
-                            Button { deleting = true } label: {
+                            Button(role: .destructive) { deleting = true } label: {
                                 QuietSectionRow {
                                     Text("Delete skill").aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
                                         .foregroundStyle(AceTheme.StatusText.failed)
