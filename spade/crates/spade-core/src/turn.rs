@@ -146,6 +146,35 @@ pub fn job_stopped(events: &[Event], job: &str) -> bool {
         })
 }
 
+/// Whether something arrived for the model that `reply` never answered and that should open a new
+/// reply once `reply` closes: a message, or a job result not silenced by a stop, stored after the
+/// reply's last step was prompted, or, if the person stopped the reply, after that stop.
+pub fn unanswered_after(events: &[Event], reply: &str) -> bool {
+    let started = events.iter().position(
+        |e| matches!(e, Event::Known(Known::ReplyStarted { reply: r, .. }) if r == reply),
+    );
+    let Some(started) = started else {
+        return false;
+    };
+    let mut from = started + 1;
+    for (at, event) in events.iter().enumerate().skip(started) {
+        match event {
+            Event::Known(Known::StepFinished { reply: r, seen, .. }) if r == reply => {
+                from = seen.unwrap_or(at).max(started + 1);
+            }
+            Event::Known(Known::StopRequested { reply: Some(r), .. }) if r == reply => {
+                from = from.max(at + 1);
+            }
+            _ => {}
+        }
+    }
+    events.iter().skip(from).any(|event| match event {
+        Event::Known(Known::UserMessage { .. }) => true,
+        Event::Known(Known::JobFinished { job, .. }) => !job_stopped(events, job),
+        _ => false,
+    })
+}
+
 /// Steps taken and money spent by the open turn.
 pub fn progress(events: &[Event]) -> Progress {
     let Some((_, start)) = open_reply(events) else {
@@ -375,6 +404,46 @@ mod tests {
         assert!(job_stopped(&events, "j1"));
         assert!(!job_stopped(&events, "j2"));
         assert!(job_stopped(&events, "j3"));
+    }
+
+    #[test]
+    fn a_message_after_a_stop_is_unanswered_but_one_before_it_is_not() {
+        let stop = Event::Known(Known::StopRequested {
+            reply: Some("r1".into()),
+            jobs: Vec::new(),
+        });
+        let mut events = vec![
+            Event::user_message("Find flights"),
+            Event::reply_started("r1", "m"),
+            Event::user_message("Mornings only"),
+            stop,
+        ];
+        assert!(
+            !unanswered_after(&events, "r1"),
+            "a message before Stop is stopped with it"
+        );
+        events.push(Event::user_message("Actually, evenings"));
+        assert!(unanswered_after(&events, "r1"));
+    }
+
+    #[test]
+    fn after_a_failed_step_a_message_it_never_saw_is_unanswered() {
+        let mut seen_step = step(Vec::new(), 0);
+        if let Event::Known(Known::StepFinished { seen, .. }) = &mut seen_step {
+            *seen = Some(2);
+        }
+        let events = vec![
+            Event::user_message("Hi"),
+            Event::reply_started("r1", "m"),
+            seen_step,
+        ];
+        assert!(!unanswered_after(&events, "r1"));
+        let mut later = events.clone();
+        later.insert(2, Event::user_message("Also this"));
+        assert!(
+            unanswered_after(&later, "r1"),
+            "arrived while the step streamed"
+        );
     }
 
     #[test]

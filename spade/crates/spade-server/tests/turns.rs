@@ -600,3 +600,58 @@ async fn stop_while_a_write_waits_for_approval_ends_the_reply_and_the_write_neve
     assert_eq!(sent.lock().map(|c| c.len()).unwrap_or(1), 0);
     Ok(())
 }
+
+#[tokio::test]
+async fn a_message_sent_right_after_stop_gets_its_own_reply() -> Result {
+    let spade = Spade::start(
+        vec![
+            Script::reply(&"word ".repeat(40))
+                .chunks(40)
+                .delay(Duration::from_millis(40)),
+            // The title call (plain) and the new reply (streamed) race for the next script, so
+            // each script answers both.
+            Script::reply("Evenings, then.").plain(r#"{"title":"Flights"}"#),
+            Script::reply("Evenings, then.").plain(r#"{"title":"Flights"}"#),
+        ],
+        Vec::new(),
+    )
+    .await?;
+    let id = spade.ask("Find flights").await?;
+    spade.wait_for(&id, "reply_progress").await?;
+    spade
+        .post(&format!("/v1/conversations/{id}/stop"), json!({}))
+        .await?;
+    let (status, _) = spade
+        .post(
+            &format!("/v1/conversations/{id}/messages"),
+            json!({ "text": "Actually, evenings" }),
+        )
+        .await?;
+    assert_eq!(status, 202);
+    let events = spade.wait_for(&id, "reply_finished").await?;
+    let order: Vec<String> = types(&events)
+        .into_iter()
+        .filter(|t| t.starts_with("reply_s") || t == "reply_finished" || t == "user_message")
+        .collect();
+    assert_eq!(
+        order,
+        vec![
+            "user_message",
+            "reply_started",
+            "reply_stopped",
+            "user_message",
+            "reply_started",
+            "reply_finished"
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>(),
+        "{order:?}"
+    );
+    let finished = events.iter().find(|e| e["type"] == "reply_finished");
+    assert_eq!(
+        finished.map(|e| e["text"].clone()),
+        Some(json!("Evenings, then."))
+    );
+    Ok(())
+}
