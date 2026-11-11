@@ -59,7 +59,7 @@ describe("window.ace bridge", () => {
   });
 
   it("hands the page Spade's address and API, and a token in the answer never gets through", async () => {
-    const endpoint = { address: "127.0.0.1:4100", version: "0.4.0", api: 1 };
+    const endpoint = { address: "127.0.0.1:4100", version: "0.4.0", api: 1, hostId: "host-a" };
     const main = fakeIpc({
       [requestChannel("spade.endpoint")]: { ...endpoint, token: "secret-token-secret-token" },
     });

@@ -5,16 +5,23 @@ import { desktopSpade, type DesktopSpade, type DirectAnswer } from "./desktop-sp
 import { spadeBlob, spadeHttp, SpadeRequestError } from "./spade-requests.ts";
 import { SpadeTransport } from "./spade-transport.ts";
 
-/** A daemon connection that records what it is asked and answers every `spade.http` with 200. */
-function daemon() {
+/**
+ * A daemon connection to the machine `host` that records what Spade is asked through it and
+ * answers every `spade.http` with 200. `moveTo` puts it on a new socket to another machine.
+ */
+function daemon(host = "host-a") {
   const asked: { type: string; path?: string; parts?: number }[] = [];
+  let machine = host;
+  let socket = 1;
   const client = {
     state: "ready",
     connectionState: () => ({ getSnapshot: () => "ready", subscribe: () => () => {} }),
-    connectionGeneration: () => ({ getSnapshot: () => 1, subscribe: () => () => {} }),
+    connectionGeneration: () => ({ getSnapshot: () => socket, subscribe: () => () => {} }),
     onMessage: () => () => {},
     send: () => {},
     request: async (input: { type: string; path?: string }, options?: { requestId?: string }) => {
+      if (input.type === "host.identity")
+        return { type: "host.identity.result", identity: { hostId: machine } };
       asked.push(input);
       return {
         type: "spade.http.result",
@@ -23,15 +30,19 @@ function daemon() {
       };
     },
   };
+  const moveTo = (next: string) => {
+    machine = next;
+    socket++;
+  };
   // Only these members of the client are used on the daemon's way.
-  return { client: client as unknown as ClientApi, asked };
+  return { client: client as unknown as ClientApi, asked, moveTo };
 }
 
 /** `window.ace.spade` answering every request with `answer`, recording what it was sent. */
 function desktop(answer: DirectAnswer) {
   const sent: { path: string; body?: string | undefined }[] = [];
   const spade: DesktopSpade = {
-    available: async () => true,
+    localHost: async () => "host-a",
     health: async () => ({ version: "0.4.0" }),
     request: async ({ path, body }) => {
       sent.push({ path, body });
@@ -111,7 +122,12 @@ test("an answer from the app that isn't one of the bridge's shapes is a failure,
   const bridge = {
     ace: {
       spade: {
-        endpoint: async () => ({ address: "127.0.0.1:4100", version: "1", api: 1 }),
+        endpoint: async () => ({
+          address: "127.0.0.1:4100",
+          version: "1",
+          api: 1,
+          hostId: "host-a",
+        }),
         health: async () => null,
         request: async () => ({ kind: "text", status: "200", body: 4 }),
         openLive: async () => {},
@@ -123,4 +139,37 @@ test("an answer from the app that isn't one of the bridge's shapes is a failure,
   };
   const transport = new SpadeTransport(client, desktopSpade(bridge), deps);
   await expect(spadeHttp(transport, "GET", "/v1/models")).rejects.toBeInstanceOf(SpadeRequestError);
+});
+
+test("a window showing another machine reaches that machine's Spade through its daemon", async () => {
+  const { client, asked } = daemon("host-b");
+  const direct = desktop(ok('"this mac"'));
+  const transport = new SpadeTransport(client, direct.spade, deps);
+  expect(await spadeHttp(transport, "GET", "/v1/conversations")).toBe('"daemon"');
+  await spadeHttp(transport, "POST", "/v1/conversations", { body: { text: "hi" } });
+  expect(direct.sent).toEqual([]);
+  expect(asked.map((message) => message.path)).toEqual(["/v1/conversations", "/v1/conversations"]);
+  // This computer's Spade answering says nothing about the other machine's.
+  expect(await transport.health()).toBeUndefined();
+});
+
+test("after the window moves to another machine, Spade is reached through the new daemon", async () => {
+  const { client, asked, moveTo } = daemon("host-a");
+  const direct = desktop(ok('"this mac"'));
+  const transport = new SpadeTransport(client, direct.spade, deps);
+  expect(await spadeHttp(transport, "GET", "/v1/conversations")).toBe('"this mac"');
+  moveTo("host-b");
+  expect(await spadeHttp(transport, "GET", "/v1/conversations")).toBe('"daemon"');
+  expect(direct.sent).toHaveLength(1);
+  expect(asked.map((message) => message.path)).toEqual(["/v1/conversations"]);
+  expect(await transport.health()).toBeUndefined();
+});
+
+test("back on this computer's daemon, the direct path returns", async () => {
+  const { client, moveTo } = daemon("host-b");
+  const direct = desktop(ok('"this mac"'));
+  const transport = new SpadeTransport(client, direct.spade, deps);
+  expect(await spadeHttp(transport, "GET", "/v1/models")).toBe('"daemon"');
+  moveTo("host-a");
+  expect(await spadeHttp(transport, "GET", "/v1/models")).toBe('"this mac"');
 });

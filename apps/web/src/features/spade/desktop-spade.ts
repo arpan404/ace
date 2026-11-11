@@ -31,8 +31,11 @@ export interface DirectRequest {
 }
 
 export interface DesktopSpade {
-  /** Whether the app knows a Spade it speaks to on this computer. */
-  available(): Promise<boolean>;
+  /**
+   * The identity (`hostId`) of this computer's daemon, whose Spade the app reaches directly;
+   * null when the app knows no Spade it speaks to here.
+   */
+  localHost(): Promise<string | null>;
   /** Spade's `/health`, straight from Spade; null when nothing answers. */
   health(): Promise<{ version: string | undefined } | null>;
   request(request: DirectRequest): Promise<DirectAnswer>;
@@ -139,7 +142,7 @@ export function desktopSpade(scope: object = globalThis): DesktopSpade | undefin
   if (!endpoint || !health || !request || !openLive || !closeLive || !onLive || !onEndpointChanged)
     return undefined;
   return {
-    available: async () => record(await endpoint()) !== undefined,
+    localHost: async () => text(record(await endpoint())?.get("hostId"), 128) || null,
     async health() {
       const answer = record(await health());
       return answer ? { version: text(answer.get("version"), 64) } : null;

@@ -2,7 +2,13 @@ import { onSocketMove, type ClientApi } from "@ace/client";
 import { spadeExchange, type SpadeExchange } from "@ace/client/spade-http";
 import type { SpadeLiveEndReason } from "@ace/protocol";
 import { desktopSpade, type DesktopSpade, type DirectAnswer } from "./desktop-spade.ts";
-import { afterLook, afterUnreachable, spadePath, type DirectRoute } from "./spade-route.ts";
+import {
+  afterLook,
+  afterUnreachable,
+  isLocalMachine,
+  spadePath,
+  type DirectRoute,
+} from "./spade-route.ts";
 
 /** A body as it came back: text, base64 from the daemon, or bytes from the direct path. */
 export type SpadeBody = { text: string } | { base64: string } | { bytes: Uint8Array };
@@ -30,12 +36,21 @@ export interface TransportDeps {
 
 /**
  * Spade's API for the screens, by whichever way works: straight to Spade through the desktop
- * app's main process (ADR 0123) when it knows one, else through the daemon. Screens and the
- * live follow see one interface either way.
+ * app's main process (ADR 0123) when it knows one and this connection is to the daemon beside
+ * it, else through the daemon. Screens and the live follow see one interface either way.
  */
 export class SpadeTransport {
   private route: DirectRoute = { state: "unknown" };
   private looking: Promise<void> | undefined;
+  /** The daemon's identity beside the app's Spade, from the last look. */
+  private spadeHost: string | undefined;
+  /**
+   * The connected daemon's identity (`host.identity`) and the socket it was read on. Kept while
+   * no socket is up, so Spade stays reachable while the daemon is down; read again on a new one.
+   */
+  private connected: { generation: number; hostId: string } | undefined;
+  /** The last socket seen, so a new one is noticed once. */
+  private socket: number | undefined;
   private readonly openable = new Set<() => void>();
   private readonly daemonStreams = new Map<string, LiveSink>();
   private readonly directStreams = new Map<string, LiveSink>();
@@ -88,14 +103,22 @@ export class SpadeTransport {
     };
   }
 
-  /** Spade's `/health` straight from Spade: undefined outside the desktop app. */
+  /**
+   * Spade's `/health` straight from Spade: undefined outside the desktop app, or when this
+   * connection is to another machine than the app's own (then only its daemon can say).
+   */
   async health(): Promise<{ version: string | undefined } | null | undefined> {
-    if (!this.desktop) return undefined;
-    return this.desktop.health().catch(() => null);
+    const desktop = this.desktop;
+    if (!desktop) return undefined;
+    this.followSocket();
+    if (this.route.state === "unknown") await this.look();
+    if (!this.local()) return undefined;
+    return desktop.health().catch(() => null);
   }
 
   /** Whether a live stream can open now; a false answer is followed by `onOpenable`. */
   canOpen(): boolean {
+    this.followSocket();
     const path = this.desktop ? spadePath(this.route, this.deps.now()) : "daemon";
     if (path === "look") {
       void this.look();
@@ -122,21 +145,53 @@ export class SpadeTransport {
 
   private async path(): Promise<"direct" | "daemon"> {
     if (!this.desktop) return "daemon";
+    this.followSocket();
     if (spadePath(this.route, this.deps.now()) === "look") await this.look();
     return spadePath(this.route, this.deps.now()) === "direct" ? "direct" : "daemon";
+  }
+
+  private local(): boolean {
+    return isLocalMachine(this.spadeHost, this.connected?.hostId);
+  }
+
+  /** A new socket may lead to another machine: what the last look found no longer holds. */
+  private followSocket() {
+    const generation = this.client.connectionGeneration().getSnapshot();
+    if (generation === undefined || generation === this.socket) return;
+    this.socket = generation;
+    if (this.connected?.generation === generation) return;
+    this.connected = undefined;
+    this.route = { state: "unknown" };
+  }
+
+  /** The connected daemon's identity, read once per socket. */
+  private async connectedHost(): Promise<string | undefined> {
+    const generation = this.client.connectionGeneration().getSnapshot();
+    if (generation === undefined || generation === this.connected?.generation)
+      return this.connected?.hostId;
+    try {
+      const reply = await this.client.request({ type: "host.identity" });
+      // Only for the socket it was asked on: a move while it was out asks again.
+      if (this.client.connectionGeneration().getSnapshot() === generation)
+        this.connected = { generation, hostId: reply.identity.hostId };
+    } catch {
+      // Unknown: the direct path waits until this connection says which machine it is.
+    }
+    return this.connected?.hostId;
   }
 
   private look(): Promise<void> {
     const desktop = this.desktop;
     if (!desktop) return Promise.resolve();
-    this.looking ??= desktop
-      .available()
-      .catch(() => false)
-      .then((found) => {
-        this.route = afterLook(found, this.deps.now());
-        this.looking = undefined;
-        this.notifyOpenable();
-      });
+    this.looking ??= Promise.all([
+      desktop.localHost().catch(() => null),
+      this.connectedHost(),
+    ]).then(([spadeHost]) => {
+      this.spadeHost = spadeHost ?? undefined;
+      this.route = afterLook(this.local(), this.deps.now());
+      this.looking = undefined;
+      this.notifyOpenable();
+    });
     return this.looking;
   }
 

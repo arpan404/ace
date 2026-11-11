@@ -52,9 +52,14 @@ class SpadeStatusWatch {
     }
     this.stops.push(
       connection.subscribe(() => {
-        if (connection.getSnapshot() === "ready") this.ask();
+        if (connection.getSnapshot() !== "ready") return;
+        this.ask();
+        this.look();
       }),
-      onSocketMove(this.client, () => this.ask()),
+      onSocketMove(this.client, () => {
+        this.ask();
+        this.look();
+      }),
     );
     this.ask();
     this.watchDirect();
@@ -80,19 +85,21 @@ class SpadeStatusWatch {
     );
   }
   private look() {
+    if (!this.transport.desktop) return;
     const looked = ++this.looked;
     void this.transport.health().then((health) => {
-      if (looked !== this.looked || health === undefined) return;
-      const direct: DirectHealth = health
-        ? { ready: true, version: health.version }
-        : { ready: false };
-      if (direct.ready === this.direct?.ready && health?.version === this.directVersion()) return;
+      if (looked !== this.looked) return;
+      // Undefined: this window shows another machine, whose daemon alone says.
+      const direct: DirectHealth | undefined =
+        health === undefined
+          ? undefined
+          : health
+            ? { ready: true, version: health.version }
+            : { ready: false };
+      if (sameHealth(direct, this.direct)) return;
       this.direct = direct;
       this.publish();
     });
-  }
-  private directVersion() {
-    return this.direct?.ready ? this.direct.version : undefined;
   }
   private setDaemon(status: SpadeStatus) {
     this.daemon = status;
@@ -103,6 +110,10 @@ class SpadeStatusWatch {
     for (const listener of this.listeners) listener();
   }
 }
+
+const sameHealth = (a: DirectHealth | undefined, b: DirectHealth | undefined) =>
+  a?.ready === b?.ready &&
+  (a?.ready ? a.version : undefined) === (b?.ready ? b.version : undefined);
 
 const watches = new WeakMap<ClientApi, SpadeStatusWatch>();
 

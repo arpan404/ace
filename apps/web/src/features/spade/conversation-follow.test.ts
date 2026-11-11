@@ -36,6 +36,8 @@ function fakeClient() {
     send: (message: { type: string; requestId?: string; path?: string }) => void sent.push(message),
     request: (input: { type: string }, options?: { requestId?: string }) =>
       new Promise((resolve) => {
+        if (input.type === "host.identity")
+          return resolve({ type: "host.identity.result", identity: { hostId: "host-a" } });
         if (input.type !== "spade.http") return;
         reads.push((body) =>
           resolve({
@@ -82,7 +84,7 @@ function fakeDesktop(answer: (path: string) => DirectAnswer) {
   const asked: string[] = [];
   const liveListeners = new Set<(event: DirectLiveEvent) => void>();
   const desktop: DesktopSpade = {
-    available: async () => true,
+    localHost: async () => "host-a",
     health: async () => ({ version: "0.4.0" }),
     request: async ({ path }) => {
       asked.push(path);

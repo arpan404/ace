@@ -3,6 +3,7 @@ import { expect, test } from "vitest";
 import {
   afterLook,
   afterUnreachable,
+  isLocalMachine,
   recheckMs,
   spadePath,
   spadeStatusWith,
@@ -51,4 +52,12 @@ test("the host thread the daemon reports stays with a direct ready", () => {
     version: "1",
     thread,
   });
+});
+
+test("only a window on the daemon beside the app's Spade counts as this computer", () => {
+  expect(isLocalMachine("host-a", "host-a")).toBe(true);
+  expect(isLocalMachine("host-a", "host-b")).toBe(false);
+  // Until the connection says which machine it is, it isn't taken to be this one.
+  expect(isLocalMachine("host-a", undefined)).toBe(false);
+  expect(isLocalMachine(undefined, undefined)).toBe(false);
 });

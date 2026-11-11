@@ -26,7 +26,19 @@ export function spadePath(route: DirectRoute, now: number): SpadePath {
   return "daemon";
 }
 
-/** After a look: up when the app knows a Spade it speaks to. */
+/**
+ * Whether a window's connection is the desktop app's own daemon, the one beside the Spade the
+ * app reaches directly: both identities known, and the same. A window showing another machine
+ * (through an account relay or Connect) must reach that machine's Spade, through its daemon.
+ */
+export function isLocalMachine(
+  spadeHost: string | undefined,
+  connectedHost: string | undefined,
+): boolean {
+  return spadeHost !== undefined && spadeHost === connectedHost;
+}
+
+/** After a look: up when the app knows a Spade it speaks to, beside this window's daemon. */
 export function afterLook(found: boolean, now: number): DirectRoute {
   return found ? { state: "up" } : { state: "down", at: now };
 }
