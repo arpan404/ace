@@ -1,4 +1,4 @@
-import { decodeStoredItem } from "./stored-decode.ts";
+import { decodeStoredItem, storedItem, untrusted, type StoredTrust } from "./stored-decode.ts";
 import { z } from "zod";
 import { appendTextSource, hasTextPreview, textPreview } from "./text-preview.ts";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
@@ -15,8 +15,23 @@ export class ItemTextStore {
   private target: StatementSync | undefined;
   private insert: StatementSync | undefined;
   private grow: StatementSync | undefined;
-  constructor(db: DatabaseSync) {
+  /** Previews of items created from `trust.from` on were written by this build. */
+  private readonly trust: StoredTrust;
+  constructor(db: DatabaseSync, trust: StoredTrust = untrusted()) {
     this.db = db;
+    this.trust = trust;
+  }
+  /**
+   * A stored preview, trusted by its item's creation sequence like the item body (`storedItem`):
+   * only this build writes previews of the items it created. One with no item row is decoded.
+   */
+  private preview(id: string): { item: Item; target: unknown } | undefined {
+    const row = this.statement(
+      "SELECT p.item, p.target, i.created_seq FROM item_previews p LEFT JOIN items i ON i.id = p.id WHERE p.id = ?",
+    ).get(id);
+    if (!row) return undefined;
+    const created = row.created_seq === null ? Number.NEGATIVE_INFINITY : Number(row.created_seq);
+    return { item: storedItem(created, String(row.item), this.trust.from), target: row.target };
   }
   private statement(sql: string): StatementSync {
     const previous = this.prepared.get(sql);
@@ -102,11 +117,9 @@ export class ItemTextStore {
     ));
     let row = target.get(delta.itemId);
     if (!row) {
-      const stored = this.statement("SELECT item, target FROM item_previews WHERE id = ?").get(
-        delta.itemId,
-      );
+      const stored = this.preview(delta.itemId);
       if (!stored) return;
-      const item = decodeStoredItem(JSON.parse(String(stored.item)));
+      const item = stored.item;
       if (item.type !== "message" || delta.field !== "text") return;
       const threadId = ThreadId.parse(
         this.statement("SELECT thread_id FROM items WHERE id=?").get(item.id)?.thread_id,
@@ -210,9 +223,8 @@ export class ItemTextStore {
     return text;
   }
   read(id: string): Item {
-    const row = this.statement("SELECT item FROM item_previews WHERE id = ?").get(id);
-    if (!row) throw new Error("Missing item preview");
-    const item = decodeStoredItem(JSON.parse(String(row.item)));
+    const item = this.preview(id)?.item;
+    if (!item) throw new Error("Missing item preview");
     let remaining = 4096;
     // Text still streaming shows its newest end, marked so deltas keep extending it; finished
     // text shows from its start.

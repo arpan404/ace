@@ -1,17 +1,28 @@
-import { Attachment, type EventPayload, type ThreadId } from "@ace/protocol";
+import { Attachment, type EventPayload, type Item, type ThreadId } from "@ace/protocol";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
+import { storedItem, untrusted, type StoredTrust } from "./stored-decode.ts";
 
 /** Immutable native-tool images, indexed separately from provider snapshots. */
 export class NativeImageStore {
   private sql: (query: string) => StatementSync;
-  constructor(db: DatabaseSync, sql: (query: string) => StatementSync) {
+  private readonly trust: StoredTrust;
+  constructor(
+    db: DatabaseSync,
+    sql: (query: string) => StatementSync,
+    trust: StoredTrust = untrusted(),
+  ) {
     this.sql = sql;
+    this.trust = trust;
     db.exec(`CREATE TABLE IF NOT EXISTS native_images (
       thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
       item_id TEXT NOT NULL, path TEXT NOT NULL, source TEXT, hash TEXT, attachment JSON, error TEXT,
       PRIMARY KEY(thread_id,item_id));
       CREATE INDEX IF NOT EXISTS native_image_reference ON native_images(thread_id,path);
       CREATE INDEX IF NOT EXISTS native_image_retention ON native_images(thread_id,hash);`);
+  }
+  /** An `items` row the history backfill found, by its creation sequence (`storedItem`). */
+  storedItem(createdSeq: unknown, json: unknown): Item {
+    return storedItem(Number(createdSeq), String(json), this.trust.from);
   }
   decorate(thread: ThreadId, payload: EventPayload): EventPayload {
     if (payload.type !== "item.created" && payload.type !== "item.updated") return payload;

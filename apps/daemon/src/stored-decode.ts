@@ -54,7 +54,11 @@ export function storedPayload(seq: number, json: string, trustedFrom: number): E
   // Trusted: this build's writer produced this JSON from a validated EventPayload.
   return seq >= trustedFrom ? (value as EventPayload) : decodeStoredPayload(value);
 }
-/** A stored item by the sequence it was created at; see `storedPayload`. */
+/**
+ * A stored item by the sequence its body was written at, see `storedPayload`: an `items` row's
+ * creation sequence, or a history revision's own sequence (`history_item_revisions.seq`, written
+ * in the transaction of the event at that sequence).
+ */
 export function storedItem(createdSeq: number, json: string, trustedFrom: number): Item {
   const value: unknown = JSON.parse(json);
   // Trusted: this build's writer produced this JSON from a validated Item.

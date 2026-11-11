@@ -1,5 +1,11 @@
-import { decodeStoredPayload } from "./stored-decode.ts";
-import { decodeStoredItem, justWrittenItem } from "./stored-decode.ts";
+import {
+  decodeStoredItem,
+  decodeStoredPayload,
+  justWrittenItem,
+  storedItem,
+  untrusted,
+  type StoredTrust,
+} from "./stored-decode.ts";
 import { HistorySearchReplay } from "./history-search-replay.ts";
 import type { SearchReplayItem } from "@ace/search";
 import { z } from "zod";
@@ -24,6 +30,11 @@ const Version = z.object({
 const ItemHead = z.object({ id: ItemId, created_seq: count });
 const OpeningRows = z.array(z.object({ id: ItemId })).max(64);
 const PageRows = z.array(ItemHead).max(201);
+const StreamReadLimit = z
+  .number()
+  .int()
+  .min(1)
+  .max(256 * 1024);
 const PageLimit = z.number().int().min(1).max(200);
 const PageByteLimit = z
   .number()
@@ -51,13 +62,17 @@ export class HistoryIndex {
   private texts: ItemTextStore;
   private readBytes: ReadBytes;
   private archiveOutput: ArchiveOutput;
+  /** Revisions from `trust.from` on were written by this build and are read as stored. */
+  private readonly trust: StoredTrust;
   constructor(
     db: DatabaseSync,
     statement: (sql: string) => StatementSync,
     readBytes: ReadBytes,
     archiveOutput: ArchiveOutput,
+    trust: StoredTrust = untrusted(),
   ) {
     this.db = db;
+    this.trust = trust;
     this.searchReplay = new HistorySearchReplay(db, {
       source: (thread, item, stream, through) => {
         const source = this.latest(stream, through);
@@ -155,9 +170,9 @@ export class HistoryIndex {
   }
   private itemAt(id: string, through: number): Item | undefined {
     const row = this.statement(
-      "SELECT item FROM history_item_revisions WHERE item_id=? AND seq<=? ORDER BY seq DESC LIMIT 1",
+      "SELECT seq,item FROM history_item_revisions WHERE item_id=? AND seq<=? ORDER BY seq DESC LIMIT 1",
     ).get(id, through);
-    return row ? decodeStoredItem(JSON.parse(String(row.item))) : undefined;
+    return row ? storedItem(Number(row.seq), String(row.item), this.trust.from) : undefined;
   }
   /** A replay revision refers to durable text streams, never a full canonical message body. */
   searchItem(
@@ -297,10 +312,8 @@ export class HistoryIndex {
         itemId,
       );
     if (!row) throw new Error("Item completion boundary is unavailable");
-    return {
-      throughSeq: count.parse(row.seq),
-      item: decodeStoredItem(JSON.parse(String(row.item))),
-    };
+    const throughSeq = count.parse(row.seq);
+    return { throughSeq, item: storedItem(throughSeq, String(row.item), this.trust.from) };
   }
   stream(threadId: ThreadId, streamId: string, through: number) {
     const version = this.latest(streamId, through);
@@ -311,11 +324,7 @@ export class HistoryIndex {
   readStream(threadId: ThreadId, streamId: string, through: number, offset: number, limit: number) {
     count.parse(through);
     count.parse(offset);
-    z.number()
-      .int()
-      .min(1)
-      .max(256 * 1024)
-      .parse(limit);
+    StreamReadLimit.parse(limit);
     const version = this.stream(threadId, streamId, through);
     const remaining = Math.max(0, version.size - offset);
     if (!remaining)
