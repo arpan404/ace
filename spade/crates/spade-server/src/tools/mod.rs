@@ -28,6 +28,8 @@ pub type ToolFuture = Pin<Box<dyn Future<Output = ToolOutput> + Send>>;
 pub struct ToolOutput {
     pub content: String,
     pub is_error: bool,
+    /// The call may have taken effect even though no result came back (it was cut off).
+    pub uncertain: bool,
     /// Images the tool returned, as bytes; Spade stores them and shows them to the model.
     pub images: Vec<Vec<u8>>,
 }
@@ -37,6 +39,7 @@ impl ToolOutput {
         Self {
             content: content.into(),
             is_error: false,
+            uncertain: false,
             images: Vec::new(),
         }
     }
@@ -45,7 +48,16 @@ impl ToolOutput {
         Self {
             content: content.into(),
             is_error: true,
+            uncertain: false,
             images: Vec::new(),
+        }
+    }
+
+    /// An error whose call may still have taken effect, so it must never read as "did not run".
+    pub fn maybe_ran(content: impl Into<String>) -> Self {
+        Self {
+            uncertain: true,
+            ..Self::error(content)
         }
     }
 }

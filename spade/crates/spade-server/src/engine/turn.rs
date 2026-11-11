@@ -38,20 +38,27 @@ enum Step {
 pub(super) async fn run(
     engine: Arc<Engine>,
     id: String,
+    reply: String,
     stop_rx: watch::Receiver<bool>,
     mut pause_rx: watch::Receiver<Pause>,
 ) {
     let live = engine.live(&id);
     // The reply this worker drives, so the hand-off below can tell it from one opened later. It
     // is taken before the first stop check, so a Stop that arrives at once still closes it.
-    let mut driven: Option<String> = open_reply(&engine, &id);
+    // It is the one `spawn_turn` read, so closing it never depends on another read succeeding.
+    let mut driven: Option<String> = Some(reply);
     let ended = drive(&engine, &id, stop_rx, &mut pause_rx, &mut driven).await;
     let paused = matches!(ended, Ended::Paused);
-    if let Some(reply) = open_reply(&engine, &id).filter(|open| Some(open) == driven.as_ref()) {
+    // Decided from the reply this worker drove, not from a fresh read: a read that fails now must
+    // not release the reply still open. Whether it is still open is checked as it is closed.
+    if let Some(reply) = driven.clone() {
         let event = match ended {
             Ended::Finished => None,
             Ended::Paused => {
-                super::maintenance::record_paused(&engine, &id, &reply);
+                // Unless it is known to be closed already; `record_paused` copes with a failed read.
+                if !matches!(still_open(&engine, &id, &reply), Ok(false)) {
+                    super::maintenance::record_paused(&engine, &id, &reply);
+                }
                 None
             }
             Ended::Stopped(text) => {
@@ -63,10 +70,8 @@ pub(super) async fn run(
                 error,
             })),
         };
-        if let Some(event) = event
-            && let Err(error) = engine.close_reply(&id, &reply, &event)
-        {
-            tracing::error!(%error, "could not close a turn");
+        if let Some(event) = event {
+            close_durably(&engine, &id, &reply, &event).await;
         }
     }
     *live.stop.lock().unwrap_or_else(|p| p.into_inner()) = None;
@@ -89,6 +94,28 @@ pub(super) async fn run(
         engine.spawn_turn(&id);
     }
     name_if_untitled(&engine, &id).await;
+}
+
+/// Closes `reply`, retrying until it is closed. The worker still owns the reply meanwhile, so no
+/// other worker starts for it, and nothing sent to the conversation is left without a reply once
+/// it lets go. A close that landed despite an error is not stored twice.
+async fn close_durably(engine: &Engine, id: &str, reply: &str, close: &Event) {
+    super::jobs::keep_trying(|| {
+        if !still_open(engine, id, reply)? {
+            return Ok(());
+        }
+        engine.close_reply(id, reply, close)
+    })
+    .await;
+}
+
+/// Whether `reply` is still the open reply, from a fresh read.
+fn still_open(engine: &Engine, id: &str, reply: &str) -> Result<bool, spade_store::StoreError> {
+    let events = engine.load(id)?;
+    let open = Transcript::fold(&events)
+        .open_reply()
+        .and_then(|m| m.reply.clone());
+    Ok(open.as_deref() == Some(reply))
 }
 
 /// Resolves once Stop is pressed (or the turn's signal goes away).
@@ -227,6 +254,8 @@ async fn model_step(
     let images = engine.images_for(&model);
     let prompt = context::prompt_with(SYSTEM, engine.tools.registry().offered(), events, &images);
     let live = engine.live(id);
+    // Each step's snapshot starts from its own text.
+    *live.current.lock().unwrap_or_else(|p| p.into_inner()) = None;
     let opened = tokio::select! {
         opened = engine.models.stream(&model, &prompt) => opened,
         _ = stopped(stop) => return Step::Stopped(String::new()),
@@ -258,7 +287,7 @@ async fn model_step(
                         // joining subscriber gets each piece in the snapshot or as a delta, never
                         // both.
                         let mut current = live.current.lock().unwrap_or_else(|p| p.into_inner());
-                        *current = Some(Snapshot { reply: reply.to_owned(), text: text.clone() });
+                        add_piece(&mut current, reply, &text, &piece);
                         let _ = live.frames.send(Frame::Delta { reply: reply.to_owned(), text: piece });
                     }
                     if checkpoints.due(engine.now_ms()) {
@@ -301,6 +330,21 @@ async fn model_step(
                 Some(Err(error)) => return Step::Failed(text, error.to_string()),
                 None => return Step::Failed(text, "the model's reply ended early".to_owned()),
             }
+        }
+    }
+}
+
+/// Adds a streamed piece to the open reply's snapshot in place, so each piece costs its own
+/// length; the text is copied whole only when the step's snapshot starts (`text` is everything
+/// streamed so far, `piece` included) and when a subscriber joins.
+fn add_piece(current: &mut Option<Snapshot>, reply: &str, text: &str, piece: &str) {
+    match current {
+        Some(snapshot) if snapshot.reply == reply => snapshot.text.push_str(piece),
+        _ => {
+            *current = Some(Snapshot {
+                reply: reply.to_owned(),
+                text: text.to_owned(),
+            })
         }
     }
 }
@@ -376,5 +420,109 @@ async fn name_if_untitled(engine: &Arc<Engine>, id: &str) {
     let name = suggested.unwrap_or_else(|| title::fallback(&first));
     if let Err(error) = engine.record(id, &Event::renamed(name)) {
         tracing::error!(%error, "could not store a title");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_long_streamed_reply_builds_its_snapshot_in_time_proportional_to_its_length() {
+        let piece = "0123456789";
+        let pieces = 300_000;
+        let mut text = String::new();
+        let mut current = None;
+        let started = std::time::Instant::now();
+        for _ in 0..pieces {
+            text.push_str(piece);
+            add_piece(&mut current, "r1", &text, piece);
+        }
+        let took = started.elapsed();
+        assert_eq!(
+            current.map(|s| (s.reply, s.text.len())),
+            Some(("r1".to_owned(), 3_000_000))
+        );
+        // Copying the whole text per piece moves about 450 GB here; appending moves 3 MB.
+        assert!(took < std::time::Duration::from_secs(1), "took {took:?}");
+    }
+
+    #[test]
+    fn a_new_steps_snapshot_starts_from_its_own_text() {
+        let mut current = Some(Snapshot {
+            reply: "r1".into(),
+            text: "old".into(),
+        });
+        add_piece(&mut current, "r2", "Hel", "Hel");
+        add_piece(&mut current, "r2", "Hello", "lo");
+        assert_eq!(
+            current,
+            Some(Snapshot {
+                reply: "r2".into(),
+                text: "Hello".into()
+            })
+        );
+    }
+
+    type Result = std::result::Result<(), Box<dyn std::error::Error>>;
+
+    fn engine(
+        dir: &std::path::Path,
+    ) -> std::result::Result<Arc<Engine>, Box<dyn std::error::Error>> {
+        let catalog = serde_json::json!({
+            "roles": { "main": "fake/m", "fast": "fake/m", "deep": "fake/m" },
+            "endpoints": [{ "id": "fake", "name": "Fake", "format": "openai-chat",
+                            "base_url": "http://127.0.0.1:9/", "key": { "env": "FAKE_KEY" },
+                            "models": [{ "id": "m", "name": "M", "capabilities": ["tools"] }] }]
+        });
+        let models = spade_models::Models::new(
+            spade_models::Catalog::from_json(&catalog.to_string())?,
+            spade_keys::Keys::new(|_| Some("fake-key".to_owned())),
+        )?;
+        Ok(Engine::open(super::super::Setup {
+            store: spade_store::Store::open(&dir.join("spade.sqlite"))?,
+            models,
+            tools: crate::tools::Toolbox::new(Vec::new()),
+            clock: Arc::new(crate::clock::SystemClock),
+            ids: Arc::new(crate::clock::CountingIds::default()),
+            daily_cap_micros: 1_000_000,
+            utc_offset_seconds: 0,
+            limits: super::super::Limits::default(),
+            skills: None,
+            images: crate::images::ImageStore::open(&dir.join("images"))?,
+        })?)
+    }
+
+    #[tokio::test]
+    async fn a_worker_whose_first_read_fails_still_closes_the_reply_it_was_given() -> Result {
+        let dir = tempfile::tempdir()?;
+        let engine = engine(dir.path())?;
+        engine.store.create_conversation("c1", 0)?;
+        engine.record("c1", &Event::user_message("Hi"))?;
+        engine.record("c1", &Event::reply_started("r1", "fake/m"))?;
+        // Storage fails from the moment the worker is scheduled.
+        let hide = rusqlite::Connection::open(dir.path().join("spade.sqlite"))?;
+        hide.execute_batch("ALTER TABLE events RENAME TO events_away;")?;
+        let (_stop, stop_rx) = watch::channel(false);
+        let pause_rx = engine.pause.subscribe();
+        let worker = tokio::spawn(run(
+            engine.clone(),
+            "c1".into(),
+            "r1".into(),
+            stop_rx,
+            pause_rx,
+        ));
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        hide.execute_batch("ALTER TABLE events_away RENAME TO events;")?;
+        tokio::time::timeout(std::time::Duration::from_secs(5), worker).await??;
+
+        let events = engine.load("c1")?;
+        let transcript = Transcript::fold(&events);
+        assert!(transcript.open_reply().is_none(), "r1 was left open");
+        assert!(events.iter().any(|e| matches!(
+            e,
+            Event::Known(Known::ReplyFailed { reply, .. }) if reply == "r1"
+        )));
+        Ok(())
     }
 }

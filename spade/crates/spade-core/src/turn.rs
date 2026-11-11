@@ -337,6 +337,8 @@ mod tests {
             reply: "r1".into(),
             call_id: "c1".into(),
             name: "send_email".into(),
+            risk: None,
+            background: false,
         }));
         assert_eq!(
             statuses(&next_step(&events)),
@@ -354,6 +356,7 @@ mod tests {
                 content: "done".into(),
                 is_error: false,
                 images: Vec::new(),
+                uncertain: false,
             }));
         }
         assert_eq!(next_step(&events), Next::CallModel { reply: "r1".into() });
@@ -535,6 +538,7 @@ mod tests {
                 name: "research".into(),
                 content: "late".into(),
                 is_error: false,
+                uncertain: false,
             }),
         ];
         assert!(!needs_reply(&events));

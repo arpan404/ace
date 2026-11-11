@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use spade_models::Thought;
 
+use crate::tools::Risk;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Known {
@@ -59,6 +61,13 @@ pub enum Known {
         reply: String,
         call_id: String,
         name: String,
+        /// The tool's risk when it was called, so compaction knows a write for what it was even
+        /// after the tool is gone or reclassified. Missing on events from before it was recorded.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        risk: Option<Risk>,
+        /// Whether it ran as a background job. Only meaningful when `risk` is recorded.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        background: bool,
     },
     ToolFinished {
         reply: String,
@@ -67,6 +76,10 @@ pub enum Known {
         content: String,
         #[serde(default)]
         is_error: bool,
+        /// The call may or may not have taken effect (it timed out, or Spade stopped while it
+        /// ran). Older events say so only in `content`; see [`crate::context::outcome_unknown`].
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        uncertain: bool,
         /// Images the tool returned (a screenshot), kept in the image store.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         images: Vec<ImageRef>,
@@ -86,6 +99,9 @@ pub enum Known {
         content: String,
         #[serde(default)]
         is_error: bool,
+        /// The job may or may not have taken effect (lost, stopped or cut off).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        uncertain: bool,
     },
     /// The person pressed Stop, naming what was running then: the open reply and the background
     /// jobs. Those stop; a result of one of those jobs, or of a job its reply started, is kept
@@ -142,6 +158,11 @@ pub enum Known {
         keep_from: usize,
         #[serde(default)]
         tokens_before: u32,
+        /// How many images from `keep_from` on, oldest first, the prompt describes instead of
+        /// showing until the next compaction. Fixed here so prompts between compactions only grow
+        /// at the end. Missing on events from before it was stored.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        images_left_out: Option<usize>,
     },
 }
 

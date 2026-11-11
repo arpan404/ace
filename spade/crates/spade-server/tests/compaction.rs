@@ -78,6 +78,11 @@ async fn past_the_high_mark_the_next_turn_compacts_and_the_model_sees_the_summar
         compacted.map(|e| e["tokens_before"].clone()),
         Some(json!(111))
     );
+    assert_eq!(
+        compacted.map(|e| e["images_left_out"].clone()),
+        Some(json!(0)),
+        "the compaction fixes which images later prompts leave out"
+    );
 
     let last = spade
         .fake
