@@ -81,6 +81,9 @@ test("a pull request moves between draft, ready, closed and open as GitHub allow
   const closed = await manage(ask, 233);
   expect(closed.state).toBe("closed");
   expect(closed.lifecycle.map((each) => each.kind)).toEqual(["reopen"]);
+  // The page's own header reads it too, not only the manage section.
+  const page = (await ask({ type: "forge.pull", project: "ace", number: 233 })) as PullReply;
+  expect(page.state.word).toBe("Closed");
   // The version from before closing no longer matches: reopening against it is refused.
   expect(await apply(ask, 233, draft.version, { kind: "reopen" })).toMatchObject({ ok: false });
   expect((await apply(ask, 233, closed.version, { kind: "reopen" })).ok).toBe(true);
