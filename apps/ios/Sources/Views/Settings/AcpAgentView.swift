@@ -39,6 +39,8 @@ struct AcpAgentView: View {
     @State private var problem: String?
     @State private var install: InstallData?
     @State private var installProblem: String?
+    @State private var pollProblem: String?
+    @State private var failedCancellation = false
     @State private var copied = false
     @State private var starting = false
     @State private var pollAttempt = 0
@@ -76,12 +78,14 @@ struct AcpAgentView: View {
             .padding(.vertical, AceDesign.Space.tight)
             if let standing = agent.standing { InsetRow("On this machine", systemImage: nil, value: standing) }
             if let install { progress(install) }
-            if let installProblem {
-                ServiceProblem(message: installProblem)
+            if let message = installProblem ?? pollProblem {
+                ServiceProblem(message: message)
                 Button("Retry") {
-                    self.installProblem = nil
-                    if install != nil { pollAttempt += 1 } else { Task { await start(agent) } }
-                }.buttonStyle(.textAction())
+                    if installProblem != nil {
+                        if failedCancellation, let install { Task { await cancel(install) } }
+                        else { Task { await start(agent) } }
+                    } else { pollProblem = nil; pollAttempt += 1 }
+                }.buttonStyle(.textAction()).disabled(starting)
             }
         }
         if install == nil, let label = agent.actionLabel, model.canOperate {
@@ -139,9 +143,9 @@ struct AcpAgentView: View {
     }
     private func progress(_ install: InstallData) -> some View {
         HStack(spacing: AceDesign.Space.row) {
-            if !install.finished && installProblem == nil { WorkingMark(label: "Installing") }
+            if !install.finished && pollProblem == nil { WorkingMark(label: "Installing") }
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text(installProblem == nil ? install.title : "Install status unavailable")
+                Text(pollProblem == nil ? install.title : "Install status unavailable")
                     .foregroundStyle(install.finished && !install.succeeded ? AceTheme.StatusText.failed : AceDesign.Ink.primary)
                     .contentTransition(.opacity)
                 if let detail = install.detail {
@@ -169,7 +173,7 @@ struct AcpAgentView: View {
         guard let action = agent.action, !starting else { return }
         starting = true
         defer { starting = false }
-        installProblem = nil
+        installProblem = nil; pollProblem = nil; failedCancellation = false
         do {
             guard let next = try await model.manage(["type": "acp.registry.install", "acpAgentId": agent.id, "action": action], as: InstallAnswer.self).install else {
                 throw ServiceFailure(message: "Couldn't read the install status.")
@@ -182,8 +186,8 @@ struct AcpAgentView: View {
             guard let next = try await model.manage(["type": "acp.registry.cancel", "session": install.session], as: InstallAnswer.self).install else {
                 throw ServiceFailure(message: "Couldn't read the install status.")
             }
-            self.install = next; installProblem = nil
-        } catch { installProblem = error.localizedDescription }
+            self.install = next; installProblem = nil; failedCancellation = false
+        } catch { failedCancellation = true; installProblem = error.localizedDescription }
     }
     /// Polls the running install; when it finishes, the page and providers are read again.
     private func follow() async {
@@ -194,9 +198,10 @@ struct AcpAgentView: View {
                 guard let next = try await model.manage(["type": "acp.registry.progress", "session": current.session], as: InstallAnswer.self).install else {
                     throw ServiceFailure(message: "Couldn't read the install status.")
                 }
-                install = next; installProblem = nil
+                install = next; pollProblem = nil
+                if next.finished { installProblem = nil; failedCancellation = false }
             } catch {
-                if !Task.isCancelled { installProblem = error.localizedDescription }
+                if !Task.isCancelled { pollProblem = error.localizedDescription }
                 return
             }
         }
