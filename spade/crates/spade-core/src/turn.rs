@@ -124,17 +124,27 @@ pub fn unique_call_ids(
         .collect()
 }
 
-/// Whether the person pressed Stop after `job` started, so its result must not open a reply.
-pub fn job_stopped(events: &[Event], job: &str) -> bool {
-    let Some(started) = events
-        .iter()
-        .position(|e| matches!(e, Event::Known(Known::JobStarted { job: j, .. }) if j == job))
-    else {
+/// Whether the person pressed Stop after `reply` began.
+pub fn stop_requested(events: &[Event], reply: &str) -> bool {
+    let Some(started) = events.iter().position(
+        |e| matches!(e, Event::Known(Known::ReplyStarted { reply: r, .. }) if r == reply),
+    ) else {
         return false;
     };
     events[started..]
         .iter()
         .any(|e| matches!(e, Event::Known(Known::StopRequested {})))
+}
+
+/// Whether the person pressed Stop after the reply that started `job` began, so its result must
+/// not open a reply.
+pub fn job_stopped(events: &[Event], job: &str) -> bool {
+    events.iter().any(|e| match e {
+        Event::Known(Known::JobStarted { job: j, reply, .. }) if j == job => {
+            stop_requested(events, reply)
+        }
+        _ => false,
+    })
 }
 
 /// Steps taken and money spent by the open turn.
@@ -332,16 +342,26 @@ mod tests {
     }
 
     #[test]
-    fn only_a_stop_pressed_after_a_job_started_keeps_its_result_quiet() {
-        let started = |job: &str| {
+    fn a_stop_after_a_jobs_reply_began_keeps_its_result_quiet_even_if_logged_before_the_start() {
+        let started = |job: &str, reply: &str| {
             Event::Known(Known::JobStarted {
-                reply: "r1".into(),
+                reply: reply.into(),
                 job: job.into(),
                 name: "research".into(),
             })
         };
         let stop = Event::Known(Known::StopRequested {});
-        let events = vec![stop.clone(), started("j1"), stop, started("j2")];
+        let events = vec![
+            stop.clone(),
+            Event::reply_started("r1", "m"),
+            stop,
+            // Logged after the stop, but its reply began before it.
+            started("j1", "r1"),
+            Event::reply_started("r2", "m"),
+            started("j2", "r2"),
+        ];
+        assert!(stop_requested(&events, "r1"));
+        assert!(!stop_requested(&events, "r2"));
         assert!(job_stopped(&events, "j1"));
         assert!(!job_stopped(&events, "j2"));
         assert!(!job_stopped(&events, "unknown"));

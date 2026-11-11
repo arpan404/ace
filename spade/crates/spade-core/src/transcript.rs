@@ -38,6 +38,8 @@ pub struct Transcript {
     pub awaiting: Vec<String>,
     /// Background jobs still running, by job id. They outlive the turn that started them.
     pub jobs: Vec<String>,
+    /// The person pressed Stop while the open reply ran; it ends as stopped.
+    pub stopping: bool,
     /// Tools the person allowed "always" in this conversation.
     pub always_allowed: Vec<String>,
     /// Which tool each approval asked about, by call id.
@@ -73,12 +75,15 @@ impl Transcript {
                 reply: None,
                 outcome: Outcome::Finished,
             }),
-            Known::ReplyStarted { reply, .. } => self.messages.push(Message {
-                speaker: Speaker::Spade,
-                text: String::new(),
-                reply: Some(reply.clone()),
-                outcome: Outcome::Answering,
-            }),
+            Known::ReplyStarted { reply, .. } => {
+                self.stopping = false;
+                self.messages.push(Message {
+                    speaker: Speaker::Spade,
+                    text: String::new(),
+                    reply: Some(reply.clone()),
+                    outcome: Outcome::Answering,
+                });
+            }
             Known::ReplyProgress { reply, text } => self.update(reply, text, None),
             Known::ReplyFinished { reply, text, .. } => {
                 self.update(reply, text, Some(Outcome::Finished));
@@ -123,8 +128,14 @@ impl Transcript {
             }
             Known::JobStarted { job, .. } => self.jobs.push(job.clone()),
             Known::JobFinished { job, .. } => self.jobs.retain(|id| id != job),
+            Known::StopRequested {} => {
+                if self.open_reply().is_some() {
+                    // Nothing waiting can be answered once Stop is pressed.
+                    self.stopping = true;
+                    self.awaiting.clear();
+                }
+            }
             Known::StepFinished { .. }
-            | Known::StopRequested {}
             | Known::SkillsIndexed { .. }
             | Known::ContextCompacted { .. } => {}
         }
@@ -171,11 +182,19 @@ impl Transcript {
     /// The event that closes the open reply after a restart, keeping its last checkpoint. A reply
     /// only waiting for the person's approval stays open: the approval survives the restart.
     pub fn close_after_restart(&self) -> Option<Event> {
+        let open = self.open_reply()?;
+        let reply = open.reply.clone()?;
+        if self.stopping {
+            // Stop was pressed before the restart: the reply ends stopped, approvals and all.
+            return Some(Event::reply_ended(
+                ReplyEnd::Stopped,
+                reply,
+                open.text.clone(),
+            ));
+        }
         if self.turn_state() == Some(TurnState::WaitingOnYou) {
             return None;
         }
-        let open = self.open_reply()?;
-        let reply = open.reply.clone()?;
         Some(Event::reply_ended(
             ReplyEnd::Interrupted,
             reply,
@@ -303,6 +322,31 @@ mod tests {
         let transcript = Transcript::fold(&events);
         assert_eq!(transcript.turn_state(), Some(TurnState::WaitingOnYou));
         assert_eq!(transcript.close_after_restart(), None);
+    }
+
+    #[test]
+    fn a_reply_stopped_while_waiting_for_approval_ends_stopped_after_a_restart() {
+        let events = [
+            Event::user_message("Email Sam"),
+            Event::reply_started("r1", "m"),
+            step_with("r1", vec![call("c1")]),
+            Event::Known(Known::ApprovalRequested {
+                reply: "r1".into(),
+                call_id: "c1".into(),
+                name: "send_email".into(),
+                arguments: serde_json::json!({}),
+            }),
+            Event::Known(Known::StopRequested {}),
+        ];
+        let transcript = Transcript::fold(&events);
+        assert!(
+            transcript.awaiting.is_empty(),
+            "the approval can no longer be answered"
+        );
+        assert_eq!(
+            transcript.close_after_restart(),
+            Some(Event::reply_ended(ReplyEnd::Stopped, "r1", ""))
+        );
     }
 
     #[test]
