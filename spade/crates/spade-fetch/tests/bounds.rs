@@ -177,29 +177,32 @@ fn tag_with_attributes(name: &str, count: usize) -> String {
     format!("<{name}{attrs}>")
 }
 
+// Past MOST_ATTRIBUTES a tag is ended where its next attribute starts; what follows is read as
+// text. The page is not cut, so a script string that merely looks like a tag costs nothing.
+
 #[test]
-fn one_tag_with_a_huge_number_of_attributes_is_cut_quickly() {
+fn one_tag_with_a_huge_number_of_attributes_reads_quickly() {
     let source = format!("{}body</main>", tag_with_attributes("main", 300_000));
     let read = read_within_two_seconds(source);
-    assert!(read.truncated);
-    assert!(!read.text.contains("body"));
+    assert!(read.text.len() <= MOST_TEXT_BYTES);
+    assert!(read.text.starts_with("data-128=x data-129=x"));
 }
 
 #[test]
-fn an_end_tag_with_a_huge_number_of_attributes_is_cut_quickly() {
+fn an_end_tag_with_a_huge_number_of_attributes_reads_quickly() {
     let source = format!("<main>kept{}</main>", tag_with_attributes("/main", 300_000));
     let read = read_within_two_seconds(source);
-    assert!(read.truncated);
-    assert_eq!(read.text, "kept");
+    assert!(read.text.starts_with("kept"));
+    assert!(read.text.len() <= MOST_TEXT_BYTES);
 }
 
 #[test]
 fn attributes_hidden_behind_a_quote_in_a_comment_or_script_still_count() {
-    // A scanner that tracked quotes from the comment or script would skip the real tag.
+    // A scanner that tracked quotes from the comment or script would miss the real tag.
     let heavy = tag_with_attributes("main", 300_000);
     for before in ["<!-- <a x=\" -->", "<script>var s = '<a x=\"';</script>"] {
         let read = read_within_two_seconds(format!("{before}{heavy}body</main>"));
-        assert!(read.truncated, "{before}");
+        assert!(read.text.starts_with("data-128=x"), "{before}");
     }
 }
 
@@ -214,7 +217,8 @@ fn quoted_values_that_look_like_tags_do_not_reset_the_count() {
         })
         .collect();
     let read = read_within_two_seconds(format!("<main{chunks}>body</main>"));
-    assert!(read.truncated);
+    // 101 attributes per chunk: the 129th is a1-27, where the tag is ended.
+    assert!(read.text.starts_with("a1-27=x a1-28=x"));
 }
 
 #[test]
@@ -232,7 +236,45 @@ fn the_attribute_limit_is_exact() {
         tag_with_attributes("main", MOST_ATTRIBUTES + 1)
     );
     let read = read_within_two_seconds(past);
-    assert!(read.truncated);
+    assert_eq!(read.text, format!("data-{MOST_ATTRIBUTES}=x>body"));
+}
+
+#[test]
+fn a_script_string_that_looks_like_a_tag_with_many_words_does_not_cut_the_page() {
+    let words = "w ".repeat(130);
+    let source =
+        format!("<main><script>var s=\"<p class=\\\"{words}\\\">\";</script><p>After</p></main>");
+    let read = read_within_two_seconds(source);
+    assert_eq!(read.text, "After");
+    assert!(!read.truncated);
+}
+
+#[test]
+fn a_page_with_an_inlined_library_is_read_whole() {
+    // Shaped like a minified library inlined in a page: markup templates and long word lists in
+    // string literals, and an escaped SVG path in JSON.
+    let path_data: String = (0..400)
+        .map(|i| format!("M{i} {i}L{} {} ", i + 1, i + 2))
+        .collect();
+    let keywords = (0..300)
+        .map(|i| format!("kw{i}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let library = format!(
+        "!function(e){{var t=\"<div class=\\\"{keywords}\\\">\",n='<svg><path d=\"{path_data}\"/></svg>';\
+         e.tpl=function(r){{return \"<li \"+r.join(\" \")+\">\"}};e.words=\"<b {keywords}\"}}(window);"
+    );
+    let json =
+        format!("{{\"icon\":\"\\u003csvg\\u003e\\u003cpath d=\\\"{path_data}\\\"/\\u003e\"}}");
+    let source = format!(
+        "<html><head><title>Shop</title><script>{library}</script></head><body>\
+         <main><h1>Welcome</h1><p>Our products.</p>\
+         <script type=\"application/json\">{json}</script>\
+         <p>Free delivery.</p></main><footer>Copyright</footer></body></html>"
+    );
+    let read = read_within_two_seconds(source);
+    assert!(!read.truncated);
+    assert_eq!(read.text, "# Welcome\n\nOur products.\n\nFree delivery.");
 }
 
 #[test]
