@@ -19,14 +19,21 @@ use spade_server::tools::{
 use spade_store::Store;
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::filter::filter_fn;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 /// Exit code when another Spade holds the data folder (docs/ace-integration.md).
 const BUSY: u8 = 3;
 
 #[tokio::main]
 async fn main() -> std::process::ExitCode {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
+    // The HTML parser's own logs carry page text, so they are dropped by a separate layer that no
+    // RUST_LOG setting can turn back on.
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer())
+        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
+        .with(filter_fn(|meta| !spade_fetch::is_parser_log(meta.target())))
         .init();
     match run().await {
         Ok(()) => std::process::ExitCode::SUCCESS,

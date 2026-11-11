@@ -2159,7 +2159,7 @@ dependencies = [
  "http-body-util",
  "indexmap 2.14.2",
  "libc",
- "pastey 0.2.3",
+ "pastey",
  "pin-project-lite",
  "rand",
  "reqwest",
