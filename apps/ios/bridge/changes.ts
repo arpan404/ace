@@ -272,6 +272,13 @@ export class ChangesSession {
     this.summary();
   }
 
+  #listLimit = 200;
+
+  moreFiles(): void {
+    this.#listLimit += 200;
+    this.summary();
+  }
+
   more(path: string): boolean {
     return this.#files.more(path);
   }
@@ -280,6 +287,7 @@ export class ChangesSession {
   }
 
   scope(scope: DiffScope): void {
+    this.#listLimit = 200;
     this.#scope.request(scope);
     this.#update();
   }
@@ -339,6 +347,7 @@ export class ChangesSession {
       this.#closed
         ? undefined
         : summaryPatch({
+            listLimit: this.#listLimit,
             threadId: this.threadId,
             epoch: this.epoch,
             preview: this.#preview,
@@ -374,8 +383,8 @@ export class ChangesSession {
   }
 
   #listed() {
-    if (!this.#scope.workingTree) return this.#scope.turnFiles();
-    return (this.#reads?.files ?? []).slice(0, 200);
+    if (!this.#scope.workingTree) return this.#scope.turnFiles().slice(0, this.#listLimit);
+    return (this.#reads?.files ?? []).slice(0, this.#listLimit);
   }
 
   #viewedAt(path: string): string | undefined {

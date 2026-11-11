@@ -305,14 +305,12 @@ struct FileTreeRowView: View {
     var body: some View {
         HStack(spacing: AceTheme.Spacing.sm) {
             Color.clear.frame(width: CGFloat(row.depth) * AceDesign.Space.treeLevel, height: AceDesign.Size.hairline)
-            Image(systemName: "chevron.right").font(.caption2.weight(.semibold))
+            RowCaret()
                 .rotationEffect(.degrees(open ? 90 : 0))
                 .animation(.default, value: open)
                 .foregroundStyle(AceTheme.Colours.decoration)
                 .frame(width: AceDesign.Size.caret).opacity(row.folder ? 1 : 0)
-            Image(systemName: row.folder ? "folder" : "doc")
-                .font(.subheadline).foregroundStyle(AceTheme.Colours.mutedForeground).frame(width: AceDesign.Size.rowGlyph)
-            Text(row.name).aceFont(AceTheme.Typography.body, relativeTo: .body)
+            Text(row.name).aceMonospace(AceDesign.TextRole.rowTitle, relativeTo: .callout)
                 .foregroundStyle(row.mark == "D" ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground)
                 .strikethrough(row.mark == "D", color: AceTheme.Colours.mutedForeground)
                 .lineLimit(1).truncationMode(.middle)
@@ -334,10 +332,8 @@ struct FileSearchRowView: View {
     let row: FileSearchRow
     var body: some View {
         HStack(spacing: AceTheme.Spacing.md) {
-            Image(systemName: row.isFolder ? "folder" : "doc")
-                .font(.subheadline).foregroundStyle(AceTheme.Colours.mutedForeground).frame(width: AceDesign.Size.rowGlyph)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                Text(name).aceFont(AceTheme.Typography.body, relativeTo: .body).lineLimit(1)
+                Text(name).aceMonospace(AceDesign.TextRole.rowTitle, relativeTo: .callout).lineLimit(1)
                 if !row.folder.isEmpty {
                     Text(row.folder).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
                         .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.head)

@@ -63,10 +63,11 @@ struct BrowserTabsSheet: View {
                             Button("Close", role: .destructive) { model.browserCloseTab(tab.id) }
                         }
                     }
+                    .listRowInsets(EdgeInsets())
                     .accessibilityIdentifier("browser.tab.\(tab.id)")
                 }
                 if let more = state?.moreTabs, more > 0 {
-                    Text("\(more) more tabs").foregroundStyle(AceDesign.Ink.muted)
+                    Button("Show \(more) more tabs") { model.action(["type": "browser", "action": ["kind": "tabs.more"]]) }.buttonStyle(.textAction())
                         .browserRow()
                 }
             }
@@ -100,32 +101,15 @@ struct BrowserTabsSheet: View {
         return count == 1 ? "1 tab" : "\(count) tabs"
     }
     private func row(_ tab: BrowserViewInfo.Tab) -> some View {
-        HStack(spacing: AceDesign.Space.row) {
-            Group {
-                // A tab an agent is using shows the agent cursor, as the web's tab mark does.
-                if tab.agent != nil {
-                    PebbleMark(size: AceDesign.Size.icon, relativeTo: .subheadline)
-                } else {
-                    AceIcon(tab.private == true ? .hand : .globe, size: AceDesign.Size.icon, relativeTo: .subheadline)
-                        .foregroundStyle(AceDesign.Ink.muted)
-                }
-            }
-            .frame(width: AceDesign.Size.icon + AceDesign.Space.related)
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text(tab.title).font(AceDesign.Typeface.body)
-                    .foregroundStyle(AceDesign.Ink.primary).lineLimit(1)
-                Text(detail(tab)).font(AceDesign.Typeface.meta)
-                    .foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
-            }
-            Spacer(minLength: AceDesign.Space.related)
+        QuietSectionRow {
+            QuietRowText(title: tab.title, detail: detail(tab))
             if tab.loading == true { WorkingMark(label: "Loading") }
             if tab.id == state?.activeTabId {
                 AceIcon(.check).foregroundStyle(AceDesign.Ink.primary)
                     .accessibilityElement(children: .ignore).accessibilityLabel("Shown")
             }
         }
-        .frame(minHeight: InsetStyle.rowHeight)
-        .contentShape(Rectangle())
+
     }
     private func detail(_ tab: BrowserViewInfo.Tab) -> String {
         let host = (tab.host ?? "").isEmpty ? "New tab" : tab.host ?? ""
@@ -143,10 +127,9 @@ struct BrowserDownloadsSheet: View {
     var body: some View {
         NavigationStack {
             List(downloads) { download in
-                HStack(spacing: AceDesign.Space.row) {
-                    AceIcon(.file, size: AceDesign.Size.icon, relativeTo: .subheadline).foregroundStyle(AceDesign.Ink.muted).frame(width: AceDesign.Size.icon + AceDesign.Space.related)
+                QuietSectionRow {
                     VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                        Text(download.filename).font(AceDesign.Typeface.body).lineLimit(1)
+                        Text(download.filename).aceMonospace(AceDesign.TextRole.rowTitle, relativeTo: .callout).lineLimit(1)
                         Text(detail(download)).font(AceDesign.Typeface.meta)
                             .foregroundStyle(download.failed || download.risky || saving(download)?.phase == "failed" ? AceTheme.StatusText.failed : AceDesign.Ink.muted)
                             .lineLimit(2)
@@ -155,7 +138,7 @@ struct BrowserDownloadsSheet: View {
                     Spacer(minLength: AceDesign.Space.related)
                     save(download)
                 }
-                .frame(minHeight: InsetStyle.rowHeight)
+                .listRowInsets(EdgeInsets())
                 .animation(.default, value: saving(download))
                 .browserRow()
             }
@@ -178,22 +161,24 @@ struct BrowserDownloadsSheet: View {
         if saving?.phase == "ready", let saving,
            let file = SavedFiles(scope: model.hostId ?? "").file(id: saving.key, name: download.filename) {
             ShareLink(item: file) { Text("Share") }
-                .font(AceDesign.Typeface.body)
+                .buttonStyle(.textAction())
                 .frame(minHeight: AceDesign.Size.tap)
                 .transition(.opacity)
                 .accessibilityIdentifier("browser.download.share")
         } else if saving?.phase == "saving" {
             Button { model.browserSaveCancel(download.id) } label: {
-                ProgressView(value: saving?.progress ?? 0).progressViewStyle(.circular)
-                    .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
+                HStack(spacing: AceDesign.Space.related) {
+                    ProgressView(value: saving?.progress ?? 0).progressViewStyle(.circular)
+                    Text("Stop")
+                }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.textAction())
             .accessibilityLabel("Stop saving")
             .accessibilityValue("\(Int((saving?.progress ?? 0) * 100)) percent")
             .transition(.opacity)
         } else if download.saveable == true {
-            Button("Save") { model.browserSave(download.id) }
-                .font(AceDesign.Typeface.body)
+            Button(saving?.phase == "failed" ? "Retry" : "Save") { model.browserSave(download.id) }
+                .buttonStyle(.textAction())
                 .frame(minHeight: AceDesign.Size.tap)
                 .transition(.opacity)
                 .accessibilityLabel("Save to this phone")
@@ -230,16 +215,14 @@ struct BrowserHistorySheet: View {
                     model.browserGo(visit.url)
                     dismiss()
                 } label: {
-                    VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                        Text(visit.title.isEmpty ? visit.url : visit.title)
-                            .font(AceDesign.Typeface.body)
-                            .foregroundStyle(AceDesign.Ink.primary).lineLimit(1)
-                        Text("\(URL(string: visit.url)?.host() ?? visit.url) · \(Date(timeIntervalSince1970: visit.at / 1000).formatted(.relative(presentation: .named)))")
-                            .font(AceDesign.Typeface.meta)
-                            .foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
+                    QuietSectionRow {
+                        QuietRowText(title: visit.title.isEmpty ? visit.url : visit.title,
+                                     detail: "\(URL(string: visit.url)?.host() ?? visit.url) · \(Date(timeIntervalSince1970: visit.at / 1000).formatted(.relative(presentation: .named)))")
+                        RowCaret()
                     }
-                    .frame(minHeight: InsetStyle.rowHeight, alignment: .leading)
                 }
+                .buttonStyle(.plain)
+                .listRowInsets(EdgeInsets())
                 .browserRow()
                 .swipeActions { Button("Forget", role: .destructive) { model.browserForget(visit) } }
             }

@@ -32,6 +32,7 @@ struct FolderDownloadSheet: View {
                 Section {
                     if let failure {
                         Text(failure).foregroundStyle(AceTheme.StatusText.failed)
+                        Button("Retry") { Task { await read() } }.buttonStyle(.textAction())
                     } else if let preview {
                         LabeledContent(preview.name, value: preview.summary)
                     } else {
@@ -48,8 +49,8 @@ struct FolderDownloadSheet: View {
                     if download?.phase == "saved", let path = download?.filePath {
                         ShareLink(item: URL(fileURLWithPath: path)) { Text("Save") }
                             .accessibilityIdentifier("download.share")
-                    } else if transfer == nil {
-                        Button("Download") { start() }.fontWeight(.semibold).disabled(preview == nil)
+                    } else if transfer == nil || download?.phase == "failed" || download?.phase == "stopped" {
+                        Button(download?.phase == "failed" ? "Retry" : "Download") { start() }.fontWeight(.semibold).disabled(preview == nil)
                             .accessibilityIdentifier("download.start")
                     }
                 }
@@ -98,6 +99,7 @@ struct FolderDownloadSheet: View {
     private func start() {
         guard let preview else { return }
         let id = "dl-\(UUID().uuidString.prefix(20))"
+        if let transfer { model.action(["type": "files.download.done", "id": transfer]) }
         transfer = id
         model.action(["type": "files.download", "id": id, "scope": scope.wire, "target": ["kind": "archive", "path": folder, "previewId": preview.previewId]])
     }

@@ -476,6 +476,7 @@ import QuartzCore
                 // An admitted connection needs no code, whatever an earlier attempt was asked.
                 if state == "ready" { machineCodeAsk = nil; machineCodeLockedUntil = nil }
                 if changed { onConnection?(state) }
+                if changed, state != "ready" { sheets.connectionLost() }
                 if let generation, generation > activityGeneration {
                     activityGeneration = generation
                     normalizeGenerations()

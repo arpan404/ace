@@ -235,6 +235,10 @@ struct ChangesSheet: View {
     }
 
     @ViewBuilder private func footer(_ summary: ChangesSummary) -> some View {
+        if summary.hidden > 0 {
+            Button("Show more files") { model.sheet(["kind": "changes.files.more"]) }.buttonStyle(.textAction())
+                .padding(.horizontal, AceDesign.Space.margin)
+        }
         if summary.hidden > 0 || summary.partial {
             Text(summary.partial ? "More files changed than one read returns." : "\(summary.hidden) more \(summary.hidden == 1 ? "file" : "files") changed")
                 .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground)
