@@ -1,6 +1,7 @@
 //! The tools Spade can run. Each is a [`Tool`]: a definition for the registry and an async run.
 //! `tool_search` and `call_tool` are not here; the engine answers them from the registry.
 
+mod ace;
 mod skills;
 mod todo;
 mod web_fetch;
@@ -14,6 +15,7 @@ use std::sync::Arc;
 use serde_json::Value;
 use spade_core::tools::{Registry, ToolDef};
 
+pub use ace::AceSource;
 pub use skills::{AceLibrary, LibraryFuture, SkillLibrary, SkillLoad, SkillSearch};
 pub use todo::Todo;
 pub use web_fetch::WebFetch;

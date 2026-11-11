@@ -1,6 +1,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use spade_ace::{AceConfig, AceSkills, AceTools};
+use spade_fetch::{Fetcher, Policy};
 use spade_keys::{KeyStore, Keys};
 use spade_models::{Catalog, Models};
 use spade_search::{Search, SearchConfig};
@@ -9,7 +11,10 @@ use spade_server::clock::{SystemClock, SystemIds, local_offset_seconds};
 use spade_server::config::Config;
 use spade_server::engine::{Engine, Limits, Setup};
 use spade_server::home::{DEFAULT_MODELS, DEFAULT_SEARCH, Home, HomeError, new_token};
-use spade_server::tools::{Todo, Toolbox, WebSearch};
+use spade_server::tools::{
+    AceLibrary, AceSource, SkillLibrary, SkillLoad, SkillSearch, Todo, Tool, Toolbox, WebFetch,
+    WebSearch,
+};
 use spade_store::Store;
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
@@ -82,7 +87,34 @@ async fn run() -> Result<(), Failure> {
         Duration::from_secs(10),
     )
     .map_err(other)?;
-    let tools = Toolbox::new(vec![Arc::new(WebSearch(Arc::new(search))), Arc::new(Todo)]);
+    let fetcher = Fetcher::new(Policy::default(), Duration::from_secs(30));
+    let mut core: Vec<Arc<dyn Tool>> = vec![
+        Arc::new(WebSearch(Arc::new(search))),
+        Arc::new(WebFetch(Arc::new(fetcher))),
+        Arc::new(Todo),
+    ];
+    // ace's tools and skill library, when the daemon started Spade (docs/ace-integration.md).
+    let ace = match AceConfig::from_env(env) {
+        Ok(ace) => Some(ace),
+        Err(error) => {
+            tracing::warn!(%error, "running without ace's tools and skills");
+            None
+        }
+    };
+    let mut skills: Option<Arc<dyn SkillLibrary>> = None;
+    let mut source = None;
+    if let Some(ace) = ace {
+        let library: Arc<dyn SkillLibrary> =
+            Arc::new(AceLibrary(Arc::new(AceSkills::new(ace.skills))));
+        core.push(Arc::new(SkillSearch(library.clone())));
+        core.push(Arc::new(SkillLoad(library.clone())));
+        skills = Some(library);
+        source = Some(AceSource::start(Arc::new(AceTools::new(ace.tools))));
+    }
+    let mut tools = Toolbox::new(core);
+    if let Some(source) = source {
+        tools = tools.with_source(source);
+    }
 
     let engine = Engine::open(Setup {
         store: Store::open(&home.database()).map_err(other)?,
@@ -93,6 +125,7 @@ async fn run() -> Result<(), Failure> {
         daily_cap_micros: spade_core::spending::usd_to_micros(config.daily_cap_usd),
         utc_offset_seconds: local_offset_seconds(),
         limits: Limits::default(),
+        skills,
     })
     .map_err(other)?;
 

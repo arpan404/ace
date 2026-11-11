@@ -114,6 +114,9 @@ async fn drive(
                         "today's spending cap is used up".to_owned(),
                     );
                 }
+                if super::index::if_needed(engine, id, &events).await {
+                    continue;
+                }
                 let model = turn_model(engine, &events, &reply);
                 if super::compact::if_needed(engine, id, &model, &events).await {
                     continue;

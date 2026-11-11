@@ -3,6 +3,7 @@
 //! `spade_core::turn::next_step`, so they resume from storage after a restart.
 
 mod compact;
+mod index;
 mod jobs;
 mod turn;
 
@@ -18,7 +19,7 @@ use spade_store::{Conversation, Store, StoreError, StoredEvent};
 use tokio::sync::{Notify, broadcast, watch};
 
 use crate::clock::{Clock, Ids};
-use crate::tools::Toolbox;
+use crate::tools::{SkillLibrary, Toolbox};
 
 /// Bounds on one turn.
 #[derive(Debug, Clone)]
@@ -60,6 +61,8 @@ pub struct Setup {
     pub daily_cap_micros: u64,
     pub utc_offset_seconds: i32,
     pub limits: Limits,
+    /// The person's skill library, when ace provides one.
+    pub skills: Option<Arc<dyn SkillLibrary>>,
 }
 
 /// What a live subscriber receives.
@@ -152,6 +155,7 @@ pub struct Engine {
     daily_cap_micros: u64,
     utc_offset_seconds: i32,
     limits: Limits,
+    skills: Option<Arc<dyn SkillLibrary>>,
     live: Mutex<HashMap<String, Arc<Live>>>,
     /// Orders "store, then broadcast" and makes "steer or start" and "finish unless steered"
     /// atomic against each other, so a message sent as a reply ends is never lost.
@@ -171,6 +175,7 @@ impl Engine {
             daily_cap_micros: setup.daily_cap_micros,
             utc_offset_seconds: setup.utc_offset_seconds,
             limits: setup.limits,
+            skills: setup.skills,
             live: Mutex::default(),
             record_lock: Mutex::default(),
         });
