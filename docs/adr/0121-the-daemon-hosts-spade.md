@@ -1,6 +1,6 @@
 # 0121: The daemon hosts Spade
 
-Status: proposed. Date: 2026-11-11. Implements [spade/docs/ace-integration.md](../../spade/docs/ace-integration.md).
+Status: proposed. Date: 2026-11-11. Superseded by [ADR 0123](0123-spade-runs-as-its-own-service.md), except its host thread and `spade.*` family. Implements [spade/docs/ace-integration.md](../../spade/docs/ace-integration.md).
 
 ## Context
 
