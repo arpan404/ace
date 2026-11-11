@@ -2040,7 +2040,7 @@ Example:
 
 ```json
 {
-  "baseBranch": "example",
+  "acpAgentId": "example",
   "context": {
     "attachments": [],
     "mentions": []
@@ -2052,18 +2052,15 @@ Example:
       "url": "example"
     }
   ],
-  "installationId": "example",
+  "model": "example",
+  "options": {},
   "origin": {
-    "afterExit": false,
-    "from": {
-      "model": "example",
-      "provider": "acp"
-    },
     "kind": "parent_agent",
-    "parentThreadId": "example",
+    "role": "example",
+    "sources": [],
+    "threadIds": [],
     "to": {
-      "model": "example",
-      "provider": "pi"
+      "provider": "codex"
     }
   },
   "provider": "codex",
@@ -2100,13 +2097,13 @@ Example:
   ],
   "origin": {
     "afterExit": true,
+    "commandId": "example",
+    "from": {
+      "provider": "pi"
+    },
     "interactionId": "example",
     "kind": "subagent_result",
-    "lossy": false,
-    "threadIds": [],
-    "to": {
-      "provider": "pi"
-    }
+    "sources": []
   },
   "threadId": "example",
   "type": "thread.send"

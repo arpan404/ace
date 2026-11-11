@@ -318,7 +318,26 @@
         "remote.lan": {
           "type": "boolean"
         },
+        "remote.mcpPublicUrl": {
+          "anyOf": [
+            {
+              "examples": [
+                null,
+                "https://ace.example.com"
+              ],
+              "maxLength": 2048,
+              "type": "string",
+              "x-ace-constraint": "Null, or an https origin without path, query, fragment, credentials or trailing slash."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "remote.relay": {
+          "type": "boolean"
+        },
+        "remote.relayMcp": {
           "type": "boolean"
         },
         "remote.relayUrl": {
@@ -331,6 +350,9 @@
           "x-ace-constraint": "Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1."
         },
         "remote.tailscale": {
+          "type": "boolean"
+        },
+        "remote.tailscaleMcp": {
           "type": "boolean"
         },
         "remote.transferIgnoredFiles": {

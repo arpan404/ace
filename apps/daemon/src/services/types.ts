@@ -135,6 +135,8 @@ export interface Services {
   mcp: Awaited<ReturnType<typeof startDaemonMcp>>;
   notifications: NotificationAccess;
   notificationPublicKey?: string;
+  /** Pushes an outside client's sign-in request to admin phones (ADR 0117). */
+  accessPush?: import("../external-mcp/access-alerts.ts").AccessPush;
   review: ReturnType<typeof createDaemonReview>;
   historyAdapters?: import("../history-continuation.ts").HistoryAdapterPort;
   history?: DaemonHistory;

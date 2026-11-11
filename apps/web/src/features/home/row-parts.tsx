@@ -10,6 +10,7 @@ import {
 import { StatusIcon } from "@/components/status-icons.tsx";
 import { AgentCursorIcon, BrowserUseIcon } from "@/components/ace-icons.tsx";
 import { formatElapsed } from "@ace/ui-core";
+import { startedByWords } from "@ace/ui-core/outside-clients";
 import { useSeconds } from "@/lib/time.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
@@ -49,6 +50,7 @@ export function threadDetails(card: ThreadCard): string[] {
     `Project ${card.project}`,
     card.flags.pinned && "Pinned",
     card.machine && `Running on ${card.machine}`,
+    card.startedByClient && startedByWords(card.startedByClient),
     card.wake && `Snoozed ${card.wake}`,
   ].filter((part): part is string => typeof part === "string" && part.length > 0);
 }
@@ -316,8 +318,14 @@ export function RowContext(props: {
       data-row-context=""
       className="flex h-4 min-w-0 items-center justify-end gap-1.5 text-meta leading-4 text-subtle-foreground"
     >
-      {card.branch && (
+      {card.branch ? (
         <MiddleTruncate text={card.branch.name} className="min-w-0 flex-1 font-mono" />
+      ) : (
+        card.startedByClient && (
+          <span data-started-by="" className="min-w-0 flex-1 truncate">
+            {startedByWords(card.startedByClient)}
+          </span>
+        )
       )}
       {card.pr !== undefined && (
         <span className="shrink-0">

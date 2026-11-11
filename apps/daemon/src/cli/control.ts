@@ -39,6 +39,14 @@ export async function stopCommand(args: Args, home: string) {
     admission,
   );
 }
+/** `--ttl` for a grant: minutes, hours or days (`30m`, `12h`, `30d`). */
+function grantLifetimeMs(value: string): number {
+  const match = /^(\d{1,4})(m|h|d)$/.exec(value);
+  if (!match)
+    throw new CliFailure("refused", "--ttl takes minutes, hours or days (30m, 12h, 30d), or never");
+  const scale = match[2] === "d" ? 86_400_000 : match[2] === "h" ? 3_600_000 : 60_000;
+  return Number(match[1]) * scale;
+}
 export async function controlCommand(args: Args, client: Client, signal: AbortSignal) {
   const command = args.words[0];
   if (command === "kill-all") {
@@ -60,16 +68,26 @@ export async function controlCommand(args: Args, client: Client, signal: AbortSi
     return mutationResult(args, { ...response.result, idempotencyKey: id });
   }
   const verb = args.words[1];
-  validateArgs(args, ["scope", "ttl", "project"], verb === "revoke" ? 3 : 2);
-  if (verb === "enroll" && !option(args, "ttl"))
-    throw new CliFailure("refused", "Enrollment requires --ttl, e.g. 1h");
+  validateArgs(args, ["scope", "allow", "ttl", "project", "name"], verb === "revoke" ? 3 : 2);
+  const ttl = option(args, "ttl");
+  if (verb === "enroll" && !ttl)
+    throw new CliFailure("refused", "Enrollment requires --ttl, e.g. 1h, 30d or never");
+  if (verb === "enroll" && option(args, "scope") && option(args, "allow"))
+    throw new CliFailure("refused", "Pass --scope or --allow, not both");
+  const list = (name: string) =>
+    option(args, name)
+      ?.split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
   const operation = CliOperation.parse(
     verb === "enroll"
       ? {
           op: "mcp.enroll",
-          scope: option(args, "scope") ?? "read",
-          ttlMs: timeoutMs({ words: [], flags: { timeout: option(args, "ttl") ?? "1h" } }),
-          project: option(args, "project"),
+          scope: option(args, "scope"),
+          allow: list("allow"),
+          ttlMs: ttl === "never" ? null : grantLifetimeMs(ttl ?? "1h"),
+          projects: list("project"),
+          name: option(args, "name"),
         }
       : { op: `mcp.${verb}`, id: args.words[2] },
   );
@@ -89,7 +107,7 @@ export async function controlCommand(args: Args, client: Client, signal: AbortSi
     const data = z
       .object({
         id: z.string(),
-        expiresAt: z.number(),
+        expiresAt: z.number().nullable(),
         setup: z.string(),
         claude: z.string(),
         codex: z.string(),
@@ -97,7 +115,7 @@ export async function controlCommand(args: Args, client: Client, signal: AbortSi
       .parse(response.result.data);
     return mutationResult(
       args,
-      `Enrollment ${data.id}, expires ${new Date(data.expiresAt).toISOString()}\n\n${data.setup}\n\n${data.claude}\n\n# ~/.codex/config.toml\n${data.codex}`,
+      `Enrollment ${data.id}, ${data.expiresAt === null ? "until revoked" : `expires ${new Date(data.expiresAt).toISOString()}`}\n\n${data.setup}\n\n${data.claude}\n\n# ~/.codex/config.toml\n${data.codex}`,
     );
   }
   return verb === "list"

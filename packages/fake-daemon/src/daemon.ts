@@ -357,6 +357,10 @@ export class FakeDaemon implements Host {
   get admission(): Pick<import("./admission-wire.ts").FakeAdmission, "set" | "held"> {
     return this.servicesWire.admission;
   }
+  /** Outside MCP clients behind `outside.request`: seed grants, ask for access, read decisions. */
+  get outside(): import("./outside-wire.ts").FakeOutside {
+    return this.servicesWire.outside;
+  }
   /** This machine's own update, behind `machineUpdate.request`. */
   get machineUpdate(): FakeMachineUpdate {
     return this.servicesWire.machineUpdate;
@@ -558,6 +562,7 @@ export class FakeDaemon implements Host {
       // A delegated child names its parent, as the daemon records it at launch.
       ...(init.parentThreadId ? { delegatedBy: ThreadId.parse(init.parentThreadId) } : {}),
       ...(init.startedBy ? { startedBy: ThreadId.parse(init.startedBy) } : {}),
+      ...(init.startedByClient ? { startedByClient: init.startedByClient } : {}),
       ...(init.delegatedFrom ? { delegatedFrom: init.delegatedFrom } : {}),
       ...(init.queuedLaunch ? { queuedLaunch: init.queuedLaunch } : {}),
       ...(init.host ? { host: init.host } : {}),

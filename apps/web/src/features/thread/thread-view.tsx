@@ -1,3 +1,4 @@
+import { startedByWords } from "@ace/ui-core/outside-clients";
 import { useInteractions, useThreadError, useThreadMeta } from "@ace/client-react";
 import type { ForkPoint } from "@ace/protocol";
 import {
@@ -216,6 +217,9 @@ function ThreadScreen(props: {
             ) : (
               (title ?? "")
             )
+          }
+          subtitle={
+            meta?.startedByClient && !error ? startedByWords(meta.startedByClient.name) : undefined
           }
           progress={meta && !error ? <SyncingNote threadId={id} /> : undefined}
           menu={

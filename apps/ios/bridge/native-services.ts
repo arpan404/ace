@@ -66,6 +66,7 @@ import { ProviderServices } from "./provider-services.ts";
 import type { NativeReads, ReadKey, ReadTicket } from "./native-reads.ts";
 import { NativeProjectRequest, type ProjectManage } from "./project-manage.ts";
 import { answerFleet, NativeFleetRequest } from "./fleet-admin.ts";
+import { answerOutside, NativeOutsideRequest } from "./outside-clients.ts";
 import type { InboxRequests } from "./inbox-manage.ts";
 import { NativeSkillLibrary, NativeSkillsRequest } from "./skill-library.ts";
 import { NativePluginsRequest, NativeSkillPlugins } from "./skill-plugins.ts";
@@ -148,6 +149,7 @@ export class NativeServices {
   readonly skills: NativeSkillLibrary;
   readonly plugins: NativeSkillPlugins;
   readonly automations: NativeAutomations | undefined;
+  readonly now: () => number;
   constructor(
     owner: ClientCore,
     sink: PatchSink,
@@ -164,6 +166,7 @@ export class NativeServices {
   ) {
     this.owner = owner;
     this.sink = sink;
+    this.now = now;
     this.transcript = new NativeTranscript(owner, sink);
     this.devices = devices;
     this.screen = screen;
@@ -274,6 +277,11 @@ export class NativeServices {
       const fleet = NativeFleetRequest.safeParse(raw);
       if (fleet.success) {
         this.#reply(id, true, await answerFleet(this.owner, fleet.data), "");
+        return;
+      }
+      const outside = NativeOutsideRequest.safeParse(raw);
+      if (outside.success) {
+        this.#reply(id, true, await answerOutside(this.owner, outside.data, this.now), "");
         return;
       }
       const skills = NativeSkillsRequest.safeParse(raw);

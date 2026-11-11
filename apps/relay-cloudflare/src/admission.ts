@@ -4,6 +4,8 @@ import type { AccountSetup } from "./account/config.ts";
 /** Internal headers the Worker sets on upgrades it forwards to a relay object. */
 export const ACCOUNT_HEADER = "Ace-Relay-Account";
 export const PROTOCOL_HEADER = "Ace-Relay-Protocol";
+/** Names one forwarded HTTP request, so the Worker can cancel it when the caller leaves. */
+export const EXCHANGE_HEADER = "Ace-Relay-Exchange";
 
 export type Admission =
   | { admitted: true; account: string; protocol: string }

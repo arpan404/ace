@@ -99,6 +99,7 @@ export * from "./agent-monitor.ts";
 export * from "./machine-calls.ts";
 export * from "./machine-grants.ts";
 export * from "./fleet.ts";
+export * from "./outside-clients.ts";
 export * from "./transfers.ts";
 export * from "./machine-transfers.ts";
 export * from "./queue.ts";

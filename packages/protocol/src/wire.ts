@@ -76,6 +76,7 @@ import {
   MachinesResult,
 } from "./machines.ts";
 import { FleetRequest, FleetResult } from "./fleet.ts";
+import { OutsideRequest, OutsideResult, OutsideState } from "./outside-clients.ts";
 import { LockedUseRequest, LockedUseServerMessage } from "./locked-use.ts";
 import { PreviewRequest, PreviewResult, PreviewSuggestions } from "./preview-client.ts";
 import { AutomationRequest, AutomationResponse } from "./automations.ts";
@@ -226,6 +227,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   PairRedeem,
   MachinesRequest,
   FleetRequest,
+  OutsideRequest,
   ...LockedUseRequest.options,
   TransfersRequest,
   ProvidersRequest,
@@ -328,6 +330,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
   ChannelClose,
   MachinesResult,
   FleetResult,
+  OutsideResult,
+  OutsideState,
   ...LockedUseServerMessage.options,
   TransfersResult,
   TransferProgress,

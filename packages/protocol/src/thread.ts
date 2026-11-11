@@ -19,6 +19,7 @@ import { RunCheckpoints } from "./run-client.ts";
 import { z } from "zod";
 import { AgentId, RunId, ThreadId, Timestamp, WorkspaceId } from "./ids.ts";
 import { ImportedProvenance } from "./imported-provenance.ts";
+import { StartedByClient } from "./outside-clients.ts";
 import { ProviderKind, Capabilities } from "./provider.ts";
 
 /** What started a run. Agents can start runs without anyone asking. */
@@ -132,6 +133,11 @@ export const Thread = z.object({
   delegatedFrom: DelegatedFrom.optional(),
   /** Set when another thread's agent started this one with `thread_start` (`StartedBy`). */
   startedBy: StartedBy.optional(),
+  /**
+   * Set when an outside MCP client started this thread (ADR 0117). Kept beside `startedBy`, which
+   * stays a thread id so older clients still read it.
+   */
+  startedByClient: StartedByClient.optional(),
   /** Present while the thread, delegated past its parent's run slots, waits to start. */
   queuedLaunch: QueuedLaunch.optional(),
   execution: ExecutionSelection.optional(),

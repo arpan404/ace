@@ -81,6 +81,12 @@
       "$ref": "https://ace.local/protocol/v1/FleetResult.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/OutsideResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/OutsideState.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/LockedUseStatusMessage.json"
     },
     {

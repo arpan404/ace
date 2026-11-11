@@ -127,11 +127,6 @@ Example:
       "subagentTranscripts": true,
       "tokenUsage": true
     },
-    "execution": {
-      "instanceId": "example",
-      "options": {},
-      "provider": "cursor"
-    },
     "goal": {
       "checks": 2,
       "objective": "example",
@@ -161,10 +156,6 @@ Example:
       "resumeAt": 6,
       "revision": 4
     },
-    "queuedLaunch": {
-      "queuePosition": 8,
-      "text": "example"
-    },
     "readAt": 4,
     "settledAt": 0,
     "settledReason": "manual",
@@ -179,6 +170,11 @@ Example:
       ]
     },
     "snoozedUntil": 2,
+    "startedByClient": {
+      "grantId": "IoYaIBbqqXqnZExc8BmRyofw3VaRIzUhD9_78e46C23JiISmnYV0QpveeqXXTnNm",
+      "kind": "mcp_client",
+      "name": "example"
+    },
     "status": {
       "on": "network",
       "queuePosition": 10,
@@ -187,15 +183,13 @@ Example:
       "state": "waiting"
     },
     "switch": {
-      "at": 1,
+      "at": 9,
       "lossy": true,
-      "recommendation": "delegate_task",
       "selection": {
-        "instanceId": "example",
         "model": "example",
-        "provider": "acp"
+        "provider": "antigravity"
       },
-      "state": "applied"
+      "state": "queued"
     },
     "title": "example",
     "titleSource": "person",
@@ -222,6 +216,7 @@ Example:
 | delegatedBy | no | [DelegatedBy.json](schema/DelegatedBy.json) |  |
 | delegatedFrom | no | [DelegatedFrom.json](schema/DelegatedFrom.json) |  |
 | startedBy | no | [StartedBy.json](schema/StartedBy.json) |  |
+| startedByClient | no | [StartedByClient.json](schema/StartedByClient.json) |  |
 | queuedLaunch | no | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/QueuedLaunch.json"},{"type":"null"}]} |
 | execution | no | [ExecutionSelection.json](schema/ExecutionSelection.json) |  |
 | switch | no | [ThreadSwitch.json](schema/ThreadSwitch.json) |  |
@@ -240,23 +235,39 @@ Example:
     "backgroundTaskControl": true,
     "backgroundVisibility": "partial",
     "childControls": "read-only",
-    "fork": false,
-    "forkPoints": [],
+    "childFidelity": "placeholder",
+    "fork": true,
+    "forkTranscript": false,
     "imageInput": true,
-    "interruptCascades": false,
-    "planMode": true,
-    "resume": false,
-    "rewindFiles": true,
+    "interruptCascades": true,
+    "planMode": false,
+    "resume": true,
+    "rewindFiles": false,
     "sessionOptions": false,
     "steer": true,
-    "steerTiming": "after_tool",
+    "steerTiming": "immediate",
     "subagentTranscripts": true,
     "tokenUsage": true
   },
-  "goal": null,
+  "goal": {
+    "checks": 5,
+    "lastReason": "example",
+    "objective": "example",
+    "setAt": 3,
+    "status": "budget_limited"
+  },
   "startedBy": "example",
   "status": {
-    "state": "done"
+    "state": "unresponsive"
+  },
+  "switch": {
+    "at": 2,
+    "lossy": false,
+    "recommendation": "delegate_task",
+    "selection": {
+      "provider": "antigravity"
+    },
+    "state": "applied"
   },
   "type": "thread.updated",
   "workspaceId": "example"

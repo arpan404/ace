@@ -7,6 +7,8 @@ import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { useMachinePool } from "@/lib/machine-pool.ts";
 import { MachineScope } from "@/lib/machine-scope.tsx";
 import { primaryMachineId, type Machine } from "@/lib/machines.ts";
+import { ConnectedApps } from "@/features/connected-apps/index.ts";
+import { ConnectApp } from "./connect-app.tsx";
 import { linkersOf } from "./data/fleet-links.ts";
 import { machineState } from "./data/fleet-words.ts";
 import { useFleet, type Fleet } from "./data/use-fleet.ts";
@@ -46,7 +48,7 @@ function dependentsOf(machine: Machine, fleet: Fleet): string[] {
 
 /**
  * One machine in the fleet: its state and the one action it needs, how it's reached, whether it
- * takes new work, its security, its software, its agents both ways, the devices that open it and, alone at the bottom, removing
+ * takes new work, its security, its software, its agents both ways, the devices that open it, the outside apps connected to it and, alone at the bottom, removing
  * it from the fleet.
  */
 export function FleetMachinePage(props: { id: string }) {
@@ -121,6 +123,15 @@ function MachinePage(props: { machine: Machine; fleet: Fleet }) {
       <MachineSoftware machine={machine} fleet={fleet} />
       <MachineAgents machine={machine} fleet={fleet} />
       <MachineDevices machine={machine} fleet={fleet} />
+      {machine.client && (
+        <MachineScope machine={machine}>
+          <ConnectedApps
+            machine={machine}
+            client={machine.client}
+            connect={<ConnectApp client={machine.client} />}
+          />
+        </MachineScope>
+      )}
       {machine.client && (
         <MachineScope machine={machine}>
           <MoreOptions dependents={dependents} />

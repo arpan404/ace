@@ -292,10 +292,27 @@ export class DelegationService {
     return this.deps.clock.now();
   }
   command(id: string, payload: CommandPayload) {
-    const command = Command.parse({ id, deviceId: "ace-agent", payload });
-    return this.deps.store.recordCommand(command.id, command.deviceId, () =>
-      this.deps.engine.internalHandler.handle(command, commandContext(this.deps.store)),
-    );
+    return this.commandFor(DeviceId.parse("ace-agent"), id, payload);
+  }
+  /**
+   * A command recorded under `device` (an outside grant's, ADR 0117), so its receipt and history
+   * name who sent it. `recorded` runs in the receipt's transaction with a successful result.
+   */
+  commandFor(
+    device: DeviceId,
+    id: string,
+    payload: CommandPayload,
+    recorded?: (result: CommandResult) => void,
+  ) {
+    const command = Command.parse({ id, deviceId: device, payload });
+    return this.deps.store.recordCommand(command.id, command.deviceId, () => {
+      const result = this.deps.engine.internalHandler.handle(
+        command,
+        commandContext(this.deps.store),
+      );
+      if (result.ok) recorded?.(result);
+      return result;
+    });
   }
   /** A receipt reserves each follow-up generation once, including retries after completion. */
   message(

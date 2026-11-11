@@ -186,6 +186,8 @@ export function updateThread(thread: Thread, event: Event): void {
     if (payload.delegatedFrom !== undefined)
       thread.delegatedFrom = structuredCopy(payload.delegatedFrom);
     if (payload.startedBy !== undefined) thread.startedBy = payload.startedBy;
+    if (payload.startedByClient !== undefined)
+      thread.startedByClient = structuredCopy(payload.startedByClient);
     if (payload.queuedLaunch === null) delete thread.queuedLaunch;
     else if (payload.queuedLaunch !== undefined)
       thread.queuedLaunch = structuredCopy(payload.queuedLaunch);

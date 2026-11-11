@@ -1,6 +1,7 @@
 import { FakeStorageWire } from "./storage-wire.ts";
 import { FakeChecks } from "./checks-wire.ts";
 import { FakeAdmission } from "./admission-wire.ts";
+import { FakeOutside } from "./outside-wire.ts";
 import { FakeAppUpdate } from "./app-update-wire.ts";
 import { FakeMachineUpdate } from "./machine-update-wire.ts";
 import { FakePromptFiles, type PromptSeed } from "./prompt-files.ts";
@@ -85,6 +86,8 @@ export class FakeServicesWire {
   private storage: FakeStorageWire;
   /** "Pause new work", shared by every connection. */
   readonly admission = new FakeAdmission();
+  /** Outside MCP clients' grants and sign-in requests, shared by every connection. */
+  readonly outside: FakeOutside;
   private readonly appUpdate = new FakeAppUpdate();
   /** This machine's own update (`machineUpdate.request`). */
   readonly machineUpdate: FakeMachineUpdate;
@@ -114,6 +117,7 @@ export class FakeServicesWire {
     providerStatuses: () => readonly import("@ace/protocol").ProviderStatus[],
   ) {
     this.storage = new FakeStorageWire(context, settings);
+    this.outside = new FakeOutside(() => context.now());
     this.machineUpdate = new FakeMachineUpdate(() => context.now());
     this.host = context;
     this.checks = new FakeChecks(() => context.now(), providerStatuses);
@@ -178,6 +182,7 @@ export class FakeServicesWire {
     let picker: AbortController | undefined;
     const files = this.files.session(emit);
     const admission = this.admission.session(emit);
+    const outside = this.outside.session(emit);
     const appUpdate = this.appUpdate.session(emit);
     const machineUpdate = this.machineUpdate.session(emit);
     const catalog = this.catalog.session(this.host, this.context, emit);
@@ -235,6 +240,7 @@ export class FakeServicesWire {
         browser.close();
         files.close();
         admission.close();
+        outside.close();
         appUpdate.close();
         machineUpdate.close();
         for (const stop of subscriptions.values()) stop();
@@ -258,6 +264,10 @@ export class FakeServicesWire {
         }
         if (message.type === "admission.request") {
           admission.handle(message);
+          return;
+        }
+        if (message.type === "outside.request") {
+          outside.handle(message);
           return;
         }
         if (message.type === "appUpdate.request") {

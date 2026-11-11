@@ -18,8 +18,13 @@ export {
   p256SigningKey,
   p256PublicPoint,
 } from "./webpush-crypto.ts";
-export { createPushGatewayTransport, pushPlaintext, pushPlaintextBudget } from "./push-gateway.ts";
-export type { PushGatewayOptions, PushGatewayTarget } from "./push-gateway.ts";
+export {
+  createPushGatewayTransport,
+  pushAccessPlaintext,
+  pushPlaintext,
+  pushPlaintextBudget,
+} from "./push-gateway.ts";
+export type { AccessPushTransport, PushGatewayOptions, PushGatewayTarget } from "./push-gateway.ts";
 export { createApnsTransport } from "./apns.ts";
 export type { ApnsTransport } from "./apns.ts";
 export { PresenceIndex } from "./presence.ts";
