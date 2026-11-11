@@ -1,6 +1,6 @@
 # 0123: Spade runs as its own service
 
-Status: accepted. Date: 2026-11-11. Decided by: the owner (2026-11-11: "Spade will not be hosted by
+Status: accepted. Date: 2026-11-11. Decision 6 amended by [ADR 0124](0124-desktop-keeps-spades-token.md). Decided by: the owner (2026-11-11: "Spade will not be hosted by
 the daemon; it will be a long-running process on its own"). Supersedes
 [ADR 0121](0121-the-daemon-hosts-spade.md) on when Spade runs, its environment, readiness, stop and
 restart, and its credentials; keeps 0121's host thread and its `spade.*` family, as decision 8
