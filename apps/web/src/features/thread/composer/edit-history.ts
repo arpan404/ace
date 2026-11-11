@@ -102,3 +102,15 @@ export function redoEdit(
     },
   };
 }
+
+/** The history with `change` made to the chips of every snapshot in it (a renamed file's marker). */
+export function mapHistoryTokens(
+  history: EditHistory,
+  change: (tokens: readonly ComposerToken[]) => readonly ComposerToken[],
+): EditHistory {
+  const each = (snapshot: EditSnapshot) => {
+    const tokens = change(snapshot.tokens);
+    return tokens === snapshot.tokens ? snapshot : { ...snapshot, tokens };
+  };
+  return { ...history, past: history.past.map(each), future: history.future.map(each) };
+}

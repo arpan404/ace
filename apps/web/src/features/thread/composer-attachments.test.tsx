@@ -15,7 +15,7 @@ import userEvent from "@testing-library/user-event";
 import { ThreadId } from "@ace/protocol";
 import { createHash } from "node:crypto";
 import type { ReactNode } from "react";
-import { afterEach, beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, onTestFinished, test } from "vitest";
 import { ToastProvider } from "@/components/ui/toast.tsx";
 import { harness } from "@/test/harness.tsx";
 import { AttachmentChips, useAttachments } from "./composer/attachments.tsx";
@@ -59,6 +59,29 @@ async function openComposer() {
   return { app, feed, message };
 }
 
+/** Pretend the window is phone-sized: its width, and media queries answering as a browser's. */
+function phoneWindow(width = 400) {
+  const before = { width: globalThis.innerWidth, matchMedia: globalThis.matchMedia };
+  Object.defineProperty(globalThis, "innerWidth", { configurable: true, value: width });
+  globalThis.matchMedia = (query: string) =>
+    ({
+      matches: [...query.matchAll(/\((min|max)-width:\s*([\d.]+)rem\)/g)].some(([, bound, rem]) =>
+        bound === "min" ? width >= Number(rem) * 16 : width <= Number(rem) * 16,
+      ),
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }) satisfies MediaQueryList;
+  onTestFinished(() => {
+    globalThis.matchMedia = before.matchMedia;
+    Object.defineProperty(globalThis, "innerWidth", { configurable: true, value: before.width });
+  });
+}
+
 const pasteText = (target: HTMLElement, text: string) =>
   fireEvent.paste(target, { clipboardData: { files: [], items: [], getData: () => text } });
 
@@ -69,7 +92,55 @@ test("a long paste goes along as a text file, not into the message", async () =>
   pasteText(message, log);
   const chips = await screen.findByRole("list", { name: "Attachments" });
   expect(within(chips).getByRole("button", { name: "Remove Pasted 60 lines.txt" })).toBeTruthy();
-  expect(message.textContent).toBe("");
+  // Only its marker is in the words, where the paste went.
+  expect(within(message).getByLabelText("Pasted 60 lines.txt")).toBeTruthy();
+  expect(message.textContent).not.toContain("error at line");
+});
+
+test("on a phone-sized window a pasted file edits in a dialog, and the edited text is what goes", async () => {
+  // The side panel would take the conversation's place: the text opens over it instead.
+  phoneWindow();
+  const user = userEvent.setup();
+  const { app, message } = await openComposer();
+  await user.click(message);
+  pasteText(message, Array.from({ length: 60 }, (_, line) => `error at line ${line}`).join("\n"));
+  const chips = await screen.findByRole("list", { name: "Attachments" });
+  await waitFor(() => expect(within(chips).queryByRole("progressbar")).toBeNull());
+
+  await user.click(within(chips).getByRole("button", { name: "Preview Pasted 60 lines.txt" }));
+  const dialog = await screen.findByRole("dialog", { name: "Pasted 60 lines.txt" });
+  const contents = await within(dialog).findByRole("textbox", { name: "File contents" });
+  expect(within(dialog).getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(true);
+  await user.clear(contents);
+  await user.type(contents, "error at line 7{Enter}error at line 9");
+  await user.click(within(dialog).getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+  expect(within(chips).queryByRole("button", { name: "Preview Pasted 60 lines.txt" })).toBeNull();
+  within(chips).getByRole("button", { name: "Preview Pasted 2 lines.txt" });
+  await waitFor(() => expect(within(chips).queryByRole("progressbar")).toBeNull());
+  const edited = createHash("sha256").update("error at line 7\nerror at line 9").digest("hex");
+  await waitFor(async () => {
+    const held = await app.client.request({
+      type: "context.request",
+      operation: { op: "attachment.list", threadId: ThreadId.parse(thread.id) },
+    });
+    expect(held.result).toMatchObject({
+      kind: "attachments",
+      attachments: [expect.objectContaining({ name: "Pasted 2 lines.txt", sha256: edited })],
+    });
+  });
+
+  await user.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => {
+    const view = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse(thread.id) });
+    if (!view || !("items" in view)) throw new Error("Missing transcript");
+    const sent = Object.values(view.items).find(
+      (item) => item.type === "message" && item.role === "user" && item.attachments?.length,
+    );
+    if (sent?.type !== "message") throw new Error("Attachment message not admitted");
+    expect(sent.attachments?.map((file) => file.sha256)).toEqual([edited]);
+  });
 });
 
 test("a short paste goes into the message as text", async () => {
@@ -91,7 +162,7 @@ test("pasting an image preserves an attached file without sending until the pers
   await waitFor(() => expect(within(chips).queryByRole("progressbar")).toBeNull());
   expect(within(chips).getByRole("button", { name: "Remove notes.txt" })).toBeTruthy();
   expect(within(chips).getByRole("button", { name: "Remove screen.png" })).toBeTruthy();
-  expect(message.textContent).toBe("");
+  expect(message.textContent).toBe("notes.txtscreen.png");
   const before = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse(thread.id) });
   if (!before || !("items" in before)) throw new Error("Missing transcript");
   expect(

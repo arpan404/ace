@@ -210,6 +210,8 @@ export class ContextService {
     projection: Projection;
     attachments: import("@ace/protocol").Attachment[];
     attachmentPaths: { sha256: string; path: string }[];
+    /** Per message attachment, in order: its part in `projection.input` and its name. */
+    files: { part: number; name: string }[];
     diagnostics: ContextDiagnostic[];
     release(): void;
   }> {
@@ -284,6 +286,10 @@ export class ContextService {
         attachmentPaths: lease.blobs.map((blob, index) => ({
           sha256: blob.attachment.sha256,
           path: prepared[mentions.entries.length + references.length + index]?.path ?? blob.path,
+        })),
+        files: lease.blobs.map((blob, index) => ({
+          part: mentions.entries.length + references.length + index,
+          name: blob.attachment.name,
         })),
         attachments: lease.blobs.map((blob, index) => ({
           ...blob.attachment,

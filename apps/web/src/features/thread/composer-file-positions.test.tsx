@@ -1,0 +1,260 @@
+import { fixtureImage, longHistory } from "@ace/fake-daemon";
+import type { Command } from "@ace/protocol";
+import { configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { createHash } from "node:crypto";
+import { afterEach, beforeEach, expect, test } from "vitest";
+import { harness } from "@/test/harness.tsx";
+import { editorText, insertEditorText } from "./composer/editor-dom.ts";
+
+configure({ asyncUtilTimeout: 10000 });
+
+/*
+ * The composer as rich text: a file added mid-message is marked where the caret was and goes
+ * with its offset in the words; lists and bold are typed as Markdown.
+ */
+
+const original = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
+beforeEach(() => {
+  localStorage.clear();
+  let next = 0;
+  URL.createObjectURL = () => `blob:test/${++next}`;
+  URL.revokeObjectURL = () => {};
+});
+afterEach(() => {
+  URL.createObjectURL = original.create;
+  URL.revokeObjectURL = original.revoke;
+});
+
+const png = Uint8Array.from(atob(fixtureImage.data), (char) => char.charCodeAt(0));
+const screenshot = () => new File([png], "screen.png", { type: "image/png" });
+const pngHash = createHash("sha256").update(png).digest("hex");
+
+async function openComposer() {
+  const app = harness();
+  app.play(longHistory(2)).runUntilBlocked();
+  // Every command the composer sends, as the daemon receives it.
+  const commands: Command[] = [];
+  const receive = app.daemon.command.bind(app.daemon);
+  app.daemon.command = (command: Command) => {
+    commands.push(command);
+    return receive(command);
+  };
+  await app.open("/t/thread-router");
+  const message = await screen.findByRole("combobox", { name: "Message" });
+  await userEvent.click(message);
+  return { app, message, commands };
+}
+const pasteText = (target: HTMLElement, text: string) =>
+  fireEvent.paste(target, { clipboardData: { files: [], items: [], getData: () => text } });
+const pasteFile = (target: HTMLElement, file: File) =>
+  fireEvent.paste(target, { clipboardData: { files: [file], items: [] } });
+async function uploaded() {
+  const chips = await screen.findByRole("list", { name: "Attachments" });
+  await waitFor(() => expect(within(chips).queryByRole("progressbar")).toBeNull());
+  return chips;
+}
+function sent(commands: readonly Command[]) {
+  const send = commands.find((command) => command.payload.type === "thread.send")?.payload;
+  if (send?.type !== "thread.send") throw new Error("Nothing sent yet");
+  return send;
+}
+
+test("a file added mid-message goes with where it was put, and its marker never goes as text", async () => {
+  const { message, commands } = await openComposer();
+  pasteText(message, "look at ");
+  pasteFile(message, screenshot());
+  pasteText(message, " please");
+  await uploaded();
+  // Its chip stays on top; its marker stands in the words.
+  expect(within(message).getByLabelText("screen.png")).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => {
+    const payload = sent(commands);
+    expect(payload.input).toEqual([{ type: "text", text: "look at  please" }]);
+    expect(payload.context?.attachments).toEqual([{ sha256: pngHash, at: 8 }]);
+  });
+});
+
+test("a file sent while it still uploads keeps its place", async () => {
+  const { message, commands } = await openComposer();
+  pasteText(message, "before ");
+  pasteFile(message, screenshot());
+  pasteText(message, "after");
+  // Enter at once: the message waits for the upload, then goes.
+  fireEvent.keyDown(message, { key: "Enter" });
+  await waitFor(() =>
+    expect(sent(commands).context?.attachments).toEqual([{ sha256: pngHash, at: 7 }]),
+  );
+  expect(sent(commands).input).toEqual([{ type: "text", text: "before after" }]);
+});
+
+test("removing a file's chip takes its marker out of the words", async () => {
+  const { message } = await openComposer();
+  pasteText(message, "see ");
+  pasteFile(message, screenshot());
+  const chips = await uploaded();
+  await userEvent.click(within(chips).getByRole("button", { name: "Remove screen.png" }));
+  await waitFor(() => expect(within(message).queryByLabelText("screen.png")).toBeNull());
+  expect(message.textContent).toBe("see ");
+});
+
+test("deleting a file's marker from the words removes the file", async () => {
+  const { message } = await openComposer();
+  pasteText(message, "see ");
+  pasteFile(message, screenshot());
+  await uploaded();
+  // As Backspace over the chip leaves the editor.
+  within(message).getByLabelText("screen.png").remove();
+  fireEvent.input(message);
+  await waitFor(() => expect(screen.queryByRole("list", { name: "Attachments" })).toBeNull());
+});
+
+test("a kept draft brings its file's marker back where it was, and it still goes with its place", async () => {
+  const { app, message, commands } = await openComposer();
+  pasteText(message, "look ");
+  pasteFile(message, screenshot());
+  pasteText(message, " here");
+  await uploaded();
+  await app.open("/");
+  await app.open("/t/thread-router");
+  const reopened = await screen.findByRole("combobox", { name: "Message" });
+  await waitFor(() => expect(within(reopened).getByLabelText("screen.png")).toBeTruthy());
+  expect(reopened.textContent).toBe("look screen.png here");
+  fireEvent.keyDown(reopened, { key: "Enter" });
+  await waitFor(() =>
+    expect(sent(commands).context?.attachments).toEqual([{ sha256: pngHash, at: 5 }]),
+  );
+});
+
+test("editing a pasted file renames its marker with it", async () => {
+  const user = userEvent.setup();
+  const { message } = await openComposer();
+  pasteText(message, Array.from({ length: 60 }, (_, line) => `line ${line}`).join("\n"));
+  const chips = await uploaded();
+  expect(within(message).getByLabelText("Pasted 60 lines.txt")).toBeTruthy();
+  await user.click(within(chips).getByRole("button", { name: "Preview Pasted 60 lines.txt" }));
+  // It opens beside the thread, and what is typed there is kept once typing pauses.
+  const panel = await screen.findByRole("region", { name: "Pasted 60 lines.txt" });
+  const contents = await within(panel).findByRole("textbox", { name: "File contents" });
+  await user.clear(contents);
+  await user.type(contents, "one{Enter}two");
+  await waitFor(() => expect(within(message).getByLabelText("Pasted 2 lines.txt")).toBeTruthy());
+  expect(within(message).queryByLabelText("Pasted 60 lines.txt")).toBeNull();
+});
+
+test("a copy of a chip dropped into the words stands for no file: the file stays and keeps its place", async () => {
+  const { message, commands } = await openComposer();
+  pasteText(message, "see ");
+  pasteFile(message, screenshot());
+  await uploaded();
+  // The browser drops a copy of the chip's element, which the composer never made.
+  const copy = within(message).getByLabelText("screen.png").cloneNode(true);
+  message.prepend(copy);
+  fireEvent.input(message);
+  await waitFor(() => expect(within(message).getAllByLabelText("screen.png")).toHaveLength(1));
+  // Nothing of the copy is left in the words.
+  expect(message.textContent).toBe("see screen.png");
+  expect(screen.getByRole("list", { name: "Attachments" })).toBeTruthy();
+  fireEvent.keyDown(message, { key: "Enter" });
+  await waitFor(() =>
+    expect(sent(commands).context?.attachments).toEqual([{ sha256: pngHash, at: 4 }]),
+  );
+  expect(sent(commands).input).toEqual([{ type: "text", text: "see " }]);
+});
+
+test("text dropped into the composer goes in as plain words, never as a file's marker", async () => {
+  const { message } = await openComposer();
+  pasteText(message, "a ");
+  const dropped = `b${String.fromCharCode(0xfffc)}c`;
+  fireEvent.drop(message, {
+    dataTransfer: { files: [], items: [], types: ["text/plain"], getData: () => dropped },
+  });
+  await waitFor(() => expect(message.textContent).toBe("a bc"));
+});
+
+test("undo takes a file's marker away but keeps the file, and redo puts the marker back", async () => {
+  const { message, commands } = await openComposer();
+  pasteText(message, "see ");
+  pasteFile(message, screenshot());
+  await uploaded();
+  fireEvent.keyDown(message, { key: "z", metaKey: true });
+  await waitFor(() => expect(within(message).queryByLabelText("screen.png")).toBeNull());
+  const chips = screen.getByRole("list", { name: "Attachments" });
+  expect(within(chips).getByRole("button", { name: "Remove screen.png" })).toBeTruthy();
+  fireEvent.keyDown(message, { key: "z", metaKey: true, shiftKey: true });
+  await waitFor(() => expect(within(message).getByLabelText("screen.png")).toBeTruthy());
+  fireEvent.keyDown(message, { key: "z", metaKey: true });
+  await waitFor(() => expect(within(message).queryByLabelText("screen.png")).toBeNull());
+  // Without its marker it goes with no place: after the words.
+  fireEvent.keyDown(message, { key: "Enter" });
+  await waitFor(() => expect(sent(commands).context?.attachments).toEqual([{ sha256: pngHash }]));
+});
+
+test("undo after editing a pasted file keeps the marker, named for the edited copy", async () => {
+  const user = userEvent.setup();
+  const { message } = await openComposer();
+  pasteText(message, Array.from({ length: 60 }, (_, line) => `line ${line}`).join("\n"));
+  const chips = await uploaded();
+  pasteText(message, " and more");
+  await user.click(within(chips).getByRole("button", { name: "Preview Pasted 60 lines.txt" }));
+  // It opens beside the thread, and what is typed there is kept once typing pauses.
+  const panel = await screen.findByRole("region", { name: "Pasted 60 lines.txt" });
+  const contents = await within(panel).findByRole("textbox", { name: "File contents" });
+  await user.clear(contents);
+  await user.type(contents, "one{Enter}two");
+  await waitFor(() => expect(within(message).getByLabelText("Pasted 2 lines.txt")).toBeTruthy());
+  fireEvent.keyDown(message, { key: "z", metaKey: true });
+  await waitFor(() => expect(message.textContent).not.toContain("and more"));
+  expect(within(message).getByLabelText("Pasted 2 lines.txt")).toBeTruthy();
+});
+
+test("numbers the person wrote stay as written while they type elsewhere", async () => {
+  const { message } = await openComposer();
+  pasteText(message, "3. foo\n7. bar");
+  pasteText(message, " baz");
+  await waitFor(() => expect(editorText(message)).toBe("3. foo\n7. bar baz"));
+});
+
+test("deleting an item counts its list again", async () => {
+  const { message } = await openComposer();
+  pasteText(message, "1. a\n2. b\n3. c");
+  await waitFor(() => expect(editorText(message)).toBe("1. a\n2. b\n3. c"));
+  // What the browser leaves after Backspace over the whole second line.
+  message.children[1]?.remove();
+  fireEvent.input(message);
+  await waitFor(() => expect(editorText(message)).toBe("1. a\n2. c"));
+});
+
+test("Tab on an item that can't nest leaves the composer as Tab always does", async () => {
+  const { message } = await openComposer();
+  pasteText(message, "- first");
+  // Not taken: the browser moves focus on.
+  expect(fireEvent.keyDown(message, { key: "Tab" })).toBe(true);
+  expect(fireEvent.keyDown(message, { key: "Tab", shiftKey: true })).toBe(true);
+});
+
+test("a file pasted right after typing goes after the typed words, which stay", async () => {
+  const { message, commands } = await openComposer();
+  // Typed, then pasted at once: the composer hasn't drawn the typing yet.
+  insertEditorText(message, "look at this: ");
+  pasteText(message, Array.from({ length: 455 }, (_, line) => `line ${line}`).join("\n"));
+  await uploaded();
+  await waitFor(() =>
+    expect(editorText(message)).toBe(`look at this: ${String.fromCharCode(0xfffc)}`),
+  );
+  expect(within(message).getByLabelText("Pasted 455 lines.txt")).toBeTruthy();
+  fireEvent.keyDown(message, { key: "Enter" });
+  await waitFor(() => expect(sent(commands).context?.attachments?.[0]?.at).toBe(14));
+  expect(sent(commands).input).toEqual([{ type: "text", text: "look at this: " }]);
+});
+
+test("a file dropped right after typing goes after the typed words, which stay", async () => {
+  const { message } = await openComposer();
+  insertEditorText(message, "see ");
+  fireEvent.drop(message, {
+    dataTransfer: { files: [screenshot()], items: [], types: ["Files"], getData: () => "" },
+  });
+  await uploaded();
+  await waitFor(() => expect(editorText(message)).toBe(`see ${String.fromCharCode(0xfffc)}`));
+});
