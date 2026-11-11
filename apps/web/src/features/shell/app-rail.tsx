@@ -82,6 +82,8 @@ export function AppRail(props: {
   forge?: ((current: boolean) => ReactNode) | undefined;
   /** Usage's place in the foot, its bars and card; current while the Usage page is open. */
   usage?: ((current: boolean) => ReactNode) | undefined;
+  /** Spade's place, which knows when an approval waits; where it goes is the rail's. */
+  spade?: ((current: boolean, to: string, search: object) => ReactNode) | undefined;
 }) {
   const current = useRailPlace();
   const signals = usePlaceSignals();
@@ -111,7 +113,9 @@ export function AppRail(props: {
           last={chats}
           signal={signals.chats}
         />
-        <SpadePlace current={current === "spade"} last={spade} />
+        {props.spade?.(current === "spade", spade.to, spade.search) ?? (
+          <SpadePlace current={current === "spade"} last={spade} />
+        )}
         <span aria-hidden className="my-1.5 h-px w-5 shrink-0 bg-border" />
         {props.forge?.(current === "forge")}
         {railViews.map((view) => (
@@ -146,10 +150,10 @@ export function AppRail(props: {
 }
 
 /**
- * Spade, ace's assistant: its mark, back to the conversation the person last had open there.
- * The mark dims while Spade isn't current, as the other places' glyphs stay regular weight.
+ * Spade, ace's assistant, while its own place (`spade`, with its signal) isn't there: its mark,
+ * back to where the person last was in Spade.
  */
-function SpadePlace(props: { current: boolean; last: Place }) {
+export function SpadePlace(props: { current: boolean; last: Pick<Place, "to" | "search"> }) {
   return (
     <Tip label="Spade">
       <Link
@@ -159,7 +163,7 @@ function SpadePlace(props: { current: boolean; last: Place }) {
         aria-current={props.current ? "page" : undefined}
         className={railPlaceClass}
       >
-        <SpadeMark size={20} className={props.current ? undefined : "opacity-75"} />
+        <SpadeMark size={20} />
       </Link>
     </Tip>
   );

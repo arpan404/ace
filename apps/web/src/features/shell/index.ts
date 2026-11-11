@@ -14,3 +14,5 @@ export { ShortcutHost } from "./shortcut-host.tsx";
 export { UpdateRestartDialog } from "./update-restart-dialog.tsx";
 export { updateAction, updateActionWords, updateSummary } from "./update-status.ts";
 export { NoMachineSidebar } from "./no-machine-sidebar.tsx";
+/** Spade's plain rail place, shown until Spade's own (with its signal) has loaded. */
+export { SpadePlace } from "./app-rail.tsx";
