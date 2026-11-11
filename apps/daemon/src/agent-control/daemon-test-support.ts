@@ -17,6 +17,7 @@ export async function daemonFixture(
     | "transfers"
     | "screen"
     | "computer"
+    | "outsideClients"
   > & {
     /** Engine limits, e.g. one active thread so the engine is full. */
     engineLimits?: Partial<import("../engine/limits.ts").EngineLimits>;
@@ -57,6 +58,7 @@ export async function daemonFixture(
       ...(options.devices ? { devices: options.devices } : {}),
       ...(options.screen ? { screen: options.screen } : {}),
       ...(options.computer ? { computer: options.computer } : {}),
+      ...(options.outsideClients ? { outsideClients: options.outsideClients } : {}),
       ...(options.projects ? { projects: options.projects } : {}),
       ...(options.transfers ? { transfers: options.transfers } : {}),
       workspaceActions: {

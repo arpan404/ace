@@ -180,6 +180,10 @@ export function daemonHandle({
     get workspaceActions() {
       return services.workspaceActions;
     },
+    /** The endpoint for MCP clients outside ace, with its relay and Tailscale handlers. */
+    get externalMcp() {
+      return services.externalMcp;
+    },
     storage: services.storage,
     engine: services.engine,
     agentControl: services.agentControl,
