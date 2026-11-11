@@ -15,6 +15,7 @@
     "./pr-reference": "./src/pr-reference.ts",
     "./issue-write-plan": "./src/issue-write-plan.ts",
     "./detect": "./src/detect.ts",
+    "./remote": "./src/remote.ts",
     "./testing": "./src/testing/fixtures.ts"
   },
   "scripts": {

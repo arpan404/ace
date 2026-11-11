@@ -466,7 +466,7 @@ export class FakeWorkspaceWire {
         requestId: request.requestId,
         result: { kind: "forge", data: { resource: "media", items: resolveFakeMedia(op.items) } },
       });
-    if (op.op === "forge.repository")
+    if (op.op === "forge.repository" && !this.forgeReads.has(JSON.stringify(op)))
       return ServerMessage.parse({
         type: "workspace.result",
         requestId: request.requestId,

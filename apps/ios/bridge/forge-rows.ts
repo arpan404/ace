@@ -1,6 +1,7 @@
 import type { ForgeIssueRow, ForgePrRow, ForgeRepository } from "@ace/protocol";
 import {
   checksMark,
+  forgeDisplayName,
   issueStateMark,
   middleTruncateText,
   prStepLabels,
@@ -37,6 +38,8 @@ export interface PrRowView {
   key: string;
   number: number;
   repository: ForgeRepository;
+  /** The host's name, for "Open on GitLab". */
+  host: string;
   title: string;
   url: string;
   state: ForgeMark;
@@ -65,6 +68,8 @@ export interface IssueRowView {
   key: string;
   number: number;
   repository: ForgeRepository;
+  /** The host's name, for "Open on GitLab". */
+  host: string;
   title: string;
   url: string;
   state: ForgeMark;
@@ -116,18 +121,22 @@ export function prRowView(
   preview: Preview,
 ): PrRowView {
   const label = step.step === "wait" ? undefined : prStepLabels[step.step];
+  // A review ace only reads has no review or checks to show: it says so, and opens to read.
+  const hosted = row.ref.repository.forge !== "github";
+  const ended = row.state === "closed" || row.state === "merged";
   return {
     key: keyOf(row),
     number: row.ref.number,
     repository: row.ref.repository,
+    host: forgeDisplayName(row.ref.repository.forge),
     title: preview(row.title, 400),
     url: row.url,
     state: { word: prWords[row.state], tone: prTone[row.state] },
     merged: row.state === "merged",
     conflicting: row.conflicting === true,
     labels: labelsOf(row.labels, row.labelColors, preview),
-    review: reviewMark(row.reviewDecision) ?? null,
-    checks: checksMark(row.ci, step.local) ?? null,
+    review: hosted ? null : (reviewMark(row.reviewDecision) ?? null),
+    checks: hosted ? null : (checksMark(row.ci, step.local) ?? null),
     comments: row.commentCount ?? 0,
     additions: row.additions ?? null,
     deletions: row.deletions ?? null,
@@ -139,7 +148,13 @@ export function prRowView(
     thread: threadOf(linked.get(keyOf(row)), preview),
     step: label ?? null,
     stepNeedsYou: prStepsForYou.includes(step.step),
-    quiet: step.step === "wait" ? (waitingWord(row, step.local) ?? null) : null,
+    quiet: hosted
+      ? step.step === "answer" || ended
+        ? null
+        : "Review status unavailable"
+      : step.step === "wait"
+        ? (waitingWord(row, step.local) ?? null)
+        : null,
     updatedAt: epoch(row.updatedAt),
   };
 }
@@ -153,6 +168,7 @@ export function issueRowView(
     key: keyOf(row),
     number: row.ref.number,
     repository: row.ref.repository,
+    host: forgeDisplayName(row.ref.repository.forge),
     title: preview(row.title, 400),
     url: row.url,
     state: issueStateMark(row.state),

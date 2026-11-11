@@ -92,6 +92,10 @@ struct ForgeReviewSheet: Decodable, Sendable, Equatable {
     let refused: String?
     let stale: String?
     let headSha: String
+    /// Where this phone keeps the unsent summary, named by provider and host; a copy kept from
+    /// before keys were sent has none. `legacyDraftKey` holds a summary saved before then.
+    var draftKey: String?
+    var legacyDraftKey: String?
 }
 
 /// A box that shows; `off` says why it can't be used now.
@@ -153,6 +157,8 @@ struct ForgeFileDiff: Decodable, Sendable, Equatable {
     let pairs: [[Int?]]
     /// `viewed`, `changed` (pushed to since) or `unviewed`; nil where the range has no marks.
     let viewed: String?
+    /// The host's name ("GitHub", "GitLab"); a copy kept from before it was sent has none.
+    var host: String?
 }
 
 /// What a review write did: done, refused with why, or unconfirmed (to reconcile, never resend).

@@ -18,7 +18,7 @@ import { IssueRow } from "./issue-row.tsx";
 import { useLinkedThreads } from "./linked-threads.ts";
 import { RowsSkeleton } from "./list-skeletons.tsx";
 import { ListFrame } from "./list-frame.tsx";
-import { useGroupCounts, useIssuePages } from "./lists.ts";
+import { useGroupCounts, useIssuePages, useListFailure } from "./lists.ts";
 import { NewInProject } from "./new-in-project.tsx";
 import { PartialNotice } from "./partial-notice.tsx";
 import { useProjectChoice } from "./project-choice.ts";
@@ -116,6 +116,7 @@ export function IssuesPage(props: {
   const [paging, setPaging] = useState({ key: listKey, pages: 1 });
   const pages = paging.key === listKey ? paging.pages : 1;
   const list = useIssuePages(projects, query, pages);
+  const failure = useListFailure(list);
   // Who the open issues concern, whatever preset is on, for the presets' counts.
   const people = useGroupCounts(projects, {
     by: "issue-people",
@@ -228,7 +229,7 @@ export function IssuesPage(props: {
         ) : list.error && !list.first ? (
           <EmptyState
             title="Couldn't load issues"
-            description={list.error.message}
+            description={failure}
             action={
               <Button size="sm" onClick={list.retry}>
                 Try again

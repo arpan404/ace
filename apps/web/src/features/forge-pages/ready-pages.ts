@@ -102,6 +102,7 @@ export function useReadyPages(project: string | undefined, search: PullsSearch, 
     stale: head.stale,
     loading: head.loading || (!exhaustive && unique.length === 0 && !settled),
     error: head.error,
+    errorProject: head.errorProject,
     more: next !== undefined && settled,
     retry,
   };

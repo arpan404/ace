@@ -16,6 +16,7 @@ import type { ForgePrRow, VerifyRun } from "@ace/protocol";
 import type { MergeRun } from "./merge-run.ts";
 import { useMarkReady } from "./mark-ready.ts";
 import { useStepAction } from "./pr-step.tsx";
+import { repositoryParam } from "@/lib/pull-request-route.ts";
 
 const keyOf = (row: ForgePrRow) => workKey(row.ref.repository, row.ref.number);
 
@@ -64,7 +65,7 @@ export function useRowSteps(input: {
     void navigate({
       to: "/pulls/$project/$number",
       params: { project: input.projectOf(row), number: String(row.ref.number) },
-      search: { back: input.back },
+      search: { back: input.back, repo: repositoryParam(row.ref.repository) },
     });
   const view = (row: ForgePrRow, merge: MergeRun | undefined): RowStepView => {
     const { step, local } = stepOf(row);
@@ -90,6 +91,14 @@ export function useRowSteps(input: {
           label,
           onPress: () => void navigate({ to: "/t/$threadId", params: { threadId: thread.id } }),
         },
+      };
+    if (row.ref.repository.forge !== "github" && step !== "answer")
+      return {
+        status:
+          row.state === "closed" || row.state === "merged"
+            ? status
+            : { words: "Review status unavailable", tone: undefined },
+        action: { label: "View", onPress: () => openPr(row) },
       };
     if (label === "Mark ready")
       return {

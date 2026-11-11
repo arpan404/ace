@@ -120,11 +120,7 @@ export function IssuePage(props: {
             ) : (
               <IssuePageSkeleton
                 number={props.number}
-                seed={
-                  props.repo
-                    ? undefined
-                    : cachedRow(cache, props.project, "issueList", props.number)
-                }
+                seed={cachedRow(cache, props.project, "issueList", props.number, repository)}
                 backLabel={label}
                 onBack={back}
                 readable={readable}

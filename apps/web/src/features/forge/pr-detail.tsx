@@ -9,9 +9,12 @@ import {
   prPollInterval,
   type CodeScope,
   type GateKey,
+  isHostedReview,
 } from "@ace/ui-core";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
+import { HostedPrReader } from "./pr-hosted-reader.tsx";
+import { HostedPrSkeleton } from "./pr-hosted-skeleton.tsx";
 import { PrActivity } from "./pr-activity.tsx";
 import { PrHeader } from "./pr-header.tsx";
 import { PrPageHeader } from "./pr-page-header.tsx";
@@ -526,7 +529,16 @@ export function PrDetail(props: {
         props.page && "sm:[--forge-gutter:2rem]",
       )}
     >
-      {context ? (
+      {/* GitHub alone takes writes from ace: any other host's review is read only. */}
+      {context && isHostedReview(context.detail) ? (
+        <HostedPrReader
+          key={context.detail.status.headSha}
+          context={context}
+          onBack={props.onBack}
+          tab={prWorkspaceTab(props.tab)}
+          onTab={props.onTab}
+        />
+      ) : context ? (
         <PrDetailLoaded
           context={context}
           tab={prWorkspaceTab(props.tab)}
@@ -545,6 +557,13 @@ export function PrDetail(props: {
           number={props.number}
           error={query.error}
           onRetry={() => void query.refetch()}
+        />
+      ) : props.repository && props.repository.forge !== "github" ? (
+        <HostedPrSkeleton
+          forge={props.repository.forge}
+          number={props.number}
+          seed={props.seed}
+          onBack={props.page ? props.onBack : undefined}
         />
       ) : (
         <PrPageSkeleton

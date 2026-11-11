@@ -155,6 +155,15 @@ export const ForgePrDetailFile = z.object({
 });
 export type ForgePrDetailFile = z.infer<typeof ForgePrDetailFile>;
 export const ForgePrDetail = z.object({
+  /** Host reads are available, but ace does not yet admit mutations for this provider. */
+  readOnly: z.boolean().optional(),
+  /** Resources this adapter cannot read; never present empty arrays as complete results.
+   * `fileCount`: the files are readable but the host didn't say how many changed, so
+   * `changedFiles` is a placeholder 0, never a count. */
+  unavailableResources: z
+    .array(z.enum(["comments", "checks", "reviews", "commits", "files", "fileCount"]))
+    .max(6)
+    .optional(),
   status: ForgePrStatus,
   writeState: z.enum(["pending", "uncertain"]).optional(),
   updatedAt: text.optional(),

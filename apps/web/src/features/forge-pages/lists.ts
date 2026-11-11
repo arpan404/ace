@@ -10,6 +10,7 @@ import type {
   ForgeIssueRow,
   ForgeRepository,
 } from "@ace/protocol";
+import { workKey } from "@ace/ui-core";
 import { useClient, useConnectionState } from "@ace/client-react";
 import {
   keepPreviousData,
@@ -19,6 +20,8 @@ import {
 } from "@tanstack/react-query";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { readForge } from "@/lib/forge-read.ts";
+import { readFailureText } from "@/features/forge/index.ts";
+import { useProjectRepositories } from "./inbox-projects.ts";
 import { repositoryParam } from "@/lib/pull-request-route.ts";
 import { freshenIssueList, readIssues } from "./issue-freshen.ts";
 
@@ -39,6 +42,8 @@ export interface ListPages<L extends ForgePrList | ForgeIssueList> {
   loading: boolean;
   /** Every project's read failed: the first failure. */
   error: Error | undefined;
+  /** The project whose read is `error`. */
+  errorProject: string | undefined;
   /** Projects whose read failed while others answered. */
   failed: readonly string[];
   /** Another page exists after the last one read, in some project. */
@@ -46,8 +51,8 @@ export interface ListPages<L extends ForgePrList | ForgeIssueList> {
   retry(): void;
 }
 
-const rowKey = (row: { ref: { repository: { owner: string; name: string }; number: number } }) =>
-  `${row.ref.repository.owner}/${row.ref.repository.name}#${row.ref.number}`.toLowerCase();
+const rowKey = (row: { ref: { repository: ForgeRepository; number: number } }) =>
+  workKey(row.ref.repository, row.ref.number);
 
 /**
  * One cached read per project and page: page 2 of a project is asked for only once its page 1
@@ -85,12 +90,16 @@ function useListPages<L extends ForgePrList | ForgeIssueList>(
   let stale = false;
   let more = false;
   let error: Error | undefined;
+  let errorProject: string | undefined;
   plan.forEach(({ project, page }, index) => {
     const result = results[index];
     if (!result) return;
     if (result.isError) {
       failed.add(project);
-      error ??= result.error;
+      if (!error) {
+        error = result.error;
+        errorProject = project;
+      }
     }
     const data = result.data;
     if (!data) return;
@@ -117,10 +126,25 @@ function useListPages<L extends ForgePrList | ForgeIssueList>(
     stale,
     loading: projects.length > 0 && !answered && failed.size < projects.length,
     error: answered ? undefined : error,
+    errorProject: answered ? undefined : errorProject,
     failed: answered ? [...failed] : [],
     more,
     retry: () => void Promise.all(results.map((result) => result.refetch())),
   };
+}
+
+/**
+ * Why every project's list read failed, in the failing project's Git host's words (glab for
+ * GitLab, never gh). The project's repository is asked for only once a read has failed.
+ */
+export function useListFailure(
+  list: Pick<ListPages<ForgePrList | ForgeIssueList>, "error" | "errorProject">,
+): string | undefined {
+  const failing = list.error && list.errorProject ? [list.errorProject] : [];
+  const repositories = useProjectRepositories(failing);
+  if (!list.error) return undefined;
+  const forge = list.errorProject ? repositories.get(list.errorProject)?.forge : undefined;
+  return readFailureText(list.error, forge);
 }
 
 const withoutPage = <T extends { page: number }>(query: T) => ({ ...query, page: 0 });
@@ -254,25 +278,31 @@ const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
 /**
  * A row a list already read for this pull request or issue, if any: its page shows what the row
- * says (title, state, author) at once while the rest loads.
+ * says (title, state, author) at once while the rest loads. Rows match by their whole identity
+ * (provider, host, owner, name, number); with no repository named, only the list's own
+ * repository counts, so a same-numbered review on another host never stands in for this one.
  */
 export function cachedRow<K extends "prList" | "issueList">(
   cache: QueryClient,
   project: string,
   kind: K,
   number: number,
-  repository?: { owner: string; name: string },
+  repository?: Pick<ForgeRepository, "owner" | "name"> &
+    Partial<Pick<ForgeRepository, "forge" | "host">>,
 ): (K extends "prList" ? ForgePrRow : ForgeIssueRow) | undefined {
   type Row = K extends "prList" ? ForgePrRow : ForgeIssueRow;
-  for (const [, data] of cache.getQueriesData<{ items: Row[] }>({
+  for (const [, data] of cache.getQueriesData<{ items: Row[]; repository?: ForgeRepository }>({
     queryKey: ["forge", project, "browse", kind],
   })) {
+    const target = repository ?? data?.repository;
+    if (!target) continue;
     const row = data?.items.find(
       (item) =>
         item.ref.number === number &&
-        (!repository ||
-          (same(item.ref.repository.owner, repository.owner) &&
-            same(item.ref.repository.name, repository.name))),
+        same(item.ref.repository.owner, target.owner) &&
+        same(item.ref.repository.name, target.name) &&
+        (target.forge === undefined || same(item.ref.repository.forge, target.forge)) &&
+        (target.host === undefined || same(item.ref.repository.host, target.host)),
     );
     if (row) return row;
   }

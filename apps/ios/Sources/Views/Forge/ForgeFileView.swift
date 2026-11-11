@@ -106,14 +106,14 @@ struct ForgeFileView: View {
                 ForgeImageDiffView(client: client, route: route, revisions: file.revisions) { shownRevisions = $0 }
             } else {
                 if file.empty {
-                    Text(file.show == "patch" ? "GitHub shows no lines for this file." : "GitHub sent no patch for this file; open it on GitHub.").meta()
+                    Text(file.show == "patch" ? "\(host(file)) shows no lines for this file." : "\(host(file)) sent no patch for this file; open it on \(host(file)).").meta()
                         .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.md)
                 }
                 ForgeDiffLines(file: file, desk: desk, wrap: wrap, split: split && wide, pick: pick,
                                pickable: file.commenting != nil && client.canOperate,
                                tap: { tap($0, in: file) }, compose: { composing = $0 })
                 if file.truncated {
-                    Text(file.hiddenLines > 0 ? "\(file.hiddenLines) more lines on GitHub" : "The rest of this file is on GitHub").meta()
+                    Text(file.hiddenLines > 0 ? "\(file.hiddenLines) more lines on \(host(file))" : "The rest of this file is on \(host(file))").meta()
                         .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.md)
                 }
             }
@@ -158,6 +158,8 @@ struct ForgeFileView: View {
 
     /// Whether what is on screen is the version the page read: the patch always is; a rendered
     /// or image view is once it has drawn this diff's commits.
+    private func host(_ file: ForgeFileDiff) -> String { file.host ?? "GitHub" }
+
     private func showsCurrent(_ file: ForgeFileDiff) -> Bool { viewedHead(file) != nil }
     private func viewedHead(_ file: ForgeFileDiff) -> String? {
         ForgeViewedVersion.head(patchHead: file.headSha, current: file.revisions, drawsSides: drawsSides(file), shown: shownRevisions)

@@ -124,7 +124,10 @@ test("a checkout with no recorded base never guesses one, and can still open a P
 test("GitLab checkouts explain the unsupported forge before creating a PR", () => {
   expect(
     step({ repository: { ...repository, forge: "gitlab", host: "gitlab.com" } }),
-  ).toMatchObject({ kind: "create-pr", blocked: /^GitLab merge requests aren't supported yet/ });
+  ).toMatchObject({
+    kind: "create-pr",
+    blocked: /^Creating GitLab merge requests isn't supported yet/,
+  });
 });
 
 const note = (patch: Partial<ThreadDetails>) => {
@@ -138,4 +141,46 @@ test("the sync note says what the remote lacks and what it has that the checkout
   expect(note({ behind: 1 })).toBe("1 commit to pull");
   expect(note({ ahead: 1, behind: 3 })).toBe("1 commit not pushed · 3 to pull");
   expect(note({})).toBeUndefined();
+});
+
+test.each(["gitbucket", "bitbucket", "gitea", "forgejo"] as const)(
+  "%s checkouts cannot create a GitHub PR",
+  (forge) => {
+    expect(step({ repository: { ...repository, forge, host: "git.example.com" } })).toMatchObject({
+      kind: "create-pr",
+      blocked: /aren't supported yet/,
+    });
+  },
+);
+
+test("linking existing Origin and GitLab reviews does not require create permissions or a feature branch", async () => {
+  const { linkPrBlocker } = await import("./checkout.ts");
+  for (const forge of ["origin", "gitlab"] as const) {
+    const checkout = checkoutOf(
+      details({ repository: { ...repository, forge }, branch: "main", baseBranch: "main" }),
+    );
+    if (!checkout) throw new Error("Expected checkout");
+    expect(linkPrBlocker(checkout)).toBeUndefined();
+    expect(nextGitStep(checkout)).toMatchObject({ kind: "create-pr", blocked: expect.any(String) });
+  }
+});
+
+test("a status from another host cannot change a linked review with the same name and number", () => {
+  const status: ForgePrStatus = {
+    ref: { repository: { ...repository, forge: "origin", host: "origin.cursor.com" }, number: 9 },
+    title: "Other review",
+    raw: {},
+    url: "https://cursor.com/codebase/acme/relay/pull/9",
+    headSha: "a".repeat(40),
+    state: "merged",
+    mergeability: "unknown",
+    ci: "unknown",
+    checks: [],
+    comments: [],
+    reviewThreads: [],
+  };
+  expect(checkoutOf(details(link(9)), status)?.pr).toMatchObject({
+    state: "open",
+    repo: repository,
+  });
 });

@@ -6,7 +6,7 @@ import {
   type ForgeLifecycleAction,
   type ForgePrDetail,
 } from "@ace/protocol";
-import { actionErrorText, lifecycleLabels } from "@ace/ui-core";
+import { forgeErrorText, lifecycleLabels } from "@ace/ui-core";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { keptForgeMs } from "@/lib/query-persistence.ts";
 import { runCommand, CommandRefused } from "@/lib/daemon-command.ts";
@@ -94,7 +94,7 @@ export function usePrLifecycle(props: {
         title: `Couldn't ${label.toLowerCase()}`,
         description:
           error instanceof CommandRefused
-            ? actionErrorText(error.code)
+            ? forgeErrorText(error.code, pr.repository.forge)
             : "Check the result before trying again. Your edit is kept.",
       });
       void query.refetch();

@@ -230,17 +230,17 @@ export function GitMenuItems(props: { git: GitFlow; checkout: Checkout }) {
           </MenuItem>
         </>
       )}
-      {live && pr && <PrMenuItems git={git} draft={pr.state === "draft"} />}
-      {checkout.repository?.forge !== "gitlab" && (
-        <MenuItem
-          icon={glyph(LinkSimpleIcon)}
-          disabled={!!git.linkBlocked || git.pending}
-          reason={git.linkBlocked}
-          onClick={() => git.open("link-pr")}
-        >
-          Link a pull request…
-        </MenuItem>
+      {live && pr && (pr.repo ?? checkout.repository)?.forge === "github" && (
+        <PrMenuItems git={git} draft={pr.state === "draft"} />
       )}
+      <MenuItem
+        icon={glyph(LinkSimpleIcon)}
+        disabled={!!git.linkBlocked || git.pending}
+        reason={git.linkBlocked}
+        onClick={() => git.open("link-pr")}
+      >
+        Link a pull request…
+      </MenuItem>
       {pr && (
         <MenuItem
           disabled={git.pending}

@@ -6,6 +6,7 @@ export { useOpenIssues, useOpenPullRequests, useOpenWork } from "./open-work.ts"
 export { useMergeMethod } from "./pr-merge-method.ts";
 export { PrCheckLog } from "./pr-check-log.tsx";
 export { PrPageSkeleton, type PrSeed } from "./pr-page-skeleton.tsx";
+export { HostedPrSkeleton } from "./pr-hosted-skeleton.tsx";
 export type {
   PrWorkspaceExtensions,
   PrWorkspaceContext,

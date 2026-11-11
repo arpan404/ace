@@ -46,7 +46,13 @@ struct ForgePullPageView: View {
 
     var body: some View {
         ScrollView {
-            if let page { content(page) }
+            if let page {
+                if let hosted = page.hosted {
+                    ForgeHostedPullView(client: client, route: route, page: page, hosted: hosted, open: open) { await load() }
+                } else {
+                    content(page)
+                }
+            }
             else if let failure {
                 EmptyState(icon: nil, title: "Couldn't load this pull request", line: failure, failed: true) {
                     Button("Try again") { Task { await load() } }
@@ -58,14 +64,14 @@ struct ForgePullPageView: View {
         }
         .background(AceTheme.Colours.background)
         .refreshable { await load() }
-        .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { if let page { bar(page) } }
+        .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { if let page, page.hosted == nil { bar(page) } }
         .navigationTitle(Text(verbatim: "#\(route.number)"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if let page, let link = URL(string: page.url) {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Button("Open on GitHub", ace: .arrowSquareOut) { openURL(link) }
+                        Button("Open on \(page.hosted?.provider ?? "GitHub")", ace: .arrowSquareOut) { openURL(link) }
                         ShareLink(item: link) { Label("Share", ace: .export) }
                         Button("Copy link", ace: .copy) { UIPasteboard.general.url = link }
                     } label: { Image(ace: .dotsThree) }
@@ -127,15 +133,19 @@ struct ForgePullPageView: View {
             ForgeWorkSection(client: client, route: route, target: target(page), push: open, openThread: openThread, startThread: startThread, title: page.title)
             ForgeChecksSection(client: client, route: route, target: target(page), shown: page.checks, open: open)
             ForgeSection(title: nil) {
-                ForgeLinkRow(title: "Files changed", detail: page.changedFiles == 1 ? "1 file" : "\(page.changedFiles) files", identifier: "forge.pull.files") {
+                ForgeLinkRow(title: "Files changed", detail: page.changedFiles.map { $0 == 1 ? "1 file" : "\($0) files" } ?? "", identifier: "forge.pull.files") {
                     open(ForgeRoute(kind: .files, machineId: route.machineId, project: route.project, number: route.number, repository: route.repository))
                 }
-                ForgeLinkRow(title: "Commits", detail: page.commits == 1 ? "1 commit" : "\(page.commits) commits", identifier: "forge.pull.commits") {
+                ForgeLinkRow(title: "Commits", detail: commitWords(page) ?? "", identifier: "forge.pull.commits") {
                     open(ForgeRoute(kind: .commits, machineId: route.machineId, project: route.project, number: route.number, repository: route.repository))
                 }
             }
         }
         .padding(.vertical, AceTheme.Spacing.md)
+    }
+
+    private func commitWords(_ page: ForgePullPage) -> String? {
+        page.commits.map { $0 == 1 ? "1 commit" : "\($0) commits" }
     }
 
     private func target(_ page: ForgePullPage) -> ForgePullTarget {
@@ -159,7 +169,7 @@ struct ForgePullPageView: View {
             Text(page.title).aceFont(AceTheme.Typography.title, relativeTo: .title3)
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .textSelection(.enabled)
-            Text("\(page.author) · \(page.commits == 1 ? "1 commit" : "\(page.commits) commits")").meta()
+            Text([page.author, commitWords(page)].compactMap { $0 }.joined(separator: " · ")).meta()
             Text("\(page.headBranch) → \(page.baseBranch)").aceMonospace(AceTheme.Typography.caption, relativeTo: .footnote)
                 .foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(1).truncationMode(.middle)
             if let additions = page.additions, let deletions = page.deletions {

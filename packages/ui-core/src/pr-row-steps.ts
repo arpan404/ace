@@ -21,8 +21,8 @@ export interface LinkedThread {
 export type LinkedThreads = ReadonlyMap<string, LinkedThread>;
 
 /** One key per PR or issue: repository and number, case-insensitive like GitHub's names. */
-export function workKey(repository: Pick<ForgeRepository, "owner" | "name">, number: number) {
-  return `${repository.owner}/${repository.name}#${number}`.toLowerCase();
+export function workKey(repository: ForgeRepository, number: number) {
+  return `${repository.forge}@${repository.host}/${repository.owner}/${repository.name}#${number}`.toLowerCase();
 }
 
 /**
@@ -74,6 +74,15 @@ export function rowStep(
   thread: LinkedThread | undefined,
   runs: readonly VerifyRun[],
 ): RowStep {
+  if (row.ref.repository.forge !== "github")
+    return {
+      step: thread?.needsYou
+        ? "answer"
+        : row.state === "closed" || row.state === "merged"
+          ? "none"
+          : "wait",
+      local: undefined,
+    };
   const local = localCheckOf(
     runs,
     { owner: row.ref.repository.owner, name: row.ref.repository.name, number: row.ref.number },

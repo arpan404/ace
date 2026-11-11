@@ -1,6 +1,7 @@
 import { ForgeRepository, type ForgeFile, type ForgePrFiles } from "@ace/protocol";
 import {
   codeCaveats,
+  forgeDisplayName,
   hostedFileShow,
   lockedText,
   renderedKind,
@@ -8,6 +9,7 @@ import {
   viewedMarks,
   type HostedFileShow,
   type ViewedState,
+  isHostedReview,
 } from "@ace/ui-core";
 import { mobileFileDiff, type MobileDiffLine } from "@ace/ui-core/mobile";
 import { z } from "zod";
@@ -127,6 +129,8 @@ export interface FileReply {
   viewed: ViewedMark | null;
   /** The exact commits this diff is between, which its rendered and image views read too. */
   revisions: FileRevisions;
+  /** The host's name, for what it shows of the file ("GitHub", "GitLab"). */
+  host: string;
 }
 
 /**
@@ -268,10 +272,12 @@ export async function readFile(
 ): Promise<FileReply> {
   const detail = await prDetail(reads, request);
   const shas = { headSha: detail.status.headSha, baseSha: detail.baseSha };
+  // A read-only review has no review state or lifecycle: no marks, comments or drafts.
+  const hosted = isHostedReview(detail);
   const [found, state, lifecycle] = await Promise.all([
     findFile(reads, request, shas),
-    prReviewState(reads, request),
-    prLifecycle(reads, request),
+    hosted ? undefined : prReviewState(reads, request),
+    hosted ? undefined : prLifecycle(reads, request),
   ]);
   const { file } = found;
   const locked = lockedOut(lifecycle);
@@ -362,5 +368,6 @@ export async function readFile(
       previousPath: file.previousPath ?? null,
       status: file.status,
     },
+    host: forgeDisplayName(detail.status.ref.repository.forge),
   };
 }

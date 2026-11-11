@@ -1,15 +1,28 @@
 import {
   createCommandRunner,
   githubReadiness,
+  gitlabReadiness,
+  gitlabIdentity,
+  originReadiness,
+  originIdentity,
   githubIdentity,
   identityRunner,
   repositoryFromRemote,
   ForgeError,
   SshHostAliases,
   identityVerificationMs,
+  isReadOnlyApiRequest,
+  pinnedRunner,
   type CommandRunner,
 } from "@ace/forge";
-import { SourceControlPreferences, type SourceControlReadiness } from "@ace/protocol";
+import {
+  SourceControlPreferences,
+  configuredForge,
+  configuredForges,
+  type ForgeKind,
+  type SourceControlReadiness,
+  type ForgeRepository,
+} from "@ace/protocol";
 import type { SettingsService } from "@ace/settings";
 import { GitError } from "@ace/git";
 import type { WorkspaceGit } from "./workspace-roots.ts";
@@ -24,8 +37,13 @@ export class SourceControl {
   private closed = false;
   private stop: () => void;
   private listeners = new Set<() => void>();
-  /** Verified API accounts per host and preferences revision, reused for a short window. */
+  /** Verified API accounts per provider and host and preferences revision, reused for a short
+   * window. Cleared by every preferences change and rescan, the account-change signals. */
   private identities = new Map<string, { account: string; revision: number; at: number }>();
+  /** Bumped per key when a probe names another account, and for every key by a rescan. A probe
+   * that started under an older generation never writes its answer back. */
+  private generations = new Map<string, number>();
+  private epoch = 0;
   /** Hosts whose account is being probed again behind a reused answer. */
   private reverifying = new Set<string>();
   private aliases: SshHostAliases;
@@ -69,7 +87,7 @@ export class SourceControl {
     this.stop = settings.onChange((layer, keys) => {
       if (layer.kind !== "global" || !keys.includes("sourceControl.preferences")) return;
       this.currentRevision++;
-      this.identities.clear();
+      this.forgetIdentities();
       for (const listener of this.listeners) listener();
     });
   }
@@ -91,9 +109,16 @@ export class SourceControl {
     };
     check();
     const configured = preferences.hosts.find((entry) => entry.host === host);
-    if (!configured) throw new ForgeError("unsupported");
+    if (!configured || configuredForge(configured) !== "github")
+      throw new ForgeError("unsupported");
     const runner = this.runner(cwd);
-    const { account, at } = await this.verifiedAccount(runner, host, revision, signal);
+    const key = `github ${host}`;
+    const { account, at } = await this.verifiedAccount(
+      key,
+      (probe) => githubIdentity(runner, host, probe, this.now),
+      revision,
+      signal,
+    );
     await assertCurrent();
     if (configured.account && configured.account !== account) throw new ForgeError("forbidden");
     return {
@@ -103,47 +128,110 @@ export class SourceControl {
       runner: identityRunner(runner, host, account, assertCurrent, {
         now: this.now,
         verifiedAt: at,
+        onMismatch: () => this.mismatched(key),
       }),
     };
   }
-  /** One `/user` probe per host per window, not one per operation. */
+  /**
+   * Alternative host reads are pinned to an admitted CLI identity and preferences revision, and
+   * admit only explicit GET API requests. The account is re-probed at most once per verification
+   * window per host (always after a preferences change or rescan), beside the read it gates.
+   */
+  async readIdentity(cwd: string, repository: ForgeRepository, signal: AbortSignal) {
+    if (repository.forge === "github") return this.identity(cwd, repository.host, signal);
+    const forge = repository.forge;
+    if (forge !== "gitlab" && forge !== "origin") throw new ForgeError("unsupported");
+    const revision = this.currentRevision;
+    const check = await this.guard();
+    const preferences = await this.preferences();
+    const configured = preferences.hosts.find((entry) => entry.host === repository.host);
+    if (!configured || configuredForge(configured) !== forge) throw new ForgeError("unsupported");
+    const runner = this.runner(cwd);
+    const identify = (probe: AbortSignal) =>
+      forge === "origin"
+        ? originIdentity(runner, probe)
+        : gitlabIdentity(runner, repository.host, probe);
+    const key = `${forge} ${repository.host}`;
+    const { account, at } = await this.verifiedAccount(key, identify, revision, signal);
+    check();
+    if (configured.account && configured.account !== account) throw new ForgeError("forbidden");
+    const cli = forge === "origin" ? "origin" : "glab";
+    const generation = this.generation(key);
+    const pinned = pinnedRunner({
+      runner,
+      account,
+      identify,
+      pins: () => true,
+      isWrite: () => false,
+      assertCurrent: check,
+      options: {
+        now: this.now,
+        verifiedAt: at,
+        onVerified: (verifiedAt) => {
+          if (revision === this.currentRevision && generation === this.generation(key))
+            this.identities.set(key, { account, revision, at: verifiedAt });
+        },
+        onMismatch: () => this.mismatched(key),
+      },
+    });
+    const verified: CommandRunner = async (request) => {
+      check();
+      request.signal.throwIfAborted();
+      if (!isReadOnlyApiRequest(cli, request, repository.host)) throw new ForgeError("unsupported");
+      const result = await pinned(request);
+      check();
+      return result;
+    };
+    return { account, revision, check, runner: verified };
+  }
+  /** One identity probe per provider host per window, not one per operation. */
   private async verifiedAccount(
-    runner: CommandRunner,
-    host: string,
+    key: string,
+    identify: (signal: AbortSignal) => Promise<string>,
     revision: number,
     signal: AbortSignal,
   ) {
-    const cached = this.identities.get(host);
+    const cached = this.identities.get(key);
     const now = this.now();
     const age = cached && cached.revision === revision ? now - cached.at : -1;
     if (cached && age >= 0 && age < identityVerificationMs) return cached;
     // A recent answer still names the backend, and the runner proves the account of every
     // request it sends, so the next read need not wait for this probe; it runs behind it.
     if (cached && age >= 0 && age < identityReuseMs) {
-      if (!this.reverifying.has(host)) {
-        this.reverifying.add(host);
-        void this.probeAccount(runner, host, revision, signal)
+      if (!this.reverifying.has(key)) {
+        this.reverifying.add(key);
+        void this.probeAccount(key, identify, revision, signal)
           .catch(() => undefined)
-          .finally(() => this.reverifying.delete(host));
+          .finally(() => this.reverifying.delete(key));
       }
       return cached;
     }
-    return this.probeAccount(runner, host, revision, signal);
+    return this.probeAccount(key, identify, revision, signal);
   }
   private async probeAccount(
-    runner: CommandRunner,
-    host: string,
+    key: string,
+    identify: (signal: AbortSignal) => Promise<string>,
     revision: number,
     signal: AbortSignal,
   ) {
     const now = this.now();
-    const verified = {
-      account: await githubIdentity(runner, host, signal, this.now),
-      revision,
-      at: now,
-    };
-    if (revision === this.currentRevision) this.identities.set(host, verified);
+    const generation = this.generation(key);
+    const verified = { account: await identify(signal), revision, at: now };
+    if (revision === this.currentRevision && generation === this.generation(key))
+      this.identities.set(key, verified);
     return verified;
+  }
+  /** Which account-change signals `key` has seen; equal values mean none happened between. */
+  private generation(key: string): string {
+    return `${this.epoch}:${this.generations.get(key) ?? 0}`;
+  }
+  private mismatched(key: string): void {
+    this.generations.set(key, (this.generations.get(key) ?? 0) + 1);
+    this.identities.delete(key);
+  }
+  private forgetIdentities(): void {
+    this.epoch++;
+    this.identities.clear();
   }
   /** Real hosts behind SSH host aliases in these remote URLs (`~/.ssh/config` `Host` entries). */
   hostAliases(urls: readonly string[], signal: AbortSignal): Promise<Record<string, string>> {
@@ -157,9 +245,29 @@ export class SourceControl {
     const check = await this.guard();
     const preferences = await this.preferences();
     const runner = this.runner(cwd);
-    const status = await githubReadiness(runner, preferences, signal, this.now);
+    const selected = preferences.hosts.find((entry) => entry.host === preferences.host);
+    const forge: ForgeKind = selected ? configuredForge(selected) : "github";
+    const status: SourceControlReadiness =
+      forge === "github"
+        ? await githubReadiness(runner, preferences, signal, this.now)
+        : forge === "gitlab"
+          ? await gitlabReadiness(runner, preferences, signal)
+          : forge === "origin"
+            ? await originReadiness(runner, preferences, signal)
+            : {
+                preferences,
+                cli: "unavailable",
+                version: null,
+                accounts: [],
+                account: null,
+                api: "unavailable",
+                instructions:
+                  "Host saved. Pull requests, issues and API connection checks for this provider are not available yet. Git clone and push use your existing Git credentials.",
+                transport: "unchecked",
+                transportInstructions: "Check a project's remote to verify Git access.",
+              };
     // A rescan re-verifies identity from scratch.
-    this.identities.clear();
+    this.forgetIdentities();
     check();
     if (!git) return status;
     const info = await git.repositoryInfo(cwd);
@@ -177,7 +285,7 @@ export class SourceControl {
       }
       repositoryFromRemote(
         remote,
-        Object.fromEntries(preferences.hosts.map((entry) => [entry.host, "github"])),
+        configuredForges(preferences.hosts),
         await this.hostAliases([remote], signal),
       );
       // The same transport a push uses (credential helpers, SSH command, no prompts), so a
