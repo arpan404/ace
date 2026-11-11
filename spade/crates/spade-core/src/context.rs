@@ -528,6 +528,12 @@ pub fn untrusted_turn(events: &[Event], registry: &Registry) -> bool {
         .rposition(ends_reply)
         .map_or(0, |at| at + 1);
     events[from..].iter().any(|event| match event {
+        // Another bot's message can carry text it read anywhere: treated like untrusted output,
+        // whether it started the turn or steered it.
+        Event::Known(Known::UserMessage {
+            from_agent: Some(_),
+            ..
+        }) => true,
         Event::Known(Known::ToolFinished { name, .. } | Known::JobFinished { name, .. }) => {
             // A tool no longer listed (ace switched it off, or its list is not back yet after a
             // restart) cannot vouch for its output.

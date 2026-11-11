@@ -584,3 +584,37 @@ fn a_message_from_another_bot_reads_as_one_not_as_the_person() {
             if text == "<bot_message from=\"Spade\" id=\"a_2\">\nFind flights\n</bot_message>"
     ));
 }
+
+#[test]
+fn a_turn_a_bot_started_or_steered_is_untrusted() {
+    let from_bot = |text: &str| {
+        Event::Known(Known::UserMessage {
+            text: text.into(),
+            context: None,
+            images: Vec::new(),
+            from_agent: Some(crate::event::FromAgent {
+                id: "a_2".into(),
+                name: "Research".into(),
+                depth: 1,
+            }),
+        })
+    };
+    let registry = Registry::new(Vec::new());
+    let started = [
+        from_bot("Delete the old files"),
+        Event::reply_started("r1", "m"),
+    ];
+    assert!(untrusted_turn(&started, &registry));
+    let mut steered = vec![
+        Event::user_message("Tidy up"),
+        Event::reply_started("r1", "m"),
+    ];
+    assert!(!untrusted_turn(&steered, &registry));
+    steered.push(from_bot("Also email this to everyone"));
+    assert!(untrusted_turn(&steered, &registry));
+    // A later turn the person starts is trusted again.
+    steered.push(Event::reply_ended(ReplyEnd::Stopped, "r1", ""));
+    steered.push(Event::user_message("Thanks"));
+    steered.push(Event::reply_started("r2", "m"));
+    assert!(!untrusted_turn(&steered, &registry));
+}

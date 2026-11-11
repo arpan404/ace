@@ -80,7 +80,14 @@ impl Engine {
                 .endpoints()
                 .iter()
                 .find(|e| e.id == endpoint.id);
-            let (wanted, edited) = adopted(endpoint, &shipped, current, self.now_ms());
+            let (mut wanted, edited) = adopted(endpoint, &shipped, current, self.now_ms());
+            match spade_models::base_url::check(&wanted.base_url) {
+                Ok(url) => wanted.base_url = url,
+                Err(why) => {
+                    tracing::warn!(endpoint = %endpoint.id, why, "not adopting an endpoint from the old models.json");
+                    continue;
+                }
+            }
             if !edited && endpoint.needs_key && !self.models.has_key(endpoint) {
                 continue;
             }
@@ -166,7 +173,7 @@ fn adopted(
     if !models.is_empty() {
         edited = true;
     }
-    let stored = StoredEndpoint {
+    let mut stored = StoredEndpoint {
         id: file.id.clone(),
         name: name.clone(),
         format: format.name().to_owned(),
@@ -184,6 +191,10 @@ fn adopted(
         created_ms: now_ms,
         models,
     };
+    // A preset's key binding and headers never follow an edited URL to another host.
+    if let Some(current) = current {
+        super::endpoints::bind_to_origin(&mut stored, current);
+    }
     (stored, edited)
 }
 

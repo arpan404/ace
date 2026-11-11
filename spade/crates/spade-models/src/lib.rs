@@ -4,6 +4,7 @@
 //! model as `endpoint/model`; any model id works, with facts from what the person saved, else the
 //! presets, else defaults. The SDK stays inside this crate.
 
+pub mod base_url;
 pub mod catalog;
 mod client;
 pub mod config;

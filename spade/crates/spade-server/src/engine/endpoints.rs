@@ -4,6 +4,7 @@
 
 use std::collections::HashSet;
 
+use spade_models::base_url::{self, same_origin};
 use spade_models::{Capability, Endpoint, Format, Listed, Model, ModelError, Role};
 use spade_store::{StoreError, StoredEndpoint, StoredModel};
 
@@ -11,7 +12,6 @@ use super::Engine;
 
 const FAST_MODEL: &str = "fast_model";
 const NAME_CHARS: usize = 60;
-const URL_CHARS: usize = 2_048;
 const MOST_HEADERS: usize = 32;
 const MOST_MODELS: usize = 2_000;
 
@@ -93,22 +93,17 @@ pub(super) fn is_credential_header(name: &str) -> bool {
     CREDENTIAL_HEADERS.contains(&name.trim().to_ascii_lowercase().as_str())
 }
 
-/// `scheme://host:port` of a URL, lower case; the whole text when it has no scheme.
-pub(super) fn origin(url: &str) -> String {
-    let lower = url.trim().to_ascii_lowercase();
-    match lower.split_once("://") {
-        Some((scheme, rest)) => {
-            let host = rest.split(['/', '?', '#']).next().unwrap_or("");
-            let host = host.rsplit_once('@').map_or(host, |(_, h)| h);
-            let default = if scheme == "https" { ":443" } else { ":80" };
-            let host = if host.contains(':') && !host.ends_with(']') {
-                host.to_owned()
-            } else {
-                format!("{host}{default}")
-            };
-            format!("{scheme}://{host}")
-        }
-        None => lower,
+/// A preset's key binding and headers are for the preset's host: an endpoint made from it that
+/// points elsewhere keeps neither, so they never go to another host.
+pub(super) fn bind_to_origin(stored: &mut StoredEndpoint, preset: &Endpoint) {
+    if same_origin(&stored.base_url, &preset.base_url) {
+        return;
+    }
+    if stored.key_env == preset.key_env {
+        stored.key_env = None;
+    }
+    if stored.headers == preset.headers {
+        stored.headers.clear();
     }
 }
 
@@ -292,6 +287,9 @@ impl Engine {
             },
         };
         apply(&mut stored, input)?;
+        if let Some(preset) = &preset {
+            bind_to_origin(&mut stored, preset);
+        }
         self.store.insert_endpoint(&stored)?;
         self.sync_endpoints()?;
         self.endpoint_view(&stored.id)
@@ -306,15 +304,17 @@ impl Engine {
         let mut stored = before.clone();
         apply(&mut stored, input)?;
         // A key or headers belong to the host they were set for: never hand them to another.
-        if origin(&stored.base_url) != origin(&before.base_url) {
+        // Checked whatever `needs_key` says now, since it can be turned back on later.
+        let was = base_url::origin(&before.base_url).unwrap_or_default();
+        if !same_origin(&stored.base_url, &before.base_url) {
             let key = self
                 .endpoint_of(&before)
-                .is_some_and(|e| e.needs_key && self.models.key_found(&e));
+                .is_some_and(|e| self.models.key_found(&e));
             if key {
                 return Err(EndpointError::Conflict(format!(
                     "this endpoint has a key for {}; remove it first (DELETE /v1/keys/{id}{}) and \
                      add the new host's key after",
-                    origin(&before.base_url),
+                    was,
                     before
                         .key_env
                         .as_ref()
@@ -322,11 +322,16 @@ impl Engine {
                         .unwrap_or_default()
                 )));
             }
+            if let Some(var) = &before.key_env {
+                return Err(EndpointError::Conflict(format!(
+                    "this endpoint takes its key from {var}, which is for {was}; add a new \
+                     endpoint for the other host instead"
+                )));
+            }
             if !stored.headers.is_empty() {
                 return Err(EndpointError::Conflict(format!(
-                    "this endpoint sends extra headers to {}; send \"headers\": {{}} with the new \
-                     base URL to drop them, then add the new host's",
-                    origin(&before.base_url)
+                    "this endpoint sends extra headers to {was}; send \"headers\": {{}} with the new \
+                     base URL to drop them, then add the new host's"
                 )));
             }
         }
@@ -504,20 +509,9 @@ fn apply(stored: &mut StoredEndpoint, input: EndpointInput) -> Result<(), Endpoi
         ));
     }
     if let Some(url) = input.base_url {
-        stored.base_url = url.trim().to_owned();
+        stored.base_url = url;
     }
-    let url = &stored.base_url;
-    if !(url.starts_with("https://") || url.starts_with("http://"))
-        || url.len() > URL_CHARS
-        || url.chars().any(|c| c.is_whitespace() || c.is_control())
-    {
-        return Err(invalid(
-            "the base URL must start with https:// or http:// and have no spaces",
-        ));
-    }
-    if !stored.base_url.ends_with('/') {
-        stored.base_url.push('/');
-    }
+    stored.base_url = base_url::check(&stored.base_url).map_err(invalid)?;
     if let Some(headers) = input.headers {
         if headers.len() > MOST_HEADERS {
             return Err(invalid(format!("at most {MOST_HEADERS} extra headers")));
@@ -565,25 +559,7 @@ fn apply(stored: &mut StoredEndpoint, input: EndpointInput) -> Result<(), Endpoi
 
 #[cfg(test)]
 mod tests {
-    use super::{is_credential_header, origin, slug};
-
-    #[test]
-    fn an_origin_is_scheme_host_and_port() {
-        assert_eq!(
-            origin("https://API.example.com/v1/"),
-            "https://api.example.com:443"
-        );
-        assert_eq!(
-            origin("https://api.example.com:443/v2"),
-            origin("https://api.example.com")
-        );
-        assert_ne!(origin("https://a.example/"), origin("https://b.example/"));
-        assert_ne!(origin("http://a.example/"), origin("https://a.example/"));
-        assert_ne!(
-            origin("https://a.example@b.example/"),
-            origin("https://a.example/")
-        );
-    }
+    use super::{is_credential_header, slug};
 
     #[test]
     fn credential_headers_are_known_whatever_their_case() {

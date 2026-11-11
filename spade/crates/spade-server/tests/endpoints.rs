@@ -425,3 +425,134 @@ async fn a_model_on_an_endpoint_costs_its_own_presets_price_not_another_endpoint
     assert_eq!(finished["cost_micros"], 1800);
     Ok(())
 }
+
+#[tokio::test]
+async fn a_base_url_that_would_go_somewhere_else_than_it_reads_is_refused() -> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    spade
+        .post(
+            "/v1/endpoints",
+            json!({ "name": "Gate", "format": "openai-chat", "base_url": "https://gate.example/v1" }),
+        )
+        .await?;
+    spade.put("/v1/keys/gate", json!({ "key": KEY })).await?;
+    for sneaky in [
+        // Clients send this to evil.example.
+        "https://evil.example\\@gate.example/v1",
+        "https://evil.example@gate.example/v1",
+        "https://user:pass@gate.example/v1",
+        "ftp://gate.example/v1",
+    ] {
+        let (status, body) =
+            patch(&spade, "/v1/endpoints/gate", json!({ "base_url": sneaky })).await?;
+        assert_eq!(status, 400, "{sneaky}: {body}");
+        let (status, _) = spade
+            .post(
+                "/v1/endpoints",
+                json!({ "name": "Other", "format": "openai-chat", "base_url": sneaky }),
+            )
+            .await?;
+        assert_eq!(status, 400, "{sneaky}");
+    }
+    let (status, _) = patch(
+        &spade,
+        "/v1/endpoints/gate",
+        json!({ "base_url": "https://gate.example:8443/v1" }),
+    )
+    .await?;
+    assert_eq!(status, 409, "another port is another host");
+    assert_eq!(
+        endpoint(&spade, "gate").await?["base_url"],
+        "https://gate.example/v1/"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn turning_off_needs_key_does_not_let_a_stored_key_follow_a_host_change() -> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    spade
+        .post(
+            "/v1/endpoints",
+            json!({ "name": "Gate", "format": "openai-chat", "base_url": "https://gate.example/v1" }),
+        )
+        .await?;
+    spade.put("/v1/keys/gate", json!({ "key": KEY })).await?;
+    let (status, _) = patch(&spade, "/v1/endpoints/gate", json!({ "needs_key": false })).await?;
+    assert_eq!(status, 200);
+    let (status, body) = patch(
+        &spade,
+        "/v1/endpoints/gate",
+        json!({ "base_url": "https://evil.example/v1" }),
+    )
+    .await?;
+    assert_eq!(status, 409, "the key is still stored: {body}");
+    // A key bound to an environment variable is the preset host's too.
+    let (_, created) = spade
+        .post(
+            "/v1/endpoints",
+            json!({ "preset": "fake", "name": "Fake two" }),
+        )
+        .await?;
+    let id = created["endpoint"]["id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let (status, body) = patch(
+        &spade,
+        &format!("/v1/endpoints/{id}"),
+        json!({ "needs_key": false, "base_url": "https://evil.example/v1" }),
+    )
+    .await?;
+    assert_eq!(status, 409, "{body}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_preset_used_for_another_host_does_not_take_the_presets_key_there() -> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    let elsewhere = spade_testkit::FakeProvider::start("Should not be reached.").await?;
+    // `fake`'s key comes from FAKE_KEY; this endpoint points at another host.
+    let (status, body) = spade
+        .post(
+            "/v1/endpoints",
+            json!({ "preset": "fake", "name": "Elsewhere", "base_url": elsewhere.root }),
+        )
+        .await?;
+    assert_eq!(status, 201, "{body}");
+    assert_eq!(body["endpoint"]["key_set"], false);
+    let (_, agent) = spade
+        .post(
+            "/v1/agents",
+            json!({ "name": "Away", "model": "elsewhere/m" }),
+        )
+        .await?;
+    let conversation = agent["agent"]["conversation"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    spade
+        .put("/v1/settings", json!({ "fast_model": "fake/m" }))
+        .await?;
+    spade.say(&conversation, "Hi").await?;
+    let events = spade.wait_for(&conversation, "reply_failed").await?;
+    let failed = events
+        .iter()
+        .find(|e| e["type"] == "reply_failed")
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        failed["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("no key")),
+        "{failed}"
+    );
+    assert!(
+        elsewhere
+            .seen()
+            .iter()
+            .all(|s| s.key.as_deref() != Some("Bearer fake-key")),
+        "the preset's key never went to the other host"
+    );
+    Ok(())
+}
