@@ -48,10 +48,16 @@ export function Ledger(props: {
   const shown = all ? (lines ?? []) : (lines ?? []).slice(0, ledgerTop);
   return (
     <section aria-label="Spend by group">
-      <div className="mb-1 flex flex-wrap items-center gap-x-3 gap-y-2">
-        <nav aria-label="Scope" className="mr-auto flex flex-wrap items-center gap-x-1.5 text-ui">
+      <div className="mb-1 flex flex-wrap items-center gap-x-1 gap-y-2">
+        <nav
+          aria-label="Scope"
+          className="mr-auto flex flex-wrap items-center gap-x-1.5 pr-2 text-ui"
+        >
           <Crumbs steps={props.steps} onCrumb={props.onCrumb} />
         </nav>
+        <span aria-hidden className="text-xs text-subtle-foreground">
+          Group by
+        </span>
         <FilterMenu
           label="Group by"
           value={group}

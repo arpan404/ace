@@ -13,6 +13,7 @@ import {
   type AvailabilityAxis,
   type UsageLimits,
 } from "@ace/ui-core";
+import { Fragment } from "react";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -76,7 +77,8 @@ function Axis(props: { axis: AvailabilityAxis }) {
           className={cn(
             "absolute top-0 whitespace-nowrap",
             tick.kind === "now" && "font-medium text-foreground",
-            tick.kind === "hour" && "-translate-x-1/2",
+            // Too narrow for the hours beside "Now": the days alone carry the axis.
+            tick.kind === "hour" && "hidden -translate-x-1/2 @min-[36rem]/limits:block",
           )}
         >
           {tick.label}
@@ -205,10 +207,12 @@ function WindowFigures(props: { windows: readonly AccountWindow[] }) {
         const tone = headroomTone(window.leftPercent);
         const short = tone !== "ok" || window.runsOutAt !== null;
         return (
-          <span key={window.id}>
+          <Fragment key={window.id}>
             {index > 0 && <span aria-hidden> · </span>}
+            {/* One figure stays together; one longer than the column wraps inside itself. */}
             <span
               role="meter"
+              className="inline-block max-w-full"
               aria-label={window.label}
               aria-valuemin={0}
               aria-valuemax={100}
@@ -229,7 +233,7 @@ function WindowFigures(props: { windows: readonly AccountWindow[] }) {
               </span>{" "}
               {windowNoun(window)}
             </span>
-          </span>
+          </Fragment>
         );
       })}
     </p>

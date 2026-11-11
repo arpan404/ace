@@ -44,7 +44,7 @@ export interface AxisTick {
 }
 
 /**
- * "Now", then every second hour in the detailed part, then each midnight after it, named by its
+ * "Now", then every second hour in the detailed part (from 90 minutes out), then each midnight after it, named by its
  * weekday. A midnight inside the detailed part is named by its weekday instead of its hour.
  */
 export function axisTicks(axis: AvailabilityAxis, timeZone?: string, locale?: string): AxisTick[] {
@@ -56,8 +56,9 @@ export function axisTicks(axis: AvailabilityAxis, timeZone?: string, locale?: st
     const midnight = localMidnight(at + day, timeZone);
     if (midnight > axis.from && midnight < axis.to) midnights.add(midnight);
   }
-  const firstHour = Math.ceil((axis.from + 30 * minute) / hour) * hour;
-  for (let at = firstHour; at < axis.detailUntil - 30 * minute; at += 2 * hour)
+  // The first hour sits at least 90 minutes out, so it never crowds "Now".
+  const firstHour = Math.ceil((axis.from + 90 * minute) / hour) * hour;
+  for (let at = firstHour; at < axis.detailUntil - 45 * minute; at += 2 * hour)
     if (![...midnights].some((midnight) => Math.abs(midnight - at) < hour))
       ticks.push({ at, label: formatClock(at, locale, timeZone), kind: "hour" });
   for (const at of [...midnights].toSorted((a, b) => a - b))
@@ -99,6 +100,8 @@ export interface AccountAvailability {
   stretches: AvailabilityStretch[];
   /** The soonest time it is out, merged with any that overlap it. */
   lockout: Lockout | undefined;
+  /** The one after it, on the timeline: a session out now, and a week that runs out later. */
+  nextLockout: Lockout | undefined;
   /** With no lockout: the window that resets with the least to spare, and how much. */
   tightest: { window: AccountWindow; sparePercent: number } | undefined;
   /** Every window's reading is older than its reset: what's left now isn't known. */
@@ -138,6 +141,7 @@ export function accountAvailability(
   }
   if (cursor < axis.to && live.length) stretches.push({ from: cursor, to: axis.to, out: false });
   const lockout = merged[0];
+  const nextLockout = merged[1] && merged[1].from < axis.to ? merged[1] : undefined;
   let tightest: AccountAvailability["tightest"];
   if (!lockout)
     for (const window of live) {
@@ -148,6 +152,7 @@ export function accountAvailability(
   return {
     stretches,
     lockout,
+    nextLockout,
     tightest,
     unknown: entry.windows.length > 0 && live.length === 0,
   };
@@ -197,6 +202,12 @@ export function windowNoun(window: AccountWindow): string {
 const windowName = (window: AccountWindow) =>
   window.label === "Session (5h)" ? "Session" : window.label;
 
+function lockoutWords(lockout: Lockout, now: number, time: (at: number) => string): string {
+  const back = lockout.until === null ? "reset not reported" : `back ${time(lockout.until)}`;
+  if (lockout.now) return `${windowName(lockout.window)} is out, ${back}`;
+  return `${windowName(lockout.window)} runs out around ${time(roundEstimate(lockout.from, now))}, ${back}`;
+}
+
 /**
  * The account's availability in one sentence: when it is out and back, or that it lasts and with
  * how much to spare. `tone` says whether it is out now, will be, or is fine.
@@ -211,12 +222,9 @@ export function availabilitySentence(
   const { lockout, tightest } = availability;
   if (availability.unknown) return { text: "Not used since its last reset", tone: "ok" };
   if (lockout) {
-    const back = lockout.until === null ? "reset not reported" : `back ${time(lockout.until)}`;
-    if (lockout.now) return { text: `${windowName(lockout.window)} is out, ${back}`, tone: "out" };
-    return {
-      text: `${windowName(lockout.window)} runs out around ${time(roundEstimate(lockout.from, now))}, ${back}`,
-      tone: "low",
-    };
+    const first = lockoutWords(lockout, now, time);
+    const next = availability.nextLockout && lockoutWords(availability.nextLockout, now, time);
+    return { text: next ? `${first}. ${next}` : first, tone: lockout.now ? "out" : "low" };
   }
   if (tightest && tightest.window.resetsAt !== null)
     return {

@@ -62,8 +62,8 @@ test("the timeline names now, the hours ahead, then each day from its midnight",
   const ticks = axisTicks(axis, zone, locale);
   expect(ticks[0]).toMatchObject({ label: "Now", kind: "now" });
   expect(ticks.filter((tick) => tick.kind === "hour").map((tick) => tick.label)).toEqual([
-    "17:00",
-    "19:00",
+    "18:00",
+    "20:00",
   ]);
   expect(ticks.filter((tick) => tick.kind === "day").map((tick) => tick.label)).toEqual([
     "Thu",
@@ -102,6 +102,17 @@ test("overlapping lockouts read as one, back only when the later window resets",
   expect(result.stretches.filter((stretch) => stretch.out)).toHaveLength(1);
   expect(result.lockout?.until).toBe(now + 3 * day);
   expect(sentence(session, weekly).text).toBe("Session is out, back Sat 16:00");
+});
+
+test("a session out now and a week that runs out later are both said, soonest first", () => {
+  const session = window("Session (5h)", 0, 5 * hour, hour);
+  // 70% used 55h into the week: out in about 23.6h, long before its reset in 113h.
+  const weekly = window("Weekly", 30, 7 * day, 113 * hour);
+  expect(availability(session, weekly).stretches.filter((stretch) => stretch.out)).toHaveLength(2);
+  expect(sentence(session, weekly)).toEqual({
+    text: "Session is out, back 17:00. Weekly runs out around Thu 15:35, back Mon 9:00",
+    tone: "out",
+  });
 });
 
 test("an account that lasts names the window with the least to spare at its reset", () => {
