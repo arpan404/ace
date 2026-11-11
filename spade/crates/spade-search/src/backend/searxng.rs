@@ -1,25 +1,7 @@
 //! The person's own SearXNG: `GET {base}search?q=…&format=json`. JSON must be enabled in its
 //! `settings.yml` (`search.formats`), or SearXNG answers 403.
 
-use serde::Deserialize;
-
-use super::{http_reason, transport_reason};
-
-#[derive(Deserialize)]
-struct Page {
-    #[serde(default)]
-    results: Vec<Item>,
-}
-
-#[derive(Deserialize)]
-struct Item {
-    #[serde(default)]
-    url: String,
-    #[serde(default)]
-    title: String,
-    #[serde(default)]
-    content: String,
-}
+use super::{MOST_BODY_BYTES, http_reason, json_body, transport_reason, triples};
 
 pub(crate) async fn search(
     http: &reqwest::Client,
@@ -41,10 +23,6 @@ pub(crate) async fn search(
     if !status.is_success() {
         return Err(http_reason(status, "SearXNG"));
     }
-    let page: Page = response.json().await.map_err(|e| transport_reason(&e))?;
-    Ok(page
-        .results
-        .into_iter()
-        .map(|item| (item.title, item.url, item.content))
-        .collect())
+    let page = json_body(response, MOST_BODY_BYTES).await?;
+    Ok(triples(page.get("results"), "content"))
 }
