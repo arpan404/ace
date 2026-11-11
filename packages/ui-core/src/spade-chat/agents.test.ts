@@ -36,13 +36,29 @@ test("agents keep fields this client doesn't know, and an agent it can't read is
         { id: "no-conversation", name: "Lost" },
         "not an agent",
         agent({ id: "a2", name: "Trips", state: "working", status: "Reading a page" }),
+        agent({
+          id: "a3",
+          name: "Inbox",
+          state: "waiting",
+          waiting_for: "approval",
+          status: "Waiting for you",
+          last_message: {
+            from: "person",
+            text: "Booked it.",
+            at: 4,
+            from_agent: { id: "a2", name: "Trips" },
+          },
+        }),
       ],
     }),
   );
   expect(agents?.map((row) => [row.id, row.name, row.state, row.status])).toEqual([
     ["a1", "Inbox", "idle", undefined],
     ["a2", "Trips", "working", "Reading a page"],
+    ["a3", "Inbox", "waiting", "Waiting for you"],
   ]);
+  expect(agents?.[2]?.waitingFor).toBe("approval");
+  expect(agents?.[2]?.lastMessage?.fromAgent).toEqual({ id: "a2", name: "Trips" });
   expect(agents?.[0]?.lastMessage).toEqual({
     from: "agent",
     text: "Inbox is clear.",

@@ -88,9 +88,9 @@ export function spadeCallLine(name: string, state: SpadeCallState): string {
   }
 }
 
-/** The approval's one sentence: "Spade wants to send an email." */
-export function spadeApprovalSentence(name: string): string {
-  return `Spade wants to ${spadeToolWords(name).base}.`;
+/** The approval's one sentence: "Spade wants to send an email." `who`: the bot asking. */
+export function spadeApprovalSentence(name: string, who = "Spade"): string {
+  return `${who} wants to ${spadeToolWords(name).base}.`;
 }
 
 /** What the Spade place says about Spade itself, and whether it offers Turn on. */

@@ -3,7 +3,7 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { Composer, ComposerDock, type Draft } from "@/features/thread/index.ts";
 import { prepareSpadeImages, type SpadeMessage } from "./spade-images.ts";
 
-/** Spade's composer has no project or commands of its own: the person's words and images. */
+/** A bot's composer has no project or commands of its own: the person's words and images. */
 const spadeThread = { id: "", workspaceId: "", title: "", draft: true } as const;
 
 /**
@@ -12,6 +12,8 @@ const spadeThread = { id: "", workspaceId: "", title: "", draft: true } as const
  * do in a thread; any other file is put back with a note. Until Spade runs, sending says why.
  */
 export function SpadeComposer(props: {
+  /** The bot it sends to. */
+  name: string;
   draftKey: string;
   answering: boolean;
   /** Why nothing can be sent yet (Spade is off or starting). */
@@ -36,7 +38,7 @@ export function SpadeComposer(props: {
       return true;
     } catch (error) {
       toast.error({
-        title: "Couldn't send to Spade",
+        title: `Couldn't send to ${props.name}`,
         description: error instanceof Error ? error.message : undefined,
       });
       return false;
@@ -61,9 +63,9 @@ export function SpadeComposer(props: {
         filesOnly
         autoFocus
         typeToFocus
-        label="Message Spade"
+        label={`Message ${props.name}`}
         placeholder={props.placeholder}
-        shortPlaceholder="Message Spade"
+        shortPlaceholder={`Message ${props.name}`}
         sendBlocked={props.blocked ? { reason: props.blocked, describedBy: reason } : undefined}
         attached={props.attached}
         onSubmit={submit}

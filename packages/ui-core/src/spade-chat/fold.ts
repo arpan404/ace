@@ -71,7 +71,7 @@ export type SpadeEntry =
       images: readonly SpadeImageRef[];
       pending?: true;
       /** Sent by another bot, not the person. */
-      fromAgent?: string;
+      fromAgent?: { id: string; name: string };
     }
   | SpadeReplyEntry
   /** The model now reads a summary of what came before. */
@@ -208,7 +208,9 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         key,
         text: event.text,
         images: event.images,
-        ...(event.from_agent ? { fromAgent: event.from_agent } : {}),
+        ...(event.from_agent
+          ? { fromAgent: { id: event.from_agent.id, name: event.from_agent.name } }
+          : {}),
       });
       return true;
     }

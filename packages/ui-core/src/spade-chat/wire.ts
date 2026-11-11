@@ -28,7 +28,10 @@ const known = z.discriminatedUnion("type", [
     type: z.literal("user_message"),
     text: text.default(""),
     /** Another bot that sent this message into the conversation (ADR 0127). */
-    from_agent: z.string().nullish().catch(undefined),
+    from_agent: z
+      .object({ id: z.string(), name: z.string().catch("") })
+      .nullish()
+      .catch(undefined),
     // An image this client can't read is left out; the message still shows.
     images: z
       .array(z.unknown())

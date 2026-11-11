@@ -23,6 +23,23 @@ export const spadeAvatarColors = [
 ] as const;
 export type SpadeAvatarColor = (typeof spadeAvatarColors)[number];
 
+/**
+ * Each colour's fill, the same in both schemes: muted enough to sit in a list beside the status
+ * hues, dark enough that white initials hold 4.5:1 on every one.
+ */
+export const spadeAvatarFill: Record<SpadeAvatarColor, string> = {
+  slate: "#5B6678",
+  red: "#A84B48",
+  orange: "#9E5F2C",
+  amber: "#8A6A1F",
+  green: "#3F7A4E",
+  teal: "#2B7570",
+  blue: "#4569AB",
+  indigo: "#5258A8",
+  violet: "#6A5AAE",
+  pink: "#A0507A",
+};
+
 export type SpadeAvatar =
   /** The main bot's face: the Spade mark. */
   | { kind: "spade" }
@@ -38,8 +55,8 @@ export interface SpadeLastMessage {
   from: "person" | "agent";
   text: string;
   at: number;
-  /** Another bot that sent it into this conversation. */
-  fromAgent: string | undefined;
+  /** Another bot that sent it into this conversation (`from` is then `person`). */
+  fromAgent: { id: string; name: string } | undefined;
 }
 
 export interface SpadeAgent {
@@ -58,6 +75,8 @@ export interface SpadeAgent {
   updatedAt: number;
   lastActivity: number;
   state: SpadeAgentState;
+  /** What it waits on the person for while `waiting`: an approval, or (later) a question. */
+  waitingFor: "approval" | "question" | undefined;
   /** A few words on what it is doing now, while it works. */
   status: string | undefined;
   lastMessage: SpadeLastMessage | undefined;
@@ -77,7 +96,10 @@ const lastMessageShape = z.object({
   from: z.enum(["person", "agent"]).catch("agent"),
   text: z.string().catch(""),
   at: time.default(0),
-  from_agent: z.string().nullish().catch(undefined),
+  from_agent: z
+    .object({ id: z.string(), name: z.string().catch("") })
+    .nullish()
+    .catch(undefined),
 });
 const agentShape = z.object({
   id: z.string().min(1),
@@ -91,6 +113,7 @@ const agentShape = z.object({
   updated_at: time.default(0),
   last_activity: time.default(0),
   state: z.enum(["idle", "working", "waiting"]).optional().catch(undefined),
+  waiting_for: z.enum(["approval", "question"]).nullish().catch(undefined),
   /** Before 0127 Spade said only whether it worked. */
   working: z.boolean().optional().catch(undefined),
   status: z.string().nullish().catch(undefined),
@@ -132,6 +155,7 @@ export function parseSpadeAgentValue(raw: unknown): SpadeAgent | undefined {
     updatedAt: agent.updated_at,
     lastActivity: agent.last_activity,
     state: agent.state ?? (agent.working ? "working" : "idle"),
+    waitingFor: agent.waiting_for ?? undefined,
     status: agent.status || undefined,
     lastMessage: last
       ? { from: last.from, text: last.text, at: last.at, fromAgent: last.from_agent ?? undefined }

@@ -278,7 +278,7 @@
  * (components/status-glyph.tsx), the Spinner's ring, a word in foreground ink. An infinite
  * animation keeps the compositor drawing frames for as long as anything works, in every thread
  * the sidebar shows, which costs idle CPU on the GPU and renderer for nothing the person reads.
- * Three exceptions, each tied to something the person is waiting on:
+ * Four exceptions, each tied to something the person is waiting on:
  *
  *   .fx-breathe        the startup mark, only while ace starts
  *   .fx-indeterminate  a progress bar that doesn't know how far along it is, only during that
@@ -286,6 +286,8 @@
  *   .fx-alive          a provider mark in the Summary's agent tree, only while that agent or
  *                      anything under it works or waits, and only while the Summary is open:
  *                      it is the tree's one status mark, standing in for the status glyphs
+ *   .fx-spade-look     a Spade bot's eyes (pupils looking around, a blink now and then), only
+ *   .fx-spade-blink    while that bot works: its face is its status (ADR 0127)
  *
  * `bun run check:ui` refuses any other `infinite` animation.
  */
@@ -327,6 +329,44 @@
 }
 :root[data-reduce-motion] .fx-alive {
   animation: none;
+}
+.fx-spade-look {
+  animation: fx-spade-look 2.8s var(--ease-out) infinite;
+}
+.fx-spade-blink {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: fx-spade-blink 5.6s ease-in-out infinite;
+}
+:root[data-reduce-motion] :is(.fx-spade-look, .fx-spade-blink) {
+  animation: none;
+}
+@keyframes fx-spade-look {
+  0%,
+  18%,
+  78%,
+  100% {
+    transform: translate(0, 0);
+  }
+  26%,
+  44% {
+    transform: translate(-1.1px, -0.5px);
+  }
+  52%,
+  70% {
+    transform: translate(1.1px, -0.6px);
+  }
+}
+@keyframes fx-spade-blink {
+  0%,
+  46%,
+  54%,
+  100% {
+    transform: scaleY(1);
+  }
+  50% {
+    transform: scaleY(0.12);
+  }
 }
 @keyframes fx-alive {
   0%,

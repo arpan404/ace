@@ -47,7 +47,7 @@ import { Route as SkillsIndexRouteImport } from "./routes/skills.index"
 import { Route as SkillsSkillIdRouteImport } from "./routes/skills.$skillId"
 import { Route as SkillsNewRouteImport } from "./routes/skills.new"
 import { Route as SpadeIndexRouteImport } from "./routes/spade.index"
-import { Route as SpadeConversationIdRouteImport } from "./routes/spade.$conversationId"
+import { Route as SpadeAgentIdRouteImport } from "./routes/spade.$agentId"
 import { Route as HomeTThreadIdRouteImport } from "./routes/_home.t.$threadId"
 import { Route as AutomationsAutomationIdIndexRouteImport } from "./routes/automations.$automationId.index"
 import { Route as AutomationsAutomationIdEditRouteImport } from "./routes/automations.$automationId.edit"
@@ -252,9 +252,9 @@ const SpadeIndexRoute = SpadeIndexRouteImport.update({
   path: "/",
   getParentRoute: () => SpadeRoute,
 } as any)
-const SpadeConversationIdRoute = SpadeConversationIdRouteImport.update({
-  id: "/$conversationId",
-  path: "/$conversationId",
+const SpadeAgentIdRoute = SpadeAgentIdRouteImport.update({
+  id: "/$agentId",
+  path: "/$agentId",
   getParentRoute: () => SpadeRoute,
 } as any)
 const HomeTThreadIdRoute = HomeTThreadIdRouteImport.update({
@@ -366,7 +366,7 @@ export interface FileRoutesByFullPath {
   "/settings/storage": typeof SettingsStorageRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
   "/skills/new": typeof SkillsNewRoute
-  "/spade/$conversationId": typeof SpadeConversationIdRoute
+  "/spade/$agentId": typeof SpadeAgentIdRoute
   "/automations/": typeof AutomationsIndexRoute
   "/settings/": typeof SettingsIndexRoute
   "/skills/": typeof SkillsIndexRoute
@@ -415,7 +415,7 @@ export interface FileRoutesByTo {
   "/settings/storage": typeof SettingsStorageRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
   "/skills/new": typeof SkillsNewRoute
-  "/spade/$conversationId": typeof SpadeConversationIdRoute
+  "/spade/$agentId": typeof SpadeAgentIdRoute
   "/": typeof HomeIndexRoute
   "/automations": typeof AutomationsIndexRoute
   "/settings": typeof SettingsIndexRoute
@@ -471,7 +471,7 @@ export interface FileRoutesById {
   "/settings/storage": typeof SettingsStorageRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
   "/skills/new": typeof SkillsNewRoute
-  "/spade/$conversationId": typeof SpadeConversationIdRoute
+  "/spade/$agentId": typeof SpadeAgentIdRoute
   "/_home/": typeof HomeIndexRoute
   "/automations/": typeof AutomationsIndexRoute
   "/settings/": typeof SettingsIndexRoute
@@ -528,7 +528,7 @@ export interface FileRouteTypes {
     | "/settings/storage"
     | "/skills/$skillId"
     | "/skills/new"
-    | "/spade/$conversationId"
+    | "/spade/$agentId"
     | "/automations/"
     | "/settings/"
     | "/skills/"
@@ -577,7 +577,7 @@ export interface FileRouteTypes {
     | "/settings/storage"
     | "/skills/$skillId"
     | "/skills/new"
-    | "/spade/$conversationId"
+    | "/spade/$agentId"
     | "/"
     | "/automations"
     | "/settings"
@@ -632,7 +632,7 @@ export interface FileRouteTypes {
     | "/settings/storage"
     | "/skills/$skillId"
     | "/skills/new"
-    | "/spade/$conversationId"
+    | "/spade/$agentId"
     | "/_home/"
     | "/automations/"
     | "/settings/"
@@ -933,11 +933,11 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SpadeIndexRouteImport
       parentRoute: typeof SpadeRoute
     }
-    "/spade/$conversationId": {
-      id: "/spade/$conversationId"
-      path: "/$conversationId"
-      fullPath: "/spade/$conversationId"
-      preLoaderRoute: typeof SpadeConversationIdRouteImport
+    "/spade/$agentId": {
+      id: "/spade/$agentId"
+      path: "/$agentId"
+      fullPath: "/spade/$agentId"
+      preLoaderRoute: typeof SpadeAgentIdRouteImport
       parentRoute: typeof SpadeRoute
     }
     "/_home/t/$threadId": {
@@ -1165,12 +1165,12 @@ const SkillsRouteWithChildren =
   SkillsRoute._addFileChildren(SkillsRouteChildren)
 
 interface SpadeRouteChildren {
-  SpadeConversationIdRoute: typeof SpadeConversationIdRoute
+  SpadeAgentIdRoute: typeof SpadeAgentIdRoute
   SpadeIndexRoute: typeof SpadeIndexRoute
 }
 
 const SpadeRouteChildren: SpadeRouteChildren = {
-  SpadeConversationIdRoute: SpadeConversationIdRoute,
+  SpadeAgentIdRoute: SpadeAgentIdRoute,
   SpadeIndexRoute: SpadeIndexRoute,
 }
 

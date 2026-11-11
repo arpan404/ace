@@ -1,0 +1,250 @@
+import { initials } from "@ace/ui-core";
+import {
+  spadeApprovalSentence,
+  spadeBubbles,
+  type SpadeAvatar,
+  type SpadeBubble,
+  type SpadeImageRef,
+  type SpadeView,
+} from "@ace/ui-core/spade-chat";
+import { useClient } from "@ace/client-react";
+import { memo, useEffect, useState } from "react";
+import { Button } from "@/components/ui/button.tsx";
+import { cn } from "@/lib/cn.ts";
+import { SpadeBubbleText } from "./spade-bubble-text.tsx";
+import { SpadeFace } from "./spade-face.tsx";
+import { holdSpadePicture } from "./spade-images.ts";
+
+/** The bot whose conversation this is, and the faces of other bots that write into it. */
+export interface ChatBot {
+  name: string;
+  avatar: SpadeAvatar;
+  /** Other bots by id, for the faces of messages they send here. */
+  others: ReadonlyMap<string, SpadeAvatar>;
+}
+
+const bubble =
+  "min-w-0 max-w-[80%] rounded-lg px-3 py-2 font-prose text-prose leading-[1.5] wrap-anywhere";
+const botBubble = cn(bubble, "bg-bubble shadow-[inset_0_0_0_1px_var(--border)]");
+const faceRoom = "w-7 shrink-0";
+
+/**
+ * A bot's conversation as a chat (ADR 0127): the person's bubbles on the right on the active
+ * fill, the bot's on the left with its face beside the last bubble of each run, messages other
+ * bots sent here under their name and face. Nothing of how the bot works shows: no tool calls,
+ * jobs or compaction. An approval arrives as the bot's bubble with Allow and Deny. While the bot
+ * works, one line under its last bubble: its face with moving eyes, its few words, and Stop.
+ */
+export function SpadeChat(props: {
+  bot: ChatBot;
+  view: SpadeView;
+  stopping: boolean;
+  onStop(): void;
+  onAnswer(callId: string, allowed: boolean): Promise<boolean>;
+}) {
+  const { view, bot } = props;
+  const bubbles = spadeBubbles(view);
+  // Working: anything open that isn't waiting on the person, whose ask is its own bubble.
+  const working = view.busy && view.approvals.length === 0;
+  return (
+    <div
+      role="feed"
+      aria-label={`Conversation with ${bot.name}`}
+      aria-busy={view.busy}
+      className="flex flex-col gap-3"
+    >
+      {bubbles.map((item, index) => {
+        const next = bubbles[index + 1];
+        // The face sits by the last of a run of the bot's bubbles, or by the working line.
+        const lastOfRun =
+          !(next && botSide(next) && botSide(item)) && !(working && index === bubbles.length - 1);
+        return (
+          <Bubble key={item.key} item={item} bot={bot} face={lastOfRun} onAnswer={props.onAnswer} />
+        );
+      })}
+      {working && (
+        <div role="status" className="flex items-center gap-2.5">
+          <SpadeFace avatar={bot.avatar} size={28} working />
+          <span className="min-w-0 truncate text-ui text-muted-foreground">
+            {view.status ?? "Working"}
+          </span>
+          <Button
+            size="xs"
+            variant="ghost"
+            disabled={props.stopping}
+            aria-label={`Stop ${bot.name}`}
+            onClick={props.onStop}
+          >
+            {props.stopping ? "Stopping…" : "Stop"}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const botSide = (item: SpadeBubble) => item.kind === "bot" || item.kind === "ask";
+
+const Bubble = memo(function Bubble(props: {
+  item: SpadeBubble;
+  bot: ChatBot;
+  face: boolean;
+  onAnswer(callId: string, allowed: boolean): Promise<boolean>;
+}) {
+  const { item, bot } = props;
+  switch (item.kind) {
+    case "person":
+      return (
+        <div
+          role="article"
+          aria-label="You"
+          aria-busy={item.sending || undefined}
+          className={cn("flex flex-col items-end gap-1", item.sending && "opacity-70")}
+        >
+          {item.images.length > 0 && <SentImages images={item.images} />}
+          {item.text && (
+            <div className={cn(bubble, "bg-active")}>
+              <SpadeBubbleText text={item.text} />
+            </div>
+          )}
+        </div>
+      );
+    case "other": {
+      const avatar = bot.others.get(item.agent.id) ?? {
+        kind: "generated" as const,
+        initials: initials(item.agent.name) || "?",
+        color: "slate" as const,
+      };
+      return (
+        <div role="article" aria-label={item.agent.name} className="flex flex-col gap-1">
+          <span className="pl-9.5 text-xs text-subtle-foreground">{item.agent.name}</span>
+          <div className="flex items-end gap-2.5">
+            <SpadeFace avatar={avatar} size={28} />
+            <div className={botBubble}>
+              <SpadeBubbleText text={item.text} />
+            </div>
+          </div>
+        </div>
+      );
+    }
+    case "bot":
+      return (
+        <BotRow bot={bot} face={props.face}>
+          <div className={botBubble}>
+            {item.text && <SpadeBubbleText text={item.text} />}
+            {item.end && (
+              <p className={cn("text-ui text-muted-foreground", item.text && "mt-1")}>
+                {item.end === "stopped"
+                  ? "Stopped"
+                  : item.end === "failed"
+                    ? item.error
+                      ? `Couldn't finish: ${item.error}`
+                      : "Couldn't finish"
+                    : "Interrupted"}
+              </p>
+            )}
+          </div>
+        </BotRow>
+      );
+    case "ask":
+      return (
+        <BotRow bot={bot} face={props.face}>
+          <Ask
+            sentence={spadeApprovalSentence(item.name, bot.name)}
+            onAnswer={(allowed) => props.onAnswer(item.callId, allowed)}
+          />
+        </BotRow>
+      );
+  }
+});
+
+function BotRow(props: { bot: ChatBot; face: boolean; children: React.ReactNode }) {
+  return (
+    <div role="article" aria-label={props.bot.name} className="flex items-end gap-2.5">
+      {props.face ? (
+        <SpadeFace avatar={props.bot.avatar} size={28} />
+      ) : (
+        <span aria-hidden className={faceRoom} />
+      )}
+      {props.children}
+    </div>
+  );
+}
+
+/** The bot asks to use a tool: its sentence, then Allow and Deny. */
+function Ask(props: { sentence: string; onAnswer(allowed: boolean): Promise<boolean> }) {
+  const [answering, setAnswering] = useState<boolean>();
+  const answer = (allowed: boolean) => {
+    setAnswering(allowed);
+    void props.onAnswer(allowed).then((sent) => {
+      if (!sent) setAnswering(undefined);
+    });
+  };
+  return (
+    <div className={botBubble}>
+      <p>{props.sentence}</p>
+      <div className="-mx-2 mt-1 -mb-1 flex gap-1">
+        <Button
+          size="xs"
+          variant="ghost"
+          disabled={answering !== undefined}
+          onClick={() => answer(true)}
+        >
+          {answering === true ? "Allowing…" : "Allow"}
+        </Button>
+        <Button
+          size="xs"
+          variant="ghost"
+          disabled={answering !== undefined}
+          onClick={() => answer(false)}
+        >
+          {answering === false ? "Denying…" : "Deny"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** The person's images, right-aligned above their words, each read once and kept by hash. */
+function SentImages(props: { images: readonly SpadeImageRef[] }) {
+  return (
+    <div className="flex max-w-[80%] flex-wrap justify-end gap-1.5">
+      {/* The same image twice in one message is one picture shown twice: keyed by place. */}
+      {props.images
+        .map((image, place) => ({ hash: image.sha256, key: `${place}:${image.sha256}` }))
+        .map(({ hash, key }) => (
+          <SentImage key={key} hash={hash} />
+        ))}
+    </div>
+  );
+}
+
+function SentImage(props: { hash: string }) {
+  const client = useClient();
+  const [shown, setShown] = useState<{ hash: string; url?: string; failed?: true }>();
+  useEffect(() => {
+    let live = true;
+    const picture = holdSpadePicture(client, props.hash);
+    picture.url.then(
+      (url) => live && setShown({ hash: props.hash, url }),
+      () => live && setShown({ hash: props.hash, failed: true }),
+    );
+    return () => {
+      live = false;
+      picture.release();
+    };
+  }, [client, props.hash]);
+  const state = shown?.hash === props.hash ? shown : undefined;
+  if (state?.url)
+    return <img src={state.url} alt="" className="max-h-40 max-w-60 rounded-lg object-cover" />;
+  return (
+    <span
+      role={state?.failed ? "img" : undefined}
+      aria-label={state?.failed ? "An image that couldn't be loaded" : undefined}
+      aria-busy={state ? undefined : true}
+      className="grid h-24 w-32 place-items-center rounded-lg bg-bubble text-xs text-muted-foreground"
+    >
+      {state?.failed ? "Image" : null}
+    </span>
+  );
+}

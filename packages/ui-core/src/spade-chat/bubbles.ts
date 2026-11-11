@@ -15,8 +15,8 @@ export type SpadeBubble =
       /** Not stored by Spade yet. */
       sending: boolean;
     }
-  /** A message another bot sent into this conversation, by that bot's id. */
-  | { kind: "other"; key: string; agent: string; text: string }
+  /** A message another bot sent into this conversation, labelled with the name it had. */
+  | { kind: "other"; key: string; agent: { id: string; name: string }; text: string }
   | {
       kind: "bot";
       key: string;
@@ -27,7 +27,8 @@ export type SpadeBubble =
       end: "stopped" | "failed" | "interrupted" | undefined;
       error: string | undefined;
     }
-  | { kind: "ask"; key: string; callId: string; sentence: string };
+  /** `name`: the tool it asks to use, for `spadeApprovalSentence` with the bot's name. */
+  | { kind: "ask"; key: string; callId: string; name: string; sentence: string };
 
 export function spadeBubbles(view: SpadeView): SpadeBubble[] {
   const bubbles: SpadeBubble[] = [];
@@ -67,6 +68,7 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
       kind: "ask",
       key: `ask:${approval.callId}`,
       callId: approval.callId,
+      name: approval.name,
       sentence: approval.sentence,
     });
   return bubbles;

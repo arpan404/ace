@@ -516,16 +516,24 @@ describe("the conversation as a chat", () => {
     c.stored({ type: "context_compacted" });
     c.stored({ type: "step_finished", reply: "r1", text: "The 9:40 is cheapest." });
     c.stored({ type: "reply_finished", reply: "r1", text: "The 9:40 is cheapest." });
-    c.stored({ type: "user_message", text: "Booked it for you.", from_agent: "travel" });
+    c.stored({
+      type: "user_message",
+      text: "Booked it for you.",
+      from_agent: { id: "a7", name: "Travel", depth: 1 },
+    });
     expect(
       spadeBubbles(c.view()).map((bubble) =>
-        bubble.kind === "ask" ? `ask: ${bubble.sentence}` : `${bubble.kind}: ${bubble.text}`,
+        bubble.kind === "ask"
+          ? `ask: ${bubble.sentence}`
+          : bubble.kind === "other"
+            ? `${bubble.agent.name}: ${bubble.text}`
+            : `${bubble.kind}: ${bubble.text}`,
       ),
     ).toEqual([
       "person: Find me a flight",
       "bot: Looking.",
       "bot: The 9:40 is cheapest.",
-      "other: Booked it for you.",
+      "Travel: Booked it for you.",
     ]);
   });
 

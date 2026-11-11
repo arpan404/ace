@@ -1,70 +1,123 @@
 import { formatAge } from "@ace/ui-core";
 import { spadeStateLine } from "@ace/ui-core/spade-chat";
 import { Link, useParams } from "@tanstack/react-router";
-import { StatusLabel } from "@/components/status-label.tsx";
-import { PanelRowBody, panelRow } from "@/components/ui/panel.tsx";
+import { useState } from "react";
+import { Button } from "@/components/ui/button.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { ViewSidebarError } from "@/components/ui/view-row.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
+import { cn } from "@/lib/cn.ts";
 import { useNow } from "@/lib/time.ts";
+import { NewBotDialog } from "./spade-bot-dialog.tsx";
+import { SpadeFace } from "./spade-face.tsx";
 import { SpadeStateStrip } from "./spade-state.tsx";
-import { useSpadeAgents } from "./use-spade-agents.ts";
-import { useSpadeStatus } from "./use-spade-status.ts";
 import { useSpadeEnabled } from "./use-spade-enabled.ts";
+import { useSpadeRoster, type RosterBot } from "./use-spade-roster.ts";
+import { useSpadeStatus } from "./use-spade-status.ts";
+
+/** The second line of a bot's row: what it does now, else its latest message. */
+export function rosterLine(bot: RosterBot): { text: string; tone?: "working" | "needs-you" } {
+  if (bot.away) return { text: `Away · ${bot.machine.name} is offline` };
+  if (bot.state === "waiting") return { text: bot.status ?? "Waiting for you", tone: "needs-you" };
+  if (bot.state === "working") return { text: bot.status ?? "Working", tone: "working" };
+  const last = bot.lastMessage;
+  if (!last?.text) return { text: "No messages yet" };
+  if (last.from === "agent") return { text: last.text };
+  return { text: `${last.fromAgent ? last.fromAgent.name : "You"}: ${last.text}` };
+}
 
 /**
- * Spade's panel: Spade's state in one sentence while it isn't running (with Turn on while it is
- * off), then Spade and the person's bots, Spade first. A row says Approve while the bot waits on
- * the person, Working while it works, otherwise how long ago it was last active. (Interim rows:
- * the messenger list replaces them, ADR 0127.)
+ * Spade's panel, a messenger's list (ADR 0127): Spade first, then every bot on every machine
+ * this window reaches by latest activity. A row is the bot's face, its name and when it was last
+ * active, then what it does now in its state's colour, or its latest message. A bot on an
+ * offline machine reads as away. "New bot" opens the form. While Spade isn't running, its state
+ * in one sentence (with Turn on while it is off).
  */
 export function SpadeSidebar() {
   const status = useSpadeStatus();
   const [enabled] = useSpadeEnabled();
   const line = spadeStateLine(status, enabled);
-  const list = useSpadeAgents(line.ready);
-  const open = useParams({ strict: false, select: (params) => params.conversationId });
+  const roster = useSpadeRoster(line.ready);
+  const open = useParams({ strict: false, select: (params) => params.agentId });
   const now = useNow();
+  const [creating, setCreating] = useState(false);
   return (
-    <ViewSidebar title="Spade" toolbar={line.ready ? undefined : <SpadeStateStrip line={line} />}>
+    <ViewSidebar
+      title="Spade"
+      actions={
+        roster.hosts.length > 0 && (
+          <Button size="xs" variant="ghost" onClick={() => setCreating(true)}>
+            New bot
+          </Button>
+        )
+      }
+      toolbar={line.ready ? undefined : <SpadeStateStrip line={line} />}
+    >
       <nav aria-label="Bots">
         {/* The last list stays while Spade restarts or a read fails; it reads again on its own. */}
-        {list.data === undefined && !line.ready ? null : list.data === undefined && list.isError ? (
-          <ViewSidebarError onRetry={() => void list.refetch()} />
-        ) : list.data === undefined ? (
+        {!roster.bots.length && !line.ready ? null : !roster.bots.length && roster.error ? (
+          <ViewSidebarError onRetry={roster.refetch} />
+        ) : !roster.bots.length && roster.loading ? (
           <ListSkeleton label="bots" shape="thread" />
-        ) : !list.data.length ? (
-          <p className="px-2.5 pt-2 text-ui text-subtle-foreground">No bots yet</p>
         ) : (
-          <ul className="flex flex-col gap-px">
-            {list.data.map((row) => (
-              <li key={row.id}>
-                <Link
-                  to="/spade/$conversationId"
-                  params={{ conversationId: row.conversation }}
-                  aria-current={open === row.conversation ? "page" : undefined}
-                  {...panelRow()}
-                >
-                  <PanelRowBody
-                    title={row.name}
-                    trailing={
-                      row.state === "waiting" ? (
-                        <StatusLabel tone="needs-you" label="Approve" />
-                      ) : row.state === "working" ? (
-                        <StatusLabel tone="working" label="Working" />
-                      ) : (
-                        <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">
-                          {formatAge(row.lastActivity, now)}
-                        </span>
-                      )
-                    }
-                  />
-                </Link>
+          <ul className="flex flex-col gap-0.5">
+            {roster.bots.map((bot) => (
+              <li key={`${bot.machine.key}/${bot.id}`}>
+                <Row bot={bot} current={open === bot.id} now={now} />
               </li>
             ))}
           </ul>
         )}
       </nav>
+      {creating && <NewBotDialog hosts={roster.hosts} onClose={() => setCreating(false)} />}
     </ViewSidebar>
+  );
+}
+
+function Row(props: { bot: RosterBot; current: boolean; now: number }) {
+  const { bot } = props;
+  const line = rosterLine(bot);
+  return (
+    <Link
+      to="/spade/$agentId"
+      params={{ agentId: bot.id }}
+      search={bot.machine.primary ? {} : { machine: bot.machine.key }}
+      aria-current={props.current ? "page" : undefined}
+      data-panel-row=""
+      className="flex h-14 w-full min-w-0 items-center gap-2.5 rounded-md px-2.5 text-left transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-hover aria-[current=page]:bg-active"
+    >
+      <SpadeFace
+        avatar={bot.avatar}
+        size={32}
+        working={bot.state === "working" && !bot.away}
+        ring="bg-(--sidebar-panel) shadow-[0_0_0_2px_var(--sidebar-panel)]"
+        className={cn(bot.away && "opacity-45")}
+      />
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="flex min-w-0 items-baseline gap-2">
+          <span
+            data-view-row-title=""
+            className={cn(
+              "min-w-0 flex-1 truncate text-md",
+              bot.away ? "text-muted-foreground" : "text-foreground",
+            )}
+          >
+            {bot.name}
+          </span>
+          <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">
+            {formatAge(bot.lastActivity, props.now)}
+          </span>
+        </span>
+        <span
+          data-tone={line.tone}
+          className={cn(
+            "truncate text-xs",
+            line.tone ? "text-(--tone-text)" : "text-subtle-foreground",
+          )}
+        >
+          {line.text}
+        </span>
+      </span>
+    </Link>
   );
 }

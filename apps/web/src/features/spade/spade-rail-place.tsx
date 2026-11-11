@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { railDotClass, railPlaceClass } from "@/components/rail-place.ts";
 import { SpadeMark } from "@/components/spade-mark.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { useSpadeAgents } from "./use-spade-agents.ts";
+import { useSpadeRoster } from "./use-spade-roster.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
 
 const needWord = (count: number) => `${count} ${count === 1 ? "needs" : "need"} you`;
@@ -13,8 +13,10 @@ const needWord = (count: number) => `${count} ${count === 1 ? "needs" : "need"} 
  */
 export function SpadeRailPlace(props: { current: boolean; to: string; search: object }) {
   const ready = useSpadeStatus()?.state === "ready";
-  const agents = useSpadeAgents(ready).data ?? [];
-  const waiting = props.current ? 0 : agents.filter((agent) => agent.state === "waiting").length;
+  const { bots } = useSpadeRoster(ready);
+  const waiting = props.current
+    ? 0
+    : bots.filter((bot) => bot.state === "waiting" && !bot.away).length;
   const asks = waiting ? needWord(waiting) : "";
   return (
     <Tip label={asks ? `Spade · ${asks}` : "Spade"}>

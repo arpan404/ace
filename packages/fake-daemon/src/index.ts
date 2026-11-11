@@ -146,3 +146,6 @@ export {
   seedVariedSettledThreads,
   withLongAutomations,
 } from "./scenarios/long-lists.ts";
+export { FakeSpadeApi } from "./spade-api.ts";
+export type { FakeSpadeAgent } from "./spade-api.ts";
+export type { FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
