@@ -30,7 +30,7 @@ export function Screen(
   },
 ) {
   const pane = useToastAnchor();
-  // With no machine there is no connection to report on.
+  // With no machine there is no connection to report on, and no machine for outside apps to ask about.
   const machine = useOptionalClient() !== undefined;
   const main = (
     <main ref={pane} id="main" tabIndex={-1} className="relative min-h-0 flex-1 outline-none">
@@ -69,7 +69,7 @@ export function Screen(
             notice={
               <>
                 <PausedNotice />
-                <OutsideNotices />
+                {machine && <OutsideNotices />}
                 <SandboxNotice />
               </>
             }
@@ -81,7 +81,7 @@ export function Screen(
             {header(headerOwnsConnection)()}
             <div className={`${canvasClass} flex-col`}>
               <PausedNotice />
-              <OutsideNotices />
+              {machine && <OutsideNotices />}
               <SandboxNotice />
               <div className="relative flex min-h-0 flex-1 flex-col">{main}</div>
             </div>
