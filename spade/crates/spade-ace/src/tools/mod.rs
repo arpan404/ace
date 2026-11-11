@@ -22,25 +22,28 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use reqwest::header::{HeaderName, HeaderValue};
 use rmcp::model::{
-    ClientCapabilities, ClientConfig, ClientRequest, CustomRequest, Implementation,
-    PaginatedRequestParams, PingRequest, ProtocolVersion,
+    CancelledNotificationParam, ClientCapabilities, ClientConfig, ClientRequest, CustomRequest,
+    Implementation, PaginatedRequestParams, PingRequest, ProtocolVersion,
 };
 use rmcp::service::{NotificationContext, PeerRequestOptions, RunningService};
 use rmcp::transport::StreamableHttpClientTransport;
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
 use rmcp::{ClientHandler, Peer, RoleClient, ServiceExt};
 use serde_json::{Value, json};
-use tokio::sync::{Mutex, watch};
+use tokio::sync::{Mutex, Semaphore, watch};
 
 pub use crate::config::ToolsConfig;
 pub use errors::ToolsError;
-use http::{RawAnswers, RawKeeping};
+use http::{CallRoutes, ROUTE_KEY, RawKeeping};
 pub use map::{AceTool, AceToolResult, Part, Risk};
 
 /// A listing longer than this many pages is treated as a server fault, not followed forever.
 const MOST_PAGES: usize = 64;
 /// Asks the daemon for a session with a list-change stream (`packages/mcp-server/src/http.ts`).
 const NOTIFICATIONS_HEADER: &str = "x-ace-notifications";
+/// Calls in flight at once. More wait their turn (up to the timeout) rather than crowd out
+/// answers already on their way.
+const MOST_CALLS: usize = 64;
 
 pub struct AceTools {
     config: ToolsConfig,
@@ -50,12 +53,15 @@ pub struct AceTools {
     stale: Arc<AtomicBool>,
     changes: Arc<watch::Sender<u64>>,
     epochs: AtomicU64,
-    answers: RawAnswers,
+    /// Route tokens for calls; never reused for the life of this client.
+    next_call: AtomicU64,
+    calls: Semaphore,
 }
 
 struct Live {
     service: RunningService<RoleClient, Listener>,
     epoch: u64,
+    routes: CallRoutes,
 }
 
 impl AceTools {
@@ -68,7 +74,8 @@ impl AceTools {
             stale: Arc::new(AtomicBool::new(true)),
             changes: Arc::new(watch::channel(0).0),
             epochs: AtomicU64::new(0),
-            answers: RawAnswers::default(),
+            next_call: AtomicU64::new(0),
+            calls: Semaphore::new(MOST_CALLS),
         }
     }
 
@@ -102,7 +109,22 @@ impl AceTools {
             Value::Null => {}
             _ => return Err(ToolsError::InvalidArguments),
         }
-        let (peer, epoch) = self.peer().await.map_err(not_run_if_unavailable)?;
+        let _turn = tokio::time::timeout(self.config.timeout(), self.calls.acquire())
+            .await
+            .map_err(|_| ToolsError::NotRun("too many calls are waiting on ace".into()))?
+            .map_err(|_| ToolsError::NotRun("the client is closing".into()))?;
+        let (peer, epoch, routes) = self.peer().await.map_err(not_run_if_unavailable)?;
+        // The token names this call alone; the HTTP layer hands its raw answer to this waiter.
+        let token = self.next_call.fetch_add(1, Ordering::Relaxed) + 1;
+        let mut meta = serde_json::Map::new();
+        meta.insert(ROUTE_KEY.into(), token.into());
+        params["_meta"] = Value::Object(meta);
+        let mut raw = routes.register(token);
+        let mut waiting = Waiting {
+            routes,
+            token,
+            unanswered: None,
+        };
         // Sent as a plain request so the answer is read from its raw JSON, whatever it holds.
         let request = ClientRequest::CustomRequest(CustomRequest::new("tools/call", Some(params)));
         let options = PeerRequestOptions::with_timeout(self.config.timeout());
@@ -119,9 +141,10 @@ impl AceTools {
                 return Err(not_run_if_unavailable(error));
             }
         };
-        let id = handle.id.clone();
+        waiting.unanswered = Some((peer.clone(), handle.id.clone()));
         let answer = handle.await_response().await;
-        let raw = self.answers.take(&id);
+        // Answered, refused or timed out (the SDK cancels on its own timeout): nothing to cancel.
+        waiting.unanswered = None;
         let answer = match answer {
             Ok(answer) => answer,
             Err(error) => {
@@ -131,6 +154,8 @@ impl AceTools {
                 });
             }
         };
+        // The raw answer is delivered before the SDK parses it, so it is here by now.
+        let raw = raw.try_recv().ok();
         let result = match raw.and_then(|mut message| message.get_mut("result").map(Value::take)) {
             Some(result) => result,
             None => serde_json::to_value(answer).map_err(|error| {
@@ -146,7 +171,7 @@ impl AceTools {
         &self,
         cached: Option<&(u64, Vec<AceTool>)>,
     ) -> Result<(u64, Vec<AceTool>), ToolsError> {
-        let (peer, epoch) = self.peer().await?;
+        let (peer, epoch, _) = self.peer().await?;
         if let Some((cached_epoch, tools)) = cached
             && *cached_epoch == epoch
             && !self.stale.load(Ordering::Acquire)
@@ -217,32 +242,45 @@ impl AceTools {
         error
     }
 
-    async fn peer(&self) -> Result<(Peer<RoleClient>, u64), ToolsError> {
+    /// The live session's peer, epoch and call routes, opening a session if there is none.
+    async fn peer(&self) -> Result<(Peer<RoleClient>, u64, CallRoutes), ToolsError> {
         let mut session = self.session.lock().await;
         if let Some(live) = session.as_ref()
             && !live.service.is_closed()
             && !live.service.is_transport_closed()
         {
-            return Ok((live.service.peer().clone(), live.epoch));
+            return Ok((live.service.peer().clone(), live.epoch, live.routes.clone()));
         }
         *session = None;
-        let service = tokio::time::timeout(self.config.timeout(), self.open())
+        // Each session has its own routes; nothing from an earlier session can reach a call.
+        let routes = CallRoutes::default();
+        let service = tokio::time::timeout(self.config.timeout(), self.open(routes.clone()))
             .await
             .map_err(|_| ToolsError::Timeout)??;
         let epoch = self.epochs.fetch_add(1, Ordering::Relaxed) + 1;
         let peer = service.peer().clone();
-        *session = Some(Live { service, epoch });
-        Ok((peer, epoch))
+        *session = Some(Live {
+            service,
+            epoch,
+            routes: routes.clone(),
+        });
+        Ok((peer, epoch, routes))
     }
 
-    async fn open(&self) -> Result<RunningService<RoleClient, Listener>, ToolsError> {
+    async fn open(
+        &self,
+        routes: CallRoutes,
+    ) -> Result<RunningService<RoleClient, Listener>, ToolsError> {
+        let client = RawKeeping::new(routes).map_err(|error| {
+            ToolsError::Unavailable(self.config.token().scrub(error.to_string()))
+        })?;
         let mut headers = HashMap::new();
         headers.insert(
             HeaderName::from_static(NOTIFICATIONS_HEADER),
             HeaderValue::from_static("stream"),
         );
         let transport = StreamableHttpClientTransport::with_client(
-            RawKeeping::new(self.answers.clone()),
+            client,
             StreamableHttpClientTransportConfig::with_uri(self.config.url().as_str())
                 .auth_header(self.config.token().expose())
                 .custom_headers(headers)
@@ -257,6 +295,30 @@ impl AceTools {
             .serve(transport)
             .await
             .map_err(|error| errors::from_init(error, self.config.token()))
+    }
+}
+
+/// A call's registration, removed however the call ends. When the caller drops a call that was
+/// sent but not answered, ace is asked to cancel it.
+struct Waiting {
+    routes: CallRoutes,
+    token: u64,
+    unanswered: Option<(Peer<RoleClient>, rmcp::model::RequestId)>,
+}
+
+impl Drop for Waiting {
+    fn drop(&mut self) {
+        self.routes.forget(self.token);
+        if let Some((peer, id)) = self.unanswered.take()
+            && let Ok(runtime) = tokio::runtime::Handle::try_current()
+        {
+            runtime.spawn(async move {
+                let reason = Some("Spade stopped waiting".to_owned());
+                let _ = peer
+                    .notify_cancelled(CancelledNotificationParam::new(Some(id), reason))
+                    .await;
+            });
+        }
     }
 }
 

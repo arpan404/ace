@@ -1,10 +1,11 @@
 //! The HTTP client under the MCP transport. Every request goes through the SDK's own reqwest
 //! client except `tools/call`, which this sends itself so that:
 //!
-//! - the answer's raw JSON is kept (the SDK's typed content drops fields it doesn't know), and
+//! - the answer's raw JSON goes straight to the call that asked (the SDK's typed content drops
+//!   fields it doesn't know), and
 //! - a 404 for an expired session comes back as `SessionExpired` and nothing is replayed.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use futures_util::{StreamExt, TryStreamExt};
@@ -15,54 +16,60 @@ use rmcp::transport::streamable_http_client::{
 };
 use serde_json::Value;
 use sse_stream::{Sse, SseStream};
+use tokio::sync::oneshot;
 
 const SESSION_HEADER: &str = "Mcp-Session-Id";
 /// The most bytes one `tools/call` answer may take, as JSON or as an event stream.
 const MOST_ANSWER_BYTES: usize = 32 * 1024 * 1024;
-/// Raw answers waiting for their caller. More than this means callers gave up; the oldest go.
-const MOST_KEPT: usize = 64;
+/// The `_meta` key carrying a call's route token, so its POST knows where its answer goes.
+pub(crate) const ROUTE_KEY: &str = "dev.acehq.spade/call";
 
-/// Raw `tools/call` answers by JSON-RPC id (its JSON text), whole messages as sent.
+/// One session's calls waiting for their raw answers, by route token. A token is never reused,
+/// and the table belongs to one session, so an answer can only reach the call that asked.
 #[derive(Clone, Default)]
-pub(crate) struct RawAnswers(Arc<Mutex<VecDeque<(String, Value)>>>);
+pub(crate) struct CallRoutes(Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>>);
 
-impl RawAnswers {
-    fn keep(&self, id: String, message: Value) {
-        let mut kept = lock(&self.0);
-        if kept.len() >= MOST_KEPT {
-            kept.pop_front();
-        }
-        kept.push_back((id, message));
+impl CallRoutes {
+    /// Registers `token` before its call is sent. The answer arrives on the receiver.
+    pub(crate) fn register(&self, token: u64) -> oneshot::Receiver<Value> {
+        let (tx, rx) = oneshot::channel();
+        lock(&self.0).insert(token, tx);
+        rx
     }
 
-    /// The raw answer to request `id`, once.
-    pub(crate) fn take(&self, id: &rmcp::model::RequestId) -> Option<Value> {
-        let key = serde_json::to_string(id).ok()?;
-        let mut kept = lock(&self.0);
-        let index = kept.iter().position(|(id, _)| *id == key)?;
-        kept.remove(index).map(|(_, message)| message)
+    pub(crate) fn forget(&self, token: u64) {
+        lock(&self.0).remove(&token);
+    }
+
+    fn deliver(&self, token: u64, envelope: Value) {
+        if let Some(waiter) = lock(&self.0).remove(&token) {
+            let _ = waiter.send(envelope);
+        }
     }
 }
 
 #[derive(Clone)]
 pub(crate) struct RawKeeping {
     inner: reqwest::Client,
-    answers: RawAnswers,
+    routes: CallRoutes,
 }
 
 impl RawKeeping {
-    pub(crate) fn new(answers: RawAnswers) -> Self {
-        Self {
-            inner: reqwest::Client::new(),
-            answers,
-        }
+    /// No redirects (a redirect could carry a call and its session elsewhere, or send it twice)
+    /// and no proxy: the daemon is on this machine.
+    pub(crate) fn new(routes: CallRoutes) -> Result<Self, reqwest::Error> {
+        let inner = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .no_proxy()
+            .build()?;
+        Ok(Self { inner, routes })
     }
 
     async fn call(
         &self,
         uri: &str,
         message: ClientJsonRpcMessage,
-        id: String,
+        (id, token): (String, Option<u64>),
         session_id: Option<Arc<str>>,
         auth_token: Option<String>,
         custom_headers: HashMap<HeaderName, HeaderValue>,
@@ -95,6 +102,12 @@ impl RawKeeping {
         if status == reqwest::StatusCode::NOT_FOUND && session_id.is_some() {
             return Err(StreamableHttpError::SessionExpired);
         }
+        // Never followed; the call did not reach a tool.
+        if status.is_redirection() {
+            return Err(StreamableHttpError::UnexpectedServerResponse(
+                format!("HTTP {status}: a redirect, not followed").into(),
+            ));
+        }
         if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
             return Err(StreamableHttpError::UnexpectedServerResponse(
                 format!("HTTP {status}").into(),
@@ -111,7 +124,7 @@ impl RawKeeping {
             .and_then(|value| value.to_str().ok())
             .map(str::to_owned);
         if status.is_success() && content_type.as_deref().is_some_and(is_event_stream) {
-            let answers = self.answers.clone();
+            let routes = self.routes.clone();
             let bytes = bounded(response.bytes_stream());
             let events = SseStream::from_bytes_stream(bytes).map(move |event| {
                 if let Ok(Sse {
@@ -119,8 +132,9 @@ impl RawKeeping {
                 }) = &event
                     && let Ok(message) = serde_json::from_str::<Value>(data)
                     && message.get("id").map(Value::to_string).as_deref() == Some(id.as_str())
+                    && let Some(token) = token
                 {
-                    answers.keep(id.clone(), message);
+                    routes.deliver(token, message);
                 }
                 event
             });
@@ -133,8 +147,10 @@ impl RawKeeping {
         match (parsed, content_type.as_deref().is_some_and(is_json)) {
             (Some(message), true) => {
                 let typed = serde_json::from_value::<ServerJsonRpcMessage>(message.clone())?;
-                if status.is_success() {
-                    self.answers.keep(id, message);
+                if let Some(token) = token
+                    && message.get("id").map(Value::to_string).as_deref() == Some(id.as_str())
+                {
+                    self.routes.deliver(token, message);
                 }
                 Ok(StreamableHttpPostResponse::Json(typed, session))
             }
@@ -254,14 +270,23 @@ impl StreamableHttpClient for RawKeeping {
     }
 }
 
-/// The JSON-RPC id of a `tools/call` request, as JSON text; `None` for anything else.
-fn tool_call_id(message: &ClientJsonRpcMessage) -> Option<String> {
-    match message {
-        ClientJsonRpcMessage::Request(request) if request.request.method() == "tools/call" => {
-            serde_json::to_string(&request.id).ok()
-        }
-        _ => None,
+/// For a `tools/call` request: its JSON-RPC id as JSON text, and its route token if it has one.
+fn tool_call_id(message: &ClientJsonRpcMessage) -> Option<(String, Option<u64>)> {
+    let ClientJsonRpcMessage::Request(request) = message else {
+        return None;
+    };
+    if request.request.method() != "tools/call" {
+        return None;
     }
+    let id = serde_json::to_string(&request.id).ok()?;
+    let token = serde_json::to_value(&request.request)
+        .ok()
+        .and_then(|value| {
+            value
+                .pointer(&format!("/params/_meta/{}", ROUTE_KEY.replace('/', "~1")))
+                .and_then(Value::as_u64)
+        });
+    Some((id, token))
 }
 
 fn is_event_stream(content_type: &str) -> bool {

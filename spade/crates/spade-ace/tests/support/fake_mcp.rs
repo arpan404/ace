@@ -42,7 +42,6 @@ pub const TOKEN: &str = "mcp-bearer-for-tests";
 pub const PIXEL: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 const SESSIONS_PER_BEARER: usize = 4;
 
-#[derive(Default)]
 struct State {
     tools: Mutex<Vec<Tool>>,
     peers: Mutex<Vec<Peer<RoleServer>>>,
@@ -53,6 +52,11 @@ struct State {
     requests: Mutex<Vec<HeaderMap>>,
     tool_call_frames: AtomicUsize,
     tool_runs: AtomicUsize,
+    cancels: AtomicUsize,
+    /// While true, `tools/call` answers are sent only once it turns false again.
+    hold: tokio::sync::watch::Sender<bool>,
+    /// Where `tools/call` POSTs are redirected, when set.
+    redirect_calls: Mutex<Option<String>>,
 }
 
 #[derive(Clone)]
@@ -68,8 +72,18 @@ pub struct FakeMcp {
 impl FakeMcp {
     /// Serves `tools` two to a page.
     pub async fn start(tools: Vec<Tool>) -> Self {
-        let state = Arc::new(State::default());
-        *lock(&state.tools) = tools;
+        let state = Arc::new(State {
+            tools: Mutex::new(tools),
+            peers: Mutex::default(),
+            sessions: Mutex::default(),
+            opened: Mutex::default(),
+            requests: Mutex::default(),
+            tool_call_frames: AtomicUsize::new(0),
+            tool_runs: AtomicUsize::new(0),
+            cancels: AtomicUsize::new(0),
+            hold: tokio::sync::watch::channel(false).0,
+            redirect_calls: Mutex::new(None),
+        });
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .unwrap_or_else(|e| panic!("bind: {e}"));
@@ -131,9 +145,29 @@ impl FakeMcp {
         }
     }
 
+    /// From now on, `tools/call` answers (headers go out at once) wait for `release_answers`.
+    pub fn hold_answers(&self) {
+        self.state.hold.send_replace(true);
+    }
+
+    /// Sends every held answer.
+    pub fn release_answers(&self) {
+        self.state.hold.send_replace(false);
+    }
+
+    /// Answers every `tools/call` POST with a 307 to `url`.
+    pub fn redirect_calls_to(&self, url: String) {
+        *lock(&self.state.redirect_calls) = Some(url);
+    }
+
     /// `tools/call` frames that reached the endpoint, run or not.
     pub fn tool_call_frames(&self) -> usize {
         self.state.tool_call_frames.load(Ordering::SeqCst)
+    }
+
+    /// `notifications/cancelled` frames received.
+    pub fn cancels(&self) -> usize {
+        self.state.cancels.load(Ordering::SeqCst)
     }
 
     /// Calls a tool handler actually ran.
@@ -212,8 +246,19 @@ async fn daemon_rules(Shared(state): Shared<Arc<State>>, request: Request, next:
     let method = serde_json::from_slice::<Value>(&body)
         .ok()
         .and_then(|v| v.get("method").and_then(Value::as_str).map(str::to_owned));
+    if method.as_deref() == Some("notifications/cancelled") {
+        state.cancels.fetch_add(1, Ordering::SeqCst);
+    }
     if method.as_deref() == Some("tools/call") {
         state.tool_call_frames.fetch_add(1, Ordering::SeqCst);
+        let redirect = lock(&state.redirect_calls).clone();
+        if let Some(location) = redirect {
+            return (
+                StatusCode::TEMPORARY_REDIRECT,
+                [(axum::http::header::LOCATION, location)],
+            )
+                .into_response();
+        }
     }
     if !streaming {
         parts.uri = Uri::from_static("/stateless");
@@ -230,9 +275,27 @@ async fn daemon_rules(Shared(state): Shared<Arc<State>>, request: Request, next:
         }
     }
     if method.as_deref() == Some("tools/call") {
-        return decorate(response).await;
+        let held = *state.hold.borrow();
+        let response = decorate(response).await;
+        if held {
+            return hold_body(response, state.hold.subscribe()).await;
+        }
+        return response;
     }
     response
+}
+
+/// Sends the headers now and the body once the hold is lifted.
+async fn hold_body(response: Response, mut hold: tokio::sync::watch::Receiver<bool>) -> Response {
+    let (parts, body) = response.into_parts();
+    let Ok(body) = to_bytes(body, 64 * 1024 * 1024).await else {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    };
+    let later = futures_util::stream::once(async move {
+        let _ = hold.wait_for(|held| !*held).await;
+        Ok::<_, std::convert::Infallible>(body)
+    });
+    Response::from_parts(parts, Body::from_stream(later))
 }
 
 async fn replace_oldest_past_the_cap(state: &Arc<State>, id: String) {
