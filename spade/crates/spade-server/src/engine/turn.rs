@@ -48,13 +48,17 @@ pub(super) async fn run(engine: Arc<Engine>, id: String, stop_rx: watch::Receive
     if let Some(reply) = open_reply(&engine, &id).filter(|open| Some(open) == driven.as_ref()) {
         let event = match ended {
             Ended::Finished => None,
-            Ended::Stopped(text) => Some(Event::reply_ended(ReplyEnd::Stopped, reply, text)),
-            Ended::Failed(text, error) => {
-                Some(Event::Known(Known::ReplyFailed { reply, text, error }))
+            Ended::Stopped(text) => {
+                Some(Event::reply_ended(ReplyEnd::Stopped, reply.clone(), text))
             }
+            Ended::Failed(text, error) => Some(Event::Known(Known::ReplyFailed {
+                reply: reply.clone(),
+                text,
+                error,
+            })),
         };
         if let Some(event) = event
-            && let Err(error) = engine.record(&id, &event)
+            && let Err(error) = engine.close_reply(&id, &reply, &event)
         {
             tracing::error!(%error, "could not close a turn");
         }
@@ -70,6 +74,11 @@ pub(super) async fn run(engine: Arc<Engine>, id: String, stop_rx: watch::Receive
         engine.spawn_turn(&id);
     }
     name_if_untitled(&engine, &id).await;
+}
+
+/// Resolves once Stop is pressed (or the turn's signal goes away).
+async fn stopped(stop: &mut watch::Receiver<bool>) {
+    let _ = stop.wait_for(|stopped| *stopped).await;
 }
 
 fn open_reply(engine: &Engine, id: &str) -> Option<String> {
@@ -127,7 +136,12 @@ async fn drive(
                     continue;
                 }
                 let model = turn_model(engine, &events, &reply);
-                if super::compact::if_needed(engine, id, &model, &events).await {
+                // Stop interrupts a compaction too; nothing is stored for one cut short.
+                let compacted = tokio::select! {
+                    done = super::compact::if_needed(engine, id, &model, &events) => done,
+                    _ = stopped(&mut stop) => return Ended::Stopped(String::new()),
+                };
+                if compacted {
                     continue;
                 }
                 match model_step(engine, id, &reply, &events, &mut stop).await {
@@ -177,7 +191,11 @@ async fn model_step(
     let images = engine.images_for(&model);
     let prompt = context::prompt_with(SYSTEM, engine.tools.registry().offered(), events, &images);
     let live = engine.live(id);
-    let stream = match engine.models.stream(&model, &prompt).await {
+    let opened = tokio::select! {
+        opened = engine.models.stream(&model, &prompt) => opened,
+        _ = stopped(stop) => return Step::Stopped(String::new()),
+    };
+    let stream = match opened {
         Ok(stream) => stream,
         Err(error) => return Step::Failed(String::new(), error.to_string()),
     };

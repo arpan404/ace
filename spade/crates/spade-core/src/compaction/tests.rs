@@ -341,3 +341,25 @@ fn writes_keep_their_ids_and_arguments_and_uncertain_ones_say_so() {
         ]
     );
 }
+
+#[test]
+fn right_after_a_compaction_the_old_prompt_size_does_not_compact_again() {
+    let mut events = conversation(10);
+    let first = plan(&events, 8_000, 10_000).map(|p| p.keep_from);
+    assert!(first.is_some());
+    events.push(Event::Known(Known::ContextCompacted {
+        summary: "earlier".into(),
+        keep_from: first.unwrap_or(0),
+        tokens_before: 8_000,
+    }));
+    assert_eq!(
+        plan(&events, 8_000, 10_000),
+        None,
+        "the 8,000 is from before the compaction"
+    );
+    events.extend(turn(10, 50));
+    assert!(
+        plan(&events, 8_000, 10_000).is_some(),
+        "a new step's size counts again"
+    );
+}

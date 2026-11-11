@@ -27,6 +27,19 @@ pub fn plan(events: &[Event], prompt_tokens: u32, budget: u32) -> Option<Plan> {
     if budget == 0 || f64::from(prompt_tokens) < f64::from(budget) * HIGH {
         return None;
     }
+    // `prompt_tokens` comes from the last step. If a compaction came after it, that size is from
+    // before the compaction; wait for a step to report the new one.
+    let last_step = events
+        .iter()
+        .rposition(|e| matches!(e, Event::Known(Known::StepFinished { .. })));
+    let last_compaction = events
+        .iter()
+        .rposition(|e| matches!(e, Event::Known(Known::ContextCompacted { .. })));
+    if let (Some(compacted), step) = (last_compaction, last_step)
+        && step.is_none_or(|step| compacted > step)
+    {
+        return None;
+    }
     let already = events.iter().rev().find_map(|event| match event {
         Event::Known(Known::ContextCompacted { keep_from, .. }) => Some(*keep_from),
         _ => None,

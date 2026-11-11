@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use spade_core::event::Known;
-use spade_core::turn::{job_stopped, stop_requested};
+use spade_core::turn::{job_stopped, stop_requested, unanswered_after};
 use spade_core::{Event, Transcript, TurnState, spending};
 use spade_models::{Models, Role};
 use spade_store::{Conversation, Store, StoreError, StoredEvent};
@@ -196,7 +196,19 @@ impl Engine {
             let events = engine.load(&conversation.id)?;
             let transcript = Transcript::fold(&events);
             if let Some(close) = transcript.close_after_restart() {
-                engine.record(&conversation.id, &close)?;
+                // Closed like any reply: a message it never answered opens the next one.
+                match transcript.open_reply().and_then(|m| m.reply.clone()) {
+                    Some(reply) => engine.close_reply(&conversation.id, &reply, &close)?,
+                    None => {
+                        engine.record(&conversation.id, &close)?;
+                    }
+                }
+                if Transcript::fold(&engine.load(&conversation.id)?)
+                    .open_reply()
+                    .is_some()
+                {
+                    engine.spawn_turn(&conversation.id);
+                }
             } else if transcript.turn_state() == Some(TurnState::WaitingOnYou) {
                 engine.spawn_turn(&conversation.id);
             }
@@ -386,6 +398,29 @@ impl Engine {
         loaded?;
         stored?;
         Ok(turn || stopped_jobs > 0 || reply.is_some())
+    }
+
+    /// Closes `reply` with `close` (stopped or failed). Anything that arrived for the model and
+    /// was never answered (a message after the stop, or after the last step's prompt) opens the
+    /// next reply in the same lock, so it can never be left unanswered; the closing worker hands
+    /// it on.
+    fn close_reply(&self, id: &str, reply: &str, close: &Event) -> Result<(), StoreError> {
+        let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+        let mut events = self.load(id)?;
+        events.push(close.clone());
+        if unanswered_after(&events, reply) {
+            let model = self.models.for_role(Role::Main).to_owned();
+            let started = Event::reply_started(self.ids.next("r"), model);
+            for stored in self
+                .store
+                .append_all(id, &[close.clone(), started], self.now_ms())?
+            {
+                let _ = self.live(id).frames.send(Frame::Stored(stored));
+            }
+        } else {
+            self.append(id, close)?;
+        }
+        Ok(())
     }
 
     /// Stores `event` unless the person pressed Stop after `reply` began. Returns whether it was
