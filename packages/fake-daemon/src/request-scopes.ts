@@ -105,6 +105,13 @@ export function scopeRefusal(
       ok: false,
       error: "forbidden",
     };
+  if (message.type === "outside.request" && !scopes?.includes("admin"))
+    return {
+      type: "error",
+      code: "forbidden",
+      message: "Only an administrator can manage outside clients' access.",
+      requestId: message.requestId,
+    };
   if (message.type === "fleet.request" && !scopes?.includes("admin"))
     return {
       type: "error",

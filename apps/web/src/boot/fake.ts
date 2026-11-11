@@ -17,6 +17,7 @@ import {
   seedTurnEndings,
   seedLeftRunning,
   seedSettledHeld,
+  seedConnectedApps,
   seedPanels,
   seedRealCatalogs,
   seedRealThreadState,
@@ -107,6 +108,8 @@ export function bootFake(): {
   // `?fakeWorld=settled-held`: the dev world plus settled threads held at a usage limit or with
   // a command left running: they stay in Settled.
   if (world === "settled-held") seedSettledHeld(daemon, Date.now());
+  // `?fakeWorld=connected-apps`: outside MCP clients' grants, a sign-in request and screen use.
+  if (world === "connected-apps") seedConnectedApps(daemon, Date.now());
   if (world === "thread-activity")
     for (const scenario of turnStatuses())
       new ScenarioPlayer(daemon, scenario, { agoMs: 0 }).runUntilBlocked();

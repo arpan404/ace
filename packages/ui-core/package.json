@@ -19,6 +19,7 @@
     "./counts": "./src/counts.ts",
     "./phone-keymap": "./src/phone-keymap.ts",
     "./computer-use": "./src/computer-use.ts",
+    "./outside-clients": "./src/outside-clients.ts",
     "./devices": "./src/device-kit.ts",
     "./browser-devices": "./src/browser-devices.ts",
     "./browser-device-settings": "./src/browser-device-settings.ts",

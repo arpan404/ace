@@ -48,16 +48,22 @@ const eyebrows: Partial<Record<string, { icon: IconGlyph; label: string }>> = {
   queue: { icon: ClockIcon, label: "Queued" },
 };
 
-function Eyebrow(props: { kind: string | undefined }) {
+/**
+ * Above the bubble: how it reached the agent (steered, queued) and, for a message an outside
+ * MCP client sent for the person, that client's name where an author would stand.
+ */
+function Eyebrow(props: { kind: string | undefined; client: string | undefined }) {
   const eyebrow = props.kind ? eyebrows[props.kind] : undefined;
-  if (!eyebrow) return null;
+  if (!eyebrow && !props.client) return null;
   return (
     <span
       data-origin={props.kind}
       className="mb-1 flex items-center gap-1 text-xs text-subtle-foreground"
     >
-      <Icon icon={eyebrow.icon} size={12} />
-      {eyebrow.label}
+      {eyebrow && <Icon icon={eyebrow.icon} size={12} />}
+      {eyebrow?.label}
+      {eyebrow && props.client && <span aria-hidden>·</span>}
+      {props.client && <span data-client="">{props.client}</span>}
     </span>
   );
 }
@@ -123,7 +129,14 @@ export function UserMessage(props: { threadId: string; itemId: string; sent?: Se
   if (!readable && !files && !quotes) return null;
   return (
     <div className="group/bubble flex flex-col items-end">
-      {sent ? sent.line : <Eyebrow kind={messageOrigin(message)?.kind} />}
+      {sent ? (
+        sent.line
+      ) : (
+        <Eyebrow
+          kind={messageOrigin(message)?.kind}
+          client={messageOrigin(message)?.client?.name}
+        />
+      )}
       {files && (
         <Suspense fallback={<AttachmentsRoom images={files.images} />}>
           <DeferredAttachments.Component
