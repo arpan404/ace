@@ -55,7 +55,7 @@ impl Engine {
         // The stop names what it stops, so a late write never reaches newer work.
         let marker = Event::Known(Known::StopRequested {
             reply: reply.clone(),
-            jobs,
+            jobs: jobs.clone(),
         });
         let stored = self.record(id, &marker);
         if stored.is_err() {
@@ -74,7 +74,9 @@ impl Engine {
                 _ => false,
             }
         };
-        let stopped_jobs = jobs::stop_all(self, id);
+        // Only what the stop names: another worker may have closed the reply and started a new
+        // one, with jobs of its own, since the stop was stored.
+        let stopped_jobs = jobs::stop_named(self, id, reply.as_deref(), &jobs);
         // A paused reply has no worker; one starts, sees the stored stop and closes it as stopped.
         if !turn && reply.is_some() && stored.is_ok() {
             self.spawn_turn(id);

@@ -8,6 +8,7 @@
 //! Starting a job and Stop take the same lock, and a start checks the turn's stop signal under it,
 //! so Stop never misses a job that is just starting.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -22,12 +23,23 @@ use tokio::sync::watch;
 use super::Engine;
 use crate::tools::ToolOutput;
 
-/// A job in the live map.
+/// A job in the live map, with the reply that started it.
 pub(super) enum Job {
-    Running(tokio::task::AbortHandle),
+    Running {
+        reply: String,
+        handle: tokio::task::AbortHandle,
+    },
     /// Has its result and is storing it. A Stop meanwhile is stored as `stop_requested`, which
     /// keeps that result from opening a reply.
-    Finishing,
+    Finishing { reply: String },
+}
+
+impl Job {
+    fn reply(&self) -> &str {
+        match self {
+            Self::Running { reply, .. } | Self::Finishing { reply } => reply,
+        }
+    }
 }
 
 /// What starting a job came to.
@@ -62,11 +74,12 @@ pub(super) fn start(
         return Ok(Started::Stopped);
     }
     let task = {
-        let (engine, id, job, name) = (
+        let (engine, id, job, name, reply) = (
             engine.clone(),
             id.to_owned(),
             job.to_owned(),
             name.to_owned(),
+            reply.to_owned(),
         );
         tokio::spawn(async move {
             let output = run(&engine, &format!("{id}.{job}"), &name, arguments).await;
@@ -74,10 +87,10 @@ pub(super) fn start(
                 let live = engine.live(&id);
                 let mut jobs = live.jobs.lock().unwrap_or_else(|p| p.into_inner());
                 // Gone means Stop already took this job's end.
-                if !matches!(jobs.get(&job), Some(Job::Running(_))) {
+                if !matches!(jobs.get(&job), Some(Job::Running { .. })) {
                     return;
                 }
-                jobs.insert(job.clone(), Job::Finishing);
+                jobs.insert(job.clone(), Job::Finishing { reply });
             }
             let content = super::calls::trim(&output.content, engine.limits.result_chars);
             let finished = Event::Known(Known::JobFinished {
@@ -96,7 +109,13 @@ pub(super) fn start(
                 .remove(&job);
         })
     };
-    jobs.insert(job.to_owned(), Job::Running(task.abort_handle()));
+    jobs.insert(
+        job.to_owned(),
+        Job::Running {
+            reply: reply.to_owned(),
+            handle: task.abort_handle(),
+        },
+    );
     Ok(Started::Running)
 }
 
@@ -135,27 +154,23 @@ pub(super) async fn keep_trying(mut store: impl FnMut() -> Result<(), StoreError
     }
 }
 
-/// Stops the conversation's jobs. A running job is cancelled and stored as stopped before this
-/// returns, so a restart can never bring it back; a finishing one keeps its result, which opens
-/// no reply because the caller stored `stop_requested` first. Returns how many were stopped.
-pub(super) fn stop_all(engine: &Arc<Engine>, id: &str) -> usize {
-    let mut cancelled: Vec<String> = Vec::new();
-    let mut quietened = 0;
-    {
+/// Stops the jobs a stored `stop_requested` named: those listed in `named`, and any started by
+/// `reply`. A running one is cancelled and stored as stopped before this returns, so a restart
+/// can never bring it back; a finishing one keeps its result, which opens no reply because the
+/// caller stored `stop_requested` first. Jobs of later replies keep running. Returns how many
+/// were stopped.
+pub(super) fn stop_named(
+    engine: &Arc<Engine>,
+    id: &str,
+    reply: Option<&str>,
+    named: &[String],
+) -> usize {
+    let (cancelled, quietened) = {
         let live = engine.live(id);
+        // The lock a job start takes, so the choice cannot miss or mistake one starting now.
         let mut jobs = live.jobs.lock().unwrap_or_else(|p| p.into_inner());
-        jobs.retain(|job, state| match state {
-            Job::Running(handle) => {
-                handle.abort();
-                cancelled.push(job.clone());
-                false
-            }
-            Job::Finishing => {
-                quietened += 1;
-                true
-            }
-        });
-    }
+        take_named(&mut jobs, reply, named)
+    };
     if !cancelled.is_empty() {
         let names = engine.load(id).unwrap_or_default();
         let ends: Vec<Event> = cancelled
@@ -181,6 +196,66 @@ pub(super) fn stop_all(engine: &Arc<Engine>, id: &str) -> usize {
         }
     }
     cancelled.len() + quietened
+}
+
+/// Cancels and removes the running jobs a stop names (listed, or started by `reply`) and counts
+/// the finishing ones it names. Returns the cancelled job ids and that count.
+fn take_named(
+    jobs: &mut HashMap<String, Job>,
+    reply: Option<&str>,
+    named: &[String],
+) -> (Vec<String>, usize) {
+    let mut cancelled = Vec::new();
+    let mut quietened = 0;
+    jobs.retain(|job, state| {
+        if !named.contains(job) && reply != Some(state.reply()) {
+            return true;
+        }
+        match state {
+            Job::Running { handle, .. } => {
+                handle.abort();
+                cancelled.push(job.clone());
+                false
+            }
+            Job::Finishing { .. } => {
+                quietened += 1;
+                true
+            }
+        }
+    });
+    (cancelled, quietened)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn running(reply: &str, task: &tokio::task::JoinHandle<()>) -> Job {
+        Job::Running {
+            reply: reply.to_owned(),
+            handle: task.abort_handle(),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_stop_for_one_reply_leaves_a_later_replys_job_running() {
+        let forever = || tokio::spawn(std::future::pending::<()>());
+        let (first, older, later) = (forever(), forever(), forever());
+        let mut jobs = HashMap::from([
+            ("j1".to_owned(), running("r1", &first)),
+            ("j0".to_owned(), running("r0", &older)),
+            // Started by r2 after the stop for r1 was stored.
+            ("j2".to_owned(), running("r2", &later)),
+        ]);
+        let (mut cancelled, _) = take_named(&mut jobs, Some("r1"), &["j0".to_owned()]);
+        cancelled.sort();
+        assert_eq!(cancelled, vec!["j0".to_owned(), "j1".to_owned()]);
+        tokio::task::yield_now().await;
+        assert!(first.await.is_err_and(|e| e.is_cancelled()));
+        assert!(older.await.is_err_and(|e| e.is_cancelled()));
+        assert!(!later.is_finished(), "r2's job keeps running");
+        assert!(jobs.contains_key("j2"));
+    }
 }
 
 /// After a restart: every job the stored events show as running was lost with the old process.
