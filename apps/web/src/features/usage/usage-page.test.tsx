@@ -93,11 +93,11 @@ test("limits say what is left, from the share the provider reports used", async 
   const personal = await meter("Claude Code", "Personal", "Session (5h)");
   expect(personal.getAttribute("aria-valuenow")).toBe("38");
   expect(personal.getAttribute("aria-valuetext")).toBe("38% left");
-  expect((await accountBlock("Claude Code", "Personal")).textContent).toContain("38% session");
-  // An account with nothing left is out now, and says when it is back.
+  expect((await accountBlock("Claude Code", "Personal")).textContent).toContain("38% left");
+  // A window with nothing left says when it is back.
   const work = await accountBlock("Claude Code", "Work");
-  expect(work.textContent).toContain("0% session");
-  expect(work.textContent).toMatch(/Session is out, back \d/);
+  expect(work.textContent).toContain("0% left");
+  expect(work.textContent).toMatch(new RegExp(`Out until ${clock}`));
   expect(document.body.textContent).not.toMatch(/\d+% used/);
 });
 
@@ -136,7 +136,7 @@ test("each account is listed once, with each of its windows beneath it", async (
   ]);
 });
 
-test("an account used faster than its window runs says when it runs out; one on pace says it lasts", async () => {
+test("a window used faster than it runs is red with when it runs out; one that lasts marks where its pace leaves it", async () => {
   const app = harness();
   // Half of five hours used in its first hour: out in another hour, three before it resets.
   report(app.daemon, "codex-personal", {
@@ -147,13 +147,17 @@ test("an account used faster than its window runs says when it runs out; one on 
   report(app.daemon, "codex-team", { five_hour: [10, 4 * hour, 300] });
   await app.open("/usage");
   const personal = await accountBlock("Codex", "Personal");
-  expect(personal.textContent).toMatch(
-    new RegExp(`Session runs out around ${clock}, back ${clock}`),
-  );
-  expect(personal.querySelectorAll("[data-out]")).toHaveLength(1);
-  const team = await accountBlock("Codex", "Team");
-  expect(team.textContent).toMatch(new RegExp(`Lasts, about 50% to spare at ${clock}`));
-  expect(team.querySelectorAll("[data-out]")).toHaveLength(0);
+  expect(personal.textContent).toMatch(new RegExp(`Runs out around ${clock}`));
+  const session = await meter("Codex", "Personal", "Session (5h)");
+  expect(session.querySelector("[data-runs-out]")).not.toBeNull();
+  // The week, barely touched, lasts: no red, and its pace still uses some of what is left.
+  const week = await meter("Codex", "Personal", "Weekly");
+  expect(week.querySelector("[data-runs-out]")).toBeNull();
+  const team = await meter("Codex", "Team", "Session (5h)");
+  expect(team.querySelector("[data-runs-out]")).toBeNull();
+  // 90% left now, 50% left at the reset: the pace part is the 40 between them.
+  expect(team.querySelector<HTMLElement>("[data-pace]")?.style.width).toBe("40%");
+  expect((await accountBlock("Codex", "Team")).textContent).toMatch(new RegExp(`Resets ${clock}`));
 });
 
 test("a window whose reset passed since its reading keeps its place and says how old it is", async () => {
@@ -293,7 +297,7 @@ test("the range changes the total, and a ledger row drills into it until a crumb
   expect(await ledgerRow("Claude Code")).toBeTruthy();
 });
 
-test("an account's band shows that account's spend, and Limits keep to it", async () => {
+test("an account's name shows that account's spend, and Limits keep to it", async () => {
   const app = harness();
   report(app.daemon, "codex-personal", { five_hour: [20, hour] });
   report(app.daemon, "claude-personal", { five_hour: [20, hour] });
@@ -305,7 +309,9 @@ test("an account's band shows that account's spend, and Limits keep to it", asyn
   await show("Tokens");
   await waitFor(() => expect(total()).toBe("6M"));
   const codex = await accountBlock("Codex", "Personal");
-  await userEvent.click(within(codex).getByRole("button", { name: /Show this account's spend$/ }));
+  await userEvent.click(
+    within(codex).getByRole("button", { name: "Codex · Personal: show its spend" }),
+  );
   await waitFor(() => expect(total()).toBe("3M"));
   const scope = screen.getByRole("navigation", { name: "Scope" });
   expect(within(scope).getByText("Personal").getAttribute("aria-current")).toBe("location");
@@ -381,7 +387,7 @@ test("an account shows the plan its provider reports beside its environment", as
   if (!account) throw new Error("no account");
   account.quota.plan = "plus";
   await app.open("/usage");
-  expect((await accountBlock("Codex", "Personal")).textContent).toMatch(/Plus · /);
+  expect((await accountBlock("Codex", "Personal")).textContent).toContain("Plus");
   expect((await accountBlock("Codex", "Team")).textContent).not.toContain("Plus");
 });
 

@@ -45,7 +45,7 @@ import { useNow } from "@/lib/time.ts";
 import { useUsageTimeZone } from "@/lib/usage-timezone.ts";
 import { listAutomations } from "@/features/automation-data/index.ts";
 import { Screen } from "@/features/shell/index.ts";
-import { AvailabilityView } from "./availability-view.tsx";
+import { LimitsView } from "./limits-view.tsx";
 import { breakdownNamer, withCanonicalModels } from "./breakdown-lists.ts";
 import { Ledger, type Metric } from "./ledger.tsx";
 import { useLedger } from "./ledger-data.ts";
@@ -305,7 +305,7 @@ export function UsagePage() {
                 }
               />
             ) : (
-              <AvailabilityView
+              <LimitsView
                 limits={limits}
                 now={now}
                 onAccount={showAccount}
