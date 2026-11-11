@@ -63,6 +63,35 @@ test("Spade stops showing as running once the daemon connection is lost", async 
   stop();
 });
 
+test("a watch resubscribed after the daemon went away while nobody watched isn't ready", async () => {
+  const connection = daemon({ state: "ready", version: "0.5.0" });
+  const watch = new SpadeStatusWatch(connection.client, web);
+  const stop = watch.subscribe(() => {});
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(spadeStateLine(watch.get(), true).ready).toBe(true);
+  stop();
+  connection.drop();
+  const again = watch.subscribe(() => {});
+  expect(spadeStateLine(watch.get(), true).ready).toBe(false);
+  again();
+});
+
+test("a reply asked for before the daemon went away doesn't count when it lands later", async () => {
+  const replies: ((value: unknown) => void)[] = [];
+  const connection = daemon({ state: "ready", version: "0.5.0" });
+  const client = connection.client as unknown as { request: () => Promise<unknown> };
+  client.request = () => new Promise((resolve) => replies.push(resolve));
+  const watch = new SpadeStatusWatch(connection.client, web);
+  watch.subscribe(() => {})();
+  connection.drop();
+  const again = watch.subscribe(() => {});
+  for (const reply of replies)
+    reply({ type: "spade.status.result", requestId: "r", status: { state: "ready" } });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(spadeStateLine(watch.get(), true).ready).toBe(false);
+  again();
+});
+
 test("on the desktop, Spade not answering its own health check overrides the daemon's ready", async () => {
   const connection = daemon({ state: "ready", version: "0.5.0" });
   const { line, stop } = await watching(connection.client, app(null));

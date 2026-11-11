@@ -37,6 +37,9 @@ export class SpadeStatusWatch {
       this.listeners.delete(listener);
       if (this.listeners.size) return;
       for (const stop of this.stops.splice(0)) stop();
+      // Replies still on their way are for a watch that has ended.
+      this.asked++;
+      this.looked++;
     };
   };
   private start() {
@@ -64,7 +67,9 @@ export class SpadeStatusWatch {
         this.look();
       }),
     );
-    this.ask();
+    // What the daemon said may be from a connection that went while nobody watched.
+    if (connection.getSnapshot() === "ready") this.ask();
+    else this.daemonAway();
     this.watchDirect();
   }
   private watchDirect() {
