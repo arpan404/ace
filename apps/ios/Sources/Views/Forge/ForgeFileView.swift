@@ -184,7 +184,14 @@ struct ForgeFileView: View {
         guard let desk, let fixer else { return }
         let client = client, drafts = drafts, target = desk.target
         // Offered wherever the phone can act; the pull request's thread is found when it's asked.
-        desk.fix = client.canOperate ? { request in await fixer.fix(request, client: client, target: target, drafts: drafts) } : nil
+        guard client.canOperate else {
+            desk.fix = nil
+            return
+        }
+        let fix: (String) async -> Bool = { request in
+            await fixer.fix(request, client: client, target: target, drafts: drafts)
+        }
+        desk.fix = fix
     }
 
     private func load() async {
