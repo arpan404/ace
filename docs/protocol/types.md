@@ -32542,6 +32542,22 @@ Example:
 }
 ```
 
+### spade.grant.revoke
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.grant.revoke"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "spade.grant.revoke"
+}
+```
+
 ## SpadeErrorCode
 
 [JSON Schema](schema/SpadeErrorCode.json), input validation.
@@ -32552,6 +32568,44 @@ Example:
 
 ```json
 "invalid_body"
+```
+
+## SpadeGrantRevoke
+
+[JSON Schema](schema/SpadeGrantRevoke.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.grant.revoke"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "spade.grant.revoke"
+}
+```
+
+## SpadeGrantRevokeResult
+
+[JSON Schema](schema/SpadeGrantRevokeResult.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.grant.revoke.result"` |  |
+| requestId | yes | string |  |
+| revoked | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "revoked": false,
+  "type": "spade.grant.revoke.result"
+}
 ```
 
 ## SpadeHttpChunk
@@ -32811,6 +32865,10 @@ Example:
 {
   "requestId": "example",
   "status": {
+    "grant": {
+      "lastUsedAt": null,
+      "state": "revoked"
+    },
     "state": "off",
     "version": "example"
   },
@@ -32940,6 +32998,24 @@ Example:
 }
 ```
 
+### spade.grant.revoke.result
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.grant.revoke.result"` |  |
+| requestId | yes | string |  |
+| revoked | yes | boolean |  |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "revoked": false,
+  "type": "spade.grant.revoke.result"
+}
+```
+
 ## SpadeState
 
 [JSON Schema](schema/SpadeState.json), input validation.
@@ -32962,11 +33038,16 @@ Example:
 | version | no | string | {"maxLength":64} |
 | reason | no | string | {"maxLength":1024} |
 | thread | no | object | {"properties":{"id":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},"busy":{"type":"boolean"}},"required":["id","busy"]} |
+| grant | no | object | {"properties":{"state":{"type":"string","enum":["present","revoked"]},"lastUsedAt":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]}},"required":["state","lastUsedAt"]} |
 
 Example:
 
 ```json
 {
+  "grant": {
+    "lastUsedAt": 8,
+    "state": "present"
+  },
   "state": "failed",
   "version": "example"
 }

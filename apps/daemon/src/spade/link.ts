@@ -48,6 +48,8 @@ export class SpadeLink {
   private facts: SpadeFacts = { enabled: false, service: "absent", healthy: false, silentForMs: 0 };
   private current: SpadeStatus = { state: "off" };
   private thread: SpadeStatus["thread"];
+  private grant: SpadeStatus["grant"];
+  private revoker: (() => Promise<boolean>) | undefined;
   private live: (SpadeReady & { key: string }) | undefined;
   private generation = 0;
   private silentSince: number | undefined;
@@ -64,7 +66,25 @@ export class SpadeLink {
     this.options = options;
   }
   status(): SpadeStatus {
-    return this.thread ? { ...this.current, thread: this.thread } : this.current;
+    return {
+      ...this.current,
+      ...(this.thread ? { thread: this.thread } : {}),
+      ...(this.grant ? { grant: this.grant } : {}),
+    };
+  }
+  /** Spade's grant for ace, reported with every status (never its token). */
+  setGrant(grant: SpadeStatus["grant"]): void {
+    const before = JSON.stringify(this.status());
+    this.grant = grant;
+    this.announce(before);
+  }
+  /** Who revokes Spade's grant for `spade.grant.revoke`; unset where grants aren't made. */
+  setRevoker(revoke: () => Promise<boolean>): void {
+    this.revoker = revoke;
+  }
+  /** Revokes Spade's grant; false when there was none live or this daemon makes none. */
+  revokeGrant(): Promise<boolean> {
+    return this.revoker?.() ?? Promise.resolve(false);
   }
   /** Spade's host thread and whether its tree is busy, reported with every status. */
   setThread(thread: SpadeStatus["thread"]): void {

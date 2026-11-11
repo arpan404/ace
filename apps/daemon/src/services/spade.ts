@@ -56,6 +56,7 @@ export async function startSpade(context: ServiceContext): Promise<void> {
   const grants = new SpadeGrants(
     grantStore,
     new GrantTokens({ sql, grants: grantStore, now: context.now, random: randomBytes }),
+    context.now,
   );
   const auth = new SpadeGrantAuthenticator({
     verify: (bearer) => grants.verify(bearer),
@@ -92,17 +93,20 @@ export async function startSpade(context: ServiceContext): Promise<void> {
     link.onReady((ready) => void delivery.deliver(ready.connection)),
     "spade grant arrival",
   );
-  // The person revoking Spade's grant in Settings: its lease ends and Spade forgets it.
-  const outside = services.externalMcp?.outside;
-  if (outside)
-    context.resources.own(
-      outside.onEnded((grantId) => {
-        if (!grants.owns(grantId)) return;
-        auth.end(grantId);
-        void delivery.withdraw(link.ready()?.connection);
-      }),
-      "spade grant revoked",
-    );
+  // Shown with Spade's status, and revoked from there (Settings > Spade), never among outside
+  // clients' grants.
+  const showGrant = () => link.setGrant(grants.summary());
+  context.resources.own(grants.onChange(showGrant), "spade grant status");
+  showGrant();
+  link.setRevoker(async () => {
+    const connection = link.ready()?.connection;
+    const revoked = grants.revoke();
+    if (!revoked) return false;
+    auth.end(revoked);
+    log.log("info", "Spade's grant for ace was revoked");
+    await delivery.withdraw(connection);
+    return true;
+  });
 
   const settings = services.settings;
   if (!settings) return;

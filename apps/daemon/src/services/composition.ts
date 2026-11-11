@@ -224,8 +224,8 @@ export const serviceFactories: readonly ServiceDefinition[] = [
     start: startExternalMcp,
   },
   {
-    // Spade's grant acts as its host thread on the MCP endpoint; the person revokes it among
-    // the outside grants.
+    // Spade's grant acts as its host thread on the MCP endpoint, stored beside the outside
+    // clients' grants but listed and revoked only through spade.*.
     name: "spade",
     phase: "listener",
     requires: ["settings"],

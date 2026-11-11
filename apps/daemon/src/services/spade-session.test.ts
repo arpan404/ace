@@ -29,8 +29,28 @@ function session(scopes: readonly DeviceScope[]) {
     await service.handle?.(SpadeClientMessage.parse(message), DeviceId.parse("device"));
     return sent.at(-1);
   };
-  return { handle, sent };
+  let revocations = 0;
+  spade.setRevoker(async () => {
+    revocations++;
+    return true;
+  });
+  return { handle, sent, revocations: () => revocations };
 }
+
+test("only an administrator can revoke Spade's grant", async () => {
+  for (const [scopes, revoked] of [
+    [["read", "operate"], false],
+    [["read", "operate", "admin"], true],
+  ] as const) {
+    const { handle, revocations } = session(scopes);
+    expect(await handle({ type: "spade.grant.revoke", requestId: "r" })).toEqual({
+      type: "spade.grant.revoke.result",
+      requestId: "r",
+      revoked,
+    });
+    expect(revocations()).toBe(revoked ? 1 : 0);
+  }
+});
 
 test("a read-only device can read Spade but not change anything", async () => {
   const { handle } = session(["read"]);

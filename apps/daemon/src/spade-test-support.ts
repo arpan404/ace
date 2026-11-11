@@ -2,8 +2,29 @@ import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { z } from "zod";
+import { once } from "node:events";
+import { readFile } from "node:fs/promises";
+import {
+  DeviceId,
+  OutsideGrantEntry,
+  OutsideResult,
+  type ClientMessage,
+  type ServerMessage,
+} from "@ace/protocol";
+import { Client } from "./socket-test-support.ts";
 import type { SpadeLink } from "./spade/link.ts";
 import { spadeRequest } from "./spade/forward.ts";
+
+/**
+ * An app from before Spade's grant existed: its schema for `outside.result` knew only these
+ * client kinds, and one grant of another kind fails the whole list.
+ */
+export const OlderOutsideResult = OutsideResult.extend({
+  result: z.object({
+    kind: z.literal("grants"),
+    grants: z.array(OutsideGrantEntry.extend({ clientKind: z.enum(["cli", "cimd", "dcr"]) })),
+  }),
+});
 
 /** Polls `check` until it returns something truthy, and returns that. */
 export async function until<T>(
@@ -75,4 +96,25 @@ export async function connectSpadeMcp(url: string, bearer: string) {
   const client = new McpClient({ name: "spade", version: "0.1.0" });
   await client.connect(wire);
   return client;
+}
+
+/**
+ * A desktop's socket to the daemon with the host's own token (an administrator): `ask` sends a
+ * request and waits for the first message with its request id.
+ */
+export async function adminSocket(daemon: { url: string; tokenPath: string }) {
+  const token = await readFile(daemon.tokenPath, "utf8");
+  const client = new Client(daemon.url);
+  await once(client.socket, "open");
+  client.send({ type: "hello", protocolVersion: 1, deviceId: DeviceId.parse("desktop"), token });
+  return {
+    async ask(message: ClientMessage & { requestId: string }): Promise<ServerMessage> {
+      client.send(message);
+      for (;;) {
+        const reply = await client.next();
+        if ("requestId" in reply && reply.requestId === message.requestId) return reply;
+      }
+    },
+    close: () => client.close(),
+  };
 }

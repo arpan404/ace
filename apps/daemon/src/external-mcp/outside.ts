@@ -39,7 +39,6 @@ export class OutsideAccess {
   readonly screen: OutsideScreen;
   readonly requests: AccessRequests;
   private options: OutsideAccessOptions;
-  private readonly endedListeners = new Set<(grantId: string) => void>();
   constructor(options: OutsideAccessOptions) {
     this.options = options;
     const { sql, now, id } = options;
@@ -70,7 +69,6 @@ export class OutsideAccess {
         this.screen.stop(grantId);
         options.closeBrowser(grantId);
         options.ended(grantId);
-        for (const listener of this.endedListeners) listener(grantId);
       },
     });
     // Grants live before a restart expire on time without waiting for their next request.
@@ -81,16 +79,13 @@ export class OutsideAccess {
    * tabs and screen work end now. False when it was already revoked or never existed.
    */
   revoke(grantId: string): boolean {
+    // Spade's grant is revoked with Spade (`spade.grant.revoke`), never as an outside client's.
+    if (this.grants.get(grantId)?.clientKind === "spade") return false;
     const revoked = this.grants.revoke(grantId);
     if (!revoked) return false;
     this.tokens.revokeTokens(grantId);
     this.principals.end(grantId);
     return true;
-  }
-  /** Called with each grant that ends (revoked or expired), whoever ended it. */
-  onEnded(listener: (grantId: string) => void): () => void {
-    this.endedListeners.add(listener);
-    return () => this.endedListeners.delete(listener);
   }
   /**
    * Changes a live grant; the next request reads it. Spade's grant is not changed here: what it

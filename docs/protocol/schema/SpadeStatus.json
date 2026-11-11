@@ -2,6 +2,34 @@
   "$id": "https://ace.local/protocol/v1/SpadeStatus.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "grant": {
+      "properties": {
+        "lastUsedAt": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "enum": [
+            "present",
+            "revoked"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "lastUsedAt"
+      ],
+      "type": "object"
+    },
     "reason": {
       "maxLength": 1024,
       "type": "string"

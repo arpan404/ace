@@ -42,6 +42,18 @@ export const SpadeStatus = z.object({
    * delegate. `busy` while any thread under it is still working or waiting on a person.
    */
   thread: z.object({ id: ThreadId, busy: z.boolean() }).optional(),
+  /**
+   * Spade's grant for ace's tools (ADR 0123), once one was made: `present` while it works,
+   * `revoked` once Spade was turned off or the person revoked it. Never carries a token. Shown
+   * and revoked here, never among outside clients' grants.
+   */
+  grant: z
+    .object({
+      state: z.enum(["present", "revoked"]),
+      /** When Spade last called ace with it; null when it hasn't since it was handed over. */
+      lastUsedAt: z.number().int().nonnegative().nullable(),
+    })
+    .optional(),
 });
 export type SpadeStatus = z.infer<typeof SpadeStatus>;
 
@@ -59,6 +71,18 @@ export const SpadeStatusResult = z.object({
 export const SpadeStatusChanged = z.object({
   type: z.literal("spade.status.changed"),
   status: SpadeStatus,
+});
+
+/**
+ * Revokes Spade's grant: ace's tools stop working for Spade at once, and stay off until Spade is
+ * turned on again. Admin devices only.
+ */
+export const SpadeGrantRevoke = z.object({ type: z.literal("spade.grant.revoke"), requestId });
+export const SpadeGrantRevokeResult = z.object({
+  type: z.literal("spade.grant.revoke.result"),
+  requestId: z.string(),
+  /** False: there was no live grant, or this device may not revoke it. */
+  revoked: z.boolean(),
 });
 
 export const SpadeMethod = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]);
@@ -208,6 +232,7 @@ export const SpadeClientMessage = z.discriminatedUnion("type", [
   SpadeHttpRead,
   SpadeLiveSubscribe,
   SpadeLiveUnsubscribe,
+  SpadeGrantRevoke,
 ]);
 export type SpadeClientMessage = z.infer<typeof SpadeClientMessage>;
 export const SpadeServerMessage = z.discriminatedUnion("type", [
@@ -218,5 +243,6 @@ export const SpadeServerMessage = z.discriminatedUnion("type", [
   SpadeHttpChunk,
   SpadeLiveFrame,
   SpadeLiveEnded,
+  SpadeGrantRevokeResult,
 ]);
 export type SpadeServerMessage = z.infer<typeof SpadeServerMessage>;

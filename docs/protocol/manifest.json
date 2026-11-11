@@ -33,12 +33,12 @@
       "sha256": "93f395ba88bd7bc4b5f7814adf92492ba93cddfc74cb4ff4161dc8d2deb42e98"
     },
     "push.md": {
-      "bytes": 117105,
-      "sha256": "365542a123908c66aef4c4e3e44a8d6bfc5d85bb08c1d30af285cc1eeb77f8b2"
+      "bytes": 117110,
+      "sha256": "0d8c8b9d6a2fdebfe2fd8aac8ba7ed8c4a5a66b53f8b0160758cf848c211c50d"
     },
     "requests.md": {
-      "bytes": 114273,
-      "sha256": "fbe437e7c3ad450587bd103d20b7941d9688aae4106f252c682d9896fb7e1116"
+      "bytes": 114002,
+      "sha256": "53550449e911a42d4e6c644f3430cee20589bd9ad9372a08fbb9b09b4ed1f249"
     },
     "schema/AccessMode.json": {
       "bytes": 224,
@@ -905,8 +905,8 @@
       "sha256": "213740b5214753b95aa6b308056df25518570519a4989a1dfcc2ba77de50e14a"
     },
     "schema/ClientMessage.json": {
-      "bytes": 62700,
-      "sha256": "672ae359a5b284b9fe9a42a3fec181fe1dd45802e5a65ad8eef28d7e88108664"
+      "bytes": 62781,
+      "sha256": "39deea64840e167beb3123e97d8bfa24e3164b058a0f1a976138d3d0b70bdef1"
     },
     "schema/Command.json": {
       "bytes": 477,
@@ -3849,8 +3849,8 @@
       "sha256": "d5b02c009727983f4ab932750138af7815e790cd8dadcdffd5bc601ace4868b4"
     },
     "schema/ServerMessage.json": {
-      "bytes": 43173,
-      "sha256": "4f0dc522f7d1bd333afd370b38cca20c08e1cca88f2c51e76ffa8a807ca54db0"
+      "bytes": 43260,
+      "sha256": "0fb1f1a6616c5ab5af114139fce803ac4edb1d355b2af103f361e58a58d2fb7a"
     },
     "schema/SettingsChanged.json": {
       "bytes": 532,
@@ -4081,12 +4081,20 @@
       "sha256": "5fc0cef7cd2b24c24f4616cddd1636d7c8b1171867e46a92c94267637b8047d6"
     },
     "schema/SpadeClientMessage.json": {
-      "bytes": 635,
-      "sha256": "27ed8e50a3b085a389dcd181efa7d23c9a7bf4cb5c42b056b70ff1f57855515d"
+      "bytes": 716,
+      "sha256": "65d76167fb88195ab12172b1036583e234030a66338fd9fe8b9bed20bd4f057d"
     },
     "schema/SpadeErrorCode.json": {
       "bytes": 282,
       "sha256": "137c64728865526eaaf0cb599c20f61c33961f6cb1adc8a632b100cbd4b6a102"
+    },
+    "schema/SpadeGrantRevoke.json": {
+      "bytes": 395,
+      "sha256": "edf57f8f1da8996a220d6f734c771e81ae92aa5560769625c4e439d1340a6325"
+    },
+    "schema/SpadeGrantRevokeResult.json": {
+      "bytes": 425,
+      "sha256": "5e5651ad4a9d55906fae029a084ad2976019c916db384b1827e9d73e6b65b737"
     },
     "schema/SpadeHttpChunk.json": {
       "bytes": 594,
@@ -4137,16 +4145,16 @@
       "sha256": "a0e3d33d008cb06a25f8c9fb79b258cbfc07729e1add22841c21b433886024f0"
     },
     "schema/SpadeServerMessage.json": {
-      "bytes": 707,
-      "sha256": "1538570fba83057cba9ed743d69ba3a7c2d64e898a36e8bb1721c202a8db70d2"
+      "bytes": 794,
+      "sha256": "ba012d6c689f09f5d1e0a328d8a441dc757f94ed4d39ccc629f1d5521cc02791"
     },
     "schema/SpadeState.json": {
       "bytes": 212,
       "sha256": "2ce70e2807a0992745562e64958a46684cab74062a664900d9713ecd50aa093f"
     },
     "schema/SpadeStatus.json": {
-      "bytes": 705,
-      "sha256": "d80ac0d5dedbd6bcb8a2f09b45c109fc17ce531f51b0492bfd8472a7b769cf9b"
+      "bytes": 1239,
+      "sha256": "06bd72272e8ef390f698fd77000acb9da56e4ed85e8dcaea24a483872cf2a120"
     },
     "schema/SpadeStatusChanged.json": {
       "bytes": 387,
@@ -5077,10 +5085,10 @@
       "sha256": "326c4363558fb07a275e1864fb409008dd263601f205b8caaf79afe7141a9242"
     },
     "types.md": {
-      "bytes": 1028415,
-      "sha256": "0291100a3cc099b049470dbbee019c9389d664c6ec0428e3c379eb4be660fa87"
+      "bytes": 1030122,
+      "sha256": "4d76915b2c646a05b7ca6f2eb3f62be23887d3b7c203fa1f0975d5337cff765d"
     }
   },
-  "input": "036194fac68e2b275133b43540b0fdf8e470c5d05896df145c4221ee2ee3c12c",
+  "input": "a17a391baf819635c977e030f1c1f55b07007b04388c68e3427a90202da30290",
   "version": 1
 }

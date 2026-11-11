@@ -8,7 +8,8 @@ import type { SocketContext, SocketService } from "./socket.ts";
 /** Live streams one connection may hold open at once. */
 const maxStreams = 16;
 /** What the session reads of the Spade service. */
-export type SpadeAccess = Pick<SpadeLink, "ready" | "status" | "subscribe" | "onRunEnded">;
+export type SpadeAccess = Pick<SpadeLink, "ready" | "status" | "subscribe" | "onRunEnded"> &
+  Partial<Pick<SpadeLink, "revokeGrant">>;
 type SpadeSocket = Pick<SocketContext, "authorize" | "connected" | "send"> & {
   options: { spade?: SpadeAccess | undefined };
 };
@@ -146,6 +147,18 @@ export function createSpadeSession(context: SpadeSocket): SocketService {
         case "spade.live.subscribe":
           subscribe(message.requestId, message.path);
           return true;
+        case "spade.grant.revoke": {
+          // Ending Spade's access to ace is an administrator's call, as revoking any grant is.
+          const revoked = context.authorize("admin")
+            ? ((await host()?.revokeGrant?.()) ?? false)
+            : false;
+          context.send({
+            type: "spade.grant.revoke.result",
+            requestId: message.requestId,
+            revoked,
+          });
+          return true;
+        }
         case "spade.live.unsubscribe":
           stopStream(message.requestId, "unsubscribed");
           return true;
