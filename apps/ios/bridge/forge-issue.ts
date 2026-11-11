@@ -35,6 +35,8 @@ export interface IssueReply {
   author: string;
   createdAt: number | null;
   updatedAt: number | null;
+  /** GitHub's own updatedAt, which an edit or a state change names to stay current. */
+  revision: string;
   body: string;
   /** The body's task boxes tick and save. */
   tasks: boolean;
@@ -125,6 +127,7 @@ export async function readIssue(
     author: preview(issue.author, 100),
     createdAt: epoch(issue.createdAt),
     updatedAt: epoch(issue.updatedAt),
+    revision: issue.updatedAt,
     body: preview(issue.body, 32_768),
     writable,
     tasks: writable && issue.permissions.edit,
