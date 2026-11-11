@@ -1,14 +1,16 @@
-import { HostId, Ticket, ipKey } from "@ace/relay/wire";
+import { HTTP_MAX_REQUEST_BYTES, HostId, Ticket, ipKey } from "@ace/relay/wire";
 import { accountApi, isAccountPath } from "./account/api.ts";
 import type { AccountApi } from "./account/api.ts";
 import { readAccountSetup } from "./account/config.ts";
 import type { AccountSetup } from "./account/config.ts";
 import { ACCOUNT_HEADER, PROTOCOL_HEADER, admit } from "./admission.ts";
 import type { Env } from "./env.ts";
+import { forwardPath } from "./http-path.ts";
+import type { ForwardPath } from "./http-path.ts";
 
 export { RelayObject } from "./relay-object.ts";
 
-const endpoints = new Set(["/host", "/client", "/join"]);
+const endpoints = new Set(["/host", "/client", "/join", "/serve"]);
 
 function rateKey(request: Request): string {
   const ip = request.headers.get("CF-Connecting-IP");
@@ -20,8 +22,32 @@ function rateKey(request: Request): string {
   }
 }
 
-async function limited(limit: RateLimit | undefined, request: Request): Promise<boolean> {
-  return limit ? !(await limit.limit({ key: rateKey(request) })).success : false;
+async function limited(
+  limit: RateLimit | undefined,
+  request: Request,
+  key = rateKey(request),
+): Promise<boolean> {
+  return limit ? !(await limit.limit({ key })).success : false;
+}
+
+const tooMany = () =>
+  new Response("Too many requests.\n", {
+    status: 429,
+    headers: { "retry-after": "10", "content-type": "text/plain; charset=utf-8" },
+  });
+
+/**
+ * Public HTTP for one machine (ADR 0117): checked and limited here, then handed to that
+ * machine's relay object, which carries it to the daemon. Paths, headers and bodies are never
+ * logged; the caller's account isn't checked, since the daemon authorizes every request.
+ */
+async function forwardHttp(request: Request, env: Env, target: ForwardPath): Promise<Response> {
+  if (await limited(env.HTTP_REQUESTS, request)) return tooMany();
+  if (await limited(env.HTTP_HOST_REQUESTS, request, target.hostId)) return tooMany();
+  const length = Number(request.headers.get("content-length") ?? 0);
+  if (!Number.isFinite(length) || length > HTTP_MAX_REQUEST_BYTES)
+    return new Response("Request body too large.\n", { status: 413 });
+  return env.RELAY.get(env.RELAY.idFromName(target.hostId)).fetch(request);
 }
 
 /** Account settings and the API built from them, once per isolate. */
@@ -53,6 +79,8 @@ export default {
     const url = new URL(request.url);
     if (isAccountPath(url.pathname))
       return accounts(env).api.handle(request, await limited(env.ACCOUNT_REQUESTS, request));
+    const target = forwardPath(url);
+    if (target) return forwardHttp(request, env, target);
     if (!endpoints.has(url.pathname))
       return url.pathname === "/"
         ? new Response("ace relay\n")
@@ -61,11 +89,16 @@ export default {
       return new Response(null, { status: 426 });
     const hostId = HostId.safeParse(url.searchParams.get("hostId"));
     if (!hostId.success) return new Response(null, { status: 400 });
-    if (url.pathname === "/join" && !Ticket.safeParse(url.searchParams.get("ticket")).success)
+    if (
+      (url.pathname === "/join" || url.pathname === "/serve") &&
+      !Ticket.safeParse(url.searchParams.get("ticket")).success
+    )
       return new Response(null, { status: 400 });
     const name = url.searchParams.get("name") ?? "";
     const platform = url.searchParams.get("platform") ?? "";
-    if (name.length > 256 || platform.length > 64) return new Response(null, { status: 400 });
+    const features = url.searchParams.get("features") ?? "";
+    if (name.length > 256 || platform.length > 64 || features.length > 64)
+      return new Response(null, { status: 400 });
     if (await limited(env.UPGRADES, request)) return new Response(null, { status: 429 });
     const headers = new Headers(request.headers);
     headers.delete(ACCOUNT_HEADER);

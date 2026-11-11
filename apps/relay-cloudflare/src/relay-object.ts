@@ -3,6 +3,7 @@ import { NOT_YOUR_MACHINE_CLOSE } from "@ace/account-grant";
 import { NoiseXX, hostId as hostIdOf, keyPair } from "@ace/secure-channel";
 import {
   CONTROL_PROLOGUE,
+  HTTP_FEATURE,
   HostId,
   LimitsSchema,
   PAIRED_MARKER,
@@ -15,6 +16,9 @@ import { ACCOUNT_HEADER, PROTOCOL_HEADER } from "./admission.ts";
 import { machineStore } from "./account/machines.ts";
 import { openControl, sealControl } from "./control.ts";
 import { FrameBudget } from "./frame-budget.ts";
+import { HttpGateway } from "./http-gateway.ts";
+import type { Offer } from "./http-gateway.ts";
+import { forwardPath } from "./http-path.ts";
 import type { Env } from "./env.ts";
 import { refuseUpgrade, upgraded } from "./upgrade.ts";
 
@@ -35,6 +39,8 @@ type Handshake = {
   /** What the daemon calls itself, for the account's machine list. */
   name: string;
   platform: string;
+  /** It serves forwarded HTTP (`features=http`, ADR 0117). */
+  http: boolean;
 };
 
 /**
@@ -48,9 +54,18 @@ export class RelayObject extends DurableObject<Env> {
   #sockets = new Map<string, WebSocket>();
   #attachments = new WeakMap<WebSocket, Attachment | undefined>();
   #budget = new FrameBudget({ perSecond: limits.messagesPerSecond, burst: limits.messageBurst });
+  #http = new HttpGateway();
 
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
+    // Public HTTP for this machine, checked and limited by the Worker (ADR 0117).
+    const target = forwardPath(url);
+    if (target)
+      return this.#http.forward(request, target, (ticket) =>
+        this.#offerHttp(target.hostId, ticket),
+      );
+    if (url.pathname === "/serve")
+      return this.#http.join(Ticket.parse(url.searchParams.get("ticket")));
     const id = crypto.randomUUID();
     const routes = this.#routing();
     const now = Date.now();
@@ -76,6 +91,7 @@ export class RelayObject extends DurableObject<Env> {
         ),
         name: url.searchParams.get("name") ?? "",
         platform: url.searchParams.get("platform") ?? "",
+        http: (url.searchParams.get("features") ?? "").split(",").includes(HTTP_FEATURE),
       });
       return upgraded(server.client, protocol);
     }
@@ -155,7 +171,9 @@ export class RelayObject extends DurableObject<Env> {
           return this.#close(ws, 1011, "Invalid control message");
         }
         this.#save(ws, { ...attachment, receive: opened.next });
-        return this.#apply(this.#routing().reject(attachment.id, opened.message.ticket));
+        const { ticket, reason } = opened.message;
+        if (this.#http.rejected(ticket, reason)) return;
+        return this.#apply(this.#routing().reject(attachment.id, ticket));
       }
     }
   }
@@ -213,6 +231,7 @@ export class RelayObject extends DurableObject<Env> {
         account: attachment.account,
         send: transport.send.snapshot(),
         receive: transport.receive.snapshot(),
+        ...(pending.http ? { http: true } : {}),
       };
     } finally {
       transport.destroy();
@@ -251,6 +270,24 @@ export class RelayObject extends DurableObject<Env> {
       if (attachment?.kind === "host" && attachment.account === account)
         this.#close(ws, REGISTER_AGAIN, "Register again");
     }
+  }
+
+  /** Asks the registered daemon for an HTTP stream, over its control session. */
+  #offerHttp(hostId: string, ticket: string): ReturnType<Offer> {
+    for (const ws of this.ctx.getWebSockets()) {
+      const host = this.#read(ws);
+      if (host?.kind !== "host" || host.hostId !== hostId) continue;
+      if (!host.http) return "unsupported";
+      const sealed = sealControl(host.send, { type: "http", ticket });
+      this.#save(ws, { ...host, send: sealed.next });
+      try {
+        ws.send(sealed.frame);
+      } catch {
+        return "offline";
+      }
+      return "sent";
+    }
+    return "offline";
   }
 
   #apply(actions: readonly RouteAction[]): void {
