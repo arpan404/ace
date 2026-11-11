@@ -154,7 +154,7 @@ function AccountBlock(props: {
  */
 const rowGrid = cn(
   "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5",
-  "@min-[40rem]/limits:grid-cols-[minmax(6rem,12rem)_minmax(0,1fr)_4.5rem_minmax(8rem,11rem)]",
+  "@min-[40rem]/limits:grid-cols-[minmax(6rem,10rem)_minmax(0,1fr)_4rem_minmax(7rem,9.5rem)]",
 );
 
 function WindowRow(props: { window: AccountWindow; now: number }) {
@@ -230,38 +230,43 @@ function Bar(props: { window: AccountWindow; runsOut: boolean }) {
       aria-valuenow={window.leftPercent}
       aria-valuetext={valuetext}
       className={cn(
-        "relative h-3 rounded-full",
+        "relative h-2.5 overflow-hidden rounded-full",
         window.leftPercent <= 0 && !window.stale ? "bg-status-failed/20" : "bg-faint-foreground/30",
       )}
     >
-      <span className="absolute inset-0 overflow-hidden rounded-full">
+      <span className="absolute inset-0">
         {props.runsOut ? (
           <span
             data-runs-out=""
             style={{ width: `${left}%` }}
-            className="absolute inset-y-0 left-0 bg-status-failed"
+            className="absolute inset-y-0 left-0 rounded-r-full bg-status-failed"
           />
         ) : (
           <>
             <span
               style={{ width: `${marker ?? left}%` }}
-              className="absolute inset-y-0 left-0 bg-foreground/85"
+              className={cn(
+                "absolute inset-y-0 left-0 bg-muted-foreground",
+                // The fill's end is round; where the pace part follows, the notch parts them.
+                !(marker !== null && marker < left) && "rounded-r-full",
+              )}
             />
             {marker !== null && marker < left && (
               <span
                 data-pace=""
                 style={{ left: `${marker}%`, width: `${left - marker}%` }}
-                className="usage-pace absolute inset-y-0"
+                className="usage-pace absolute inset-y-0 rounded-r-full"
               />
             )}
           </>
         )}
       </span>
+      {/* Where the pace leaves it at the reset: a notch in the bar's own height. */}
       {marker !== null && marker < left && (
         <span
           aria-hidden
           style={{ left: `${marker}%` }}
-          className="absolute -inset-y-1 w-0.5 -translate-x-1/2 rounded-full bg-foreground"
+          className="absolute inset-y-0 w-[3px] -translate-x-1/2 bg-background"
         />
       )}
     </div>

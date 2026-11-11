@@ -60,16 +60,16 @@
  * it reads as projected, apart from the solid spare and the solid red of a limit that runs out.
  */
 .usage-pace {
-  background-color: color-mix(in oklab, var(--status-needs-you) 18%, transparent);
+  background-color: color-mix(in oklab, var(--status-needs-you) 22%, transparent);
   background-image:
     repeating-linear-gradient(
       45deg,
-      color-mix(in oklab, var(--status-needs-you) 80%, transparent) 0 1px,
-      transparent 1px 5px
+      color-mix(in oklab, var(--status-needs-you) 60%, transparent) 0 1px,
+      transparent 1px 4px
     ),
     repeating-linear-gradient(
       -45deg,
-      color-mix(in oklab, var(--status-needs-you) 80%, transparent) 0 1px,
-      transparent 1px 5px
+      color-mix(in oklab, var(--status-needs-you) 60%, transparent) 0 1px,
+      transparent 1px 4px
     );
 }
