@@ -20,6 +20,7 @@ import {
   removeSpadeTask,
   restartSpadeTask,
   spadeTaskState,
+  stopSpadeTask,
 } from "./spade-task.ts";
 
 async function replaceFile(path: string, content: string): Promise<void> {
@@ -94,8 +95,9 @@ export async function installSpadeService(
   const before = await spadeServiceState(plan, ports);
   if ((await installedSpadeVersion(plan.home)) === undefined)
     throw new Error("Install Spade's binary before registering its service");
-  await rotateSpadeLog(plan.logFile);
+  // Windows' launcher rotates the log itself, when nothing holds it open.
   if (plan.platform === "win32") return installSpadeTask(plan, ports, before);
+  await rotateSpadeLog(plan.logFile);
   const changed = readOwnFile(plan.file) !== plan.content;
   if (plan.platform === "darwin") {
     if (changed && before !== "absent") await removeLoaded(plan, ports.run);
@@ -148,8 +150,10 @@ export async function restartSpadeService(
 ): Promise<void> {
   const state = await spadeServiceState(plan, ports);
   if (state === "absent") throw new Error("Spade's service is not registered");
-  await rotateSpadeLog(plan.logFile);
+  // Windows' launcher rotates the log itself before it starts Spade: while Spade runs, its
+  // `>>` redirection holds the file open and the rename would fail.
   if (plan.platform === "win32") return restartSpadeTask(plan, ports);
+  await rotateSpadeLog(plan.logFile);
   if (plan.platform === "darwin") {
     // A registration launchd doesn't hold (logged out since, or booted out) is loaded instead.
     const kicked = await ports.run("launchctl", ["kickstart", "-k", plan.domain]);
@@ -164,6 +168,22 @@ export async function restartSpadeService(
     return;
   }
   await systemd(ports.run, ["restart", plan.unit]);
+}
+
+/**
+ * Stops Spade's program and keeps its registration, for a rollback that must replace the
+ * database while nothing has it open. launchd's KeepAlive would start a killed job again, so
+ * the job is booted out; `restartSpadeService` loads it again.
+ */
+export async function stopSpadeService(
+  plan: SpadeServicePlan,
+  ports: SpadeServicePorts = systemSpadePorts,
+): Promise<void> {
+  const state = await spadeServiceState(plan, ports);
+  if (state === "absent") throw new Error("Spade's service is not registered");
+  if (plan.platform === "win32") return stopSpadeTask(plan, ports);
+  if (plan.platform === "darwin") return removeLoaded(plan, ports.run);
+  await systemd(ports.run, ["stop", plan.unit]);
 }
 
 async function removeLoaded(plan: DarwinSpadePlan, run: Runner): Promise<void> {

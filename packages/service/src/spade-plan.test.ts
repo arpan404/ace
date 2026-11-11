@@ -73,21 +73,38 @@ test("Windows registers a logon task that runs the home's spade launcher hidden"
   expect(plan.launcher.content).toBe(renderSpadeCmdLauncher());
 });
 
-test("the Windows launcher sets exactly Spade's environment and logs to spade.log", () => {
+/** Names a `set "NAME=…"` in `line` assigns, in order. */
+const assigned = (line: string) => [...line.matchAll(/set "([^="]+)=/g)].map((m) => m[1]);
+
+test("the Windows launcher hands Spade exactly its four variables and no ACE_ ones", () => {
   const lines = renderSpadeCmdLauncher().split("\r\n");
-  expect(
-    lines.filter((line) => line.startsWith('set "SPADE_') || line.startsWith('set "RUST')),
-  ).toEqual([
-    'set "SPADE_POINTER=%ACE_HOME%\\releases\\spade\\current"',
-    'set "SPADE_RELEASE="',
-    'set "SPADE_DATA_DIR=%ACE_HOME%\\spade"',
-    'set "SPADE_ACE_HOME=%ACE_HOME%"',
-    'set "SPADE_LISTEN=127.0.0.1:0"',
-    'set "RUST_LOG=info"',
+  const local = lines.indexOf("setlocal DisableDelayedExpansion");
+  const exec = lines.findIndex((line) => line.includes("spade-server.exe"));
+  // The person's ACE_* and SPADE_* are cleared before anything else.
+  expect(lines.slice(1, local)).toEqual([
+    `for /f "delims==" %%V in ('set ACE_ 2^>nul') do set "%%V="`,
+    `for /f "delims==" %%V in ('set SPADE_ 2^>nul') do set "%%V="`,
   ]);
-  expect(lines).toContain(
-    '"%ACE_HOME%\\releases\\spade\\%SPADE_RELEASE%\\spade-server.exe" >>"%ACE_HOME%\\logs\\spade.log" 2>&1',
-  );
+  // The launcher's own variables live only inside setlocal and are never ACE_ or SPADE_ ones.
+  for (const line of lines.slice(local + 1, exec))
+    for (const name of assigned(line)) expect(name).not.toMatch(/^(ACE_|SPADE_|RUST_)/i);
+  // One line ends setlocal, then sets exactly Spade's four and starts it, logging to spade.log.
+  const run = lines[exec] ?? "";
+  expect(run.startsWith("endlocal & ")).toBe(true);
+  expect(assigned(run)).toEqual(["SPADE_DATA_DIR", "SPADE_ACE_HOME", "SPADE_LISTEN", "RUST_LOG"]);
+  expect(run).toContain('set "SPADE_DATA_DIR=%SPADELAUNCH_HOME%\\spade"');
+  expect(run).toContain('set "SPADE_ACE_HOME=%SPADELAUNCH_HOME%"');
+  expect(run).toMatch(/spade-server\.exe" >>"%SPADELAUNCH_LOG%" 2>&1$/);
+  expect(lines.slice(exec + 1)).toEqual(["exit /b %ERRORLEVEL%", ""]);
+});
+
+test("the Windows launcher rotates spade.log before Spade holds it open", () => {
+  const lines = renderSpadeCmdLauncher().split("\r\n");
+  const rotate = lines.findIndex((line) => line.includes('.previous"'));
+  const exec = lines.findIndex((line) => line.includes("spade-server.exe"));
+  expect(rotate).toBeGreaterThan(0);
+  expect(rotate).toBeLessThan(exec);
+  expect(lines[rotate]).toContain("GTR 8388608");
 });
 
 test("plans refuse homes the service manager would read differently", () => {

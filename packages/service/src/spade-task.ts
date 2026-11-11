@@ -128,6 +128,13 @@ async function start(plan: WindowsSpadePlan, ports: SpadeServicePorts): Promise<
  * run from this home's `releases\spade` is ended too, and only those. Spade's turns were
  * already recorded paused by the maintenance request before an update restarts it.
  */
+export async function stopSpadeTask(
+  plan: WindowsSpadePlan,
+  ports: SpadeServicePorts,
+): Promise<void> {
+  if (await running(plan, ports)) await stop(plan, ports);
+}
+
 async function stop(plan: WindowsSpadePlan, ports: SpadeServicePorts): Promise<void> {
   await ports.run("schtasks.exe", ["/End", "/TN", plan.name]);
   const releases = win32.join(plan.home, "releases", "spade") + "\\";

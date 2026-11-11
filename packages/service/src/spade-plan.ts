@@ -166,29 +166,52 @@ function windowsPlan(home: string, account: SpadeAccount): WindowsSpadePlan {
 
 const versionLine = "[0123456789abcdefghijklmnopqrstuvwxyz.-]*";
 
+/** A cmd.exe variable reference. */
+const v = (name: string) => `%${name}%`;
+/** Clears every variable whose name starts with `prefix`. */
+const clear = (prefix: string) => `for /f "delims==" %%V in ('set ${prefix} 2^>nul') do set "%%V="`;
+
+/** The launcher's own variables: never `ACE_` or `SPADE_`, and gone before Spade starts. */
+const launch = {
+  home: "SPADELAUNCH_HOME",
+  pointer: "SPADELAUNCH_POINTER",
+  release: "SPADELAUNCH_RELEASE",
+  log: "SPADELAUNCH_LOG",
+};
+
 /**
  * `bin\spade.cmd`. Windows keeps `releases\spade\current` as a pointer file naming the version
  * folder (ADR 0095), so the launcher accepts only one plain version line before reading it. The
  * home is the folder above the script's own, never a literal (cmd.exe reads batch files in the
  * OEM code page), so the file is the same for every home.
+ *
+ * Spade gets exactly its four variables: the person's `ACE_*` and `SPADE_*` variables are
+ * cleared first, the launcher's own live inside `setlocal`, and the last line, expanded before
+ * `endlocal` runs, drops them, sets Spade's four and starts it. The log is rotated here, before
+ * Spade holds it open.
  */
 export function renderSpadeCmdLauncher(): string {
-  const environment = spadeEnvironment("%ACE_HOME%", "win32").map(
-    ([key, value]) => `set "${key}=${value}"`,
-  );
+  const home = v(launch.home);
+  const environment = spadeEnvironment(home, "win32")
+    .map(([key, value]) => `set "${key}=${value}"`)
+    .join(" & ");
+  const log = v(launch.log);
   return [
     "@echo off",
+    clear("ACE_"),
+    clear("SPADE_"),
     "setlocal DisableDelayedExpansion",
-    `for %%I in ("%~dp0..") do set "ACE_HOME=%%~fI"`,
-    `set "SPADE_POINTER=%ACE_HOME%\\releases\\spade\\current"`,
-    `findstr /r /x /c:"${versionLine}" <"%SPADE_POINTER%" >nul 2>nul || exit /b 1`,
-    `findstr /r /x /v /c:"${versionLine}" <"%SPADE_POINTER%" >nul 2>nul && exit /b 1`,
-    `findstr /l /c:".." <"%SPADE_POINTER%" >nul 2>nul && exit /b 1`,
-    `set "SPADE_RELEASE="`,
-    `set /p SPADE_RELEASE=<"%SPADE_POINTER%"`,
-    ...environment,
-    `if not exist "%ACE_HOME%\\logs" mkdir "%ACE_HOME%\\logs"`,
-    `"%ACE_HOME%\\releases\\spade\\%SPADE_RELEASE%\\spade-server.exe" >>"%ACE_HOME%\\logs\\spade.log" 2>&1`,
+    `for %%I in ("%~dp0..") do set "${launch.home}=%%~fI"`,
+    `set "${launch.pointer}=${home}\\releases\\spade\\current"`,
+    `findstr /r /x /c:"${versionLine}" <"${v(launch.pointer)}" >nul 2>nul || exit /b 1`,
+    `findstr /r /x /v /c:"${versionLine}" <"${v(launch.pointer)}" >nul 2>nul && exit /b 1`,
+    `findstr /l /c:".." <"${v(launch.pointer)}" >nul 2>nul && exit /b 1`,
+    `set "${launch.release}="`,
+    `set /p ${launch.release}=<"${v(launch.pointer)}"`,
+    `if not exist "${home}\\logs" mkdir "${home}\\logs"`,
+    `set "${launch.log}=${home}\\logs\\spade.log"`,
+    `if exist "${log}" for %%F in ("${log}") do if %%~zF GTR 8388608 move /y "${log}" "${log}.previous" >nul`,
+    `endlocal & ${environment} & "${home}\\releases\\spade\\${v(launch.release)}\\spade-server.exe" >>"${log}" 2>&1`,
     "exit /b %ERRORLEVEL%",
     "",
   ].join("\r\n");
