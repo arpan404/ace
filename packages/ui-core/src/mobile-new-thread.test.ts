@@ -65,12 +65,13 @@ const agents = () =>
     now: 0,
   });
 
-test("a signed-out or missing CLI is listed but can't start a thread, and says why", () => {
+test("a signed-out, missing or turned-off CLI is listed but can't start a thread, and says why", () => {
   const rows = agents().providers;
   expect(rows.map((entry) => [entry.provider, entry.ready, entry.reason])).toEqual([
     ["claude", true, undefined],
     ["codex", false, "Signed out. Sign in on your computer."],
     ["antigravity", false, "Not installed on this computer"],
+    ["cursor", false, "Turned off in ace's Settings on your computer"],
   ]);
   expect(rows[0]?.models.map((entry) => entry.label)).toEqual(["Opus", "Sonnet"]);
 });
@@ -80,11 +81,13 @@ test("the picker leaves out a CLI that isn't on the computer unless the draft na
   expect(newThreadPickerAgents(rows, undefined).map((entry) => entry.provider)).toEqual([
     "claude",
     "codex",
+    "cursor",
   ]);
   expect(newThreadPickerAgents(rows, "antigravity").map((entry) => entry.provider)).toEqual([
     "claude",
     "codex",
     "antigravity",
+    "cursor",
   ]);
 });
 

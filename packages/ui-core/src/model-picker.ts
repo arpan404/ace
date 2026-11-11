@@ -147,15 +147,17 @@ export function pickerProviders(
     seen.add(provider);
     const name = providerNames[provider];
     const reason =
-      state === "not_installed"
-        ? `${name} isn't installed`
-        : state === "needs_update"
-          ? `Update ${name} to use its models`
-          : state === "signed_out" && !listed.has(provider)
-            ? `Sign in to ${name} to use its models`
-            : listed.has(provider)
-              ? undefined
-              : `${name} lists no models yet`;
+      state === "off"
+        ? `${name} is turned off. Turn it on in Settings › Providers.`
+        : state === "not_installed"
+          ? `${name} isn't installed`
+          : state === "needs_update"
+            ? `Update ${name} to use its models`
+            : state === "signed_out" && !listed.has(provider)
+              ? `Sign in to ${name} to use its models`
+              : listed.has(provider)
+                ? undefined
+                : `${name} lists no models yet`;
     out.push({ provider, reason });
   };
   for (const status of statuses) add(status.provider, status.state);

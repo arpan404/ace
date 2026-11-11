@@ -97,6 +97,9 @@ function ProviderPage(props: { entry: ProviderEntry }) {
   const [advanced, setAdvanced] = useState(false);
   const setupActions = useRef<ProviderSetupActions>(null);
   const missing = isMissing(props.entry);
+  // Turned off in Settings: ace won't start it, sign in to it or list its models.
+  const off = view?.state === "off";
+  const usable = !missing && !off;
   const upstreams = install.kind === "opencode" || install.kind === "pi";
   const version = row?.version ?? install.version;
   const update = updateAvailable(props.entry);
@@ -117,7 +120,11 @@ function ProviderPage(props: { entry: ProviderEntry }) {
       }
       heading
       missing={missing}
-      view={missing || install.kind === "acp" || install.kind === "antigravity" ? view : undefined}
+      view={
+        missing || off || install.kind === "acp" || install.kind === "antigravity"
+          ? view
+          : undefined
+      }
       updateAvailable={update}
     />
   );
@@ -131,7 +138,7 @@ function ProviderPage(props: { entry: ProviderEntry }) {
           provider={install.kind}
           acpAgentId={install.acpAgentId}
           size={24}
-          className={missing ? "opacity-60 grayscale" : undefined}
+          className={missing || off ? "opacity-60 grayscale" : undefined}
         />
       }
       lede={
@@ -151,10 +158,16 @@ function ProviderPage(props: { entry: ProviderEntry }) {
       titleActions={setup}
     >
       <div className="fx-view-in">
-        {view?.detail && !view.ready && !missing && (
+        {view?.detail && !view.ready && usable && (
           <p className="mt-3 text-sm text-muted-foreground">{view.detail}</p>
         )}
-        {!missing && (
+        {off && (
+          <p className="mt-3 text-sm text-muted-foreground">
+            {install.name} is turned off in ace. ace won't start it, sign in to it or list its
+            models until you turn it on. Its sign-in and settings are kept.
+          </p>
+        )}
+        {usable && (
           <>
             <Suspense
               fallback={
@@ -172,7 +185,7 @@ function ProviderPage(props: { entry: ProviderEntry }) {
           </>
         )}
 
-        {!missing && (
+        {usable && (
           <>
             {upstreams && row && (
               <Suspense fallback={null}>
