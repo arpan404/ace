@@ -614,7 +614,7 @@ private final class Session: ClientSession, @unchecked Sendable {
     /// The bridge's `outside.state` with these sign-ins waiting.
     private func state(_ ids: [String], live: Bool = true, opened: String = "null") -> String {
         let access = ids.map { id in
-            #"{"requestId":"\#(id)","clientName":"Claude","domain":"claude.ai","verified":true,"matchCode":"7KQ2XM","expiresAt":1800000000000,"grantId":null,"choices":[],"expiries":[],"expiry":"month"}"#
+            #"{"requestId":"\#(id)","clientName":"Claude","domain":"claude.ai","verified":true,"matchCode":"7KQ2XM","expiresAt":1800000000000,"redirect":"Signs in to claude.ai","choices":[],"expiries":[],"expiry":"month"}"#
         }.joined(separator: ",")
         return #"{"type":"outside.state","access":[\#(access)],"screen":[],"opened":\#(opened),"live":\#(live)}"#
     }

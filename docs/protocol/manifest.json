@@ -3304,6 +3304,14 @@
       "bytes": 425,
       "sha256": "319183436b473b94beb07e709394e4d9eab5bb9a444ca32e63d992cc5b2bcaac"
     },
+    "schema/PushAccessAlert.json": {
+      "bytes": 857,
+      "sha256": "80a58e2df9e57d2b82c80c22ab12997cac96533d243d4689f2a61b4212666690"
+    },
+    "schema/PushAccessPayload.json": {
+      "bytes": 469,
+      "sha256": "2a7d8a3f18371f58a9c0492c07ce66bcb23dd801a5475cc54e5bb0ae4ed4be5d"
+    },
     "schema/PushAlertPayload.json": {
       "bytes": 477,
       "sha256": "2a40ccbfafd51399c28b99a72e4523e373c981580374e2b9c02fabf9844d4f62"
@@ -4945,10 +4953,10 @@
       "sha256": "326c4363558fb07a275e1864fb409008dd263601f205b8caaf79afe7141a9242"
     },
     "types.md": {
-      "bytes": 1008849,
-      "sha256": "bce45e79574768b08cdcc2ce79da1f6c50d5f5942fbfb00f0858ca372f162d13"
+      "bytes": 1010025,
+      "sha256": "e10da89158513b5da4fc5aea6e30cf6b334c0be9b35a7ecc655bda4ae93a3300"
     }
   },
-  "input": "591fa472bf755eccd16b854515783b8a1e81675f58d09d2d62624cf3e598aaff",
+  "input": "57483f122a5e2057ff6d230e1289c5fbbcd794fbc9a6ba2ea0d1becd05023178",
   "version": 1
 }
