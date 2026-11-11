@@ -123,12 +123,13 @@ async fn run(engine: &Engine, key: &str, name: &str, arguments: Value) -> ToolOu
     }
 }
 
-/// Stores a job's end, retrying with waits up to 30 seconds for as long as Spade runs: the end is
-/// known only here, and losing it would leave the job running forever in the record.
+/// Stores something known only here (a job's end, a tool's result, a reply's close), retrying
+/// with waits up to 30 seconds for as long as Spade runs: losing it would leave the work running
+/// forever in the record.
 pub(super) async fn keep_trying(mut store: impl FnMut() -> Result<(), StoreError>) {
     let mut wait = Duration::from_millis(250);
     while let Err(error) = store() {
-        tracing::error!(%error, "could not store a job's end; trying again");
+        tracing::error!(%error, "could not store an event; trying again");
         tokio::time::sleep(wait).await;
         wait = (wait * 2).min(Duration::from_secs(30));
     }

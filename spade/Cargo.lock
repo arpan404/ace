@@ -2748,6 +2748,7 @@ dependencies = [
  "keyring-core",
  "reqwest",
  "rmcp",
+ "rusqlite",
  "serde",
  "serde_json",
  "sha2",

@@ -63,10 +63,8 @@ pub(super) async fn run(
                 error,
             })),
         };
-        if let Some(event) = event
-            && let Err(error) = engine.close_reply(&id, &reply, &event)
-        {
-            tracing::error!(%error, "could not close a turn");
+        if let Some(event) = event {
+            close_durably(&engine, &id, &reply, &event).await;
         }
     }
     *live.stop.lock().unwrap_or_else(|p| p.into_inner()) = None;
@@ -89,6 +87,23 @@ pub(super) async fn run(
         engine.spawn_turn(&id);
     }
     name_if_untitled(&engine, &id).await;
+}
+
+/// Closes `reply`, retrying until it is closed. The worker still owns the reply meanwhile, so no
+/// other worker starts for it, and nothing sent to the conversation is left without a reply once
+/// it lets go. A close that landed despite an error is not stored twice.
+async fn close_durably(engine: &Engine, id: &str, reply: &str, close: &Event) {
+    super::jobs::keep_trying(|| {
+        let events = engine.load(id)?;
+        let open = Transcript::fold(&events)
+            .open_reply()
+            .and_then(|m| m.reply.clone());
+        if open.as_deref() != Some(reply) {
+            return Ok(());
+        }
+        engine.close_reply(id, reply, close)
+    })
+    .await;
 }
 
 /// Resolves once Stop is pressed (or the turn's signal goes away).
@@ -227,6 +242,8 @@ async fn model_step(
     let images = engine.images_for(&model);
     let prompt = context::prompt_with(SYSTEM, engine.tools.registry().offered(), events, &images);
     let live = engine.live(id);
+    // Each step's snapshot starts from its own text.
+    *live.current.lock().unwrap_or_else(|p| p.into_inner()) = None;
     let opened = tokio::select! {
         opened = engine.models.stream(&model, &prompt) => opened,
         _ = stopped(stop) => return Step::Stopped(String::new()),
@@ -258,7 +275,7 @@ async fn model_step(
                         // joining subscriber gets each piece in the snapshot or as a delta, never
                         // both.
                         let mut current = live.current.lock().unwrap_or_else(|p| p.into_inner());
-                        *current = Some(Snapshot { reply: reply.to_owned(), text: text.clone() });
+                        add_piece(&mut current, reply, &text, &piece);
                         let _ = live.frames.send(Frame::Delta { reply: reply.to_owned(), text: piece });
                     }
                     if checkpoints.due(engine.now_ms()) {
@@ -301,6 +318,21 @@ async fn model_step(
                 Some(Err(error)) => return Step::Failed(text, error.to_string()),
                 None => return Step::Failed(text, "the model's reply ended early".to_owned()),
             }
+        }
+    }
+}
+
+/// Adds a streamed piece to the open reply's snapshot in place, so each piece costs its own
+/// length; the text is copied whole only when the step's snapshot starts (`text` is everything
+/// streamed so far, `piece` included) and when a subscriber joins.
+fn add_piece(current: &mut Option<Snapshot>, reply: &str, text: &str, piece: &str) {
+    match current {
+        Some(snapshot) if snapshot.reply == reply => snapshot.text.push_str(piece),
+        _ => {
+            *current = Some(Snapshot {
+                reply: reply.to_owned(),
+                text: text.to_owned(),
+            })
         }
     }
 }
@@ -376,5 +408,47 @@ async fn name_if_untitled(engine: &Arc<Engine>, id: &str) {
     let name = suggested.unwrap_or_else(|| title::fallback(&first));
     if let Err(error) = engine.record(id, &Event::renamed(name)) {
         tracing::error!(%error, "could not store a title");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_long_streamed_reply_builds_its_snapshot_in_time_proportional_to_its_length() {
+        let piece = "0123456789";
+        let pieces = 300_000;
+        let mut text = String::new();
+        let mut current = None;
+        let started = std::time::Instant::now();
+        for _ in 0..pieces {
+            text.push_str(piece);
+            add_piece(&mut current, "r1", &text, piece);
+        }
+        let took = started.elapsed();
+        assert_eq!(
+            current.map(|s| (s.reply, s.text.len())),
+            Some(("r1".to_owned(), 3_000_000))
+        );
+        // Copying the whole text per piece moves about 450 GB here; appending moves 3 MB.
+        assert!(took < std::time::Duration::from_secs(1), "took {took:?}");
+    }
+
+    #[test]
+    fn a_new_steps_snapshot_starts_from_its_own_text() {
+        let mut current = Some(Snapshot {
+            reply: "r1".into(),
+            text: "old".into(),
+        });
+        add_piece(&mut current, "r2", "Hel", "Hel");
+        add_piece(&mut current, "r2", "Hello", "lo");
+        assert_eq!(
+            current,
+            Some(Snapshot {
+                reply: "r2".into(),
+                text: "Hello".into()
+            })
+        );
     }
 }

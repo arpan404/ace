@@ -33,6 +33,8 @@ uuid.workspace = true
 [dev-dependencies]
 keyring-core.workspace = true
 reqwest = { workspace = true, features = ["stream"] }
+# To make the test database refuse chosen writes.
+rusqlite.workspace = true
 # For the fake daemon MCP endpoint shared with spade-ace's tests.
 rmcp = { version = "3.9.0", default-features = false, features = [
   "server",

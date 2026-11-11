@@ -44,21 +44,20 @@ pub(super) async fn handle_calls(
     let untrusted = context::untrusted_turn(events, &registry);
     let mut runnable: Vec<(Call, String, Value)> = Vec::new();
     let mut waiting = false;
+    // Started with no stored result. This worker runs every call it starts to its stored end, so
+    // such a call ran in an earlier worker that was cut off: its outcome is unknown.
+    let mut orphaned: Vec<(Call, String)> = Vec::new();
     for pending in calls {
         let (name, arguments) = resolve(&pending.call);
         match pending.status {
             Status::New if name == TOOL_SEARCH => runnable.push((pending.call, name, arguments)),
             Status::New => match registry.get(&name) {
-                None => finish_tool(
-                    engine,
-                    id,
-                    reply,
-                    &pending.call,
-                    &name,
-                    ToolOutput::error(format!(
+                None => {
+                    let missing = ToolOutput::error(format!(
                         "There is no tool named {name}. Use tool_search to find tools."
-                    )),
-                ),
+                    ));
+                    finish_tool(engine, id, reply, &pending.call, &name, missing).await;
+                }
                 Some(def) => {
                     let always = transcript.always_allowed.iter().any(|t| t == &name);
                     match gate::decide(def.risk, always, untrusted) {
@@ -82,17 +81,17 @@ pub(super) async fn handle_calls(
                 }
             },
             Status::Allowed => runnable.push((pending.call, name, arguments)),
-            Status::Declined => finish_tool(
-                engine,
-                id,
-                reply,
-                &pending.call,
-                &name,
-                ToolOutput::error(DECLINED),
-            ),
+            Status::Declined => {
+                let declined = ToolOutput::error(DECLINED);
+                finish_tool(engine, id, reply, &pending.call, &name, declined).await;
+            }
             Status::Awaiting => waiting = true,
-            Status::Running => {}
+            Status::Running => orphaned.push((pending.call, name)),
         }
+    }
+    for (call, name) in orphaned {
+        let unknown = ToolOutput::maybe_ran(context::MAYBE_RAN);
+        finish_tool(engine, id, reply, &call, &name, unknown).await;
     }
     if !runnable.is_empty() {
         return run_tools(engine, id, reply, runnable, stop, pause).await;
@@ -178,13 +177,13 @@ async fn run_tools(
                     Ok(super::jobs::Started::Stopped) => {
                         // Known not to have run: Stop came before the job started.
                         let not_run = ToolOutput::error(context::NOT_RUN);
-                        finish_tool(engine, id, reply, &call, &name, not_run);
+                        finish_tool(engine, id, reply, &call, &name, not_run).await;
                         return Handled::Stopped;
                     }
                     Err(error) => return Handled::Failed(error.to_string()),
                 }
                 let started = ToolOutput::ok(context::job_started(&call.id));
-                finish_tool(engine, id, reply, &call, &name, started);
+                finish_tool(engine, id, reply, &call, &name, started).await;
                 continue;
             }
             let (engine, id) = (engine.clone(), id.to_owned());
@@ -203,7 +202,7 @@ async fn run_tools(
                 }
             }
             Some((call, name, output)) = running.next() => {
-                finish_tool(engine, id, reply, &call, &name, output);
+                finish_tool(engine, id, reply, &call, &name, output).await;
             }
             // The running tools are dropped (cancelled) on return.
             _ = super::turn::pausing(pause, Point::RunningTools) => return Handled::Paused,
@@ -247,7 +246,9 @@ async fn run_one(
     }
 }
 
-fn finish_tool(
+/// Stores a call's result, retrying until it is stored: the turn never moves past a call whose
+/// result is not durable, and a result is never dropped.
+async fn finish_tool(
     engine: &Engine,
     id: &str,
     reply: &str,
@@ -274,9 +275,7 @@ fn finish_tool(
         images,
         uncertain: output.uncertain,
     });
-    if let Err(error) = engine.record(id, &event) {
-        tracing::error!(%error, "could not store a tool result");
-    }
+    super::jobs::keep_trying(|| engine.record(id, &event).map(|_| ())).await;
 }
 
 pub(super) fn trim(text: &str, longest: usize) -> String {
