@@ -36,7 +36,7 @@ struct FleetRulesView: View {
             Section {
                 if loaded {
                     ForEach(rules) { rule in row(rule) }
-                } else {
+                } else if problem == nil {
                     ForEach(["Remote access", "Reached over", "Pairing links open app.acehq.dev", "Agents from other machines", "Agents can move projects and threads", "Bring ignored files"], id: \.self) { title in
                         LabeledContent(title) { Text("Off") }.redacted(reason: .placeholder)
                     }

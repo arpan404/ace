@@ -110,6 +110,7 @@ struct MachineLinksView: View {
 
     /// The other machine issues a one-time link; this one redeems it and keeps it.
     private func link(to target: MachineSession, access: String) async {
+        revocation = nil
         guard let client else { return }
         busy = true
         defer { busy = false }
@@ -135,6 +136,7 @@ struct MachineLinksView: View {
 
     /// This machine forgets the link; the other revokes the device it used, when this phone can reach it.
     private func unlink(_ link: FleetOverview.Link) async {
+        revocation = nil
         guard let client, let target = link.hostId else { return }
         busy = true
         defer { busy = false }
