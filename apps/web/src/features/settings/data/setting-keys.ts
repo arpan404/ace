@@ -1,4 +1,4 @@
-import { LimitPolicy, SettingsValues, type SettingsKey } from "@ace/protocol";
+import { LimitPolicy, SettingsKey, SettingsValues } from "@ace/protocol";
 import { z } from "zod";
 
 /** A daemon setting the UI edits: its key, how to read it, and what it is when unset. */
@@ -36,6 +36,7 @@ export const settingKeys = {
   remoteRelay: setting("remote.relay", z.boolean(), false),
   relayUrl: setting("remote.relayUrl", SettingsValues.shape["remote.relayUrl"], ""),
   hostedPairingLink: setting("remote.hostedPairingLink", z.boolean(), false),
+  relayMcp: setting("remote.relayMcp", z.boolean(), false),
   agentAccess: setting("remote.agentAccess", SettingsValues.shape["remote.agentAccess"], "off"),
   agentTransfers: setting("remote.agentTransfers", z.boolean(), true),
   transferIgnoredFiles: setting("remote.transferIgnoredFiles", z.boolean(), true),
@@ -73,5 +74,28 @@ export const settingKeys = {
     "browser.downloadDefault",
     SettingsValues.shape["browser.downloadDefault"],
     "",
+  ),
+};
+
+/**
+ * A setting this build may not know yet: its definition when the protocol lists `key`, else
+ * undefined, so the row that edits it hides instead of writing a key the daemon refuses.
+ */
+function newerSetting<T>(
+  key: string,
+  schema: z.ZodType<T>,
+  fallback: T,
+): SettingDef<T> | undefined {
+  const known = SettingsKey.safeParse(key);
+  return known.success ? setting(known.data, schema, fallback) : undefined;
+}
+
+/** Outside MCP clients' paths that arrive with the daemon's OAuth work (ADR 0117). */
+export const outsideSettingKeys = {
+  tailscaleMcp: newerSetting("remote.tailscaleMcp", z.boolean(), false),
+  mcpPublicUrl: newerSetting(
+    "remote.mcpPublicUrl",
+    z.url().startsWith("https://").nullable(),
+    null,
   ),
 };
