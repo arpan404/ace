@@ -49,15 +49,21 @@ export class SpadeGrantAuthenticator {
       return held.lease.principal;
     this.endLease();
     const lifetime = new AbortController();
-    const lease = this.options.open(
-      {
-        sessionId: `spade:${grant.id}`,
-        threadId: thread.threadId,
-        agentId: thread.agentId,
-        capabilities: this.options.capabilities(),
-      },
-      lifetime.signal,
-    );
+    let lease: SpadeLease;
+    try {
+      lease = this.options.open(
+        {
+          sessionId: `spade:${grant.id}`,
+          threadId: thread.threadId,
+          agentId: thread.agentId,
+          capabilities: this.options.capabilities(),
+        },
+        lifetime.signal,
+      );
+    } catch {
+      // The host thread lost its agent, or the endpoint is closing: refused, as if unknown.
+      return undefined;
+    }
     this.current = { grantId: grant.id, threadId: thread.threadId, lease, lifetime };
     return lease.principal;
   }
