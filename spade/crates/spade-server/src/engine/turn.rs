@@ -327,8 +327,11 @@ async fn handle_calls(
                                 name,
                                 arguments,
                             });
-                            if let Err(error) = engine.record(id, &asked) {
-                                return Handled::Failed(error.to_string());
+                            // Never asked once the reply is stopped, so no answer can allow it.
+                            match engine.record_unless_stopped(id, reply, &asked) {
+                                Ok(true) => {}
+                                Ok(false) => return Handled::Stopped,
+                                Err(error) => return Handled::Failed(error.to_string()),
                             }
                         }
                     }

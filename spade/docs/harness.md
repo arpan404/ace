@@ -16,7 +16,7 @@ Date: 2026-11-11. How a turn runs, as built in `spade-core` (decisions, no I/O) 
 | `context_compacted`              | `summary`, `keep_from`, `tokens_before`                            | The model now sees `summary`, then events from index `keep_from`                          |
 | `job_started`                    | `reply`, `job`, `name`                                             | A background tool's call was handed to a job (its `tool_finished` says so at once)       |
 | `job_finished`                   | `job`, `name`, `content`, `is_error`                               | The job ended; the model reads it as a `<job_result>`                                     |
-| `stop_requested`                 |                                                                    | The person pressed Stop; a job result after it (or a lost job found on restart) opens no reply |
+| `stop_requested`                 | `reply?`, `jobs[]`                                                 | The person pressed Stop on that reply and those jobs. They stop; a result of a named job, or of a job the reply started, opens no reply. Later work is untouched |
 
 `reply_finished` closes a turn whose last step made no tool calls; its `cost_micros` is the
 turn's total.

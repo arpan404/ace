@@ -129,7 +129,8 @@ pub enum AnswerError {
 struct Live {
     frames: broadcast::Sender<Frame>,
     current: Mutex<Option<Snapshot>>,
-    stop: Mutex<Option<watch::Sender<bool>>>,
+    /// The running worker's reply and its stop signal.
+    stop: Mutex<Option<(String, watch::Sender<bool>)>>,
     /// Woken when an approval is answered.
     wake: Notify,
     turn_running: AtomicBool,
@@ -275,10 +276,44 @@ impl Engine {
     /// all honour it. If storing it fails, everything running is still stopped now, the stop is
     /// retried in the background, and the error is returned so the person is told.
     pub fn stop(self: &Arc<Self>, id: &str) -> Result<bool, StoreError> {
-        if !Transcript::fold(&self.load(id)?).busy() {
-            return Ok(false);
+        let live = self.live(id);
+        let worker = live
+            .stop
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_ref()
+            .map(|(reply, _)| reply.clone());
+        let running_jobs: Vec<String> = live
+            .jobs
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .keys()
+            .cloned()
+            .collect();
+        // What is running now, from storage and from memory, so a read failure still stops it.
+        let loaded = self.load(id).map(|events| Transcript::fold(&events));
+        let (open, mut jobs, busy) = match &loaded {
+            Ok(t) => (
+                t.open_reply().and_then(|m| m.reply.clone()),
+                t.jobs.clone(),
+                t.busy(),
+            ),
+            Err(_) => (None, Vec::new(), false),
+        };
+        let reply = open.or_else(|| worker.clone());
+        for job in &running_jobs {
+            if !jobs.contains(job) {
+                jobs.push(job.clone());
+            }
         }
-        let marker = Event::Known(Known::StopRequested {});
+        if !busy && reply.is_none() && jobs.is_empty() {
+            return loaded.map(|_| false);
+        }
+        // The stop names what it stops, so a late write never reaches newer work.
+        let marker = Event::Known(Known::StopRequested {
+            reply: reply.clone(),
+            jobs,
+        });
         let stored = self.record(id, &marker);
         if stored.is_err() {
             let (engine, id) = (self.clone(), id.to_owned());
@@ -286,20 +321,20 @@ impl Engine {
                 jobs::keep_trying(|| engine.record(&id, &marker).map(|_| ())).await;
             });
         }
-        let live = self.live(id);
         let turn = {
             let stop = live.stop.lock().unwrap_or_else(|p| p.into_inner());
             match stop.as_ref() {
-                Some(sender) => {
+                Some((driving, sender)) if Some(driving) == reply.as_ref() => {
                     let _ = sender.send(true);
                     true
                 }
-                None => false,
+                _ => false,
             }
         };
-        let jobs = jobs::stop_all(self, id);
+        let stopped_jobs = jobs::stop_all(self, id);
+        loaded?;
         stored?;
-        Ok(turn || jobs > 0)
+        Ok(turn || stopped_jobs > 0 || reply.is_some())
     }
 
     /// Stores `event` unless the person pressed Stop after `reply` began. Returns whether it was
@@ -498,8 +533,16 @@ impl Engine {
             return;
         }
         // The stop signal is in place before the worker is scheduled, so Stop always reaches it.
+        let Some(reply) = self
+            .load(id)
+            .ok()
+            .and_then(|events| Transcript::fold(&events).open_reply()?.reply.clone())
+        else {
+            live.turn_running.store(false, Ordering::SeqCst);
+            return;
+        };
         let (stop_tx, stop_rx) = watch::channel(false);
-        *live.stop.lock().unwrap_or_else(|p| p.into_inner()) = Some(stop_tx);
+        *live.stop.lock().unwrap_or_else(|p| p.into_inner()) = Some((reply, stop_tx));
         let engine = self.clone();
         let id = id.to_owned();
         tokio::spawn(async move { turn::run(engine, id, stop_rx).await });

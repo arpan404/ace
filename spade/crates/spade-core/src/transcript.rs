@@ -104,7 +104,9 @@ impl Transcript {
             Known::ToolStarted { call_id, .. } => self.running.push(call_id.clone()),
             Known::ToolFinished { call_id, .. } => self.running.retain(|id| id != call_id),
             Known::ApprovalRequested { call_id, name, .. } => {
-                self.awaiting.push(call_id.clone());
+                if !self.stopping {
+                    self.awaiting.push(call_id.clone());
+                }
                 self.asked.push((call_id.clone(), name.clone()));
             }
             Known::ApprovalAnswered {
@@ -128,8 +130,9 @@ impl Transcript {
             }
             Known::JobStarted { job, .. } => self.jobs.push(job.clone()),
             Known::JobFinished { job, .. } => self.jobs.retain(|id| id != job),
-            Known::StopRequested {} => {
-                if self.open_reply().is_some() {
+            Known::StopRequested { reply, .. } => {
+                let open = self.open_reply().and_then(|m| m.reply.clone());
+                if open.is_some() && open == *reply {
                     // Nothing waiting can be answered once Stop is pressed.
                     self.stopping = true;
                     self.awaiting.clear();
@@ -336,7 +339,10 @@ mod tests {
                 name: "send_email".into(),
                 arguments: serde_json::json!({}),
             }),
-            Event::Known(Known::StopRequested {}),
+            Event::Known(Known::StopRequested {
+                reply: Some("r1".into()),
+                jobs: Vec::new(),
+            }),
         ];
         let transcript = Transcript::fold(&events);
         assert!(

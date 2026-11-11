@@ -81,9 +81,15 @@ pub enum Known {
         #[serde(default)]
         is_error: bool,
     },
-    /// The person pressed Stop. A background job's result that arrives after this, or is found
-    /// lost after a restart, is kept without opening a reply.
-    StopRequested {},
+    /// The person pressed Stop, naming what was running then: the open reply and the background
+    /// jobs. Those stop; a result of one of those jobs, or of a job its reply started, is kept
+    /// without opening a reply. Later work is not affected.
+    StopRequested {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reply: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        jobs: Vec<String>,
+    },
     ReplyStarted {
         reply: String,
         model: String,
