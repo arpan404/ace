@@ -8,7 +8,7 @@ struct PromptFileRow: Codable, Identifiable {
     struct Diagnostic: Codable { let message: String }
     var diagnostics: [Diagnostic]? = nil
     var id: String {
-        if case .object(let fields) = scope, case .string(let workspace)? = fields["workspaceId"] { return "\(workspace)/\(name)" }
+        if case .object(let fields) = scope, case .string(let workspace)? = fields["workspaceId"] { return "project/\(workspace)/\(name)" }
         return "global/\(name)"
     }
 }
@@ -28,6 +28,7 @@ struct PromptsView: View {
     @State private var files: [PromptFileRow] = []
     @State private var problem: String?
     @State private var loading = true
+    @State private var listSequence = 0
     @State private var projectsProblem: String?
     @State private var projects: [NativeProject] = []
     @State private var workspaceId = ""
@@ -92,14 +93,16 @@ struct PromptsView: View {
     }
     private func read() async {
         let selected = workspaceId
+        listSequence += 1
+        let sequence = listSequence
         loading = true
-        defer { if workspaceId == selected { loading = false } }
+        defer { if sequence == listSequence { loading = false } }
         do {
             let reply = try await model.read(Self.listRead(selected), as: PromptsReply.self)
             guard reply.result.kind == "list" else { throw ServiceFailure(message: reply.result.message ?? "Couldn't read prompts") }
-            guard workspaceId == selected, !Task.isCancelled else { return }
+            guard workspaceId == selected, sequence == listSequence, !Task.isCancelled else { return }
             files = reply.result.files ?? []; problem = nil
-        } catch { if workspaceId == selected && !Task.isCancelled { problem = error.localizedDescription } }
+        } catch { if sequence == listSequence && !Task.isCancelled { problem = error.localizedDescription } }
     }
 }
 private struct PromptEditor: View {
