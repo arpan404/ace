@@ -1,9 +1,4 @@
-import {
-  decodeStoredItem,
-  decodeStoredPayload,
-  untrusted,
-  type StoredTrust,
-} from "./stored-decode.ts";
+import { decodeStoredPayload, storedItem, untrusted, type StoredTrust } from "./stored-decode.ts";
 import { StreamingBlobs } from "./streaming-blobs.ts";
 import { z } from "zod";
 import { createHash } from "node:crypto";
@@ -71,6 +66,7 @@ export class PayloadStore {
   private readonly items: ItemStore;
   private readonly nextBlobId: () => string;
   private readonly statement: (sql: string) => StatementSync;
+  private readonly trust: StoredTrust;
   constructor(
     db: DatabaseSync,
     nextBlobId: () => string,
@@ -81,6 +77,7 @@ export class PayloadStore {
     this.streamed = new StreamingBlobs(statement);
     this.db = db;
     this.items = new ItemStore(db, statement, trust);
+    this.trust = trust;
     this.nextBlobId = nextBlobId;
   }
   /** Upgrade existing event logs once, preserving event ids and host sequences. */
@@ -150,40 +147,68 @@ export class PayloadStore {
       throw error;
     }
   }
+  /** Large raw entries moved to blobs. The same array when none was, which is most of the time. */
   capRaw(raw: RawPayload[], threadId: ThreadId): RawPayload[] {
-    return raw.map((value) => {
-      if (!("data" in value)) return value;
-      const serialized = JSON.stringify(value.data);
-      if (serialized === undefined) return value;
-      const bytes = Buffer.from(serialized);
-      if (bytes.length <= 64 * 1024) return value;
-      const sha256 = createHash("sha256").update(bytes).digest("hex");
-      const existing = this.statement(
-        "SELECT id FROM blobs WHERE thread_id = ? AND sha256 = ?",
-      ).get(threadId, sha256);
-      const id = String(existing?.id ?? this.nextBlobId());
-      if (!existing)
-        this.statement("INSERT INTO blobs VALUES (?, ?, ?, ?)").run(id, sha256, bytes, threadId);
-      return {
-        type: value.type,
-        ...(value.name === undefined ? {} : { name: value.name }),
-        blobRef: id,
-        size: bytes.length,
-        preview: utf8Slice(serialized, 2048),
-      };
-    });
+    let capped: RawPayload[] | undefined;
+    for (const [index, value] of raw.entries()) {
+      const blob = this.capEntry(value, threadId);
+      if (blob === value) continue;
+      capped ??= raw.slice();
+      capped[index] = blob;
+    }
+    return capped ?? raw;
   }
+  private capEntry(value: RawPayload, threadId: ThreadId): RawPayload {
+    if (!("data" in value)) return value;
+    const serialized = JSON.stringify(value.data);
+    if (serialized === undefined) return value;
+    const bytes = Buffer.from(serialized);
+    if (bytes.length <= 64 * 1024) return value;
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    const existing = this.statement("SELECT id FROM blobs WHERE thread_id = ? AND sha256 = ?").get(
+      threadId,
+      sha256,
+    );
+    const id = String(existing?.id ?? this.nextBlobId());
+    if (!existing)
+      this.statement("INSERT INTO blobs VALUES (?, ?, ?, ?)").run(id, sha256, bytes, threadId);
+    return {
+      type: value.type,
+      ...(value.name === undefined ? {} : { name: value.name }),
+      blobRef: id,
+      size: bytes.length,
+      preview: utf8Slice(serialized, 2048),
+    };
+  }
+  /**
+   * The payload with large raw entries moved to blobs. It is never changed in place: a payload
+   * with nothing to move is returned as it is, and one with something to move is copied only
+   * along the path to its raw list.
+   */
   cap(payload: EventPayload, threadId: ThreadId): EventPayload {
-    const copy = structuredClone(payload);
-    if (copy.type === "item.created" || copy.type === "item.updated") {
-      if (copy.item.type === "tool_call")
-        copy.item.call.raw = this.capRaw(copy.item.call.raw, threadId);
-      else if ("raw" in copy.item) copy.item.raw = this.capRaw(copy.item.raw, threadId);
-    } else if (copy.type === "interaction.opened")
-      copy.interaction.raw = this.capRaw(copy.interaction.raw, threadId);
-    else if (copy.type === "background_task.started")
-      copy.task.raw = this.capRaw(copy.task.raw, threadId);
-    return copy;
+    if (payload.type === "item.created" || payload.type === "item.updated") {
+      const { item } = payload;
+      if (item.type === "tool_call") {
+        const raw = this.capRaw(item.call.raw, threadId);
+        return raw === item.call.raw
+          ? payload
+          : { ...payload, item: { ...item, call: { ...item.call, raw } } };
+      }
+      if (!("raw" in item)) return payload;
+      const raw = this.capRaw(item.raw, threadId);
+      return raw === item.raw ? payload : { ...payload, item: { ...item, raw } };
+    }
+    if (payload.type === "interaction.opened") {
+      const raw = this.capRaw(payload.interaction.raw, threadId);
+      return raw === payload.interaction.raw
+        ? payload
+        : { ...payload, interaction: { ...payload.interaction, raw } };
+    }
+    if (payload.type === "background_task.started") {
+      const raw = this.capRaw(payload.task.raw, threadId);
+      return raw === payload.task.raw ? payload : { ...payload, task: { ...payload.task, raw } };
+    }
+    return payload;
   }
   persist(event: Event): void {
     const p = event.payload;
@@ -199,15 +224,15 @@ export class PayloadStore {
         this.items.append(event, p);
         return;
       }
-      const row = this.statement("SELECT item FROM items WHERE id = ? AND thread_id = ?").get(
-        p.itemId,
-        event.threadId,
-      );
+      const row = this.statement(
+        "SELECT item, created_seq FROM items WHERE id = ? AND thread_id = ?",
+      ).get(p.itemId, event.threadId);
       if (!row) {
         if (p.field === "output") throw new Error("Output needs a shell item");
         return;
       }
-      const item = decodeStoredItem(JSON.parse(String(row.item)));
+      // Every output delta reads its shell item: one this build created is read as stored.
+      const item = storedItem(Number(row.created_seq), String(row.item), this.trust.from);
       if (p.field === "output" && item.type === "tool_call" && item.call.detail.kind === "shell") {
         const streamId = item.call.detail.output?.streamId ?? outputStreamId(item.id);
         this.statement(
