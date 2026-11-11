@@ -21,59 +21,82 @@ struct PluginPageView: View {
     }
 
     var body: some View {
-        List {
-            Section {
-                Toggle(isOn: Binding(get: { plugin.enabled }, set: { switchPlugin($0) })) {
-                    VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                        Text("Enabled").aceFont(InsetStyle.label, relativeTo: .body)
-                        Text(plugin.summary).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                            .foregroundStyle(AceTheme.Colours.mutedForeground)
-                            .contentTransition(.opacity)
+        ScrollView {
+            VStack(alignment: .leading, spacing: AceDesign.Space.group) {
+                QuietSection {
+                    QuietSectionRow {
+                        Toggle(isOn: Binding(get: { plugin.enabled }, set: { switchPlugin($0) })) {
+                            QuietRowText(title: "Enabled", detail: plugin.summary)
+                        }
+                        .disabled(!model.canOperate)
+                        .accessibilityIdentifier("plugin.enabled")
+                    }
+                    QuietSectionRow {
+                        QuietRowText(title: "Version", detail: plugin.version, mono: true)
                     }
                 }
-                .disabled(!model.canOperate)
-                .accessibilityIdentifier("plugin.enabled")
-            } footer: { Text("Version \(plugin.version)") }
-            .insetRowBackground()
-            Section {
-                ForEach(plugin.agents) { agent in
-                    Toggle(isOn: Binding(get: { agent.on }, set: { setAgent(agent.id, on: $0) })) {
-                        HStack(spacing: AceTheme.Spacing.md) {
-                            ProviderMark(provider: agent.id, size: AceDesign.Size.barIcon)
-                            Text(agent.name).aceFont(InsetStyle.label, relativeTo: .body)
+                QuietSection("Agents") {
+                    ForEach(plugin.agents) { agent in
+                        QuietSectionRow {
+                            Toggle(isOn: Binding(get: { agent.on }, set: { setAgent(agent.id, on: $0) })) {
+                                HStack(spacing: AceDesign.Space.related) {
+                                    ProviderMark(provider: agent.id, size: AceDesign.Size.barIcon)
+                                    Text(agent.name).aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+                                        .foregroundStyle(AceDesign.Ink.primary)
+                                }
+                            }
+                            .disabled(!model.canOperate)
+                            .accessibilityIdentifier("plugin.agent.\(agent.id)")
                         }
                     }
-                    .disabled(!model.canOperate)
-                    .accessibilityIdentifier("plugin.agent.\(agent.id)")
+                    QuietSectionRow {
+                        Text(plugin.enabled ? "Each agent switched on here can load everything \(plugin.name) ships." : "Switched off: no agent loads it until it is enabled again.")
+                            .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                            .foregroundStyle(AceDesign.Ink.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
-            } header: { InsetHeader("Agents") } footer: {
-                Text(plugin.enabled ? "Each agent switched on here can load everything \(plugin.name) ships." : "Switched off: no agent loads it until it is enabled again.")
-            }
-            .insetRowBackground()
-            .opacity(plugin.enabled ? 1 : AceDesign.Ink.dimmedOpacity)
-            if !components.isEmpty {
-                Section {
-                    ForEach(components) { component in
-                        NavigationLink { SkillSourceView(model: model, component: component) } label: {
-                            InsetRow(systemImage: nil, title: component.title ?? component.name, subtitle: component.description) {
-                                InsetValue(text: component.enabled && !component.providers.isEmpty ? component.kind.capitalized : "Off")
+                .opacity(plugin.enabled ? 1 : AceDesign.Ink.dimmedOpacity)
+                if !components.isEmpty {
+                    QuietSection("What it ships") {
+                        ForEach(components) { component in
+                            NavigationLink { SkillSourceView(model: model, component: component) } label: {
+                                QuietSectionRow {
+                                    QuietRowText(title: component.title ?? component.name, detail: component.description)
+                                    Text(component.enabled && !component.providers.isEmpty ? component.kind.capitalized : "Off")
+                                        .aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                                        .foregroundStyle(AceDesign.Ink.subtle).lineLimit(1)
+                                    RowCaret()
+                                }
+                            }
+                            .buttonStyle(.row)
+                        }
+                    }
+                }
+                if model.canOperate {
+                    QuietSection {
+                        Button { review = PluginReviewRequest(operation: ["type": "plugins.update", "name": plugin.name]) } label: {
+                            QuietSectionRow {
+                                Text("Check for update").aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                                    .fontWeight(AceDesign.Typeface.strong).foregroundStyle(AceDesign.Ink.primary)
                             }
                         }
-                    }
-                } header: { InsetHeader("What it ships") }
-                .insetRowBackground()
-            }
-            if model.canOperate {
-                Section {
-                    Button("Check for update") { review = PluginReviewRequest(operation: ["type": "plugins.update", "name": plugin.name]) }
-                        .foregroundStyle(AceTheme.Colours.foreground)
-                    Button("Remove plugin", role: .destructive) { removing = true }
+                        .buttonStyle(.row)
+                        Button { removing = true } label: {
+                            QuietSectionRow {
+                                Text("Remove plugin").aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                                    .foregroundStyle(AceTheme.StatusText.failed)
+                            }
+                        }
+                        .buttonStyle(.row)
                         .accessibilityIdentifier("plugin.remove")
-                } footer: { ServiceProblem(message: problem) }
-                .insetRowBackground()
+                    }
+                }
+                if let problem { QuietProblem(message: problem) }
             }
+            .padding(.top, AceDesign.Space.related).padding(.bottom, AceDesign.Space.group)
         }
-        .insetGroupedList()
+        .background(AceDesign.Surface.background)
         .animation(.default, value: plugin)
         .animation(.default, value: problem)
         .sensoryFeedback(.selection, trigger: toggled)
