@@ -3,7 +3,7 @@ import type { SpadeStatus } from "@ace/protocol";
 import { checkSpadeProof, type SpadeHealth } from "@ace/service/spade";
 import type { SpadeConnection } from "./forward.ts";
 import {
-  readServerFile,
+  readSpadeServerFile,
   readTokenFile,
   spadeAnswering,
   spadeState,
@@ -178,7 +178,8 @@ export class SpadeLink {
       error: error instanceof Error ? error.message : String(error),
     }));
     const text = await runtime.readText(join(dataDir, "server.json"));
-    const named = text === undefined ? undefined : readServerFile(text);
+    const read = text === undefined ? undefined : readSpadeServerFile(text);
+    const named = read?.ok ? read.endpoint : undefined;
     // A server.json left by a Spade that is gone names nothing.
     const endpoint = named && runtime.alive(named.pid) ? named : undefined;
     const tokenText = endpoint && (await runtime.readText(join(dataDir, "token")));

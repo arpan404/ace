@@ -1,7 +1,9 @@
-import { z } from "zod";
 import type { DeviceScope, SpadeMethod } from "@ace/protocol";
+import type { SpadeEndpoint } from "@ace/service/spade";
 
 export {
+  readSpadeServerFile,
+  type SpadeEndpoint,
   checkLivePath,
   checkSpadePath,
   readSpadeTokenFile as readTokenFile,
@@ -12,40 +14,6 @@ export {
 
 /** What the service manager says about Spade's registration (`@ace/service`). */
 export type SpadeServiceState = "absent" | "stopped" | "running";
-
-/** Spade's HTTP API versions this daemon speaks: the current one and the one before. */
-const spadeApis = new Set([1]);
-const ServerFile = z.object({
-  address: z.string().max(64),
-  pid: z.number().int().positive(),
-  version: z.string().max(64),
-  /** Absent from Spade builds before the API was versioned; those speak version 1. */
-  api: z.number().int().optional(),
-});
-export interface SpadeEndpoint {
-  host: string;
-  port: number;
-  pid: number;
-  version: string;
-}
-/**
- * Spade's `server.json`, accepted only when it names a loopback address and an API version this
- * daemon speaks. Whether that Spade is still running is `/health`'s to say.
- */
-export function readServerFile(text: string): SpadeEndpoint | undefined {
-  let value: unknown;
-  try {
-    value = JSON.parse(text);
-  } catch {
-    return undefined;
-  }
-  const parsed = ServerFile.safeParse(value);
-  if (!parsed.success || !spadeApis.has(parsed.data.api ?? 1)) return undefined;
-  const match = /^127\.0\.0\.1:(\d{1,5})$/.exec(parsed.data.address);
-  const port = Number(match?.[1]);
-  if (!match || !Number.isInteger(port) || port < 1 || port > 65_535) return undefined;
-  return { host: "127.0.0.1", port, pid: parsed.data.pid, version: parsed.data.version };
-}
 
 /** What the daemon last saw of Spade. */
 export interface SpadeFacts {

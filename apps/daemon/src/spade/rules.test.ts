@@ -2,43 +2,11 @@ import { describe, expect, test } from "vitest";
 import {
   checkLivePath,
   checkSpadePath,
-  readServerFile,
   scopeFor,
   spadeStartGraceMs,
   spadeState,
   type SpadeFacts,
 } from "./rules.ts";
-
-const file = (value: object) => JSON.stringify(value);
-describe("server.json", () => {
-  test("names a loopback address, Spade's pid and version", () => {
-    expect(
-      readServerFile(file({ address: "127.0.0.1:4100", pid: 42, version: "0.1.0", api: 1 })),
-    ).toEqual({ host: "127.0.0.1", port: 4100, pid: 42, version: "0.1.0" });
-  });
-  test("from a Spade before the API was versioned is read as API 1", () => {
-    expect(readServerFile(file({ address: "127.0.0.1:4100", pid: 42, version: "0.1.0" }))).toEqual({
-      host: "127.0.0.1",
-      port: 4100,
-      pid: 42,
-      version: "0.1.0",
-    });
-  });
-  test.each([
-    ["another host", { address: "0.0.0.0:4100", pid: 42, version: "0.1.0" }],
-    ["a port out of range", { address: "127.0.0.1:70000", pid: 42, version: "0.1.0" }],
-    ["no version", { address: "127.0.0.1:4100", pid: 42 }],
-    [
-      "an API this daemon doesn't speak",
-      { address: "127.0.0.1:4100", pid: 42, version: "9", api: 7 },
-    ],
-  ])("is not usable when it names %s", (_name, value) => {
-    expect(readServerFile(file(value))).toBeUndefined();
-  });
-  test("is not usable while half written", () => {
-    expect(readServerFile('{"address":"127.0.0.1:41')).toBeUndefined();
-  });
-});
 
 const facts = (change: Partial<SpadeFacts>): SpadeFacts => ({
   enabled: true,
@@ -48,7 +16,7 @@ const facts = (change: Partial<SpadeFacts>): SpadeFacts => ({
   ...change,
 });
 describe("spade.status from the service and its files", () => {
-  const endpoint = { host: "127.0.0.1", port: 4100, pid: 42, version: "0.4.0" };
+  const endpoint = { host: "127.0.0.1", port: 4100, pid: 42, version: "0.4.0", api: 1 } as const;
   test("is off while Spade is turned off, whatever is registered", () => {
     expect(spadeState(facts({ enabled: false, endpoint, healthy: true }))).toEqual({
       state: "off",

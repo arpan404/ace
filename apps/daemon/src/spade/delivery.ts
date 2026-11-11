@@ -11,6 +11,11 @@ export type SpadeAceCall = (
 export interface SpadeDeliveryOptions {
   grants: { current(): OutsideGrant | undefined; issue(grant: OutsideGrant): string };
   call: SpadeAceCall;
+  /**
+   * Whether the Spade at `connection` proves it holds its token (`proveSpade`), checked right
+   * before each hand-over: neither the token nor a grant goes to a listener that can't.
+   */
+  prove(connection: SpadeConnection): Promise<boolean>;
   /** Spade's connection now, if it is ready. */
   ready(): SpadeConnection | undefined;
   /** Runs `run` after `ms`; returns a cancel. */
@@ -49,6 +54,11 @@ export class SpadeGrantDelivery {
       const grant = this.options.grants.current();
       if (!grant || this.closed) return;
       const spade = `${connection.host}:${connection.port}:${connection.token}`;
+      if (!(await this.options.prove(connection))) {
+        this.options.log("warn", "Spade didn't prove itself; its grant wasn't sent");
+        this.retry();
+        return;
+      }
       // Already handed to this very Spade: a second token would only revoke the first.
       if (this.handed?.grantId === grant.id && this.handed.spade === spade) return;
       if (!fresh && grant.lastUsedAt !== null && (await this.holds(connection))) {
@@ -82,7 +92,8 @@ export class SpadeGrantDelivery {
       this.cancelRetry = undefined;
       this.attempt = 0;
       this.handed = undefined;
-      if (connection) await this.options.call(connection, "DELETE");
+      if (connection && (await this.options.prove(connection)))
+        await this.options.call(connection, "DELETE");
     });
   }
   close(): void {

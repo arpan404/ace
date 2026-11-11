@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
+import { newSpadeNonce, proveSpade } from "@ace/service/spade";
 import { GrantStore } from "../external-mcp/grants.ts";
 import { GrantTokens } from "../external-mcp/tokens.ts";
 import { SpadeGrantDelivery } from "../spade/delivery.ts";
@@ -78,6 +79,8 @@ export async function startSpade(context: ServiceContext): Promise<void> {
   const delivery = new SpadeGrantDelivery({
     grants,
     call: spadeAceCall,
+    prove: async (connection) =>
+      (await proveSpade(connection, newSpadeNonce(), AbortSignal.timeout(2000))) !== undefined,
     ready: () => link.ready()?.connection,
     after: (ms, run) => {
       const timer = setTimeout(run, ms);
