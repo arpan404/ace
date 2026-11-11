@@ -8,6 +8,9 @@ import Foundation
     private(set) var writing = false
     /// The last write's refusal or lost answer, in the bridge's words; nil after a success.
     private(set) var message: String?
+    /// "Fix with agent": hands a comment's request to the thread on this pull request, false when
+    /// nothing could take it. Nil where the page offers no hand-off.
+    @ObservationIgnored var fix: ((String) -> Bool)?
 
     init(client: ClientModel, target: ForgePullTarget) {
         self.client = client

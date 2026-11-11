@@ -73,6 +73,10 @@ struct ForgeCommentView: View {
             if let link = URL(string: comment.url) {
                 Button("Copy link", ace: .linkSimple) { UIPasteboard.general.url = link }
             }
+            if let request = comment.fix, let fix = actions.desk.fix {
+                Button("Fix with agent") { _ = fix(request) }
+                    .accessibilityIdentifier("forge.comment.fix")
+            }
             if comment.edit || comment.hide || comment.unhide || comment.remove {
                 Divider()
             }
