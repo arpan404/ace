@@ -1,6 +1,5 @@
 import { z } from "zod";
 import {
-  DelegationRequest,
   DeviceId,
   ThreadListCursor,
   ThreadId,
@@ -18,6 +17,7 @@ import { toolFailureReporter } from "../tool-failure-log.ts";
 import type { GrantStore } from "./grants.ts";
 import { grantOfCaller } from "./principals.ts";
 import { missingScope, projectAllowed } from "./scopes.ts";
+import { registerTaskTool } from "./task-tool.ts";
 
 const output = z.object({
   ok: z.boolean(),
@@ -56,13 +56,6 @@ const SendInput = z.object({
   idempotencyKey,
 });
 const StopInput = z.object({ threadId: ThreadId, idempotencyKey });
-const TaskInput = z.object({
-  operation: z.union([
-    z.object({ op: z.literal("task.spawn"), parentId: ThreadId, request: DelegationRequest }),
-    z.object({ op: z.literal("task.status"), threadId: ThreadId }),
-    z.object({ op: z.literal("task.cancel"), threadId: ThreadId, key: idempotencyKey }),
-  ]),
-});
 
 /** One model as an outside client picks it: what ace_thread_run takes, and little else. */
 function modelRow(model: CatalogModel) {
@@ -266,7 +259,7 @@ export function externalTools(
           workspaceId: input.project,
           provider: input.provider,
           model: input.model,
-          origin: { kind: "mcp_client", client },
+          origin: { kind: "person", client },
           input: [{ type: "text", text: input.text }],
         },
         (result) => {
@@ -304,7 +297,7 @@ export function externalTools(
           threadId: input.threadId,
           input: [{ type: "text", text: input.text }],
           delivery: input.delivery,
-          origin: { kind: "mcp_client", client: { grantId: grant.id, name: grant.name } },
+          origin: { kind: "person", client: { grantId: grant.id, name: grant.name } },
         },
         () => grants.noteThread(grant.id, input.threadId, "messaged"),
       );
@@ -332,25 +325,6 @@ export function externalTools(
       return { ok: receipt.ok, data: receipt, error: receipt.error };
     },
   });
-  registry.register({
-    name: "ace_task_control",
-    description:
-      "Spawn (threads:start), inspect, or cancel (threads:stop) a delegated task in an allowed project. Cannot approve permissions.",
-    input: TaskInput,
-    output,
-    capability: "agents",
-    timeoutMs: 15000,
-    async run(input, { caller, signal }) {
-      const grant = grantOf(caller, "ace_task_control", input);
-      if (input.operation.op !== "task.status" && !admits())
-        return { ok: false, error: "unavailable" };
-      thread(
-        grant,
-        input.operation.op === "task.spawn" ? input.operation.parentId : input.operation.threadId,
-      );
-      const response = await cliControl(context)(input.operation, signal);
-      return { ok: response.ok, data: response.data, error: response.code };
-    },
-  });
+  registerTaskTool(registry, { context, grants, admits, grantOf, thread });
   return registry;
 }

@@ -1,6 +1,8 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "vitest";
+import { z } from "zod";
 import { daemonFixture } from "../agent-control/daemon-test-support.ts";
 import { fakeHeadlessBackend } from "../browser-mcp-test-support.ts";
 import { invoke } from "../cli-test-support.ts";
@@ -166,4 +168,50 @@ test("a grant's browser tabs belong to it and close when it is revoked", async (
       }
     })
     .toBe(true);
+});
+
+test("a thread an outside client starts shows in the sidebar and in ace_threads_list, titled from its prompt", async () => {
+  const f = await fixture();
+  const lease = await enroll(f, ["--scope", "operate"]);
+  const started = z.object({ ok: z.literal(true), data: z.object({ threadId: z.string() }) }).parse(
+    toolResult(
+      await call(lease, "ace_thread_run", {
+        project: f.workspace,
+        provider: "codex",
+        text: "Summarise the release notes",
+        idempotencyKey: "sidebar-start",
+      }),
+    ).structuredContent,
+  ).data.threadId;
+  await f.daemon.engine?.flush();
+  const page = f.daemon.store.sidebarPage({ limit: 100 });
+  const entry = page.threads.find((thread) => thread.id === started);
+  expect(entry?.title).toContain("Summarise the release notes");
+  const threads = toolResult(await call(lease, "ace_threads_list", { limit: 100 }));
+  expect(JSON.stringify(threads.structuredContent)).toContain(started);
+});
+
+test("a grant can't delegate to another machine or into a folder outside its project", async () => {
+  const f = await fixture();
+  const lease = await enroll(f, ["--scope", "operate", "--project", f.workspace]);
+  const outside = await mkdtemp(join(tmpdir(), "ace-outside-"));
+  closers.push(() => rm(outside, { recursive: true, force: true }));
+  const spawn = (request: Record<string, unknown>) =>
+    call(lease, "ace_task_control", {
+      operation: {
+        op: "task.spawn",
+        parentId: f.caller.threadId,
+        request: { task: "synthetic", role: "Outside child", provider: "claude", ...request },
+      },
+    });
+  const before = f.daemon.store.listThreads().length;
+  for (const request of [
+    { requestId: "elsewhere-machine", machine: "other-mac", project: "secrets" },
+    { requestId: "elsewhere-path", workspace: { kind: "existing_worktree", path: outside } },
+  ])
+    expect(toolResult(await spawn(request)).structuredContent).toMatchObject({
+      ok: false,
+      error: "forbidden",
+    });
+  expect(f.daemon.store.listThreads()).toHaveLength(before);
 });
