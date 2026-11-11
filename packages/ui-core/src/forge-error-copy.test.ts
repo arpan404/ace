@@ -31,6 +31,12 @@ describe("Git host read failures", () => {
     expect(forgeErrorText("forge_cli", "origin")).toContain("`origin auth login`");
   });
 
+  it("tell Bitbucket users to sign bkt in to Bitbucket Cloud, not a Data Center server", () => {
+    expect(forgeErrorText("forge_cli", "bitbucket")).toContain(
+      "`bkt auth login https://bitbucket.org --kind cloud --web`",
+    );
+  });
+
   it("send providers without a CLI to the host's website", () => {
     expect(forgeErrorText("forge_cli", "gitea")).toBe(
       "ace can't read Gitea yet: open it on Gitea.",

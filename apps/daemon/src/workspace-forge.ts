@@ -1,7 +1,7 @@
 import { gitLabInboxWriter } from "./hosted-inbox.ts";
 import { HostedChecks } from "./hosted-checks.ts";
 import { lifecycleBackend, mergeBackend, reviewBackend } from "./host-routes.ts";
-import { executeGitLabThreadConversation } from "./hosted-review-conversation.ts";
+import { executeHostedThreadConversation } from "./hosted-review-conversation.ts";
 import { withForgeCapabilities } from "@ace/forge";
 import { commandNotDispatched } from "./command-not-dispatched.ts";
 import { hostedIssueWriter, hostedIssues, type IssueScope } from "./hosted-issues.ts";
@@ -315,9 +315,10 @@ export class WorkspaceForge {
     }
     this.lifetime.signal.throwIfAborted();
     if (!allowed()) throw new Error("forbidden");
-    // GitLab, Gitea and Forgejo PRs go through their own adapters' admitted writers, never
-    // GitHub's backend.
-    if (p.link.pr.repository.forge === "gitlab" || isTeaHost(p.link.pr.repository.forge)) {
+    // GitLab, Gitea, Forgejo and Bitbucket PRs go through their own adapters' admitted
+    // writers, never GitHub's backend.
+    const forge = p.link.pr.repository.forge;
+    if (forge === "gitlab" || forge === "bitbucket" || isTeaHost(forge)) {
       const pr = p.link.pr;
       const generation = this.links.getLinkState(id, pr)?.generation;
       if (p.type === "forge.pr.status") {
@@ -329,18 +330,19 @@ export class WorkspaceForge {
         this.projection.update(id, value.status, generation);
         return { ok: true, pr, prStatus: value.status };
       }
-      // tea has no reply or reviewer-request writes (ADR 0117).
+      // tea has no reply or reviewer-request writes, and bkt no reviewer requests (ADR 0117).
       if (
         (p.type === "forge.comment.reply" || p.type === "forge.review.request") &&
-        isTeaHost(pr.repository.forge)
+        isTeaHost(forge)
       )
         throw new ForgeError("unsupported");
+      if (p.type === "forge.review.request" && forge === "bitbucket")
+        throw new ForgeError("unsupported");
       if (p.type === "forge.comment.reply" || p.type === "forge.review.request")
-        return executeGitLabThreadConversation({
-          backends: this.backends,
+        return executeHostedThreadConversation({
+          backend: await reviewBackend(this.backends, cwd, pr, this.lifetime.signal),
           reviews: this.reviews,
           store: this.store,
-          cwd,
           commandId,
           action: p,
           signal: this.lifetime.signal,

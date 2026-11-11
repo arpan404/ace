@@ -3,6 +3,9 @@ import {
   GitLabReader,
   GitLabCreation,
   TeaReader,
+  BitbucketReader,
+  BitbucketReviews,
+  bitbucketReviewWrites,
   isTeaHost,
   TeaReviews,
   teaReviewWrites,
@@ -169,15 +172,31 @@ export class ForgeBackends {
     if (!this.sourceControl) throw new ForgeError("unsupported");
     return (await this.sourceControl.readIdentity(cwd, repository, signal)).runner;
   }
-  /** A Gitea/Forgejo identity's tea login, which every tea request names. */
-  #teaOptions(repository: ForgeRepository, identity: { runner: CommandRunner; login?: unknown }) {
-    if (!isTeaHost(repository.forge)) throw new ForgeError("unsupported");
+  /** The tea login (Gitea/Forgejo) or bkt context (Bitbucket) every request names. */
+  #cliOptions(repository: ForgeRepository, identity: { runner: CommandRunner; login?: unknown }) {
+    if (!isTeaHost(repository.forge) && repository.forge !== "bitbucket")
+      throw new ForgeError("unsupported");
     if (typeof identity.login !== "string" || !identity.login) throw new ForgeError("unsupported");
     return { repository, runner: identity.runner, login: identity.login };
   }
+  /** Bitbucket review writes, admitted only on PR `number` of `repository` (ADR 0118). */
+  async bitbucketReviews(
+    cwd: string,
+    repository: ForgeRepository,
+    number: number,
+    signal: AbortSignal,
+  ) {
+    const identity = await this.admittedWriter(
+      cwd,
+      repository,
+      bitbucketReviewWrites(repository, number),
+      signal,
+    );
+    return { reviews: new BitbucketReviews(this.#cliOptions(repository, identity)) };
+  }
   async #teaRead(cwd: string, repository: ForgeRepository, signal: AbortSignal) {
     if (!this.sourceControl) throw new ForgeError("unsupported");
-    return this.#teaOptions(
+    return this.#cliOptions(
       repository,
       await this.sourceControl.readIdentity(cwd, repository, signal),
     );
@@ -189,7 +208,7 @@ export class ForgeBackends {
   ): Promise<{ writer: TeaWriter; account: string }> {
     const identity = await this.admittedWriter(cwd, repository, teaWrites(repository), signal);
     return {
-      writer: new TeaWriter(this.#teaOptions(repository, identity)),
+      writer: new TeaWriter(this.#cliOptions(repository, identity)),
       account: identity.account,
     };
   }
@@ -204,12 +223,12 @@ export class ForgeBackends {
       teaReviewWrites(repository, number),
       signal,
     );
-    return { reviews: new TeaReviews(this.#teaOptions(repository, identity)) };
+    return { reviews: new TeaReviews(this.#cliOptions(repository, identity)) };
   }
   /** Gitea/Forgejo issue writes. */
   async teaIssueWriter(cwd: string, repository: ForgeRepository, signal: AbortSignal) {
     const identity = await this.admittedWriter(cwd, repository, teaIssueWrites(repository), signal);
-    return new TeaIssueWriter(this.#teaOptions(repository, identity));
+    return new TeaIssueWriter(this.#cliOptions(repository, identity));
   }
   /** Gitea/Forgejo issue reads, and recovery reads of earlier issue writes. */
   async teaIssues(cwd: string, repository: ForgeRepository, signal: AbortSignal) {
@@ -236,7 +255,9 @@ export class ForgeBackends {
     const identity = await this.sourceControl.readIdentity(cwd, repository, signal);
     const options = { repository, runner: identity.runner };
     if (repository.forge === "gitlab") return new GitLabReader(options);
-    if (isTeaHost(repository.forge)) return new TeaReader(this.#teaOptions(repository, identity));
+    if (isTeaHost(repository.forge)) return new TeaReader(this.#cliOptions(repository, identity));
+    if (repository.forge === "bitbucket")
+      return new BitbucketReader(this.#cliOptions(repository, identity));
     return new OriginReader({
       ...options,
       snapshots: this.snapshots(
