@@ -6,11 +6,14 @@ mod support;
 
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use serde_json::json;
 use spade_core::tools::Risk;
-use spade_server::tools::Tool;
+use spade_core::tools::ToolDef;
+use spade_models::ToolSpec;
+use spade_server::tools::{Tool, ToolFuture, ToolOutput};
 use spade_testkit::Script;
 use support::{FakeTool, Result, Spade};
 
@@ -38,7 +41,7 @@ fn count(events: &[serde_json::Value], kind: &str) -> usize {
 // Several threads, so a worker that never yields shows as a timeout rather than a hang.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_tool_result_that_fails_to_store_is_kept_and_stored_once_storage_recovers() -> Result {
-    let search = FakeTool::new("web_search", Risk::Read, "Sunny").slow(Duration::from_millis(300));
+    let search = FakeTool::new("web_search", Risk::Read, "Sunny");
     let spade = Spade::start(
         vec![
             Script::reply("").call("c1", "web_search", json!({ "q": "weather" })),
@@ -47,9 +50,10 @@ async fn a_tool_result_that_fails_to_store_is_kept_and_stored_once_storage_recov
         vec![Arc::new(search) as Arc<dyn Tool>],
     )
     .await?;
+    // Refused from the start, so the result can never be stored before the refusal is in place.
+    refuse(&spade.database(), "tool_finished")?;
     let id = spade.ask("Weather?").await?;
     spade.wait_for(&id, "tool_started").await?;
-    refuse(&spade.database(), "tool_finished")?;
     tokio::time::sleep(Duration::from_millis(700)).await;
     let meanwhile = spade.events(&id).await?;
     assert_eq!(
@@ -120,6 +124,94 @@ async fn a_stopped_reply_whose_close_fails_closes_once_storage_recovers_and_the_
     assert_eq!(
         finished.map(|e| e["text"].clone()),
         Some(json!("Second answer."))
+    );
+    Ok(())
+}
+
+/// A read tool that runs until cancelled, and says when it was.
+struct Endless {
+    cancelled: Arc<AtomicBool>,
+}
+
+/// Marks the call cancelled if it is dropped before it finishes.
+struct Cancelled(Arc<AtomicBool>);
+
+impl Drop for Cancelled {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
+impl Tool for Endless {
+    fn def(&self) -> ToolDef {
+        ToolDef {
+            spec: ToolSpec {
+                name: "watch_page".to_owned(),
+                description: "watch_page tool".to_owned(),
+                schema: json!({ "type": "object" }),
+            },
+            risk: Risk::Read,
+            untrusted_output: false,
+            deferred: false,
+            background: false,
+        }
+    }
+
+    fn run(&self, _call_id: &str, _arguments: serde_json::Value) -> ToolFuture {
+        let guard = Cancelled(self.cancelled.clone());
+        Box::pin(async move {
+            let _guard = guard;
+            std::future::pending::<ToolOutput>().await
+        })
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn stop_cancels_a_call_in_flight_while_a_siblings_result_cannot_be_stored() -> Result {
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let endless = Endless {
+        cancelled: cancelled.clone(),
+    };
+    let search = FakeTool::new("web_search", Risk::Read, "Sunny");
+    let spade = Spade::start(
+        vec![
+            Script::reply("").call("c1", "watch_page", json!({})).call(
+                "c2",
+                "web_search",
+                json!({ "q": "weather" }),
+            ),
+            Script::reply("").plain(r#"{"title":"Weather"}"#),
+        ],
+        vec![Arc::new(endless) as Arc<dyn Tool>, Arc::new(search)],
+    )
+    .await?;
+    refuse(&spade.database(), "tool_finished")?;
+    let id = spade.ask("Weather?").await?;
+    spade.wait_for_count(&id, "tool_started", 2).await?;
+    // web_search has answered and its result is being retried.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    spade
+        .post(&format!("/v1/conversations/{id}/stop"), json!({}))
+        .await?;
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while !cancelled.load(Ordering::SeqCst) && std::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(
+        cancelled.load(Ordering::SeqCst),
+        "watch_page kept running while storage refused web_search's result"
+    );
+
+    allow(&spade.database(), "tool_finished")?;
+    let events = spade.wait_for(&id, "reply_stopped").await?;
+    let results: Vec<_> = events
+        .iter()
+        .filter(|e| e["type"] == "tool_finished")
+        .map(|e| (e["call_id"].clone(), e["content"].clone()))
+        .collect();
+    assert!(
+        results.contains(&(json!("c2"), json!("Sunny"))),
+        "the result that came back is kept: {results:?}"
     );
     Ok(())
 }

@@ -1,6 +1,7 @@
 //! A step's tool calls: the gate, approvals, running allowed calls in parallel (or as background
 //! jobs), and storing each result.
 
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use futures_util::StreamExt;
@@ -139,8 +140,14 @@ async fn run_tools(
     let limit = engine.limits.max_parallel_tools.max(1);
     let mut queue = calls.into_iter();
     let mut running = FuturesUnordered::new();
+    // Results that came back and wait to be stored, oldest first, and the one being stored now.
+    // Storing runs alongside the tools, so a write that keeps failing never stops Stop or a
+    // pause from cancelling the calls still in flight.
+    let mut finished: VecDeque<(Call, String, ToolOutput)> = VecDeque::new();
+    let mut storing: Option<Storing<'_>> = None;
     loop {
-        while running.len() < limit {
+        // No new call starts while a result is not stored yet.
+        while storing.is_none() && finished.is_empty() && running.len() < limit {
             if *stop.borrow() {
                 return Handled::Stopped;
             }
@@ -192,21 +199,52 @@ async fn run_tools(
                 (call, name, output)
             });
         }
-        if running.is_empty() {
+        if storing.is_none()
+            && let Some((call, name, output)) = finished.pop_front()
+        {
+            storing = Some(Box::pin(async move {
+                finish_tool(engine, id, reply, &call, &name, output).await;
+            }));
+        }
+        if running.is_empty() && storing.is_none() {
             return Handled::Continue;
         }
-        tokio::select! {
+        let ended = tokio::select! {
             changed = stop.changed() => {
-                if changed.is_err() || *stop.borrow() {
-                    return Handled::Stopped;
-                }
+                (changed.is_err() || *stop.borrow()).then_some(Handled::Stopped)
             }
-            Some((call, name, output)) = running.next() => {
+            Some(done) = running.next() => {
+                finished.push_back(done);
+                None
+            }
+            () = stored(&mut storing) => {
+                storing = None;
+                None
+            }
+            _ = super::turn::pausing(pause, Point::RunningTools) => Some(Handled::Paused),
+        };
+        if let Some(ended) = ended {
+            // The calls still in flight are cancelled now; results already back are kept.
+            drop(running);
+            if let Some(store) = storing {
+                store.await;
+            }
+            for (call, name, output) in finished {
                 finish_tool(engine, id, reply, &call, &name, output).await;
             }
-            // The running tools are dropped (cancelled) on return.
-            _ = super::turn::pausing(pause, Point::RunningTools) => return Handled::Paused,
+            return ended;
         }
+    }
+}
+
+/// A result being stored (see `finish_tool`).
+type Storing<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>>;
+
+/// Resolves once the result being stored is stored; never while none is.
+async fn stored(storing: &mut Option<Storing<'_>>) {
+    match storing {
+        Some(store) => store.await,
+        None => std::future::pending().await,
     }
 }
 
