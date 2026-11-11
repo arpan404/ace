@@ -92,7 +92,8 @@ impl Engine {
             live: Mutex::default(),
             record_lock: Mutex::default(),
             activity: Mutex::default(),
-            admission: AtomicBool::new(true),
+            // Closed until `open_for_work`, so nothing runs before ace's tools are back.
+            admission: AtomicBool::new(false),
             pause: watch::channel(Pause::Off).0,
             maintenance: std::sync::atomic::AtomicU64::new(0),
         });
@@ -109,10 +110,16 @@ impl Engine {
                 }
             }
             jobs::report_lost(&engine, &conversation.id)?;
-            // Paused turns, turns waiting on the person, and anything stored while closed.
-            engine.resume(&conversation.id)?;
         }
         Ok(engine)
+    }
+
+    /// Opens for work: turns paused or waiting since the last run resume, and anything stored
+    /// meanwhile is answered. Until then messages are stored but no turn starts. The server calls
+    /// this once ace's tools are back (or after a short wait), so a resumed turn that was about to
+    /// use one finds it.
+    pub fn open_for_work(self: &Arc<Self>) {
+        self.end_maintenance();
     }
 
     pub fn now_ms(&self) -> i64 {

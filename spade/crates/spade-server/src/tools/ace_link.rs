@@ -91,6 +91,8 @@ pub struct AceLink {
     grant: Mutex<Option<Secret>>,
     /// Changes whenever the grant does, so a connection made with an old grant offers nothing.
     grants: AtomicU64,
+    /// Set once the stored grant has been read (or there is nothing to read).
+    loaded: AtomicBool,
     retry: Retry,
     current: RwLock<Option<Connected>>,
     connected: AtomicBool,
@@ -110,23 +112,16 @@ enum Ended {
 }
 
 impl AceLink {
-    /// Starts connecting in the background. The grant is read from `keys` once, here.
+    /// Starts connecting in the background. The stored grant is read there too, never before Spade
+    /// is serving: reading the keychain can wait on a system prompt (a binary signed differently
+    /// after an update), and Spade must come up regardless.
     pub fn start(target: AceTarget, keys: Option<KeyStore>, retry: Retry) -> Arc<Self> {
-        let grant = keys
-            .as_ref()
-            .and_then(|keys| match keys.ace_grant() {
-                Ok(grant) => grant,
-                Err(error) => {
-                    tracing::warn!(%error, "could not read Spade's ace grant");
-                    None
-                }
-            })
-            .map(Secret::new);
         let link = Arc::new(Self {
             target,
             keys,
-            grant: Mutex::new(grant),
+            grant: Mutex::new(None),
             grants: AtomicU64::new(0),
+            loaded: AtomicBool::new(false),
             retry,
             current: RwLock::default(),
             connected: AtomicBool::new(false),
@@ -142,6 +137,19 @@ impl AceLink {
         self.connected.load(Ordering::SeqCst)
     }
 
+    /// Waits until ace's tools are reachable, for at most `longest`. Returns whether they are.
+    /// Paused turns wait for this after a restart, so a turn about to use an ace tool finds it.
+    pub async fn ready_within(&self, longest: Duration) -> bool {
+        let until = tokio::time::Instant::now() + longest;
+        while !self.connected() {
+            if tokio::time::Instant::now() >= until {
+                return false;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        true
+    }
+
     /// Whether Spade holds a grant (or was given ace's credentials directly).
     pub fn has_grant(&self) -> bool {
         matches!(self.target, AceTarget::Fixed(_))
@@ -152,6 +160,16 @@ impl AceLink {
                 .is_some()
     }
 
+    /// Whether Spade holds a grant, once the stored one has been read (waiting up to `longest`
+    /// for that read), so a caller never mistakes "not read yet" for "none".
+    pub async fn holds_grant(&self, longest: Duration) -> bool {
+        let until = tokio::time::Instant::now() + longest;
+        while !self.loaded.load(Ordering::SeqCst) && tokio::time::Instant::now() < until {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        self.has_grant()
+    }
+
     /// Stores the grant the daemon handed over and connects with it.
     pub fn set_grant(&self, grant: &str) -> Result<(), GrantError> {
         let grant = grant.trim();
@@ -159,7 +177,7 @@ impl AceLink {
             return Err(GrantError::Empty);
         }
         match &self.keys {
-            Some(keys) => keys.set_ace_grant(grant)?,
+            Some(keys) => keys.set_ace_grant(&grant_slot(&self.target), grant)?,
             None => tracing::warn!("no keychain; Spade keeps its ace grant until it stops"),
         }
         *self.grant.lock().unwrap_or_else(|p| p.into_inner()) = Some(Secret::new(grant));
@@ -177,12 +195,43 @@ impl AceLink {
         self.disconnect();
         self.wake.notify_one();
         if let Some(keys) = &self.keys {
-            keys.delete_ace_grant()?;
+            keys.delete_ace_grant(&grant_slot(&self.target))?;
         }
         Ok(())
     }
 
+    /// Reads the stored grant off the async runtime, unless one was handed over meanwhile.
+    async fn load_grant(&self) {
+        self.read_stored_grant().await;
+        self.loaded.store(true, Ordering::SeqCst);
+    }
+
+    async fn read_stored_grant(&self) {
+        let Some(keys) = self.keys.clone() else {
+            return;
+        };
+        let before = self.grants.load(Ordering::SeqCst);
+        let slot = grant_slot(&self.target);
+        let read = tokio::task::spawn_blocking(move || keys.ace_grant(&slot)).await;
+        let grant = match read {
+            Ok(Ok(grant)) => grant,
+            Ok(Err(error)) => {
+                tracing::warn!(%error, "could not read Spade's ace grant");
+                None
+            }
+            Err(_) => None,
+        };
+        if let Some(grant) = grant {
+            let mut held = self.grant.lock().unwrap_or_else(|p| p.into_inner());
+            // A grant handed over while this read waited is newer: keep it.
+            if self.grants.load(Ordering::SeqCst) == before && held.is_none() {
+                *held = Some(Secret::new(grant));
+            }
+        }
+    }
+
     async fn run(self: Arc<Self>) {
+        self.load_grant().await;
         let mut wait: Option<Duration> = None;
         loop {
             let ended = match self.config() {
@@ -367,6 +416,20 @@ impl SkillLibrary for AceLink {
             Some(library) => library.read(id),
             None => Box::pin(async { Err(AWAY.to_owned()) }),
         }
+    }
+}
+
+/// The keychain slot for this ace home's grant: the first 16 hex digits of the SHA-256 of its
+/// canonical path, so a development home and the person's own never share one.
+pub fn grant_slot(target: &AceTarget) -> String {
+    use sha2::{Digest, Sha256};
+    match target {
+        AceTarget::Discover(home) => {
+            let path = std::fs::canonicalize(home).unwrap_or_else(|_| home.clone());
+            let digest = Sha256::digest(path.to_string_lossy().as_bytes());
+            digest.iter().take(8).map(|b| format!("{b:02x}")).collect()
+        }
+        AceTarget::Fixed(_) => "development".to_owned(),
     }
 }
 

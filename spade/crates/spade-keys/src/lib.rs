@@ -70,22 +70,24 @@ impl KeyStore {
         self.read(&self.entry(endpoint)?)
     }
 
-    /// The ace grant the daemon handed Spade, if one is stored.
-    pub fn ace_grant(&self) -> Result<Option<String>, KeyError> {
-        self.read(&self.account(ACE_GRANT)?)
+    /// The ace grant the daemon of ace home `slot` handed Spade, if one is stored. Each ace home
+    /// (a person's real one, a development one) has its own slot, so they never overwrite each
+    /// other's grant.
+    pub fn ace_grant(&self, slot: &str) -> Result<Option<String>, KeyError> {
+        self.read(&self.account(&format!("{ACE_GRANT}:{slot}"))?)
     }
 
-    /// Stores the ace grant, replacing any earlier one.
-    pub fn set_ace_grant(&self, grant: &str) -> Result<(), KeyError> {
+    /// Stores the ace grant for `slot`, replacing any earlier one.
+    pub fn set_ace_grant(&self, slot: &str, grant: &str) -> Result<(), KeyError> {
         let grant = checked(grant)?;
-        self.account(ACE_GRANT)?
+        self.account(&format!("{ACE_GRANT}:{slot}"))?
             .set_password(grant)
             .map_err(|error| classify(&error))
     }
 
-    /// Forgets the ace grant. Returns whether there was one.
-    pub fn delete_ace_grant(&self) -> Result<bool, KeyError> {
-        Self::remove(&self.account(ACE_GRANT)?)
+    /// Forgets the ace grant for `slot`. Returns whether there was one.
+    pub fn delete_ace_grant(&self, slot: &str) -> Result<bool, KeyError> {
+        Self::remove(&self.account(&format!("{ACE_GRANT}:{slot}"))?)
     }
 
     fn read(&self, entry: &Entry) -> Result<Option<String>, KeyError> {
