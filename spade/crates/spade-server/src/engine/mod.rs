@@ -238,12 +238,19 @@ impl Engine {
     fn deliver(self: &Arc<Self>, id: &str, event: &Event) -> Result<(), StoreError> {
         let start = {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-            self.append(id, event)?;
             if Transcript::fold(&self.load(id)?).open_reply().is_some() {
+                self.append(id, event)?;
                 false
             } else {
+                // Stored together, so a crash can never keep the input without its reply.
                 let model = self.models.for_role(Role::Main).to_owned();
-                self.append(id, &Event::reply_started(self.ids.next("r"), model))?;
+                let started = Event::reply_started(self.ids.next("r"), model);
+                for stored in self
+                    .store
+                    .append_all(id, &[event.clone(), started], self.now_ms())?
+                {
+                    let _ = self.live(id).frames.send(Frame::Stored(stored));
+                }
                 true
             }
         };
@@ -255,7 +262,7 @@ impl Engine {
 
     /// Stops the open turn and the conversation's background jobs. Returns whether anything was
     /// running.
-    pub fn stop(&self, id: &str) -> bool {
+    pub fn stop(self: &Arc<Self>, id: &str) -> bool {
         let live = self.live(id);
         let turn = {
             let stop = live.stop.lock().unwrap_or_else(|p| p.into_inner());
@@ -428,6 +435,17 @@ impl Engine {
         let stored = self.store.append(id, event, self.now_ms())?;
         let _ = self.live(id).frames.send(Frame::Stored(stored.clone()));
         Ok(stored)
+    }
+
+    /// Records what a model call cost, failed or not.
+    fn pay(&self, id: &str, model: &str, usage: &spade_models::Usage) -> u64 {
+        let cost = spending::cost_micros(self.models.price(model), usage);
+        if cost > 0
+            && let Err(error) = self.store.record_spend(id, model, cost, self.now_ms())
+        {
+            tracing::error!(%error, "could not record a model call's cost");
+        }
+        cost
     }
 
     fn spawn_turn(self: &Arc<Self>, id: &str) {

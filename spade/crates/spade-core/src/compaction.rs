@@ -163,8 +163,10 @@ pub fn render(summary: &Summary, carried_out: &[String]) -> String {
     out
 }
 
-/// Writes and destructive calls that finished without error before `keep_from`, each with its
-/// call id and exact arguments, taken from the events rather than any summary.
+/// Writes and destructive calls carried out before `keep_from`, each with its call id and exact
+/// arguments, taken from the events rather than any summary. A background write counts once its
+/// job finished without error; one still running (or never reported) is listed as such, since
+/// repeating it would act twice.
 pub fn carried_out(events: &[Event], keep_from: usize, registry: &Registry) -> Vec<String> {
     let calls: std::collections::HashMap<&str, Value> = events
         .iter()
@@ -184,6 +186,17 @@ pub fn carried_out(events: &[Event], keep_from: usize, registry: &Registry) -> V
             )
         })
         .collect();
+    let arguments = |id: &str| calls.get(id).map_or_else(String::new, Value::to_string);
+    let changes = |name: &str| registry.get(name).is_some_and(|t| t.risk != Risk::Read);
+    let background = |name: &str| registry.get(name).is_some_and(|t| t.background);
+    let finished_job = |job: &str| {
+        events.iter().find_map(|event| match event {
+            Event::Known(Known::JobFinished {
+                job: j, is_error, ..
+            }) if j == job => Some(*is_error),
+            _ => None,
+        })
+    };
     events[..keep_from.min(events.len())]
         .iter()
         .filter_map(|event| match event {
@@ -192,15 +205,29 @@ pub fn carried_out(events: &[Event], keep_from: usize, registry: &Registry) -> V
                 is_error: false,
                 call_id,
                 ..
-            }) if registry.get(name).is_some_and(|t| t.risk != Risk::Read) => {
-                let arguments = calls
-                    .get(call_id.as_str())
-                    .map_or_else(String::new, |a| a.to_string());
-                Some(
-                    format!("{name} (call {call_id}) {arguments}")
-                        .trim_end()
-                        .to_owned(),
-                )
+            }) if changes(name) && !background(name) => Some(
+                format!("{name} (call {call_id}) {}", arguments(call_id))
+                    .trim_end()
+                    .to_owned(),
+            ),
+            Event::Known(Known::JobFinished {
+                job,
+                name,
+                is_error: false,
+                ..
+            }) if changes(name) => Some(
+                format!("{name} (job {job}) {}", arguments(job))
+                    .trim_end()
+                    .to_owned(),
+            ),
+            Event::Known(Known::JobStarted { job, name, .. })
+                if changes(name) && finished_job(job).is_none() =>
+            {
+                Some(format!(
+                    "{} (job {job}) {}, still running in the background; its result has not arrived",
+                    name,
+                    arguments(job)
+                ))
             }
             _ => None,
         })

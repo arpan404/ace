@@ -109,6 +109,19 @@ impl Store {
 
     /// Appends `event` as the conversation's next numbered event.
     pub fn append(&self, conversation: &str, event: &Event, now_ms: i64) -> Result<StoredEvent> {
+        let mut stored = self.append_all(conversation, std::slice::from_ref(event), now_ms)?;
+        stored
+            .pop()
+            .ok_or_else(|| StoreError::NoConversation(conversation.to_owned()))
+    }
+
+    /// Appends `events` in order, all or none: a crash never keeps some without the rest.
+    pub fn append_all(
+        &self,
+        conversation: &str,
+        events: &[Event],
+        now_ms: i64,
+    ) -> Result<Vec<StoredEvent>> {
         let mut connection = self.lock()?;
         let tx = connection.transaction()?;
         let exists: bool = tx
@@ -122,31 +135,36 @@ impl Store {
         if !exists {
             return Err(StoreError::NoConversation(conversation.to_owned()));
         }
-        let seq: i64 = tx.query_row(
-            "SELECT COALESCE(MAX(seq), 0) + 1 FROM events WHERE conversation_id = ?1",
+        let mut seq: i64 = tx.query_row(
+            "SELECT COALESCE(MAX(seq), 0) FROM events WHERE conversation_id = ?1",
             params![conversation],
             |row| row.get(0),
         )?;
-        tx.execute(
-            "INSERT INTO events (conversation_id, seq, at_ms, body) VALUES (?1, ?2, ?3, ?4)",
-            params![conversation, seq, now_ms, event.to_json().to_string()],
-        )?;
-        match event {
-            Event::Known(Known::Renamed { title }) => tx.execute(
-                "UPDATE conversations SET updated_ms = ?2, title = ?3 WHERE id = ?1",
-                params![conversation, now_ms, title],
-            )?,
-            _ => tx.execute(
-                "UPDATE conversations SET updated_ms = ?2 WHERE id = ?1",
-                params![conversation, now_ms],
-            )?,
-        };
+        let mut stored = Vec::with_capacity(events.len());
+        for event in events {
+            seq += 1;
+            tx.execute(
+                "INSERT INTO events (conversation_id, seq, at_ms, body) VALUES (?1, ?2, ?3, ?4)",
+                params![conversation, seq, now_ms, event.to_json().to_string()],
+            )?;
+            match event {
+                Event::Known(Known::Renamed { title }) => tx.execute(
+                    "UPDATE conversations SET updated_ms = ?2, title = ?3 WHERE id = ?1",
+                    params![conversation, now_ms, title],
+                )?,
+                _ => tx.execute(
+                    "UPDATE conversations SET updated_ms = ?2 WHERE id = ?1",
+                    params![conversation, now_ms],
+                )?,
+            };
+            stored.push(StoredEvent {
+                seq,
+                at_ms: now_ms,
+                event: event.clone(),
+            });
+        }
         tx.commit()?;
-        Ok(StoredEvent {
-            seq,
-            at_ms: now_ms,
-            event: event.clone(),
-        })
+        Ok(stored)
     }
 
     /// The conversation's events numbered after `after`, in order.

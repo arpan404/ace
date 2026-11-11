@@ -3,10 +3,10 @@
 
 use std::sync::Arc;
 
+use spade_core::Event;
 use spade_core::compaction::{self, Plan};
 use spade_core::context::{self, SYSTEM};
 use spade_core::event::Known;
-use spade_core::{Event, spending};
 use spade_models::Message;
 
 use super::Engine;
@@ -89,12 +89,7 @@ async fn run(
     let carried = compaction::carried_out(events, plan.keep_from, engine.tools.registry());
     let written = match engine.models.chat(model, &prompt).await {
         Ok(reply) => {
-            let cost = spending::cost_micros(engine.models.price(model), &reply.usage);
-            if cost > 0
-                && let Err(error) = engine.store.record_spend(id, model, cost, engine.now_ms())
-            {
-                tracing::error!(%error, "could not record a compaction's cost");
-            }
+            engine.pay(id, model, &reply.usage);
             if reply.calls.is_empty() {
                 compaction::parse_summary(&reply.text)
             } else {
@@ -102,6 +97,9 @@ async fn run(
             }
         }
         Err(error) => {
+            if let Some(usage) = error.usage() {
+                engine.pay(id, model, &usage);
+            }
             tracing::warn!(%error, "summary failed; leaving older turns out instead");
             None
         }
