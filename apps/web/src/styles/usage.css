@@ -54,24 +54,3 @@
 [data-provider="antigravity"] {
   --provider: var(--usage-antigravity);
 }
-
-/*
- * Limits' availability bands: a usable stretch is a quiet ink wash; a stretch an account is out is
- * hatched in its state's colour (needs-you while it is projected, failed once it is out), so it
- * reads without colour too.
- */
-.usage-usable {
-  background: color-mix(in oklab, var(--foreground) 12%, transparent);
-}
-.usage-out {
-  --out: var(--status-needs-you);
-  background: repeating-linear-gradient(
-    -45deg,
-    color-mix(in oklab, var(--out) 60%, transparent) 0 2px,
-    transparent 2px 6px
-  );
-  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--out) 45%, transparent);
-}
-.usage-out[data-now] {
-  --out: var(--status-failed);
-}

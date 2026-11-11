@@ -37,49 +37,6 @@ export function axisPercent(axis: AvailabilityAxis, at: number): number {
   return Math.round(share * 10_000) / 100;
 }
 
-export interface AxisTick {
-  at: number;
-  label: string;
-  kind: "now" | "hour" | "day";
-}
-
-/**
- * "Now", then every second hour in the detailed part (from 90 minutes out), then each midnight after it, named by its
- * weekday. A midnight inside the detailed part is named by its weekday instead of its hour.
- */
-export function axisTicks(axis: AvailabilityAxis, timeZone?: string, locale?: string): AxisTick[] {
-  const ticks: AxisTick[] = [{ at: axis.from, label: "Now", kind: "now" }];
-  const weekday = new Intl.DateTimeFormat(locale, { weekday: "short", timeZone });
-  const midnights = new Set<number>();
-  // Each local midnight after now: step a day at a time and snap back to the zone's 00:00.
-  for (let at = axis.from; at < axis.to + day; at += day) {
-    const midnight = localMidnight(at + day, timeZone);
-    if (midnight > axis.from && midnight < axis.to) midnights.add(midnight);
-  }
-  // The first hour sits at least 90 minutes out, so it never crowds "Now".
-  const firstHour = Math.ceil((axis.from + 90 * minute) / hour) * hour;
-  for (let at = firstHour; at < axis.detailUntil - 45 * minute; at += 2 * hour)
-    if (![...midnights].some((midnight) => Math.abs(midnight - at) < hour))
-      ticks.push({ at, label: formatClock(at, locale, timeZone), kind: "hour" });
-  for (const at of [...midnights].toSorted((a, b) => a - b))
-    ticks.push({ at, label: weekday.format(at), kind: "day" });
-  return ticks;
-}
-
-/** The start of the local day containing `at`, in `timeZone`. */
-function localMidnight(at: number, timeZone?: string): number {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    hourCycle: "h23",
-    hour: "numeric",
-    minute: "numeric",
-    second: "numeric",
-  }).formatToParts(at);
-  const part = (type: string) => Number(parts.find((each) => each.type === type)?.value ?? 0);
-  const into = part("hour") * hour + part("minute") * minute + part("second") * 1000;
-  return Math.round((at - into) / minute) * minute;
-}
-
 export interface AvailabilityStretch {
   from: number;
   to: number;
@@ -228,7 +185,7 @@ export function availabilitySentence(
   }
   if (tightest && tightest.window.resetsAt !== null)
     return {
-      text: `Lasts. ${windowName(tightest.window)} resets ${time(tightest.window.resetsAt)} with about ${tightest.sparePercent}% to spare`,
+      text: `Lasts, about ${tightest.sparePercent}% to spare at ${time(tightest.window.resetsAt)}`,
       tone: "ok",
     };
   return { text: "Lasts at this pace", tone: "ok" };

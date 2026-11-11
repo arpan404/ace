@@ -152,9 +152,7 @@ test("an account used faster than its window runs says when it runs out; one on 
   );
   expect(personal.querySelectorAll("[data-out]")).toHaveLength(1);
   const team = await accountBlock("Codex", "Team");
-  expect(team.textContent).toMatch(
-    new RegExp(`Lasts\\. Session resets ${clock} with about 50% to spare`),
-  );
+  expect(team.textContent).toMatch(new RegExp(`Lasts, about 50% to spare at ${clock}`));
   expect(team.querySelectorAll("[data-out]")).toHaveLength(0);
 });
 

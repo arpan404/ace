@@ -4,7 +4,6 @@ import {
   availabilityAxis,
   availabilitySentence,
   axisPercent,
-  axisTicks,
 } from "./usage-availability.ts";
 import type { AccountLimits, AccountWindow } from "./usage-limits.ts";
 
@@ -58,25 +57,6 @@ test("the next five hours take the first 30% of the timeline and the rest of the
   expect(axisPercent(axis, now + 9 * day)).toBe(100);
 });
 
-test("the timeline names now, the hours ahead, then each day from its midnight", () => {
-  const ticks = axisTicks(axis, zone, locale);
-  expect(ticks[0]).toMatchObject({ label: "Now", kind: "now" });
-  expect(ticks.filter((tick) => tick.kind === "hour").map((tick) => tick.label)).toEqual([
-    "18:00",
-    "20:00",
-  ]);
-  expect(ticks.filter((tick) => tick.kind === "day").map((tick) => tick.label)).toEqual([
-    "Thu",
-    "Fri",
-    "Sat",
-    "Sun",
-    "Mon",
-    "Tue",
-    "Wed",
-  ]);
-  expect(ticks.find((tick) => tick.label === "Thu")?.at).toBe(Date.parse("2026-11-12T00:00:00Z"));
-});
-
 test("a session used faster than it runs is out from when it runs out until it resets", () => {
   // 82% used 3h48m into five hours: out in about 50m, back at its reset in 1h12m.
   const session = window("Session (5h)", 18, 5 * hour, 72 * minute);
@@ -122,7 +102,7 @@ test("an account that lasts names the window with the least to spare at its rese
   const result = availability(session, weekly);
   expect(result.stretches).toEqual([{ from: now, to: now + 7 * day, out: false }]);
   expect(sentence(session, weekly)).toEqual({
-    text: "Lasts. Weekly resets Sun 14:00 with about 48% to spare",
+    text: "Lasts, about 48% to spare at Sun 14:00",
     tone: "ok",
   });
 });
