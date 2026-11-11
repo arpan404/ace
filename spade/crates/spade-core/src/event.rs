@@ -1,4 +1,4 @@
-//! A conversation's events, as stored. See docs/chat-core.md.
+//! A conversation's events, as stored. See docs/chat-core.md and docs/harness.md.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -8,6 +8,56 @@ use serde_json::Value;
 pub enum Known {
     UserMessage {
         text: String,
+        /// Per-turn context fixed when the message was stored (the time, matching memories), so
+        /// rebuilding the prompt later gives the same bytes.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        context: Option<String>,
+    },
+    /// The skill index for this conversation, fixed at its first turn so the prompt's top stays
+    /// cached; later skills are found with `skill_search`.
+    SkillsIndexed {
+        text: String,
+    },
+    /// One model call in a turn finished: its text, tool calls and thought signatures.
+    StepFinished {
+        reply: String,
+        text: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        calls: Vec<Call>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        signatures: Vec<String>,
+        #[serde(default)]
+        usage: Tokens,
+        #[serde(default)]
+        cost_micros: u64,
+    },
+    /// The gate stopped a tool call to ask the person.
+    ApprovalRequested {
+        reply: String,
+        call_id: String,
+        name: String,
+        arguments: Value,
+    },
+    ApprovalAnswered {
+        reply: String,
+        call_id: String,
+        allowed: bool,
+        /// Allow this tool without asking again in this conversation.
+        #[serde(default)]
+        always: bool,
+    },
+    ToolStarted {
+        reply: String,
+        call_id: String,
+        name: String,
+    },
+    ToolFinished {
+        reply: String,
+        call_id: String,
+        name: String,
+        content: String,
+        #[serde(default)]
+        is_error: bool,
     },
     ReplyStarted {
         reply: String,
@@ -45,6 +95,27 @@ pub enum Known {
     },
 }
 
+/// A tool call as stored.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Call {
+    pub id: String,
+    pub name: String,
+    pub arguments: Value,
+}
+
+/// Token counts for a model call, as the endpoint reported them.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Tokens {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_read: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_write: Option<u32>,
+}
+
 /// A stored event. One Spade does not know (written by a newer version) is kept as raw JSON.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
@@ -75,7 +146,10 @@ impl Event {
     }
 
     pub fn user_message(text: impl Into<String>) -> Self {
-        Self::Known(Known::UserMessage { text: text.into() })
+        Self::Known(Known::UserMessage {
+            text: text.into(),
+            context: None,
+        })
     }
 
     pub fn reply_started(reply: impl Into<String>, model: impl Into<String>) -> Self {

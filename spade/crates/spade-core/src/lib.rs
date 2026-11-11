@@ -2,11 +2,13 @@
 //! inputs, so it is tested directly.
 
 pub mod checkpoint;
+pub mod context;
 pub mod event;
-pub mod prompt;
+pub mod gate;
 pub mod spending;
 pub mod title;
+pub mod tools;
 pub mod transcript;
 
 pub use event::{Event, ReplyEnd};
-pub use transcript::{Message, Outcome, Speaker, Transcript};
+pub use transcript::{Message, Outcome, Speaker, Transcript, TurnState};
