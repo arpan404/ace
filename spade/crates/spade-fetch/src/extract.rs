@@ -24,7 +24,7 @@ const MOST_DEPTH: usize = 200;
 /// or against the page's own `<base href>`).
 #[must_use]
 pub fn html(source: &str, page_url: &Url) -> Readable {
-    let doc = Html::parse_document(source);
+    let doc = Html::parse_document(crate::shallow::shallow(source));
     let root = doc.tree.root();
     let base = find(root, &|el| el.name() == "base" && el.attr("href").is_some())
         .and_then(|n| element(n)?.attr("href").map(str::to_owned))
@@ -124,11 +124,11 @@ fn element_into(
             out.end(Break::Para);
         }
         "ul" | "ol" | "menu" => {
-            let around = if ctx.list_depth > 0 {
-                Break::Line
-            } else {
-                Break::Para
-            };
+            let nested = ctx.list_depth > 0;
+            let around = if nested { Break::Line } else { Break::Para };
+            if nested {
+                out.tighten();
+            }
             out.start(around);
             let inner = Ctx {
                 list_depth: ctx.list_depth + 1,
@@ -360,8 +360,9 @@ struct Out {
     pending: Break,
     /// A space is owed before the next text.
     space: bool,
-    /// Where an item or heading prefix starts while nothing has followed it yet.
-    prefix_at: Option<usize>,
+    /// While nothing has followed an item or heading prefix yet: where the text stood before
+    /// it, and the break that was written for it.
+    prefix_at: Option<(usize, Break)>,
 }
 
 impl Out {
@@ -384,18 +385,25 @@ impl Out {
         self.pending = Break::Line;
     }
 
+    /// A nested list follows its item on the next line, even after a paragraph in the item.
+    fn tighten(&mut self) {
+        self.pending = self.pending.min(Break::Line);
+    }
+
     fn drop_bare_prefix(&mut self) {
-        if let Some(at) = self.prefix_at.take() {
+        if let Some((at, owed)) = self.prefix_at.take() {
             self.text.truncate(at);
+            self.pending = self.pending.max(owed);
         }
     }
 
     fn prefix(&mut self, prefix: &str) {
         self.drop_bare_prefix();
-        self.flush_break();
         let at = self.text.len();
+        let owed = self.pending;
+        self.flush_break();
         self.text.push_str(prefix);
-        self.prefix_at = Some(at);
+        self.prefix_at = Some((at, owed));
         self.space = false;
     }
 

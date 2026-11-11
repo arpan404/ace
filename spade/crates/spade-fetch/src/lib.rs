@@ -10,6 +10,7 @@ pub mod extract;
 pub mod page;
 pub mod policy;
 mod resolve;
+mod shallow;
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
