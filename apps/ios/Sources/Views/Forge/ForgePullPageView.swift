@@ -199,14 +199,11 @@ struct ForgePullPageView: View {
                     Button { ask(action, page) } label: {
                         HStack {
                             if writing { ProgressView().controlSize(.small) }
-                            Text(action.label).fontWeight(.semibold)
+                            Text(action.label)
                         }
-                        .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.capsule)
-                    .tint(AceTheme.Colours.foreground)
-                    .foregroundStyle(AceTheme.Colours.background)
+                    .buttonStyle(.textAction(.prominent))
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .disabled(writing || action.disabled != nil || !client.canOperate)
                     .accessibilityIdentifier("forge.pull.primary")
                     if page.methods.count > 1 {
@@ -231,9 +228,7 @@ struct ForgePullPageView: View {
             }
             if let secondary = page.secondary {
                 Button(secondary.label) { Task { await write(ForgeWriteTarget(action: secondary, project: route.project, page: page, method: method)) } }
-                    .buttonStyle(.bordered)
-                    .buttonBorderShape(.capsule)
-                    .tint(AceTheme.Colours.foreground)
+                    .buttonStyle(.textAction())
                     .disabled(writing || secondary.disabled != nil || !client.canOperate)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("forge.pull.secondary")
