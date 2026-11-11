@@ -18,7 +18,9 @@ extension ClientModel {
         }
         let request: [String: Any] = ["type": "forge.issue.change", "project": project, "repository": repository.json, "input": input]
         do { return try await service(request, as: ForgeIssueChangeOutcome.self) }
-        catch { return ForgeIssueChangeOutcome(ok: false, message: error.localizedDescription, uncertain: false) }
+        // Sent, then no answer read (a timeout, a dropped link, a reply not understood): it may have
+        // landed, so it is unconfirmed and isn't sent again from the sheet.
+        catch { return ForgeIssueChangeOutcome(ok: false, message: "\(error.localizedDescription) It may have gone through.", uncertain: true) }
     }
 }
 
@@ -179,10 +181,13 @@ struct ForgeIssueEditSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: AceDesign.Space.group) {
                     if let problem { ForgeSheetProblem(text: problem) }
-                    ForgeSheetField("Title") { TextField("Title", text: $title).accessibilityIdentifier("forge.issue.edit.title") }
+                    ForgeSheetField("Title") {
+                        TextField("Title", text: $title).disabled(done.contains("text")).accessibilityIdentifier("forge.issue.edit.title")
+                    }
                     ForgeSheetField("Description") {
                         if was.bodyComplete {
                             TextField("Description", text: $text, axis: .vertical).lineLimit(4...12)
+                                .disabled(done.contains("text"))
                                 .accessibilityIdentifier("forge.issue.edit.body")
                         } else {
                             Text("This description is too long to edit on the phone. Edit it on GitHub.")
@@ -191,11 +196,13 @@ struct ForgeIssueEditSheet: View {
                     }
                     ForgeSheetField("Labels") {
                         TextField("One label per line", text: $labels, axis: .vertical).lineLimit(1...6)
-                            .textInputAutocapitalization(.never).accessibilityIdentifier("forge.issue.edit.labels")
+                            .textInputAutocapitalization(.never).disabled(done.contains("labels"))
+                            .accessibilityIdentifier("forge.issue.edit.labels")
                     }
                     ForgeSheetField("Assignees") {
                         TextField("One login per line", text: $assignees, axis: .vertical).lineLimit(1...6)
                             .textInputAutocapitalization(.never).autocorrectionDisabled()
+                            .disabled(done.contains("assignees"))
                             .accessibilityIdentifier("forge.issue.edit.assignees")
                     }
                 }
@@ -240,6 +247,13 @@ struct ForgeIssueEditSheet: View {
         }
         dismiss()
     }
+}
+
+/// Where a new issue opens: the list's own machine and project, and the repository it named.
+struct ForgeNewIssueTarget: Identifiable {
+    let scope: ForgeListScope
+    let repository: ForgeRepository
+    var id: String { "\(scope.machineId)/\(scope.project)/\(repository.owner)/\(repository.name)" }
 }
 
 /// A new issue on the repository the project's issues open on: a title and a description, opened
