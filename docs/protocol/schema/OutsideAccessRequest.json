@@ -1,0 +1,59 @@
+{
+  "$id": "https://ace.local/protocol/v1/OutsideAccessRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "clientName": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "domain": {
+      "anyOf": [
+        {
+          "maxLength": 253,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "expiresAt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "grantId": {
+      "pattern": "^[a-zA-Z0-9_-]{1,128}$",
+      "type": "string"
+    },
+    "matchCode": {
+      "maxLength": 16,
+      "minLength": 4,
+      "type": "string"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "scopes": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/OutsideScope.json"
+      },
+      "maxItems": 6,
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": [
+    "requestId",
+    "clientName",
+    "domain",
+    "scopes",
+    "matchCode",
+    "expiresAt"
+  ],
+  "type": "object"
+}

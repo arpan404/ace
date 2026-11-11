@@ -27,6 +27,11 @@ export function daemonComputerToolkit(
   >,
   computer: ComputerClient | undefined,
   route?: ComputerMachineRoute,
+  /**
+   * Who is told a caller is using an app. Default: the task list's mark for the caller's thread;
+   * outside clients (ADR 0117) have their own line instead.
+   */
+  using?: (threadId: string, app: string) => () => void,
 ): Toolkit {
   const lockedUse = computerLockedUseGate(services);
   return computerToolkit(computer, {
@@ -34,8 +39,10 @@ export function daemonComputerToolkit(
     enabled: () => services.screen?.isEnabled() ?? false,
     // Read on every call, so a change in Settings applies to the next one.
     blockedApps: async () => (await services.settings?.get("computer.blockedApps"))?.value ?? [],
-    using: (threadId, app) =>
-      services.computerUsing?.begin(ThreadId.parse(threadId), app) ?? (() => {}),
+    using:
+      using ??
+      ((threadId, app) =>
+        services.computerUsing?.begin(ThreadId.parse(threadId), app) ?? (() => {})),
     ...(lockedUse ? { lockedUse } : {}),
     ...(route ? { route } : {}),
   });

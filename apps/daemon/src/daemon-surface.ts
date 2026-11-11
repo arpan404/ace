@@ -79,6 +79,7 @@ export function bindLiveServices(serverOptions: ServerOptions, services: Service
     "verify",
     "browsing",
     "computerUsing",
+    "externalMcp",
     "icons",
     "storage",
     "devices",

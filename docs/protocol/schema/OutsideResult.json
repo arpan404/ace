@@ -1,0 +1,109 @@
+{
+  "$id": "https://ace.local/protocol/v1/OutsideResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "result": {
+      "oneOf": [
+        {
+          "properties": {
+            "grants": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/OutsideGrantEntry.json"
+              },
+              "maxItems": 20000,
+              "type": "array"
+            },
+            "kind": {
+              "const": "grants",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "grants"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "revoked",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "grant": {
+              "$ref": "https://ace.local/protocol/v1/OutsideGrant.json"
+            },
+            "kind": {
+              "const": "updated",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "grant"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "watching",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "screenStopped",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "decided",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "type": {
+      "const": "outside.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "result"
+  ],
+  "type": "object"
+}

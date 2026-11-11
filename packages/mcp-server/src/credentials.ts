@@ -14,8 +14,18 @@ export interface SessionLease {
   end(): void;
 }
 
+/**
+ * Who a bearer token belongs to. The server asks on every request, so an authenticator that
+ * reads its store each time applies a revocation to the next request.
+ */
+export interface Authenticator {
+  authenticate(bearer: string): Principal | undefined;
+  /** Ends every principal it handed out. */
+  close(): void;
+}
+
 /** In-memory authority; only the returned lease contains bearer material. */
-export class CredentialRegistry {
+export class CredentialRegistry implements Authenticator {
   private entries = new Map<string, { principal: Principal; end(): void }>();
   private secret: () => string;
   private limit: number;

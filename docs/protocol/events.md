@@ -137,6 +137,10 @@ Example:
     "capabilitiesRef": "example",
     "createdAt": 8,
     "delegatedBy": "example",
+    "execution": {
+      "model": "example",
+      "provider": "antigravity"
+    },
     "goal": {
       "objective": "example",
       "setAt": 6,
@@ -176,16 +180,6 @@ Example:
     "status": {
       "state": "new"
     },
-    "switch": {
-      "at": 1,
-      "error": "example",
-      "lossy": false,
-      "selection": {
-        "model": "example",
-        "provider": "antigravity"
-      },
-      "state": "applied"
-    },
     "title": "example",
     "titleSource": "generated",
     "updatedAt": 6,
@@ -211,6 +205,7 @@ Example:
 | delegatedBy | no | [DelegatedBy.json](schema/DelegatedBy.json) |  |
 | delegatedFrom | no | [DelegatedFrom.json](schema/DelegatedFrom.json) |  |
 | startedBy | no | [StartedBy.json](schema/StartedBy.json) |  |
+| startedByClient | no | [StartedByClient.json](schema/StartedByClient.json) |  |
 | queuedLaunch | no | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/QueuedLaunch.json"},{"type":"null"}]} |
 | execution | no | [ExecutionSelection.json](schema/ExecutionSelection.json) |  |
 | switch | no | [ThreadSwitch.json](schema/ThreadSwitch.json) |  |
@@ -229,23 +224,39 @@ Example:
     "backgroundTaskControl": true,
     "backgroundVisibility": "partial",
     "childControls": "read-only",
-    "fork": false,
-    "forkPoints": [],
+    "childFidelity": "placeholder",
+    "fork": true,
+    "forkTranscript": false,
     "imageInput": true,
-    "interruptCascades": false,
-    "planMode": true,
-    "resume": false,
-    "rewindFiles": true,
+    "interruptCascades": true,
+    "planMode": false,
+    "resume": true,
+    "rewindFiles": false,
     "sessionOptions": false,
     "steer": true,
-    "steerTiming": "after_tool",
+    "steerTiming": "immediate",
     "subagentTranscripts": true,
     "tokenUsage": true
   },
-  "goal": null,
+  "goal": {
+    "checks": 5,
+    "lastReason": "example",
+    "objective": "example",
+    "setAt": 3,
+    "status": "budget_limited"
+  },
   "startedBy": "example",
   "status": {
-    "state": "done"
+    "state": "unresponsive"
+  },
+  "switch": {
+    "at": 2,
+    "lossy": false,
+    "recommendation": "delegate_task",
+    "selection": {
+      "provider": "antigravity"
+    },
+    "state": "applied"
   },
   "type": "thread.updated",
   "workspaceId": "example"

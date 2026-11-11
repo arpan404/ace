@@ -75,6 +75,8 @@ export class SqliteBrowserTabStore implements BrowserTabStore {
       });
   }
   save(threadId: string, tabs: readonly BrowserTabRecord[]): void {
+    // An outside MCP client's session (ADR 0117) has no thread row: its tabs are never restored.
+    if (!this.statement("SELECT 1 FROM threads WHERE id=?").get(threadId)) return;
     this.statement(`SAVEPOINT ${this.table}`).run();
     try {
       this.statement(`DELETE FROM ${this.table} WHERE thread_id=?`).run(threadId);

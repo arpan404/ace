@@ -3,19 +3,30 @@ export { keepPattern } from "./advertised-schema.ts";
 export { aceToolAction } from "./actions.ts";
 export { aceWaitTargets } from "./waits.ts";
 export { maxToolTimeoutMs } from "./timeouts.ts";
-export { CredentialRegistry, type Principal, type SessionLease } from "./credentials.ts";
+export {
+  CredentialRegistry,
+  type Authenticator,
+  type Principal,
+  type SessionLease,
+} from "./credentials.ts";
 export {
   ToolRegistry,
   nodeScheduler,
   type Scheduler,
   type ToolContext,
   type CallObserver,
+  type CallSignal,
   type ToolFailureReporter,
   type ToolDefinition,
   type ToolMetadata,
 } from "./registry.ts";
 export { aceToolDispatch, aceToolSearch, bareToolName, toolNamePattern } from "./tool-names.ts";
-export { startMcpServer, type McpServerOptions, type NotificationStreamLimits } from "./http.ts";
+export {
+  startMcpServer,
+  type McpServerOptions,
+  type NotificationStreamLimits,
+  type ScopeChallenge,
+} from "./http.ts";
 export { registerBuiltins, type McpIntentPort } from "./builtins.ts";
 export {
   registerAutomationTool,

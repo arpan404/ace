@@ -60,6 +60,7 @@ export const EventPayload = z.discriminatedUnion("type", [
     delegatedBy: Thread.shape.delegatedBy,
     delegatedFrom: Thread.shape.delegatedFrom,
     startedBy: Thread.shape.startedBy,
+    startedByClient: Thread.shape.startedByClient,
     /** The queued launch began, or never will: null clears it. */
     queuedLaunch: QueuedLaunch.nullable().optional(),
     execution: ExecutionSelection.optional(),

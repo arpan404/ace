@@ -86,14 +86,15 @@ test("external read enrollment exposes scoped reads, hides mutations and loses a
       })
       .parse(context.structuredContent).status.groups;
     expect(groups).toContainEqual({
-      name: "browser",
+      name: "notify",
       enabled: false,
       reason: "ace offers this tool group to agents in ace threads, not to external MCP clients.",
     });
     expect(groups).toContainEqual(
       expect.objectContaining({
-        name: "thread_control",
-        reason: expect.stringContaining("This enrollment is read-only"),
+        name: "browser",
+        enabled: false,
+        reason: "This grant doesn't include the browser.",
       }),
     );
     for (const group of groups) expect(group.reason).not.toMatch(/not running/);
@@ -120,7 +121,9 @@ test("external read enrollment exposes scoped reads, hides mutations and loses a
     const listed = await cli(home, ["mcp", "list", "--json"]);
     expect(listed.stdout).not.toContain(lease.bearer);
     expect(JSON.parse(listed.stdout)).toMatchObject({
-      enrollments: [expect.objectContaining({ id: lease.id, scope: "read" })],
+      grants: [
+        expect.objectContaining({ id: lease.id, clientKind: "cli", scopes: ["threads:read"] }),
+      ],
     });
     const revoked = await cli(home, ["mcp", "revoke", lease.id]);
     expect(revoked.code, revoked.stderr).toBe(0);
