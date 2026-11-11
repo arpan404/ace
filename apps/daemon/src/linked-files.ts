@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
+import { homedir } from "node:os";
 import { isAbsolute, join, normalize, parse, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Marked, type Token } from "marked";
 import { FileError, FilesService } from "@ace/files";
 import type { FileOperation, ThreadId } from "@ace/protocol";
-import { fileTextSpans } from "@ace/ui-core/file-references";
+import { fileTextSpans, isHomePath, isMachinePath } from "@ace/ui-core/file-references";
 import { agentDirectory } from "./image-files.ts";
 import type { ServiceContext } from "./services/types.ts";
 
@@ -23,13 +24,13 @@ export function markdownTargets(text: string): Set<string> {
 }
 
 /**
- * What an answer lets a reader open: every link and image target, and every absolute file path
- * it names in code or prose (`/tmp/report.pdf`), found by the rule the web client links them by.
+ * What an answer lets a reader open: every link and image target, and every absolute or home
+ * file path it names in code or prose (`/tmp/report.pdf`, `~/Downloads/a.pdf`), found by the rule the web client links them by.
  */
 export function linkedReferences(text: string): Set<string> {
   const references = markdownTargets(text);
   for (const span of fileTextSpans(text))
-    if (span.kind === "file" && span.reference.path.startsWith("/"))
+    if (span.kind === "file" && isMachinePath(span.reference.path))
       references.add(span.reference.path);
   return references;
 }
@@ -45,7 +46,8 @@ export function localReference(reference: string): string | undefined {
       return;
     }
   }
-  if (/^[a-z][a-z\d+.-]*:/i.test(reference)) return;
+  // A drive letter (`C:\a.pdf`) reads like a URL scheme but names a path.
+  if (!/^[A-Za-z]:[\\/]/.test(reference) && /^[a-z][a-z\d+.-]*:/i.test(reference)) return;
   const path = reference.replace(/:\d+(?::\d+)?$/, "");
   return path || undefined;
 }
@@ -58,10 +60,16 @@ export function localReference(reference: string): string | undefined {
  */
 export class LinkedFiles {
   private readonly context: Pick<ServiceContext, "config" | "store" | "now" | "id">;
+  /** Where a `~/` path starts. */
+  private readonly home: string;
   private readonly services = new Map<string, Promise<FilesService>>();
   private closed = false;
-  constructor(context: Pick<ServiceContext, "config" | "store" | "now" | "id">) {
+  constructor(
+    context: Pick<ServiceContext, "config" | "store" | "now" | "id">,
+    home: string = homedir(),
+  ) {
     this.context = context;
+    this.home = home;
   }
   /** `readable` is the caller's live grant to read the thread. */
   async bind(
@@ -89,7 +97,11 @@ export class LinkedFiles {
       throw new FileError("FORBIDDEN", "The message does not link this file");
     const local = localReference(operation.reference);
     if (!local) throw new FileError("INVALID_PATH", "The link does not name a local file");
-    let path = isAbsolute(local) ? normalize(local) : undefined;
+    let path = isHomePath(local)
+      ? resolve(this.home, local.slice(2))
+      : isAbsolute(local)
+        ? normalize(local)
+        : undefined;
     if (!path) {
       const directory = agentDirectory(store, threadId, item.agentId);
       if (!directory) throw new FileError("NOT_FOUND", "The agent's folder is unavailable");
