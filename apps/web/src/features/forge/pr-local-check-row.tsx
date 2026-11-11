@@ -1,77 +1,38 @@
-import { useState } from "react";
-import {
-  CaretRightIcon,
-  CheckCircleIcon,
-  CircleIcon,
-  ClockIcon,
-  MinusCircleIcon,
-  XCircleIcon,
-} from "@phosphor-icons/react";
 import type { ForgePrDetail, VerifyRun } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { cn } from "@/lib/cn.ts";
+import { useNow } from "@/lib/time.ts";
 import { isSettled, useVerifyActions, useVerifyLog, VerifyRefused } from "@/lib/verify.ts";
+import { formatElapsed, localCheckAction, localCheckLook } from "@ace/ui-core";
 import { PrCheckLog } from "./pr-check-log.tsx";
-import { localCheckAction, localCheckLook } from "@ace/ui-core";
+import { discTone } from "./pr-check-disc.tsx";
+import { CheckDetailBox } from "./pr-check-detail.tsx";
+import { CheckDetailHead } from "./pr-check-parts.tsx";
+import { CheckRow } from "./pr-checks-list.tsx";
 
-type Look = { icon: typeof CircleIcon; tone: string };
-const looks: Partial<Record<VerifyRun["state"], Look>> = {
-  queued: { icon: ClockIcon, tone: "text-status-working" },
-  running: { icon: ClockIcon, tone: "text-status-working" },
-  passed: { icon: CheckCircleIcon, tone: "text-status-done" },
-  failed: { icon: XCircleIcon, tone: "text-status-failed" },
-  cancelled: { icon: MinusCircleIcon, tone: "text-subtle-foreground" },
-  interrupted: { icon: MinusCircleIcon, tone: "text-subtle-foreground" },
-};
-const notRun: Look = { icon: CircleIcon, tone: "text-faint-foreground" };
-
-const row =
-  "flex min-h-7 w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-ui transition-colors duration-(--motion-fast)";
-
-function LocalLog(props: { run: VerifyRun; name: string }) {
-  const log = useVerifyLog(props.run);
-  if (log.data) return <PrCheckLog log={log.data} name={props.name} />;
-  return (
-    <p className="text-xs text-muted-foreground">
-      {log.isError ? "Couldn't read the log." : "Reading the log…"}
-    </p>
-  );
+/** The local check's name as other checks are named: "Local · bun run check". */
+function localName(run: VerifyRun | undefined, command: string | null | undefined) {
+  return `Local · ${run?.command ?? command ?? ""}`;
 }
 
-/**
- * The PR's local check (ADR 0094) as one more check: "Local · <command>" with its state, opening
- * to its log and Run checks, Run again or Stop. A project without a command offers to set one.
- */
-export function LocalCheckRow(props: {
-  workspaceId: string;
-  detail: ForgePrDetail;
-  run: VerifyRun | undefined;
-  command: string | null | undefined;
-  onSetCommand: (() => void) | undefined;
-}) {
-  const { run, command, detail } = props;
-  const [open, setOpen] = useState(false);
-  const verify = useVerifyActions(props.workspaceId);
+function localTone(run: VerifyRun | undefined) {
+  return run ? discTone(localCheckLook(run).tone) : "off";
+}
+
+/** How long the run took, or has taken so far. */
+function took(run: VerifyRun | undefined, now: number): string | undefined {
+  if (!run?.startedAt) return undefined;
+  const end = run.endedAt ?? (isSettled(run) ? undefined : now);
+  return end === undefined ? undefined : formatElapsed(end - run.startedAt);
+}
+
+/** The one control the local check offers now, and what pressing it does. */
+function useLocalControl(workspaceId: string, detail: ForgePrDetail, run: VerifyRun | undefined) {
+  const verify = useVerifyActions(workspaceId);
   const toast = useToast();
   const status = detail.status;
   const live = run !== undefined && !isSettled(run);
-  if (command === null && !run)
-    return (
-      <li className={cn(row, "py-0.5")}>
-        <CircleIcon aria-hidden size={14} className="shrink-0 text-faint-foreground" />
-        <span className="min-w-0 flex-1">Local</span>
-        {props.onSetCommand && (
-          <Button variant="ghost" size="xs" onClick={props.onSetCommand}>
-            Set a check command
-          </Button>
-        )}
-      </li>
-    );
-  const name = `Local · ${run?.command ?? command ?? ""}`;
-  const look = { ...((run && looks[run.state]) ?? notRun), word: localCheckLook(run).word };
   const control = localCheckAction(run);
-  const Glyph = look.icon;
   const act = async () => {
     try {
       if (run && live) await verify.cancel(run.id);
@@ -92,41 +53,99 @@ export function LocalCheckRow(props: {
       });
     }
   };
-  return (
-    <li>
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-label={`${name}: ${look.word}`}
-        onClick={() => setOpen((current) => !current)}
-        className={cn(row, "focus-ring-inset hover:bg-hover aria-expanded:bg-active")}
-      >
-        <Glyph aria-hidden size={14} className={cn("shrink-0", look.tone)} />
-        <span className="min-w-0 flex-1 break-words">{name}</span>
-        <span className="shrink-0 text-xs text-muted-foreground">{look.word}</span>
-        <CaretRightIcon
+  const button = (label = control.label) => (
+    <Button
+      size="xs"
+      variant="secondary"
+      aria-label={control.label}
+      disabled={verify.pending || control.disabled}
+      onClick={() => void act()}
+    >
+      {label}
+    </Button>
+  );
+  return { button };
+}
+
+/**
+ * The PR's local check (ADR 0094) in the list, under "On this machine": its command, how long it
+ * took, and Run while it hasn't run. A project without a command offers to set one.
+ */
+export function LocalCheckRow(props: {
+  workspaceId: string;
+  detail: ForgePrDetail;
+  run: VerifyRun | undefined;
+  command: string | null | undefined;
+  selected: boolean;
+  onSelect(): void;
+  onSetCommand: (() => void) | undefined;
+}) {
+  const { run, command } = props;
+  const now = useNow();
+  const { button } = useLocalControl(props.workspaceId, props.detail, run);
+  if (command === null && !run)
+    return (
+      <li className="flex min-h-9 items-center gap-2.5 py-1.5 pr-3 pl-3.5 text-ui">
+        <span
           aria-hidden
-          size={12}
-          className={cn(
-            "shrink-0 text-faint-foreground transition-transform duration-(--motion-fast)",
-            open && "rotate-90",
-          )}
+          className="size-4 shrink-0 rounded-full border-[1.5px] border-faint-foreground"
         />
-      </button>
-      {open && (
-        <div className="space-y-2 py-2 pl-7">
-          <Button
-            variant="ghost"
-            size="xs"
-            className="-ml-1.5"
-            disabled={verify.pending || control.disabled}
-            onClick={() => void act()}
-          >
-            {control.label}
+        <span className="min-w-0 flex-1 text-foreground">Local</span>
+        {props.onSetCommand && (
+          <Button variant="ghost" size="xs" onClick={props.onSetCommand}>
+            Set a check command
           </Button>
-          {run && <LocalLog run={run} name={name} />}
-        </div>
+        )}
+      </li>
+    );
+  return (
+    <CheckRow
+      label={`${localName(run, command)}: ${localCheckLook(run).word}`}
+      name={run?.command ?? command ?? ""}
+      tone={localTone(run)}
+      selected={props.selected}
+      onSelect={props.onSelect}
+      trailing={took(run, now)}
+      action={!run && !props.selected ? button("Run") : undefined}
+    />
+  );
+}
+
+function LocalLog(props: { run: VerifyRun; name: string }) {
+  const log = useVerifyLog(props.run);
+  if (log.data) return <PrCheckLog log={log.data} name={props.name} />;
+  return (
+    <p className="text-ui text-muted-foreground">
+      {log.isError ? "Couldn't read the log." : "Reading the log…"}
+    </p>
+  );
+}
+
+/** The local check selected: its state and Run checks, Run again or Stop, then its log. */
+export function LocalCheckDetail(props: {
+  workspaceId: string;
+  detail: ForgePrDetail;
+  run: VerifyRun | undefined;
+  command: string | null | undefined;
+}) {
+  const { run } = props;
+  const now = useNow();
+  const { button } = useLocalControl(props.workspaceId, props.detail, run);
+  const name = localName(run, props.command);
+  const word = localCheckLook(run).word;
+  const time = took(run, now);
+  const line = time ? `${word} ${run && !isSettled(run) ? "for" : "after"} ${time}` : word;
+  return (
+    <CheckDetailBox
+      head={<CheckDetailHead tone={localTone(run)} name={name} line={line} actions={button()} />}
+    >
+      {run ? (
+        <LocalLog run={run} name={name} />
+      ) : (
+        <p className="text-ui text-muted-foreground">
+          Runs the project's check command on this branch, here.
+        </p>
       )}
-    </li>
+    </CheckDetailBox>
   );
 }
