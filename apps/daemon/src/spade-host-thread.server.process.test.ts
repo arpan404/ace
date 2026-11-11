@@ -264,7 +264,7 @@ test("Spade acts as its own hidden host thread: the full agent tool set, delegat
     // children by their parent.
     await daemon.settings.set("spade.enabled", false, { kind: "global" });
     await until(() => daemon.spade?.status().state === "off", "Spade to stop");
-    for (const client of opened) await client.close().catch(() => {});
+    for (const session of opened) await session.close().catch(() => {});
     opened.length = 0;
     daemon = await f.restart();
     await until(
