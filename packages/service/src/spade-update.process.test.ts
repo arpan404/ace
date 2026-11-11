@@ -215,9 +215,9 @@ async function setup(
   /** A start launchd made that hasn't finished yet: Spade migrating before server.json. */
   let starting: { at: number } | undefined;
   const conversation = (text: string) => {
-    const write = new DatabaseSync(database);
-    write.prepare("INSERT INTO turns VALUES (?)").run(text);
-    write.close();
+    const live = new DatabaseSync(database);
+    live.prepare("INSERT INTO turns VALUES (?)").run(text);
+    live.close();
   };
   /** What launchd's start does: run `current`'s binary as Spade. */
   const start = async () => {
