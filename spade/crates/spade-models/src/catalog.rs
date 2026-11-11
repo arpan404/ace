@@ -83,6 +83,9 @@ pub struct Endpoint {
     /// The environment variable that may hold the key.
     pub key_env: Option<String>,
     pub headers: Vec<(String, String)>,
+    /// The header that carries the conversation's session id, for endpoints that route by it
+    /// (OpenCode Go's `x-opencode-session`). Calls without a session send none.
+    pub session_header: Option<String>,
     pub models: Vec<Model>,
 }
 
@@ -150,6 +153,8 @@ struct FileEndpoint {
     key: Option<FileKey>,
     #[serde(default)]
     headers: BTreeMap<String, String>,
+    #[serde(default)]
+    session_header: Option<String>,
     models: Vec<FileModel>,
 }
 
@@ -301,6 +306,18 @@ fn check_endpoint(endpoint: FileEndpoint, problems: &mut Vec<String>) -> Endpoin
             ));
         }
     }
+    let session_header = endpoint.session_header.map(|name| name.trim().to_owned());
+    if let Some(name) = &session_header {
+        let valid = !name.is_empty()
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+        if !valid {
+            problems.push(format!(
+                "endpoint {label}: session_header {name:?} must be a header name like x-session-id"
+            ));
+        }
+    }
     if endpoint.models.is_empty() {
         problems.push(format!("endpoint {label} lists no models"));
     }
@@ -351,6 +368,7 @@ fn check_endpoint(endpoint: FileEndpoint, problems: &mut Vec<String>) -> Endpoin
         needs_key,
         key_env,
         headers: endpoint.headers.into_iter().collect(),
+        session_header,
         models,
     }
 }

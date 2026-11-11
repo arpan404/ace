@@ -24,6 +24,8 @@ pub struct Models {
     client: Client,
     catalog: Arc<Catalog>,
     keys: Keys,
+    /// `spade/<version>`, sent as every request's User-Agent.
+    user_agent: String,
 }
 
 /// Sent to an endpoint that needs no key (a local server), which ignores it.
@@ -37,12 +39,14 @@ struct Call {
 }
 
 impl Models {
-    pub fn new(catalog: Catalog, keys: Keys) -> Result<Self, ModelError> {
+    /// `version` is Spade's own, sent as `User-Agent: spade/<version>` on every request.
+    pub fn new(catalog: Catalog, keys: Keys, version: &str) -> Result<Self, ModelError> {
         let client = Client::new().map_err(|error| ModelError::Setup(error.to_string()))?;
         Ok(Self {
             client,
             catalog: Arc::new(catalog),
             keys,
+            user_agent: format!("spade/{version}"),
         })
     }
 
@@ -201,9 +205,12 @@ impl Models {
         if let Some(value) = prompt.max_tokens {
             options = options.with_max_tokens(value);
         }
-        if !endpoint.headers.is_empty() {
-            options = options.with_extra_headers(Headers::from(endpoint.headers.clone()));
+        let mut headers = endpoint.headers.clone();
+        headers.push(("user-agent".to_owned(), self.user_agent.clone()));
+        if let (Some(name), Some(session)) = (&endpoint.session_header, &prompt.session) {
+            headers.push((name.clone(), session.clone()));
         }
+        options = options.with_extra_headers(Headers::from(headers));
         Ok(Call {
             reference: reference.to_owned(),
             target: ServiceTarget {

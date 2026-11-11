@@ -117,8 +117,12 @@ async fn run() -> Result<(), Failure> {
             .file_or_default("models.json", DEFAULT_MODELS)
             .map_err(other)?,
     };
-    let models =
-        Models::new(Catalog::load(&models_path).map_err(other)?, keys.clone()).map_err(other)?;
+    let models = Models::new(
+        Catalog::load(&models_path).map_err(other)?,
+        keys.clone(),
+        spade_server::home::VERSION,
+    )
+    .map_err(other)?;
     let search_path = home
         .file_or_default("search.json", DEFAULT_SEARCH)
         .map_err(other)?;

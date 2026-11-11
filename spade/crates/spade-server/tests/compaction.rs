@@ -198,7 +198,8 @@ async fn compact_on_request_works_between_turns_and_is_refused_mid_reply() -> Re
 }
 
 #[tokio::test]
-async fn the_summary_call_reuses_the_turns_tools_and_every_model_call_is_paid_for() -> Result {
+async fn the_summary_call_reuses_the_turns_tools_and_session_and_every_model_call_is_paid_for()
+-> Result {
     let lookup = support::FakeTool::new("lookup", spade_core::tools::Risk::Read, "12C");
     let spade = Spade::start_with(
         vec![
@@ -229,6 +230,16 @@ async fn the_summary_call_reuses_the_turns_tools_and_every_model_call_is_paid_fo
         "same tools, same cached prefix"
     );
     assert!(seen[2].body.get("response_format").is_none());
+    let session = seen[2]
+        .headers
+        .iter()
+        .find(|(name, _)| name == "x-session")
+        .map(|(_, value)| value.as_str());
+    assert_eq!(
+        session,
+        Some(id.as_str()),
+        "the summary routes with its conversation"
+    );
 
     // Every call is in the spend table: both steps, the title and the summary (92 micros each
     // for the last two: 11 input × $2/M + 7 output × $10/M).
