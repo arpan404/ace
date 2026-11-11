@@ -63,12 +63,29 @@ event at 1 MiB. ADR 0117 records the daemon side.
 
 ## Spade uses ace's tools through the daemon
 
-- **ace tools** (threads, agent status, delegation, browser, screen, notifications, automations):
-  Spade is an MCP client of the daemon's loopback MCP endpoint, using `SPADE_ACE_MCP_URL` and
-  `SPADE_ACE_MCP_TOKEN`, with operate scope. The daemon applies its usual scopes and per-tool
-  rules; Spade's approval gate runs before every write. Open (ADR 0117): the full agent tool set
-  needs a thread for Spade's calls to belong to; until that is decided, the credential is an
-  external MCP operate lease with that endpoint's smaller tool set.
+- **ace tools** (threads, agent status and messages, delegation, browser, screen and computer
+  use, notifications, automations, skills and guides): Spade is an MCP client of the daemon's
+  loopback MCP endpoint, using `SPADE_ACE_MCP_URL` and `SPADE_ACE_MCP_TOKEN`. The lease is a
+  provider session's: operate scope, every agent tool group, the daemon's usual per-tool rules.
+  Spade's approval gate runs before every write. The bearer is new on each start and revoked
+  when Spade stops, crashes or is turned off.
+- **Spade's host thread.** Spade's calls act as a hidden ace thread the daemon holds for it
+  (`spade.status` `thread.id`). What Spade delegates becomes that thread's children: ordinary,
+  visible threads. Nothing runs in the host thread itself, so Spade never gets a wake when a
+  child finishes: it reads results with `wait` (or `delegate` with `waitSeconds`) and
+  `agents_status`. To run a child in one of the person's projects, pass `project` (its id, path
+  or name, as `projects_find` shows) with no `machine`; without it the child runs in Spade's own
+  empty folder. `spade.status` `thread.busy` is true while any child is still working or waiting
+  on the person.
+- **Routing results to a conversation.** Each delegation's `requestId` is Spade's own key (1-128
+  of `A-Za-z0-9_.-`, unique among the host thread's delegations). Use `<conversation id>.<n>`
+  (for example `c_01HV3.4`). A retry with the same key and the same task returns the same child,
+  so a delegation Spade sent just before a crash is never started twice; the host thread outlives
+  Spade's restarts, so this holds across them. The `delegate` reply lists `threadIds` in the order
+  of `tasks`: Spade stores `threadId → conversation` from it, and `wait` and `agents_status` name
+  each child by that `threadId`. Each running child also needs its own `role` (a name saying what
+  and where, such as `Fix-login-toast`): all of Spade's conversations share one host thread, and
+  two live children of one parent can't share a role.
 - **Skills:** `skills.request` (ADR 0103) over the daemon WebSocket with the local token, for the
   list and each skill's text, so Spade and ace share one skill library.
 - **CLI brains (later):** Spade asks the daemon to run a turn on a provider CLI with Spade's tools

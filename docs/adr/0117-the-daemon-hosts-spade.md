@@ -26,17 +26,18 @@ it. Clients never talk to Spade directly.
   With the setting on and no binary, Spade is `off` with a reason saying it isn't installed.
 - The daemon follows the setting live: on starts Spade, off stops it.
 - Spade starts in the listener phase, after the listener is up (its environment names the
-  daemon's WebSocket address) and after the external MCP endpoint (it names that too).
+  daemon's WebSocket address) and after the engine, the MCP server, agent control and projects,
+  which its host thread and lease need.
 
 ### Its environment
 
-| Variable                                   | Value                                                       |
-| ------------------------------------------ | ----------------------------------------------------------- |
-| `SPADE_DATA_DIR`                           | `<ACE_HOME>/spade`, created by the daemon with mode 0700    |
-| `SPADE_LISTEN`                             | `127.0.0.1:0`                                               |
-| `SPADE_ACE_MCP_URL`, `SPADE_ACE_MCP_TOKEN` | the loopback external MCP endpoint and a lease for this run |
-| `SPADE_ACE_URL`, `SPADE_ACE_TOKEN`         | the daemon's loopback WebSocket and the local host token    |
-| `RUST_LOG`                                 | `info`                                                      |
+| Variable                                   | Value                                                                                   |
+| ------------------------------------------ | --------------------------------------------------------------------------------------- |
+| `SPADE_DATA_DIR`                           | `<ACE_HOME>/spade`, created by the daemon with mode 0700                                |
+| `SPADE_LISTEN`                             | `127.0.0.1:0`                                                                           |
+| `SPADE_ACE_MCP_URL`, `SPADE_ACE_MCP_TOKEN` | the daemon's loopback MCP endpoint and a lease for this run, naming Spade's host thread |
+| `SPADE_ACE_URL`, `SPADE_ACE_TOKEN`         | the daemon's loopback WebSocket and the local host token                                |
+| `RUST_LOG`                                 | `info`                                                                                  |
 
 Spade inherits the rest of the daemon's environment (PATH, HOME, the person's own `SPADE_*`
 settings such as `SPADE_DAILY_CAP_USD`) except ace's `ACE_*` variables. Its stdout and stderr go
@@ -57,40 +58,59 @@ Fifteen seconds without that and the daemon stops the child and counts a failure
 
 - Stop is SIGTERM to the process group, then a kill after 5 s. That fits inside the daemon's
   6-second per-service cleanup deadline and its 7-second shutdown deadline. Spade's service
-  closes before the settings and external MCP services it depends on, so its lease is revoked
+  closes before the settings, engine and MCP services it depends on, so its lease is revoked
   while the MCP endpoint is still there to end its calls.
 - A run that ends on its own is a failure: `spade.status` becomes `failed` with the reason (the
   exit code, the signal, or "Another Spade is already running" for exit code 3), and the daemon
   starts it again after 1 s, doubling each time to at most 60 s. A run that stayed ready for a
   minute resets the backoff, so a crash after a long healthy run waits 1 s again.
 
+### Spade's host thread (decided 2026-11-11)
+
+ace's agent tools act as a thread: a delegation becomes that thread's child, browser and screen use
+are owned by it, and notices land in it. So Spade gets a thread of its own to act as.
+
+- **One per daemon.** Spade's host thread is made by the daemon when it starts Spade, before the
+  MCP lease, or found if it already exists (`ensureSpadeHostThread`). It is marked `host: "spade"`
+  on the thread, and it lives in a hidden project rooted at `<SPADE_DATA_DIR>/workspace`
+  (created with mode 0700). That project is a `spade` kind in the project catalog, like the
+  hidden `chat` kind of ADR 0099, but the daemon never sends it to clients, so the wire's
+  `ProjectKind` is unchanged.
+- **Nothing runs in it.** The engine makes it with no session (`HostThreads`). Its root agent is
+  announced with one empty finished turn, so it reads idle, never starting or unresponsive. The
+  engine refuses every command that would run an agent there with `host_thread`: send, resume,
+  limit, switch, merge, goal, queue resume and resend, and fork. When a child settles, its result
+  is held for Spade to read with `wait` and `agents_status` instead of waking the host thread.
+- **Its ceiling.** The host thread takes the person's `access.defaultMode`, and its provider is
+  `providers.default` (a delegation that names no provider gets it, as from any parent). Spade's
+  children can never run with more access than a thread the person starts would. When the
+  default is full access, the host thread also acts for the person across projects
+  (`actsForPerson`), as any full-access top-level thread does.
+- **Where children run.** Spade's own project is an empty folder, so a host thread may name a
+  local project with `project` (id, path or name, as `projects_find` shows) when it delegates
+  without `machine`; the child runs there and stays the host thread's child. Every other agent
+  still keeps to its own project, and `project` without `machine` is still refused for them.
+- **Hidden.** The Threads panel (its SQL), the client projection's thread list and global search
+  leave the host thread out; project lists leave out Spade's project. The children are ordinary
+  threads, shown as usual, with the host thread as their parent, so their status rolls up the
+  usual way. `spade.status` carries `thread: {id, busy}`, where `busy` means the host thread's
+  tree has a child still working or waiting on a person, so Spade's place in the apps can say
+  "working".
+- **Heals.** A missing or deleted host thread, or a removed Spade project, is made again on the
+  next Spade start, without asking anyone. Children delegated before keep their history: deleting
+  the host thread, even forced, leaves them in place. No app offers deleting it, since no list
+  shows it.
+
 ### Credentials for Spade
 
-- **ace's tools.** Each run gets an operate lease from the external MCP enrollment registry, the
-  same one `ace mcp enroll` uses, so the daemon applies the usual external MCP scopes. The lease
-  has no TTL timer (its holder lives as long as the daemon lets it) and is revoked when that run
-  ends, crash or stop; a restarted Spade gets a new one, and a daemon restart ends them all as for
-  every bearer. The bearer lives in memory and Spade's environment only; it is never written to a
-  file. `ace mcp list` shows it with `holder: "spade"`. Spade's own approval gate runs before every
-  write it makes through these tools.
-- **Protocol requests.** `SPADE_ACE_TOKEN` is the daemon's local token (`<ACE_HOME>/daemon-token`).
-  Spade uses it on the loopback WebSocket for requests such as `skills.request` (ADR 0103), so
-  Spade and the ace apps share one skill library. This is the same authority any local process
-  that can read the person's files already has; it never leaves the machine.
-
-### Spade's MCP credential (clarified 2026-11-11)
-
-What Spade's MCP client (`spade-ace`) needs from its credential:
-
-- **Tool set.** The target is the full agent tool set an ace provider session gets (threads, agent
-  status and messages, delegation, browser, screen and computer use, notifications, automations,
-  skills and guides), with operate scope, and the daemon's usual per-tool rules (such as the
-  apps agents can't use). Spade's approval gate runs before every write. That set is served only
-  by the daemon's own MCP endpoint, whose leases name a stored thread and that thread's root agent:
-  delegations become that thread's children, browser and screen use are owned by it, and notices
-  land in it. Spade has no thread today, so this part is **open**: until it is decided, Spade's
-  lease is the operate enrollment on the external endpoint described above, which serves only
-  that endpoint's smaller tool set.
+- **ace's tools.** Each run gets a lease on the daemon's own MCP endpoint, the one provider
+  sessions use, naming the host thread and its root agent, with the tool groups a provider
+  session gets (`daemonMcpCapabilities`: agents, notify, thread control, automations, projects,
+  browser, and devices and screen where this daemon has them). The daemon applies its usual
+  per-tool rules, such as the apps agents can't use; Spade's own approval gate runs before every
+  write. The lease is revoked when that run ends (crash, stop, `spade.enabled` off) and a new one
+  is issued on each start; a daemon restart ends them all, as for every bearer. The bearer lives
+  in memory and Spade's environment only.
 - **Listing.** Spade sends no `X-Ace-Tools` header, which lists every tool, each with
   `readOnlyHint` and `destructiveHint` stated, so Spade defers tools and maps each tool's risk
   itself. It sends no `X-Ace-Client` header. Simulator (`sim_*`) tools are listed once their
@@ -100,8 +120,10 @@ What Spade's MCP client (`spade-ace`) needs from its credential:
   list-changed stream. With it, `initialize` returns an `Mcp-Session-Id` and Spade keeps the GET
   stream open for `notifications/tools/list_changed`. One lease holds at most 4 such sessions; a
   fifth `initialize` replaces the oldest.
-- **Lifetime.** Issued for each Spade run and revoked when that run ends: a crash, a stop, or
-  `spade.enabled` turned off. A restart gets a new bearer.
+- **Protocol requests.** `SPADE_ACE_TOKEN` is the daemon's local token (`<ACE_HOME>/daemon-token`).
+  Spade uses it on the loopback WebSocket for requests such as `skills.request` (ADR 0103), so
+  Spade and the ace apps share one skill library. This is the same authority any local process
+  that can read the person's files already has; it never leaves the machine.
 
 ### The `spade.*` family
 
@@ -140,8 +162,9 @@ Rules the daemon enforces before anything reaches Spade:
   Bodies are text in the protocol; clients parse them with Spade's own schemas.
 - Spade's crash or absence never affects the daemon: the service always starts, and Spade's state
   is reported only through `spade.status`.
-- Spade's MCP lease is an operate enrollment, so a person revoking it with `ace mcp revoke` takes
-  ace's tools away from that run until Spade restarts.
+- Spade's work shows up as ordinary threads that have Spade's hidden host thread as their parent.
+  The host thread stays out of every list, and its tree's state reaches the apps through
+  `spade.status`.
 
 ## Changes from the integration contract
 
@@ -149,3 +172,6 @@ Rules the daemon enforces before anything reaches Spade:
   `{status, body}`, so a refusal before Spade (scope, path, Spade not ready) has its own code.
 - `spade.status.changed` goes to sockets that have asked `spade.status`, not to every socket.
 - `spade.live.ended` has more reasons than the contract lists, and `status` for `refused`.
+- Delegations from a host thread may name a local `project` without `machine`. The contract had
+  children run in the caller's own project, and Spade's is an empty folder, so without this its
+  work could never reach the person's code. No other caller gains this.

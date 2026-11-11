@@ -169,8 +169,9 @@ and consumer warning listeners. This does not disable `ExperimentalWarning`.
 The `spade` listener service hosts Spade, ace's assistant, while the `spade.enabled` setting is
 on and a `spade-server` binary exists (`ACE_SPADE_BIN` in development). It waits for Spade's
 `server.json` and `/health`, restarts a crash after 1 s doubling to 60 s, and stops it with
-SIGTERM then a kill after 5 s. Spade's state never degrades the daemon; clients read it with
-`spade.status` (ADR 0117).
+SIGTERM then a kill after 5 s. Before each start it finds or remakes Spade's host thread, a
+hidden thread in a hidden Spade project that Spade's MCP lease acts as; nothing ever runs in it.
+Spade's state never degrades the daemon; clients read it with `spade.status` (ADR 0117).
 
 ## Shutdown deadlines
 
