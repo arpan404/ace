@@ -23,17 +23,32 @@ pub struct AceTool {
     pub risk: Risk,
 }
 
-/// One piece of a tool's answer.
+/// One piece of a tool's answer. `extra` holds every field of the block besides the ones read
+/// (`_meta`, `annotations`, fields added later), as sent.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Part {
-    Text(String),
+    Text {
+        text: String,
+        extra: Map<String, Value>,
+    },
     /// Base64 data with its MIME type, as sent.
     Image {
         mime_type: String,
         data: String,
+        extra: Map<String, Value>,
     },
-    /// Anything else (audio, resources, links, kinds added later), kept as sent.
+    /// Anything else (audio, resources, links, kinds added later, malformed blocks), as sent.
     Other(Value),
+}
+
+impl Part {
+    /// A text part with no other fields.
+    pub fn text(text: impl Into<String>) -> Self {
+        Self::Text {
+            text: text.into(),
+            extra: Map::new(),
+        }
+    }
 }
 
 /// What a tool call returned. `is_error` means the tool ran and reported a failure; the model
@@ -44,6 +59,8 @@ pub struct AceToolResult {
     pub is_error: bool,
     /// `structuredContent`, when the tool sent one.
     pub structured: Option<Value>,
+    /// Every other field of the result (`_meta`, extensions, fields added later), as sent.
+    pub extra: Map<String, Value>,
 }
 
 /// Annotations are hints from the server. Destructive wins over read-only when a server sends
@@ -75,16 +92,24 @@ pub(crate) fn tool(tool: &rmcp::model::Tool) -> AceTool {
 }
 
 /// Reads a `tools/call` result from its JSON. Unknown content kinds and malformed blocks become
-/// `Part::Other`; nothing is dropped.
+/// `Part::Other`, and unread fields stay in `extra`; nothing is dropped.
 pub fn call_result(value: Value) -> AceToolResult {
     let Value::Object(mut object) = value else {
         return AceToolResult {
             parts: vec![Part::Other(value)],
             is_error: false,
             structured: None,
+            extra: Map::new(),
         };
     };
-    let is_error = object.get("isError").and_then(Value::as_bool) == Some(true);
+    let is_error = match object.remove("isError") {
+        Some(Value::Bool(flag)) => flag,
+        Some(other) => {
+            object.insert("isError".into(), other);
+            false
+        }
+        None => false,
+    };
     let structured = object.remove("structuredContent");
     let parts = match object.remove("content") {
         Some(Value::Array(blocks)) => blocks.into_iter().map(part).collect(),
@@ -95,28 +120,50 @@ pub fn call_result(value: Value) -> AceToolResult {
         parts,
         is_error,
         structured,
+        extra: object,
     }
 }
 
 fn part(block: Value) -> Part {
-    let Value::Object(fields) = &block else {
+    let Value::Object(mut fields) = block else {
         return Part::Other(block);
     };
-    match fields.get("type").and_then(Value::as_str) {
-        Some("text") => match text_field(fields, "text") {
-            Some(text) => Part::Text(text),
-            None => Part::Other(block),
-        },
-        Some("image") => match (text_field(fields, "mimeType"), text_field(fields, "data")) {
-            (Some(mime_type), Some(data)) => Part::Image { mime_type, data },
-            _ => Part::Other(block),
-        },
-        _ => Part::Other(block),
+    let kind = fields
+        .get("type")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    match kind.as_deref() {
+        Some("text") if is_text(&fields, "text") => {
+            let text = take_text(&mut fields, "text");
+            fields.remove("type");
+            Part::Text {
+                text,
+                extra: fields,
+            }
+        }
+        Some("image") if is_text(&fields, "mimeType") && is_text(&fields, "data") => {
+            let mime_type = take_text(&mut fields, "mimeType");
+            let data = take_text(&mut fields, "data");
+            fields.remove("type");
+            Part::Image {
+                mime_type,
+                data,
+                extra: fields,
+            }
+        }
+        _ => Part::Other(Value::Object(fields)),
     }
 }
 
-fn text_field(fields: &Map<String, Value>, key: &str) -> Option<String> {
-    fields.get(key).and_then(Value::as_str).map(str::to_owned)
+fn is_text(fields: &Map<String, Value>, key: &str) -> bool {
+    fields.get(key).is_some_and(Value::is_string)
+}
+
+fn take_text(fields: &mut Map<String, Value>, key: &str) -> String {
+    match fields.remove(key) {
+        Some(Value::String(text)) => text,
+        _ => String::new(),
+    }
 }
 
 #[cfg(test)]
@@ -165,10 +212,11 @@ mod tests {
         assert_eq!(
             result.parts,
             vec![
-                Part::Text("hi".into()),
+                Part::text("hi"),
                 Part::Image {
                     mime_type: "image/png".into(),
-                    data: "iVBO".into()
+                    data: "iVBO".into(),
+                    extra: Map::new(),
                 },
                 Part::Other(json!({"type": "hologram", "beam": 3})),
                 Part::Other(json!({"type": "text"})),

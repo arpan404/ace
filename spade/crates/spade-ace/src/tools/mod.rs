@@ -1,21 +1,29 @@
 //! `AceTools`: Spade as an MCP client of the daemon's loopback `/mcp` endpoint
 //! (docs/ace-integration.md, "Spade uses ace's tools through the daemon").
 //!
-//! One MCP session is kept open and opened again when it is lost. The tool list is cached and
-//! fetched again after the daemon says it changed (`notifications/tools/list_changed`). The
-//! daemon applies its own scopes; Spade's approval gate decides, by each tool's `Risk`, what to
-//! ask about before calling it.
+//! Every request carries `X-Ace-Notifications: stream`. Without it the daemon serves a
+//! 2025-11-25 client statelessly, with no session and no list-change stream. Spade sends no
+//! `X-Ace-Tools` or `X-Ace-Client`, which gets the full listing with its hints. One session is
+//! kept and opened again when it is lost. The daemon keeps at most four per bearer and the
+//! bearer is new on every Spade start, so nothing here outlives the process.
+//!
+//! The tool list is cached for one session. It is fetched again when the daemon says the list
+//! changed, and when the session it was fetched on is gone (checked with a `ping`). The SDK
+//! never replays a request on a new session: a call is never sent twice. A listing is read-only,
+//! so a listing that hits a dead session is retried once on a fresh one.
 
 mod errors;
+mod http;
 pub mod map;
 
+use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
+use reqwest::header::{HeaderName, HeaderValue};
 use rmcp::model::{
     ClientCapabilities, ClientConfig, ClientRequest, CustomRequest, Implementation,
-    PaginatedRequestParams, ProtocolVersion,
+    PaginatedRequestParams, PingRequest, ProtocolVersion,
 };
 use rmcp::service::{NotificationContext, PeerRequestOptions, RunningService};
 use rmcp::transport::StreamableHttpClientTransport;
@@ -24,31 +32,25 @@ use rmcp::{ClientHandler, Peer, RoleClient, ServiceExt};
 use serde_json::{Value, json};
 use tokio::sync::{Mutex, watch};
 
-use crate::secret::Secret;
+pub use crate::config::ToolsConfig;
 pub use errors::ToolsError;
+use http::{RawAnswers, RawKeeping};
 pub use map::{AceTool, AceToolResult, Part, Risk};
 
 /// A listing longer than this many pages is treated as a server fault, not followed forever.
 const MOST_PAGES: usize = 64;
-
-/// Where the daemon's MCP endpoint is and how long one request may take.
-#[derive(Debug, Clone)]
-pub struct ToolsConfig {
-    /// `SPADE_ACE_MCP_URL`, for example `http://127.0.0.1:4321/mcp`.
-    pub url: String,
-    /// `SPADE_ACE_MCP_TOKEN`, sent as a bearer.
-    pub token: Secret,
-    /// Each connect, page and call gives up after this.
-    pub timeout: Duration,
-}
+/// Asks the daemon for a session with a list-change stream (`packages/mcp-server/src/http.ts`).
+const NOTIFICATIONS_HEADER: &str = "x-ace-notifications";
 
 pub struct AceTools {
     config: ToolsConfig,
     session: Mutex<Option<Live>>,
-    tools: Mutex<Option<Vec<AceTool>>>,
+    /// The listing and the session it was fetched on.
+    tools: Mutex<Option<(u64, Vec<AceTool>)>>,
     stale: Arc<AtomicBool>,
     changes: Arc<watch::Sender<u64>>,
-    epochs: std::sync::atomic::AtomicU64,
+    epochs: AtomicU64,
+    answers: RawAnswers,
 }
 
 struct Live {
@@ -65,7 +67,8 @@ impl AceTools {
             tools: Mutex::new(None),
             stale: Arc::new(AtomicBool::new(true)),
             changes: Arc::new(watch::channel(0).0),
-            epochs: std::sync::atomic::AtomicU64::new(0),
+            epochs: AtomicU64::new(0),
+            answers: RawAnswers::default(),
         }
     }
 
@@ -75,102 +78,137 @@ impl AceTools {
         self.changes.subscribe()
     }
 
-    /// Every tool the daemon offers this credential, all pages, from cache unless it changed.
+    /// Every tool the daemon offers this credential, all pages. Served from cache only while
+    /// the session it came from is alive and the daemon hasn't announced a change.
     pub async fn tools(&self) -> Result<Vec<AceTool>, ToolsError> {
         let mut cached = self.tools.lock().await;
-        if let Some(tools) = cached.as_ref()
-            && !self.stale.load(Ordering::Acquire)
-        {
-            return Ok(tools.clone());
-        }
-        let tools = match self.list_once().await {
-            Err(ToolsError::Unavailable(_)) => self.list_once().await,
+        let result = match self.list_on_live_session(cached.as_ref()).await {
+            Err(ToolsError::Unavailable(_) | ToolsError::NotRun(_)) => {
+                self.list_on_live_session(None).await
+            }
             other => other,
         };
-        let tools = tools.inspect_err(|_| self.stale.store(true, Ordering::Release))?;
-        *cached = Some(tools.clone());
+        let (epoch, tools) = result?;
+        *cached = Some((epoch, tools.clone()));
         Ok(tools)
     }
 
-    /// Calls one tool. `arguments` is a JSON object, or null for none. A call is never sent twice:
-    /// if the session drops mid-call the error says so and the caller decides.
+    /// Calls one tool. `arguments` is a JSON object, or null for none. A call is sent at most
+    /// once: `NotRun` means it did not run, `OutcomeUnknown` and `Timeout` that it may have.
     pub async fn call(&self, name: &str, arguments: Value) -> Result<AceToolResult, ToolsError> {
-        let arguments = match arguments {
-            Value::Object(object) => Some(Value::Object(object)),
-            Value::Null => None,
-            _ => return Err(ToolsError::InvalidArguments),
-        };
         let mut params = json!({ "name": name });
-        if let Some(arguments) = arguments {
-            params["arguments"] = arguments;
+        match arguments {
+            Value::Object(object) => params["arguments"] = Value::Object(object),
+            Value::Null => {}
+            _ => return Err(ToolsError::InvalidArguments),
         }
-        let (peer, epoch) = self.peer().await?;
-        // Sent as a plain request so the answer reaches `map::call_result` as JSON, whatever
-        // content kinds it holds; the SDK's typed result has no place for unknown ones.
+        let (peer, epoch) = self.peer().await.map_err(not_run_if_unavailable)?;
+        // Sent as a plain request so the answer is read from its raw JSON, whatever it holds.
         let request = ClientRequest::CustomRequest(CustomRequest::new("tools/call", Some(params)));
-        let options = PeerRequestOptions::with_timeout(self.config.timeout);
-        let sent = tokio::time::timeout(
-            self.config.timeout,
+        let options = PeerRequestOptions::with_timeout(self.config.timeout());
+        let handle = tokio::time::timeout(
+            self.config.timeout(),
             peer.send_request_with_option(request, options),
         )
         .await
         .map_err(|_| ToolsError::Timeout)?;
-        let answer = match sent {
-            Ok(handle) => handle.await_response().await,
-            Err(error) => Err(error),
+        let handle = match handle {
+            Ok(handle) => handle,
+            Err(error) => {
+                let error = self.failed(error, epoch).await;
+                return Err(not_run_if_unavailable(error));
+            }
         };
-        let answer = answer.map_err(|error| self.failed(error));
+        let id = handle.id.clone();
+        let answer = handle.await_response().await;
+        let raw = self.answers.take(&id);
         let answer = match answer {
             Ok(answer) => answer,
-            Err(error) => return Err(self.after_failure(error, epoch).await),
+            Err(error) => {
+                return Err(match self.failed(error, epoch).await {
+                    ToolsError::Unavailable(why) => ToolsError::OutcomeUnknown(why),
+                    other => other,
+                });
+            }
         };
-        let value = serde_json::to_value(answer)
-            .map_err(|error| ToolsError::Protocol(self.config.token.scrub(error.to_string())))?;
-        Ok(map::call_result(value))
+        let result = match raw.and_then(|mut message| message.get_mut("result").map(Value::take)) {
+            Some(result) => result,
+            None => serde_json::to_value(answer).map_err(|error| {
+                ToolsError::Protocol(self.config.token().scrub(error.to_string()))
+            })?,
+        };
+        Ok(map::call_result(result))
     }
 
-    async fn list_once(&self) -> Result<Vec<AceTool>, ToolsError> {
+    /// The cached listing when it belongs to the live session, which still answers a ping;
+    /// otherwise a fresh listing. Returns the listing with its session's epoch.
+    async fn list_on_live_session(
+        &self,
+        cached: Option<&(u64, Vec<AceTool>)>,
+    ) -> Result<(u64, Vec<AceTool>), ToolsError> {
         let (peer, epoch) = self.peer().await?;
-        // Cleared once the session is open and before listing, so a change announced while
-        // listing leaves the result stale.
+        if let Some((cached_epoch, tools)) = cached
+            && *cached_epoch == epoch
+            && !self.stale.load(Ordering::Acquire)
+        {
+            let ping = ClientRequest::PingRequest(PingRequest::default());
+            let alive = tokio::time::timeout(self.config.timeout(), peer.send_request(ping))
+                .await
+                .map_err(|_| ToolsError::Timeout)?;
+            match alive {
+                Ok(_) => return Ok((epoch, tools.clone())),
+                Err(error) => return Err(self.failed(error, epoch).await),
+            }
+        }
+        // Cleared before listing, so a change announced while listing leaves the result stale.
         self.stale.store(false, Ordering::Release);
+        let listed = self.list_pages(&peer).await;
+        match listed {
+            Ok(tools) => Ok((epoch, tools)),
+            Err(ListError::Service(error)) => {
+                self.stale.store(true, Ordering::Release);
+                Err(self.failed(error, epoch).await)
+            }
+            Err(ListError::Other(error)) => {
+                self.stale.store(true, Ordering::Release);
+                Err(error)
+            }
+        }
+    }
+
+    async fn list_pages(&self, peer: &Peer<RoleClient>) -> Result<Vec<AceTool>, ListError> {
         let mut tools = Vec::new();
         let mut cursor: Option<String> = None;
         for _ in 0..MOST_PAGES {
             let params = PaginatedRequestParams::default().with_cursor(cursor.clone());
-            let page = tokio::time::timeout(self.config.timeout, peer.list_tools(Some(params)))
+            let page = tokio::time::timeout(self.config.timeout(), peer.list_tools(Some(params)))
                 .await
-                .map_err(|_| ToolsError::Timeout)?;
-            let page = match page {
-                Ok(page) => page,
-                Err(error) => {
-                    let error = self.failed(error);
-                    return Err(self.after_failure(error, epoch).await);
-                }
-            };
+                .map_err(|_| ListError::Other(ToolsError::Timeout))?
+                .map_err(ListError::Service)?;
             tools.extend(page.tools.iter().map(map::tool));
             match page.next_cursor {
                 Some(next) if Some(&next) != cursor.as_ref() => cursor = Some(next),
                 Some(_) => {
-                    return Err(ToolsError::Protocol(
+                    return Err(ListError::Other(ToolsError::Protocol(
                         "the tool list repeated a page cursor".into(),
-                    ));
+                    )));
                 }
                 None => return Ok(tools),
             }
         }
-        Err(ToolsError::Protocol(format!(
+        Err(ListError::Other(ToolsError::Protocol(format!(
             "the tool list ran past {MOST_PAGES} pages"
-        )))
+        ))))
     }
 
-    fn failed(&self, error: rmcp::ServiceError) -> ToolsError {
-        errors::from_service(error, &self.config.token)
-    }
-
-    /// A lost or refused session is dropped so the next request opens a fresh one.
-    async fn after_failure(&self, error: ToolsError, epoch: u64) -> ToolsError {
-        if matches!(error, ToolsError::Unavailable(_) | ToolsError::Refused) {
+    /// Classifies an SDK error. A session that is gone or refused is dropped, so the next
+    /// request opens a fresh one.
+    async fn failed(&self, error: rmcp::ServiceError, epoch: u64) -> ToolsError {
+        let error = errors::from_service(error, self.config.token());
+        if matches!(
+            error,
+            ToolsError::Unavailable(_) | ToolsError::NotRun(_) | ToolsError::Refused
+        ) {
             let mut session = self.session.lock().await;
             if session.as_ref().is_some_and(|live| live.epoch == epoch) {
                 *session = None;
@@ -188,22 +226,28 @@ impl AceTools {
             return Ok((live.service.peer().clone(), live.epoch));
         }
         *session = None;
-        let service = tokio::time::timeout(self.config.timeout, self.open())
+        let service = tokio::time::timeout(self.config.timeout(), self.open())
             .await
             .map_err(|_| ToolsError::Timeout)??;
         let epoch = self.epochs.fetch_add(1, Ordering::Relaxed) + 1;
-        // A new session may list differently from the one it replaces.
-        self.stale.store(true, Ordering::Release);
         let peer = service.peer().clone();
         *session = Some(Live { service, epoch });
         Ok((peer, epoch))
     }
 
     async fn open(&self) -> Result<RunningService<RoleClient, Listener>, ToolsError> {
-        let transport = StreamableHttpClientTransport::from_config(
-            StreamableHttpClientTransportConfig::with_uri(self.config.url.as_str())
-                .auth_header(self.config.token.expose())
-                .reinit_on_expired_session(true),
+        let mut headers = HashMap::new();
+        headers.insert(
+            HeaderName::from_static(NOTIFICATIONS_HEADER),
+            HeaderValue::from_static("stream"),
+        );
+        let transport = StreamableHttpClientTransport::with_client(
+            RawKeeping::new(self.answers.clone()),
+            StreamableHttpClientTransportConfig::with_uri(self.config.url().as_str())
+                .auth_header(self.config.token().expose())
+                .custom_headers(headers)
+                // A replay could run a tool twice; Spade reopens the session itself.
+                .reinit_on_expired_session(false),
         );
         let listener = Listener {
             stale: self.stale.clone(),
@@ -212,7 +256,20 @@ impl AceTools {
         listener
             .serve(transport)
             .await
-            .map_err(|error| errors::from_init(error, &self.config.token))
+            .map_err(|error| errors::from_init(error, self.config.token()))
+    }
+}
+
+enum ListError {
+    Service(rmcp::ServiceError),
+    Other(ToolsError),
+}
+
+/// Before a call is sent, failing to reach the daemon means it did not run.
+fn not_run_if_unavailable(error: ToolsError) -> ToolsError {
+    match error {
+        ToolsError::Unavailable(why) => ToolsError::NotRun(why),
+        other => other,
     }
 }
 
@@ -224,8 +281,8 @@ struct Listener {
 
 impl ClientHandler for Listener {
     fn get_info(&self) -> ClientConfig {
-        // The newest revision with sessions: the daemon keeps a bounded notification stream for
-        // a session, which is how list changes reach a long-lived client.
+        // The newest revision with sessions: with `X-Ace-Notifications: stream` the daemon keeps
+        // a bounded notification stream for the session, which carries list changes.
         ClientConfig::new(
             ClientCapabilities::default(),
             Implementation::new("spade", env!("CARGO_PKG_VERSION")),
