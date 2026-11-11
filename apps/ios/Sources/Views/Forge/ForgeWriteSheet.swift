@@ -57,7 +57,7 @@ struct ForgeWriteSheet: View {
         HStack(spacing: AceTheme.Spacing.sm) {
             if let secondary = compose.secondary {
                 Button { send(secondary) } label: { Text(secondary.label).frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap) }
-                    .buttonStyle(.bordered).buttonBorderShape(.capsule).tint(AceTheme.Colours.foreground)
+                    .buttonStyle(.textAction())
                     .disabled(empty || compose.off != nil || !desk.ready)
                     .accessibilityIdentifier("forge.write.secondary")
             }
@@ -68,8 +68,7 @@ struct ForgeWriteSheet: View {
                 }
                 .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
             }
-            .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
-            .tint(AceTheme.Colours.foreground).foregroundStyle(AceTheme.Colours.background)
+            .buttonStyle(.textAction(.prominent))
             .disabled(empty || compose.off != nil || !desk.ready)
             .accessibilityIdentifier("forge.write.primary")
         }
