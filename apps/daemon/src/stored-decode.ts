@@ -36,7 +36,11 @@ export function storedPayload(seq: number, json: string, trustedFrom: number): E
   // Trusted: this build's writer produced this JSON from a validated EventPayload.
   return seq >= trustedFrom ? (value as EventPayload) : decodeStoredPayload(value);
 }
-/** A stored item by the sequence it was created at; see `storedPayload`. */
+/**
+ * A stored item by the sequence its body was written at, see `storedPayload`: an `items` row's
+ * creation sequence, or a history revision's own sequence (`history_item_revisions.seq`, written
+ * in the transaction of the event at that sequence).
+ */
 export function storedItem(createdSeq: number, json: string, trustedFrom: number): Item {
   const value: unknown = JSON.parse(json);
   // Trusted: this build's writer produced this JSON from a validated Item.
@@ -66,4 +70,12 @@ export function storedEvent(
   const event: Event = { seq, id, at, threadId, payload };
   const envelope = `{"seq":${seq},"id":${JSON.stringify(id)},"at":${at},"threadId":${JSON.stringify(threadId)},"payload":}`;
   return { event, bytes: Buffer.byteLength(json) + Buffer.byteLength(envelope) };
+}
+/**
+ * An item body this transaction just wrote from a validated item, such as the text preview
+ * `ItemTextStore.seed` stores before the history index records the same event.
+ */
+export function writtenItem(json: string): Item {
+  // Trusted: written moments ago, in this transaction, by this process from a validated Item.
+  return JSON.parse(json) as Item;
 }

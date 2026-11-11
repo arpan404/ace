@@ -81,7 +81,7 @@ export class ItemStore {
   ) {
     this.statement = statement;
     this.db = db;
-    this.texts = new ItemTextStore(db);
+    this.texts = new ItemTextStore(db, trust);
     this.trust = trust;
   }
   /** Rebuild encoding metadata once after migration, recovering old chunks from the event log. */

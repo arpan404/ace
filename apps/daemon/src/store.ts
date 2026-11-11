@@ -266,9 +266,9 @@ export class Store {
         "CREATE INDEX IF NOT EXISTS threads_workspace_live ON threads(workspace_id, archived_at, id)",
       );
       this.payloads.initialize();
-      this.nativeImages = new NativeImageStore(this.db, (sql) => this.statement(sql));
+      this.nativeImages = new NativeImageStore(this.db, (sql) => this.statement(sql), this.trust);
       this.toolResults = new ToolResultStore(this.db, (sql) => this.statement(sql));
-      this.measurements = new MeasurementStore(this.db, (sql) => this.statement(sql));
+      this.measurements = new MeasurementStore(this.db, (sql) => this.statement(sql), this.trust);
       this.atomic(indexThreadRows);
       this.history = new HistoryIndex(
         this.db,
@@ -276,6 +276,7 @@ export class Store {
         (stream, offset, limit) => this.payloads.readOutputBytes(stream, offset, limit),
         (thread, item, stream, offset, text) =>
           this.payloads.archiveOutput(thread, item, stream, offset, text),
+        this.trust,
       );
       this.history.initialize();
       this.status.initialize((id) => this.getThread(id));
@@ -305,7 +306,7 @@ export class Store {
       this.pairingCodes = new SqlitePairingCodes(this.db);
       this.machineCodes = new MachineCodes(this.db);
       this.mcp = new McpData(this.db, (id) => this.getThread(id));
-      this.searchReplay = new SearchReplay(this.db, this.history);
+      this.searchReplay = new SearchReplay(this.db, this.history, this.trust);
       this.search = new SearchIndex(this.db, {
         readOutput: (threadId, streamId, offset, limit) => {
           const replay = this.history.readSearchBytes(threadId, streamId, offset, limit);

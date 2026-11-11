@@ -1,4 +1,3 @@
-import { decodeStoredItem } from "./stored-decode.ts";
 import { isAbsolute, resolve, relative, extname, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ThreadId, Item, type Attachment } from "@ace/protocol";
@@ -150,7 +149,7 @@ export function observeNativeImages(
   const top = () =>
     Number(store.statement("SELECT max(rowid) AS top FROM items").get()?.top ?? 0) + 1;
   const candidates = () =>
-    store.statement(`SELECT rowid AS position,thread_id,item FROM items
+    store.statement(`SELECT rowid AS position,thread_id,created_seq,item FROM items
       WHERE rowid < ? AND rowid >= ? AND json_extract(item,'$.type')='tool_call'
       AND json_extract(item,'$.call.detail.kind')='image' AND json_extract(item,'$.complete')=1
       AND (json_type(item,'$.call.detail.path')='text' OR EXISTS(SELECT 1 FROM json_each(items.item,'$.call.raw') raw WHERE json_extract(raw.value,'$.data.type')='imageView' AND json_type(raw.value,'$.data.path')='text'))
@@ -162,7 +161,7 @@ export function observeNativeImages(
     const floor = Math.max(0, end - sliceRows);
     for (const row of candidates().all(end, floor)) {
       const thread = String(row.thread_id);
-      const item = decodeStoredItem(JSON.parse(String(row.item)));
+      const item = store.nativeImages.storedItem(row.created_seq, row.item);
       const key = `${thread}:${item.id}`;
       if (!nativePath(item) || active.has(key) || pending.has(key)) continue;
       if (pending.size >= 256) return Number(row.position) + 1;
