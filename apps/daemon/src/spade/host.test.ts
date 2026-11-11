@@ -291,3 +291,20 @@ test("a /health that never answers is cut off at the deadline: Spade is stopped 
   });
   await h.host.close();
 });
+
+test("an exit the daemon asked for is a stop: no failure, no restart, and turning Spade on starts it again", async () => {
+  const h = harness();
+  h.host.setEnabled(true);
+  await eventually(() => h.host.status().state === "ready");
+  h.children[0]?.exit({ code: 0, signal: null, requested: true });
+  await eventually(() => h.host.status().state === "off");
+  expect(h.host.status()).toEqual({ state: "off", reason: "Spade was stopped." });
+  expect(h.statuses.map((status) => status.state)).not.toContain("failed");
+  expect(h.restarts).toEqual([]);
+  expect(h.revoked()).toBe(1);
+  for (let turn = 0; turn < 10; turn++) await new Promise((resolve) => setImmediate(resolve));
+  expect(h.children).toHaveLength(1);
+  h.host.setEnabled(true);
+  await eventually(() => h.host.status().state === "ready" && h.children.length === 2);
+  await h.host.close();
+});

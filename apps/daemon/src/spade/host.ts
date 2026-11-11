@@ -15,7 +15,10 @@ import {
 export interface SpadeExit {
   code: number | null;
   signal: string | null;
+  /** The process supervisor stopped it on request (the daemon's own stop), not a crash. */
+  requested?: boolean;
 }
+type RunOutcome = { readyForMs: number | undefined; reason: string; stopped?: true };
 export interface SpadeChild {
   readonly pid: number | undefined;
   readonly exited: Promise<SpadeExit>;
@@ -55,6 +58,11 @@ export interface SpadeReady {
   generation: number;
 }
 
+const stoppedOutcome: RunOutcome = {
+  readyForMs: undefined,
+  reason: "Spade was stopped.",
+  stopped: true,
+};
 const notInstalled = "Spade isn't installed: no spade-server binary was found.";
 
 /**
@@ -145,6 +153,14 @@ export class SpadeHost {
         reason: error instanceof Error ? error.message : String(error),
       }));
       if (signal.aborted) return;
+      if (outcome.stopped) {
+        // Stopped on the daemon's request (its shutdown): not a failure, and not restarted.
+        // The next time Spade is turned on starts it again.
+        this.options.log("info", "Spade stopped", { reason: outcome.reason });
+        this.enabled = false;
+        this.set({ state: "off", reason: outcome.reason });
+        return;
+      }
       failures = failuresAfterExit(failures, outcome.readyForMs, this.backoff);
       const delay = restartDelay(failures, this.backoff);
       this.options.log("warn", "Spade failed", {
@@ -157,10 +173,7 @@ export class SpadeHost {
     }
   }
   /** One run of Spade, from spawn until it exits or is stopped. */
-  private async once(
-    binary: string,
-    signal: AbortSignal,
-  ): Promise<{ readyForMs: number | undefined; reason: string }> {
+  private async once(binary: string, signal: AbortSignal): Promise<RunOutcome> {
     const { runtime } = this.options;
     runtime.ensureDirectory(this.options.dataDir);
     const credentials = await this.options.credentials();
@@ -213,6 +226,7 @@ export class SpadeHost {
         const timedOut = pid !== undefined && !waiting.signal.aborted;
         if (timedOut) stop();
         const exit = await exited;
+        if (!timedOut && exit.requested) return stoppedOutcome;
         const seconds = Math.round((this.options.readyTimeoutMs ?? 15_000) / 1000);
         return {
           readyForMs: undefined,
@@ -228,6 +242,7 @@ export class SpadeHost {
       });
       this.set({ state: "ready", version: ready.version });
       const exit = await exited;
+      if (exit.requested) return stoppedOutcome;
       return { readyForMs: runtime.now() - readyAt, reason: exitReason(exit) };
     } finally {
       signal.removeEventListener("abort", stop);

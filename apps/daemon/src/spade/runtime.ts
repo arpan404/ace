@@ -51,7 +51,11 @@ export function nodeSpadeRuntime(input: {
         get pid() {
           return child.pid;
         },
-        exited: child.exited.then((exit) => ({ code: exit.code, signal: exit.signal })),
+        exited: child.exited.then((exit) => ({
+          code: exit.code,
+          signal: exit.signal,
+          requested: exit.reason === "stopped",
+        })),
         stop: (graceMs) => child.stop({ graceMs }),
       };
     },
