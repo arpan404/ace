@@ -78,7 +78,7 @@ struct MachineLinksView: View {
                     }
                 }
             }
-            if let problem = overview.linksProblem { ServiceProblem(message: problem) }
+            if let problem = overview.linksProblem { ServiceProblem(message: problem); Button("Retry") { Task { await read() } }.buttonStyle(.textAction()) }
         } header: { InsetHeader("\(name) reaches") } footer: { Text("Agents here use these machines by name.") }
         .insetRowBackground()
     }
