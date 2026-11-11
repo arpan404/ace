@@ -44,8 +44,8 @@ export const forgeClis: Readonly<Record<ForgeKind, string | undefined>> = {
   gitlab: "glab",
   gitbucket: undefined,
   bitbucket: "bkt",
-  gitea: undefined,
-  forgejo: undefined,
+  gitea: "tea",
+  forgejo: "tea",
 };
 
 /** The command that signs a provider's CLI in, or undefined without a CLI. bkt needs the Cloud

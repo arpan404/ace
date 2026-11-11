@@ -1,4 +1,7 @@
 import { repositoryKey } from "@ace/forge/project-repositories";
+
+/** What each host supports in this build (ADR 0117); the daemon's own answer wins at run time. */
+export { forgeCapabilities } from "@ace/forge/capabilities";
 import type { ForgeCapability } from "@ace/protocol/forge-capabilities";
 import type { ForgeKind } from "@ace/protocol/forge";
 
@@ -19,9 +22,11 @@ export function can(
   const capabilities = source.capabilities ?? source.repository?.capabilities;
   if (capabilities !== undefined) return capabilities.includes(capability);
   const forge = source.forge ?? source.repository?.forge ?? source.status?.ref.repository.forge;
+  // An older daemon read GitLab and Cursor Origin reviews only, and nothing from other hosts.
   return (
     forge === "github" ||
-    (forge !== undefined && (capability === "reviews.read" || capability === "reviews.files"))
+    ((forge === "gitlab" || forge === "origin") &&
+      (capability === "reviews.read" || capability === "reviews.files"))
   );
 }
 
