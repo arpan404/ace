@@ -156,12 +156,33 @@ export function editorSelection(el: HTMLElement): { start: number; end: number }
   return { start, end: editorText(before.cloneContents()).length };
 }
 
-/** Each chip still in the editor, in order, with where its text starts. */
+/**
+ * Each chip still in the editor, in order, with where its text starts: one walk of the editor,
+ * counting text as `editorText` reads it.
+ */
 export function editorChips(el: HTMLElement): { node: HTMLElement; start: number }[] {
-  return [...el.querySelectorAll<HTMLElement>("[data-token-text]")].map((node) => {
-    const before = el.ownerDocument.createRange();
-    before.selectNodeContents(el);
-    before.setEndBefore(node);
-    return { node, start: editorText(before.cloneContents()).length };
-  });
+  const found: { node: HTMLElement; start: number }[] = [];
+  if (el.childNodes.length === 1 && el.firstChild?.nodeName === "BR") return found;
+  let at = 0;
+  const walk = (node: Node, index: number) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      at += node.textContent?.length ?? 0;
+      return;
+    }
+    if (!(node instanceof HTMLElement)) return;
+    if (node.dataset.editorTail !== undefined) return;
+    if (index > 0 && /^(DIV|P)$/.test(node.tagName)) at += 1;
+    if (node.dataset.tokenText !== undefined) {
+      found.push({ node, start: at });
+      at += node.dataset.tokenText.length;
+      return;
+    }
+    if (node.nodeName === "BR") {
+      at += 1;
+      return;
+    }
+    node.childNodes.forEach(walk);
+  };
+  el.childNodes.forEach(walk);
+  return found;
 }
