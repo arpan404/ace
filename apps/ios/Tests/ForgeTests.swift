@@ -3,6 +3,22 @@ import Foundation
 @testable import Ace
 
 @Suite @MainActor struct ForgeTests {
+    @Test func aPullRequestEditSendsOnlyTheEditableFieldsThatChanged() {
+        let metadata = ForgeManage.Metadata(title: "Old", body: "Body", baseBranch: "main", labels: ["bug"], assignees: ["mona"])
+        let editable: Set<String> = ["title", "body", "labels"]
+        // Nothing changed: nothing to send, so Save stays off.
+        #expect(ForgePullEdit.changes(from: metadata, editable: editable, title: "Old", body: "Body", base: "main",
+                                      labels: "bug", assignees: "mona").isEmpty)
+        let changes = ForgePullEdit.changes(from: metadata, editable: editable, title: "  New  ", body: "Body", base: "release",
+                                            labels: "bug, mobile, bug, ", assignees: "octo")
+        #expect(changes["title"] as? String == "New")
+        #expect(changes["labels"] as? [String] == ["bug", "mobile"])
+        #expect(changes["body"] == nil)
+        // The base and assignees aren't this account's to change, whatever was typed.
+        #expect(changes["baseBranch"] == nil)
+        #expect(changes["assignees"] == nil)
+    }
+
     private func store() -> NewThreadDraftStore {
         NewThreadDraftStore(url: FileManager.default.temporaryDirectory.appendingPathComponent("forge-draft-\(UUID().uuidString).json"))
     }

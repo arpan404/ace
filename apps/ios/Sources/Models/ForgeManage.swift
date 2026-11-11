@@ -10,7 +10,23 @@ struct ForgeManage: Decodable, Sendable, Equatable {
     struct Unconfirmed: Decodable, Sendable, Equatable, Hashable { let id: String; let label: String }
     struct Reason: Decodable, Sendable, Equatable, Hashable { let value: String; let label: String }
     struct Revert: Decodable, Sendable, Equatable { let title: String; let body: String }
+    /// A state change GitHub allows now (ready, draft, close, reopen, update.merge, update.rebase).
+    struct Step: Decodable, Sendable, Equatable, Hashable { let kind: String; let label: String }
+    /// The pull request's text and people, as the edit sheet starts from them.
+    struct Metadata: Decodable, Sendable, Equatable {
+        let title: String
+        let body: String
+        let baseBranch: String
+        let labels: [String]
+        let assignees: [String]
+    }
     let version: String
+    /// open, draft, closed or merged.
+    let state: String
+    let lifecycle: [Step]
+    let metadata: Metadata
+    /// Which of `metadata`'s fields this account may change: title, body, baseBranch, labels, assignees.
+    let editable: [String]
     let milestone: Milestone?
     let milestones: [Milestone]?
     let closingIssues: [Issue]
