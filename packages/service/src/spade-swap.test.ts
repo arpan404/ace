@@ -8,8 +8,10 @@ import {
 } from "./spade-swap.ts";
 
 /**
- * A machine with Spade on it: which version `current` names, which one runs, whether admission
- * is open, and what is still working. `log` records what happened to the machine, in order.
+ * A machine with Spade on it: which version `current` names, which one runs (and its pid),
+ * whether admission is open, what is still working, and which version last migrated Spade's
+ * database. A Spade refuses a database a newer version migrated, as real Spade does. `log`
+ * records what happened to the machine, in order.
  */
 function machine(options: {
   state?: SpadeServiceState;
@@ -19,23 +21,39 @@ function machine(options: {
   /** How many polls a running turn takes to finish (or pause). */
   turnPolls?: number;
   migrations?: "ok" | "refuse";
-  healthy?: boolean;
+  /** Versions that migrate the database on start, then crash. */
+  broken?: string[];
   hasDatabase?: boolean;
+  /** The restore puts the snapshot back (a broken restore leaves the migrated database). */
+  restores?: boolean;
 }) {
   const log: string[] = [];
   let clock = 0;
   let current = options.installed ?? "0.4.0";
   let running = options.state === "running" || options.state === undefined ? current : undefined;
+  let pid = running ? 100 : undefined;
+  let schema = current;
   let admission: SpadeMaintenance["admission"] = "open";
   let turns = options.turns ?? 0;
   const jobs = options.jobs ?? 0;
   let turnPolls = options.turnPolls ?? 1;
-  const snapshots = new Set<string>();
+  const snapshots = new Map<string, string>();
   const status = (): SpadeMaintenance => ({
     admission,
     running_turns: turns,
     running_jobs: jobs,
   });
+  const start = () => {
+    running = undefined;
+    // A version older than the database refuses to open it and exits.
+    if (schema > current) return;
+    // Starting migrates the database; a broken version crashes only after that.
+    schema = current;
+    if (options.broken?.includes(current)) return;
+    running = current;
+    pid = (pid ?? 100) + 1;
+    admission = "open";
+  };
   const ports: SpadeSwapPorts = {
     state: async () => options.state ?? "running",
     installedVersion: async () => current,
@@ -58,12 +76,17 @@ function machine(options: {
     async snapshot() {
       if (options.hasDatabase === false) return undefined;
       log.push("snapshot");
-      snapshots.add("snap");
+      snapshots.set("snap", schema);
       return "snap";
     },
     async checkMigrations(snapshot) {
       log.push(`check ${snapshot}`);
       if (options.migrations === "refuse") throw new Error("schema 9 is newer than this build");
+    },
+    async restoreDatabase(snapshot) {
+      log.push(`restore ${snapshot}`);
+      if (running) throw new Error("Spade is still running");
+      if (options.restores !== false) schema = snapshots.get(snapshot) ?? schema;
     },
     async removeSnapshot(snapshot) {
       snapshots.delete(snapshot);
@@ -72,12 +95,16 @@ function machine(options: {
       log.push(`flip ${version}`);
       current = version;
     },
+    serverPid: async () => pid,
+    async stop() {
+      log.push("stop");
+      running = undefined;
+    },
     async restart() {
       log.push("restart");
-      running = current;
-      admission = "open";
+      start();
     },
-    health: async (version) => running === version && options.healthy !== false,
+    health: async (version, oldPid) => running === version && pid !== oldPid,
     async wait(ms) {
       clock += ms;
     },
@@ -89,6 +116,7 @@ function machine(options: {
     snapshots,
     current: () => current,
     running: () => running,
+    schema: () => schema,
     admission: () => admission,
   };
 }
@@ -154,12 +182,35 @@ test("a candidate that can't open Spade's data keeps the old version and reopens
 });
 
 test("a new Spade that doesn't come up is rolled back to the old one", async () => {
-  const world = machine({ healthy: false });
+  const world = machine({ broken: ["0.5.0"] });
   const result = await swapSpade("0.5.0", "now", world.ports);
   expect(result.kind === "failed" && result.error).toMatch(/0.4.0 is running again/);
-  expect(world.log.slice(-3)).toEqual(["restart", "flip 0.4.0", "restart"]);
+  expect(world.log.slice(-5)).toEqual(["restart", "stop", "restore snap", "flip 0.4.0", "restart"]);
   expect(world.current()).toBe("0.4.0");
   expect(world.running()).toBe("0.4.0");
+  expect(world.snapshots.size).toBe(0);
+});
+
+test("after a new Spade migrated the database and failed, the old one gets its database back", async () => {
+  const world = machine({ broken: ["0.5.0"] });
+  await swapSpade("0.5.0", "now", world.ports);
+  expect(world.schema()).toBe("0.4.0");
+  expect(world.running()).toBe("0.4.0");
+});
+
+test("a rollback whose old Spade doesn't come back says so", async () => {
+  const world = machine({ broken: ["0.5.0"], restores: false });
+  const result = await swapSpade("0.5.0", "now", world.ports);
+  expect(result.kind === "failed" && result.error).toMatch(
+    /0.4.0 was restored but didn't come back up/,
+  );
+  expect(world.running()).toBeUndefined();
+});
+
+test("now mode waits past Spade's 30 s step allowance to see Spade pause its turns", async () => {
+  // Spade pauses the turn when its own 30 s allowance ends; the poll that sees it comes later.
+  const world = machine({ turns: 1, turnPolls: 64 });
+  expect(await swapSpade("0.5.0", "now", world.ports)).toMatchObject({ kind: "swapped" });
 });
 
 test("a stopped Spade is swapped without asking it to pause", async () => {

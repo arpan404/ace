@@ -32,17 +32,32 @@ export interface SpadeSwapPorts {
   reopenAdmission(): Promise<void>;
   /** Copies the new binary to `releases/spade/<version>/`, leaving `current` alone. */
   stage(): Promise<void>;
-  /** A SQLite backup of `spade.sqlite`; undefined when Spade has no database yet. */
+  /**
+   * A SQLite backup of `spade.sqlite`, kept until the new version is up so a rollback can put
+   * it back; undefined when Spade has no database yet.
+   */
   snapshot(): Promise<string | undefined>;
-  /** `spade-server --check-migrations <snapshot>` with the new binary; throws why it can't. */
+  /**
+   * `spade-server --check-migrations` with the new binary on a copy of `snapshot` (the check
+   * migrates the file it is given); throws why it can't.
+   */
   checkMigrations(snapshot: string): Promise<void>;
+  /** Puts `snapshot` back as `spade.sqlite`, its WAL files cleared. Spade must be stopped. */
+  restoreDatabase(snapshot: string): Promise<void>;
   removeSnapshot(snapshot: string): Promise<void>;
   /** Points `releases/spade/current` at `version`. */
   flip(version: string): Promise<void>;
+  /** The pid in Spade's `server.json`, if any: the process a restart must replace. */
+  serverPid(): Promise<number | undefined>;
+  stop(): Promise<void>;
   /** Restarts (or starts, when it was stopped) the service on the current binary. */
   restart(): Promise<void>;
-  /** Whether `/health` answers `version` (waiting a little for the restart). */
-  health(version: string): Promise<boolean>;
+  /**
+   * Whether a Spade other than `oldPid` is up at `version`: `server.json` names a new pid and
+   * `/health?nonce` answers that version with the proof only the token's holder can give
+   * (waiting a little for the restart).
+   */
+  health(version: string, oldPid: number | undefined): Promise<boolean>;
   wait(ms: number): Promise<void>;
   now(): number;
 }
@@ -57,6 +72,11 @@ type Failed = Extract<SpadeSwapResult, { kind: "failed" }>;
 
 /** How long each mode lets Spade's work finish: `now` only its model steps (30 s). */
 export const spadeDeadlines: Record<SpadeSwapMode, number> = { idle: 300_000, now: 30_000 };
+/**
+ * The updater waits this much past the deadline it gives Spade, so it sees Spade's own outcome
+ * (turns paused once the allowance ends) instead of racing it.
+ */
+export const spadeDeadlineMarginMs = 10_000;
 const pollMs = 500;
 
 /** Whether Spade's work has stopped enough to swap in `mode`. */
@@ -90,7 +110,7 @@ export async function swapSpade(
   if (state === "running") {
     try {
       const deadline = spadeDeadlines[mode];
-      const until = ports.now() + deadline;
+      const until = ports.now() + deadline + spadeDeadlineMarginMs;
       closed = true;
       let status = await ports.closeAdmission(mode, deadline);
       while (!spadeQuiet(mode, status)) {
@@ -114,26 +134,36 @@ export async function swapSpade(
     snapshot = await ports.snapshot();
     if (snapshot !== undefined) await ports.checkMigrations(snapshot);
   } catch (error) {
+    await drop(ports, snapshot);
     return abort(
       ports,
       closed,
       failed(`Spade ${version} can't open this machine's Spade data: ${reason(error)}`),
     );
-  } finally {
-    if (snapshot !== undefined) await ports.removeSnapshot(snapshot).catch(() => {});
   }
   try {
     await ports.flip(version);
   } catch (error) {
+    await drop(ports, snapshot);
     return abort(ports, closed, failed(`Couldn't switch Spade to ${version}: ${reason(error)}`));
   }
   try {
+    const old = await ports.serverPid();
     await ports.restart();
-    if (await ports.health(version)) return { kind: "swapped", from, to: version };
-    throw new Error(`Spade ${version} didn't answer after its restart`);
+    if (await ports.health(version, old)) {
+      await drop(ports, snapshot);
+      return { kind: "swapped", from, to: version };
+    }
+    throw new Error(`Spade ${version} didn't come up after its restart`);
   } catch (error) {
-    return rollBack(ports, from, failed(reason(error)));
+    const result = await rollBack(ports, from, snapshot, failed(reason(error)));
+    await drop(ports, snapshot);
+    return result;
   }
+}
+
+async function drop(ports: SpadeSwapPorts, snapshot: string | undefined): Promise<void> {
+  if (snapshot !== undefined) await ports.removeSnapshot(snapshot).catch(() => {});
 }
 
 /** Before the flip: the old Spade still runs, so only admission needs reopening. */
@@ -146,17 +176,31 @@ async function abort(
   return result;
 }
 
-/** After the flip: point `current` back at the old version and start it again. */
+/**
+ * After the flip: the new version may have migrated the database, which the old one refuses to
+ * open. So Spade is stopped, the pre-flip snapshot put back, `current` pointed at the old
+ * version and the old Spade started and checked; the result says whether it came back.
+ */
 async function rollBack(
   ports: SpadeSwapPorts,
   from: string | undefined,
+  snapshot: string | undefined,
   result: Failed,
-): Promise<SpadeSwapResult> {
-  if (from === undefined) return result;
+): Promise<Failed> {
+  if (from === undefined) return { ...result, error: `${result.error}; no older Spade to restore` };
   try {
+    const failedPid = await ports.serverPid();
+    await ports.stop();
+    if (snapshot !== undefined) await ports.restoreDatabase(snapshot);
     await ports.flip(from);
     await ports.restart();
-    return { ...result, error: `${result.error}; Spade ${from} is running again` };
+    const back = await ports.health(from, failedPid);
+    return {
+      ...result,
+      error: back
+        ? `${result.error}; Spade ${from} is running again`
+        : `${result.error}; Spade ${from} was restored but didn't come back up`,
+    };
   } catch (error) {
     return {
       ...result,
