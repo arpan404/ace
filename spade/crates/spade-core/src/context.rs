@@ -103,12 +103,23 @@ pub fn messages_with(events: &[Event], images: &dyn Images) -> Vec<Message> {
     messages_shown(events, &Recent::new(events, images))
 }
 
-/// The most images one prompt shows; older ones are described, so screenshots that pile up never
-/// push a request past a provider's limits.
+/// Images a prompt always shows; older ones are described, so screenshots that pile up never push
+/// a request past a provider's limits. At most twice this many are shown.
 pub const SHOWN_IMAGES: usize = 10;
 
-/// Shows only the last [`SHOWN_IMAGES`] images of the conversation, in the order the prompt asks
-/// for them.
+/// How many of `total` images are described instead of shown. The cut moves in steps of
+/// [`SHOWN_IMAGES`], so the start of the prompt stays the same (and cached) for ten new images
+/// at a time instead of changing with each one.
+pub fn images_left_out(total: usize) -> usize {
+    if total <= 2 * SHOWN_IMAGES {
+        0
+    } else {
+        (total - SHOWN_IMAGES) / SHOWN_IMAGES * SHOWN_IMAGES
+    }
+}
+
+/// Shows the newest images of the conversation (see [`images_left_out`]), in the order the
+/// prompt asks for them.
 struct Recent<'a> {
     inner: &'a dyn Images,
     skip: std::cell::Cell<usize>,
@@ -137,7 +148,7 @@ impl<'a> Recent<'a> {
             .sum();
         Self {
             inner,
-            skip: std::cell::Cell::new(total.saturating_sub(SHOWN_IMAGES)),
+            skip: std::cell::Cell::new(images_left_out(total)),
         }
     }
 }

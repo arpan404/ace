@@ -422,13 +422,22 @@ fn images_a_tool_returned_follow_the_steps_results_before_steered_messages() {
 }
 
 #[test]
-fn only_the_newest_images_are_shown_and_older_ones_are_described() {
+fn older_images_are_left_out_in_steps_so_the_prompt_start_stays_cached() {
+    let left_out: Vec<usize> = [5, 20, 21, 25, 29, 30, 39, 40]
+        .map(images_left_out)
+        .to_vec();
+    assert_eq!(left_out, vec![0, 0, 10, 10, 10, 20, 20, 30]);
+    // Between steps, a new image never changes which older ones are left out.
+    for total in 21..30 {
+        assert_eq!(images_left_out(total), images_left_out(total + 1).min(10));
+    }
+
     let image = |n: usize| crate::event::ImageRef {
         sha256: "kept".into(),
         media_type: format!("image/png;n={n}"),
         bytes: 3,
     };
-    let events: Vec<Event> = (0..SHOWN_IMAGES + 2)
+    let events: Vec<Event> = (0..2 * SHOWN_IMAGES + 1)
         .map(|n| {
             Event::Known(Known::UserMessage {
                 text: format!("look {n}"),
@@ -441,10 +450,10 @@ fn only_the_newest_images_are_shown_and_older_ones_are_described() {
     let Some(Message::Person { text, images }) = shown.first() else {
         panic!("{shown:?}");
     };
-    assert_eq!(images.len(), SHOWN_IMAGES);
+    assert_eq!(images.len(), SHOWN_IMAGES + 1);
     assert_eq!(
-        images[0].media_type, "image/png;n=2",
-        "the two oldest are left out"
+        images[0].media_type, "image/png;n=10",
+        "the ten oldest are left out"
     );
-    assert_eq!(text.matches("no longer shown").count(), 2);
+    assert_eq!(text.matches("no longer shown").count(), 10);
 }
