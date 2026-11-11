@@ -9,4 +9,6 @@ interface ImportMetaEnv {
   readonly VITE_ACE_BUILD?: string;
   /** Set by the build from `ACE_FAKE_PR_PUSH_EVERY_MS`: the fake app's sample push timer. */
   readonly VITE_ACE_FAKE_PR_PUSH_EVERY_MS?: string;
+  /** Set by the build: `off` when built with `DISABLE_SPADE=1`, so Spade's screens are left out. */
+  readonly VITE_ACE_SPADE?: string;
 }

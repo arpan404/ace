@@ -31,6 +31,7 @@ export {
 } from "./registry.ts";
 export {
   PanelPlaceContext,
+  PanelRoomContext,
   useBottomFits,
   useBottomHeight,
   useFocusedScope,
@@ -53,6 +54,13 @@ export {
   type FilePreviewSource,
   type FilePreviewTabData,
 } from "./file-preview-tab.ts";
+export {
+  TextEdits,
+  TextEditsContext,
+  textEditTab,
+  textEditTabKind,
+  type TextEditSession,
+} from "./text-edit-tab.ts";
 export { tabDragType } from "./drag.ts";
 
 export { attachWorkspaceScroll } from "./scroll.ts";

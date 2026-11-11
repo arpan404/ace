@@ -26,6 +26,8 @@ export function actionErrorCode(error: unknown): string {
       "workspace_preparation_collision",
       "workspace_change_refused",
       "repository_mismatch",
+      "repository_hidden",
+      "repository_unavailable",
       "git_pr_head_unavailable",
       "pr_checkout_changed",
       "pr_requires_worktree",

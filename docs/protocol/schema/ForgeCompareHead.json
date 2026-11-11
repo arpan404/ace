@@ -9,9 +9,13 @@
       "$ref": "https://ace.local/protocol/v1/ForgeRepositoryName.json"
     },
     "owner": {
-      "maxLength": 100,
-      "pattern": "^[\\w-]+$",
-      "type": "string"
+      "maxLength": 512,
+      "not": {
+        "pattern": "(?:^|/)\\.{1,2}(?:/|$)"
+      },
+      "pattern": "^[\\w.-]+(?:\\/[\\w.-]+)*$",
+      "type": "string",
+      "x-ace-constraint": "Every owner path segment must differ from . and .."
     }
   },
   "required": [

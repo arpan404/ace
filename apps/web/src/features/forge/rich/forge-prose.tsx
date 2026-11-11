@@ -1,3 +1,4 @@
+import { hostedReferenceAddress } from "@ace/ui-core";
 import { useCallback, useContext, type ReactNode } from "react";
 import { forgeReferenceAddress } from "@ace/ui-core/forge-rich";
 import { Prose } from "@/components/markdown/prose.tsx";
@@ -20,8 +21,13 @@ export function ForgeProse(props: {
   const { host, owner, name } = repository ?? {};
   const forgeReference = useCallback(
     (reference: { kind: string; target: string }) =>
-      forgeReferenceAddress(reference, host && owner && name ? { host, owner, name } : undefined),
-    [host, owner, name],
+      repository && repository.forge !== "github"
+        ? hostedReferenceAddress(reference, repository)
+        : forgeReferenceAddress(
+            reference,
+            host && owner && name ? { host, owner, name } : undefined,
+          ),
+    [host, owner, name, repository],
   );
   return (
     <Prose

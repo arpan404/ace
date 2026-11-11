@@ -123,8 +123,12 @@ function hostedPending(
 const MutationIds = z.object({
   data: z.record(z.string(), z.object({ clientMutationId: text.nullable() }).nullable()),
 });
+/** The hash every host's write marker names an operation by: never the operation id itself. */
+export function writeMarkerHash(operationId: string): string {
+  return createHash("sha256").update(operationId).digest("hex");
+}
 export function reviewWriteMarker(operationId: string): string {
-  return `<!-- ace-write:${createHash("sha256").update(operationId).digest("hex")} -->`;
+  return `<!-- ace-write:${writeMarkerHash(operationId)} -->`;
 }
 /** GitHub writes through the installed CLI. All lookups stay scoped to the selected PR. */
 export class GitHubReviews {

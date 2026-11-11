@@ -1,5 +1,6 @@
 import type { PlaceInput } from "@ace/ui-core/thread-place";
 import { FakeComputerAccess } from "./computer-access.ts";
+import { FakeSpade } from "./spade.ts";
 import { fakeRemoteStatus } from "./remote-status.ts";
 import { projectIntent } from "./project-intents.ts";
 import { fakeGoalUpdate } from "./goal-commands.ts";
@@ -168,6 +169,8 @@ export class FakeDaemon implements Host {
   readonly transfers: FakeTransfers;
   /** Locked computer use and Use my Chrome (`computer-access.ts`). */
   readonly computerAccess = new FakeComputerAccess();
+  /** Spade's status, with its host thread (`spade.ts`). */
+  readonly spade = new FakeSpade();
   constructor(options: FakeDaemonOptions) {
     this.options = options;
     this.worktreeCreations = new FakeWorktreeCreations(
@@ -353,6 +356,10 @@ export class FakeDaemon implements Host {
   /** "Pause new work" behind `admission.request`; `set("user", …)` is the desktop tray's pause. */
   get admission(): Pick<import("./admission-wire.ts").FakeAdmission, "set" | "held"> {
     return this.servicesWire.admission;
+  }
+  /** Outside MCP clients behind `outside.request`: seed grants, ask for access, read decisions. */
+  get outside(): import("./outside-wire.ts").FakeOutside {
+    return this.servicesWire.outside;
   }
   /** This machine's own update, behind `machineUpdate.request`. */
   get machineUpdate(): FakeMachineUpdate {
@@ -555,8 +562,10 @@ export class FakeDaemon implements Host {
       // A delegated child names its parent, as the daemon records it at launch.
       ...(init.parentThreadId ? { delegatedBy: ThreadId.parse(init.parentThreadId) } : {}),
       ...(init.startedBy ? { startedBy: ThreadId.parse(init.startedBy) } : {}),
+      ...(init.startedByClient ? { startedByClient: init.startedByClient } : {}),
       ...(init.delegatedFrom ? { delegatedFrom: init.delegatedFrom } : {}),
       ...(init.queuedLaunch ? { queuedLaunch: init.queuedLaunch } : {}),
+      ...(init.host ? { host: init.host } : {}),
       ...(init.execution ? { execution: init.execution } : {}),
       permission: {
         override: init.access ?? null,
@@ -911,6 +920,7 @@ export class FakeDaemon implements Host {
     }
     if (this.transfers.handle(message, connection.push)) return true;
     if (this.computerAccess.handle(message, connection.push)) return true;
+    if (this.spade.handle(message, connection.push)) return true;
     return this.services.handle(message, connection.push, connection.deviceId);
   }
   /** Link this machine to `other` so it can send work there (`FakeTransfers.link`). */

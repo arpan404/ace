@@ -20,6 +20,8 @@ struct GitMessageSheet: View {
     let kind: String
     let submitLabel: String
     let initialTitle: String
+    /// "Opens on GitLab · acme/ace", when the project uses several repositories.
+    var opensOn: String? = nil
     let send: (_ action: [String: Any]) -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -72,6 +74,12 @@ struct GitMessageSheet: View {
                                     .textInputAutocapitalization(.never).autocorrectionDisabled()
                                     .accessibilityLabel("Reviewers").accessibilityIdentifier("changes.reviewers")
                             }
+                        }
+                        if let opensOn {
+                            Text(opensOn).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                                .foregroundStyle(AceDesign.Ink.muted)
+                                .padding(.horizontal, AceDesign.Space.margin)
+                                .accessibilityIdentifier("changes.opensOn")
                         }
                     }
                 }.padding(.vertical, AceDesign.Space.related)

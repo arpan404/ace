@@ -8,6 +8,7 @@ import {
 } from "@ace/ui-core";
 import { useToast } from "@/components/ui/toast.tsx";
 import { insertTextWhenMounted } from "@/lib/composer-insert.ts";
+import { repositoryParam } from "@/lib/pull-request-route.ts";
 
 /**
  * What each step's button does from the list: Answer opens the thread, Review the PR's code,
@@ -22,7 +23,7 @@ export function useStepAction(back: string) {
     void navigate({
       to: "/pulls/$project/$number",
       params: { project, number: String(row.ref.number) },
-      search: { back, ...(tab ? { tab } : {}) },
+      search: { back, repo: repositoryParam(row.ref.repository), ...(tab ? { tab } : {}) },
     });
   return (input: {
     project: string;

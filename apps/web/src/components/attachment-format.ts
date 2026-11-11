@@ -40,6 +40,8 @@ export interface ChipAttachment {
   error?: string | undefined;
   /** Whether trying again can help (a file over the limit can't). */
   retryable?: boolean | undefined;
+  /** Text this device holds that the person may edit before it goes (a long paste). */
+  editable?: boolean | undefined;
 }
 
 /** Where an image's bytes come from. Attachments resolve through the owning connection. */

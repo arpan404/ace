@@ -93,6 +93,9 @@
         "startedBy": {
           "$ref": "https://ace.local/protocol/v1/StartedBy.json"
         },
+        "startedByClient": {
+          "$ref": "https://ace.local/protocol/v1/StartedByClient.json"
+        },
         "status": {
           "$ref": "https://ace.local/protocol/v1/ThreadStatus.json"
         },

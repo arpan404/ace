@@ -81,6 +81,12 @@
       "$ref": "https://ace.local/protocol/v1/FleetResult.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/OutsideResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/OutsideState.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/LockedUseStatusMessage.json"
     },
     {
@@ -489,6 +495,27 @@
     },
     {
       "$ref": "https://ace.local/protocol/v1/SkillsChanged.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeStatusResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeStatusChanged.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeHttpResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeHttpOpen.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeHttpChunk.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeLiveFrame.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeLiveEnded.json"
     },
     {
       "properties": {

@@ -310,7 +310,7 @@ export function createdPullRequest(
   try {
     const ref = prFromUrl(
       text,
-      candidates.map((repository) => repository.host),
+      candidates.map((repository) => ({ host: repository.host, forge: repository.forge })),
     );
     const repository = candidates.find(
       (candidate) => repositoryKey(candidate) === repositoryKey(ref.repository),

@@ -1,5 +1,5 @@
 import { useClient } from "@ace/client-react";
-import { inputWithText, sendBusyReason, tokensFromInput } from "@ace/ui-core";
+import { contextAfterEdit, inputWithText, sendBusyReason, tokensFromInput } from "@ace/ui-core";
 import { useId, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import {
@@ -39,6 +39,16 @@ export function EditSendDialog(props: {
         client.editFailedSend(props.commandId, {
           ...current,
           input: inputWithText(current.input, text.trim()),
+          // Its files stay by the same words.
+          ...(current.context
+            ? {
+                context: contextAfterEdit(
+                  current.context,
+                  current.input,
+                  inputWithText(current.input, text.trim()),
+                ),
+              }
+            : {}),
         }),
       );
       if (ran.ran) props.onClose();

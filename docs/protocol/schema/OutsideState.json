@@ -1,0 +1,30 @@
+{
+  "$id": "https://ace.local/protocol/v1/OutsideState.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "access": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/OutsideAccessRequest.json"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "screen": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/OutsideScreenUse.json"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "type": {
+      "const": "outside.state",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "access",
+    "screen"
+  ],
+  "type": "object"
+}

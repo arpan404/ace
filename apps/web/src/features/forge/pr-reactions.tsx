@@ -1,3 +1,4 @@
+import { can } from "@ace/ui-core";
 import {
   ConfettiIcon,
   EyesIcon,
@@ -14,7 +15,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuCheckboxItem, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
-import { usePrReview } from "./pr-review-context.tsx";
+import { usePrReview, usePrDetail } from "./pr-review-context.tsx";
 
 const reactions: readonly {
   content: ForgeReactionContent;
@@ -36,9 +37,10 @@ const same = (a: ForgeReactionSubject, b: ForgeReactionSubject) =>
 /** A subject's reactions and how to toggle the viewer's; undefined until they are known. */
 function useReactions(subject: ForgeReactionSubject) {
   const review = usePrReview();
+  const detail = usePrDetail();
   const known = review?.state?.reactions;
   // Without the viewer's own reactions a press can't know whether it adds or removes.
-  if (!review || !known) return undefined;
+  if (!detail || !can(detail, "reactions") || !review || !known) return undefined;
   const groups = known.find((entry) => same(entry.subject, subject))?.groups ?? [];
   return {
     groups,

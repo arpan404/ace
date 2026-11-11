@@ -1,0 +1,48 @@
+{
+  "$id": "https://ace.local/protocol/v1/SpadeHttpRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "body": {
+      "maxLength": 524288,
+      "type": "string"
+    },
+    "contentType": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "encoding": {
+      "$ref": "https://ace.local/protocol/v1/SpadeBodyEncoding.json",
+      "default": "text"
+    },
+    "method": {
+      "$ref": "https://ace.local/protocol/v1/SpadeMethod.json"
+    },
+    "parts": {
+      "maximum": 1024,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "path": {
+      "maxLength": 2048,
+      "minLength": 4,
+      "type": "string"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "spade.http",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "method",
+    "path"
+  ],
+  "type": "object"
+}

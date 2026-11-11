@@ -144,7 +144,8 @@ struct ReviewReadySheet: View {
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .sheet(isPresented: $writingPR) {
-            if let step { GitMessageSheet(model: model, kind: "create-pr", submitLabel: step.label, initialTitle: model.thread?.metadata?.title ?? "") { send($0) } }
+            if let step { GitMessageSheet(model: model, kind: "create-pr", submitLabel: step.label, initialTitle: model.thread?.metadata?.title ?? "",
+                                         opensOn: step.opensOn) { send($0) } }
         }
         .sheet(isPresented: $committing) {
             if let step { GitMessageSheet(model: model, kind: "commit", submitLabel: step.label, initialTitle: model.thread?.metadata?.title ?? "") { send($0) } }

@@ -1,4 +1,4 @@
-//! Spade's endpoint API keys, kept in the operating system's credential store (ADR 0116): the
+//! Spade's endpoint API keys, kept in the operating system's credential store (ADR 0119): the
 //! Keychain on macOS, Credential Manager on Windows, the Secret Service on Linux. Keys are never
 //! written anywhere else, and no error or debug output ever contains one.
 //!

@@ -65,6 +65,10 @@ export default defineConfig(({ mode }) => ({
     "import.meta.env.VITE_ACE_FAKE_PR_PUSH_EVERY_MS": JSON.stringify(
       process.env.ACE_FAKE_PR_PUSH_EVERY_MS ?? "",
     ),
+    // `DISABLE_SPADE=1` builds the app without Spade: only its mark stays, as coming soon.
+    "import.meta.env.VITE_ACE_SPADE": JSON.stringify(
+      process.env.DISABLE_SPADE === "1" ? "off" : "on",
+    ),
   },
   build: {
     target: "es2023",

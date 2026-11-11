@@ -30,6 +30,7 @@ struct ForgeHome: View {
     var openMachines: () -> Void = {}
     /// Opens pairing while no computer is paired; nil while that isn't known yet.
     var pair: (() -> Void)?
+    @State private var features: ForgeFeatures?
     @State private var projects: [ForgeProject] = []
     @State private var projectsFailed: String?
     @State private var pullsFilter = PullsFilter()
@@ -83,7 +84,13 @@ struct ForgeHome: View {
             .nativeTitle(headingTitle, subtitle: InboxConnectionProblem.of(inbox)?.text ?? projects.first { $0.id == chosen }?.name,
                          hasMenu: inbox.showsMachineNames || projects.count > 1) { titleMenu }
             .task(id: "\(session?.hostId ?? "")|\(session?.client.connection ?? "")") { await loadProjects() }
-            .task(id: "\(listKey)|\(listGeneration)") { await load(fresh: false) }
+            .task(id: "\(listKey)|\(listGeneration)|\(features?.issues == true)|\(features?.inbox == true)") { await load(fresh: false) }
+            .task(id: "\(session?.hostId ?? "")|\(chosen ?? "")|\(listGeneration)") {
+                features = nil
+                guard let client = session?.client, let chosen else { return }
+                features = try? await client.read(["type": "forge.features", "project": chosen], as: ForgeFeatures.self)
+                if kind == .issues && features?.issues == false || kind == .inbox && features?.inbox == false { kind = .pulls }
+            }
             .sheet(isPresented: $creating) {
                 if let session, let chosen {
                     ForgeNewPullSheet(client: session.client, project: chosen) { number in
@@ -126,7 +133,7 @@ struct ForgeHome: View {
         } else if let projectsFailed {
             ForgeEmpty { EmptyState(icon: nil, title: "Couldn't load projects", line: projectsFailed, failed: true) { Button("Try again") { Task { await loadProjects() } } } }
         } else if session != nil, projects.isEmpty, session?.client.connection == "ready" {
-            ForgeEmpty { EmptyState(icon: .gitPullRequest, title: "No projects yet", line: "Add a project with a GitHub remote to see its pull requests and issues.") { EmptyView() } }
+            ForgeEmpty { EmptyState(icon: .gitPullRequest, title: "No projects yet", line: "Add a project with a Git remote to see its pull requests and issues.") { EmptyView() } }
         } else {
             SkeletonRows(label: "Loading pull requests")
         }
@@ -153,18 +160,19 @@ struct ForgeHome: View {
         }
     }
 
+    private var kinds: [GlassSwitch<ForgeKind>.Choice] {
+        var choices: [GlassSwitch<ForgeKind>.Choice] = [.init(value: .pulls, title: "Pull requests", identifier: "forge.kind.pulls", short: "Pulls")]
+        if features?.issues == true { choices.append(.init(value: .issues, title: "Issues", identifier: "forge.kind.issues")) }
+        if features?.inbox == true { choices.append(.init(value: .inbox, title: "Inbox", identifier: "forge.kind.inbox")) }
+        return choices
+    }
+
     /// The list switch on glass, filling the row, and the state filter beside it.
     private var chips: some View {
         HStack(spacing: AceTheme.Spacing.sm) {
-            GlassSwitch(selection: $kind, choices: [
-                .init(value: .pulls, title: "Pull requests", identifier: "forge.kind.pulls", short: "Pulls"),
-                .init(value: .issues, title: "Issues", identifier: "forge.kind.issues"),
-                .init(value: .inbox, title: "Inbox", identifier: "forge.kind.inbox"),
-            ])
-            if kind == .pulls, session?.client.canOperate == true, chosen != nil {
-                Button { creating = true } label: {
-                    Image(ace: .plus).frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap).contentShape(Rectangle())
-                }
+            GlassSwitch(selection: $kind, choices: kinds)
+            if kind == .pulls, session?.client.canOperate == true, chosen != nil, features?.create == true {
+                Button("New pull request") { creating = true }.buttonStyle(.forgeWord)
                 .accessibilityLabel("New pull request")
                 .accessibilityIdentifier("forge.newpr")
             }
@@ -204,6 +212,7 @@ struct ForgeHome: View {
 
     private func load(fresh: Bool) async {
         guard let client = session?.client, let chosen, client.connection == "ready" else { return }
+        if kind == .issues && features?.issues != true || kind == .inbox && features?.inbox != true { return }
         let (pullsFilter, issuesFilter, query) = (pullsFilter, issuesFilter, query)
         let scope = ForgeListScope(machineId: session?.hostId ?? "", project: chosen)
         switch kind {

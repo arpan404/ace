@@ -305,8 +305,17 @@ export const WorkspaceCommands = [
   z.object({
     type: z.literal("git.push"),
     threadId: ThreadId,
+    /**
+     * Where a plain push goes: the global source control remote name, as clients send it. With
+     * `target` it must be the global remote name or the PR head's own remote.
+     */
     remote: z.string().min(1).max(128).default("origin"),
-    /** Pin a PR's pushed head and repository to the checkout the person reviewed. */
+    /**
+     * The push before opening a PR: pin its head to the checkout the person reviewed.
+     * `repository` is the project's primary as the client saw it. The daemon pushes to the PR's
+     * head (ADR 0120): the global remote name's repository when it is the primary or a fork of
+     * it, else the primary's own remote; anything else is refused with `repository_mismatch`.
+     */
     target: z
       .object({
         repository: ForgeRepository,

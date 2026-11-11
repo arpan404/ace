@@ -93,3 +93,28 @@ struct ProviderMark: View {
         }
     }
 }
+
+/// A Git host provider's brand mark from the generated `ForgeMarks` assets (`forge-<kind>`),
+/// drawn the way `ProviderMark` draws an agent's, or ace's branch glyph for a provider with no
+/// mark yet. Decorative: the row names the provider for VoiceOver.
+struct GitHostMark: View {
+    let forge: String
+    @ScaledMetric private var size: CGFloat
+
+    init(forge: String, size: CGFloat = AceDesign.Size.icon) {
+        self.forge = forge
+        _size = ScaledMetric(wrappedValue: size, relativeTo: .caption)
+    }
+
+    var body: some View {
+        Group {
+            if UIImage(named: "forge-\(forge)") != nil {
+                Image("forge-\(forge)").resizable().scaledToFit()
+            } else {
+                Image(ace: .gitBranch).resizable().scaledToFit().foregroundStyle(AceDesign.Ink.muted)
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+}

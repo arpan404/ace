@@ -8,6 +8,10 @@ export interface Env {
   UPGRADES?: RateLimit;
   /** Account API request rate limit per client address. */
   ACCOUNT_REQUESTS?: RateLimit;
+  /** Forwarded HTTP (`/m/<hostId>/…`, ADR 0122) per caller address. */
+  HTTP_REQUESTS?: RateLimit;
+  /** Forwarded HTTP per machine, keyed by host id. */
+  HTTP_HOST_REQUESTS?: RateLimit;
   ACE_ACCOUNT_PUBLIC_URL?: string;
   ACE_ACCOUNT_ALLOWED_ORIGINS?: string;
   WORKOS_CLIENT_ID?: string;

@@ -66,7 +66,7 @@ private struct ChangesActions<Header: View>: ViewModifier {
         }
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { status }
             .sheet(isPresented: $editing) {
-                if let step { GitMessageSheet(model: model, kind: step.kind, submitLabel: step.label, initialTitle: title) { send($0) } }
+                if let step { GitMessageSheet(model: model, kind: step.kind, submitLabel: step.label, initialTitle: title, opensOn: step.opensOn) { send($0) } }
             }
             .confirmationDialog("\(step.map(label) ?? "Merge") PR #\(step?.pr?.number ?? 0)?", isPresented: $confirmingMerge, titleVisibility: .visible) {
                 Button(step.map(label) ?? "Merge") { send(["kind": "merge", "method": method?.method ?? "squash"]) }
@@ -78,7 +78,7 @@ private struct ChangesActions<Header: View>: ViewModifier {
                 Button("Cancel", role: .cancel) {}
                 Button("Request review") { send(["kind": "request-review", "reviewers": reviewers]) }
                     .disabled(reviewers.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            } message: { Text("GitHub usernames") }
+            } message: { Text("Usernames") }
     }
 
     /// The next step itself, one tap away.
@@ -103,11 +103,13 @@ private struct ChangesActions<Header: View>: ViewModifier {
                         }
                         .pickerStyle(.menu)
                         .accessibilityIdentifier("changes.mergeOptions")
-                        Button("Request review", systemImage: "person.badge.plus") { reviewers = ""; requestingReview = true }
                     }
                 }
             }
-            if let url = step?.pr?.url.flatMap(URL.init(string:)) { Link(destination: url) { Label("Open on GitHub", systemImage: "safari") } }
+            if summary?.canRequestReview == true, model.canOperate {
+                Button("Request review") { reviewers = ""; requestingReview = true }.disabled(running)
+            }
+            if let url = step?.pr?.url.flatMap(URL.init(string:)) { Link(summary?.openOn ?? "Open in browser", destination: url) }
             Section {
                 if sizeClass == .regular {
                     Picker(selection: Binding(get: { summary?.layout ?? "unified" }, set: { model.sheet(["kind": "changes.layout", "layout": $0]) })) {

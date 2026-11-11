@@ -1,10 +1,10 @@
+import { can } from "@ace/ui-core";
 import { useMemo, type ReactNode } from "react";
-import { XIcon } from "@phosphor-icons/react";
+import { XCircleIcon } from "@phosphor-icons/react";
 import type { ForgeCheck, ForgePrDetail } from "@ace/protocol";
 import { DisabledReason } from "@/components/ui/disabled-reason.tsx";
 import { cn } from "@/lib/cn.ts";
 import { PrAvatar, PrTime } from "./pr-presentation.tsx";
-import { PrSection } from "./pr-section.tsx";
 import { attentionItems, type AttentionItem } from "./pr-summary-model.ts";
 import { PrFixingWord } from "./pr-fixing-word.tsx";
 import { useFixWithAgent } from "./pr-fix-with-agent.ts";
@@ -17,20 +17,16 @@ import { useAskFocus, useReplyOpen } from "./pr-ui-store.tsx";
 import { useQuote } from "./pr-quote.tsx";
 import { TextAction } from "./pr-text-action.tsx";
 
-/** Who asked, ringed in the failed tone; a failing check gets a cross in that tone. */
+/** Who asked, by their avatar; a failing check by the failed status icon. */
 function Lead(props: { item: AttentionItem; avatar: string | undefined }) {
   if (props.item.kind === "check")
     return (
-      <span
-        aria-hidden
-        data-tone="failed"
-        className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full text-(--tone-text) ring-1 ring-(--tone)/60"
-      >
-        <XIcon size={11} weight="bold" />
+      <span aria-hidden data-tone="failed" className="grid size-5 shrink-0 place-items-center">
+        <XCircleIcon size={18} weight="fill" className="text-(--tone-text)" />
       </span>
     );
   return (
-    <span className="mt-0.5 inline-flex shrink-0 rounded-full ring-2 ring-status-failed ring-offset-1 ring-offset-panel">
+    <span className="inline-flex size-5 shrink-0 items-center justify-center">
       <PrAvatar name={props.item.author} url={props.avatar} />
     </span>
   );
@@ -70,7 +66,7 @@ function Row(props: {
 }) {
   const { item } = props;
   return (
-    <li className="flex items-start gap-2.5 py-3">
+    <li className="flex items-start gap-2.5 px-3 py-2.5">
       <Lead item={item} avatar={props.avatar} />
       <div className="min-w-0 flex-1">
         <p className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-ui">
@@ -78,15 +74,14 @@ function Row(props: {
             {item.kind === "check" ? item.title : item.author}
           </span>
           <span className="text-muted-foreground">
-            {item.kind === "check"
-              ? "failed"
-              : item.kind === "review"
-                ? "requested changes"
-                : "asked on"}
+            {item.kind === "check" ? "failed" : item.kind === "review" ? "requested changes" : "on"}
           </span>
           {item.kind === "thread" && (
-            <span className="min-w-0 truncate font-mono text-xs text-foreground/85">
-              {item.detail}
+            <span
+              title={item.detail}
+              className="min-w-0 truncate font-mono text-xs text-foreground"
+            >
+              {item.detail.split("/").pop()}
             </span>
           )}
           {item.at && (
@@ -100,15 +95,17 @@ function Row(props: {
         {props.quote !== undefined && (
           <div
             className={cn(
-              "mt-1 line-clamp-3 text-ui break-words whitespace-pre-line",
-              props.masked ? "text-subtle-foreground" : "text-foreground/90",
+              "mt-0.5 line-clamp-3 text-ui break-words whitespace-pre-line",
+              props.masked ? "text-subtle-foreground" : "text-foreground",
               item.kind === "check" && "font-mono text-xs",
             )}
           >
             {props.quote}
           </div>
         )}
-        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">{props.actions}</div>
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3.5 gap-y-1 [&>button]:text-ui [&>button]:font-medium [&_button]:text-ui [&_button]:font-medium">
+          {props.actions}
+        </div>
         {props.after}
       </div>
     </li>
@@ -134,7 +131,11 @@ function CheckRow(props: {
   const rerun = useCheckRerun({ workspaceId: props.workspaceId, pr, onDone: props.onRefresh });
   const line = run.data ? firstFailureLine(run.data) : undefined;
   const workflow = run.data?.workflow;
-  const controls = checkControls(check, run.data, props.open);
+  const controls = checkControls(
+    check,
+    run.data,
+    props.open && can(detail, "reviews.checks.write"),
+  );
   return (
     <Row
       item={props.item}
@@ -189,6 +190,11 @@ export function PrAttention(props: {
   onOpenCode?: ((path: string, line?: number) => void) | undefined;
   /** Opens a check's log in the Checks tab; without it there is no Open log. */
   onOpenCheck?: ((id: string) => void) | undefined;
+  /**
+   * Only the reviews' part (requested changes and open conversations) or the checks' part, as a
+   * bare list for the merge box's section of that gate.
+   */
+  only?: "reviews" | "checks" | undefined;
 }) {
   const { detail } = props;
   const onOpenCode = props.onOpenCode;
@@ -196,7 +202,10 @@ export function PrAttention(props: {
   const state = review?.state;
   const quote = useQuote();
   // Hidden comments stay out of the list, and so out of any agent's request.
-  const items = useBlockingItems(detail);
+  const all = useBlockingItems(detail);
+  const items = props.only
+    ? all.filter((item) => (item.kind === "check") === (props.only === "checks"))
+    : all;
   const threads = useMemo(
     () => new Map(detail.status.reviewThreads.map((t) => [`thread:${t.id}`, t])),
     [detail.status.reviewThreads],
@@ -224,8 +233,13 @@ export function PrAttention(props: {
   const avatarOf = (author: string) =>
     detail.status.comments.find((c) => c.author === author && c.authorAvatarUrl)?.authorAvatarUrl;
   return (
-    <PrSection id="pr-attention" title="Blocking the merge" count={items.length} fixed>
-      <ul className="divide-y divide-border-soft">
+    <ListFrame only={props.only}>
+      <ul
+        aria-label={
+          props.only === "checks" ? "Failing checks" : props.only ? "To address" : undefined
+        }
+        className="divide-y divide-border-soft"
+      >
         {items.map((item) => {
           const masked = item.kind !== "check" && !hiddenKnown;
           const title =
@@ -279,7 +293,9 @@ export function PrAttention(props: {
               actions={
                 <>
                   {fixAction}
-                  {thread && root && <ReplyAction threadId={thread.id} title={title} />}
+                  {thread && root && can(props.detail, "reviews.comments.reply") && (
+                    <ReplyAction threadId={thread.id} title={title} />
+                  )}
                   {item.kind === "review" && !masked && quote && (
                     <TextAction
                       aria-label={`Reply: ${title}`}
@@ -313,6 +329,17 @@ export function PrAttention(props: {
           );
         })}
       </ul>
-    </PrSection>
+    </ListFrame>
+  );
+}
+
+/** Standalone, the list is its own region; in the merge box, a bordered list in its section. */
+function ListFrame(props: { only: "reviews" | "checks" | undefined; children: ReactNode }) {
+  if (props.only)
+    return <div className="mt-2 rounded-md border border-border-soft">{props.children}</div>;
+  return (
+    <section id="pr-attention" aria-label="Blocking the merge">
+      {props.children}
+    </section>
   );
 }

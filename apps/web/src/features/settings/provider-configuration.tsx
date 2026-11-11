@@ -36,7 +36,8 @@ export function ProviderPreferences(props: { provider: ProviderKind; missing: bo
         <Switch
           id="provider-enabled"
           checked={value?.enabled === false}
-          disabled={disabled || props.missing}
+          // A turned-off provider can always be turned back on, whatever discovery says.
+          disabled={disabled || (props.missing && value?.enabled !== false)}
           onCheckedChange={(off) => void update((row) => ({ ...row, enabled: !off }))}
         />
       </SettingRow>

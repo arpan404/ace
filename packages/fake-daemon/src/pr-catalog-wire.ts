@@ -45,6 +45,9 @@ import { FakePrPeople } from "./pr-people-wire.ts";
  * review state, files and activity, answered for any project that asks about them. Reads a
  * test set explicitly (`setForgeRead`) still win.
  */
+/** A catalog PR's identity: repository and number. */
+const fixtureId = (entry: PullRequestFixture) => JSON.stringify(entry.detail.status.ref);
+
 export class FakePrCatalog {
   private fixtures: PullRequestFixture[] = [];
   /** Bumped by every accepted lifecycle write: GitHub's new version of the PR. */
@@ -66,16 +69,13 @@ export class FakePrCatalog {
       },
     }));
   }
-  /** More pull requests beside the seeded ones; one already known by number is replaced. */
+  /** More pull requests beside the seeded ones; one already known (same repository and number) is replaced. */
   add(fixtures: readonly PullRequestFixture[]): void {
     const known = this.fixtures;
     this.seed(fixtures);
     const added = this.fixtures;
-    const numbers = new Set(added.map((entry) => entry.detail.status.ref.number));
-    this.fixtures = [
-      ...known.filter((entry) => !numbers.has(entry.detail.status.ref.number)),
-      ...added,
-    ];
+    const ids = new Set(added.map(fixtureId));
+    this.fixtures = [...known.filter((entry) => !ids.has(fixtureId(entry))), ...added];
   }
   private find(op: { repository?: unknown; number?: unknown }) {
     return this.fixtures.find(

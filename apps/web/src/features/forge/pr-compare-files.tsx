@@ -43,7 +43,7 @@ export function PrCompareFiles(props: { files: readonly ForgeFile[] }) {
               body={
                 file.patch === null ? (
                   <p className="px-3 py-2 text-xs text-muted-foreground">
-                    GitHub shows this file's changes once the pull request is open.
+                    This host didn't supply a text patch for this file.
                   </p>
                 ) : undefined
               }
