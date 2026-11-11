@@ -21,8 +21,11 @@ the same way they reach the daemon.
 
   stdout and stderr go to the daemon's log, tagged `spade`. Spade inherits the rest of the
   daemon's environment, including the person's own `SPADE_*` settings, except `ACE_*`.
-  `SPADE_ACE_MCP_URL` is `http://127.0.0.1:PORT/mcp` (MCP Streamable HTTP, the bearer in
-  `Authorization`). `SPADE_ACE_URL` is `ws://127.0.0.1:PORT`: send
+  `SPADE_ACE_MCP_URL` is `http://127.0.0.1:PORT/mcp` (MCP Streamable HTTP, protocol
+  2025-11-25, the bearer in `Authorization`). Send `X-Ace-Notifications: stream` on every MCP
+  request, or the server answers statelessly with no session and no list-changed stream; send no
+  `X-Ace-Tools` header, so every tool is listed with its `readOnlyHint` and `destructiveHint`.
+  The bearer is new for each Spade run and revoked when the run ends. `SPADE_ACE_URL` is `ws://127.0.0.1:PORT`: send
   `{"type":"hello","protocolVersion":1,"deviceId":"spade","token":"<SPADE_ACE_TOKEN>"}` and wait
   for `welcome` before any request.
 
@@ -62,8 +65,10 @@ event at 1 MiB. ADR 0117 records the daemon side.
 
 - **ace tools** (threads, agent status, delegation, browser, screen, notifications, automations):
   Spade is an MCP client of the daemon's loopback MCP endpoint, using `SPADE_ACE_MCP_URL` and
-  `SPADE_ACE_MCP_TOKEN`. The daemon applies its usual scopes; Spade's approval gate runs before
-  every write.
+  `SPADE_ACE_MCP_TOKEN`, with operate scope. The daemon applies its usual scopes and per-tool
+  rules; Spade's approval gate runs before every write. Open (ADR 0117): the full agent tool set
+  needs a thread for Spade's calls to belong to; until that is decided, the credential is an
+  external MCP operate lease with that endpoint's smaller tool set.
 - **Skills:** `skills.request` (ADR 0103) over the daemon WebSocket with the local token, for the
   list and each skill's text, so Spade and ace share one skill library.
 - **CLI brains (later):** Spade asks the daemon to run a turn on a provider CLI with Spade's tools

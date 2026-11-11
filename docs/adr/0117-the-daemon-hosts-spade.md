@@ -78,6 +78,31 @@ Fifteen seconds without that and the daemon stops the child and counts a failure
   Spade and the ace apps share one skill library. This is the same authority any local process
   that can read the person's files already has; it never leaves the machine.
 
+### Spade's MCP credential (clarified 2026-11-11)
+
+What Spade's MCP client (`spade-ace`) needs from its credential:
+
+- **Tool set.** The target is the full agent tool set an ace provider session gets (threads, agent
+  status and messages, delegation, browser, screen and computer use, notifications, automations,
+  skills and guides), with operate scope, and the daemon's usual per-tool rules (such as the
+  apps agents can't use). Spade's approval gate runs before every write. That set is served only
+  by the daemon's own MCP endpoint, whose leases name a stored thread and that thread's root agent:
+  delegations become that thread's children, browser and screen use are owned by it, and notices
+  land in it. Spade has no thread today, so this part is **open**: until it is decided, Spade's
+  lease is the operate enrollment on the external endpoint described above, which serves only
+  that endpoint's smaller tool set.
+- **Listing.** Spade sends no `X-Ace-Tools` header, which lists every tool, each with
+  `readOnlyHint` and `destructiveHint` stated, so Spade defers tools and maps each tool's risk
+  itself. It sends no `X-Ace-Client` header. Simulator (`sim_*`) tools are listed once their
+  family opens, announced by `tools/list_changed`.
+- **Protocol.** MCP 2025-11-25 with sessions. Spade sends `X-Ace-Notifications: stream` on every
+  request: without it the server answers 2025-11-25 statelessly, with no session and no
+  list-changed stream. With it, `initialize` returns an `Mcp-Session-Id` and Spade keeps the GET
+  stream open for `notifications/tools/list_changed`. One lease holds at most 4 such sessions; a
+  fifth `initialize` replaces the oldest.
+- **Lifetime.** Issued for each Spade run and revoked when that run ends: a crash, a stop, or
+  `spade.enabled` turned off. A restart gets a new bearer.
+
 ### The `spade.*` family
 
 Schema-only in `@ace/protocol` (`spade.ts`), served by the daemon's `spade` socket session:
