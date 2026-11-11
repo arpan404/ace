@@ -103,8 +103,8 @@ ADR 0117 records the daemon side.
   empty folder. `spade.status` `thread.busy` is true while any child is still working or waiting
   on the person.
 - **Routing results to a conversation.** Each delegation's `requestId` is Spade's own key (1-128
-  of `A-Za-z0-9_.-`, unique among the host thread's delegations). Use `<conversation id>.<n>`
-  (for example `c_01HV3.4`). A retry with the same key and the same task returns the same child,
+  of `A-Za-z0-9_.-`, unique among the host thread's delegations). Spade uses
+  `<conversation>.<call>.<task>` (see below). A retry with the same key and the same task returns the same child,
   so a delegation Spade sent just before a crash is never started twice; the host thread outlives
   Spade's restarts, so this holds across them. The `delegate` reply lists `threadIds` in the order
   of `tasks`: Spade stores `threadId → conversation` from it, and `wait` and `agents_status` name
@@ -127,9 +127,11 @@ ADR 0117 records the daemon side.
   model never change. Risk comes from the annotations; an unlabelled tool is a write.
 - A call is never sent twice: a call on an expired session comes back "not run", one cut off after
   sending comes back "unknown outcome" and the model is told to check before retrying.
-- `delegate`: each task without a `requestId` gets `<conversation>.<call>.<index>`, so a retried
-  call, even after a restart, returns the same child. Children are ordinary threads under Spade's
-  host thread; a child finishing does not wake anything, so Spade reads results with `wait` (run
-  as a background job, up to ten minutes) or `agents_status`.
+- `delegate`: every task's `requestId` is scoped to the call as `<conversation>.<call>.<task>`,
+  where `<task>` is the model's own id (or the task's index), with characters ace refuses
+  replaced, so a retried call, even after a restart, returns the same child and conversations
+  never collide. Children are ordinary threads under Spade's host thread and a child finishing
+  wakes nothing, so `delegate` runs as a background job that waits for its children (up to ten
+  minutes; the conversation shows them as work) and `wait` collects any still running.
 - When every web search backend fails, `web_search` tells the model to ask an ace agent on the
   cheapest model the person has to search instead.
