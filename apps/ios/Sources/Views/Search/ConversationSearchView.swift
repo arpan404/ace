@@ -46,51 +46,93 @@ struct ConversationSearchView: View {
     @State private var kind = ""
     private var queryKey: [String] { [model.hostId ?? "", text, kind, threadId ?? "", model.connection] }
     var body: some View {
-        List {
-            if let machine { machine }
-            Picker("Search in", selection: $kind) {
-                Text("Everything").tag("")
-                Text("Titles").tag("thread")
-                Text("Messages").tag("message")
-                Text("Tools").tag("tool_call")
-                Text("Files").tag("artifact")
-                Text("Visualizations").tag("html")
+        ScrollView {
+            VStack(alignment: .leading, spacing: AceDesign.Space.group) {
+                filters
+                results
             }
-            ForEach(search.hits) { hit in
-                // A hit in a message opens its thread there, in the thread's own history window.
-                Button {
-                    if let itemId = hit.itemId { model.focusOnOpen = ThreadFocus(thread: hit.threadId, item: itemId) }
-                    openThread(hit.threadId)
-                } label: { SearchHitLabel(hit: hit) }
-                    .buttonStyle(.plain).accessibilityIdentifier("search.hit.\(hit.id)")
-            }
-            if let problem = search.problem {
-                ServiceProblem(message: problem)
-                Button("Retry search") { Task { await run() } }
-            } else if search.loading {
-                SkeletonRows(count: 3, label: "Searching conversations").listRowInsets(EdgeInsets())
-            } else if search.loaded && search.hits.isEmpty {
-                EmptyState.search(text)
-            }
-            if search.cursor != nil {
-                Button("Show more results") { Task { await search.more(model: model, text: text, kind: kind, threadId: threadId) } }.disabled(search.loading)
-            }
+            .padding(.top, AceDesign.Space.related).padding(.bottom, AceDesign.Space.group)
         }
+        .background(AceDesign.Surface.background)
         .searchable(text: $text, prompt: "Search messages, tools and files")
         .task(id: queryKey) { await run() }
         .navigationTitle("Search conversation").navigationBarTitleDisplayMode(.inline)
     }
+
+    /// The machine, when several are paired, and what kind of hit to look for.
+    private var filters: some View {
+        QuietSection {
+            if let machine {
+                QuietSectionRow { machine }
+            }
+            QuietSectionRow {
+                Picker("Search in", selection: $kind) {
+                    Text("Everything").tag("")
+                    Text("Titles").tag("thread")
+                    Text("Messages").tag("message")
+                    Text("Tools").tag("tool_call")
+                    Text("Files").tag("artifact")
+                    Text("Visualizations").tag("html")
+                }
+                .accessibilityIdentifier("conversation.kind")
+            }
+        }
+    }
+
+    @ViewBuilder private var results: some View {
+        if let problem = search.problem {
+            SearchProblemRow(text: problem, identifier: "conversation.retry") { await run() }
+        } else if search.loading, search.hits.isEmpty {
+            SkeletonRows(count: 3, label: "Searching conversations")
+        }
+        if search.hits.isEmpty, search.problem == nil, search.loaded {
+            EmptyState.search(text)
+        }
+        if !search.hits.isEmpty {
+            QuietSection("Results") {
+                ForEach(search.hits) { hit in
+                    // A hit in a message opens its thread there, in the thread's own history window.
+                    Button {
+                        if let itemId = hit.itemId { model.focusOnOpen = ThreadFocus(thread: hit.threadId, item: itemId) }
+                        openThread(hit.threadId)
+                    } label: { SearchHitLabel(hit: hit) }
+                        .buttonStyle(.row)
+                        .accessibilityIdentifier("search.hit.\(hit.id)")
+                }
+            }
+        }
+        if search.cursor != nil {
+            QuietSection {
+                QuietSectionRow {
+                    Button("Show more results") {
+                        Task { await search.more(model: model, text: text, kind: kind, threadId: threadId) }
+                    }
+                    .buttonStyle(.textAction(.prominent))
+                    .disabled(search.loading)
+                    .accessibilityIdentifier("conversation.more")
+                }
+            }
+        }
+    }
+
     private func run() async { await search.search(model: model, text: text, kind: kind, threadId: threadId) }
 }
 
 private struct SearchHitLabel: View {
     let hit: ConversationHit
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-            Text(hit.threadTitle).aceFont(AceTheme.Typography.rowTitle, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground).lineLimit(2)
-            Text(hit.excerpt).aceFont(AceTheme.Typography.body, relativeTo: .body).foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(3)
-            Text("\(hit.provider.capitalized) · \(hit.kind.replacingOccurrences(of: "_", with: " "))")
-                .aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.subtleForeground)
-        }.padding(.vertical, AceTheme.Spacing.xs)
+        QuietSectionRow {
+            VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                Text(hit.threadTitle).aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+                    .foregroundStyle(AceDesign.Ink.primary).lineLimit(2)
+                Text(hit.excerpt).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                    .foregroundStyle(AceDesign.Ink.muted).lineLimit(3)
+                Text("\(hit.provider.capitalized) · \(hit.kind.replacingOccurrences(of: "_", with: " "))")
+                    .aceFont(AceDesign.TextRole.caption, relativeTo: .caption2)
+                    .foregroundStyle(AceDesign.Ink.subtle).lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .accessibilityElement(children: .combine)
     }
 }
