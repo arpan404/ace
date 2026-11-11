@@ -70,13 +70,14 @@ Spade calls any endpoint that speaks one of three formats: **OpenAI Chat Complet
 (`openai-chat`: OpenAI and every OpenAI-compatible server, such as OpenRouter, Groq, Ollama or vLLM),
 **OpenAI Responses** (`openai-responses`) or **Anthropic Messages** (`anthropic`).
 
-`config/models.json`, read at startup, lists the endpoints (id, name, format, base URL, the
-key, optional extra headers) and each endpoint's models (id,
-name, context size, capabilities such as `tools`, `images` or `native-tool-search`, and an optional
-price per million tokens, including cache read and write prices). Models are named
-`endpoint/model`, for example `anthropic/claude-sonnet-5-5`; `roles` sets the main, fast and deep
-models. Keys live in the OS keychain (ADR 0119): Spade reads the keychain first, then the variable named in `key.env` (how a headless machine runs it). `"key": {}` means keychain only; an endpoint without `key` needs none (a local server). To add an endpoint, add an entry
-and restart; nothing is recompiled.
+The endpoints and models Spade calls are the person's own, added in the app and kept in Spade's
+database ([docs/agents.md](docs/agents.md)). `config/models.json`, read at startup, holds presets:
+endpoint templates (id, name, format, base URL, the key, optional extra headers and session
+header) and known facts about model ids (name, context size, capabilities such as `tools`,
+`images` or `native-tool-search`, and an optional price per million tokens, including cache read
+and write prices). Models are named `endpoint/model`, for example `anthropic/claude-sonnet-5-5`;
+the optional `roles.main` is the model a fresh Spade starts with. Keys live in the OS keychain (ADR 0119): Spade reads the keychain first, then the variable named in `key.env` (how a headless machine runs it). `"key": {}` means keychain only; an endpoint without `key` needs none (a local server). Presets whose key is already set become the person's endpoints on the first
+start.
 
 The shipped file lists OpenCode Go (the development default), Anthropic, OpenAI, Google Gemini,
 Moonshot and Z.AI, with model ids and prices from models.dev. Spade checks the file at startup and

@@ -223,9 +223,15 @@ impl Spade {
         if let Some(link) = &ace {
             tools = tools.with_source(link.clone() as Arc<dyn ToolSource>);
         }
+        // As in Spade: the (mock) keychain first, then the endpoint's variable, which only the
+        // shipped fake endpoint names.
+        let keychain = keys.clone();
         let models = Models::new(
             catalog(&fake.root)?,
-            Keys::new(|_| Some("fake-key".to_owned())),
+            Keys::keychain_then_env(
+                move |endpoint| keychain.get(endpoint).ok().flatten(),
+                |var| (var == "FAKE_KEY").then(|| "fake-key".to_owned()),
+            ),
             spade_server::home::VERSION,
         )?;
         let engine = Engine::open(Setup {
