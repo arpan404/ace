@@ -78,7 +78,7 @@ pub struct Endpoint {
     pub format: Format,
     /// Always ends with `/`.
     pub base_url: String,
-    /// Whether calls need a key. Keys come from the OS keychain, then `key_env` (ADR 0116).
+    /// Whether calls need a key. Keys come from the OS keychain, then `key_env` (ADR 0119).
     pub needs_key: bool,
     /// The environment variable that may hold the key.
     pub key_env: Option<String>,

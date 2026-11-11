@@ -43,13 +43,13 @@ export function migrateProjects(db: DatabaseSync): void {
   if (!columns.has("defaults")) db.exec("ALTER TABLE workspace_metadata ADD COLUMN defaults TEXT");
   if (!columns.has("notes")) db.exec("ALTER TABLE workspace_metadata ADD COLUMN notes TEXT");
   if (!columns.has("kind")) db.exec("ALTER TABLE workspace_metadata ADD COLUMN kind TEXT");
-  // A project's saved repository choices (ADR 0116); NULL is "no choices".
+  // A project's saved repository choices (ADR 0120); NULL is "no choices".
   if (!columns.has("repositories"))
     db.exec("ALTER TABLE workspace_metadata ADD COLUMN repositories TEXT");
 }
 
 /**
- * Whether a workspace is Spade's own hidden project (ADR 0117): an empty folder, never a
+ * Whether a workspace is Spade's own hidden project (ADR 0121): an empty folder, never a
  * repository, which no list shows and nothing reads Git or forge data from.
  */
 export function isSpadeProject(store: Pick<Store, "statement">, id: string): boolean {
@@ -158,7 +158,7 @@ export class ProjectStorage {
     return workspace;
   }
   /**
-   * Register Spade's folder as its hidden `spade` project (ADR 0117), registered again if it was
+   * Register Spade's folder as its hidden `spade` project (ADR 0121), registered again if it was
    * removed. Clients never see it: it is left out of every list and announces no change.
    */
   registerSpade(path: string): WorkspaceId {
@@ -266,7 +266,7 @@ export class ProjectStorage {
     const notes = change(project.notes ?? []);
     return notes ? this.update(id, project.name, { notes }) : undefined;
   }
-  /** Replace the project's repository choices (ADR 0116) and tell every client to read them. */
+  /** Replace the project's repository choices (ADR 0120) and tell every client to read them. */
   setRepositories(
     id: WorkspaceId,
     config: ProjectRepositoryConfig | null,

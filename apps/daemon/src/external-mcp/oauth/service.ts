@@ -1,5 +1,5 @@
 /*
- * Puts the OAuth pieces together over one OutsideAccess (ADR 0117): metadata documents and DCR
+ * Puts the OAuth pieces together over one OutsideAccess (ADR 0122): metadata documents and DCR
  * registrations resolve clients, codes and the token endpoint issue pairs, and the surface
  * serves it all at whichever base a request arrived at.
  */

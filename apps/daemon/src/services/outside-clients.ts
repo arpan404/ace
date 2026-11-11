@@ -3,7 +3,7 @@ import type { OutsideAccess } from "../external-mcp/outside.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
 /**
- * `outside.request`: outside MCP clients' grants on this machine (ADR 0117), for an
+ * `outside.request`: outside MCP clients' grants on this machine (ADR 0122), for an
  * administrator. Lists, revokes and changes grants, ends a client's screen work, and answers
  * sign-in requests. `watch` sends `outside.state` now and on every change. Replies never carry
  * a token.

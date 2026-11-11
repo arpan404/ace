@@ -8,7 +8,7 @@ import type {
 } from "@ace/protocol";
 
 /*
- * Words for outside MCP clients (ADR 0117): what a grant may do, which projects, how long it
+ * Words for outside MCP clients (ADR 0122): what a grant may do, which projects, how long it
  * lasts, where a client reaches this machine, the sign-in choices the person makes, and the
  * lines that name a client elsewhere ("Started by Claude", "Claude is using this Mac"). Shared
  * by every client app: desktop, web and the iPhone bridge. Pure.
@@ -100,7 +100,7 @@ export function projectsWords(
   return `${names.length} projects`;
 }
 
-/** How long a new grant lasts. Thirty days is the default (ADR 0117). */
+/** How long a new grant lasts. Thirty days is the default (ADR 0122). */
 export type OutsideLifetime = "day" | "month" | "forever";
 
 export const outsideLifetimes: readonly { value: OutsideLifetime; label: string }[] = [
@@ -237,7 +237,7 @@ export interface OutsideChoice {
 
 /**
  * Where an approval starts: read only, every project, 30 days. What the client asked for is
- * shown beside each tick but never ticked for the person (ADR 0117: read is the default).
+ * shown beside each tick but never ticked for the person (ADR 0122: read is the default).
  */
 export function initialChoice(): OutsideChoice {
   return { scopes: new Set(["threads:read"]), projects: "all", lifetime: defaultLifetime };

@@ -1,4 +1,4 @@
-# 0117: Outside MCP clients sign in to a machine
+# 0122: Outside MCP clients sign in to a machine
 
 Status: accepted. Date: 2026-11-11. Owner decision of 2026-11-11: ace's relay carries hosted
 assistants, approval happens in the ace app, and grants cover threads, the browser and computer

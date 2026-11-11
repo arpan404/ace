@@ -50,7 +50,7 @@ function shellQuote(value: string): string {
 export type ExternalMcp = Awaited<ReturnType<typeof externalMcp>>;
 
 /**
- * The endpoint for MCP clients outside ace (ADR 0117): a loopback listener with its own tool
+ * The endpoint for MCP clients outside ace (ADR 0122): a loopback listener with its own tool
  * registry, whose callers are outside grants. Grants and their tokens live in SQLite, so they
  * survive a restart; every request reads its grant again.
  */

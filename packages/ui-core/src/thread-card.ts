@@ -180,7 +180,7 @@ export interface ThreadCard {
   subagents: number;
   /** "Codex · 2 subagents running". */
   providerLabel: string;
-  /** The outside MCP client that started the thread (ADR 0117), by its name. */
+  /** The outside MCP client that started the thread (ADR 0122), by its name. */
   startedByClient?: string | undefined;
 }
 

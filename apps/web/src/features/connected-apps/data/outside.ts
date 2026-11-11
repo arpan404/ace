@@ -11,7 +11,7 @@ import type {
 } from "@ace/protocol";
 
 /*
- * Outside MCP clients on one machine (ADR 0117), through that machine's own client
+ * Outside MCP clients on one machine (ADR 0122), through that machine's own client
  * (`outside.request`), so a remote machine's grants are its own. Every operation needs
  * administrator access; a `forbidden` answer means this window can't manage them.
  */

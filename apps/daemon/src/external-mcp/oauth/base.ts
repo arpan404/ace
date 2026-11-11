@@ -1,5 +1,5 @@
 /*
- * The ways in to the outside MCP endpoint (ADR 0117, Reach) as base URLs. Each base serves the
+ * The ways in to the outside MCP endpoint (ADR 0122, Reach) as base URLs. Each base serves the
  * MCP endpoint at `<base>/mcp` (the OAuth resource) and is its own authorization server
  * (issuer `<base>`). A token issued at one base works only there.
  */

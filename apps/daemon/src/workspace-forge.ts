@@ -130,7 +130,7 @@ export class WorkspaceForge {
   repository(cwd: string): Promise<ForgeRepository> {
     return this.backends.repository(cwd);
   }
-  /** Where the push before a new PR goes (ADR 0116): its head, and the project's primary. */
+  /** Where the push before a new PR goes (ADR 0120): its head, and the project's primary. */
   async prPushTarget(cwd: string): Promise<PrPushTarget> {
     const { head, project } = await this.backends.prHead(cwd);
     return {

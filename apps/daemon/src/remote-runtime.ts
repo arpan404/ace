@@ -241,7 +241,7 @@ export function remoteRuntime(
     get relayHostId() {
       return relays.relayHostId();
     },
-    /** Where outside MCP clients can reach this machine beyond loopback (ADR 0117). */
+    /** Where outside MCP clients can reach this machine beyond loopback (ADR 0122). */
     outsideReach: (): ReachFacts => ({
       tailscale: () =>
         direct.tailnet() ?? {

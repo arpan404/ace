@@ -43,7 +43,7 @@ export function useProjectRepositories(
 }
 
 /**
- * Each project's repositories for telling notifications apart by project (ADR 0116): its primary,
+ * Each project's repositories for telling notifications apart by project (ADR 0120): its primary,
  * and, for a project with saved choices, its other visible, available repositories (from
  * `forge.repositories`). A project with
  * no saved choices tags rows with its primary alone, as before; so does one whose repositories

@@ -232,7 +232,7 @@ export async function startMcp(context: ServiceContext): Promise<void> {
         access: thread?.permission?.effective ?? null,
         ...(thread && project ? { project: { id: thread.workspaceId, name: project.name } } : {}),
         // Providers with their own ask tool keep it; delegated children and Cursor get ask. A
-        // host thread (Spade, ADR 0117) never does: its questions would wait in a thread no one
+        // host thread (Spade, ADR 0121) never does: its questions would wait in a thread no one
         // sees, and answers come back as messages it refuses. Spade asks through its own gate.
         askAvailable:
           thread?.host === undefined &&

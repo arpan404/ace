@@ -7,7 +7,7 @@ import {
 } from "@ace/forge";
 import type { ProjectRepository } from "@ace/protocol";
 
-/** Where a new pull request's branch is pushed (ADR 0116): a listed repository and its remote. */
+/** Where a new pull request's branch is pushed (ADR 0120): a listed repository and its remote. */
 export interface PrHead {
   /** The repository the branch is pushed to, as the project lists it. */
   pushed: ProjectRepository;

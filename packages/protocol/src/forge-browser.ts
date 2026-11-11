@@ -261,7 +261,7 @@ export const ForgeBrowserOperations = [
   /** The project's own repository, read from its checkout's remote: no request to the host. */
   z.object({ op: z.literal("forge.repository"), workspaceId: WorkspaceId }),
   /**
-   * Every repository the project uses (ADR 0116), from its checkout's remotes and its saved
+   * Every repository the project uses (ADR 0120), from its checkout's remotes and its saved
    * choices: no request to the host. Clients list reviews from each visible, available one.
    */
   z.object({ op: z.literal("forge.repositories"), workspaceId: WorkspaceId }),

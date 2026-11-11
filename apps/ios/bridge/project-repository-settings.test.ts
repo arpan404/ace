@@ -6,7 +6,7 @@ import { ProjectManage } from "./project-manage.ts";
 import { sheetFixture, until } from "./sheet-fixture.ts";
 
 /*
- * A project's repositories edited from the phone's project settings (ADR 0116), against the fake
+ * A project's repositories edited from the phone's project settings (ADR 0120), against the fake
  * daemon's `ace` project: `origin` on GitHub and `mirror` on GitLab. Each change is asserted by
  * what the daemon then lists.
  */

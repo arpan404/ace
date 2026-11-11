@@ -1,5 +1,5 @@
 /*
- * How outside MCP clients reach this machine (ADR 0117, Reach): which base URL a request
+ * How outside MCP clients reach this machine (ADR 0122, Reach): which base URL a request
  * arrived at on each way in, and the four endpoints Settings shows. Pure: facts in, answers out.
  * How a request arrived decides only its base URL, never what it may do.
  */

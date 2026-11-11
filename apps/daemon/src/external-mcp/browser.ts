@@ -20,7 +20,7 @@ const actor = (caller: BrowserCaller) => ({
 });
 
 /**
- * ace's browser for outside clients (ADR 0117, ADR 0104): each grant has one private session of
+ * ace's browser for outside clients (ADR 0122, ADR 0104): each grant has one private session of
  * its own, keyed by its caller `external:<grantId>`, so its tabs belong to it and close with it.
  * The session is ephemeral: an outside client never reads the person's cookies.
  */

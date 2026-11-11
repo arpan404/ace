@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// "Claude is using this Mac", with Stop, while an outside app uses a machine's screen
-/// (ADR 0117). Stop ends its screen work at once and takes screen use off its access; the person
+/// (ADR 0122). Stop ends its screen work at once and takes screen use off its access; the person
 /// adds it back in Settings › Connected apps.
 struct OutsideScreenLine: View {
     let client: ClientModel

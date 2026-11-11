@@ -3,7 +3,7 @@ import { can } from "./forge-capability.ts";
 import type { ForgeRepository, ProjectRepositories } from "@ace/protocol";
 
 /*
- * Which list reads Code review sends for a set of projects (ADR 0116): one per repository each
+ * Which list reads Code review sends for a set of projects (ADR 0120): one per repository each
  * project reviews, for pull requests and for issues. Pure; web and the iPhone share it.
  */
 

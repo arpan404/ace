@@ -344,7 +344,7 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
         refuse("workspace_reads_unavailable");
         return true;
       }
-      // Spade's hidden project is an empty folder, never a repository (ADR 0117): its reads are
+      // Spade's hidden project is an empty folder, never a repository (ADR 0121): its reads are
       // answered at once, with no Git or forge work and nothing logged.
       if (
         (op.op.startsWith("forge.") || op.op.startsWith("git.")) &&

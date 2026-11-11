@@ -84,7 +84,7 @@ export const endedListed = 200;
 const touchEveryMs = 60_000;
 
 /**
- * Every outside grant on this machine (ADR 0117). Reads go to SQLite each time, so a revoke or
+ * Every outside grant on this machine (ADR 0122). Reads go to SQLite each time, so a revoke or
  * an expiry applies to the next request, including after a restart.
  */
 export class GrantStore {

@@ -144,7 +144,7 @@ export class Engine {
   private repo: EngineRepository;
   /** Provider-less threads holding remote tool use from other machines (ADR 0105). */
   readonly guests: GuestThreads;
-  /** Threads the daemon holds for its own processes, such as Spade (ADR 0117). */
+  /** Threads the daemon holds for its own processes, such as Spade (ADR 0121). */
   readonly hosts: HostThreads;
   private registry: AdapterRegistry;
   private clock: EngineClock;

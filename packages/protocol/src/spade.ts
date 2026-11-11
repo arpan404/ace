@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ThreadId } from "./ids.ts";
 
 /**
- * Spade, ace's assistant, reached through the daemon (ADR 0117). The daemon forwards requests to
+ * Spade, ace's assistant, reached through the daemon (ADR 0121). The daemon forwards requests to
  * Spade's own HTTP API and passes bodies through as text: Spade owns their schemas.
  */
 

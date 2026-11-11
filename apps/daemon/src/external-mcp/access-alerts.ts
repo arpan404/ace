@@ -1,5 +1,5 @@
 /*
- * Push alerts for outside clients' sign-in requests (ADR 0117, "Consent happens in ace"). The
+ * Push alerts for outside clients' sign-in requests (ADR 0122, "Consent happens in ace"). The
  * person is often away from the computer when claude.ai asks to sign in, and the request lives
  * ten minutes, so each new request goes once to the push address of every admin phone. A phone
  * with ace open already sees it through `outside.state`; the push is for one that is closed or

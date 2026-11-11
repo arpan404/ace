@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// Outside apps on one machine (ADR 0117, `bridge/outside-clients.ts`): sign-ins waiting for the
+/// Outside apps on one machine (ADR 0122, `bridge/outside-clients.ts`): sign-ins waiting for the
 /// person and apps using the screen now, as the bridge last said. The approval sheet and the
 /// "Claude is using this Mac" line draw from it.
 @MainActor @Observable final class OutsideClientsModel {

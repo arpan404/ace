@@ -108,7 +108,7 @@ export function InboxPage(props: {
   const [paging, setPaging] = useState({ key: listKey, pages: 1 });
   const pages = paging.key === listKey ? paging.pages : 1;
   const read = useInboxPages(project, search, pages);
-  // Rows from any repository a project uses belong to it (ADR 0116).
+  // Rows from any repository a project uses belong to it (ADR 0120).
   const repositories = useInboxRepositories(choice.all);
   const projectOf = inboxProjects(repositories.repositories);
   const list = { ...read, rows: rowsForProjects(read.rows, choice.picked, projectOf) };

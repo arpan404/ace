@@ -128,7 +128,7 @@ export function PullRequestsPage(props: {
   // By next move on open pull requests. One project is ranked readiest first through the whole
   // repository; several are read newest first, a page per project at a time.
   const byWork = sort === "ready" && open;
-  // Each project's reviews come from every repository it uses (ADR 0116).
+  // Each project's reviews come from every repository it uses (ADR 0120).
   const review = useReviewSources(projects);
   const sources = review.sources;
   // One project is ranked through its primary; its other repositories add their rows newest

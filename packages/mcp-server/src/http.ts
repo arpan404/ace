@@ -37,7 +37,7 @@ import {
 
 export type { ScopeChallenge } from "./scope-challenge.ts";
 /**
- * Serves one MCP request that arrived at `resource`, the MCP URL the client used (ADR 0117):
+ * Serves one MCP request that arrived at `resource`, the MCP URL the client used (ADR 0122):
  * the bearer must be valid there, a tool call outside its scope gets 403, and challenges name
  * that resource. The caller has already checked how the request arrived (Host, Origin).
  */
@@ -56,12 +56,12 @@ export interface McpServerOptions<A extends Authenticator = CredentialRegistry> 
   awareness?: AwarenessPort;
   credentials?: A;
   /**
-   * OAuth-style answers for an endpoint whose principals hold scopes (ADR 0117): a tool call the
+   * OAuth-style answers for an endpoint whose principals hold scopes (ADR 0122): a tool call the
    * principal's scope doesn't cover is refused with 403 `insufficient_scope` before it runs.
    */
   challenge?: ScopeChallenge;
   /**
-   * Set: the host serves every loopback request itself (ADR 0117). It checks Host and Origin,
+   * Set: the host serves every loopback request itself (ADR 0122). It checks Host and Origin,
    * decides the resource URL the request arrived at, answers its own paths (OAuth) and hands
    * MCP requests to `serve`. Unset: only `/mcp` on localhost Host and Origin is served.
    */

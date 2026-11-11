@@ -93,7 +93,7 @@ export function readRelayConfig(env: Record<string, string | undefined>) {
 }
 /**
  * Relay to daemon, over the encrypted registration session. `http` asks the daemon to open a
- * `/serve` socket for one forwarded HTTP request (ADR 0117); the relay sends it only to a daemon
+ * `/serve` socket for one forwarded HTTP request (ADR 0122); the relay sends it only to a daemon
  * that registered with {@link HTTP_FEATURE}, since older daemons drop the session on any
  * message they don't know.
  */

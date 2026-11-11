@@ -82,7 +82,7 @@ parts?}` or `{kind: "error", code, message}` (`forbidden`, `invalid_path`, `unav
 
 The daemon passes bodies through without interpreting them; Spade owns their schemas (see
 [chat-core.md](chat-core.md)). Caps are per route, as above; each live event is at most 1 MiB.
-ADR 0117 records the daemon side.
+ADR 0121 records the daemon side.
 
 ## Spade uses ace's tools through the daemon
 

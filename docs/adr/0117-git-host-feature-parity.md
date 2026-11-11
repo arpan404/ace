@@ -25,7 +25,7 @@ ace still reaches every host only through the user's own logged-in CLI (ADR 0002
    exactly `glab api <endpoint> -X <METHOD> --hostname <host> --include --input -` with a JSON
    object on stdin. `SourceControl.writeIdentity` admits reads plus those writes, proves the
    account before and after each write, and refuses everything else. Hidden or unavailable
-   repositories are refused first (ADR 0116).
+   repositories are refused first (ADR 0120).
 4. **Host data maps into ace's existing shapes.** GitLab discussions are review threads,
    approvals are reviews, pipelines are checks, "merge when pipeline succeeds" is auto-merge,
    to-dos are the inbox. `#N` is an issue and `!N` a merge request on GitLab. Where a shape is

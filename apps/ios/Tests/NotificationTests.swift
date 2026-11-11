@@ -491,7 +491,7 @@ private final class Session: ClientSession, @unchecked Sendable {
     }
 }
 
-/// Outside apps' sign-ins (ADR 0117): the push payload, the words, the local alert while ace is in
+/// Outside apps' sign-ins (ADR 0122): the push payload, the words, the local alert while ace is in
 /// the background, and a tap that opens the sign-in sheet on its machine or says it ended.
 @Suite @MainActor struct AccessAlertTests {
     @Test func aSignInPushDecodesAndAThreadAlertsPayloadIsNotMistakenForOne() throws {

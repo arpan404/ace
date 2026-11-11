@@ -1,5 +1,5 @@
 /**
- * Outside MCP clients' grants (ADR 0117), their tokens as SHA-256 hashes, and the threads each
+ * Outside MCP clients' grants (ADR 0122), their tokens as SHA-256 hashes, and the threads each
  * grant started or messaged. A revoked grant keeps its row so history can still name it. No rows
  * exist before this step: enrollments used to live in memory only.
  */
@@ -37,7 +37,7 @@ export const outsideGrantTables = `
     PRIMARY KEY (grant_id, thread_id, kind)
   );`;
 /**
- * OAuth sign-in for outside clients (ADR 0117): each token pair names the resource (MCP URL) it
+ * OAuth sign-in for outside clients (ADR 0122): each token pair names the resource (MCP URL) it
  * was issued for, and clients registered through DCR are kept until they expire unused. Only
  * pasted tokens existed before this step, and they bind to no resource.
  */

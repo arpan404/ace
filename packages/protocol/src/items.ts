@@ -70,7 +70,7 @@ export const MessageOrigin = z.object({
     "background_completion",
   ]),
   /**
-   * A `person` message an outside MCP client sent for the person (ADR 0117). Older clients
+   * A `person` message an outside MCP client sent for the person (ADR 0122). Older clients
    * ignore it and read the message as the person's own.
    */
   client: z

@@ -85,7 +85,7 @@ export interface ServerOptions {
   providerActivation?: Promise<void>;
   promptFiles?: import("@ace/commands").PromptFiles | undefined;
   skillLibrary?: import("@ace/commands").SkillLibrary | undefined;
-  /** Spade, ace's assistant, when this daemon hosts it (ADR 0117). */
+  /** Spade, ace's assistant, when this daemon hosts it (ADR 0121). */
   spade?: import("./spade/host.ts").SpadeHost | undefined;
   commands?: CommandService | undefined;
   files?: FilesService;
@@ -95,7 +95,7 @@ export interface ServerOptions {
   relayMain?: ((entry: import("./relay-socket.ts").RelayedMain) => void) | undefined;
   settings?: SettingsService;
   /**
-   * Serves outside MCP requests that ace's hosted relay forwards (ADR 0117): the outside
+   * Serves outside MCP requests that ace's hosted relay forwards (ADR 0122): the outside
    * endpoint's relay handler once it runs; unset, the relay path answers 404 (`relay-http.ts`).
    */
   outsideMcpHttp?: import("./relay-http.ts").RelayHttpHandler | undefined;

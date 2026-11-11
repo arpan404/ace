@@ -2,7 +2,7 @@ import { useSidebarThread, useThreadMeta } from "@ace/client-react";
 import { useDaemonQuery } from "./daemon-query.ts";
 
 /**
- * Spade's host thread on this machine (ADR 0117), from `spade.status`: the hidden thread the
+ * Spade's host thread on this machine (ADR 0121), from `spade.status`: the hidden thread the
  * threads Spade delegates name as their parent. Undefined while unknown or when Spade has none.
  */
 export function useSpadeHostThread(): string | undefined {

@@ -6,7 +6,7 @@ import {
   type SpadeMethod,
 } from "@ace/protocol";
 
-/** Body rules for `spade.http` (ADR 0117), with no I/O. */
+/** Body rules for `spade.http` (ADR 0121), with no I/O. */
 
 const pathname = (path: string) => path.split("?")[0] ?? "";
 const messageRoute = /^\/v1\/conversations(?:\/[^/]+\/messages)?$/;

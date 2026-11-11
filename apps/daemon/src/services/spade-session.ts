@@ -26,7 +26,7 @@ function unavailable(host: SpadeAccess | undefined): string {
   return status.reason ?? "Spade isn't running.";
 }
 
-/** `spade.*` (ADR 0117): status, HTTP requests and live streams forwarded to Spade. */
+/** `spade.*` (ADR 0121): status, HTTP requests and live streams forwarded to Spade. */
 export function createSpadeSession(context: SpadeSocket): SocketService {
   const streams = new Map<string, Stream>();
   const stops: (() => void)[] = [];

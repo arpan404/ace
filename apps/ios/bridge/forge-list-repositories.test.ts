@@ -14,7 +14,7 @@ import { ForgeRequest, ForgeService } from "./forge-service.ts";
 import { plainPreview } from "./sheet-fixture.ts";
 
 /*
- * A project with several repositories (ADR 0116) in the phone's Pull requests and Issues: every
+ * A project with several repositories (ADR 0120) in the phone's Pull requests and Issues: every
  * visible, available repository is read and shown as one list, rows say which repository they
  * are from, and one repository failing leaves the others on screen. The daemon is answered at
  * the wire.

@@ -1,5 +1,5 @@
 /*
- * The daemon's own fetch of a client metadata document (ADR 0117): HTTPS on port 443 to a
+ * The daemon's own fetch of a client metadata document (ADR 0122): HTTPS on port 443 to a
  * public address only, with no redirects, a size cap and a time limit. The host is resolved
  * once and the connection goes to that address (with the name for TLS), so a name that changes
  * its answer between the check and the request can't reach this machine or its network. The

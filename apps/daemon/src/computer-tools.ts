@@ -29,7 +29,7 @@ export function daemonComputerToolkit(
   route?: ComputerMachineRoute,
   /**
    * Who is told a caller is using an app. Default: the task list's mark for the caller's thread;
-   * outside clients (ADR 0117) have their own line instead.
+   * outside clients (ADR 0122) have their own line instead.
    */
   using?: (threadId: string, app: string) => () => void,
 ): Toolkit {

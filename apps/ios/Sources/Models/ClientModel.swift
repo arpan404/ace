@@ -154,7 +154,7 @@ import QuartzCore
     let browser = BrowserLiveModel()
     let devices = DevicesModel()
     let computerAccess = ComputerAccessModel()
-    /// Outside apps' sign-ins and screen use (ADR 0117).
+    /// Outside apps' sign-ins and screen use (ADR 0122).
     let outside = OutsideClientsModel()
     /// Continue on… and Open on… from this machine (`bridge/transfers.ts`).
     let transfers = TransfersModel()

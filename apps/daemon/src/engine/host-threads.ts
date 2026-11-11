@@ -22,7 +22,7 @@ export interface HostThreadInput {
 }
 
 /**
- * Threads the daemon holds for its own processes (ADR 0117): Spade's MCP calls act as the thread's
+ * Threads the daemon holds for its own processes (ADR 0121): Spade's MCP calls act as the thread's
  * root agent, so what Spade delegates becomes its children. No session is ever made for it, and
  * the engine refuses every command that would run an agent in it (`hostRefusal`).
  */

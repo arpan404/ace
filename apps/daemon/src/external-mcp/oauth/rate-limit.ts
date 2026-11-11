@@ -1,5 +1,5 @@
 /*
- * A fixed-window limit per key, for endpoints anyone can call (ADR 0117): /authorize and
+ * A fixed-window limit per key, for endpoints anyone can call (ADR 0122): /authorize and
  * /register, keyed by caller address where the daemon sees one, else by base URL. Bounded:
  * at most `keys` keys are tracked, the oldest dropped first.
  */

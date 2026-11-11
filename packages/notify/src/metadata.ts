@@ -47,7 +47,7 @@ const Payload = z.discriminatedUnion("type", [
           snoozedUntil: Timestamp.optional(),
           /**
            * Never alerted here: delegated by a paired machine's agent (its owner is alerted
-           * there), or a host thread the daemon holds for Spade (ADR 0117), which no list shows.
+           * there), or a host thread the daemon holds for Spade (ADR 0121), which no list shows.
            */
           remote: z.literal(true).optional(),
         })

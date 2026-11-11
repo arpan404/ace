@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ThreadId, WorkspaceId } from "./ids.ts";
 
 /**
- * MCP clients outside ace (ADR 0117): what a grant lets one do on this machine. Each scope is
+ * MCP clients outside ace (ADR 0122): what a grant lets one do on this machine. Each scope is
  * its own tick when the person approves; `threads:read` is always included.
  */
 export const OutsideScope = z.enum([
@@ -105,7 +105,7 @@ export const OutsideScreenUse = z.object({
 });
 export type OutsideScreenUse = z.infer<typeof OutsideScreenUse>;
 
-/** One way outside clients reach this machine (ADR 0117, Reach). */
+/** One way outside clients reach this machine (ADR 0122, Reach). */
 export const OutsideEndpoint = z.object({
   path: z.enum(["local", "tailscale", "relay", "custom"]),
   /** The URL to paste into a client; null while this path is off or can't serve. */

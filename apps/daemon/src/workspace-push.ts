@@ -45,7 +45,7 @@ export async function pushWorkspace(
   /** The checkout reviews this pull request: an untargeted push updates its head branch. */
   pullRequest?: Pick<ForgePrWorkspace, "headBranch" | "headRepository">,
   /**
-   * Where a targeted push (the push before opening a PR) goes (ADR 0116): the PR head the
+   * Where a targeted push (the push before opening a PR) goes (ADR 0120): the PR head the
    * project's repositories pick. Absent, the checkout's remotes are read with no saved choices.
    */
   prHead?: () => Promise<PrPushTarget>,

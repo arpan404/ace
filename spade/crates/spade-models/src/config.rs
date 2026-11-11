@@ -1,5 +1,5 @@
 //! Model settings, read through an injected lookup so tests never touch the real environment.
-//! Keys are looked up through `spade_keys::Keys` (ADR 0116).
+//! Keys are looked up through `spade_keys::Keys` (ADR 0119).
 //!
 //! - `SPADE_MODEL_CATALOG`: the catalogue file, `config/models.json` by default.
 

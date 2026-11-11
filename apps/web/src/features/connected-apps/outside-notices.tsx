@@ -47,7 +47,7 @@ function useOutsideNow(client: ClientApi): OutsideNow | undefined {
 
 /**
  * Outside MCP clients asking to sign in to, or using the screen of, any machine this window
- * reaches (ADR 0117): one line each, with text buttons, beside the other machine-level notices.
+ * reaches (ADR 0122): one line each, with text buttons, beside the other machine-level notices.
  * Only administrator windows are told, so others show nothing.
  */
 export function OutsideNotices() {

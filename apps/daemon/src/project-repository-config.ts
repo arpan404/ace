@@ -14,7 +14,7 @@ function decode(value: unknown): ProjectRepositoryConfig | undefined {
   }
 }
 
-/** A project's saved repository choices, in `workspace_metadata.repositories` (ADR 0116). */
+/** A project's saved repository choices, in `workspace_metadata.repositories` (ADR 0120). */
 export class ProjectRepositoryConfigs {
   private store: Store;
   /** The engine's session table exists; checked until it does, then never again. */

@@ -179,7 +179,7 @@ const repoKey = (repository: { host: string; owner: string; name: string }) =>
 
 type InboxRepository = { host: string; owner: string; name: string };
 
-/** A project's repositories as the inbox tags rows with them (ADR 0116). */
+/** A project's repositories as the inbox tags rows with them (ADR 0120). */
 export interface InboxProjectRepositories<R extends InboxRepository = InboxRepository> {
   primary?: R | undefined;
   /** Its other visible, available repositories; only a project with saved choices has any. */

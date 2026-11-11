@@ -29,7 +29,7 @@ import { browserBackendMessage } from "./socket-message.ts";
 const BrowserProfilePreference = z.enum(["persistent", "ephemeral"]);
 
 /**
- * The settings scope a browser open reads. An outside MCP client's session (ADR 0117) has no
+ * The settings scope a browser open reads. An outside MCP client's session (ADR 0122) has no
  * thread of its own, so it reads its project's settings.
  */
 function openScope(store: Store, open: { threadId: string; workspaceId: string }) {
@@ -95,7 +95,7 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
       options.browser?.onError?.(error);
     },
     tabBudget,
-    // An outside MCP client's session stays off this machine and its network (ADR 0117).
+    // An outside MCP client's session stays off this machine and its network (ADR 0122).
     privateNetworkBlocked:
       options.browser?.privateNetworkBlocked ??
       ((threadId) => grantOfCaller(threadId) !== undefined),

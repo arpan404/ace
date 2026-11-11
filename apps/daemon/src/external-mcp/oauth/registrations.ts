@@ -1,6 +1,6 @@
 /*
  * Clients registered through Dynamic Client Registration (RFC 7591), which MCP keeps for clients
- * without a metadata document (ADR 0117). Anyone can register, so a registration proves
+ * without a metadata document (ADR 0122). Anyone can register, so a registration proves
  * nothing: the person sees these clients as unverified. One never used for an approved grant
  * expires after a day, and the count is capped.
  */

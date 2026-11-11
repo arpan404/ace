@@ -11,7 +11,7 @@ export const maxHiddenProjectRepositories = 64;
 export const maxProjectRepositories = 128;
 
 /**
- * A project's saved repository choices (ADR 0116). Repositories are compared by provider, host,
+ * A project's saved repository choices (ADR 0120). Repositories are compared by provider, host,
  * owner and name, without case. Absent (`null` on the wire) means no choices: the project uses
  * its remotes and today's primary rule.
  */

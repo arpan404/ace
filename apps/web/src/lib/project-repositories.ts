@@ -14,7 +14,7 @@ import { readForge } from "./forge-read.ts";
 import { forgetProjectRepositories, projectRepositoriesKey } from "./project-cache.ts";
 
 /*
- * A project's repositories (ADR 0116) as the web reads and saves them. The read is local to the
+ * A project's repositories (ADR 0120) as the web reads and saves them. The read is local to the
  * daemon (no request to a Git host). It is read again when the project changes
  * (`workspace.changed`, `forgetProjectRepositories`) and when source control settings change,
  * which resets every `forge` read.
@@ -111,7 +111,7 @@ export function useSaveProjectRepositories() {
 /**
  * The remote every push names: the global remote name, as the person's Git would push. The
  * push before a new pull request names it too; the daemon pushes that one to the PR's head
- * (the primary, or the person's fork of it, ADR 0116). Undefined when the source control
+ * (the primary, or the person's fork of it, ADR 0120). Undefined when the source control
  * settings can't be read.
  */
 export async function readPushRemote(client: ClientApi): Promise<string | undefined> {

@@ -31,7 +31,7 @@ export interface FakeDaemonOptions {
 }
 export interface ThreadInit {
   imported?: Thread["imported"];
-  /** A thread the daemon holds for Spade (ADR 0117): hidden from every list. */
+  /** A thread the daemon holds for Spade (ADR 0121): hidden from every list. */
   host?: Thread["host"];
   id: string;
   workspaceId: string;
@@ -47,7 +47,7 @@ export interface ThreadInit {
   parentThreadId?: string;
   /** The thread whose agent opened this one with `thread_start`. */
   startedBy?: string;
-  /** The outside MCP client that started it (ADR 0117). */
+  /** The outside MCP client that started it (ADR 0122). */
   startedByClient?: Thread["startedByClient"];
   /** The thread on a paired machine whose agent delegated this one here. */
   delegatedFrom?: Thread["delegatedFrom"];

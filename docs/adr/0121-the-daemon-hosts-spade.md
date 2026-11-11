@@ -1,4 +1,4 @@
-# 0117: The daemon hosts Spade
+# 0121: The daemon hosts Spade
 
 Status: proposed. Date: 2026-11-11. Implements [spade/docs/ace-integration.md](../../spade/docs/ace-integration.md).
 

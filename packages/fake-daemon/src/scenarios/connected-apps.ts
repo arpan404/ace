@@ -5,7 +5,7 @@ import { endTurn, message, rootAgent, turn } from "./facts.ts";
 const day = 24 * 60 * 60_000;
 
 /**
- * `?fakeWorld=connected-apps`: outside MCP clients on this machine (ADR 0117). Claude has a
+ * `?fakeWorld=connected-apps`: outside MCP clients on this machine (ADR 0122). Claude has a
  * grant and started a thread, sending its first message for the person; a terminal agent
  * enrolled with `ace mcp enroll`; an old grant was revoked. ChatGPT is asking to sign in and
  * Claude is using the screen, so the notices show.

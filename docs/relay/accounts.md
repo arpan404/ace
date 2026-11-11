@@ -188,7 +188,7 @@ off, or an older daemon on LAN or Tailscale alone) isn't in `machines`.
 ## Public HTTP to a machine
 
 Hosted assistants reach a machine's outside MCP endpoint over plain HTTPS at
-`https://relay.acehq.dev/m/<hostId>/…` ([ADR 0117](../adr/0117-outside-mcp-clients.md)).
+`https://relay.acehq.dev/m/<hostId>/…` ([ADR 0122](../adr/0122-outside-mcp-clients.md)).
 Everything under `/m/<hostId>/` goes to that machine with the prefix removed: the MCP
 endpoint, its OAuth endpoints and their metadata. RFC 9728 and RFC 8414 metadata URLs
 with the path inserted, `/.well-known/<name>/m/<hostId>/…` for `oauth-protected-resource`,

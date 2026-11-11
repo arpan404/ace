@@ -17,7 +17,7 @@ export const CompactThread = z.object({
   deleted: z.boolean().default(false),
   /**
    * Delegated here by an agent on a paired machine, whose owner is alerted there, or a host
-   * thread the daemon holds for Spade (ADR 0117), which the person never sees. This machine never
+   * thread the daemon holds for Spade (ADR 0121), which the person never sees. This machine never
    * alerts or catches anyone up about it; the children a host thread delegates alert as usual.
    */
   remote: z.boolean().default(false),

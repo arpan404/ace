@@ -747,7 +747,7 @@ export async function startServer(options: ServerOptions): Promise<{
     get relayHostId() {
       return dynamicRemote?.relayHostId ?? transports?.relayHostId;
     },
-    /** Tailscale and ace's relay as outside MCP clients reach them (ADR 0117). */
+    /** Tailscale and ace's relay as outside MCP clients reach them (ADR 0122). */
     outsideReach: () => dynamicRemote?.outsideReach() ?? unreachable,
     maintenance,
     url: `ws://127.0.0.1:${port}`,

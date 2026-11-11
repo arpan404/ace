@@ -22,7 +22,7 @@ private struct RepositoriesReply: Decodable {
     var message: String? = nil
 }
 
-/// A project's Git repositories (ADR 0116): its remotes on known hosts and the ones added by
+/// A project's Git repositories (ADR 0120): its remotes on known hosts and the ones added by
 /// hand, each with its host's mark and where it comes from. The primary is where new pull
 /// requests open; a hidden one is left out of Code review. Changes are a row's menu or swipe.
 struct ProjectRepositoriesView: View {

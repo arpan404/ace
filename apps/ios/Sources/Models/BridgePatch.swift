@@ -72,7 +72,7 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     var accountLabel: String? = nil
     var browsing: String? = nil
     var computerUse: String? = nil
-    /// "Started by Claude" when an outside app started the thread (ADR 0117).
+    /// "Started by Claude" when an outside app started the thread (ADR 0122).
     var startedBy: String? = nil
 
     struct Work: Codable, Sendable, Equatable { let added: Int; let removed: Int }

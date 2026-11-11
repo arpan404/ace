@@ -9,7 +9,7 @@ import type {
 } from "@ace/protocol";
 
 /**
- * The fixture's outside MCP clients (`outside.request`, ADR 0117), shared by every connection:
+ * The fixture's outside MCP clients (`outside.request`, ADR 0122), shared by every connection:
  * grants, pending sign-in requests, screen use and the addresses clients can use, each seeded by
  * a scenario. Decisions are kept so a test can read what an admin device chose. Scope refusals
  * happen before it (`request-scopes.ts`).

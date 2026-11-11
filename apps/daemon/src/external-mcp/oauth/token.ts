@@ -1,5 +1,5 @@
 /*
- * The token endpoint (OAuth 2.1 §3.2, ADR 0117): an authorization code with its PKCE verifier,
+ * The token endpoint (OAuth 2.1 §3.2, ADR 0122): an authorization code with its PKCE verifier,
  * or a refresh token, for a token pair bound to the resource this base serves. Public clients
  * only, so the client is named by client_id and proven by PKCE or the refresh token it holds.
  * Replies are never cached, and no token or code is logged.

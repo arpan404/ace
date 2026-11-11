@@ -6,7 +6,7 @@ import type {
 import { resolveProjectRepositories, type CheckoutRemote } from "@ace/forge";
 
 /**
- * The project's primary repository (ADR 0116): one selection rule for published checkout
+ * The project's primary repository (ADR 0120): one selection rule for published checkout
  * details and forge commands. Without saved choices it is the global remote name's
  * repository, else (with no preferences) the first remote's.
  */

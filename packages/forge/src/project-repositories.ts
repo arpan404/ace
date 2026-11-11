@@ -61,7 +61,7 @@ function manualProblem(
 }
 
 /**
- * A project's repositories (ADR 0116): each remote on a known host, then each repository added
+ * A project's repositories (ADR 0120): each remote on a known host, then each repository added
  * by hand, one entry per identity, with the saved hidden and primary choices applied. Pure.
  */
 export function resolveProjectRepositories(input: {

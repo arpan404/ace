@@ -24,7 +24,7 @@ import { AccessTicks, LifetimeChoice, ProjectsChoice } from "./access-fields.tsx
 import { decideAccess } from "./data/outside.ts";
 
 /**
- * Reviewing an outside client's sign-in (ADR 0117): the match code to check against the
+ * Reviewing an outside client's sign-in (ADR 0122): the match code to check against the
  * client's page, then what it may do, where and for how long. Only read starts ticked; what the
  * client asked for is marked, never chosen for the person. Projects are read from the machine
  * the request is for, so this renders inside that machine's scope.

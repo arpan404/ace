@@ -319,7 +319,7 @@ export const ThreadClientFields = ThreadOrganization.extend({
   live: ThreadRunMetadata.optional(),
   movedFrom: ThreadMovedFrom.optional(),
   /**
-   * Set on a thread the daemon holds for one of its own processes (ADR 0117): Spade's host
+   * Set on a thread the daemon holds for one of its own processes (ADR 0121): Spade's host
    * thread, which Spade's ace tools act as. No provider ever runs it, and no list shows it; the
    * threads it delegates are ordinary threads with it as their parent.
    */

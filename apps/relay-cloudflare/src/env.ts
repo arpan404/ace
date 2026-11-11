@@ -8,7 +8,7 @@ export interface Env {
   UPGRADES?: RateLimit;
   /** Account API request rate limit per client address. */
   ACCOUNT_REQUESTS?: RateLimit;
-  /** Forwarded HTTP (`/m/<hostId>/…`, ADR 0117) per caller address. */
+  /** Forwarded HTTP (`/m/<hostId>/…`, ADR 0122) per caller address. */
   HTTP_REQUESTS?: RateLimit;
   /** Forwarded HTTP per machine, keyed by host id. */
   HTTP_HOST_REQUESTS?: RateLimit;

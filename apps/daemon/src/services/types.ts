@@ -98,7 +98,7 @@ export interface Services {
   accountRegistry?: AccountRegistry;
   promptFiles?: import("@ace/commands").PromptFiles;
   skillLibrary?: import("@ace/commands").SkillLibrary;
-  /** Spade, ace's assistant (ADR 0117): runs while `spade.enabled` is on. */
+  /** Spade, ace's assistant (ADR 0121): runs while `spade.enabled` is on. */
   spade?: import("../spade/host.ts").SpadeHost;
   commands?: CommandLibrary;
   files?: FilesService;
@@ -135,7 +135,7 @@ export interface Services {
   mcp: Awaited<ReturnType<typeof startDaemonMcp>>;
   notifications: NotificationAccess;
   notificationPublicKey?: string;
-  /** Pushes an outside client's sign-in request to admin phones (ADR 0117). */
+  /** Pushes an outside client's sign-in request to admin phones (ADR 0122). */
   accessPush?: import("../external-mcp/access-alerts.ts").AccessPush;
   review: ReturnType<typeof createDaemonReview>;
   historyAdapters?: import("../history-continuation.ts").HistoryAdapterPort;

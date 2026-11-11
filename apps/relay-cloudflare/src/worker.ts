@@ -37,7 +37,7 @@ const tooMany = () =>
   });
 
 /**
- * Public HTTP for one machine (ADR 0117): checked and limited here, then handed to that
+ * Public HTTP for one machine (ADR 0122): checked and limited here, then handed to that
  * machine's relay object, which carries it to the daemon. Paths, headers and bodies are never
  * logged; the caller's account isn't checked, since the daemon authorizes every request.
  */
