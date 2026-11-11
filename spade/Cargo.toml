@@ -34,3 +34,22 @@ unsafe_code = "forbid"
 all = { level = "deny", priority = -1 }
 unwrap_used = "deny"
 expect_used = "deny"
+
+# Reading a fetched page runs html5ever's tokenizer, which is generic and so compiled inside
+# spade-fetch. Unoptimised, it is about twenty times slower than in release, which would make
+# spade-fetch's time-bound tests measure the debug build instead of the code. These crates build
+# optimised in dev too; tendril's debug assertions re-validate whole buffers, so they are off.
+[profile.dev.package.spade-fetch]
+opt-level = 3
+
+[profile.dev.package.html5ever]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.markup5ever]
+opt-level = 3
+debug-assertions = false
+
+[profile.dev.package.tendril]
+opt-level = 3
+debug-assertions = false
