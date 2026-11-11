@@ -243,3 +243,45 @@ test("undo after editing a pasted file keeps the marker, named for the edited co
   await waitFor(() => expect(message.textContent).not.toContain("and more"));
   expect(within(message).getByLabelText("Pasted 2 lines.txt")).toBeTruthy();
 });
+
+/** Select `[start, end)` of the editor's words (no chips in it). */
+function selectText(el: HTMLElement, start: number, end: number) {
+  const range = document.createRange();
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  let at = 0;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const length = node.textContent?.length ?? 0;
+    if (start >= at && start <= at + length) range.setStart(node, start - at);
+    if (end >= at && end <= at + length) {
+      range.setEnd(node, end - at);
+      break;
+    }
+    at += length;
+  }
+  document.getSelection()?.removeAllRanges();
+  document.getSelection()?.addRange(range);
+}
+
+test("numbers the person wrote stay as written while they type elsewhere", async () => {
+  const { message } = await openComposer();
+  pasteText(message, "3. foo\n7. bar");
+  pasteText(message, " baz");
+  await waitFor(() => expect(message.textContent).toBe("3. foo\n7. bar baz"));
+});
+
+test("deleting an item counts its list again", async () => {
+  const { message } = await openComposer();
+  pasteText(message, "1. a\n2. b\n3. c");
+  await waitFor(() => expect(message.textContent).toBe("1. a\n2. b\n3. c"));
+  selectText(message, 5, 10);
+  pasteText(message, "");
+  await waitFor(() => expect(message.textContent).toBe("1. a\n2. c"));
+});
+
+test("Tab on an item that can't nest leaves the composer as Tab always does", async () => {
+  const { message } = await openComposer();
+  pasteText(message, "- first");
+  // Not taken: the browser moves focus on.
+  expect(fireEvent.keyDown(message, { key: "Tab" })).toBe(true);
+  expect(fireEvent.keyDown(message, { key: "Tab", shiftKey: true })).toBe(true);
+});

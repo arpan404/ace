@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { continueList, indentList, renumberEdits } from "./composer-lists.ts";
+import { continueList, indentList, renumberEdits, typedListChange } from "./composer-lists.ts";
 import { applyTextChange, applyTextEdits, type TextChange } from "./composer-text-edits.ts";
 
 /** `|` marks the caret; two of them mark a selection. */
@@ -70,9 +70,9 @@ describe("Tab and Shift+Tab in a list", () => {
   test.each([
     ["the first item can't nest", "- a|", false],
     ["a top-level item can't step out", "- a\n- b|", true],
-  ])("does nothing when %s", (_name, before, outdent) => {
+  ])("leaves the key its usual meaning when %s", (_name, before, outdent) => {
     const { text, selection } = parse(before);
-    expect(indentList(text, selection, outdent)).toEqual({ steps: [], selection });
+    expect(indentList(text, selection, outdent)).toBeUndefined();
   });
 
   test("keeps its usual meaning outside a list", () => {
@@ -92,5 +92,49 @@ describe("numbering", () => {
     ["a year at a line's start alone", "2025. was a year", "2025. was a year"],
   ])("%s", (_name, before, after) => {
     expect(applyTextEdits(before, renumberEdits(before))).toBe(after);
+  });
+});
+
+describe("numbering only where the list changed", () => {
+  test("renumbers the list around the change, not another list in the message", () => {
+    const text = "3. foo\n7. bar\n\n1. a\n5. b";
+    const at = text.indexOf("5. b");
+    expect(applyTextEdits(text, renumberEdits(text, new Set(), { start: at, end: at }))).toBe(
+      "3. foo\n7. bar\n\n1. a\n2. b",
+    );
+  });
+
+  test.each([
+    [
+      "the newline key",
+      (text: string, sel: { start: number; end: number }) => continueList(text, sel),
+    ],
+    ["Tab", (text: string, sel: { start: number; end: number }) => indentList(text, sel, false)],
+  ])("%s leaves another list's numbers as they were", (_name, act) => {
+    const { text, selection } = parse("- a\n- b|\n\n3. foo\n7. bar");
+    expect(show(text, act(text, selection))).toContain("3. foo\n7. bar");
+  });
+});
+
+describe("fenced code", () => {
+  const fenced = "```\n# not a heading\n1. not\n5. a list\n```";
+  test("is never renumbered", () => {
+    expect(renumberEdits(fenced)).toEqual([]);
+  });
+  test("is never continued as a list", () => {
+    const at = fenced.indexOf("5. a list") + 9;
+    expect(continueList(fenced, { start: at, end: at })).toBeUndefined();
+  });
+});
+
+describe("which typed edits count a list again", () => {
+  test.each([
+    ["words typed in an item", "1. a\n2. b", "1. ab\n2. b", false],
+    ["a number changed by hand", "1. a\n2. b", "1. a\n25. b", false],
+    ["a line made an item", "1. a\n3", "1. a\n3. ", true],
+    ["an item line deleted", "1. a\n2. b\n3. c", "1. a\n3. c", true],
+    ["a paste of several lines", "", "3. foo\n7. bar", false],
+  ])("%s: %s", (_name, before, after, counts) => {
+    expect(typedListChange(before, after) !== undefined).toBe(counts);
   });
 });

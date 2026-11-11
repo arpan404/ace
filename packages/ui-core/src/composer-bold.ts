@@ -19,7 +19,7 @@ const unmark = (span: { start: number; end: number }): TextEdit[] => [
 
 /** Where the words of a line start: after a heading's or list item's marker. */
 function wordsStart(line: ReturnType<typeof composerLines>[number]): number {
-  return line.kind === "plain" ? line.start : line.content;
+  return line.kind === "plain" || line.kind === "code" ? line.start : line.content;
 }
 
 /**

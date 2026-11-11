@@ -39,6 +39,11 @@ test.each([
     "<bullet1>-</bullet1> a\n<indent>  </indent><bullet2>-</bullet2> b\n<indent>    </indent><bullet3>-</bullet3> c",
   ],
   ["a dash without its space is words", "-milk", "-milk"],
+  [
+    "nothing inside fenced code",
+    "```\n# a\n- b **c**\n```\n# d",
+    "```\n# a\n- b **c**\n```\n<h1><mark># </mark>d</h1>",
+  ],
 ])("draws %s", (_name, text, expected) => {
   expect(drawn(text)).toBe(expected);
 });

@@ -67,17 +67,28 @@ export function boldSpans(
 
 function lineSpans(text: string, tokens: readonly ComposerToken[]): Span[] {
   const spans: Span[] = [];
+  // Chips in order, walked once alongside the lines: each line sees only its own.
+  const sorted = tokens.toSorted((a, b) => a.start - b.start);
+  let next = 0;
   for (const line of composerLines(text)) {
+    if (line.kind === "code") continue;
+    while (next < sorted.length && (sorted[next]?.end ?? 0) <= line.start) next++;
+    const own: ComposerToken[] = [];
+    for (let at = next; at < sorted.length && (sorted[at]?.start ?? 0) < line.end; at++) {
+      const token = sorted[at];
+      if (token) own.push(token);
+    }
+    const mine: Span[] = [];
     let words = line.start;
     if (line.kind === "heading") {
-      spans.push({ kind: `h${line.level}`, start: line.start, end: line.end });
-      spans.push({ kind: "mark", start: line.start, end: line.content });
+      mine.push({ kind: `h${line.level}`, start: line.start, end: line.end });
+      mine.push({ kind: "mark", start: line.start, end: line.content });
       words = line.content;
     }
     if (line.kind === "item") {
       const marker = line.start + line.indent;
-      if (line.indent) spans.push({ kind: "indent", start: line.start, end: marker });
-      spans.push({
+      if (line.indent) mine.push({ kind: "indent", start: line.start, end: marker });
+      mine.push({
         kind: line.number === undefined ? "bullet" : "number",
         depth: line.depth,
         start: marker,
@@ -85,15 +96,16 @@ function lineSpans(text: string, tokens: readonly ComposerToken[]): Span[] {
       });
       words = line.content;
     }
-    for (const bold of boldSpans(text, words, line.end, tokens)) {
-      spans.push({ kind: "bold", ...bold });
-      spans.push({ kind: "mark", start: bold.start, end: bold.start + 2 });
-      spans.push({ kind: "mark", start: bold.end - 2, end: bold.end });
+    for (const bold of boldSpans(text, words, line.end, own)) {
+      mine.push({ kind: "bold", ...bold });
+      mine.push({ kind: "mark", start: bold.start, end: bold.start + 2 });
+      mine.push({ kind: "mark", start: bold.end - 2, end: bold.end });
     }
+    // A style can't cut through a chip.
+    const cuts = (at: number) => own.some((token) => token.start < at && at < token.end);
+    for (const span of mine) if (!cuts(span.start) && !cuts(span.end)) spans.push(span);
   }
-  // A style can't cut through a chip.
-  const cuts = (at: number) => tokens.some((token) => token.start < at && at < token.end);
-  return spans.filter((span) => !cuts(span.start) && !cuts(span.end));
+  return spans;
 }
 
 /** `[start, end)` as text and chips, the chips at their tokens. */

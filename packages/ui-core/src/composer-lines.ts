@@ -1,7 +1,8 @@
 /*
  * The composer's text read as Markdown lines: a heading (`# `, `## `, `### `), a list item
  * (`- `, `* `, `1. `, `1) `, indented for nesting) or plain words. Lists nest by indentation,
- * the way Markdown reads them; any other line ends them. Pure.
+ * the way Markdown reads them; any other line ends them. Lines inside a ``` fence (and the
+ * fence lines) are code: no heading, list or bold there. Pure.
  */
 
 interface LineBase {
@@ -37,7 +38,14 @@ export interface ItemLine extends LineBase {
   content: number;
 }
 
-export type ComposerLine = PlainLine | HeadingLine | ItemLine;
+/** A line of fenced code, or a fence itself. */
+export interface CodeLine extends LineBase {
+  kind: "code";
+}
+
+export type ComposerLine = PlainLine | HeadingLine | ItemLine | CodeLine;
+
+const fence = /^ {0,3}(```|~~~)/;
 
 const heading = /^(#{1,3}) /;
 const item = /^( *)([-*]|(\d{1,9})[.)]) /;
@@ -49,9 +57,21 @@ export function composerLines(text: string): ComposerLine[] {
   const open: number[] = [];
   let start = 0;
   let index = 0;
+  // The fence a code block opened with, while in one.
+  let code: string | undefined;
   for (const words of text.split("\n")) {
     const end = start + words.length;
     const base = { index, start, end };
+    const fenced = fence.exec(words)?.[1];
+    if (code !== undefined || fenced) {
+      if (code === undefined) code = fenced;
+      else if (fenced === code) code = undefined;
+      lines.push({ ...base, kind: "code" });
+      open.length = 0;
+      start = end + 1;
+      index++;
+      continue;
+    }
     const titled = heading.exec(words);
     const listed = titled ? null : item.exec(words);
     if (titled) {

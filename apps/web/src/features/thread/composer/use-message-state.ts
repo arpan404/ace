@@ -10,6 +10,7 @@ import {
   pruneAttachmentMarkers,
   renumberEdits,
   strayMarkerEdits,
+  typedListChange,
   toggleBold,
   applyTextEdits,
   type ComposerDraft,
@@ -130,7 +131,9 @@ export function useMessageState(
       const words = strays.length ? applyTextEdits(next, strays) : next;
       const typed = strays.length ? mapTextTokens(shown, strays) : shown;
       const caretAt = strays.length ? mapTextOffset(at, strays) : at;
-      const numbers = composing ? [] : renumberEdits(words);
+      // Numbers count again only where a list item was added or taken away.
+      const listed = composing ? undefined : typedListChange(text, words);
+      const numbers = listed ? renumberEdits(words, new Set(), listed) : [];
       if (!numbers.length) {
         record({ text: words, tokens: typed, caret: caretAt });
         if (strays.length) placeSelection.current = { start: caretAt, end: caretAt };

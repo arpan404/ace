@@ -24,18 +24,34 @@ const delimiter = (marker: string) => marker.at(-1) ?? ".";
 /**
  * The edits that number each ordered list 1, 2, 3… from its first item. A list's first item
  * keeps the number it was given (a list may start at 5), unless its line is in `reset`, which
- * starts it at 1: a nested list made by Tab or Shift+Tab.
+ * starts it at 1: a nested list made by Tab or Shift+Tab. With `within`, only the lists with a
+ * line in that range are counted; the others stay exactly as written.
  */
-export function renumberEdits(text: string, reset: ReadonlySet<number> = new Set()): TextEdit[] {
+export function renumberEdits(
+  text: string,
+  reset: ReadonlySet<number> = new Set(),
+  within?: TextSelection,
+): TextEdit[] {
   const edits: TextEdit[] = [];
   // The last item seen at each indent of the open lists.
   const open: ItemLine[] = [];
   const counted = new Map<ItemLine, number>();
-  for (const line of composerLines(text)) {
+  const lines = composerLines(text);
+  // Each list's lines run on without a break; a list counts when one of them is in `within`.
+  const chosen = new Set<number>();
+  let run = 0;
+  const runs = lines.map((line) => (line.kind === "item" ? run : (run++, -1)));
+  lines.forEach((line, index) => {
+    const id = runs[index] ?? -1;
+    if (id >= 0 && (!within || (line.start <= within.end && line.end >= within.start)))
+      chosen.add(id);
+  });
+  for (const [index, line] of lines.entries()) {
     if (line.kind !== "item") {
       open.length = 0;
       continue;
     }
+    if (!chosen.has(runs[index] ?? -1)) continue;
     while (open.length && (open.at(-1)?.indent ?? 0) > line.indent) open.pop();
     const sibling = open.at(-1)?.indent === line.indent ? open.pop() : undefined;
     open.push(line);
@@ -54,6 +70,38 @@ export function renumberEdits(text: string, reset: ReadonlySet<number> = new Set
   return edits;
 }
 
+const itemPattern = /^ *(?:[-*]|\d{1,9}[.)]) /;
+
+/** How many lines of `text` around `[start, end)` read as list items. */
+function itemsAround(text: string, start: number, end: number): number {
+  const from = text.lastIndexOf("\n", start - 1) + 1;
+  const next = text.indexOf("\n", end);
+  const to = next === -1 ? text.length : next;
+  return text
+    .slice(from, to)
+    .split("\n")
+    .filter((line) => itemPattern.test(line)).length;
+}
+
+/**
+ * Where a typed edit added or took away a list item, so that list counts again; undefined for
+ * any other edit (words in an item, a number changed by hand, a paste of several lines), which
+ * leaves every number as written. Proportional to the edit, not to the message.
+ */
+export function typedListChange(before: string, after: string): TextSelection | undefined {
+  let start = 0;
+  while (start < before.length && start < after.length && before[start] === after[start]) start++;
+  let end = before.length;
+  let nextEnd = after.length;
+  while (end > start && nextEnd > start && before[end - 1] === after[nextEnd - 1]) {
+    end--;
+    nextEnd--;
+  }
+  if (after.slice(start, nextEnd).includes("\n")) return undefined;
+  if (itemsAround(before, start, end) === itemsAround(after, start, nextEnd)) return undefined;
+  return { start, end: nextEnd };
+}
+
 /** A change made of `edits`, then the numbering they leave put right. */
 function withNumbers(
   text: string,
@@ -62,7 +110,15 @@ function withNumbers(
   reset?: ReadonlySet<number>,
 ): TextChange {
   const after = applyTextEdits(text, edits);
-  const numbers = renumberEdits(after, reset);
+  // Only the list the edits are in: where they start and end once made.
+  const sorted = edits.toSorted((a, b) => a.start - b.start);
+  const first = sorted[0];
+  const last = sorted.at(-1);
+  const within =
+    first && last
+      ? { start: mapTextOffset(first.start, edits), end: mapTextOffset(last.end, edits, true) }
+      : undefined;
+  const numbers = renumberEdits(after, reset, within);
   const picked = selection(edits);
   return {
     steps: [edits, numbers],
@@ -101,8 +157,8 @@ export function continueList(text: string, selection: TextSelection): TextChange
 /**
  * Tab (or Shift+Tab, `outdent`) with the selection in list items: each item it touches nests
  * under the one before it (or moves out a level), taking its own nested items along. Undefined
- * when the selection starts outside a list, so Tab keeps its usual meaning there; a change with
- * no steps when the item can't move (the first item can't nest, a top-level one can't step out).
+ * when the selection starts outside a list or the item can't move (the first item can't nest, a
+ * top-level one can't step out), so Tab keeps its usual meaning there.
  */
 export function indentList(
   text: string,
@@ -117,7 +173,8 @@ export function indentList(
     .slice(first.index, last.index + 1)
     .filter((line): line is ItemLine => line.kind === "item");
   const moved = indentLines(text, lines, touched, outdent);
-  return moved.steps.length ? remap(moved, selection) : { steps: [], selection };
+  // Nothing can move (a first item, a top-level one out): Tab keeps its usual meaning.
+  return moved.steps.length ? remap(moved, selection) : undefined;
 }
 
 /** Carry the caller's selection through a move. */
