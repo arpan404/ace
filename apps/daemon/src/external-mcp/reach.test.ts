@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import {
   loopbackBase,
+  publicOrigin,
   reachEndpoints,
   relayBase,
   tailscaleBase,
@@ -14,18 +15,44 @@ const reached: ReachFacts = {
   relay: () => ({ origin: "https://relay.example", hostId: "host-1" }),
 };
 
+const host = (name: string | null, extra: Record<string, string> = {}) =>
+  new Headers({ ...(name === null ? {} : { host: name }), ...extra });
+
 test("loopback requests are served at their own address or the person's public URL by Host", () => {
-  expect(loopbackBase("127.0.0.1:4100", 4100, null)).toEqual({
+  expect(loopbackBase(host("127.0.0.1:4100"), 4100, null)).toEqual({
     path: "local",
     url: "http://127.0.0.1:4100",
   });
-  expect(loopbackBase("LOCALHOST:4100", 4100, null)?.url).toBe("http://localhost:4100");
-  expect(loopbackBase("ace.example.com", 4100, on.custom)).toEqual({
+  expect(loopbackBase(host("LOCALHOST:4100"), 4100, null)?.url).toBe("http://localhost:4100");
+  expect(loopbackBase(host("ace.example.com"), 4100, on.custom)).toEqual({
     path: "custom",
     url: "https://ace.example.com",
   });
-  for (const host of ["127.0.0.1:4101", "ace.example.com", "evil.example", null])
-    expect(loopbackBase(host, 4100, null), String(host)).toBeUndefined();
+  for (const name of ["127.0.0.1:4101", "ace.example.com", "evil.example", null])
+    expect(loopbackBase(host(name), 4100, null), String(name)).toBeUndefined();
+});
+
+test("a proxied request is never the loopback endpoint, even with Host rewritten to it", () => {
+  for (const header of [
+    { forwarded: "for=203.0.113.9" },
+    { "x-forwarded-for": "203.0.113.9" },
+    { "x-forwarded-host": "ace.example.com" },
+    { "x-forwarded-proto": "https" },
+  ])
+    expect(loopbackBase(host("127.0.0.1:4100", header), 4100, null)).toBeUndefined();
+  // The person's own URL arrives through their proxy, which may add them.
+  expect(
+    loopbackBase(host("ace.example.com", { "x-forwarded-for": "203.0.113.9" }), 4100, on.custom)
+      ?.path,
+  ).toBe("custom");
+});
+
+test("the public URL setting is used as its origin, however it was typed", () => {
+  expect(publicOrigin("https://ACE.Example.com:443")).toBe("https://ace.example.com");
+  expect(publicOrigin("https://ace.example.com:8443")).toBe("https://ace.example.com:8443");
+  expect(publicOrigin("http://ace.example.com")).toBeNull();
+  const custom = publicOrigin("https://ACE.Example.com:443");
+  expect(loopbackBase(host("ace.example.com"), 4100, custom)?.url).toBe("https://ace.example.com");
 });
 
 test("the Tailscale listener serves outside clients only at the ts.net name, with the setting on", () => {

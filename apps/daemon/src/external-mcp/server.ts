@@ -26,6 +26,7 @@ import { publicMetadataFetch } from "./oauth/cimd-fetch.ts";
 import { outsideOAuth } from "./oauth/service.ts";
 import {
   loopbackBase,
+  publicOrigin,
   outsidePath,
   reachEndpoints,
   relayBase,
@@ -134,7 +135,7 @@ export async function externalMcp(context: ServiceContext) {
     credentials: outside.principals,
     // Loopback requests: this endpoint's own address, or the person's public URL by its Host.
     loopback: async (request, serve) => {
-      const base = loopbackBase(request.headers.get("host"), port, reachSettings.current().custom);
+      const base = loopbackBase(request.headers, port, reachSettings.current().custom);
       return base ? oauth(request, base, serve) : new Response("Host not allowed", { status: 403 });
     },
     challenge: {
@@ -315,7 +316,7 @@ async function outsideReachSettings(context: ServiceContext) {
     current = {
       tailscale: value("remote.tailscaleMcp") === true,
       relay: value("remote.relayMcp") === true,
-      custom: typeof custom === "string" ? custom : null,
+      custom: typeof custom === "string" ? publicOrigin(custom) : null,
     };
     display = typeof shown === "string" && shown ? shown : undefined;
   };

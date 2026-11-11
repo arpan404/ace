@@ -37,20 +37,38 @@ export function outsidePath(path: string): boolean {
     path.startsWith("/.well-known/oauth-")
   );
 }
+/** `remote.mcpPublicUrl` as the URL clients use: its origin (lowercase host, no :443). */
+export function publicOrigin(value: string): string | null {
+  try {
+    const { origin } = new URL(value);
+    return origin.startsWith("https://") ? origin : null;
+  } catch {
+    return null;
+  }
+}
+/** Whether a proxy says it forwarded the request (RFC 7239, or the X-Forwarded-* family). */
+function forwarded(headers: Headers): boolean {
+  for (const name of headers.keys())
+    if (name === "forwarded" || name.startsWith("x-forwarded-")) return true;
+  return false;
+}
 /**
  * The base a loopback request arrived at, from its Host: the loopback endpoint itself, or the
- * person's own public URL whose proxy forwards here keeping its Host. Anything else is refused.
+ * person's own public URL (`custom`, an origin) whose proxy forwards here keeping its Host.
+ * A request a proxy forwarded is never the loopback endpoint, even when the proxy rewrote Host
+ * to it: traffic from the internet must not pass for this computer's. Anything else is refused.
  */
 export function loopbackBase(
-  host: string | null,
+  headers: Headers,
   port: number,
   custom: string | null,
 ): OutsideBase | undefined {
-  if (!host) return undefined;
-  const named = host.toLowerCase();
+  const named = headers.get("host")?.toLowerCase();
+  if (!named) return undefined;
+  if (custom && named === new URL(custom).host) return outsideBase("custom", custom);
+  if (forwarded(headers)) return undefined;
   if ([`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`].includes(named))
     return outsideBase("local", `http://${named}`);
-  if (custom && named === new URL(custom).host) return outsideBase("custom", custom);
   return undefined;
 }
 function tailnetUrl(facts: { name: string; port: number }): string {

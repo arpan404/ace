@@ -148,8 +148,11 @@ The ways in, each listed with its URL by `outside.request` `endpoints`:
 For the custom path, point Tailscale Funnel, a tunnel or a reverse proxy at the loopback
 endpoint (`http://127.0.0.1:<port>`, the port `ace mcp list` shows) and set
 `remote.mcpPublicUrl` to the public `https` origin, without a path. The proxy must end
-TLS and pass the original `Host` header through: the daemon serves a loopback request
-as the custom URL only when its `Host` names that origin, and refuses unknown hosts.
+TLS and keep the original `Host` header: the daemon serves a loopback request as the
+custom URL only when its `Host` names that origin, and refuses unknown hosts. A proxy that
+rewrites `Host` to `127.0.0.1` doesn't work: a request carrying `Forwarded` or any
+`X-Forwarded-*` header is never served as the loopback endpoint, so pasted tokens stay
+usable from this computer only.
 For example, with Caddy: `ace.example.com { reverse_proxy 127.0.0.1:<port> }`.
 
 Login uses the reviewed supervised native CLI device/browser flow. Verification
