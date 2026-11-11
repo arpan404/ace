@@ -168,7 +168,8 @@ function collect(
   for (const { read, keyOf } of entries)
     for (const row of read.series) {
       const key = keyOf(row);
-      const index = row.dimensions.day === undefined ? undefined : dayIndex.get(row.dimensions.day);
+      const date = row.dimensions.day;
+      const index = date ? dayIndex.get(date) : undefined;
       const target = key ? lines.get(key) : undefined;
       if (!target || index === undefined) continue;
       if (!target.days.length) target.days = days.map(zero);
