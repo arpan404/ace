@@ -24,6 +24,10 @@ function useSpadeLine() {
   return spadeStateLine(useSpadeStatus(), enabled);
 }
 
+function pinToEnd(element: HTMLElement | null, atEnd: boolean) {
+  if (element && atEnd) element.scrollTop = element.scrollHeight;
+}
+
 /**
  * A scroller that stays at its end while the person is there, as the conversation grows: on
  * every render and whenever the content's height changes after it (markdown paints late).
@@ -32,15 +36,11 @@ function Scroller(props: { children: ReactNode }) {
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const atEnd = useRef(true);
-  const pin = () => {
-    const element = scroller.current;
-    if (element && atEnd.current) element.scrollTop = element.scrollHeight;
-  };
-  useLayoutEffect(pin);
+  useLayoutEffect(() => pinToEnd(scroller.current, atEnd.current));
   useLayoutEffect(() => {
     const inner = content.current;
     if (!inner || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(pin);
+    const observer = new ResizeObserver(() => pinToEnd(scroller.current, atEnd.current));
     observer.observe(inner);
     return () => observer.disconnect();
   }, []);
