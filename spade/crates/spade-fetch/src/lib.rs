@@ -2,9 +2,21 @@
 //!
 //! Pages are untrusted. Only http and https are fetched. Spade resolves the host itself, refuses
 //! any address the [`Policy`] does not allow (loopback, private, link-local, CGNAT, multicast and
-//! their IPv6 forms by default) or that belongs to this machine's own networks, and connects only to the addresses it checked, so DNS cannot
-//! swap them between the check and the connection. Every redirect is checked the same way, at
-//! most [`MOST_REDIRECTS`] of them, and no more than [`MOST_BYTES`] are read.
+//! their IPv6 forms by default) or that belongs to this machine's own networks, and connects
+//! only to the addresses it checked, so DNS cannot swap them between the check and the
+//! connection. Every redirect is checked the same way, at most [`MOST_REDIRECTS`] of them, and
+//! no more than [`MOST_BYTES`] are read.
+//!
+//! # Known limits
+//!
+//! - This machine's networks are its interface prefixes and the on-link routes of the main
+//!   routing table. On Linux, routes in other tables (policy routing) are not read, as that needs
+//!   rtnetlink. Gateway-less routes wider than /16 (IPv4) or /32 (IPv6) are not treated as
+//!   local either, so that a VPN's split default routes do not refuse every address. Both only
+//!   matter with policy routing or unusually wide public on-link prefixes.
+//! - Reading the routing table runs `netstat` or `netsh` outside Linux. It is killed after two
+//!   seconds, which then refuses the fetch, but that wait is not cut short by the fetch's own
+//!   deadline.
 
 pub mod decode;
 pub mod extract;
@@ -27,10 +39,19 @@ pub use page::{DEFAULT_PAGE_CHARS, Page};
 pub use policy::Policy;
 pub use resolve::{Lookup, Resolve, SystemResolver};
 
-/// A `tracing` filter directive that silences the HTML tokenizer's own logs, which carry the
-/// text of the pages it reads. Whoever installs a subscriber must append it after any other
-/// directives, whatever the verbosity asked for: `format!("{user},{LOG_FILTER}")`.
-pub const LOG_FILTER: &str = "html5ever=off,markup5ever=off";
+/// Whether a log event's `target` comes from the HTML parser's crates (html5ever, markup5ever,
+/// tendril, or any of their modules), whose debug and trace logs carry the text of the pages
+/// they read. Whoever installs a subscriber must drop these events in a filter of its own that
+/// no RUST_LOG directive can override, such as a `filter_fn` layer beside the env filter: a
+/// directive like `html5ever::tokenizer=trace` outranks any blanket `html5ever=off`.
+#[must_use]
+pub fn is_parser_log(target: &str) -> bool {
+    ["html5ever", "markup5ever", "tendril"].iter().any(|krate| {
+        target
+            .strip_prefix(krate)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with("::"))
+    })
+}
 
 /// The most redirects one fetch follows.
 pub const MOST_REDIRECTS: usize = 5;

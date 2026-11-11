@@ -6,14 +6,20 @@
 //! IPv4 or /32 for IPv6, such as a VPN's split default routes) are left out, as they would refuse
 //! every address.
 
-use std::io;
+use std::io::{self, Read};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::sync::mpsc;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use crate::local::Network;
 
 const NARROWEST_V4: u8 = 16;
 const NARROWEST_V6: u8 = 32;
+
+/// How long `netstat` or `netsh` may take before it is killed and the fetch refused.
+const COMMAND_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// The on-link networks in a list of routes, as `(network, has_gateway)`.
 fn on_link(routes: impl IntoIterator<Item = (Network, bool)>) -> Vec<Network> {
@@ -160,10 +166,43 @@ pub fn read() -> io::Result<Vec<Network>> {
     }
 }
 
+/// Runs `command` and returns what it printed, killing it after [`COMMAND_TIMEOUT`].
 fn run(command: &mut Command) -> io::Result<String> {
-    let output = command.output()?;
-    if !output.status.success() {
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()?;
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| io::Error::other("no output pipe"))?;
+    // Read on another thread, so a full pipe cannot stall the command while it is timed.
+    let (sent, printed) = mpsc::channel();
+    thread::spawn(move || {
+        let mut text = Vec::new();
+        let _ = sent.send(stdout.read_to_end(&mut text).map(|_| text));
+    });
+    let deadline = Instant::now() + COMMAND_TIMEOUT;
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "reading the routing table timed out",
+            ));
+        }
+        thread::sleep(Duration::from_millis(5));
+    };
+    let text = printed
+        .recv_timeout(COMMAND_TIMEOUT)
+        .map_err(|_| io::Error::other("the routing table output did not arrive"))??;
+    if !status.success() {
         return Err(io::Error::other("the routing table could not be read"));
     }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    Ok(String::from_utf8_lossy(&text).into_owned())
 }
