@@ -545,3 +545,27 @@ async fn the_models_thinking_is_stored_with_its_step_and_sent_back_with_the_tool
     assert_eq!(assistant["reasoning_content"], "Need the weather tool.");
     Ok(())
 }
+
+#[tokio::test]
+async fn a_paid_title_that_fails_to_parse_is_still_paid_for() -> Result {
+    let spade = Spade::start(
+        vec![Script::reply("Hello!").plain("this is not the JSON asked for")],
+        Vec::new(),
+    )
+    .await?;
+    let id = spade.ask("Hi Spade").await?;
+    let events = spade.wait_for(&id, "renamed").await?;
+    assert_eq!(
+        events.last().map(|e| e["title"].clone()),
+        Some(json!("Hi Spade"))
+    );
+    let step: u64 = events
+        .iter()
+        .filter(|e| e["type"] == "step_finished")
+        .map(|e| e["cost_micros"].as_u64().unwrap_or(0))
+        .sum();
+    let spent = spade_store::Store::open(&spade.database())?.spent_since(0)?;
+    // The failed title call: 11 input × $2/M + 7 output × $10/M.
+    assert_eq!(spent, step + 92);
+    Ok(())
+}

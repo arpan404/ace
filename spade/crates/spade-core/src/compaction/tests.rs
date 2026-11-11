@@ -250,3 +250,74 @@ fn a_summary_is_read_from_a_fenced_or_bare_json_reply() {
     );
     assert_eq!(parse_summary("I could not summarise that."), None);
 }
+
+#[test]
+fn a_background_write_counts_once_its_job_finishes_and_a_running_one_is_marked() {
+    let registry = Registry::new([ToolDef {
+        spec: ToolSpec {
+            name: "book".into(),
+            description: "".into(),
+            schema: json!({}),
+        },
+        risk: Risk::Write,
+        untrusted_output: false,
+        deferred: false,
+        background: true,
+    }]);
+    let call = |id: &str, at: &str| Call {
+        id: id.into(),
+        name: "book".into(),
+        arguments: json!({ "at": at }),
+    };
+    let started = |job: &str| {
+        Event::Known(Known::JobStarted {
+            reply: "r".into(),
+            job: job.into(),
+            name: "book".into(),
+        })
+    };
+    let launched = |id: &str| {
+        Event::Known(Known::ToolFinished {
+            reply: "r".into(),
+            call_id: id.into(),
+            name: "book".into(),
+            content: "Started in the background".into(),
+            is_error: false,
+        })
+    };
+    let done = |job: &str, is_error: bool| {
+        Event::Known(Known::JobFinished {
+            job: job.into(),
+            name: "book".into(),
+            content: "".into(),
+            is_error,
+        })
+    };
+    let events = vec![
+        Event::Known(Known::StepFinished {
+            reply: "r".into(),
+            text: "".into(),
+            calls: vec![call("j1", "9am"), call("j2", "10am"), call("j3", "11am")],
+            thoughts: Vec::new(),
+            usage: Tokens::default(),
+            cost_micros: 0,
+            seen: None,
+        }),
+        started("j1"),
+        launched("j1"),
+        started("j2"),
+        launched("j2"),
+        started("j3"),
+        launched("j3"),
+        done("j1", false),
+        done("j2", true),
+    ];
+    assert_eq!(
+        carried_out(&events, events.len(), &registry),
+        vec![
+            r#"book (job j3) {"at":"11am"}, still running in the background; its result has not arrived"#
+                .to_owned(),
+            r#"book (job j1) {"at":"9am"}"#.to_owned(),
+        ]
+    );
+}

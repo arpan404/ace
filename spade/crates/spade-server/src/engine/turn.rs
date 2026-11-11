@@ -41,9 +41,10 @@ pub(super) async fn run(engine: Arc<Engine>, id: String) {
     let live = engine.live(&id);
     let (stop_tx, stop_rx) = watch::channel(false);
     *live.stop.lock().unwrap_or_else(|p| p.into_inner()) = Some(stop_tx);
-    let ended = drive(&engine, &id, stop_rx).await;
-    let driven = open_reply(&engine, &id);
-    if let Some(reply) = driven.clone() {
+    // The reply this worker drove, so the hand-off below can tell it from one opened later.
+    let mut driven: Option<String> = None;
+    let ended = drive(&engine, &id, stop_rx, &mut driven).await;
+    if let Some(reply) = open_reply(&engine, &id).filter(|open| Some(open) == driven.as_ref()) {
         let event = match ended {
             Ended::Finished => None,
             Ended::Stopped(text) => Some(Event::reply_ended(ReplyEnd::Stopped, reply, text)),
@@ -75,7 +76,12 @@ fn open_reply(engine: &Engine, id: &str) -> Option<String> {
     Transcript::fold(&events).open_reply()?.reply.clone()
 }
 
-async fn drive(engine: &Arc<Engine>, id: &str, mut stop: watch::Receiver<bool>) -> Ended {
+async fn drive(
+    engine: &Arc<Engine>,
+    id: &str,
+    mut stop: watch::Receiver<bool>,
+    driven: &mut Option<String>,
+) -> Ended {
     loop {
         if *stop.borrow() {
             return Ended::Stopped(String::new());
@@ -87,6 +93,7 @@ async fn drive(engine: &Arc<Engine>, id: &str, mut stop: watch::Receiver<bool>) 
         match next_step(&events) {
             Next::Idle => return Ended::Finished,
             Next::CallModel { reply } => {
+                *driven = Some(reply.clone());
                 let done = progress(&events);
                 if done.steps >= engine.limits.max_steps {
                     let limit = engine.limits.max_steps;
@@ -123,6 +130,7 @@ async fn drive(engine: &Arc<Engine>, id: &str, mut stop: watch::Receiver<bool>) 
                 }
             }
             Next::Calls { reply, calls } => {
+                *driven = Some(reply.clone());
                 match handle_calls(engine, id, &reply, &events, calls, &mut stop).await {
                     Handled::Continue => {}
                     Handled::Stopped => return Ended::Stopped(String::new()),
@@ -369,6 +377,9 @@ async fn run_tools(
     let mut running = FuturesUnordered::new();
     loop {
         while running.len() < limit {
+            if *stop.borrow() {
+                return Handled::Stopped;
+            }
             let Some((call, name, arguments)) = queue.next() else {
                 break;
             };
@@ -388,10 +399,15 @@ async fn run_tools(
                 .get(&name)
                 .is_some_and(|def| def.background)
             {
-                if let Err(error) =
-                    super::jobs::start(engine, id, reply, &call.id, &name, arguments)
-                {
-                    return Handled::Failed(error.to_string());
+                match super::jobs::start(engine, id, reply, &call.id, &name, arguments, stop) {
+                    Ok(super::jobs::Started::Running) => {}
+                    Ok(super::jobs::Started::Stopped) => {
+                        // Known not to have run: Stop came before the job started.
+                        let not_run = ToolOutput::error(context::NOT_RUN);
+                        finish_tool(engine, id, reply, &call, &name, not_run);
+                        return Handled::Stopped;
+                    }
+                    Err(error) => return Handled::Failed(error.to_string()),
                 }
                 let started = ToolOutput::ok(context::job_started(&call.id));
                 finish_tool(engine, id, reply, &call, &name, started);
@@ -479,20 +495,22 @@ async fn name_if_untitled(engine: &Arc<Engine>, id: &str) {
         return;
     };
     let fast = engine.models.for_role(Role::Fast).to_owned();
-    let suggested = engine
+    let suggested = match engine
         .models
         .generate::<title::Suggestion>(&fast, &title::prompt(&first))
         .await
-        .ok()
-        .and_then(|generated| {
-            let cost = spending::cost_micros(engine.models.price(&fast), &generated.usage);
-            if cost > 0
-                && let Err(error) = engine.store.record_spend(id, &fast, cost, engine.now_ms())
-            {
-                tracing::error!(%error, "could not record a title's cost");
-            }
+    {
+        Ok(generated) => {
+            engine.pay(id, &fast, &generated.usage);
             title::clean(&generated.value.title)
-        });
+        }
+        Err(error) => {
+            if let Some(usage) = error.usage() {
+                engine.pay(id, &fast, &usage);
+            }
+            None
+        }
+    };
     let name = suggested.unwrap_or_else(|| title::fallback(&first));
     if let Err(error) = engine.record(id, &Event::renamed(name)) {
         tracing::error!(%error, "could not store a title");

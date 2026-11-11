@@ -13,7 +13,7 @@ use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 
 use crate::catalog::{Catalog, Price, Role};
-use crate::error::ModelError;
+use crate::error::{self, ModelError};
 use crate::prompt::{Delta, Generated, Message, Prompt, Reply, ToolCall, Usage};
 use crate::{thoughts, typed};
 use spade_keys::{KeyRequest, Keys};
@@ -82,6 +82,7 @@ impl Models {
         if text.is_empty() && calls.is_empty() {
             return Err(ModelError::Empty {
                 model: call.reference,
+                usage,
             });
         }
         Ok(Reply {
@@ -109,12 +110,14 @@ impl Models {
             .exec_chat(call.target, request(prompt), Some(&options))
             .await
             .map_err(|error| provider_error(&call.reference, &error))?;
+        let cost = usage(&response.usage);
         let text = response.first_text().ok_or_else(|| ModelError::Empty {
             model: call.reference.clone(),
+            usage: cost,
         })?;
         Ok(Generated {
-            value: typed::parse(&call.reference, text)?,
-            usage: usage(&response.usage),
+            value: typed::parse(&call.reference, text).map_err(|e| error::charged(e, cost))?,
+            usage: cost,
         })
     }
 
