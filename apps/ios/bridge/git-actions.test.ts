@@ -341,8 +341,8 @@ test("Changes refuses creation on GitHub when the repository explicitly grants n
   expect(step(fixture.sink).blocked).toBeTruthy();
 });
 
-test("an approval-capable repository can request review while merge is unavailable", async () => {
-  const fixture = await opened(["reviews.create", "reviews.approvals.write"]);
+test("a repository that can ask for reviewers offers a review request while merge is unavailable", async () => {
+  const fixture = await opened(["reviews.create", "reviews.reviewers.request"]);
   await fixture.act({ kind: "commit", message: "Fix the queue", push: true }, "c");
   await fixture.act({ kind: "create-pr", title: "Fix the queue" }, "p");
   await until(() => step(fixture.sink).pr !== null, "linked review");
@@ -354,4 +354,16 @@ test("an approval-capable repository can request review while merge is unavailab
   expect(fixture.sent.find((command) => command.type === "forge.review.request")).toMatchObject({
     reviewers: ["ana"],
   });
+});
+
+test("a repository that can approve but not ask for reviewers offers no review request", async () => {
+  const fixture = await opened(["reviews.create", "reviews.approvals.write"]);
+  await fixture.act({ kind: "commit", message: "Fix the queue", push: true }, "c");
+  await fixture.act({ kind: "create-pr", title: "Fix the queue" }, "p");
+  await until(() => step(fixture.sink).pr !== null, "linked review");
+  expect(fixture.sink.read("changes:summary")?.canRequestReview).toBe(false);
+  expect(await fixture.act({ kind: "request-review", reviewers: "ana" }, "r")).toMatchObject({
+    ok: false,
+  });
+  expect(fixture.sent.some((command) => command.type === "forge.review.request")).toBe(false);
 });

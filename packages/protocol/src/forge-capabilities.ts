@@ -18,8 +18,10 @@ export const ForgeCapability = z.enum([
   "reviews.comments.write",
   /** Approvals and requested reviewers, read. */
   "reviews.approvals.read",
-  /** Approve, request changes, request reviewers. */
+  /** Approve and request changes. */
   "reviews.approvals.write",
+  /** Ask people to review. */
+  "reviews.reviewers.request",
   /** CI checks or pipelines and their logs. */
   "reviews.checks",
   /** Re-run or cancel checks. */

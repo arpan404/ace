@@ -38,7 +38,7 @@ export function PrPeople(props: {
         canDismiss: false,
       }));
   const reviewerPicker =
-    can(detail, "reviews.approvals.write") &&
+    can(detail, "reviews.reviewers.request") &&
     (props.extensions?.reviewers?.(props.context) ??
       (props.onRequestReview && (
         <Button variant="ghost" size="xs" disabled={disabled} onClick={props.onRequestReview}>
@@ -61,19 +61,23 @@ export function PrPeople(props: {
           <div id="pr-reviewers" role="group" aria-label="Reviewers" className="scroll-mt-10 py-1">
             {rows.length ? (
               <PrReviewers
-                rows={
-                  can(detail, "reviews.approvals.write")
-                    ? rows
-                    : rows.map((row) =>
-                        Object.assign({}, row, {
-                          canRerequest: false,
-                          canRemove: false,
-                          canDismiss: false,
-                        }),
-                      )
-                }
+                rows={rows.map((row) =>
+                  Object.assign({}, row, {
+                    // Asking and un-asking reviewers is its own capability; dismissing a
+                    // review is an approval write.
+                    canRerequest: row.canRerequest && can(detail, "reviews.reviewers.request"),
+                    canRemove: row.canRemove && can(detail, "reviews.reviewers.request"),
+                    canDismiss: row.canDismiss && can(detail, "reviews.approvals.write"),
+                  }),
+                )}
                 value={reviewers.data}
-                disabled={disabled || !can(detail, "reviews.approvals.write")}
+                disabled={
+                  disabled ||
+                  !(
+                    can(detail, "reviews.approvals.write") ||
+                    can(detail, "reviews.reviewers.request")
+                  )
+                }
                 onDismissed={() => void reviewers.refetch()}
                 onRequestReview={props.onRequestReview}
               />

@@ -160,7 +160,7 @@ function PrMenuItems(props: {
             )}
           </MenuItem>
         ))}
-      {can(props.source, "reviews.approvals.write") && (
+      {can(props.source, "reviews.reviewers.request") && (
         <MenuItem
           icon={glyph(UserPlusIcon)}
           disabled={git.pending}
@@ -245,7 +245,7 @@ export function GitMenuItems(props: { git: GitFlow; checkout: Checkout }) {
       {live &&
         pr &&
         !!(pr.repo ?? checkout.repository) &&
-        (can(source, "reviews.merge") || can(source, "reviews.approvals.write")) && (
+        (can(source, "reviews.merge") || can(source, "reviews.reviewers.request")) && (
           <PrMenuItems git={git} draft={pr.state === "draft"} source={source} />
         )}
       <MenuItem

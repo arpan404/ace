@@ -120,7 +120,7 @@ export function summaryPatch(input: SummaryInput): Record<string, unknown> {
       reads?.pr?.ref.repository ?? input.details?.repository,
     ),
     canRequestReview:
-      can(input.capabilitySource ?? reads?.pr?.ref.repository, "reviews.approvals.write") &&
+      can(input.capabilitySource ?? reads?.pr?.ref.repository, "reviews.reviewers.request") &&
       (reads?.pr?.state === "open" || reads?.pr?.state === "draft"),
     busy: input.busy,
     // Every way the forge merges; the phone remembers the last one picked.

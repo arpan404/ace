@@ -239,7 +239,7 @@ export function PrOverflowMenu(props: {
               </MenuSub>
             )
           )}
-          {can(detail, "reviews.approvals.write") && status.state === "open" && (
+          {can(detail, "reviews.reviewers.request") && status.state === "open" && (
             <MenuItem
               icon={icon(UserPlusIcon)}
               disabled={writes.fenced || context.disabled}

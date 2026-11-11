@@ -109,8 +109,16 @@ export function prUrl(pr: ForgePrRef): string {
   const repo = pr.repository;
   if (repo.forge === "origin")
     return `https://cursor.com/codebase/${repo.owner}/${repo.name}/pull/${pr.number}`;
-  if (repo.forge !== "github" && repo.forge !== "gitlab") throw new ForgeError("unsupported");
-  return `https://${repo.host}/${repo.owner}/${repo.name}/${repo.forge === "github" ? "pull" : "-/merge_requests"}/${pr.number}`;
+  const path =
+    repo.forge === "github"
+      ? "pull"
+      : repo.forge === "gitlab"
+        ? "-/merge_requests"
+        : repo.forge === "gitea" || repo.forge === "forgejo"
+          ? "pulls"
+          : undefined;
+  if (!path) throw new ForgeError("unsupported");
+  return `https://${repo.host}/${repo.owner}/${repo.name}/${path}/${pr.number}`;
 }
 
 /**

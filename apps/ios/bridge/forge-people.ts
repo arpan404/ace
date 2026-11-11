@@ -164,7 +164,10 @@ export async function readReviewers(
   const value = await reads.read({ op: "forge.pr.reviewers", ...scopeOf(request) }, false);
   if (value.resource !== "prReviewers") throw new ForgeRefusal("forge_invalid_data");
   const reviewers = value.value;
-  const writable = can(await prDetail(reads, request), "reviews.approvals.write");
+  const detail = await prDetail(reads, request);
+  const writable = can(detail, "reviews.approvals.write");
+  // Asking and un-asking reviewers is its own capability; dismissing a review is an approval.
+  const requestable = can(detail, "reviews.reviewers.request");
   return {
     type: "forge.pull.reviewers",
     rows: reviewerRows(reviewers).map((row) => ({
@@ -180,17 +183,17 @@ export async function readReviewers(
             ? "failed"
             : null,
       reviewId: row.review?.id ?? null,
-      canRerequest: writable && row.canRerequest,
-      canRemove: writable && row.canRemove,
+      canRerequest: requestable && row.canRerequest,
+      canRemove: requestable && row.canRemove,
       canDismiss: writable && row.canDismiss,
     })),
     suggested:
-      writable && reviewers.canRequest
+      requestable && reviewers.canRequest
         ? suggestedReviewers(reviewers).map((person) => ({
             login: person.login,
             name: person.name ? preview(person.name, 256) : null,
           }))
         : [],
-    canRequest: writable && reviewers.canRequest,
+    canRequest: requestable && reviewers.canRequest,
   };
 }

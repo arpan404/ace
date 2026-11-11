@@ -17,8 +17,8 @@
       "sha256": "b4a6f00bb317bfed04898d9e32e080a719849c779954c450fc7e02973d740f30"
     },
     "forge.md": {
-      "bytes": 139477,
-      "sha256": "58752c669eeb7d656b3693684cc5737a3165f6834e1e93b34741bbf73808dfa8"
+      "bytes": 139505,
+      "sha256": "f182247f33a476f254ad6028926c613581b3299764526e4b4a792e0b6bb4dcaa"
     },
     "mcp.md": {
       "bytes": 62040,
@@ -1341,8 +1341,8 @@
       "sha256": "1cd3a95fce82704b0fc2fc6b18cc36d245a061dcd47bd7ac9f11677ea4cc96db"
     },
     "schema/ForgeCapability.json": {
-      "bytes": 616,
-      "sha256": "3962da4b06b57e25707f306b593f5fe835e28d4ef4ab1f73e890e4b1df210c3b"
+      "bytes": 649,
+      "sha256": "8bcce7e938699ec0568ee819dc5f239c69e105767cd9c2d34267020c5c6f5795"
     },
     "schema/ForgeCheck.json": {
       "bytes": 1217,
@@ -4937,6 +4937,6 @@
       "sha256": "2abff440841cca025910d9f5f86f9c943c6715c358049a977b41c1087d9ded40"
     }
   },
-  "input": "7c29ff0e2d0ebf3c24f61baff8fed3bc4e070b57a66848184328ee9780ff86ef",
+  "input": "f9c0de972e61149a538cad84d7511a15e61a52a768550e08dfe30be5086bbe44",
   "version": 1
 }

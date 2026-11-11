@@ -4,6 +4,7 @@ import { ForgePrRow } from "@ace/protocol/forge-browser";
 import { ForgeError } from "./errors.ts";
 import { clipText, clipLabels } from "./host-text.ts";
 import { redactData } from "./redact.ts";
+import { prUrl } from "./pr-reference.ts";
 
 export const sha = z.string().regex(/^[a-f0-9]{40,64}$/);
 export const person = z.looseObject({ login: z.string() });
@@ -47,7 +48,7 @@ export function state(p: Pull): "open" | "draft" | "closed" | "merged" | "unknow
   return p.draft === true || /^(?:\[WIP\]|WIP:|\[DRAFT\]|DRAFT:)/i.test(p.title) ? "draft" : "open";
 }
 export function pullUrl(repo: ForgeRepository, number: number) {
-  return `https://${repo.host}/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}/pulls/${number}`;
+  return prUrl({ repository: repo, number });
 }
 export function status(repo: ForgeRepository, p: Pull) {
   const s = state(p);

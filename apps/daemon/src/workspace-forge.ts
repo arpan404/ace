@@ -14,7 +14,13 @@ import { ForgeResourceOwner } from "./forge-resource-owner.ts";
 import { WorkspaceForgeLifecycle } from "./workspace-forge-lifecycle.ts";
 import { WorkspaceForgeReviews } from "./workspace-forge-reviews.ts";
 import { ForgeReplyReceipts } from "./forge-reply-receipts.ts";
-import { ForgeError, repositoryKey, type GitHubForge, type CommandRunner } from "@ace/forge";
+import {
+  ForgeError,
+  isTeaHost,
+  repositoryKey,
+  type GitHubForge,
+  type CommandRunner,
+} from "@ace/forge";
 import {
   ForgeCommand,
   type ForgePrRef,
@@ -309,7 +315,9 @@ export class WorkspaceForge {
     }
     this.lifetime.signal.throwIfAborted();
     if (!allowed()) throw new Error("forbidden");
-    if (p.link.pr.repository.forge === "gitlab") {
+    // GitLab, Gitea and Forgejo PRs go through their own adapters' admitted writers, never
+    // GitHub's backend.
+    if (p.link.pr.repository.forge === "gitlab" || isTeaHost(p.link.pr.repository.forge)) {
       const pr = p.link.pr;
       const generation = this.links.getLinkState(id, pr)?.generation;
       if (p.type === "forge.pr.status") {
@@ -321,6 +329,12 @@ export class WorkspaceForge {
         this.projection.update(id, value.status, generation);
         return { ok: true, pr, prStatus: value.status };
       }
+      // tea has no reply or reviewer-request writes (ADR 0117).
+      if (
+        (p.type === "forge.comment.reply" || p.type === "forge.review.request") &&
+        isTeaHost(pr.repository.forge)
+      )
+        throw new ForgeError("unsupported");
       if (p.type === "forge.comment.reply" || p.type === "forge.review.request")
         return executeGitLabThreadConversation({
           backends: this.backends,

@@ -16,6 +16,7 @@ const github: readonly ForgeCapability[] = [
   "reviews.comments.write",
   "reviews.approvals.read",
   "reviews.approvals.write",
+  "reviews.reviewers.request",
   "reviews.checks",
   "reviews.checks.write",
   "reviews.create",
@@ -32,7 +33,7 @@ const github: readonly ForgeCapability[] = [
 ];
 
 /** Gitea and Forgejo share one adapter through tea: reads, comments, approvals, commit-status
- * checks, pinned merge and issues. */
+ * checks, pinned merge and issues. Requesting reviewers isn't implemented. */
 const tea: readonly ForgeCapability[] = [
   "reviews.read",
   "reviews.files",
@@ -57,6 +58,7 @@ export const forgeCapabilities: Readonly<Record<ForgeKind, readonly ForgeCapabil
     "reviews.comments.write",
     "reviews.approvals.read",
     "reviews.approvals.write",
+    "reviews.reviewers.request",
     "reviews.checks",
     "reviews.checks.write",
     "reviews.create",

@@ -190,7 +190,7 @@ async function perform(owner: ChangesOwner, session: ChangesSession, action: Git
   if (action.kind === "request-review") {
     if (
       !(pr.state === "open" || pr.state === "draft") ||
-      !can(session.capabilitySource, "reviews.approvals.write")
+      !can(session.capabilitySource, "reviews.reviewers.request")
     )
       throw new WorkspaceRefusal("forge_unsupported");
     const reviewers = reviewersOf(action.reviewers);

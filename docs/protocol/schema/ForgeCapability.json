@@ -9,6 +9,7 @@
     "reviews.comments.write",
     "reviews.approvals.read",
     "reviews.approvals.write",
+    "reviews.reviewers.request",
     "reviews.checks",
     "reviews.checks.write",
     "reviews.create",

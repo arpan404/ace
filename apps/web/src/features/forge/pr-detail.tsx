@@ -239,7 +239,8 @@ function PrDetailLoaded(props: {
   // A locked conversation takes comments only from collaborators who can push.
   const conversation = actions.lifecycle.snapshot?.conversation;
   const lockedOut = !!conversation?.locked && !conversation.viewerCanComment;
-  const canRequestReview = can(detail, "reviews.approvals.write") && detail.status.state === "open";
+  const canRequestReview =
+    can(detail, "reviews.reviewers.request") && detail.status.state === "open";
   const participants = useCallback(() => prParticipants(detail), [detail]);
   // Shortcuts work anywhere in the panel; `contents` keeps the layout the article's. On a
   // page it is the page's one scroller instead.
