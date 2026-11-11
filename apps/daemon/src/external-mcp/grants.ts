@@ -76,6 +76,10 @@ function decode(raw: unknown): OutsideGrant | undefined {
   return grant.success ? grant.data : undefined;
 }
 
+/** A live grant, with `?` the time now; `isLive` states the same rule. */
+const liveSql = "revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)";
+/** How many ended grants Settings lists beside every live one. */
+export const endedListed = 200;
 /** How often a grant's last use is written: every request would be a write per call. */
 const touchEveryMs = 60_000;
 
@@ -127,11 +131,18 @@ export class GrantStore {
     const grant = this.get(id);
     return grant && isLive(grant, this.now()) ? grant : undefined;
   }
+  /**
+   * Every live grant, then the most recent ended (revoked or expired) ones up to
+   * `endedListed`, each part newest first. A live grant never falls off the list.
+   */
   list(): OutsideGrant[] {
-    return this.sql
-      .statement(`SELECT ${columns} FROM outside_grants ORDER BY created_at DESC, id LIMIT 1000`)
-      .all()
+    const ended = this.sql
+      .statement(
+        `SELECT ${columns} FROM outside_grants WHERE NOT (${liveSql}) ORDER BY created_at DESC, id LIMIT ?`,
+      )
+      .all(this.now(), endedListed)
       .flatMap((row) => decode(row) ?? []);
+    return [...this.liveGrants(), ...ended];
   }
   /** Every grant with the threads it started and messaged, newest first. */
   entries(): OutsideGrantEntry[] {
@@ -190,8 +201,12 @@ export class GrantStore {
   }
   /** Grants that are neither revoked nor expired, for timers armed at startup. */
   liveGrants(): OutsideGrant[] {
-    const now = this.now();
-    return this.list().filter((grant) => isLive(grant, now));
+    return this.sql
+      .statement(
+        `SELECT ${columns} FROM outside_grants WHERE ${liveSql} ORDER BY created_at DESC, id`,
+      )
+      .all(this.now())
+      .flatMap((row) => decode(row) ?? []);
   }
 }
 

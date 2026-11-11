@@ -15,7 +15,7 @@
               "items": {
                 "$ref": "https://ace.local/protocol/v1/OutsideGrantEntry.json"
               },
-              "maxItems": 1000,
+              "maxItems": 20000,
               "type": "array"
             },
             "kind": {

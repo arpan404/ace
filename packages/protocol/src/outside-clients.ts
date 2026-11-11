@@ -133,7 +133,8 @@ export const OutsideGrantEntry = OutsideGrant.extend({
 export type OutsideGrantEntry = z.infer<typeof OutsideGrantEntry>;
 
 const OutsideOutcome = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("grants"), grants: z.array(OutsideGrantEntry).max(1000) }),
+  // Every live grant, and the most recent ended ones.
+  z.object({ kind: z.literal("grants"), grants: z.array(OutsideGrantEntry).max(20_000) }),
   z.object({ kind: z.literal("revoked") }),
   z.object({ kind: z.literal("updated"), grant: OutsideGrant }),
   z.object({ kind: z.literal("watching") }),
