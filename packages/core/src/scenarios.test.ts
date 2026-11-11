@@ -50,7 +50,8 @@ describe("recorded provider false-done traps", () => {
     h.background();
     const firstRun = h.item("shell")?.runId;
     h.end();
-    expect(h.view.status).toEqual({ state: "waiting", on: "background_task" });
+    // Past the final reply the shell is left running, not waited on (ADR 0116).
+    expect(h.view.status).toEqual({ state: "done" });
     h.send({
       type: "item.delta",
       agent: "root",
@@ -58,7 +59,8 @@ describe("recorded provider false-done traps", () => {
       field: "output",
       append: "still running\n",
     });
-    expect(h.view.status).toEqual({ state: "waiting", on: "background_task" });
+    expect(h.view.status).toEqual({ state: "done" });
+    expect(h.task("task")?.status).toBe("running");
     h.send({
       type: "item.upsert",
       agent: "root",

@@ -370,6 +370,10 @@ export class WorkspaceRuntime {
   details(id: ThreadId): Promise<ThreadDetails> {
     return this.roots.details(id);
   }
+  /** Fails with `worktree_missing`, and says so on the thread, when its checkout is gone. */
+  assertCheckoutPresent(id: ThreadId, cwd: string): Promise<void> {
+    return this.roots.assertPresent(id, cwd);
+  }
   listTerminals(id: ThreadId) {
     return [...this.terminals]
       .filter(([, entry]) => entry.threadId === id)

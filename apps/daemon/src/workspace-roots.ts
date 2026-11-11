@@ -5,6 +5,7 @@ import { realpath } from "node:fs/promises";
 import type { GitService } from "@ace/git";
 import { checkoutCwd } from "./creation-preparation.ts";
 import { LateSetup } from "./late-setup.ts";
+import { CheckoutMissingError, readMissingCheckout } from "./checkout-missing.ts";
 import {
   ensureThreadWorktree,
   exists,
@@ -195,24 +196,59 @@ export class WorkspaceRoots {
   ): Promise<ThreadDetails> {
     return moveCheckout(this.move, id, selection);
   }
-  /** A checkout that was deleted, or removed by storage cleanup, is reported, not thrown. */
-  private async missing(id: ThreadId): Promise<ThreadDetails | undefined> {
+  /** The thread's bound checkout root, once it is ready. */
+  private sessionRoot(id: ThreadId): string | undefined {
     const row = this.store.atomic((db) =>
       db.prepare("SELECT cwd FROM engine_sessions WHERE thread_id=? AND workspace_ready=1").get(id),
     );
-    if (typeof row?.cwd !== "string") return undefined;
-    if (!this.store.workspaceReservations.removedRoot(row.cwd) && (await exists(row.cwd)))
-      return undefined;
+    return typeof row?.cwd === "string" ? row.cwd : undefined;
+  }
+  /**
+   * A checkout that was deleted, or removed by storage cleanup, is reported, not thrown: with
+   * what Git still has of it (`checkoutMissing`), read again on each look, since the branch
+   * may be deleted or checked out elsewhere while the folder stays gone.
+   */
+  private async missing(id: ThreadId): Promise<ThreadDetails | undefined> {
+    const cwd = this.sessionRoot(id);
+    if (cwd === undefined) return undefined;
+    if (!this.store.workspaceReservations.removedRoot(cwd) && (await exists(cwd))) return undefined;
+    const thread = this.store.getThread(id);
+    if (!thread) throw new Error("thread_not_found");
+    const project = this.store.getWorkspacePath(thread.workspaceId);
+    if (!project) throw new Error("workspace_not_found");
+    const change = thread.details?.workspaceChange;
+    const checkoutMissing = await readMissingCheckout(this.git, {
+      cwd,
+      project,
+      branch: thread.details?.branch,
+    });
     const current = this.store.getThread(id);
     if (!current) throw new Error("thread_not_found");
-    const details: ThreadDetails = { ...current.details, worktreeMissing: true };
-    if (!current.details?.worktreeMissing)
+    // A move that started or landed while Git was read publishes its own outcome; never mark
+    // the thread missing over it. No await between this check and the write.
+    if (
+      this.sessionRoot(id) !== cwd ||
+      !sameJson(change, current.details?.workspaceChange) ||
+      change?.state === "preparing"
+    )
+      return undefined;
+    const details: ThreadDetails = { ...current.details, worktreeMissing: true, checkoutMissing };
+    if (!sameJson(current.details, details))
       this.store.appendEvents(
         id,
         [{ type: "thread.client.updated", changes: { details } }],
         this.now(),
       );
     return details;
+  }
+  /**
+   * Before a provider starts in `cwd`: a checkout that is gone fails with `worktree_missing`
+   * (the send is kept for after a move) and is reported on the thread at once.
+   */
+  async assertPresent(id: ThreadId, cwd: string): Promise<void> {
+    if (!this.store.workspaceReservations.removedRoot(cwd) && (await exists(cwd))) return;
+    await this.missing(id).catch(() => undefined);
+    throw new CheckoutMissingError();
   }
   async details(id: ThreadId): Promise<ThreadDetails> {
     const missing = await this.missing(id);
@@ -255,6 +291,7 @@ export class WorkspaceRoots {
         diff: changed,
       };
       delete details.worktreeMissing;
+      delete details.checkoutMissing;
       if (!repository) delete details.repository;
       if (!sameJson(current.details, details))
         this.store.appendEvents(

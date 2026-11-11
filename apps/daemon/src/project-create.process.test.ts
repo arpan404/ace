@@ -165,3 +165,52 @@ test("a project root that can't be saved leaves no folder behind", async () => {
     await f.close();
   }
 });
+
+test("removing one project root keeps the roots allowed after it, and an unknown root changes nothing", async () => {
+  let saved: string[] = [];
+  const f = await projectFixture({
+    roots: async () => saved,
+    saveRoots: async (roots) => {
+      saved = roots;
+    },
+  });
+  try {
+    const first = join(f.root, "first");
+    const later = join(f.root, "later");
+    await f.command({ type: "workspace.root.add", path: first, create: true });
+    await f.command({ type: "workspace.root.add", path: later, create: true });
+    expect(saved).toEqual([f.root, first, later]);
+
+    expect(await f.command({ type: "workspace.root.remove", path: `${first}/` })).toMatchObject({
+      ok: true,
+    });
+    expect(saved).toEqual([f.root, later]);
+
+    expect(await f.command({ type: "workspace.root.remove", path: first })).toMatchObject({
+      ok: true,
+    });
+    expect(saved).toEqual([f.root, later]);
+  } finally {
+    await f.close();
+  }
+});
+
+test("removing the only allowed root is refused, so home doesn't become allowed again", async () => {
+  let saved: string[] = [];
+  const f = await projectFixture({
+    roots: async () => saved,
+    saveRoots: async (roots) => {
+      saved = roots;
+    },
+  });
+  try {
+    saved = [f.root];
+    expect(await f.command({ type: "workspace.root.remove", path: f.root })).toMatchObject({
+      ok: false,
+      error: "last_root",
+    });
+    expect(saved).toEqual([f.root]);
+  } finally {
+    await f.close();
+  }
+});

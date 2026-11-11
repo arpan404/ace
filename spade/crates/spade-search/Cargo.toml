@@ -1,0 +1,22 @@
+[package]
+name = "spade-search"
+version = "0.1.0"
+description = "Spade's web search: the person's own SearXNG, or Brave with their key"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+spade-keys = { path = "../spade-keys" }
+thiserror.workspace = true
+
+[dev-dependencies]
+axum.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true

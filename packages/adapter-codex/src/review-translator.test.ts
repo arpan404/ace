@@ -19,7 +19,7 @@ test("hydration preserves historical messages and surviving shell tasks before e
       items: [{ id: "message", type: "agentMessage", text: "history" }, shell],
     },
   ]);
-  expect(h.state.status).toEqual({ state: "waiting", on: "background_task" });
+  expect(h.state.status).toEqual({ state: "done" });
   expect(
     Object.values(h.state.items).some(
       (i) => i.type === "message" && i.parts.some((p) => p.type === "text" && p.text === "history"),

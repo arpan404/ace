@@ -1,9 +1,10 @@
 import { useAgent, useSidebarThread, useThreadMeta } from "@ace/client-react";
 import type { DelegatedFrom } from "@ace/protocol";
-import { agentName } from "@ace/ui-core";
-import { ChatCircleIcon, FolderSimpleIcon } from "@phosphor-icons/react";
+import { agentName, projectBadge } from "@ace/ui-core";
+import { ChatCircleIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { Icon } from "@/components/icon.tsx";
+import { ProjectMark } from "@/components/project-mark.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
 import { useScopedMachine } from "@/lib/machines.ts";
@@ -11,7 +12,7 @@ import { useIsChatThread, useProjectName, type ChatTestEntry } from "@/lib/proje
 
 /**
  * A child ace delegated names its parent thread before its title, as a link back. Any other
- * thread has no parent crumb: its project shows as a folder and name before its title.
+ * thread has no parent crumb: its project shows as its badge and name before its title.
  * A fork is a thread of its own; its transcript says where it was forked from.
  */
 export function ThreadCrumb(props: { threadId: string }) {
@@ -41,7 +42,7 @@ function RemoteParentCrumb(props: { from: DelegatedFrom }) {
 }
 
 /**
- * The project folder and name before a thread's title, visible even with the sidebar hidden.
+ * The project's badge and name before a thread's title, visible even with the sidebar hidden.
  * The tooltip also names a remote computer (ADR 0102). A chat has no project (ADR 0099), so it
  * keeps only its chat bubble.
  */
@@ -55,7 +56,14 @@ export function ProjectGlyph(props: { thread: ChatTestEntry }) {
     <Tip label={said}>
       <span className="inline-flex min-w-0 items-center gap-2">
         <span role="img" aria-label={chat ? said : `Project ${said}`} className="inline-flex">
-          <Icon icon={chat ? ChatCircleIcon : FolderSimpleIcon} />
+          {chat ? (
+            <Icon icon={ChatCircleIcon} />
+          ) : (
+            <ProjectMark
+              id={props.thread.workspaceId}
+              badge={projectBadge({ id: props.thread.workspaceId, name })}
+            />
+          )}
         </span>
         {!chat && (
           <>

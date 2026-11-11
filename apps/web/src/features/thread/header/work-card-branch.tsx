@@ -1,5 +1,5 @@
 import { useThreadMeta } from "@ace/client-react";
-import { baseRecordText } from "@ace/ui-core";
+import { baseRecordText, missingBranch } from "@ace/ui-core";
 import { GitBranchIcon } from "@phosphor-icons/react";
 import { InlineMarkdown } from "@/components/inline-markdown.tsx";
 import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
@@ -17,6 +17,7 @@ import {
   RowCaret,
   RowLabel,
   RowStatic,
+  RowSub,
   rowIcon,
 } from "./work-card-parts.tsx";
 import { PrLine } from "./work-card-pr.tsx";
@@ -37,7 +38,19 @@ export function BranchGroup(props: {
 }) {
   const { git } = props;
   const workspace = useWorkspaceActions(props.thread.id);
+  const gone = missingBranch(useThreadMeta(props.thread.id)?.details);
   const checkout = git.checkout;
+  // A gone checkout has no sync state or changes to show: only where its branch is now.
+  if (gone)
+    return (
+      <Section label="Branch" title="Branch">
+        <RowStatic label={`Branch ${gone.name}, ${gone.where}`}>
+          <GitBranchIcon aria-hidden size={16} className={rowIcon} />
+          <RowLabel className="font-mono text-xs">{gone.name}</RowLabel>
+          <RowSub className="shrink-0">{gone.where}</RowSub>
+        </RowStatic>
+      </Section>
+    );
   return (
     <Section label="Branch" title="Branch">
       <BranchRow thread={props.thread} git={git} move={props.move} />

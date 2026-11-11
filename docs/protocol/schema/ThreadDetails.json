@@ -30,6 +30,49 @@
         }
       ]
     },
+    "checkoutMissing": {
+      "properties": {
+        "branch": {
+          "properties": {
+            "holder": {
+              "enum": [
+                "local",
+                "worktree"
+              ],
+              "type": "string"
+            },
+            "name": {
+              "maxLength": 1024,
+              "type": "string"
+            },
+            "state": {
+              "enum": [
+                "free",
+                "gone",
+                "elsewhere"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "state"
+          ],
+          "type": "object"
+        },
+        "kind": {
+          "enum": [
+            "worktree",
+            "project"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
     "continuedFrom": {
       "$ref": "https://ace.local/protocol/v1/ThreadContinuedOn.json"
     },

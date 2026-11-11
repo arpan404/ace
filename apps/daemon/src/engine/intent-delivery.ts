@@ -162,7 +162,9 @@ export class IntentDelivery {
         ].find(
           (cause) =>
             cause instanceof GitError ||
-            (cause instanceof Error && "code" in cause && cause.code === "git_quarantined"),
+            (cause instanceof Error &&
+              "code" in cause &&
+              (cause.code === "git_quarantined" || cause.code === "worktree_missing")),
         );
         const details = openingFailure
           ? {
@@ -249,6 +251,7 @@ export class IntentDelivery {
       if (!session) throw new Error("Provider exited before continuation");
       await this.dependencies.sessions.assertWorkspaceAvailable(
         this.dependencies.repo.session(actor.id).cwd,
+        actor.id,
       );
       const key = `input:${intent.command.id}`;
       // A restart continuation tells the agent what died; a limit resume just carries on.

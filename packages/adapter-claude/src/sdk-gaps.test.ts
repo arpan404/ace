@@ -342,7 +342,8 @@ test("consuming a known survivor preserves independent queue uncertainty and bac
   expect(h.state.queueCount).toBe(0);
   expect(h.state.status.state).not.toBe("done");
   h.result({ uuid: "authoritative", queued_turn_count: 0 });
-  expect(h.state.status.state).not.toBe("done");
+  // The shell outlives the reply: still running, no longer waited on (ADR 0116).
+  expect(h.state.status.state).toBe("done");
   expect(
     Object.values(h.state.tasks).some((task) => task.status === "running" && task.kind === "shell"),
   ).toBe(true);

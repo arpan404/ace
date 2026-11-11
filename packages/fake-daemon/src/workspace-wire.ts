@@ -648,6 +648,7 @@ export class FakeWorkspaceWire {
                   : `/fake/${view.thread.workspaceId}`,
               workspaceChange: { ...change, state },
               worktreeMissing: undefined,
+              checkoutMissing: undefined,
             },
           },
         });

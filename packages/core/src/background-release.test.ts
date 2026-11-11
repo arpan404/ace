@@ -3,9 +3,9 @@ import type { ThreadState } from "./index.ts";
 import { harness } from "./test-helper.ts";
 
 /*
- * ADR 0109: background work holds a thread only while its agent may come back for it. A turn
- * that finished with its reply is released from commands the provider won't wake it for, and
- * from services listening on a port; they stay listed as running.
+ * ADR 0116 (amending ADR 0109): once the thread's main agent finished its turn with a reply,
+ * the commands and monitors it left running no longer hold the thread; they stay listed as
+ * running. A later turn the provider starts for one is new work.
  */
 
 type Harness = ReturnType<typeof harness>;
@@ -30,10 +30,10 @@ function launch(h: Harness, facts: { wakesAgent?: false } = {}) {
 const listening = (h: Harness, ports: number[], target?: ThreadState) =>
   h.send({ type: "background.listening", task: "dev", ports }, undefined, target);
 
-describe("background work left running after a finished turn", () => {
-  it("a command the provider never wakes the agent for leaves a finished turn done, still listed as running", () => {
-    const h = harness("codex");
-    launch(h, { wakesAgent: false });
+describe("background work left running after the final reply", () => {
+  it("a test run the provider will wake the agent for leaves the replied thread done, still listed as running", () => {
+    const h = harness("claude");
+    launch(h);
     expect(h.view.status).toEqual({ state: "working", agents: 1 });
     h.end();
     expect(h.view.status).toEqual({ state: "done" });
@@ -41,15 +41,15 @@ describe("background work left running after a finished turn", () => {
     expect(h.task("dev")?.status).toBe("running");
   });
 
-  it("a background test run the provider will wake the agent for keeps the thread waiting", () => {
-    const h = harness("claude");
-    launch(h);
+  it("a command the provider never wakes the agent for leaves a finished turn done", () => {
+    const h = harness("codex");
+    launch(h, { wakesAgent: false });
     h.end();
-    expect(h.view.status).toEqual({ state: "waiting", on: "background_task" });
-    expect(h.agent("root")?.status).toMatchObject({ state: "blocked", on: "background_task" });
+    expect(h.view.status).toEqual({ state: "done" });
+    expect(h.task("dev")?.status).toBe("running");
   });
 
-  it("a dev server found listening releases the finished turn, and holds again once it stops listening", () => {
+  it("a dev server's ports are kept for the strip and change nothing about done", () => {
     const h = harness("claude");
     launch(h);
     h.end();
@@ -57,7 +57,7 @@ describe("background work left running after a finished turn", () => {
     expect(h.view.status).toEqual({ state: "done" });
     expect(h.task("dev")).toMatchObject({ status: "running", listening: [5173] });
     listening(h, []);
-    expect(h.view.status).toEqual({ state: "waiting", on: "background_task" });
+    expect(h.view.status).toEqual({ state: "done" });
     expect(h.task("dev")?.listening).toBeUndefined();
   });
 
@@ -75,13 +75,54 @@ describe("background work left running after a finished turn", () => {
     expect(h.view.status).toEqual({ state: "waiting", on: "background_task" });
   });
 
-  it("a released dev server never hides other pending work in the tree", () => {
+  it("a subagent's command still holds while the main agent works on", () => {
+    const h = harness("claude");
+    h.see();
+    h.start();
+    h.see("child", "root", true);
+    h.start("child");
+    h.send({
+      type: "background.started",
+      agent: "child",
+      task: "watch",
+      kind: "shell",
+      title: "gh pr checks --watch",
+      stoppable: true,
+    });
+    h.end("child");
+    expect(h.agent("child")?.status).toMatchObject({ state: "blocked", on: "background_task" });
+    h.end();
+    expect(h.view.status).toEqual({ state: "done" });
+  });
+
+  it("a background subagent, ace's own bookkeeping and a shell the provider blocks prompts on still hold after the reply", () => {
+    for (const facts of [
+      { kind: "subagent" as const },
+      { kind: "other" as const, internal: true as const },
+      { kind: "shell" as const, blocksPrompts: true as const },
+    ]) {
+      const h = harness("claude");
+      h.see();
+      h.start();
+      h.send({
+        type: "background.started",
+        agent: "root",
+        task: "held",
+        title: "Still holds",
+        stoppable: false,
+        ...facts,
+      });
+      h.end();
+      expect(h.view.status).toEqual({ state: "waiting", on: "background_task" });
+    }
+  });
+
+  it("a command left running never hides other pending work in the tree", () => {
     const h = harness("claude");
     launch(h);
     h.see("child", "root", true);
     h.start("child");
     h.end();
-    listening(h, [5173]);
     expect(h.view.status).toEqual({ state: "working", agents: 1 });
     h.question("approval", "child");
     expect(h.view.status).toEqual({ state: "needs_you", interactions: 1 });
@@ -90,12 +131,11 @@ describe("background work left running after a finished turn", () => {
     expect(h.view.status).toEqual({ state: "done" });
   });
 
-  it("a new turn that the server's exit starts makes the thread work again, then done", () => {
+  it("a new turn the provider starts when the command ends makes the thread work again, then done", () => {
     const h = harness("claude");
     launch(h);
     h.end();
-    listening(h, [5173]);
-    h.send({ type: "background.ended", task: "dev", status: "failed" });
+    h.send({ type: "background.ended", task: "dev", status: "completed" });
     h.send({
       type: "turn.started",
       agent: "root",
@@ -111,12 +151,12 @@ describe("background work left running after a finished turn", () => {
     const h = harness("claude");
     launch(h);
     h.end();
-    listening(h, [5173]);
     const restored = JSON.parse(JSON.stringify(h.state)) as ThreadState;
     h.send({ type: "tick" }, undefined, restored);
     expect(restored.status).toEqual({ state: "done" });
-    listening(h, [], restored);
-    expect(restored.status).toEqual({ state: "waiting", on: "background_task" });
+    expect(Object.values(restored.tasks).find((task) => task.title === "bun run dev")?.status).toBe(
+      "running",
+    );
   });
 
   it("refuses listening facts with ports out of range", () => {
@@ -124,6 +164,6 @@ describe("background work left running after a finished turn", () => {
     launch(h);
     h.end();
     listening(h, [70_000]);
-    expect(h.view.status).toEqual({ state: "waiting", on: "background_task" });
+    expect(h.task("dev")?.listening).toBeUndefined();
   });
 });

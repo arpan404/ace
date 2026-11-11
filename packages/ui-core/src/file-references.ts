@@ -3,8 +3,13 @@
  * Detection is deliberately conservative: a reference must look like a file (a name with a
  * letter-led extension), never a URL, an email or a version number. Inline code may hold a bare
  * filename; plain text needs a folder (`a/b.ts`) or a line (`b.ts:12`) before it counts, so
- * words like "Node.js" stay words. Resolution picks a unique workspace path from candidates the
- * caller found (the checkout's path index); it never guesses between two.
+ * words like "Node.js" stay words. Paths may use `/` or Windows' `\` and drive letters
+ * (`C:\Users\dev\a.pdf`). Inline code naming a whole path from the root, a drive or the home
+ * folder may hold spaces (`~/Downloads/My Report.pdf`), since the span marks where it ends;
+ * running text never does. A path in the home folder (`~/Downloads/a.pdf`) is never a checkout
+ * path, so only the daemon, which knows the home, can open it. Resolution picks a unique
+ * workspace path from candidates the caller found (the checkout's path index); it never guesses
+ * between two.
  */
 
 export interface FileReference {
@@ -26,18 +31,26 @@ export type FileResolution =
 const segment = String.raw`[\w@+-][\w.@+-]*`;
 const name = String.raw`[\w@+-][\w.@+-]*\.[A-Za-z][A-Za-z0-9]{0,9}`;
 const lineSuffix = String.raw`(?::(\d{1,7})(?::(\d{1,5}))?|#L(\d{1,7})(?:C(\d{1,5}))?(?:-L?\d{1,7})?)?`;
-const pathBody = String.raw`(?:\.{1,2}/|/)?(?:${segment}/)*${name}`;
+const slash = String.raw`[\\/]`;
+// Relative (`./`, `../`), absolute (`/`), home (`~/`) or a Windows drive (`C:\`), then folders.
+const pathBody = String.raw`(?:\.{1,2}${slash}|/|~${slash}|[A-Za-z]:${slash})?(?:${segment}${slash})*${name}`;
 const whole = new RegExp(String.raw`^(${pathBody})${lineSuffix}$`);
+// Inside inline code, a path from the root, a drive or home may hold single spaces and the
+// punctuation file names carry (`~/Downloads/Bob's Notes (v2).pdf`).
+const word = String.raw`[\w@+()'&,-][\w.@+()'&,-]*`;
+const spacedPath = new RegExp(
+  String.raw`^((?:/|~${slash}|[A-Za-z]:${slash})(?:${word}(?: ${word})*${slash})*(?:${word} )*${word}\.[A-Za-z][A-Za-z0-9]{0,9})${lineSuffix}$`,
+);
 // In running text: not glued to a word, a path or a scheme on either side.
 const inText = new RegExp(
-  String.raw`(?<![\w/.@:~-])(${pathBody})${lineSuffix}(?![\w/@-]|\.\w|:\d)`,
+  String.raw`(?<![\w/\\.@:~-])(${pathBody})${lineSuffix}(?![\w/\\@-]|\.\w|:\d)`,
   "g",
 );
 
 function reference(path: string, line?: string, column?: string): FileReference | undefined {
-  if (path.includes("//") || /(?:^|\/)\.\.?$/.test(path)) return undefined;
+  if (/[\\/]{2}/.test(path) || /(?:^|[\\/])\.\.?$/.test(path)) return undefined;
   // An address, not a file: an email (`@` inside a segment) or a host (`example.com/...`).
-  if (/[^/]@/.test(path) || /^[\w-]+(?:\.[\w-]+)+\//.test(path)) return undefined;
+  if (/[^\\/]@/.test(path) || /^[\w-]+(?:\.[\w-]+)+\//.test(path)) return undefined;
   const lineNumber = line ? Number(line) : undefined;
   const columnNumber = column ? Number(column) : undefined;
   return {
@@ -47,11 +60,25 @@ function reference(path: string, line?: string, column?: string): FileReference 
   };
 }
 
+/**
+ * A machine path with spaces or punctuation in inline code. A command line reads the same way
+ * (`/usr/bin/python3 run.py`, `node.exe app.js`, `/bin/ls -la a.txt`), so a space after a
+ * program or before a flag means it isn't one path.
+ */
+function spacedMachinePath(text: string): RegExpExecArray | null {
+  const match = spacedPath.exec(text);
+  const path = match?.[1];
+  if (!path) return null;
+  if (/ -/.test(path) || /\.exe /i.test(path) || /(?:^|[\\/])s?bin[\\/][^\\/]* /.test(path))
+    return null;
+  return match;
+}
+
 /** The file an inline code span names, when the whole span is one file reference. */
 export function codeFileReference(text: string): FileReference | undefined {
   const trimmed = text.trim();
-  if (trimmed.length > 300 || /\s/.test(trimmed)) return undefined;
-  const match = whole.exec(trimmed);
+  if (trimmed.length > 300) return undefined;
+  const match = whole.exec(trimmed) ?? spacedMachinePath(trimmed);
   if (!match?.[1]) return undefined;
   return reference(match[1], match[2] ?? match[4], match[3] ?? match[5]);
 }
@@ -68,7 +95,7 @@ export function fileTextSpans(text: string): FileTextSpan[] {
   for (const match of text.matchAll(inText)) {
     const path = match[1];
     const line = match[2] ?? match[4];
-    if (!path || (!path.includes("/") && !line)) continue;
+    if (!path || (!/[\\/]/.test(path) && !line)) continue;
     const found = reference(path, line, match[3] ?? match[5]);
     if (!found) continue;
     const start = match.index;
@@ -81,13 +108,42 @@ export function fileTextSpans(text: string): FileTextSpan[] {
   return spans;
 }
 
-/** The workspace-relative form of `path`: `./` dropped, an absolute path under `root` cut. */
+const drivePath = /^[A-Za-z]:[\\/]/;
+
+/** Whether `path` starts in the home folder: `~/` or, on Windows, `~\`. */
+export function isHomePath(path: string): boolean {
+  return /^~[\\/]/.test(path);
+}
+
+/**
+ * Whether `path` names one place on the machine: an absolute path (`/a`, `C:\a`, `C:/a`) or one
+ * in the home folder.
+ */
+export function isMachinePath(path: string): boolean {
+  return path.startsWith("/") || drivePath.test(path) || isHomePath(path);
+}
+
+const forwardSlashes = (path: string) => path.replaceAll("\\", "/");
+
+/**
+ * `path` (absolute, `/`-separated) relative to the folder `root`, or undefined outside it. A
+ * Windows root matches whatever its letters' case, as Windows does.
+ */
+function under(path: string, root: string): string | undefined {
+  const base = forwardSlashes(root).replace(/\/+$/, "");
+  const fold = drivePath.test(base) ? (text: string) => text.toLowerCase() : (text: string) => text;
+  return fold(path).startsWith(`${fold(base)}/`) ? path.slice(base.length + 1) : undefined;
+}
+
+/**
+ * The workspace-relative form of `path`, `/`-separated: `./` dropped, an absolute path under
+ * `root` cut. A home path (`~/a.ts`) has none: where home is, only the daemon knows.
+ */
 export function workspaceRelative(path: string, root: string | undefined): string | undefined {
-  if (path.startsWith("/")) {
-    const base = root?.replace(/\/+$/, "");
-    return base && path.startsWith(`${base}/`) ? path.slice(base.length + 1) : undefined;
-  }
-  return path.replace(/^(?:\.\/)+/, "");
+  if (isHomePath(path)) return undefined;
+  const slashed = forwardSlashes(path);
+  if (isMachinePath(path)) return root ? under(slashed, root) : undefined;
+  return slashed.replace(/^(?:\.\/)+/, "");
 }
 
 /**
@@ -112,8 +168,12 @@ export function localLinkPath(target: string): string | undefined {
     if (target.startsWith("file:")) {
       const url = new URL(target);
       if (url.host && url.host !== "localhost") return;
-      return decodeURIComponent(url.pathname);
+      const path = decodeURIComponent(url.pathname);
+      // `file:///C:/a.pdf` names `C:/a.pdf`, not a folder called `C:` at the root.
+      return /^\/[A-Za-z]:\//.test(path) ? path.slice(1) : path;
     }
+    // A drive letter looks like a URL scheme (`C:`), but `C:\a.pdf` is a path.
+    if (drivePath.test(target)) return target.replace(/:\d+(?::\d+)?$/, "");
     return /^[a-z][a-z\d+.-]*:/i.test(target) ? undefined : target.replace(/:\d+(?::\d+)?$/, "");
   } catch {
     return;
@@ -147,9 +207,15 @@ export function checkoutLinkPath(
   root: string | undefined,
   cwd: string | undefined,
 ): string | undefined {
-  const base = (cwd ?? root)?.replace(/\/+$/, "");
-  const absolute = normalizedPath(path.startsWith("/") || !base ? path : `${base}/${path}`);
-  if (!absolute.startsWith("/")) return absolute;
-  const top = root?.replace(/\/+$/, "");
-  return top && absolute.startsWith(`${top}/`) ? absolute.slice(top.length + 1) : undefined;
+  if (isHomePath(path)) return undefined;
+  const base = cwd ?? root;
+  const joined = forwardSlashes(
+    isMachinePath(path) || !base ? path : `${base.replace(/[\\/]+$/, "")}/${path}`,
+  );
+  // A drive's letter stays in front; the rest normalizes like any absolute path.
+  const absolute = drivePath.test(joined)
+    ? joined.slice(0, 2) + normalizedPath(joined.slice(2))
+    : normalizedPath(joined);
+  if (!isMachinePath(absolute)) return absolute;
+  return root ? under(absolute, root) : undefined;
 }

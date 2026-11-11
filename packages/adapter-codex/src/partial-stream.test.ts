@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { setup, shell } from "./translator.test-helper.ts";
 import { obj } from "./native.ts";
-test("command output without its start frame still holds completion after the turn", () => {
+test("command output without its start frame is left running after the reply until Codex ends it", () => {
   const h = setup();
   h.start();
   h.recv("item/commandExecution/outputDelta", {
@@ -11,7 +11,8 @@ test("command output without its start frame still holds completion after the tu
     delta: "running",
   });
   h.end();
-  expect(h.state.status).toEqual({ state: "waiting", on: "background_task" });
+  expect(h.state.status).toEqual({ state: "done" });
+  expect(Object.values(h.state.tasks).some((task) => task.status === "running")).toBe(true);
   h.item({ ...shell, status: "completed", aggregatedOutput: "running" }, true);
   expect(h.state.status.state).toBe("done");
 });

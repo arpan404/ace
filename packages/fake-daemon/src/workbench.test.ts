@@ -19,7 +19,8 @@ test("the workbench leaves every thread in the state the Home list design shows"
     "Dedupe thread events after reconnect": "working",
     "Rewrite the install page for the daemon": "working",
     "Invoice PDF locale fallback": "failed",
-    "Backpressure on broadcast fan-out": "waiting",
+    // Replied with its soak test left running: done, still listed (ADR 0116).
+    "Backpressure on broadcast fan-out": "done",
     "Bump Codex app-server to 0.48": "done",
   });
 });

@@ -10,7 +10,7 @@ configure({ asyncUtilTimeout: 20000 });
 
 /*
  * The Work card when the thread's checkout is stuck: a move that failed keeps Retry and Clear,
- * and a worktree folder that is gone offers Move to local and Recreate worktree.
+ * and a worktree folder that is gone says what Git still has of it, with the ways back.
  */
 
 const id = "thread-idle";
@@ -125,4 +125,27 @@ test("a missing worktree offers Move to local, which puts the thread back on the
   await userEvent.click(within(missing).getByRole("button", { name: "Move to local" }));
   await waitFor(() => expect(details()).toMatchObject({ mode: "local" }));
   expect(details()?.worktreeMissing).toBeUndefined();
+}, 60_000);
+
+test("a worktree removed with its branch says so and offers only what can work", async () => {
+  const { app, details } = await open();
+  app.daemon.workspace.setDetails(id, {
+    mode: "worktree",
+    worktree: `/fake/worktrees/${id}`,
+    branch: "ui/atmos",
+    worktreeMissing: true,
+    checkoutMissing: { kind: "worktree", branch: { name: "ui/atmos", state: "gone" } },
+  });
+  const card = await openWorkCard();
+  const missing = await within(card).findByRole("group", {
+    name: "Worktree and branch removed. ui/atmos was deleted too. A new worktree starts from main.",
+  });
+  // The branch's last sync state and the folder's actions would all be stale.
+  expect(within(card).getByRole("group", { name: "Branch ui/atmos, deleted" })).toBeTruthy();
+  expect(within(card).queryByText("Run a script")).toBeNull();
+  expect(within(card).queryByText(/^Open in /)).toBeNull();
+  expect(within(missing).queryByRole("button", { name: "Recreate worktree" })).toBeNull();
+  await userEvent.click(within(missing).getByRole("button", { name: "New worktree" }));
+  await waitFor(() => expect(details()?.checkoutMissing).toBeUndefined());
+  expect(details()?.mode).toBe("worktree");
 }, 60_000);

@@ -35,6 +35,7 @@ Each agent CLI owns its credentials. ace can start its login or hand a pasted AP
 | `tools/dev`               | The development process runner behind `bun run dev`                     |
 | `docs/adr`                | Architecture decision records                                           |
 | `docs/research`           | Primary-source research behind the decisions                            |
+| `spade`                   | Spade, ace's assistant (Rust, its own Cargo workspace)                  |
 
 The [agent browser and computer tool contract](docs/daemon/agent-tools.md) documents
 scoped MCP calls, navigation waits and control handback.

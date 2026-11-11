@@ -3,7 +3,7 @@ import { isPathInput, parseFolderQuery, pathRows, typedFolder, type PathRow } fr
 import { useMemo } from "react";
 import type { Machine } from "@/lib/machines.ts";
 import { projectFailure } from "./project-commands.ts";
-import { useFolderListing, useHostHome, useRecentFolders } from "./use-folders.ts";
+import { useFolderListing, useHomeFolder, useRecentFolders } from "./use-folders.ts";
 import { useNewFolder } from "./use-new-folder.ts";
 
 /** A folder in the Local folder list. */
@@ -26,7 +26,8 @@ const noSearch = { kind: "search", text: "" } as const;
  * it's missing), and the typed folder when it exists.
  */
 export function useLocalFolder(machine: Machine, text: string) {
-  const home = useHostHome(machine).data;
+  const homeRead = useHomeFolder(machine);
+  const { home } = homeRead;
   const only = useMemo(() => [machine], [machine]);
   const recent = useRecentFolders(only);
   const { isProject } = recent;
@@ -44,6 +45,9 @@ export function useLocalFolder(machine: Machine, text: string) {
   // A folder that isn't there yet is something to create, not a failure.
   const refused = failure && !(missing && failure.code === "directory_unavailable");
   const entries = refused ? undefined : listing.entries;
+
+  // An empty field, `~` or a bare name needs the home folder to know where it is.
+  const homeState = directory === undefined ? homeRead.state : "ready";
 
   const rows = useMemo((): LocalRow[] => {
     if (directory === undefined) return [];
@@ -83,7 +87,10 @@ export function useLocalFolder(machine: Machine, text: string) {
       query && !listing.loading
         ? typedFolder({ directory: query.directory, segment, entries })
         : undefined,
-    loading: listing.loading || (home === undefined && machine.client !== undefined),
+    loading: listing.loading || homeState === "loading",
+    /** The home folder couldn't be read, and the field needs it; `retryHome` reads it again. */
+    homeFailed: homeState === "failed",
+    retryHome: homeRead.retry,
     /** Why the folder couldn't be listed (outside the allowed places, unreadable). */
     failure: refused ? failure : undefined,
     retry: listing.retry,

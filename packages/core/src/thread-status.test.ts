@@ -71,7 +71,8 @@ describe("thread status precedence through facts", () => {
   });
 
   it("background work outranks a queued input", () => {
-    const h = endedRoot();
+    const h = activeRoot();
+    h.end("root", "interrupted");
     h.background();
     h.send({ type: "queue.changed", count: 1 });
     expect(deriveThreadStatus(h.state)).toEqual({ state: "waiting", on: "background_task" });
@@ -130,7 +131,6 @@ describe("thread status precedence through facts", () => {
     });
     expect(deriveThreadStatus(h.state)).toEqual({ state: "done" });
     h.background();
-    expect(deriveThreadStatus(h.state).state).toBe("waiting");
     h.send({ type: "background.ended", task: "task", status: "unknown" });
     expect(deriveThreadStatus(h.state)).toEqual({ state: "done" });
   });

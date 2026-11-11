@@ -32,10 +32,8 @@ describe("reused provider identities", () => {
     expect(second).toBeDefined();
     expect(second?.task.id).not.toBe(first?.task.id);
     expect(second?.task.status).toBe("running");
-    expect(restarted).toContainEqual({
-      type: "thread.updated",
-      status: { state: "waiting", on: "background_task" },
-    });
+    // Started after the final reply, it runs without reopening the thread (ADR 0116).
+    expect(h.view.status).toEqual({ state: "done" });
   });
 
   it("duplicate opens preserve the first pending approval and running task", () => {
