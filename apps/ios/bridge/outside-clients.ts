@@ -21,6 +21,7 @@ import {
   orderedScopes,
   outsideLifetimes,
   projectsWords,
+  redirectWords,
   scopeChoices,
   scopeWords,
   screenUseSentence,
@@ -217,8 +218,8 @@ export function accessRow(request: OutsideAccessRequest, preview: Preview) {
     verified: request.domain !== null,
     matchCode: request.matchCode,
     expiresAt: request.expiresAt,
-    /** Set when a client that already has access asks for more. */
-    grantId: request.grantId ?? null,
+    /** Where the code goes once approved ("Signs in to claude.ai"), or a warning; null if unsaid. */
+    redirect: redirectWords(request) ?? null,
     choices: scopeChoices(request.scopes),
     expiries,
     expiry: defaultLifetime,

@@ -86,6 +86,8 @@ export function outsideScenario(daemon: FakeDaemon, kind: "ask" | "screen" | "cl
       scopes: ["threads:read", "threads:start", "threads:message", "browser"],
       matchCode: "7KQ2XM",
       expiresAt: Date.now() + 10 * 60_000,
+      redirectHost: "claude.ai",
+      redirectKind: "web",
     });
   else if (kind === "screen")
     daemon.outside.useScreen([{ grantId: "grant-claude", name: "Claude", apps: ["Safari"] }]);

@@ -76,6 +76,8 @@ test("a pending sign-in reaches the sheet with read fixed on and asked access ma
     scopes: ["threads:read", "threads:start", "computer"],
     matchCode: "7KQ2XM",
     expiresAt: Number.MAX_SAFE_INTEGER,
+    redirectHost: "127.0.0.1",
+    redirectKind: "this-device",
   });
   await until(() => state()?.access.length === 1, "the sign-in arrives");
   const [request] = state()?.access ?? [];
@@ -85,6 +87,8 @@ test("a pending sign-in reaches the sheet with read fixed on and asked access ma
     verified: false,
     matchCode: "7KQ2XM",
     expiry: "month",
+    redirect:
+      "The code goes to an app on the device where the sign-in started. Approve only if you started it.",
   });
   expect(request?.choices.filter((choice) => choice.on).map((choice) => choice.scope)).toEqual([
     "threads:read",

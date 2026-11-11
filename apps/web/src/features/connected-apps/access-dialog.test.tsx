@@ -28,6 +28,8 @@ const request = {
   ],
   matchCode: "4F7K",
   expiresAt: Date.now() + 600_000,
+  redirectHost: "claude.ai",
+  redirectKind: "web" as const,
 };
 
 test("approving a sign-in sends only what the person ticked, for every project, for 30 days", async () => {
@@ -40,6 +42,7 @@ test("approving a sign-in sends only what the person ticked, for every project, 
 
   const dialog = await screen.findByRole("dialog");
   expect(within(dialog).getByLabelText("Match code 4F7K")).toBeTruthy();
+  expect(within(dialog).getByText("Signs in to claude.ai")).toBeTruthy();
   // What the client asked for is marked, never ticked for the person.
   const message = within(dialog).getByRole("checkbox", { name: "Message and steer threads" });
   expect(message.getAttribute("aria-checked")).toBe("false");
@@ -78,13 +81,21 @@ test("Deny on the notice refuses the sign-in and the notice goes", async () => {
 
 test("an unverified client's review says it can't be confirmed, and a day sends a day", async () => {
   const app = await openMachinePage();
-  app.daemon.outside.ask({ ...request, domain: null });
+  app.daemon.outside.ask({
+    ...request,
+    domain: null,
+    redirectHost: "cursor:",
+    redirectKind: "this-device",
+  });
   const notice = await screen.findByText(/Code 4F7K\.$/);
   const line = notice.closest("[role=status]");
   if (!(line instanceof HTMLElement)) throw new Error("the notice has no line");
   await userEvent.click(within(line).getByRole("button", { name: "Review" }));
   const dialog = await screen.findByRole("dialog");
   expect(within(dialog).getByText(/unverified, so ace can't tell who made it/)).toBeTruthy();
+  // A code going to an app on this device warns instead of naming a host.
+  expect(within(dialog).queryByText(/Signs in to/)).toBeNull();
+  expect(within(dialog).getByText(/Approve only if you started it\./)).toBeTruthy();
   await userEvent.click(within(dialog).getByRole("button", { name: "A day" }));
   const before = Date.now();
   await userEvent.click(within(dialog).getByRole("button", { name: "Approve" }));

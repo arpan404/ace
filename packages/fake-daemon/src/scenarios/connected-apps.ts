@@ -118,6 +118,8 @@ export function seedConnectedApps(daemon: FakeDaemon, now: number): void {
     scopes: ["threads:read", "threads:start", "browser"],
     matchCode: "4F7K",
     expiresAt: now + 10 * 60_000,
+    redirectHost: "chatgpt.com",
+    redirectKind: "web",
   });
   outside.useScreen([{ grantId: "grant-claude", name: "Claude", apps: ["Simulator"] }]);
 }

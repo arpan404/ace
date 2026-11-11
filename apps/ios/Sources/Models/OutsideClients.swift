@@ -25,8 +25,9 @@ import Observation
         let verified: Bool
         let matchCode: String
         let expiresAt: Double
-        /// Set when an app that already has access asks for more.
-        let grantId: String?
+        /// Where the code goes once approved ("Signs in to claude.ai"), or a warning when it goes
+        /// to an app on the signing-in device; nil when the machine didn't say.
+        let redirect: String?
         let choices: [ScopeChoice]
         let expiries: [Expiry]
         /// The expiry picked to begin with (30 days).

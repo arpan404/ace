@@ -63,14 +63,19 @@ struct OutsideAccessSheet: View {
         Form {
             Section {
                 VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-                    Text(request.grantId == nil ? "\(request.clientName) wants to sign in to \(machine)"
-                                                : "\(request.clientName) asks for more access on \(machine)")
+                    Text("\(request.clientName) wants to sign in to \(machine)")
                         .font(AceDesign.Typeface.title.weight(AceDesign.Typeface.strong))
                         .foregroundStyle(AceDesign.Ink.primary)
                         .fixedSize(horizontal: false, vertical: true)
                     Label(request.domain, systemImage: request.verified ? "checkmark.seal" : "questionmark.circle")
                         .font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
                         .accessibilityIdentifier("outside.domain")
+                    if let redirect = request.redirect {
+                        Text(redirect)
+                            .font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("outside.redirect")
+                    }
                 }
                 .padding(.vertical, AceDesign.Space.tight)
             }

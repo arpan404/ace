@@ -4,6 +4,7 @@ import {
   approvalDecision,
   clientTitle,
   initialChoice,
+  redirectWords,
   type OutsideChoice,
 } from "@ace/ui-core/outside-clients";
 import { useState } from "react";
@@ -40,6 +41,7 @@ export function AccessDialog(props: {
   const [choice, setChoice] = useState<OutsideChoice>(initialChoice);
   const [pending, setPending] = useState(false);
   const asked = new Set(request.scopes);
+  const redirect = redirectWords(request);
   const decide = (approve: boolean) => {
     setPending(true);
     void decideAccess(
@@ -72,6 +74,7 @@ export function AccessDialog(props: {
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
+          {redirect && <p className="text-ui text-muted-foreground">{redirect}</p>}
           <p
             aria-label={`Match code ${request.matchCode}`}
             className="font-mono text-2xl font-semibold tracking-[0.2em] text-foreground tabular-nums"
