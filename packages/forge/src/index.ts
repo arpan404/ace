@@ -66,4 +66,7 @@ export { TeaReader } from "./tea-reader.ts";
 export { TeaWriter, teaWrites } from "./tea-writes.ts";
 export { TeaIssueWriter, teaIssueWrites } from "./tea-issue-writes.ts";
 export { TeaReviews, teaReviewWrites } from "./tea-reviews.ts";
+export { bktContext, bktIdentity, bktReadiness } from "./bkt-readiness.ts";
+export { BitbucketReader } from "./bitbucket-reader.ts";
+export { BitbucketReviews, bitbucketReviewWrites } from "./bitbucket-reviews.ts";
 export { withForgeCapabilities } from "./reported-capabilities.ts";

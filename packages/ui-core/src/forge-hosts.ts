@@ -43,10 +43,18 @@ export const forgeClis: Readonly<Record<ForgeKind, string | undefined>> = {
   origin: "origin",
   gitlab: "glab",
   gitbucket: undefined,
-  bitbucket: undefined,
+  bitbucket: "bkt",
   gitea: "tea",
   forgejo: "tea",
 };
+
+/** The command that signs a provider's CLI in, or undefined without a CLI. bkt needs the Cloud
+ * host named: on its own, `bkt auth login` asks for a Data Center server. */
+export function forgeSignIn(forge: ForgeKind): string | undefined {
+  if (forge === "bitbucket") return "bkt auth login https://bitbucket.org --kind cloud --web";
+  const cli = forgeClis[forge];
+  return cli ? `${cli} auth login` : undefined;
+}
 
 /** Whether ace can check a provider's sign-in and API through its CLI. */
 export function forgeCanCheck(forge: ForgeKind): boolean {

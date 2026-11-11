@@ -44,14 +44,16 @@ export function configuredForges(
 
 /** Cursor Origin is one hosted service: its API host is the only host it can have. */
 export const originApiHost = "origin.cursor.com";
-/** Providers ace can read pull requests from: GitHub through gh, GitLab through glab and
- * Cursor Origin through origin. Others are saved hosts with no pull request reads yet. */
+/** Providers ace can read pull requests from: GitHub through gh, GitLab through glab, Cursor
+ * Origin through origin, Gitea and Forgejo through tea and Bitbucket Cloud through bkt. Others
+ * are saved hosts with no pull request reads yet. */
 export const readableForges: readonly ForgeKind[] = [
   "github",
   "gitlab",
   "origin",
   "gitea",
   "forgejo",
+  "bitbucket",
 ];
 /** Providers ace reads issues from: GitHub only. Issues lists leave the others' repositories out. */
 export const issueReadableForges: readonly ForgeKind[] = ["github", "gitea", "forgejo"];

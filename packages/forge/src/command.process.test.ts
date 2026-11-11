@@ -1,7 +1,9 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
+import { bktWrite } from "./bkt-api.ts";
+import { MutationDispatch } from "./mutation.ts";
 import { createCommandRunner, detectRepository } from "./index.ts";
 import { repository } from "./testing/fixtures.ts";
 
@@ -95,3 +97,39 @@ describe("bounded command owner", () => {
     ).rejects.toMatchObject({ kind: "cli" });
   });
 });
+
+it.skipIf(process.platform === "win32")(
+  "a bkt refusal printed on stderr definitely failed, and any other bkt failure is uncertain",
+  async () => {
+    const dir = await mkdtemp(join(tmpdir(), "forge-bkt-"));
+    try {
+      // bkt's own failure line for a non-2xx reply (internal/bktcmd: `Error: <HTTPError>`).
+      const fake = (stderr: string) =>
+        writeFile(join(dir, "bkt"), `#!/bin/sh\nprintf '%s\\n' '${stderr}' >&2\nexit 1\n`).then(
+          () => chmod(join(dir, "bkt"), 0o755),
+        );
+      const runner = createCommandRunner({ cwd: dir, env: { PATH: `${dir}:${process.env.PATH}` } });
+      const signal = new AbortController().signal;
+      const send = (dispatch: MutationDispatch) =>
+        bktWrite(
+          runner,
+          "work",
+          "/2.0/repositories/team/app/pullrequests/7/approve",
+          "POST",
+          undefined,
+          signal,
+          dispatch,
+        );
+      await fake("Error: 409 Conflict: You cannot approve this pull request");
+      const refused = new MutationDispatch();
+      await expect(send(refused)).rejects.toMatchObject({ kind: "conflict" });
+      expect(refused.definitelyFailed).toBe(true);
+      await fake("Error: 500 Internal Server Error");
+      const unknown = new MutationDispatch();
+      await expect(send(unknown)).rejects.toMatchObject({ kind: "outcome_uncertain" });
+      expect(unknown.definitelyFailed).toBe(false);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  },
+);

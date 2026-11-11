@@ -24,9 +24,10 @@ const enterprise: ForgeRepository = {
   owner: "team",
   name: "app",
 };
-const bitbucket: ForgeRepository = {
-  forge: "bitbucket",
-  host: "bitbucket.org",
+/** A provider ace has no adapter for. */
+const unreadable: ForgeRepository = {
+  forge: "gitbucket",
+  host: "gitbucket.corp.example",
   owner: "acme",
   name: "app",
 };
@@ -34,7 +35,11 @@ const origin = { name: "origin", fetchUrls: ["git@github.com:acme/app.git"] };
 const mirror = { name: "mirror", fetchUrls: ["https://gitlab.com/acme/app.git"] };
 const upstreamRemote = { name: "upstream", fetchUrls: ["https://github.com/upstream/app"] };
 const preferences: SourceControlPreferences = {
-  hosts: [{ host: "github.com" }, { host: "gitlab.com" }],
+  hosts: [
+    { host: "github.com" },
+    { host: "gitlab.com" },
+    { host: "gitbucket.corp.example", forge: "gitbucket" },
+  ],
   host: "github.com",
   remote: "origin",
 };
@@ -193,14 +198,14 @@ describe("a project's repositories", () => {
 
   test("a provider ace can't read is listed but unavailable, and keeps today's primary", () => {
     const resolved = resolveProjectRepositories({
-      remotes: [{ name: "origin", fetchUrls: ["git@bitbucket.org:acme/app.git"] }],
+      remotes: [{ name: "origin", fetchUrls: ["git@gitbucket.corp.example:acme/app.git"] }],
       preferences,
       config: undefined,
     });
     expect(resolved.repositories).toEqual([
-      expect.objectContaining({ repository: bitbucket, unavailable: "provider_unsupported" }),
+      expect.objectContaining({ repository: unreadable, unavailable: "provider_unsupported" }),
     ]);
-    expect(resolved.primary?.repository).toEqual(bitbucket);
+    expect(resolved.primary?.repository).toEqual(unreadable);
   });
 
   test("a chosen primary whose remote went away is shown as missing, never dropped", () => {
@@ -261,7 +266,7 @@ test("hidden and unavailable repository entries still declare their adapter capa
   const result = resolveProjectRepositories({
     remotes: [origin, mirror],
     preferences,
-    config: config({ hidden: [gitlab], added: [bitbucket] }),
+    config: config({ hidden: [gitlab], added: [unreadable] }),
   });
   expect(result.repositories).toMatchObject([
     { repository: github, capabilities: expect.arrayContaining(["reviews.merge", "issues.write"]) },
@@ -270,6 +275,6 @@ test("hidden and unavailable repository entries still declare their adapter capa
       visible: false,
       capabilities: expect.arrayContaining(["reviews.read", "reviews.files"]),
     },
-    { repository: bitbucket, available: false, capabilities: [] },
+    { repository: unreadable, available: false, capabilities: [] },
   ]);
 });

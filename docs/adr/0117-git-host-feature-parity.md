@@ -42,7 +42,9 @@ ace still reaches every host only through the user's own logged-in CLI (ADR 0002
   first, then writes. Its exact write shape is defined by that adapter with the same rules as glab.
 - **Cursor Origin**: reviews only; its API has no issues. Writes later, once its CLI write shape
   is confirmed.
-- **Bitbucket and GitBucket**: blocked until an official CLI exists (ADR 0002).
+- **Bitbucket Cloud** (`bkt`, a vetted third-party CLI; [ADR 0118](0118-bitbucket-through-bkt.md)):
+  reviews, comments and verdicts. Data Center isn't supported.
+- **GitBucket**: blocked until an official CLI exists (ADR 0002).
 
 ## Consequences
 
@@ -69,6 +71,9 @@ showing what its capabilities declare.
   (read and write), approvals (read and write), commit statuses as checks, merge pinned to the
   head SHA (from the pull request page and from a linked thread), and issues (read and write).
 - **Cursor Origin**: reviews and files, read only.
+- **Bitbucket Cloud** (`bkt`, ADR 0118): reviews, files, commits, comments and inline comments
+  with replies (read and write), approvals and requested changes (read, write and withdraw),
+  and build statuses as checks.
 
 Replying inside a review thread (`reviews.comments.reply`) and asking people to review
 (`reviews.reviewers.request`) are capabilities of their own, apart from commenting and approving,
@@ -95,11 +100,21 @@ How host data maps, where a host says less than GitHub:
   draft (Gitea's draft flag or a WIP title) reads as `DRAFT` and is refused before anything is
   sent; the host enforces its own protection on the pinned merge.
 
+- **Bitbucket**: an OPEN pull request with Bitbucket's draft flag is `DRAFT`; DECLINED and
+  SUPERSEDED are closed; any other state is unknown. Pull requests name abbreviated hashes, so
+  the head is the newest of the pull request's own commits and must be the one it names, or the
+  read fails. A build status INPROGRESS is pending, STOPPED cancelled (failing CI), and one for
+  another commit is left out; one naming no commit is unknown. Mergeability and required
+  approvals aren't read: mergeability is unknown and the review decision `UNKNOWN`. Bitbucket
+  approvals have no id, so a verdict's id is derived from its reviewer's uuid, and only the
+  viewer's own can be withdrawn.
+
 Every GitLab adapter shares one transport, `GitLabApi`: the endpoint guard, the read budget,
 status mapping, and one rule for writes. Only an explicit refusal (400, 401, 403, 404, 405, 409,
 412, 422, 429) seen under an unchanged identity has definitely failed; any other failure after
 dispatch, and an identity change after a success, is uncertain. Every tea write goes through one
-function, `teaWrite`, with the same rule.
+function, `teaWrite`, and every bkt write through `bktWrite`, with the same rule
+(`refusedWriteStatuses`).
 
 Each adapter's admitted writes are built for one repository (`writesUnder`): the GitLab project
 path or the Gitea `owner/name`, and one MR or pull request for review writes. Admission itself
@@ -128,4 +143,11 @@ lifecycle writes. No host has a journal of its own.
   (codeberg.org/swagger.v1.json) has none, so ace neither sends nor offers them. Reading branch
   protection and required approvals, which would let a Gitea merge state be `CLEAN`.
 - **Cursor Origin**: every write.
-- **Bitbucket and GitBucket**: blocked until an official CLI exists.
+- **Bitbucket**: merge (Bitbucket's merge takes no expected source commit, so it can't be pinned),
+  issues (Atlassian removed them from Bitbucket Cloud on 2026-08-20), pull request create and
+  edit, reviewer requests, resolving threads, multi-line comments, auto-merge, the inbox,
+  stacks, suggestions, reactions, media, patches in the file list (diffstat has none),
+  per-state list counts and searches, and Data Center. Bitbucket doesn't say whether an inline
+  comment is outdated, so none reads as outdated. The hidden marker on ace's comments is a
+  Markdown reference definition, which needs confirming against Bitbucket's renderer.
+- **GitBucket**: blocked until an official CLI exists.

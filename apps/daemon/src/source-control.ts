@@ -1,13 +1,12 @@
-import { teaSourceIdentity } from "./tea-source-control.ts";
+import { hostCliIdentity } from "./host-cli-identity.ts";
 import {
   createCommandRunner,
   githubReadiness,
   gitlabReadiness,
-  gitlabIdentity,
   originReadiness,
   teaReadiness,
+  bktReadiness,
   isTeaHost,
-  originIdentity,
   githubIdentity,
   identityRunner,
   repositoryFromRemote,
@@ -166,7 +165,7 @@ export class SourceControl {
     signal: AbortSignal,
   ) {
     const forge = repository.forge;
-    if (forge !== "gitlab" && forge !== "origin" && !isTeaHost(forge))
+    if (forge !== "gitlab" && forge !== "origin" && forge !== "bitbucket" && !isTeaHost(forge))
       throw new ForgeError("unsupported");
     const revision = this.currentRevision;
     const check = await this.guard();
@@ -174,21 +173,15 @@ export class SourceControl {
     const configured = preferences.hosts.find((entry) => entry.host === repository.host);
     if (!configured || configuredForge(configured) !== forge) throw new ForgeError("unsupported");
     const runner = this.runner(cwd);
-    const tea = isTeaHost(forge)
-      ? await teaSourceIdentity(runner, repository.host, signal)
-      : undefined;
-    const target = tea?.login ?? repository.host;
-    const identify = (probe: AbortSignal) =>
-      tea
-        ? tea.identify(probe)
-        : forge === "origin"
-          ? originIdentity(runner, probe)
-          : gitlabIdentity(runner, repository.host, probe);
-    const key = `${forge} ${repository.host}`;
+    const { cli, target, login, identify } = await hostCliIdentity(runner, repository, signal);
+    // A bkt context is chosen per workspace, so each context's account is verified on its own.
+    const key =
+      forge === "bitbucket"
+        ? `${forge} ${repository.host} ${target}`
+        : `${forge} ${repository.host}`;
     const { account, at } = await this.verifiedAccount(key, identify, revision, signal);
     check();
     if (configured.account && configured.account !== account) throw new ForgeError("forbidden");
-    const cli = tea ? "tea" : forge === "origin" ? "origin" : "glab";
     const generation = this.generation(key);
     const pinned = pinnedRunner({
       runner,
@@ -215,7 +208,7 @@ export class SourceControl {
       check();
       return result;
     };
-    return { account, revision, check, runner: verified, login: tea?.login };
+    return { account, revision, check, runner: verified, login };
   }
   /** One identity probe per provider host per window, not one per operation. */
   private async verifiedAccount(
@@ -289,18 +282,20 @@ export class SourceControl {
             ? await originReadiness(runner, preferences, signal)
             : isTeaHost(forge)
               ? await teaReadiness(runner, preferences, signal)
-              : {
-                  preferences,
-                  cli: "unavailable",
-                  version: null,
-                  accounts: [],
-                  account: null,
-                  api: "unavailable",
-                  instructions:
-                    "Host saved. Pull requests, issues and API connection checks for this provider are not available yet. Git clone and push use your existing Git credentials.",
-                  transport: "unchecked",
-                  transportInstructions: "Check a project's remote to verify Git access.",
-                };
+              : forge === "bitbucket"
+                ? await bktReadiness(runner, preferences, signal)
+                : {
+                    preferences,
+                    cli: "unavailable",
+                    version: null,
+                    accounts: [],
+                    account: null,
+                    api: "unavailable",
+                    instructions:
+                      "Host saved. Pull requests, issues and API connection checks for this provider are not available yet. Git clone and push use your existing Git credentials.",
+                    transport: "unchecked",
+                    transportInstructions: "Check a project's remote to verify Git access.",
+                  };
     // A rescan re-verifies identity from scratch.
     this.forgetIdentities();
     check();

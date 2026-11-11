@@ -3,6 +3,7 @@ import {
   GitLabReader,
   GitLabReviews,
   TeaReader,
+  BitbucketReader,
   gitLabReviewWrites,
   ForgeError,
   isTeaHost,
@@ -28,7 +29,7 @@ export async function gitLabReviewBackend(
 }
 
 /**
- * A merge request or pull request's conversation on GitLab, Gitea or Forgejo: its review state
+ * A merge request or pull request's conversation on GitLab, Gitea, Forgejo or Bitbucket: its review state
  * (with ace's journal), activity, reviewers and commits. Undefined for any other read.
  */
 export async function readHostedConversation(
@@ -39,10 +40,15 @@ export async function readHostedConversation(
   operation: ForgeBrowserOperation,
   signal: AbortSignal,
 ): Promise<ForgeBrowserResult | undefined> {
-  if (pr.repository.forge !== "gitlab" && !isTeaHost(pr.repository.forge)) return;
+  const forge = pr.repository.forge;
+  if (forge !== "gitlab" && forge !== "bitbucket" && !isTeaHost(forge)) return;
   if (!conversationReads.has(operation.op)) return;
   const reader = await backends.reader(cwd, pr.repository, signal);
-  if (!(reader instanceof GitLabReader) && !(reader instanceof TeaReader))
+  if (
+    !(reader instanceof GitLabReader) &&
+    !(reader instanceof TeaReader) &&
+    !(reader instanceof BitbucketReader)
+  )
     throw new ForgeError("unsupported");
   if (operation.op === "forge.pr.review-state")
     return { resource: "prReviewState", value: await reviews.state(pr, reader, signal) };
@@ -75,11 +81,11 @@ const conversationReads = new Set([
 ]);
 
 /** Thread commands share hosted review persistence instead of growing a second write journal. */
-export async function executeGitLabThreadConversation(options: {
-  backends: ForgeBackends;
+export async function executeHostedThreadConversation(options: {
+  /** The PR's review writer, admitting exactly its host's review writes. */
+  backend: Parameters<WorkspaceForgeReviews["execute"]>[2];
   reviews: WorkspaceForgeReviews;
   store: import("./store.ts").Store;
-  cwd: string;
   commandId: string | undefined;
   action: Extract<
     import("@ace/protocol").Command["payload"],
@@ -88,7 +94,7 @@ export async function executeGitLabThreadConversation(options: {
   signal: AbortSignal;
   allowed: () => boolean;
 }) {
-  const { action, store, reviews, backends, cwd, commandId, signal, allowed } = options;
+  const { action, store, reviews, backend, commandId, signal, allowed } = options;
   if (!commandId) throw new ForgeError("invalid_data");
   const thread = store.getThread(ThreadId.parse(action.link.threadId));
   if (!thread) throw new ForgeError("not_found");
@@ -103,7 +109,7 @@ export async function executeGitLabThreadConversation(options: {
           : { kind: "reviewers.request", reviewers: action.reviewers },
     },
     commandId,
-    await gitLabReviewBackend(backends, cwd, action.link.pr, signal),
+    backend,
     signal,
     allowed,
   );

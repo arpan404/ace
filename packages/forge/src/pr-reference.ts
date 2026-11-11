@@ -116,7 +116,9 @@ export function prUrl(pr: ForgePrRef): string {
         ? "-/merge_requests"
         : repo.forge === "gitea" || repo.forge === "forgejo"
           ? "pulls"
-          : undefined;
+          : repo.forge === "bitbucket"
+            ? "pull-requests"
+            : undefined;
   if (!path) throw new ForgeError("unsupported");
   return `https://${repo.host}/${repo.owner}/${repo.name}/${path}/${pr.number}`;
 }

@@ -22,6 +22,8 @@ export async function reviewBackend(
   if (pr.repository.forge === "gitlab") return gitLabReviewBackend(backends, cwd, pr, signal);
   if (isTeaHost(pr.repository.forge))
     return backends.teaReviews(cwd, pr.repository, pr.number, signal);
+  if (pr.repository.forge === "bitbucket")
+    return backends.bitbucketReviews(cwd, pr.repository, pr.number, signal);
   return backends.writer(cwd, pr.repository);
 }
 
