@@ -45,11 +45,14 @@ export class ClientRegistrations {
     const parsed = Request.safeParse(body);
     if (!parsed.success)
       return { error: "invalid_client_metadata", description: "redirect_uris is required." };
-    const uris = parsed.data.redirect_uris;
-    if (!uris.every(redirectAcceptable))
+    // Clients list every redirect they might use; the usable ones are kept and the rest
+    // dropped, and the reply says which were kept (RFC 7591 §3.2.1).
+    const uris = [...new Set(parsed.data.redirect_uris.filter(redirectAcceptable))];
+    if (!uris.length)
       return {
         error: "invalid_redirect_uri",
-        description: "Each redirect URI must be HTTPS or http on localhost, without a fragment.",
+        description:
+          "No usable redirect URI: use HTTPS, http on localhost, or an app's own scheme, without a fragment.",
       };
     const name = parsed.data.client_name || fallbackName;
     const now = this.now();

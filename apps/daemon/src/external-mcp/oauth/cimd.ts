@@ -84,8 +84,7 @@ export function readDocument(
   if (method !== undefined && method !== "none")
     return { problem: `ace signs in public clients only; ${host} asks for ${method}.` };
   const redirectUris = document.data.redirect_uris.filter(redirectAcceptable);
-  if (!redirectUris.length)
-    return { problem: `${host} lists no HTTPS or localhost redirect address.` };
+  if (!redirectUris.length) return { problem: `${host} lists no usable redirect address.` };
   return {
     kind: "cimd",
     clientId: url.href,

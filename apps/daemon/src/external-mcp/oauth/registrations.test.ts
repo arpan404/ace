@@ -71,3 +71,25 @@ test("at the cap, the oldest unused registration makes room", () => {
   expect(f.store.get(first)).toBeUndefined();
   expect(f.store.get(newest)).toBeDefined();
 });
+
+test("Cursor's registration keeps all three of its redirects", () => {
+  const f = registrations();
+  // Cursor 3.14.27 sends these, with no application_type.
+  const uris = [
+    "cursor://anysphere.cursor-mcp/oauth/callback",
+    "https://www.cursor.com/agents/mcp/oauth/callback",
+    "http://localhost:8787/callback",
+  ];
+  const result = f.store.register({ client_name: "Cursor", redirect_uris: uris });
+  if (!("registered" in result)) throw new Error(result.description);
+  expect(result.registered["redirect_uris"]).toEqual(uris);
+});
+
+test("unusable redirects are dropped from a registration that has usable ones", () => {
+  const f = registrations();
+  const result = f.store.register({
+    redirect_uris: ["javascript:alert(1)", "https://client.example/cb", "http://evil.example/cb"],
+  });
+  if (!("registered" in result)) throw new Error(result.description);
+  expect(result.registered["redirect_uris"]).toEqual(["https://client.example/cb"]);
+});

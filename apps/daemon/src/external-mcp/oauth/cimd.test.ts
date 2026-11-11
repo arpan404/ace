@@ -5,7 +5,7 @@ const id = "https://client.example/oauth/metadata.json";
 const document = {
   client_id: id,
   client_name: "Example Assistant",
-  redirect_uris: ["https://client.example/callback", "cursor://callback"],
+  redirect_uris: ["https://client.example/callback", "javascript:alert(1)"],
   token_endpoint_auth_method: "none",
 };
 function served(body: unknown, init: { status?: number; headers?: Record<string, string> } = {}) {
@@ -56,7 +56,7 @@ test("a document is refused when it names another client_id, lacks fields or isn
   const cases: unknown[] = [
     { ...document, client_id: "https://client.example/other.json" },
     { ...document, client_name: undefined },
-    { ...document, redirect_uris: ["cursor://only"] },
+    { ...document, redirect_uris: ["javascript:alert(1)"] },
     { ...document, token_endpoint_auth_method: "private_key_jwt" },
     "not json",
   ];
