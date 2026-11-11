@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { isAbsolute, join, normalize, parse, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Marked, type Token } from "marked";
+import type { Marked, Token } from "marked";
 import { FileError, FilesService } from "@ace/files";
 import type { FileOperation, ThreadId } from "@ace/protocol";
 import {
@@ -17,15 +17,20 @@ import type { ServiceContext } from "./services/types.ts";
 type LinkDownload = Extract<FileOperation, { op: "link.download" }>;
 
 // The web lexes prose with GFM on; reading links the same way keeps both sides in agreement.
-const markdown = new Marked({ gfm: true, breaks: false });
+// Loaded on the first linked download, the only time the daemon reads Markdown, so idle startup
+// doesn't parse the library.
+let lexer: Promise<Marked> | undefined;
+const loadMarkdown = () =>
+  (lexer ??= import("marked").then(({ Marked }) => new Marked({ gfm: true, breaks: false })));
 
 /**
  * What an answer lets a reader open: every link and image target, and every absolute or home
  * file path it names in code or prose (`/tmp/report.pdf`, `~/Downloads/My Report.pdf`), found by
  * the rule the web client links them by.
  */
-export function linkedReferences(text: string): Set<string> {
+export async function linkedReferences(text: string): Promise<Set<string>> {
   const references = new Set<string>();
+  const markdown = await loadMarkdown();
   markdown.walkTokens(markdown.lexer(text), (token: Token) => {
     if (token.type === "link" || token.type === "image") references.add(token.href);
     // Only inline code can name a path with spaces; running text below never does.
@@ -98,7 +103,7 @@ export class LinkedFiles {
     const text = item.parts
       .flatMap((part) => (part.type === "text" ? [part.text] : []))
       .join("\n\n");
-    if (!linkedReferences(text).has(operation.reference))
+    if (!(await linkedReferences(text)).has(operation.reference))
       throw new FileError("FORBIDDEN", "The message does not link this file");
     const local = localReference(operation.reference);
     if (!local) throw new FileError("INVALID_PATH", "The link does not name a local file");
