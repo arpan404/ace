@@ -7,8 +7,9 @@ import { spadeApp, withEndpoint } from "@/test/spade.ts";
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
 
-const main = (spade: FakeSpadeApi) =>
-  spade.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
+/** Spade as it starts with no key anywhere: on the presets' main model. */
+const main = (spade: FakeSpadeApi, model = "opencode-go/kimi-k2") =>
+  spade.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" }, model });
 const opencode = {
   id: "opencode-go",
   name: "OpenCode Go",
@@ -16,6 +17,16 @@ const opencode = {
   base_url: "https://opencode.ai/zen/go/v1/",
   key_env: "OPENCODE_API_KEY",
   session_header: "x-opencode-session",
+  models: [{ id: "kimi-k2", name: "Kimi K2" }],
+};
+const anthropic = {
+  id: "anthropic",
+  name: "Anthropic",
+  format: "anthropic",
+  base_url: "https://api.anthropic.com/v1/",
+  key_env: "ANTHROPIC_API_KEY",
+  session_header: null,
+  models: [{ id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5" }],
 };
 
 test("a local endpoint can be added without a key", async () => {
@@ -50,7 +61,7 @@ test("on a machine without a keychain, Spade's conversation says which variable 
     api.presets.push(opencode);
     main(api);
   });
-  const setup = within(await screen.findByRole("region", { name: "Model key" }));
+  const setup = within(await screen.findByRole("region", { name: "Spade's model" }));
   expect(
     setup.getByText(
       /^This machine has no keychain for Spade to keep keys in\. Set OPENCODE_API_KEY/,
@@ -65,7 +76,7 @@ test("an endpoint made while saving its key stays made: trying again sets its ke
     api.keyFailure = 500;
     main(api);
   });
-  const setup = within(await screen.findByRole("region", { name: "Model key" }));
+  const setup = within(await screen.findByRole("region", { name: "Spade's model" }));
   await userEvent.type(setup.getByLabelText("Key"), "sk-1");
   await userEvent.click(setup.getByRole("button", { name: "Save key" }));
   expect((await setup.findByRole("alert")).textContent).toBe("The keychain refused the key.");
@@ -74,7 +85,7 @@ test("an endpoint made while saving its key stays made: trying again sets its ke
   await userEvent.click(setup.getByRole("button", { name: "Save key" }));
   await waitFor(() => expect(spade.sent("PUT", "/v1/keys/opencode-go")).toHaveLength(2));
   expect(spade.sent("POST", "/v1/endpoints")).toHaveLength(1);
-  await waitFor(() => expect(screen.queryByRole("region", { name: "Model key" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Spade's model" })).toBeNull());
 });
 
 test("only the person's saved models can be removed; the preset's have no Remove", async () => {
@@ -92,4 +103,41 @@ test("only the person's saved models can be removed; the preset's have no Remove
   await openrouter.findByText("Preset model");
   expect(openrouter.getByRole("button", { name: "Remove Saved model" })).toBeTruthy();
   expect(openrouter.queryByRole("button", { name: "Remove Preset model" })).toBeNull();
+});
+
+test("first run on another endpoint's key moves Spade onto that endpoint's model", async () => {
+  const { spade } = await spadeApp("/spade", (api) => {
+    api.presets.push(opencode, anthropic);
+    main(api);
+  });
+  const setup = within(await screen.findByRole("region", { name: "Spade's model" }));
+  await userEvent.click(setup.getByRole("combobox", { name: "Endpoint" }));
+  await userEvent.click(await screen.findByRole("option", { name: "Anthropic" }));
+  await userEvent.type(setup.getByLabelText("Key"), "sk-ant");
+  await userEvent.click(setup.getByRole("button", { name: "Save key" }));
+  await waitFor(() =>
+    expect(spade.sent("PATCH", "/v1/agents/main")).toEqual([
+      { model: "anthropic/claude-sonnet-5-5" },
+    ]),
+  );
+  expect(spade.sent("PUT", "/v1/keys/anthropic")).toEqual([{ key: "sk-ant" }]);
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Spade's model" })).toBeNull());
+});
+
+test("with a usable endpoint but Spade on one it can't reach, setup asks only for the model", async () => {
+  const { spade } = await spadeApp("/spade", (api) => {
+    withEndpoint(api);
+    main(api);
+  });
+  const setup = within(await screen.findByRole("region", { name: "Spade's model" }));
+  expect(setup.queryByLabelText("Key")).toBeNull();
+  await userEvent.click(setup.getByRole("button", { name: "Model" }));
+  await userEvent.click(await screen.findByRole("option", { name: /^Sonnet/ }));
+  await userEvent.click(setup.getByRole("button", { name: "Use this model" }));
+  await waitFor(() =>
+    expect(spade.sent("PATCH", "/v1/agents/main")).toEqual([
+      { model: "openrouter/anthropic/sonnet" },
+    ]),
+  );
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Spade's model" })).toBeNull());
 });

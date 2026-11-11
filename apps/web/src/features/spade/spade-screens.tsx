@@ -236,7 +236,7 @@ function Conversation(props: { bot: RosterBot; roster: readonly RosterBot[] }) {
     <BotScreen bot={bot}>
       <div data-thread-column="" className="grid h-full min-h-0 grid-cols-1 grid-rows-1">
         <Scroller>
-          {bot.kind === "main" && <SpadeKeySetup />}
+          {bot.kind === "main" && <SpadeKeySetup main={bot} />}
           {problem ? (
             <Problem text={problem} onRetry={conversation.retry} />
           ) : !view.loaded ? (

@@ -1,6 +1,6 @@
 import type { ClientApi } from "@ace/client";
 import { spadeHostPlan, spadeRoster, type SpadeAgent } from "@ace/ui-core/spade-chat";
-import { useQueries } from "@tanstack/react-query";
+import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
 import { primaryMachineId, useMachines, type Machine } from "@/lib/machines.ts";
 import { readAgents, setMainHosted } from "./spade-api.ts";
@@ -94,10 +94,23 @@ export function useSpadeRoster(ready: boolean) {
           unavailable,
         });
     });
-    const mains = all
-      .filter((agent) => agent.kind === "main")
-      .toSorted((a, b) => a.createdAt - b.createdAt || order(a.machine.key, b.machine.key));
-    return spadeRoster(all.filter((agent) => agent.kind !== "main" || agent === mains[0]));
+    const mainOn = (machine: Machine) =>
+      all.find((agent) => agent.kind === "main" && agent.machine.key === spadeMachineKey(machine));
+    // Spade is the main bot of the machine the election keeps among those answering now, so a
+    // cached main from a machine that went offline never stands in for the one switched on.
+    const plan = spadeHostPlan(
+      machines.flatMap((machine, index) =>
+        answering[index] ? [{ host: machine.id, main: mainOn(machine) }] : [],
+      ),
+    );
+    const kept = machines.find((machine) => machine.id === plan.keep);
+    // With none answering, the oldest last seen, as away or unavailable.
+    const shown =
+      (kept && mainOn(kept)) ??
+      all
+        .filter((agent) => agent.kind === "main")
+        .toSorted((a, b) => a.createdAt - b.createdAt || order(a.machine.key, b.machine.key))[0];
+    return spadeRoster(all.filter((agent) => agent.kind !== "main" || agent === shown));
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- `answering` is keyed by answerKey
   }, [machines, results, answerKey]);
   const hosts = useMemo(
@@ -163,6 +176,7 @@ export interface SpadeHosting {
  * machine the window reaches.
  */
 export function useOneSpade({ machines, fresh, settled }: SpadeHosting) {
+  const cache = useQueryClient();
   useEffect(() => {
     const seen = machines.flatMap((machine, index) => {
       const agents = fresh[index];
@@ -179,10 +193,14 @@ export function useOneSpade({ machines, fresh, settled }: SpadeHosting) {
       const key = String(enabled);
       if (told.has(key)) return;
       told.add(key);
-      void setMainHosted(entry.client, enabled).catch(() => told.delete(key));
+      // Read the roster again at once: the main bot appears or leaves with the change.
+      void setMainHosted(entry.client, enabled).then(
+        () => cache.invalidateQueries({ queryKey: agentsKey }),
+        () => told.delete(key),
+      );
     };
     for (const host of plan.disable) tell(host, false);
     // Turning Spade back on waits for every machine's answer: one not heard yet may show it.
     if (plan.enable !== undefined && settled) tell(plan.enable, true);
-  }, [machines, fresh, settled]);
+  }, [machines, fresh, settled, cache]);
 }

@@ -89,3 +89,23 @@ test("with no machine showing Spade, the chosen one switches it back on", async 
   );
   expect(spade.sent("PUT", "/v1/main")).toEqual([]);
 });
+
+test("when the machine keeping Spade goes offline, Spade is the one switched on here, not the away one", async () => {
+  const { app, spade } = await spadeApp("/spade", (api) => spadeHere(api, 5), {
+    machines: [{ hostId: "studio", name: "Studio Mac", seed: (api) => spadeHere(api, 1) }],
+  });
+  // The studio's Spade is older: this machine's is switched off and Spade lists from the studio.
+  await waitFor(() => expect(spade.sent("PUT", "/v1/main")).toEqual([{ enabled: false }]));
+  await waitFor(async () =>
+    expect((await botRow("Spade")).getAttribute("href")).toContain("on=studio"),
+  );
+  app.crashMachine("studio");
+  await waitFor(() =>
+    expect(spade.sent("PUT", "/v1/main")).toEqual([{ enabled: false }, { enabled: true }]),
+  );
+  await waitFor(async () => {
+    const row = await botRow("Spade");
+    expect(row.getAttribute("href")).toBe("/spade/main");
+    expect(row.textContent).not.toContain("Away");
+  });
+});

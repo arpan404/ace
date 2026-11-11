@@ -43,7 +43,7 @@ export function SpadeModelPicker(props: {
         onValueChange={(next) => props.onChange(`${next}/`)}
         className="w-44 shrink-0"
       />
-      <ModelChoice
+      <SpadeModelChoice
         key={endpoint.id}
         id={props.id}
         endpoint={endpoint}
@@ -54,7 +54,8 @@ export function SpadeModelPicker(props: {
   );
 }
 
-function ModelChoice(props: {
+/** A model from one endpoint: its live list merged with saved ones, searchable, or a typed id. */
+export function SpadeModelChoice(props: {
   endpoint: SpadeEndpoint;
   model: string;
   id?: string | undefined;

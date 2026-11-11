@@ -75,7 +75,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
       kind: "bot",
       task: "",
       avatar: { kind: "generated", initials: fields.name.slice(0, 2).toUpperCase(), color: "teal" },
-      model: "local/llama",
+      model: "openrouter/saved/model",
       conversation: `c-${id}`,
       created_at: this.now(),
       updated_at: this.now(),
@@ -267,7 +267,12 @@ export class FakeSpadeApi implements FakeSpadeServer {
         needs_key: body.needs_key !== false,
         key_set: false,
         key_source: null,
-        models: [],
+        // A preset's models come with an endpoint made from it.
+        models: (
+          (this.presets.find((preset) => preset.id === body.preset)?.models as
+            | Json[]
+            | undefined) ?? []
+        ).map((model) => Object.assign({}, model, { source: "preset" })),
       };
       this.endpoints.push(endpoint);
       return reply({ endpoint }, 201);

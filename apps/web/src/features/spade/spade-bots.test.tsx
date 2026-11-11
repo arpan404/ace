@@ -92,16 +92,16 @@ test("with no endpoint key, Spade's conversation asks for one and saves it to Sp
     if (endpoint) endpoint.key_set = false;
     api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
   });
-  const setup = within(await screen.findByRole("region", { name: "Model key" }));
+  const setup = within(await screen.findByRole("region", { name: "Spade's model" }));
   expect(
-    setup.getByText("Spade needs a key for one of your model endpoints to answer."),
+    setup.getByText("Spade needs a model from an endpoint it can reach to answer."),
   ).toBeTruthy();
   await userEvent.type(setup.getByLabelText("Key"), "sk-test");
   await userEvent.click(setup.getByRole("button", { name: "Save key" }));
   await waitFor(() =>
     expect(spade.sent("PUT", "/v1/keys/openrouter")).toEqual([{ key: "sk-test" }]),
   );
-  await waitFor(() => expect(screen.queryByRole("region", { name: "Model key" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Spade's model" })).toBeNull());
 });
 
 test("an endpoint added from a preset reaches Spade, and one bots still use can't be removed", async () => {
@@ -134,6 +134,8 @@ test("an endpoint added from a preset reaches Spade, and one bots still use can'
   );
   const openrouter = within(await screen.findByRole("region", { name: "OpenRouter" }));
   await userEvent.click(openrouter.getByRole("button", { name: "Remove OpenRouter" }));
-  expect((await openrouter.findByRole("alert")).textContent).toBe("Inbox use this endpoint.");
+  expect((await openrouter.findByRole("alert")).textContent).toBe(
+    "Spade, Inbox use this endpoint.",
+  );
   expect(spade.endpoints.map((endpoint) => endpoint.id)).toContain("openrouter");
 });
