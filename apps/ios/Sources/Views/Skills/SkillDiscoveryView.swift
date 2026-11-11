@@ -38,7 +38,7 @@ struct SkillDiscoveryView: View {
                     }
                 }
                 if let problem {
-                    QuietProblem(message: problem) { Task { if project.isEmpty { await readProjects() }; await read() } }
+                    QuietProblem(message: problem, id: "skills.discovery.problem") { Task { if project.isEmpty { await readProjects() }; await read() } }
                 }
                 if loading { SkeletonRows(count: 3, label: "Reading CLI catalog") }
                 if stale {

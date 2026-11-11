@@ -44,7 +44,7 @@ struct NewSkillView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: AceDesign.Space.group) {
-                    if let problem { QuietProblem(message: problem) }
+                    if let problem { QuietProblem(message: problem, id: "skill.new.create.problem") }
                     QuietField("Name") {
                         VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
                             TextField("release-notes", text: $name)
@@ -141,7 +141,7 @@ struct NewSkillView: View {
     private var agentsSection: some View {
         QuietSection("Agents") {
             if let choicesProblem {
-                QuietProblem(message: choicesProblem) { Task { await readChoices() } }
+                QuietProblem(message: choicesProblem, id: "skill.new.choices.problem") { Task { await readChoices() } }
             } else if agents.isEmpty {
                 SkeletonRows(count: 3, label: "Reading agents")
             } else {

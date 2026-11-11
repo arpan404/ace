@@ -80,7 +80,7 @@ struct SkillsLibraryView: View {
                     }
                 }
                 if let projectProblem {
-                    QuietProblem(message: projectProblem) { Task { await readProjects() } }
+                    QuietProblem(message: projectProblem, id: "skills.projects.problem") { Task { await readProjects() } }
                 }
                 skills
                 PluginsSection(model: model, plugins: plugins, components: components, reviews: reviews, query: query,
@@ -135,7 +135,7 @@ struct SkillsLibraryView: View {
     /// rows, a still skeleton while the first read is on its way, then what is there.
     @ViewBuilder private var skills: some View {
         if let libraryProblem {
-            QuietProblem(message: libraryProblem) { Task { await readLibrary() } }
+            QuietProblem(message: libraryProblem, id: "skills.library.problem") { Task { await readLibrary() } }
         } else if library == nil {
             SkeletonRows(count: 4, label: "Reading skills")
         }

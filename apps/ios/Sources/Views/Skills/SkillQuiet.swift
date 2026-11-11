@@ -4,6 +4,9 @@ import SwiftUI
 /// words (design language §5 "Inner pages and sheets"): never a box, never an icon.
 struct QuietProblem: View {
     let message: String
+    /// What a test names this sentence: several can be on one page, so each call site says which
+    /// is which. Retry, when there is one, is `id` + `.retry`.
+    var id = "service.problem"
     var retry: (() -> Void)? = nil
     var retryLabel = "Retry"
     var body: some View {
@@ -11,11 +14,11 @@ struct QuietProblem: View {
             Text(message).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
                 .foregroundStyle(AceTheme.StatusText.failed)
                 .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("service.problem")
+                .accessibilityIdentifier(id)
             if let retry {
                 Button(retryLabel, action: retry)
                     .buttonStyle(.textAction(.prominent))
-                    .accessibilityIdentifier("service.problem.retry")
+                    .accessibilityIdentifier("\(id).retry")
             }
         }
         .padding(.horizontal, AceDesign.Space.margin)

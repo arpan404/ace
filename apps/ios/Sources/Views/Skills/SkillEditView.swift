@@ -43,10 +43,11 @@ struct SkillEditView: View {
                 if conflict || problem != nil {
                     if conflict {
                         QuietProblem(message: "This skill changed on the machine since you opened it.",
+                                     id: "skill.edit.conflict",
                                      retry: { Task { await reload() } }, retryLabel: "Reload")
                             .transition(.opacity)
                     } else if let problem {
-                        QuietProblem(message: problem).transition(.opacity)
+                        QuietProblem(message: problem, id: "skill.edit.problem").transition(.opacity)
                     }
                 }
                 QuietHeading("Instructions").padding(.horizontal, AceDesign.Space.margin)
