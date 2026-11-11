@@ -160,3 +160,57 @@ test("a Spade that is slow to answer never holds up the connection's next messag
   silent.closeAllConnections();
   await new Promise((resolve) => silent.close(resolve));
 });
+
+test("an upload's last part doesn't hold up the connection while Spade answers", async () => {
+  const silent = createServer((request) => request.resume());
+  await new Promise<void>((resolve) => silent.listen(0, "127.0.0.1", resolve));
+  const address = silent.address();
+  if (!address || typeof address === "string") throw new Error("No port");
+  const sent: ServerMessage[] = [];
+  const service = createSpadeSession({
+    options: {
+      spade: {
+        ready: () => ({
+          connection: { host: "127.0.0.1", port: address.port, token: "t".repeat(64) },
+          generation: 1,
+        }),
+        status: () => ({ state: "ready" }),
+        subscribe: () => () => {},
+        onRunEnded: () => () => {},
+      },
+    },
+    authorize: () => true,
+    connected: () => true,
+    send: (message) => sent.push(message as ServerMessage),
+  });
+  const device = DeviceId.parse("device");
+  await service.handle?.(
+    SpadeClientMessage.parse({
+      type: "spade.http",
+      requestId: "upload",
+      method: "POST",
+      path: "/v1/conversations/c1/messages",
+      parts: 1,
+    }),
+    device,
+  );
+  expect(sent.at(-1)).toEqual({ type: "spade.http.open", requestId: "upload" });
+  const handled = await Promise.race([
+    Promise.resolve(
+      service.handle?.(
+        SpadeClientMessage.parse({
+          type: "spade.http.part",
+          requestId: "upload",
+          index: 0,
+          body: '{"text":"hi"}',
+        }),
+        device,
+      ),
+    ).then(() => "handled"),
+    new Promise((resolve) => setTimeout(() => resolve("blocked"), 1000)),
+  ]);
+  expect(handled).toBe("handled");
+  service.close?.();
+  silent.closeAllConnections();
+  await new Promise((resolve) => silent.close(resolve));
+});

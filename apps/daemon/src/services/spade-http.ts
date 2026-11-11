@@ -253,11 +253,15 @@ export function createSpadeHttp(context: {
     drop(message.requestId);
     const timeout = setTimeout(() => upload.controller.abort(), requestTimeoutMs);
     timeout.unref?.();
-    const answer = await upload.stream
+    // Never awaited: the body is all sent, and Spade may take a minute to answer; the socket's
+    // next message must not wait for it.
+    void upload.stream
       .finish(responseBodyLimit(upload.method, upload.path))
       .catch(() => undefined)
-      .finally(() => clearTimeout(timeout));
-    respond(message.requestId, answer);
+      .then((answer) => {
+        clearTimeout(timeout);
+        respond(message.requestId, answer);
+      });
   }
 
   function read(message: SpadeHttpRead) {
