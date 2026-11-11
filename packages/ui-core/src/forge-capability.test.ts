@@ -8,6 +8,13 @@ test("older daemons keep GitHub controls and other hosts' review reads", () => {
   expect(can({ forge: "origin" }, "issues.read")).toBe(false);
 });
 
+test("older daemons read nothing from hosts they never supported", () => {
+  for (const forge of ["gitea", "forgejo", "bitbucket", "gitbucket"] as const) {
+    expect(can({ forge }, "reviews.read")).toBe(false);
+  }
+  expect(can({ forge: "origin" }, "reviews.read")).toBe(true);
+});
+
 test("explicit capabilities enable host controls and can withdraw GitHub controls", () => {
   expect(
     can(

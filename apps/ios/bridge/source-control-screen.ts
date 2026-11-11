@@ -7,7 +7,7 @@ import {
 } from "@ace/protocol";
 import { originApiHost, publicForgeHosts } from "@ace/protocol/forge";
 import {
-  can,
+  forgeCapabilities,
   defaultForgeHost,
   forgeNames,
   forgeClis,
@@ -52,14 +52,14 @@ export type SourceControlScreenRequest = z.infer<typeof SourceControlScreenReque
 /** How far ace reaches a provider: everything, read-only in Code review, or not yet. */
 export type HostSupport = "full" | "browse" | "pending";
 
+/** What this build supports for a provider, from the one capability table. */
 const support = (forge: string): HostSupport => {
   const kind = known(forge);
-  const source = kind ? { forge: kind } : undefined;
-  return can(source, "reviews.create")
-    ? "full"
-    : can(source, "reviews.read")
-      ? "browse"
-      : "pending";
+  const capabilities = kind ? forgeCapabilities[kind] : [];
+  const writes = capabilities.some(
+    (capability) => capability.endsWith(".write") || capability === "reviews.merge",
+  );
+  return writes ? "full" : capabilities.includes("reviews.read") ? "browse" : "pending";
 };
 const known = (forge: string): ForgeKind | undefined => ForgeKind.safeParse(forge).data;
 /** A provider this build doesn't know is shown by its own id. */
