@@ -67,9 +67,11 @@ through the public API with real edges (sockets, SQLite) where possible.
 
 ## Models
 
-**Endpoints, not gateways.** `config/models.json` lists endpoints (format, base URL, key variable,
-extra headers) and their models (context size, capabilities, price per million tokens with cache
-read and write prices). A model is `endpoint/model`; `roles` picks main, fast and deep. The three
+**Endpoints, not gateways.** The person adds endpoints (format, base URL, extra headers) and picks
+any model they serve ([agents.md](agents.md), ADR 0126); `config/models.json` holds presets and
+known model facts (context size, capabilities, price per million tokens with cache read and write
+prices). A model is `endpoint/model`; each agent has its own, and a fast model the person sets
+does side jobs. The three
 formats map to `genai`'s OpenAI, OpenAI Responses and Anthropic adapters; Spade sets the full
 target on every call, so any compatible server works, including local ones without a key. Model
 ids, prices and base URLs in the shipped file come from models.dev (checked 2026-11-10); tiered

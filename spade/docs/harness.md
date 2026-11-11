@@ -98,7 +98,7 @@ turns (409 mid-reply).
 | ------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------ |
 | `POST /v1/conversations/{id}/approvals/{call_id}` | `{allowed, always?}`   | `202`; `409` if that call is not waiting                                                   |
 | `POST /v1/conversations/{id}/compact`             | `{focus?}`             | `204`; `409` mid-reply or nothing to compact                                               |
-| `GET /v1/models`                                  |                        | Endpoints (`needs_key`, `key_set`, models), roles, whether a keychain exists               |
+| `GET /v1/models`                                  |                        | The person's endpoints and models, presets, the fast model ([agents.md](agents.md))        |
 | `PUT /v1/keys/{endpoint}`                         | `{key}`                | `204`; stored in the OS keychain, never returned                                           |
 | `DELETE /v1/keys/{endpoint}`                      |                        | `204`; `404` if none                                                                       |
 | `POST /v1/maintenance`                            | `{mode, deadline_ms?}` | `202` with the state below; closes admission and starts pausing. `400` for an unknown mode |

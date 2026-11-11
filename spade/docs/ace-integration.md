@@ -150,8 +150,9 @@ parts?}` or `{kind: "error", code, message}` (`forbidden`, `invalid_path`, `unav
     arrive, with chunked transfer. Send the parts only after `spade.http.open` `{requestId}`
     arrives: it says the daemon took the request; a refusal comes as `spade.http.result` instead. A part out of order or bad base64 ends the request with
     `invalid_body`; 60 s without the next part ends it with `failed`.
-  - **Request caps.** `POST /v1/conversations` and `POST /v1/conversations/{id}/messages` take up
-    to 56 MiB, room for 8 images of 5 MiB as base64 in JSON. Every other route takes 512 KiB. A
+  - **Request caps.** `POST /v1/conversations/{id}/messages` takes up to 56 MiB, room for 8 images
+    of 5 MiB as base64 in JSON. `POST /v1/agents` and `PATCH /v1/agents/{id}` take up to 6 MiB, room
+    for one avatar image. Every other route takes 512 KiB. A
     larger body is refused with `too_large` before Spade sees it.
   - **Answers.** JSON and `text/*` answers come back as `encoding: "text"`; anything else (an
     image) as `encoding: "base64"` with Spade's `contentType`. `GET /v1/images/{sha256}` may

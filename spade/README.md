@@ -45,7 +45,7 @@ crates/
   spade-server/    local API and reply engine (in progress)
   spade-testkit/   test-only fake model endpoint (all three formats)
 config/
-  models.json      the model catalogue, read at startup
+  models.json      presets, built into the binary
   search.json      search backends, tried in order
 docs/
   design.md        features, architecture, decisions, build order
@@ -58,7 +58,7 @@ docs/
 | ------------------------------------------ | -------------------- | ------------------------------------------------------------------------------------- |
 | `SPADE_LISTEN`                             | `127.0.0.1:3000`     | Address to listen on (loopback)                                                       |
 | `RUST_LOG`                                 | `info`               | Log filter                                                                            |
-| `SPADE_MODEL_CATALOG`                      | `config/models.json` | The model catalogue file                                                              |
+| `SPADE_MODEL_CATALOG`                      | built in             | A presets file to use instead of the built-in one (development)                       |
 | `SPADE_ACE_HOME`                           | set by the service   | ace's home: Spade finds the daemon from its `daemon-endpoint` and `daemon-token`      |
 | `SPADE_ACE_MCP_URL`, `SPADE_ACE_MCP_TOKEN` | unset                | Development only: ace's MCP endpoint and a bearer, overriding `SPADE_ACE_HOME`        |
 | `SPADE_ACE_URL`, `SPADE_ACE_TOKEN`         | unset                | Development only: the daemon's WebSocket and local token, for skills                  |
@@ -70,13 +70,14 @@ Spade calls any endpoint that speaks one of three formats: **OpenAI Chat Complet
 (`openai-chat`: OpenAI and every OpenAI-compatible server, such as OpenRouter, Groq, Ollama or vLLM),
 **OpenAI Responses** (`openai-responses`) or **Anthropic Messages** (`anthropic`).
 
-`config/models.json`, read at startup, lists the endpoints (id, name, format, base URL, the
-key, optional extra headers) and each endpoint's models (id,
-name, context size, capabilities such as `tools`, `images` or `native-tool-search`, and an optional
-price per million tokens, including cache read and write prices). Models are named
-`endpoint/model`, for example `anthropic/claude-sonnet-5-5`; `roles` sets the main, fast and deep
-models. Keys live in the OS keychain (ADR 0119): Spade reads the keychain first, then the variable named in `key.env` (how a headless machine runs it). `"key": {}` means keychain only; an endpoint without `key` needs none (a local server). To add an endpoint, add an entry
-and restart; nothing is recompiled.
+The endpoints and models Spade calls are the person's own, added in the app and kept in Spade's
+database ([docs/agents.md](docs/agents.md)). `config/models.json`, built into the binary, holds presets:
+endpoint templates (id, name, format, base URL, the key, optional extra headers and session
+header) and known facts about model ids (name, context size, capabilities such as `tools`,
+`images` or `native-tool-search`, and an optional price per million tokens, including cache read
+and write prices). Models are named `endpoint/model`, for example `anthropic/claude-sonnet-5-5`;
+the optional `roles.main` is the model a fresh Spade starts with. Keys live in the OS keychain (ADR 0119): Spade reads the keychain first, then the variable named in `key.env` (how a headless machine runs it). `"key": {}` means keychain only; an endpoint without `key` needs none (a local server). Presets whose key is already set become the person's endpoints on the first
+start.
 
 The shipped file lists OpenCode Go (the development default), Anthropic, OpenAI, Google Gemini,
 Moonshot and Z.AI, with model ids and prices from models.dev. Spade checks the file at startup and

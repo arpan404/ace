@@ -18,6 +18,15 @@ pub enum Known {
         /// Images the person attached. The bytes live in Spade's image store, by hash.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         images: Vec<ImageRef>,
+        /// Another agent on this machine sent it (`bot_message`), not the person.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from_agent: Option<FromAgent>,
+    },
+    /// The agent's task or model changed (ADR 0126). Used from the next turn on: a turn's prompt
+    /// takes the task in effect when its reply started, and `reply_started` names its model.
+    AgentConfigured {
+        task: String,
+        model: String,
     },
     /// The skill index for this conversation, fixed at its first turn so the prompt's top stays
     /// cached; later skills are found with `skill_search`.
@@ -166,6 +175,15 @@ pub enum Known {
     },
 }
 
+/// The agent that sent a message, and how many bot-to-bot hops led to it (1 when the sender was
+/// answering the person).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FromAgent {
+    pub id: String,
+    pub name: String,
+    pub depth: u32,
+}
+
 /// An attached image, as stored in an event: its SHA-256 (hex), media type and size.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ImageRef {
@@ -229,6 +247,7 @@ impl Event {
             text: text.into(),
             context: None,
             images: Vec::new(),
+            from_agent: None,
         })
     }
 

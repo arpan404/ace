@@ -1,6 +1,8 @@
-//! The endpoints and models Spade may call, loaded from a JSON file (`config/models.json` by
-//! default) when Spade starts. Any endpoint that speaks OpenAI Chat Completions, OpenAI Responses
-//! or Anthropic Messages can be added; changing the list means editing the file and restarting.
+//! The shipped presets (ADR 0126), loaded from a JSON file (`config/models.json` by default) when
+//! Spade starts: endpoint templates the person can add with one choice, and known facts about
+//! models (context, capabilities, prices) looked up by model id. What Spade may call is the
+//! person's own list of endpoints, kept in Spade's database; [`crate::Models`] starts with these
+//! presets as its endpoints until the server sets that list.
 //!
 //! A model is named `endpoint/model`, for example `anthropic/claude-sonnet-5-5`. The model part
 //! may itself contain `/` (`openrouter/anthropic/claude-sonnet-5.5`); the endpoint part cannot.
@@ -28,7 +30,7 @@ pub enum Role {
 }
 
 /// What a model can do, as declared in the catalogue.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, serde::Serialize)]
 pub enum Capability {
     #[serde(rename = "tools")]
     Tools,
@@ -65,7 +67,44 @@ pub struct Model {
     pub price: Option<Price>,
 }
 
+impl Capability {
+    pub const ALL: [Self; 4] = [
+        Self::Tools,
+        Self::Images,
+        Self::Reasoning,
+        Self::NativeToolSearch,
+    ];
+
+    /// The name used in files and the API.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Tools => "tools",
+            Self::Images => "images",
+            Self::Reasoning => "reasoning",
+            Self::NativeToolSearch => "native-tool-search",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|c| c.name() == name)
+    }
+}
+
+/// Context window assumed for a model nobody describes.
+pub const DEFAULT_CONTEXT: u64 = 128_000;
+
 impl Model {
+    /// A model known only by its id: conservative defaults the person can edit.
+    pub fn unknown(id: &str) -> Self {
+        Self {
+            id: id.to_owned(),
+            name: id.to_owned(),
+            context: Some(DEFAULT_CONTEXT),
+            capabilities: vec![Capability::Tools],
+            price: None,
+        }
+    }
+
     pub fn can(&self, capability: Capability) -> bool {
         self.capabilities.contains(&capability)
     }
@@ -99,7 +138,7 @@ pub struct Resolved<'a> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Catalog {
     endpoints: Vec<Endpoint>,
-    roles: FileRoles,
+    roles: Option<FileRoles>,
 }
 
 /// Everything wrong with a catalogue file.
@@ -130,7 +169,9 @@ struct File {
     /// When the ids and prices were last checked; for people, not used by Spade.
     #[serde(default, rename = "checked")]
     _checked: Option<String>,
-    roles: FileRoles,
+    /// Optional: what a fresh Spade picks before the person chooses.
+    #[serde(default)]
+    roles: Option<FileRoles>,
     endpoints: Vec<FileEndpoint>,
 }
 
@@ -202,13 +243,22 @@ impl Catalog {
         &self.endpoints
     }
 
-    /// The model reference set for `role`.
-    pub fn role(&self, role: Role) -> &str {
-        match role {
-            Role::Main => &self.roles.main,
-            Role::Fast => &self.roles.fast,
-            Role::Deep => &self.roles.deep,
-        }
+    /// The model reference the file sets for `role`, when it sets roles.
+    pub fn role(&self, role: Role) -> Option<&str> {
+        let roles = self.roles.as_ref()?;
+        Some(match role {
+            Role::Main => &roles.main,
+            Role::Fast => &roles.fast,
+            Role::Deep => &roles.deep,
+        })
+    }
+
+    /// What the presets know about model `id`, from the first endpoint that lists it.
+    pub fn facts(&self, id: &str) -> Option<&Model> {
+        self.endpoints
+            .iter()
+            .flat_map(|e| e.models.iter())
+            .find(|m| m.id == id)
     }
 
     /// Finds `endpoint/model`.
@@ -222,9 +272,6 @@ impl Catalog {
     fn parse(text: &str) -> Result<Self, Vec<String>> {
         let file: File = serde_json::from_str(text).map_err(|error| vec![error.to_string()])?;
         let mut problems = Vec::new();
-        if file.endpoints.is_empty() {
-            problems.push("lists no endpoints".to_owned());
-        }
         let mut seen = HashSet::new();
         let endpoints: Vec<Endpoint> = file
             .endpoints
@@ -240,11 +287,14 @@ impl Catalog {
             endpoints,
             roles: file.roles,
         };
-        for (role, reference) in [
-            ("main", &catalog.roles.main),
-            ("fast", &catalog.roles.fast),
-            ("deep", &catalog.roles.deep),
-        ] {
+        let roles = catalog.roles.iter().flat_map(|roles| {
+            [
+                ("main", &roles.main),
+                ("fast", &roles.fast),
+                ("deep", &roles.deep),
+            ]
+        });
+        for (role, reference) in roles {
             if catalog.resolve(reference).is_none() {
                 problems.push(format!(
                     "the {role} role names {reference}, which is not an endpoint/model in this file"
@@ -306,7 +356,9 @@ fn check_endpoint(endpoint: FileEndpoint, problems: &mut Vec<String>) -> Endpoin
             ));
         }
     }
-    let session_header = endpoint.session_header.map(|name| name.trim().to_owned());
+    let session_header = endpoint
+        .session_header
+        .map(|name| name.trim().to_ascii_lowercase());
     if let Some(name) = &session_header {
         let valid = !name.is_empty()
             && name
@@ -317,9 +369,6 @@ fn check_endpoint(endpoint: FileEndpoint, problems: &mut Vec<String>) -> Endpoin
                 "endpoint {label}: session_header {name:?} must be a header name like x-session-id"
             ));
         }
-    }
-    if endpoint.models.is_empty() {
-        problems.push(format!("endpoint {label} lists no models"));
     }
     let mut seen = HashSet::new();
     let models = endpoint

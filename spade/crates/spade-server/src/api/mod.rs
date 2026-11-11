@@ -1,5 +1,9 @@
-//! Spade's local HTTP API (docs/chat-core.md). Every `/v1` request carries the bearer token
-//! from Spade's data folder; keys go in and never come back out.
+//! Spade's local HTTP API (docs/chat-core.md, docs/agents.md). Every `/v1` request carries the
+//! bearer token from Spade's data folder; keys go in and never come back out.
+
+mod agents;
+mod body;
+mod endpoints;
 
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -44,12 +48,32 @@ pub struct AppState {
 
 pub fn router(state: AppState) -> Router {
     let v1 = Router::new()
+        .route("/conversations", get(list).post(no_new_chats))
         .route(
-            "/conversations",
-            get(list)
-                .post(create)
-                .layer(DefaultBodyLimit::max(MESSAGE_BODY)),
+            "/agents",
+            get(agents::list)
+                .post(agents::create)
+                .layer(DefaultBodyLimit::max(agents::AGENT_BODY)),
         )
+        .route(
+            "/agents/{id}",
+            axum::routing::patch(agents::update)
+                .delete(agents::delete)
+                .layer(DefaultBodyLimit::max(agents::AGENT_BODY)),
+        )
+        .route("/main", put(agents::set_main))
+        .route("/endpoints", post(endpoints::create))
+        .route(
+            "/endpoints/{id}",
+            axum::routing::patch(endpoints::update).delete(endpoints::delete),
+        )
+        .route(
+            "/endpoints/{id}/models",
+            get(endpoints::live)
+                .post(endpoints::save_model)
+                .delete(endpoints::delete_model),
+        )
+        .route("/settings", put(endpoints::settings))
         .route("/conversations/{id}/events", get(events))
         .route(
             "/conversations/{id}/messages",
@@ -59,7 +83,7 @@ pub fn router(state: AppState) -> Router {
         .route("/conversations/{id}/approvals/{call_id}", post(approve))
         .route("/conversations/{id}/live", get(live))
         .route("/conversations/{id}/compact", post(compact))
-        .route("/models", get(models))
+        .route("/models", get(endpoints::models))
         .route("/images/{sha256}", get(image))
         .route("/keys/{endpoint}", put(set_key).delete(delete_key))
         .route("/ace", get(ace_state).put(set_grant).delete(forget_grant))
@@ -129,7 +153,7 @@ async fn authorize(State(state): State<AppState>, request: Request, next: Next) 
     }
 }
 
-fn problem(status: StatusCode, message: &str) -> Response {
+pub(super) fn problem(status: StatusCode, message: &str) -> Response {
     (status, Json(json!({ "error": message }))).into_response()
 }
 
@@ -140,6 +164,7 @@ fn stored(event: &StoredEvent) -> Value {
 fn send_problem(error: &SendError) -> Response {
     let status = match error {
         SendError::NotFound => StatusCode::NOT_FOUND,
+        SendError::Disabled => StatusCode::CONFLICT,
         SendError::Empty | SendError::TooLong | SendError::TooManyImages | SendError::Image(_) => {
             StatusCode::BAD_REQUEST
         }
@@ -189,15 +214,12 @@ impl Text {
     }
 }
 
-async fn create(State(state): State<AppState>, Json(body): Json<Text>) -> Response {
-    let images = match body.images() {
-        Ok(images) => images,
-        Err(response) => return *response,
-    };
-    match state.engine.start_conversation(&body.text, &images) {
-        Ok(id) => (StatusCode::CREATED, Json(json!({ "id": id }))).into_response(),
-        Err(error) => send_problem(&error),
-    }
+/// There is no "new chat" (ADR 0126): each agent has one conversation, created with it.
+async fn no_new_chats() -> Response {
+    problem(
+        StatusCode::GONE,
+        "conversations are created with their agent: POST /v1/agents",
+    )
 }
 
 #[derive(Deserialize)]
@@ -337,6 +359,10 @@ async fn live(
             .event("caught_up")
             .data(json!({ "seq": last }).to_string()),
     );
+    first.push(status_event(
+        subscription.state,
+        subscription.status.as_deref(),
+    ));
     let frames = BroadcastStream::new(subscription.frames)
         // A subscriber that falls behind is closed; it reconnects with its last seq.
         .take_while(|item| std::future::ready(item.is_ok()))
@@ -355,6 +381,7 @@ async fn live(
                         .event("delta")
                         .data(json!({ "reply": reply, "text": text }).to_string()),
                 ),
+                Ok(Frame::Status { state, status }) => Some(status_event(state, status.as_deref())),
                 _ => None,
             };
             std::future::ready(Some(event))
@@ -393,42 +420,11 @@ async fn image(State(state): State<AppState>, Path(sha256): Path<String>) -> Res
     }
 }
 
-async fn models(State(state): State<AppState>) -> Response {
-    let catalog = state.engine.models().catalog();
-    let endpoints: Vec<Value> = catalog
-        .endpoints()
-        .iter()
-        .map(|endpoint| {
-            let in_keychain = state
-                .keys
-                .as_ref()
-                .and_then(|keys| keys.has(&endpoint.id).ok())
-                .unwrap_or(false);
-            let in_env = endpoint
-                .key_env
-                .as_deref()
-                .is_some_and(|var| std::env::var(var).is_ok_and(|v| !v.trim().is_empty()));
-            // Where the key in use comes from; the keychain wins, as in every call.
-            let source = match (in_keychain, in_env) {
-                (true, _) => json!("keychain"),
-                (false, true) => json!("environment"),
-                (false, false) => Value::Null,
-            };
-            json!({
-                "id": endpoint.id, "name": endpoint.name, "format": endpoint.format.name(),
-                "needs_key": endpoint.needs_key, "key_set": in_keychain || in_env,
-                "key_source": source,
-                "models": endpoint.models.iter().map(|m| json!({ "id": m.id, "name": m.name })).collect::<Vec<_>>(),
-            })
-        })
-        .collect();
-    let roles = json!({
-        "main": catalog.role(spade_models::Role::Main),
-        "fast": catalog.role(spade_models::Role::Fast),
-        "deep": catalog.role(spade_models::Role::Deep),
-    });
-    Json(json!({ "endpoints": endpoints, "roles": roles, "keychain": state.keys.is_some() }))
-        .into_response()
+/// What the agent is doing now: `{"state","status"}`. Older clients ignore the event.
+fn status_event(state: crate::engine::State, status: Option<&str>) -> SseEvent {
+    SseEvent::default()
+        .event("status")
+        .data(json!({ "state": state.name(), "status": status }).to_string())
 }
 
 #[derive(Deserialize)]

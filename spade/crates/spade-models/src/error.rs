@@ -2,8 +2,12 @@ use crate::prompt::Usage;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ModelError {
-    #[error("{0} is not an endpoint/model in the catalogue")]
+    #[error("{0} is not a model on one of your endpoints")]
     UnknownModel(String),
+
+    /// The endpoint's model list could not be read. One short line, never the key.
+    #[error("{endpoint}: {message}")]
+    Listing { endpoint: String, message: String },
 
     #[error("endpoint {endpoint} has no key: add one in Spade's settings{}", var.as_ref().map(|v| format!(" or set {v}")).unwrap_or_default())]
     MissingKey {

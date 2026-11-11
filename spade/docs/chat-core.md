@@ -29,6 +29,7 @@ Each conversation is an append-only log of numbered events (`seq` from 1). Store
 | `reply_failed`      | `reply`, `text`, `error`                                          | The model call failed; `text` is what arrived            |
 | `reply_interrupted` | `reply`, `text`                                                   | Spade restarted mid-reply; `text` is the last checkpoint |
 | `renamed`           | `title`                                                           | New title                                                |
+| `agent_configured`  | `task`, `model`                                                   | The agent's task or model changed, from the next turn    |
 
 A reply is open from `reply_started` until one of finished, stopped, failed or interrupted. At most
 one reply is open per conversation. On startup Spade closes every open reply a crash cut off with
@@ -49,7 +50,7 @@ startup, so only processes that can read the person's files can talk to Spade.
 | ------------------------------------------- | -------- | ----------------------------------------------------------------------------------- |
 | `GET /health`                               |          | `{"ok":true,"version","api"}`; `api` is the HTTP API version (1)                    |
 | `GET /v1/conversations`                     |          | `[{id, title, updated_at, answering}]`, newest first                                |
-| `POST /v1/conversations`                    | `{text}` | `201 {id}`; the message is sent and a reply starts                                  |
+| `POST /v1/conversations`                    |          | `410`: each agent has one conversation, created with it ([agents.md](agents.md))    |
 | `GET /v1/conversations/{id}/events?after=N` |          | `[{seq, at, event}]` after `seq` N                                                  |
 | `POST /v1/conversations/{id}/messages`      | `{text}` | `202`; while a reply is open the message steers it; `402` when today's cap is spent |
 | `POST /v1/conversations/{id}/stop`          |          | `202`; `404` when nothing is answering                                              |
@@ -67,7 +68,7 @@ same; `snapshot` restores any reply text newer than the last checkpoint.
 
 ## Spending
 
-`config/models.json` gives priced models a price per million input and output tokens, with cache read and write prices. Each finished
+The presets in `config/models.json` give priced models a price per million input and output tokens, with cache read and write prices. Each finished
 reply records its cost in the usage ledger. `SPADE_DAILY_CAP_USD` (default 5) caps a day's spend in
 the machine's local day; a message after the cap is refused with `402` and no model is called.
 

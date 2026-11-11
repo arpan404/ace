@@ -1,9 +1,17 @@
 //! The database layout and its forward migrations, tracked in `PRAGMA user_version`.
 
-use rusqlite::Connection;
+use rusqlite::{Connection, Transaction};
+
+/// One step up the schema: SQL, then an optional backfill in the same transaction.
+struct Migration {
+    sql: &'static str,
+    backfill: Option<fn(&Transaction<'_>) -> rusqlite::Result<()>>,
+}
 
 /// Each entry moves the schema up one version. Never edit a shipped entry; add a new one.
-const MIGRATIONS: &[&str] = &["
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        sql: "
     CREATE TABLE conversations (
         id TEXT PRIMARY KEY,
         title TEXT,
@@ -26,7 +34,53 @@ const MIGRATIONS: &[&str] = &["
         at_ms INTEGER NOT NULL
     );
     CREATE INDEX spend_by_time ON spend (at_ms);
-"];
+",
+        backfill: None,
+    },
+    Migration {
+        // ADR 0126: agents, each with exactly one conversation, and the person's own endpoints.
+        sql: "
+    CREATE TABLE agents (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        name TEXT NOT NULL,
+        task TEXT NOT NULL,
+        avatar TEXT NOT NULL,
+        model TEXT NOT NULL,
+        conversation_id TEXT NOT NULL UNIQUE REFERENCES conversations (id),
+        created_ms INTEGER NOT NULL,
+        updated_ms INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX one_main_agent ON agents (kind) WHERE kind = 'main';
+    CREATE TABLE endpoints (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        format TEXT NOT NULL,
+        base_url TEXT NOT NULL,
+        headers TEXT NOT NULL,
+        session_header TEXT,
+        needs_key INTEGER NOT NULL,
+        key_env TEXT,
+        preset TEXT,
+        created_ms INTEGER NOT NULL
+    );
+    CREATE TABLE models (
+        endpoint_id TEXT NOT NULL REFERENCES endpoints (id) ON DELETE CASCADE,
+        id TEXT NOT NULL,
+        name TEXT,
+        context INTEGER,
+        capabilities TEXT,
+        source TEXT NOT NULL,
+        PRIMARY KEY (endpoint_id, id)
+    ) WITHOUT ROWID;
+    CREATE TABLE settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    );
+",
+        backfill: Some(crate::agents::backfill),
+    },
+];
 
 /// The schema version this build brings a database up to.
 pub fn current_version() -> usize {
@@ -56,7 +110,10 @@ pub fn prepare(connection: &mut Connection) -> rusqlite::Result<()> {
     }
     for (index, migration) in MIGRATIONS.iter().enumerate().skip(version) {
         let tx = connection.transaction()?;
-        tx.execute_batch(migration)?;
+        tx.execute_batch(migration.sql)?;
+        if let Some(backfill) = migration.backfill {
+            backfill(&tx)?;
+        }
         tx.pragma_update(None, "user_version", (index + 1) as i64)?;
         tx.commit()?;
     }
