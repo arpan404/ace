@@ -1,5 +1,5 @@
 /*
- * Sign-in and step-up requests from outside clients waiting for the person (ADR 0117). The
+ * Sign-in and step-up requests from outside clients waiting for the person (ADR 0122). The
  * OAuth `/authorize` page opens one and waits; admin devices see it (`outside.state`) and the
  * person approves with the scopes, projects and expiry they chose, or denies. The page decides
  * nothing itself. Approval in ace is the only way a request becomes a grant.

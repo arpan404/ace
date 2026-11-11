@@ -11,7 +11,7 @@ import type { ServiceContext } from "./types.ts";
 const busySettleMs = 100;
 
 /**
- * What each Spade run is given (ADR 0117): the daemon's socket and local token, and an MCP lease
+ * What each Spade run is given (ADR 0121): the daemon's socket and local token, and an MCP lease
  * on the daemon's own endpoint naming Spade's host thread and its root agent, with the tool
  * groups a provider session gets. The host thread is found or made first, so it heals on every
  * start. Also keeps `spade.status` saying whether the host thread's tree is busy.

@@ -43,7 +43,7 @@ export class WorkspacePrCreation {
       return permitted();
     };
     const parsed = ForgeCreatePrInput.parse(input);
-    // The branch was pushed to the PR head's repository: the primary, or its fork (ADR 0116).
+    // The branch was pushed to the PR head's repository: the primary, or its fork (ADR 0120).
     const { head, project, metadata } = await this.ctx.backends.prHead(cwd);
     const checkout = { repository: head.pushed.repository, remotes: project.remotes };
     const pushed = await hostedCreationBackend(

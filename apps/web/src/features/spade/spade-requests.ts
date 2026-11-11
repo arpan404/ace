@@ -4,7 +4,7 @@ import { maxSpadeRequestBytes, type SpadeMethod } from "@ace/protocol";
 import { spadeProblem } from "@ace/ui-core/spade-chat";
 
 /**
- * Spade's local API through the daemon (`spade.http`, ADR 0117), large bodies in parts and long
+ * Spade's local API through the daemon (`spade.http`, ADR 0121), large bodies in parts and long
  * answers in pieces (`@ace/client/spade-http`). Spade owns the bodies' shape, so callers parse
  * them with `@ace/ui-core/spade-chat`.
  */

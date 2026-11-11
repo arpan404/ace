@@ -1,5 +1,5 @@
 /*
- * Client ID Metadata Documents (draft-ietf-oauth-client-id-metadata-document-00, ADR 0117): a
+ * Client ID Metadata Documents (draft-ietf-oauth-client-id-metadata-document-00, ADR 0122): a
  * client whose client_id is an HTTPS URL serves its metadata there. The daemon fetches it
  * itself (through `MetadataFetch`, which keeps off private networks), requires the document's
  * client_id to equal the URL, keeps the redirect URIs it may use, and caches the result.

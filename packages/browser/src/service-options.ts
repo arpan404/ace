@@ -24,7 +24,7 @@ export interface BrowserServiceOptions {
   originPolicy?: OriginPolicy;
   /**
    * Sessions kept off this machine and its local network, whatever `originPolicy` allows: an
-   * outside MCP client's (ADR 0117). Read per request.
+   * outside MCP client's (ADR 0122). Read per request.
    */
   privateNetworkBlocked?: (threadId: string) => boolean;
   /** Resolves hostnames for `privateNetworkBlocked`; defaults to the system resolver. */

@@ -1,5 +1,5 @@
 /*
- * Everything one base URL serves to outside clients (ADR 0117): the MCP endpoint, its
+ * Everything one base URL serves to outside clients (ADR 0122): the MCP endpoint, its
  * discovery documents and the OAuth endpoints. Every way in (loopback, Tailscale, ace's relay,
  * the person's own URL) hands its requests here with the base it arrived at; how a request
  * arrived never changes what it may do.

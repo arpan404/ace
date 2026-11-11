@@ -16,7 +16,7 @@ import {
 import type { ForwardPath } from "./http-path.ts";
 import { upgraded } from "./upgrade.ts";
 
-/** Per-host limits on forwarded HTTP (ADR 0117). Every open exchange keeps the object awake. */
+/** Per-host limits on forwarded HTTP (ADR 0122). Every open exchange keeps the object awake. */
 export const httpLimits = {
   /** Requests in flight at once, streams included. */
   maxRequests: 32,

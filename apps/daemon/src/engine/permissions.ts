@@ -117,7 +117,7 @@ export class Permissions {
     return this.state(id);
   }
   /**
-   * A host thread's mode (ADR 0117): no launch ever resolves it, so the mode is its own effective
+   * A host thread's mode (ADR 0121): no launch ever resolves it, so the mode is its own effective
    * mode at once and the ceiling of its children from then on. Returns whether it changed.
    */
   hold(id: ThreadId, access: AccessMode, at: number): boolean {

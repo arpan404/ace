@@ -75,7 +75,7 @@ async function run(owner: ChangesOwner, payload: CommandPayload): Promise<Comman
 /**
  * Push where the person's source-control preferences say, as the web does: every push names the
  * global remote name. The push before a new pull request names it too; the daemon pushes that
- * one to the PR's head (the primary, or the person's fork of it, ADR 0116).
+ * one to the PR's head (the primary, or the person's fork of it, ADR 0120).
  */
 async function push(
   owner: ChangesOwner,

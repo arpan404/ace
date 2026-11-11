@@ -37,7 +37,7 @@ export interface OriginLike {
   lossy?: boolean | undefined;
   /** A restart-kind continuation resuming a turn its provider dropped on its own. */
   afterExit?: boolean | undefined;
-  /** A `person` message an outside MCP client sent for the person (ADR 0117). */
+  /** A `person` message an outside MCP client sent for the person (ADR 0122). */
   client?: { grantId: string; name: string } | undefined;
 }
 

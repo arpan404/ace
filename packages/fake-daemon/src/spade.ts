@@ -1,6 +1,6 @@
 import type { ClientMessage, ServerMessage, SpadeStatus } from "@ace/protocol";
 
-/** Spade's status as the daemon reports it (ADR 0117). Tests set `status` to stage it. */
+/** Spade's status as the daemon reports it (ADR 0121). Tests set `status` to stage it. */
 export class FakeSpade {
   status: SpadeStatus = { state: "off" };
 

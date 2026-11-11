@@ -17,7 +17,7 @@ export interface DaemonSpadeOptions {
 }
 
 /**
- * Hosts Spade (ADR 0117). Spade needs the daemon's own WebSocket address, so it starts once the
+ * Hosts Spade (ADR 0121). Spade needs the daemon's own WebSocket address, so it starts once the
  * listener is up, and runs while `spade.enabled` is on and a binary exists.
  */
 export async function startSpade(context: ServiceContext): Promise<void> {

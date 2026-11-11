@@ -56,7 +56,7 @@ export interface ListPages<L extends ForgePrList | ForgeIssueList> {
 const rowKey = (row: { ref: { repository: ForgeRepository; number: number } }) =>
   workKey(row.ref.repository, row.ref.number);
 
-/** The projects' primaries alone: one read each, as lists read before ADR 0116. */
+/** The projects' primaries alone: one read each, as lists read before ADR 0120. */
 export const primarySources = (projects: readonly string[]): ReviewSource[] =>
   projects.map((project) => ({ project }));
 

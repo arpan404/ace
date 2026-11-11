@@ -33,7 +33,7 @@ export function guestRefusal(
 }
 
 /**
- * The refusal for a command that would run an agent on a host thread (ADR 0117): the daemon holds
+ * The refusal for a command that would run an agent on a host thread (ADR 0121): the daemon holds
  * it for Spade, whose tools act as it, and no provider ever runs it.
  */
 export function hostRefusal(

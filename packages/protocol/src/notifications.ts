@@ -162,7 +162,7 @@ export const PushAlertPayload = z.object({
 });
 export type PushAlertPayload = z.infer<typeof PushAlertPayload>;
 /**
- * An outside client waiting for the person to approve its sign-in (ADR 0117), as a push
+ * An outside client waiting for the person to approve its sign-in (ADR 0122), as a push
  * carries it: who asks and the match code to compare, nothing that signs anyone in. The
  * scopes, tokens, authorization codes and redirect URLs stay on the machine.
  */

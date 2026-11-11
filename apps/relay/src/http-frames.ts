@@ -2,7 +2,7 @@ import { z } from "zod";
 
 /**
  * One HTTP request and its response, carried over one ticketed `/serve` socket between ace's
- * hosted relay and a daemon (ADR 0117, docs/relay/README.md). Every WebSocket message is binary;
+ * hosted relay and a daemon (ADR 0122, docs/relay/README.md). Every WebSocket message is binary;
  * its first byte says what it is:
  *
  * - `1` head: UTF-8 JSON. Relay to daemon, the request ({@link RequestHead}); daemon to relay,

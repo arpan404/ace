@@ -22,7 +22,7 @@ When these conflict, choose in that order.
 
 ## Decisions that are settled
 
-- Providers are reached only through the user's own installed, logged-in CLIs. ace never collects, stores or proxies provider credentials and is never hosted (ADR 0002). One narrow exception: Spade keeps the API keys of endpoints the person adds in the OS keychain, nowhere else (ADR 0116).
+- Providers are reached only through the user's own installed, logged-in CLIs. ace never collects, stores or proxies provider credentials and is never hosted (ADR 0002). One narrow exception: Spade keeps the API keys of endpoints the person adds in the OS keychain, nowhere else (ADR 0119).
 - Daemon runtime is Bun (releases ship it as `bin/node`); release builds run on Node 26. Bun is the package manager and script runner. TypeScript everywhere. Zod 4 for schemas. No Effect (ADR 0003).
 - `packages/protocol` is schema-only: Zod schemas and inferred types, no runtime behaviour beyond parsing.
 

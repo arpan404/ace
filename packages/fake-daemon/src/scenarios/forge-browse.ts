@@ -32,7 +32,7 @@ export function seedForgeBrowse(daemon: FakeDaemon, now: number, project = "ace"
 
 /**
  * `ace`'s GitLab mirror (a `mirror` remote on gitlab.com) and its merge requests beside the
- * GitHub reviews (ADR 0116), for Code review reading both of a project's repositories. Apart
+ * GitHub reviews (ADR 0120), for Code review reading both of a project's repositories. Apart
  * from `seedForgeBrowse`, so projects without it list one repository, as they always did.
  */
 export function seedGitLabMirror(

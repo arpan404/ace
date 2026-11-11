@@ -30,7 +30,7 @@ const copy: Record<string, string> = {
   engine_unavailable: "This daemon can't move a thread's checkout: update the daemon.",
   repository_mismatch:
     "The project's remote doesn't match this repository: pick the matching project, or refresh.",
-  // A project's repository choices (ADR 0116).
+  // A project's repository choices (ADR 0120).
   repository_hidden:
     "This project hides that repository: show it again in the project's settings, then retry.",
   repository_unavailable:

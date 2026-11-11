@@ -91,7 +91,7 @@ export function bindLiveServices(serverOptions: ServerOptions, services: Service
       configurable: true,
       get: () => services[key],
     });
-  // ace's relay forwards outside MCP requests to the outside endpoint once it runs (ADR 0117).
+  // ace's relay forwards outside MCP requests to the outside endpoint once it runs (ADR 0122).
   Object.defineProperty(serverOptions, "outsideMcpHttp", {
     enumerable: true,
     configurable: true,

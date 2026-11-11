@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// An outside app (claude.ai, a bot) asking to sign in to a paired machine (ADR 0117). The
+/// An outside app (claude.ai, a bot) asking to sign in to a paired machine (ADR 0122). The
 /// person is often away from the computer when the app asks, so the request opens here as a
 /// system sheet from anywhere in the app: who asks, the match code to compare with the app's
 /// sign-in page, then what it may do, which projects and how long. Swiping it away puts it

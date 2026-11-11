@@ -33,7 +33,7 @@ const saveFailure = (error: unknown) =>
     : "Couldn't save the repositories. Check the connection and try again.";
 
 /**
- * The Git repositories a project uses (ADR 0116): its remotes on known hosts and any added by
+ * The Git repositories a project uses (ADR 0120): its remotes on known hosts and any added by
  * hand. Each choice is saved at once, apart from the dialog's other fields, and the list shown
  * is always the daemon's answer, never a guess of it.
  */

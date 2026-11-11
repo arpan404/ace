@@ -175,9 +175,9 @@ const migrations = [
   // The account device that proved, in its own authenticated hello, that it holds a paired
   // record's credential (ADR 0115): the two share command receipts. None is proven before it.
   `ALTER TABLE devices ADD COLUMN account_link TEXT;`,
-  // Outside MCP clients' grants and hashed tokens (ADR 0117); none existed on disk before it.
+  // Outside MCP clients' grants and hashed tokens (ADR 0122); none existed on disk before it.
   outsideGrantTables,
-  // Token pairs bound to the resource they were issued for, and DCR clients (ADR 0117).
+  // Token pairs bound to the resource they were issued for, and DCR clients (ADR 0122).
   outsideOAuthTables,
 ];
 /**

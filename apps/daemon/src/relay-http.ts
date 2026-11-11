@@ -7,7 +7,7 @@ export type { RelayHttpHandler } from "@ace/relay";
 export const notServed: RelayHttpHandler = async () => new Response(null, { status: 404 });
 
 /**
- * HTTP that ace's hosted relay forwards from `https://relay.acehq.dev/m/<hostId>/…` (ADR 0117):
+ * HTTP that ace's hosted relay forwards from `https://relay.acehq.dev/m/<hostId>/…` (ADR 0122):
  * the MCP endpoint, its OAuth endpoints and their metadata. Off unless `remote.relayMcp` is on,
  * read for every request; off, the relay answers 404 without reaching a handler.
  *

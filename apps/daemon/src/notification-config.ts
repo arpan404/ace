@@ -70,7 +70,7 @@ export async function loadNotificationChannels(options: {
   settings?: Pick<SettingsService, "get"> | undefined;
 }): Promise<{
   channels: Omit<NotificationChannels, "websocket">;
-  /** Outside clients' sign-in requests to phones, through the same gateway (ADR 0117). */
+  /** Outside clients' sign-in requests to phones, through the same gateway (ADR 0122). */
   access?: AccessPushTransport;
   publicKey?: string;
   close(): void;

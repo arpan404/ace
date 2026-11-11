@@ -32,7 +32,7 @@ export function findHostThread(store: Store): SpadeHostThread | undefined {
 }
 
 /**
- * Spade's host thread (ADR 0117), found or made. It lives in the hidden `spade` project rooted at
+ * Spade's host thread (ADR 0121), found or made. It lives in the hidden `spade` project rooted at
  * `folder`; both are made again when missing, so a deleted thread or removed project heals on the
  * next Spade start, and the threads Spade delegated earlier keep their history. Nothing runs in
  * the thread: the engine makes it with no session and refuses to start an agent there.

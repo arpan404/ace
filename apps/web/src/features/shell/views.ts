@@ -60,7 +60,7 @@ export const views: readonly View[] = [
   },
   // Chats (ADR 0099): a chat opens at its thread's own address, so `railPlace` tells them apart.
   { id: "chats", label: "Chats", to: "/chats", matches: ["/chats"], shortcut: "goChats" },
-  // Spade, ace's assistant (ADR 0117): its conversations are its own, not threads.
+  // Spade, ace's assistant (ADR 0121): its conversations are its own, not threads.
   { id: "spade", label: "Spade", to: "/spade", matches: ["/spade"] },
   ...railViews,
   forgeView,

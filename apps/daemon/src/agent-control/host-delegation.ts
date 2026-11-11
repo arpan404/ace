@@ -4,7 +4,7 @@ import { callerThread } from "./authorization.ts";
 import { AgentControlError } from "./failure.ts";
 import { resolveProject } from "./projects.ts";
 
-/** Whether the caller acts as a host thread (ADR 0117): Spade, working for the person. */
+/** Whether the caller acts as a host thread (ADR 0121): Spade, working for the person. */
 export function hostCaller(store: Store, caller: McpAttribution): boolean {
   return store.getThread(caller.threadId)?.host !== undefined;
 }

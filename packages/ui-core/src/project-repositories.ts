@@ -3,7 +3,7 @@ import type { ForgeRepository, ProjectRepositories, ProjectRepositoryConfig } fr
 import { defaultForgeHost, forgeDisplayName } from "./forge-hosts.ts";
 
 /*
- * A project's repositories as clients use them (ADR 0116): which ones Code review lists, how a
+ * A project's repositories as clients use them (ADR 0120): which ones Code review lists, how a
  * repository is labelled, and the edits the project's settings make to its saved choices. Web
  * and the iPhone share these. Pure. Every push names the global remote name; the daemon picks
  * where the push before a new pull request goes.

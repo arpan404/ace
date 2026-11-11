@@ -9,7 +9,7 @@ import type { ClientApi } from "./api.ts";
 import { onSocketMove } from "./socket-moves.ts";
 
 /*
- * One exchange with Spade through the daemon (ADR 0117, `spade.http`): a body larger than one
+ * One exchange with Spade through the daemon (ADR 0121, `spade.http`): a body larger than one
  * message goes in `spade.http.part`s, and a long answer comes back in pieces read with
  * `spade.http.read`. Bodies are text or base64 both ways; Spade owns what they mean.
  */

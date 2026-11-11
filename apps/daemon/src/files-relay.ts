@@ -37,7 +37,7 @@ export async function startFilesRelay(
     onRegistration?: ((registered: boolean) => void) | undefined;
     /** Serves a main conversation channel (a hello without `channel`). */
     relayMain?: ((entry: RelayedMain) => void) | undefined;
-    /** Forwarded HTTP from ace's hosted relay (`relay-http.ts`, ADR 0117). */
+    /** Forwarded HTTP from ace's hosted relay (`relay-http.ts`, ADR 0122). */
     http?: HostHttpOptions | undefined;
   },
 ) {

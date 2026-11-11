@@ -1,5 +1,5 @@
 /*
- * The page /authorize shows (ADR 0117, Consent). It decides nothing: it names the client, where
+ * The page /authorize shows (ADR 0122, Consent). It decides nothing: it names the client, where
  * the sign-in returns to, what it asks for and the match code, and says where to approve. It
  * works under ace's relay sandbox: no script, no cookies, no storage, no external assets; while
  * it waits it reloads its own URL, which carries its state. Every value is escaped.

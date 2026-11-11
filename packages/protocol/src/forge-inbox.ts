@@ -57,7 +57,7 @@ export const ForgeInboxList = z.object({
   /** The project's own repository, so its rows open without naming it. */
   projectRepository: ForgeRepository.optional(),
   /**
-   * Every visible, available repository of the project on this host (ADR 0116), the primary
+   * Every visible, available repository of the project on this host (ADR 0120), the primary
    * included, so rows from any of them open without naming it.
    */
   projectRepositories: z.array(ForgeRepository).max(128).optional(),

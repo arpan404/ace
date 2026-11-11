@@ -21,7 +21,7 @@ export interface SessionLease {
 export interface Authenticator {
   /**
    * `resource` is the MCP URL the request arrived at, for an endpoint whose tokens are bound to
-   * one (RFC 8707, ADR 0117); undefined on the internal endpoint.
+   * one (RFC 8707, ADR 0122); undefined on the internal endpoint.
    */
   authenticate(bearer: string, resource?: string): Principal | undefined;
   /** Ends every principal it handed out. */

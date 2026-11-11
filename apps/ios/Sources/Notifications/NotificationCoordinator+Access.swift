@@ -1,7 +1,7 @@
 import Foundation
 import UserNotifications
 
-/// Outside apps' sign-ins (ADR 0117) on the coordinator's side. A machine's live `outside.state`
+/// Outside apps' sign-ins (ADR 0122) on the coordinator's side. A machine's live `outside.state`
 /// posts one alert per new request while ace is in the background, and withdraws it once the
 /// machine stops listing it (answered, expired or cancelled). A tap, on that alert or on the
 /// daemon's push, opens the sign-in sheet for that request on its machine, or says it ended.

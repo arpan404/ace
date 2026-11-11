@@ -8,7 +8,7 @@ import { settingRow } from "./settings-index.ts";
 
 /**
  * Settings › Source control › Project repositories: each project's repositories in a line, and
- * Edit, which opens the project's own settings where they are chosen (ADR 0116). The hosts above
+ * Edit, which opens the project's own settings where they are chosen (ADR 0120). The hosts above
  * are global; which repositories a project uses is the project's.
  */
 export function SourceControlProjects() {

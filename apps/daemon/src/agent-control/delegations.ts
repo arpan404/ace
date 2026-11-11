@@ -295,7 +295,7 @@ export class DelegationService {
     return this.commandFor(DeviceId.parse("ace-agent"), id, payload);
   }
   /**
-   * A command recorded under `device` (an outside grant's, ADR 0117), so its receipt and history
+   * A command recorded under `device` (an outside grant's, ADR 0122), so its receipt and history
    * name who sent it. `recorded` runs in the receipt's transaction with a successful result.
    */
   commandFor(
@@ -1322,7 +1322,7 @@ export class DelegationService {
             this.journal.discard(next.parent_id);
             return;
           }
-          // A host thread (ADR 0117) has no agent to wake: Spade reads its children's results
+          // A host thread (ADR 0121) has no agent to wake: Spade reads its children's results
           // through `wait` and `agents_status`, so they stay held, undropped.
           if (parent.host !== undefined) {
             this.journal.holdWake(next.parent_id);

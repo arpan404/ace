@@ -27,7 +27,7 @@ export interface OutsideAccessOptions {
 }
 
 /**
- * Everything the daemon keeps about outside MCP clients (ADR 0117), with no HTTP: the grants,
+ * Everything the daemon keeps about outside MCP clients (ADR 0122), with no HTTP: the grants,
  * their tokens, the principal each acts as, the person's pending sign-in requests and outside
  * screen use. The MCP endpoint, the admin wire protocol and the OAuth endpoints all go through
  * this one owner, so revoking always ends the same work.

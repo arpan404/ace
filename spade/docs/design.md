@@ -31,7 +31,7 @@ without spare hardware, may come later.
 | The model list is curated: the current model of each family worth running, nothing older                                                                                       | decided  |
 | Connectors reuse existing MCP servers before we write our own (see Connectors)                                                                                                 | proposed |
 | A hosted Spade would reach daemons through ace's relay with a Spade grant (draft ADR `docs/adr/drafts/spade-daemon-access.md`)                                                 | proposed |
-| Endpoint keys are typed into the app and kept in the OS keychain only, then the endpoint's environment variable (ADR 0116)                                                     | decided  |
+| Endpoint keys are typed into the app and kept in the OS keychain only, then the endpoint's environment variable (ADR 0119)                                                     | decided  |
 
 ## Shared with ace
 
@@ -117,7 +117,7 @@ conversation always misses; every later call misses only on its new tail. The ru
    Responses), switched on in the model request. Billed per search by the provider.
 2. The person's own SearXNG (`config/search.json`): free, no key, run by them. Its `settings.yml`
    must allow the `json` format.
-3. Brave Search with the person's key, kept in the OS keychain (ADR 0116). Brave gives $5 of
+3. Brave Search with the person's key, kept in the OS keychain (ADR 0119). Brave gives $5 of
    searches a month free.
 4. If all of those fail, an ace agent on the cheapest available provider CLI (for example Claude
    Haiku through Claude Code) runs the search with that CLI's own web tool, on the person's

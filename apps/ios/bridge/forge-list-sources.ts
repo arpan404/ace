@@ -12,7 +12,7 @@ import {
 import { ForgeRefusal, type ForgeReads } from "./forge-reads.ts";
 
 /*
- * Which repositories a project's Pull requests and Issues read (ADR 0116), by the web's own rule
+ * Which repositories a project's Pull requests and Issues read (ADR 0120), by the web's own rule
  * (`reviewSources`, `issueSources`): every visible, available repository the daemon lists (for
  * issues, those ace reads issues from), each read on its own so one that fails leaves the others
  * on screen with a sentence saying which one couldn't be read. Groups from every repository merge
@@ -20,7 +20,7 @@ import { ForgeRefusal, type ForgeReads } from "./forge-reads.ts";
  */
 
 export interface ListSource {
-  /** Named in every read; undefined reads the project's primary, as before ADR 0116. */
+  /** Named in every read; undefined reads the project's primary, as before ADR 0120. */
   repository: ForgeRepository | undefined;
   capabilitySource?: ForgeCapabilitySource | undefined;
   /** "GitLab · acme/ace", only when the project lists more than one repository. */

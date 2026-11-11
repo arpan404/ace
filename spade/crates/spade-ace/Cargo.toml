@@ -11,7 +11,11 @@ publish.workspace = true
 futures-util = { workspace = true, features = ["sink"] }
 bytes = "1"
 reqwest = { workspace = true, features = ["stream"] }
-rmcp = { version = "3.9.0", default-features = false, features = ["base64", "client", "transport-streamable-http-client-reqwest"] }
+rmcp = { version = "3.9.0", default-features = false, features = [
+  "base64",
+  "client",
+  "transport-streamable-http-client-reqwest",
+] }
 serde.workspace = true
 sse-stream = "0.2.6"
 serde_json.workspace = true
@@ -23,7 +27,10 @@ url = "2"
 
 [dev-dependencies]
 axum.workspace = true
-rmcp = { version = "3.9.0", default-features = false, features = ["server", "transport-streamable-http-server"] }
+rmcp = { version = "3.9.0", default-features = false, features = [
+  "server",
+  "transport-streamable-http-server",
+] }
 tokio-util = "0.7"
 tower = "0.5"
 

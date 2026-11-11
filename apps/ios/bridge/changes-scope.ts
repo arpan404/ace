@@ -32,7 +32,7 @@ export interface Reads {
   patchTruncated: boolean;
   lastPath: string | undefined;
   pr: ForgePrStatus | null;
-  /** The project uses more than one repository (ADR 0116): a new PR says which it opens on. */
+  /** The project uses more than one repository (ADR 0120): a new PR says which it opens on. */
   severalRepositories?: boolean;
   /** Counts the reads, so a file cut from this one knows which read it was listed in. */
   round: number;

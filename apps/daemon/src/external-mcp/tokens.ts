@@ -1,5 +1,5 @@
 /*
- * Outside grants' tokens (ADR 0117). Tokens are random and only their SHA-256 hashes are kept.
+ * Outside grants' tokens (ADR 0122). Tokens are random and only their SHA-256 hashes are kept.
  * An access token lasts an hour; a refresh token works once and is replaced on use, and
  * presenting one already replaced revokes its grant. No token outlives its grant. The OAuth
  * endpoints call `issuePair` after approval and `rotate` at /token; `ace mcp enroll` calls

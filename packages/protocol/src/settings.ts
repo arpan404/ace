@@ -96,7 +96,7 @@ export const SettingsValues = z.object({
    */
   "computer.lockedUse": z.boolean(),
   /**
-   * Run Spade, ace's assistant, beside the daemon (ADR 0117). Off by default; it also needs the
+   * Run Spade, ace's assistant, beside the daemon (ADR 0121). Off by default; it also needs the
    * Spade binary, from the release bundle or `ACE_SPADE_BIN`. Global, admin only.
    */
   "spade.enabled": z.boolean(),
@@ -176,19 +176,19 @@ export const SettingsValues = z.object({
   "remote.hostedPairingLink": z.boolean(),
   /**
    * Whether outside MCP clients, such as hosted assistants, reach this machine through ace's
-   * relay at `https://relay.acehq.dev/m/<hostId>/` (ADR 0117). Off by default. On this path the
+   * relay at `https://relay.acehq.dev/m/<hostId>/` (ADR 0122). Off by default. On this path the
    * relay ends TLS and carries the requests in plain text; the daemon authorizes every one.
    */
   "remote.relayMcp": z.boolean(),
   /**
    * Whether outside MCP clients on the person's tailnet reach this machine at its ts.net name,
-   * on the Tailscale listener (ADR 0117). Off by default; serves only while Tailscale has issued
+   * on the Tailscale listener (ADR 0122). Off by default; serves only while Tailscale has issued
    * the machine's HTTPS certificate.
    */
   "remote.tailscaleMcp": z.boolean(),
   /**
    * The person's own public HTTPS address for outside MCP clients (Tailscale Funnel, a tunnel or
-   * a reverse proxy to the loopback endpoint), or null (ADR 0117). An origin only: no path,
+   * a reverse proxy to the loopback endpoint), or null (ADR 0122). An origin only: no path,
    * query, fragment or credentials. Requests whose Host names it are accepted on the loopback
    * endpoint.
    */

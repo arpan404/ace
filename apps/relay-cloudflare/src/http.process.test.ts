@@ -5,7 +5,7 @@ import type { RelayHttpHandler } from "@ace/relay";
 import { deferred } from "@ace/relay/testing";
 import { mint, startWorker } from "./testing/harness.ts";
 
-// Public HTTP to a machine (ADR 0117) through the Worker and relay object under real workerd,
+// Public HTTP to a machine (ADR 0122) through the Worker and relay object under real workerd,
 // served by a real daemon-side relay connection with an injected handler.
 
 let worker: Awaited<ReturnType<typeof startWorker>>;

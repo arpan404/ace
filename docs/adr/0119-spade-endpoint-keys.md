@@ -1,4 +1,4 @@
-# 0116: Spade keeps endpoint API keys in the OS keychain
+# 0119: Spade keeps endpoint API keys in the OS keychain
 
 Status: accepted. Date: 2026-11-10. Owner decision of 2026-11-10. Narrowly amends
 [ADR 0002](0002-local-cli-providers.md), which says ace never collects or stores provider

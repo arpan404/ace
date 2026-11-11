@@ -134,7 +134,7 @@ export const Thread = z.object({
   /** Set when another thread's agent started this one with `thread_start` (`StartedBy`). */
   startedBy: StartedBy.optional(),
   /**
-   * Set when an outside MCP client started this thread (ADR 0117). Kept beside `startedBy`, which
+   * Set when an outside MCP client started this thread (ADR 0122). Kept beside `startedBy`, which
    * stays a thread id so older clients still read it.
    */
   startedByClient: StartedByClient.optional(),

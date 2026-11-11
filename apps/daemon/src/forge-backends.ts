@@ -91,7 +91,7 @@ export class ForgeBackends {
     if (!repository) throw new ForgeError("unsupported");
     return { repository, remotes };
   }
-  /** Every repository of the checkout's project (ADR 0116), read from Git and saved choices. */
+  /** Every repository of the checkout's project (ADR 0120), read from Git and saved choices. */
   async projectRepositories(cwd: string) {
     const info = await this.git.repositoryInfo(cwd);
     const preferences = await this.sourceControl?.preferences();
@@ -135,7 +135,7 @@ export class ForgeBackends {
     await this.assertWritable(cwd, repository);
     return this.backend(cwd, repository);
   }
-  /** Refuses a write to a repository the project hides or can't use (ADR 0116). */
+  /** Refuses a write to a repository the project hides or can't use (ADR 0120). */
   async assertWritable(cwd: string, repository: ForgeRepository): Promise<void> {
     // Without saved choices nothing is hidden, so a write goes exactly where it always did,
     // without reading Git first: a checkout Git can't read must not refuse the write.
@@ -148,7 +148,7 @@ export class ForgeBackends {
   }
   /**
    * The write identity for a non-GitHub adapter: refused first for a hidden or unavailable
-   * repository (ADR 0116), then admitting reads plus exactly `writes` (ADR 0117).
+   * repository (ADR 0120), then admitting reads plus exactly `writes` (ADR 0117).
    */
   async admittedWriter(
     cwd: string,

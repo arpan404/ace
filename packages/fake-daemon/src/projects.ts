@@ -102,7 +102,7 @@ export class FakeProjects {
     }
   }
   private opened = new Map<string, number>();
-  /** Each project's repositories (ADR 0116): `ace` has a GitHub origin and a GitLab mirror. */
+  /** Each project's repositories (ADR 0120): `ace` has a GitHub origin and a GitLab mirror. */
   readonly repositories = new FakeProjectRepositories();
   /** The host user's home, canonical; the only allowed root unless `seedFolders` names others. */
   private home = "/fake";

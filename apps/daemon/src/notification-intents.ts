@@ -33,7 +33,7 @@ export async function acceptIntents(
   for (const entry of entries) {
     if (entry.intent.type !== "mcp.notify") continue;
     const thread = store.getThread(entry.intent.threadId);
-    // A host thread (ADR 0117) is hidden: its own notices never alert. Its children's do.
+    // A host thread (ADR 0121) is hidden: its own notices never alert. Its children's do.
     if (thread && thread.host === undefined && !slept(entry.id, windows))
       await worker.notify({
         id: `mcp:${entry.id}`,

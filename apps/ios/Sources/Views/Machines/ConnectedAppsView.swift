@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// One machine's connected apps (ADR 0117): outside MCP clients such as claude.ai that signed in,
+/// One machine's connected apps (ADR 0122): outside MCP clients such as claude.ai that signed in,
 /// or were pasted in with `ace mcp enroll`. Each row says what the app may do, where, until when
 /// and when it last came by; a row opens its detail to change that or revoke it. Needs
 /// administrator access on that machine.

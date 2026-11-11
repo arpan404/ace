@@ -8,7 +8,7 @@ interface Use {
 }
 
 /**
- * Outside clients using this machine's screen now (ADR 0117), for "Claude is using this Mac"
+ * Outside clients using this machine's screen now (ADR 0122), for "Claude is using this Mac"
  * with Stop. An app joins when a look or action starts and leaves a short while after its last
  * call ends; `stop` ends the client's screen work at once and clears its line. Listeners hear the
  * whole list, only when it changes.

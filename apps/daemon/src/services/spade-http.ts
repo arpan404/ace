@@ -45,7 +45,7 @@ interface Upload {
 }
 
 /**
- * `spade.http` and its `spade.http.part`s (ADR 0117): checked, then forwarded to Spade with
+ * `spade.http` and its `spade.http.part`s (ADR 0121): checked, then forwarded to Spade with
  * Spade's token. Bodies pass through uninterpreted: text as UTF-8, base64 as its bytes; a body in
  * parts is streamed to Spade as each part arrives, never gathered whole.
  */

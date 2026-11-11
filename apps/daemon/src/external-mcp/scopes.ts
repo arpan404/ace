@@ -1,5 +1,5 @@
 /*
- * What each outside grant scope allows (ADR 0117): the one table of outside tools and the scope
+ * What each outside grant scope allows (ADR 0122): the one table of outside tools and the scope
  * each needs, and the checks every path uses. Pure: listing, calls and the HTTP 403 challenge
  * all read this module, so they can never disagree.
  */

@@ -162,7 +162,7 @@ export class ForgeReads {
     return value.counts;
   }
 
-  /** Every repository the project lists (ADR 0116), read from its checkout: no host request. */
+  /** Every repository the project lists (ADR 0120), read from its checkout: no host request. */
   async repositories(project: string): Promise<ProjectRepositories> {
     const value = await this.read({ op: "forge.repositories", workspaceId: project }, true);
     if (value.resource !== "repositories") throw new ForgeRefusal("forge_invalid_data");

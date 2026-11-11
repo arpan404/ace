@@ -60,7 +60,7 @@ export function pushPlaintext(hostId: string, notification: Notification): Buffe
   return bytes;
 }
 
-/** The sign-in alert a phone can read (ADR 0117): small and fixed, so it always fits. */
+/** The sign-in alert a phone can read (ADR 0122): small and fixed, so it always fits. */
 export function pushAccessPlaintext(hostId: string, access: PushAccessAlert): Buffer {
   const { requestId, clientName, domain, matchCode, expiresAt } = PushAccessAlert.parse(access);
   return Buffer.from(

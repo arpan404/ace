@@ -1,5 +1,5 @@
 /*
- * The discovery documents each base serves (ADR 0117): protected-resource metadata (RFC 9728)
+ * The discovery documents each base serves (ADR 0122): protected-resource metadata (RFC 9728)
  * and authorization-server metadata (RFC 8414), the daemon being both. Pure: a base in, JSON out.
  */
 import { OutsideScope } from "@ace/protocol";

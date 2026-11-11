@@ -34,7 +34,7 @@ struct ThreadTitleMenu: View, Equatable {
     /// more than one account (the inbox row's badge); nil draws the plain mark.
     var provider = ""
     var providerAccount: String? = nil
-    /// "Started by Claude" when an outside app started the thread (ADR 0117): it heads the menu
+    /// "Started by Claude" when an outside app started the thread (ADR 0122): it heads the menu
     /// and is read with the title.
     var startedBy: String? = nil
     @Environment(\.colorScheme) private var scheme

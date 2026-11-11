@@ -51,7 +51,7 @@ const ProjectRows = z.array(z.object({ id: z.string(), name: z.string() }));
 
 /**
  * The projects other machines may see and delegate into: registered ones the person opened,
- * never a hidden kind (a chat's folder, or Spade's own, ADR 0117), as for agents here.
+ * never a hidden kind (a chat's folder, or Spade's own, ADR 0121), as for agents here.
  */
 const listedProjects = `SELECT w.id AS id, w.name AS name FROM workspaces w
   LEFT JOIN workspace_metadata m ON m.workspace_id=w.id

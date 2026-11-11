@@ -1,7 +1,7 @@
 import Foundation
 
 /// An outside app (claude.ai, a bot) waiting for the person to approve its sign-in to a machine
-/// (ADR 0117). It reaches the phone two ways: the machine's `outside.state` while ace runs, and
+/// (ADR 0122). It reaches the phone two ways: the machine's `outside.state` while ace runs, and
 /// the daemon's push, `{ v: 1, hostId, access }`, which carries only these fields. Either way the
 /// phone says it the same way, and a tap opens the sign-in sheet for this request.
 struct AccessAlert: Decodable, Equatable, Sendable {

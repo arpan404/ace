@@ -26,7 +26,7 @@ export const Attachment = z.discriminatedUnion("kind", [
     account: z.string(),
     send: Cipher,
     receive: Cipher,
-    /** It registered with `features=http` and takes forwarded HTTP tickets (ADR 0117). */
+    /** It registered with `features=http` and takes forwarded HTTP tickets (ADR 0122). */
     http: z.literal(true).optional(),
   }),
   /** A client waiting for its host to join `ticket`. `owner` is the host socket offered it. */

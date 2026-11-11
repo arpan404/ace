@@ -66,7 +66,7 @@ export async function connectHostToRelay(options: {
    */
   onRegistration?: (registered: boolean) => void;
   /**
-   * Serves HTTP requests ace's hosted relay forwards from `/m/<hostId>/…` (ADR 0117). Given,
+   * Serves HTTP requests ace's hosted relay forwards from `/m/<hostId>/…` (ADR 0122). Given,
    * the host registers with the `http` feature, so the relay sends it `http` tickets.
    */
   http?: HostHttpOptions;

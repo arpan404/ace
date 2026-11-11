@@ -92,7 +92,7 @@ export function createThreadListView(threads: Thread[] = [], seq = 0): ThreadLis
     seq,
     threads: Object.fromEntries(
       threads
-        // A host thread (ADR 0117) is the daemon's own, never listed.
+        // A host thread (ADR 0121) is the daemon's own, never listed.
         .filter((thread) => thread.deletedAt === undefined && thread.host === undefined)
         .map((thread) => [thread.id, sidebarEntry(thread)]),
     ),

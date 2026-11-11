@@ -65,7 +65,7 @@ function modelRow(model: CatalogModel) {
   if (model.efforts.length) row.efforts = model.efforts.map((effort) => effort.id);
   return row;
 }
-/** The device an outside grant's commands are recorded under (ADR 0117). */
+/** The device an outside grant's commands are recorded under (ADR 0122). */
 export function grantDevice(grantId: string): DeviceId {
   return DeviceId.parse(`mcp-grant:${grantId}`);
 }
@@ -75,7 +75,7 @@ function commandId(grantId: string, key: string): string {
 }
 
 /**
- * The outside endpoint's thread tools (ADR 0117). Which of them a client sees and may call is
+ * The outside endpoint's thread tools (ADR 0122). Which of them a client sees and may call is
  * decided by its grant's scopes (`scopes.ts`); each tool here also keeps to the grant's projects
  * and re-reads the grant, so a revoke or change applies to the call already in hand.
  */

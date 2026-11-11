@@ -79,7 +79,7 @@ export function useProjectListSync(): void {
         if (change.change === "removed") forgetProject(queryClient, change.workspaceId);
         else if (change.workspace) rememberProject(queryClient, change.workspace);
         else settle(queryClient);
-        // Its repository choices may be what changed (ADR 0116).
+        // Its repository choices may be what changed (ADR 0120).
         if (change.change !== "removed") forgetProjectRepositories(queryClient, change.workspaceId);
       }),
     [client, queryClient],

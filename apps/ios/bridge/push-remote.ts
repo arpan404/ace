@@ -5,7 +5,7 @@ import { WorkspaceRefusal } from "./changes.ts";
 /**
  * The remote every push from the phone names: the global source control remote name, as the
  * web's `readPushRemote` and the person's own Git would. The push before a new pull request
- * names it too; the daemon pushes that one to the PR's head (ADR 0116).
+ * names it too; the daemon pushes that one to the PR's head (ADR 0120).
  */
 export async function globalRemote(owner: Pick<ClientCore, "request">): Promise<string> {
   const response = await owner.request({

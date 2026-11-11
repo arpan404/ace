@@ -1,5 +1,5 @@
 /*
- * The authorization endpoint (OAuth 2.1 §4.1, ADR 0117 Consent). GET /authorize checks the
+ * The authorization endpoint (OAuth 2.1 §4.1, ADR 0122 Consent). GET /authorize checks the
  * request, opens a sign-in request for the person in ace and sends the browser to a waiting page
  * whose URL alone carries its state (ace's relay sandbox allows no cookies or storage). The
  * person's answer in ace makes the grant and the code; the waiting page then redirects to the

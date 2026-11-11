@@ -1,7 +1,7 @@
 import type { DelegationRequest } from "@ace/protocol";
 
 /**
- * Whether an outside grant may delegate this child (ADR 0117): only on this machine, and only
+ * Whether an outside grant may delegate this child (ADR 0122): only on this machine, and only
  * in the parent's own project, as its checkout or a new worktree of it. `existingPath` is the
  * request's existing worktree resolved on disk, and `checkout` the project's checkout, so a
  * symlink or `..` can't name somewhere else. A grant is never offered another machine.

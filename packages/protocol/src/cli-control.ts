@@ -20,7 +20,7 @@ export const CliOperation = z.discriminatedUnion("op", [
     key: z.string().regex(/^[a-zA-Z0-9_.-]{1,128}$/),
   }),
   /**
-   * A grant for an outside MCP client that takes a pasted token (ADR 0117). `scope` is the old
+   * A grant for an outside MCP client that takes a pasted token (ADR 0122). `scope` is the old
    * shorthand; `allow` names scopes exactly. Null `ttlMs`: until revoked.
    */
   z.object({

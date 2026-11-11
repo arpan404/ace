@@ -2,7 +2,7 @@ import { facts, type FakeDaemon } from "@ace/fake-daemon";
 import { OutsideGrantEntry } from "@ace/protocol";
 
 /*
- * Outside apps on the fixture's machine (ADR 0117): two connected apps and an ended one for
+ * Outside apps on the fixture's machine (ADR 0122): two connected apps and an ended one for
  * Settings › Connected apps, and a thread Claude started. `POST /review/outside` stages the
  * rest: `ask` opens a sign-in request (the approval sheet), `screen` has Claude use the
  * screen (the "Claude is using this Mac" line), `clear` ends both.

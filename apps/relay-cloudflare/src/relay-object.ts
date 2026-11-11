@@ -39,7 +39,7 @@ type Handshake = {
   /** What the daemon calls itself, for the account's machine list. */
   name: string;
   platform: string;
-  /** It serves forwarded HTTP (`features=http`, ADR 0117). */
+  /** It serves forwarded HTTP (`features=http`, ADR 0122). */
   http: boolean;
 };
 
@@ -58,7 +58,7 @@ export class RelayObject extends DurableObject<Env> {
 
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    // Public HTTP for this machine, checked and limited by the Worker (ADR 0117).
+    // Public HTTP for this machine, checked and limited by the Worker (ADR 0122).
     const target = forwardPath(url);
     if (target)
       return this.#http.forward(

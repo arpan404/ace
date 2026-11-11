@@ -65,7 +65,7 @@ export async function hostedIssues(scope: IssueScope): Promise<HostedIssues> {
 }
 
 /**
- * Issue writes, refused first for a hidden or unavailable repository (ADR 0116). Each host's
+ * Issue writes, refused first for a hidden or unavailable repository (ADR 0120). Each host's
  * runner admits reads plus exactly its adapter's issue writes (`gitlabIssueWrites`,
  * `teaIssueWrites`), proving the account around each (ADR 0117).
  */

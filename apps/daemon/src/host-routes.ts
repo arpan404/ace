@@ -9,7 +9,7 @@ import type { ForgeActionBackend } from "./workspace-forge-actions.ts";
 /*
  * Which adapter answers a PR action on each host (ADR 0117): the one place the daemon picks a
  * backend by host. Every writer is refused first for a hidden or unavailable repository
- * (ADR 0116) and runs through a runner that admits exactly that adapter's writes.
+ * (ADR 0120) and runs through a runner that admits exactly that adapter's writes.
  */
 
 /** The backend that writes a hosted review (comments, approvals, thread state). */

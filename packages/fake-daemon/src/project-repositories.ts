@@ -21,7 +21,7 @@ const preferences: SourceControlPreferences = {
 };
 
 /**
- * Fake projects' repository choices (ADR 0116), resolved by the daemon's own rule. Every
+ * Fake projects' repository choices (ADR 0120), resolved by the daemon's own rule. Every
  * project has a GitHub `origin` (`acme/<id>`, the repository `forge.repository` has always
  * answered); a project given a GitLab mirror (`addMirror`, as `seedGitLabMirror` does for
  * `ace`) also has a `mirror` remote on gitlab.com, for multi-host UI.

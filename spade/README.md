@@ -38,7 +38,7 @@ crates/
   spade-models/    endpoints and models, chat, typed output, streaming, cache counts
   spade-core/      pure logic: events, transcript, prompts, spending, checkpoints, titles
   spade-store/     SQLite: conversations, event log, spending ledger
-  spade-keys/      endpoint API keys in the OS keychain (ADR 0116)
+  spade-keys/      endpoint API keys in the OS keychain (ADR 0119)
   spade-search/    web search: your own SearXNG, then Brave with your key
   spade-ace/       ace's tools (MCP client of the daemon) and skill library (skills.request)
   spade-fetch/     web_fetch: one page as readable text, refusing local and private addresses
@@ -74,7 +74,7 @@ key, optional extra headers) and each endpoint's models (id,
 name, context size, capabilities such as `tools`, `images` or `native-tool-search`, and an optional
 price per million tokens, including cache read and write prices). Models are named
 `endpoint/model`, for example `anthropic/claude-sonnet-5-5`; `roles` sets the main, fast and deep
-models. Keys live in the OS keychain (ADR 0116): Spade reads the keychain first, then the variable named in `key.env` (how a headless machine runs it). `"key": {}` means keychain only; an endpoint without `key` needs none (a local server). To add an endpoint, add an entry
+models. Keys live in the OS keychain (ADR 0119): Spade reads the keychain first, then the variable named in `key.env` (how a headless machine runs it). `"key": {}` means keychain only; an endpoint without `key` needs none (a local server). To add an endpoint, add an entry
 and restart; nothing is recompiled.
 
 The shipped file lists OpenCode Go (the development default), Anthropic, OpenAI, Google Gemini,

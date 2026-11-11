@@ -16,7 +16,7 @@ export type ForwardPath = {
 };
 
 /**
- * Which machine a public HTTP request is for (ADR 0117). Everything under `/m/<hostId>` goes to
+ * Which machine a public HTTP request is for (ADR 0122). Everything under `/m/<hostId>` goes to
  * that machine with the prefix removed. RFC 8414 and RFC 9728 put metadata for a resource with a
  * path at `/.well-known/<name>/m/<hostId>/…`; those reach the same machine as
  * `/.well-known/<name>/…`, the address it would serve at its own root. Anything else, or a

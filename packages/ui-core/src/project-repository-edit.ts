@@ -11,7 +11,7 @@ import { actionErrorText } from "./action-errors.ts";
 import { forgeDisplayName } from "./forge-hosts.ts";
 
 /*
- * The words and parsing a project's repository settings share (ADR 0116): a repository added by
+ * The words and parsing a project's repository settings share (ADR 0120): a repository added by
  * its address, why a listed one can't be used, and the daemon's refusals of a save. Pure.
  */
 

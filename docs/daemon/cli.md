@@ -84,7 +84,7 @@ recycled or unverifiable live groups fail closed. Existing terminal guardians re
 PTY session ownership and already clean up on daemon death.
 
 MCP enrollment is a separate loopback `/mcp` endpoint built on ace's existing MCP
-server, for clients outside ace (ADR 0117). Each enrollment is a grant kept in the
+server, for clients outside ace (ADR 0122). Each enrollment is a grant kept in the
 daemon database, so it survives a restart; revoking marks it revoked and keeps the row
 so history can still name the client. Its token is stored only as a hash and lasts as
 long as the grant. Every request reads the grant again, so a revoke, a change or the

@@ -1,7 +1,7 @@
 /*
  * Whether a URL reaches the machine itself or its local network: loopback, link-local,
  * private, carrier-grade NAT, unspecified and multicast addresses, `localhost` names, and
- * hostnames that resolve to any of those. Sessions an outside MCP client drives (ADR 0117) are
+ * hostnames that resolve to any of those. Sessions an outside MCP client drives (ADR 0122) are
  * kept off them; ace's own agents are not.
  */
 import { isIP } from "node:net";

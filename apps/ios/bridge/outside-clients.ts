@@ -33,7 +33,7 @@ import { readProjects } from "./project-list.ts";
 import { refusalCode } from "./fleet-admin.ts";
 
 /*
- * Outside MCP clients on one machine, from the phone (ADR 0117). The person approves a client's
+ * Outside MCP clients on one machine, from the phone (ADR 0122). The person approves a client's
  * sign-in here, often while away from the computer: `OutsideWatch` follows the machine's pending
  * sign-ins and screen use for as long as the runtime is connected, so the approval sheet can
  * open from anywhere in the app. `answerOutside` serves Settings › Connected apps (grants,

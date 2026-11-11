@@ -4,7 +4,7 @@ import { answerOutside, OutsideWatch } from "./outside-clients.ts";
 import { plainPreview, RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
 
 /*
- * Outside apps on the phone (ADR 0117), over a real client and the fake daemon: a pending
+ * Outside apps on the phone (ADR 0122), over a real client and the fake daemon: a pending
  * sign-in reaches the approval sheet with read fixed on and the rest off, the person's choice
  * reaches the machine with read always included, connected apps list in words, and a phone
  * that isn't the machine's administrator is told so and never watches.

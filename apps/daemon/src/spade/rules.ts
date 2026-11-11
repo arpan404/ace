@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import type { DeviceScope, SpadeMethod } from "@ace/protocol";
 
-/** Decisions the Spade host makes, with no I/O (ADR 0117). */
+/** Decisions the Spade host makes, with no I/O (ADR 0121). */
 
 export interface Backoff {
   baseMs: number;

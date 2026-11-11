@@ -26,7 +26,7 @@ import { z } from "zod";
 import type { WriteOutcome } from "./project-manage.ts";
 
 /*
- * A project's repositories in its settings on the phone (ADR 0116): each repository the daemon
+ * A project's repositories in its settings on the phone (ADR 0120): each repository the daemon
  * lists with where it comes from, and the person's choices (primary, hidden, added by hand).
  * Every change reads the saved choices afresh, applies one shared edit and saves the whole
  * choice through the durable outbox, naming the choices it started from. When another device

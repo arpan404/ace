@@ -1,4 +1,4 @@
-# 0116: A project's Git repositories
+# 0120: A project's Git repositories
 
 Status: accepted. Date: 2026-11-09. Owner decision of 2026-11-09 ("Remotes + manual"). Builds
 on the Git host providers of PR #1686 (`ForgeKind`, `SourceControlPreferences`).

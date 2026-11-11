@@ -66,7 +66,7 @@ const stoppedOutcome: RunOutcome = {
 const notInstalled = "Spade isn't installed: no spade-server binary was found.";
 
 /**
- * Runs Spade while it is enabled (ADR 0117): start, wait for its `server.json` and `/health`,
+ * Runs Spade while it is enabled (ADR 0121): start, wait for its `server.json` and `/health`,
  * restart a crash with backoff, and stop it with SIGTERM then a kill.
  */
 export class SpadeHost {
