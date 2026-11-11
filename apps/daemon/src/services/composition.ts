@@ -219,7 +219,7 @@ export const serviceFactories: readonly ServiceDefinition[] = [
     name: "externalMcp",
     phase: "listener",
     requires: ["agentControl"],
-    after: ["agentControl"],
+    after: ["agentControl", "browser", "screen", "models"],
     start: startExternalMcp,
   },
   { name: "previewClient", phase: "listener", requires: [], after: [], start: startPreviewClient },

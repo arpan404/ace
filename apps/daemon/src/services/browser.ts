@@ -11,6 +11,7 @@ import {
 import {
   ItemId,
   ThreadId,
+  WorkspaceId,
   BrowserBackendPreference,
   BrowserBackendLossPolicy,
 } from "@ace/protocol";
@@ -22,8 +23,23 @@ import { BrowserProjectForget } from "../browser-forget-projects.ts";
 import { SqliteBrowserTabStore } from "../browser-tab-store.ts";
 import { watchBrowserTurns, type BrowserTurnPort } from "../browser-turns.ts";
 import type { ServiceContext } from "./types.ts";
+import type { Store } from "../store.ts";
 import { browserBackendMessage } from "./socket-message.ts";
 const BrowserProfilePreference = z.enum(["persistent", "ephemeral"]);
+
+/**
+ * The settings scope a browser open reads. An outside MCP client's session (ADR 0117) has no
+ * thread of its own, so it reads its project's settings.
+ */
+function openScope(store: Store, open: { threadId: string; workspaceId: string }) {
+  const threadId = ThreadId.parse(open.threadId);
+  const workspaceId = WorkspaceId.parse(open.workspaceId);
+  return settingsScope(
+    store,
+    store.getThread(threadId) ? { threadId, workspaceId } : { workspaceId },
+  );
+}
+
 export async function startBrowser(context: ServiceContext): Promise<void> {
   const { config, options, store, now, id, resources, services } = context;
 
@@ -101,12 +117,8 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
       options.browser?.backendPreference ??
       (async (open) => {
         const preference = BrowserBackendPreference.parse(
-          (
-            await services.settings?.get(
-              "browser.backend",
-              settingsScope(store, { threadId: open.threadId, workspaceId: open.workspaceId }),
-            )
-          )?.value ?? "auto",
+          (await services.settings?.get("browser.backend", openScope(store, open)))?.value ??
+            "auto",
         );
         return preference;
       }),
@@ -114,22 +126,15 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
       options.browser?.profilePreference ??
       (async (open) =>
         BrowserProfilePreference.parse(
-          (
-            await services.settings?.get(
-              "browser.profile",
-              settingsScope(store, { threadId: open.threadId, workspaceId: open.workspaceId }),
-            )
-          )?.value ?? "persistent",
+          (await services.settings?.get("browser.profile", openScope(store, open)))?.value ??
+            "persistent",
         )),
     // A project's choice in Edit project comes before the setting; a thread's own setting first.
     profileScope:
       options.browser?.profileScope ??
       (async (open) =>
         chooseProfileScope(
-          await services.settings?.get(
-            "browser.profileScope",
-            settingsScope(store, { threadId: open.threadId, workspaceId: open.workspaceId }),
-          ),
+          await services.settings?.get("browser.profileScope", openScope(store, open)),
           projectProfileScope(store, open.workspaceId),
         )),
     // ace's Chrome saves downloads in the folder chosen for this daemon, else this machine's
@@ -150,12 +155,8 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
       options.browser?.backendLoss ??
       (async (open) =>
         BrowserBackendLossPolicy.parse(
-          (
-            await services.settings?.get(
-              "browser.backendLoss",
-              settingsScope(store, { threadId: open.threadId, workspaceId: open.workspaceId }),
-            )
-          )?.value ?? "pause",
+          (await services.settings?.get("browser.backendLoss", openScope(store, open)))?.value ??
+            "pause",
         )),
     onArtifact,
     agentCursor: options.browser?.agentCursor ?? {
