@@ -25,6 +25,7 @@ export {
   startMcpServer,
   type McpServerOptions,
   type NotificationStreamLimits,
+  type ResourceFetch,
   type ScopeChallenge,
 } from "./http.ts";
 export { registerBuiltins, type McpIntentPort } from "./builtins.ts";
