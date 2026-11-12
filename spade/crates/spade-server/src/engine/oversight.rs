@@ -378,10 +378,17 @@ impl Engine {
             } else {
                 0
             };
+            // The day is behind us once what this page leaves unreturned (below `trusted_from`)
+            // is older than its start; otherwise the next page starts at `trusted_from`.
             let past_day = range.is_some_and(|(start, _)| {
-                rows.first().is_some_and(|e| e.at_ms < start) || !older_left
+                !older_left
+                    || match rows.iter().rev().find(|e| e.seq < trusted_from) {
+                        Some(below) => below.at_ms < start,
+                        None => rows.first().is_some_and(|e| e.at_ms < start),
+                    }
             });
-            let found = matching(&rows, query, range, trusted_from);
+            let found =
+                self.matching(&agent.conversation, &rows, query, range, trusted_from, top)?;
             let scanned_enough = top - low >= MOST_EVENTS;
             if found.len() > limit || !older_left || past_day || scanned_enough {
                 return Ok(page(found, limit, older_left && !past_day, trusted_from));
@@ -439,23 +446,62 @@ fn types_for(kinds: &[Kind]) -> Vec<&'static str> {
     types
 }
 
-/// The window's entries that match, newest first, from `trusted_from` on.
-fn matching(
-    rows: &[spade_store::StoredEvent],
-    query: &ActivityQuery,
-    range: Option<(i64, i64)>,
-    trusted_from: i64,
-) -> Vec<Entry> {
-    activity::fold(rows.iter().map(|e| Stored {
-        seq: e.seq,
-        at: e.at_ms,
-        event: &e.event,
-    }))
-    .into_iter()
-    .rev()
-    .filter(|e| e.seq >= trusted_from)
-    .filter(|e| activity::matches(e, &query.kinds, range, &query.words))
-    .collect()
+impl Engine {
+    /// The window's entries that match, newest first, from `trusted_from` up to `top`. Calls and
+    /// jobs started in the window and finished above `top` get their outcome from those ends.
+    fn matching(
+        &self,
+        conversation: &str,
+        rows: &[spade_store::StoredEvent],
+        query: &ActivityQuery,
+        range: Option<(i64, i64)>,
+        trusted_from: i64,
+        top: i64,
+    ) -> Result<Vec<Entry>, StoreError> {
+        let open = open_calls(rows);
+        let ends =
+            self.store
+                .finishes(conversation, &open, top, top.saturating_add(MOST_EVENTS))?;
+        Ok(activity::fold(rows.iter().chain(&ends).map(|e| Stored {
+            seq: e.seq,
+            at: e.at_ms,
+            event: &e.event,
+        }))
+        .into_iter()
+        .rev()
+        .filter(|e| e.seq >= trusted_from && e.seq < top)
+        .filter(|e| activity::matches(e, &query.kinds, range, &query.words))
+        .collect())
+    }
+}
+
+/// Calls started and jobs begun in `rows` whose end is not among them.
+fn open_calls(rows: &[spade_store::StoredEvent]) -> Vec<String> {
+    let mut open: Vec<String> = Vec::new();
+    for row in rows {
+        match &row.event {
+            Event::Known(
+                Known::ToolStarted { call_id, .. } | Known::JobStarted { job: call_id, .. },
+            ) => {
+                if !open.contains(call_id) {
+                    open.push(call_id.clone());
+                }
+            }
+            Event::Known(
+                Known::ToolFinished { call_id, .. } | Known::JobFinished { job: call_id, .. },
+            ) => {
+                // A background call's own result only says its job began; its job's end closes it.
+                let job = rows.iter().any(|r| {
+                    matches!(&r.event, Event::Known(Known::JobStarted { job, .. }) if job == call_id)
+                });
+                if !job || matches!(row.event, Event::Known(Known::JobFinished { .. })) {
+                    open.retain(|id| id != call_id);
+                }
+            }
+            _ => {}
+        }
+    }
+    open
 }
 
 /// At most `limit` entries (more only to finish the last one's event, so `before` never skips

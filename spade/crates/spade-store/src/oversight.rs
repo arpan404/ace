@@ -90,6 +90,39 @@ pub const ACTIVITY_TYPES: [&str; 17] = [
 ];
 
 impl Store {
+    /// The ends (`tool_finished`, `job_finished`) of the calls and jobs in `ids`, numbered from
+    /// `from` up to `before`, oldest first: what a page of the activity log needs from above
+    /// its cursor so a call started in it shows how it went.
+    pub fn finishes(
+        &self,
+        conversation: &str,
+        ids: &[String],
+        from: i64,
+        before: i64,
+    ) -> Result<Vec<StoredEvent>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let wanted = serde_json::to_string(ids).unwrap_or_else(|_| "[]".to_owned());
+        let raw: Vec<(i64, i64, String)> = {
+            let connection = self.lock()?;
+            let mut statement = connection.prepare_cached(
+                "SELECT seq, at_ms, body FROM events
+                 WHERE conversation_id = ?1 AND seq >= ?2 AND seq < ?3
+                   AND ((json_extract(body, '$.type') = 'tool_finished'
+                         AND json_extract(body, '$.call_id') IN (SELECT value FROM json_each(?4)))
+                     OR (json_extract(body, '$.type') = 'job_finished'
+                         AND json_extract(body, '$.job') IN (SELECT value FROM json_each(?4))))
+                 ORDER BY seq",
+            )?;
+            let rows = statement.query_map(params![conversation, from, before, wanted], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })?;
+            rows.collect::<rusqlite::Result<_>>()?
+        };
+        Ok(decode(raw))
+    }
+
     /// The conversation's last event number, 0 when it has none.
     pub fn last_seq(&self, conversation: &str) -> Result<i64> {
         Ok(self.lock()?.query_row(
@@ -143,17 +176,21 @@ impl Store {
             )?;
             rows.collect::<rusqlite::Result<_>>()?
         };
-        Ok(raw
-            .into_iter()
-            .map(|(seq, at_ms, body)| StoredEvent {
-                seq,
-                at_ms,
-                event: Event::from_json(
-                    serde_json::from_str(&body).unwrap_or(serde_json::Value::String(body)),
-                ),
-            })
-            .collect())
+        Ok(decode(raw))
     }
+}
+
+/// Rows as events, decoded after the database lock is let go.
+fn decode(raw: Vec<(i64, i64, String)>) -> Vec<StoredEvent> {
+    raw.into_iter()
+        .map(|(seq, at_ms, body)| StoredEvent {
+            seq,
+            at_ms,
+            event: Event::from_json(
+                serde_json::from_str(&body).unwrap_or(serde_json::Value::String(body)),
+            ),
+        })
+        .collect()
 }
 
 #[cfg(test)]

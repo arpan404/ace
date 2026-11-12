@@ -639,3 +639,170 @@ async fn a_step_stopped_mid_stream_is_still_paid_for() -> Result {
     );
     Ok(())
 }
+
+/// Events for a stored history, built by hand.
+mod history {
+    use serde_json::json;
+    use spade_core::Event;
+    use spade_core::event::{Call, Known, Tokens};
+
+    pub fn step(reply: &str, call: &str, name: &str, url: &str) -> Event {
+        Event::Known(Known::StepFinished {
+            reply: reply.into(),
+            text: String::new(),
+            calls: vec![Call {
+                id: call.into(),
+                name: name.into(),
+                arguments: json!({ "url": url }),
+            }],
+            thoughts: Vec::new(),
+            usage: Tokens::default(),
+            cost_micros: 0,
+            seen: None,
+        })
+    }
+
+    pub fn started(reply: &str, call: &str, name: &str, background: bool) -> Event {
+        Event::Known(Known::ToolStarted {
+            reply: reply.into(),
+            call_id: call.into(),
+            name: name.into(),
+            risk: None,
+            background,
+        })
+    }
+
+    pub fn finished(reply: &str, call: &str, name: &str) -> Event {
+        Event::Known(Known::ToolFinished {
+            reply: reply.into(),
+            call_id: call.into(),
+            name: name.into(),
+            content: "done".into(),
+            is_error: false,
+            uncertain: false,
+            images: Vec::new(),
+            untrusted: false,
+        })
+    }
+
+    pub fn closed(reply: &str) -> Event {
+        Event::Known(Known::ReplyFinished {
+            reply: reply.into(),
+            text: String::new(),
+            input_tokens: None,
+            output_tokens: None,
+            cost_micros: 0,
+        })
+    }
+}
+
+#[tokio::test]
+async fn a_job_started_below_the_cursor_shows_how_it_ended_above_it() -> Result {
+    use spade_core::event::Known;
+    let spade = Spade::start(Vec::new(), Vec::new()).await?;
+    let (agent, conversation) = bot(&spade, "Worker").await?;
+    let store = spade_store::Store::open(&spade.database())?;
+    let base = store.last_seq(&conversation)?;
+    store.append_all(
+        &conversation,
+        &[
+            spade_core::Event::reply_started("r1", "fake/m"),
+            history::step("r1", "c1", "slow_job", "https://example.com/a"),
+            history::started("r1", "c1", "slow_job", true),
+            spade_core::Event::Known(Known::JobStarted {
+                reply: "r1".into(),
+                job: "c1".into(),
+                name: "slow_job".into(),
+            }),
+            history::finished("r1", "c1", "slow_job"),
+            history::closed("r1"),
+            spade_core::Event::Known(Known::JobFinished {
+                job: "c1".into(),
+                name: "slow_job".into(),
+                content: "All done".into(),
+                is_error: false,
+                uncertain: false,
+                files: Vec::new(),
+            }),
+        ],
+        1,
+    )?;
+    // The page below the job's end.
+    let ended = base + 7;
+    let (_, page) = spade
+        .get(&format!(
+            "/v1/agents/{agent}/activity?kind=tool&before={ended}"
+        ))
+        .await?;
+    assert_eq!(page["entries"][0]["name"], "slow_job", "{page}");
+    assert_eq!(page["entries"][0]["outcome"], "ok", "{page}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_day_filter_keeps_the_entries_at_a_read_windows_edge() -> Result {
+    let spade = Spade::start(Vec::new(), Vec::new()).await?;
+    let (agent, conversation) = bot(&spade, "Night").await?;
+    let store = spade_store::Store::open(&spade.database())?;
+    // 2026-11-12 in UTC (the zone when none is set).
+    let midnight = 1_794_441_600_000;
+    // A turn that starts the evening before and fetches just after midnight…
+    store.append_all(
+        &conversation,
+        &[
+            spade_core::Event::reply_started("r1", "fake/m"),
+            history::step("r1", "c1", "web_fetch", "https://example.com/night"),
+        ],
+        midnight - 1_000,
+    )?;
+    store.append_all(
+        &conversation,
+        &[
+            history::started("r1", "c1", "web_fetch", false),
+            history::finished("r1", "c1", "web_fetch"),
+            history::closed("r1"),
+        ],
+        midnight + 1_000,
+    )?;
+    // …then a long stretch, and a later turn the same day. The first window read starts at the
+    // night turn's step, cutting it.
+    // 2,000 events back from the end lands on the night turn's step (written before midnight).
+    let filler = 1_991;
+    let mut later: Vec<spade_core::Event> = (0..filler)
+        .map(|_| spade_core::Event::reply_progress("r1", "…"))
+        .collect();
+    later.extend([
+        spade_core::Event::reply_started("r2", "fake/m"),
+        history::step("r2", "c2", "web_fetch", "https://example.com/day"),
+        history::started("r2", "c2", "web_fetch", false),
+        history::finished("r2", "c2", "web_fetch"),
+        history::closed("r2"),
+    ]);
+    store.append_all(&conversation, &later, midnight + 3_600_000)?;
+
+    let mut urls = Vec::new();
+    let mut before: Option<i64> = None;
+    for _ in 0..10 {
+        let cursor = before.map_or_else(String::new, |b| format!("&before={b}"));
+        let (_, page) = spade
+            .get(&format!(
+                "/v1/agents/{agent}/activity?kind=tool&day=2026-11-12{cursor}"
+            ))
+            .await?;
+        for entry in page["entries"].as_array().cloned().unwrap_or_default() {
+            urls.push(entry["summary"].as_str().unwrap_or("").to_owned());
+        }
+        before = page["next_before"].as_i64();
+        if before.is_none() {
+            break;
+        }
+    }
+    assert_eq!(
+        urls,
+        vec![
+            "url: https://example.com/day",
+            "url: https://example.com/night"
+        ]
+    );
+    Ok(())
+}

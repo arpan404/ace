@@ -117,7 +117,9 @@ person's zone), `q` (words, case-insensitive, all must appear in `name` or `summ
 `{"entries": [Entry], "more": bool, "next_before": seq|null}`, newest first. Spade reads the
 history in windows of 2,000 events from the newest, SQLite filtering by event type and day and
 the rows decoded outside the database lock, and at most 20,000 events per request: a page may
-be empty with `more` true. `next_before` is where the next page starts; pass it as `before`.
+be empty with `more` true. `next_before` is where the next page starts; pass it as `before`. A call or job started in a page and ended above
+its `before` still shows how it ended. With `day`, paging goes on until what is left is older
+than the day.
 
 ## Model review
 
