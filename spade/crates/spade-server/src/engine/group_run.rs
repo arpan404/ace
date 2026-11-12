@@ -161,9 +161,15 @@ impl Engine {
             from_group: Some(Box::new(from_group)),
         });
         let frames = self.live(&agent.conversation).frames.subscribe();
-        let seq = self
+        let delivered = self
             .deliver_as(&agent.conversation, &message, None)
-            .map_err(|e| format!("The message was not delivered: {e}"))?
+            .map_err(|e| format!("The message was not delivered: {e}"))?;
+        let spade_store::Delivered::Stored(stored) = delivered else {
+            return Err("The message was not delivered.".to_owned());
+        };
+        let seq = stored
+            .first()
+            .map(|e| e.seq)
             .ok_or("The message was not delivered.")?;
         self.wait_here(group, ask, to, agent, seq, Some(frames));
         Ok(())

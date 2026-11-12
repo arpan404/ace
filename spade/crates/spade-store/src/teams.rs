@@ -97,6 +97,25 @@ pub struct OutboxEntry {
     pub created_ms: i64,
 }
 
+/// An ask from another machine to deliver, with the most its sender may deliver since
+/// `since_ms` (checked in the same transaction that stores it).
+#[derive(Debug, Clone, Copy)]
+pub struct Delivery<'a> {
+    pub ask: &'a InboxEntry,
+    pub since_ms: i64,
+    pub most: usize,
+}
+
+/// What delivering did.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Delivered {
+    Stored(Vec<StoredEvent>),
+    /// That ask was delivered before; nothing is stored.
+    Duplicate,
+    /// Its sender already delivered as many as it may; nothing is stored.
+    OverLimit,
+}
+
 /// An ask another machine delivered here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InboxEntry {
@@ -418,16 +437,6 @@ impl Store {
         )?)
     }
 
-    /// Asks `from_host` delivered here since `since_ms`.
-    pub fn inbox_count_since(&self, from_host: &str, since_ms: i64) -> Result<usize> {
-        let count: i64 = self.lock()?.query_row(
-            "SELECT COUNT(*) FROM inbox WHERE from_host = ?1 AND created_ms >= ?2",
-            params![from_host, since_ms],
-            |row| row.get(0),
-        )?;
-        Ok(usize::try_from(count).unwrap_or(usize::MAX))
-    }
-
     /// Forgets asks delivered before `before_ms`; a retry of one that old is no longer expected.
     pub fn prune_inbox(&self, before_ms: i64) -> Result<usize> {
         Ok(self.lock()?.execute(
@@ -458,16 +467,17 @@ impl Store {
     }
 
     /// Appends `events` and records the ask that delivered the first of them, in one
-    /// transaction. `Ok(None)` when that ask is already recorded: nothing is appended.
+    /// transaction that also counts its sender's asks, so concurrent asks never overshoot it.
     pub fn append_delivered(
         &self,
         conversation: &str,
         events: &[Event],
-        ask: &InboxEntry,
+        delivery: Delivery<'_>,
         now_ms: i64,
-    ) -> Result<Option<Vec<StoredEvent>>> {
+    ) -> Result<Delivered> {
+        let ask = delivery.ask;
         let mut connection = self.lock()?;
-        let tx = connection.transaction()?;
+        let tx = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let known: bool = tx
             .query_row(
                 "SELECT 1 FROM inbox WHERE from_host = ?1 AND key = ?2",
@@ -477,7 +487,15 @@ impl Store {
             .optional()?
             .unwrap_or(false);
         if known {
-            return Ok(None);
+            return Ok(Delivered::Duplicate);
+        }
+        let sent: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM inbox WHERE from_host = ?1 AND created_ms >= ?2",
+            params![ask.from_host, delivery.since_ms],
+            |row| row.get(0),
+        )?;
+        if usize::try_from(sent).unwrap_or(usize::MAX) >= delivery.most {
+            return Ok(Delivered::OverLimit);
         }
         let stored = crate::append_in(&tx, conversation, events, now_ms)?;
         let seq = stored
@@ -498,6 +516,6 @@ impl Store {
             ],
         )?;
         tx.commit()?;
-        Ok(Some(stored))
+        Ok(Delivered::Stored(stored))
     }
 }
