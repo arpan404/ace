@@ -63,6 +63,8 @@ export class FakeSpade {
    */
   holding: boolean | ((request: { method: string; path: string }) => boolean) = false;
   private readonly held: { message: HttpRequest; push: Push }[] = [];
+  /** While set, a start keeps its conversation and key but not its message (`cutThrough`). */
+  private cutting = false;
   private next = 1;
   private clock = 1_800_000_000_000;
 
@@ -106,6 +108,17 @@ export class FakeSpade {
       if (reply) this.answerHttp(message, push);
       else this.http(message);
     }
+  }
+
+  /**
+   * Let the held starts through as a crash between Spade's two writes would cut them: each
+   * conversation and its key are kept, its message isn't, and no reply goes back. Stops holding.
+   */
+  cutThrough(): void {
+    this.holding = false;
+    this.cutting = true;
+    for (const { message } of this.held.splice(0)) this.http(message);
+    this.cutting = false;
   }
 
   private answerHttp(message: HttpRequest, push: Push) {
@@ -239,13 +252,18 @@ export class FakeSpade {
       const text = typeof body?.text === "string" ? body.text : "";
       if (!text.trim()) return answer(400, { error: "A message needs words." });
       const key = this.keepsKeys && typeof body?.client_key === "string" ? body.client_key : null;
-      // The same start again, by its key: the conversation it made, and nothing sent twice.
+      // The same start again, by its key: the conversation it made, and nothing sent twice; a
+      // start a crash cut off before its message was kept gets its message now.
       const made = key && [...this.conversations.values()].find((row) => row.clientKey === key);
-      if (made) return answer(200, { id: made.id });
+      if (made) {
+        if (!made.events.some((stored) => stored.event.type === "user_message"))
+          this.store(made.id, { type: "user_message", text });
+        return answer(200, { id: made.id });
+      }
       const id = `c${this.next}`;
       this.seed(id, "");
       this.conversation(id).clientKey = key;
-      this.store(id, { type: "user_message", text });
+      if (!this.cutting) this.store(id, { type: "user_message", text });
       return answer(201, { id });
     }
     if (method === "GET" && path === "/v1/models") return answer(200, this.models);
