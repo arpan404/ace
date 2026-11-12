@@ -19,9 +19,7 @@ test("the worktree settings explain worktree isolation and still allow changing 
 test("provider switching is explained separately from defaults for new threads", async () => {
   await harness().open("/settings/agents");
   const switching = await screen.findByRole("region", { name: "Switching providers" });
-  expect(
-    within(switching).getByText("The original thread stays as it was."),
-  ).toBeTruthy();
+  expect(within(switching).getByText("The original thread stays as it was.")).toBeTruthy();
   expect(
     within(switching).getByRole("switch", { name: "Fork when switching providers" }),
   ).toBeTruthy();

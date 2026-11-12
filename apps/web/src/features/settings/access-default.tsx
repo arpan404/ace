@@ -21,10 +21,7 @@ export function AccessDefaultRow() {
   const [pending, setPending] = useState(false);
   const toast = useToast();
   return (
-    <SettingRow
-      {...settingRow("access.defaultMode")}
-      description="A project's own default wins."
-    >
+    <SettingRow {...settingRow("access.defaultMode")} description="A project's own default wins.">
       <DaemonSlot control={{ loaded: value !== undefined, offline, pending }}>
         <SegmentedControl<AccessMode>
           label="Access for new threads"
