@@ -188,6 +188,31 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
   here.store(notes.conversation, { type: "reply_started", reply: "r-notes" });
   here.status(notes, "working", "Reading the merged pull requests");
 
+  // Flights watches fares: two replies in a run, then a reply that couldn't reach the endpoint.
+  const flights = here.addAgent({
+    id: "flights",
+    name: "Flights",
+    avatar: { kind: "generated", initials: "FL", color: "amber" },
+    last_activity: minutes(3),
+  });
+  here.store(flights.conversation, {
+    type: "user_message",
+    text: "Watch fares to Lisbon for the 14th.",
+  });
+  here.reply(flights, "Watching TAP and easyJet from the 14th.");
+  here.reply(flights, "Cheapest so far: €212 return on TAP, leaving 07:40.");
+  here.store(flights.conversation, { type: "user_message", text: "Check again now." });
+  here.store(flights.conversation, { type: "reply_started", reply: "r-flights" });
+  here.store(flights.conversation, {
+    type: "reply_failed",
+    reply: "r-flights",
+    text: "",
+    error:
+      "openrouter/anthropic/claude-sonnet-5.5: Web stream error for model 'anthropic/claude-sonnet-5.5'. Cause: error sending request for url (https://openrouter.ai/api/v1/chat/completions)",
+    kind: "unreachable",
+    endpoint: "openrouter",
+  });
+
   // Garden learned how the person waters, and keeps its log in its files (ADR 0130).
   here.store(garden.conversation, {
     type: "user_message",
