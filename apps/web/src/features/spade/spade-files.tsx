@@ -55,8 +55,8 @@ export function SpadeFiles(props: {
       title: `Delete ${entry.name}?`,
       body:
         entry.kind === "folder"
-          ? `This deletes the folder and everything in it from ${bot.name}'s files.`
-          : `This deletes it from ${bot.name}'s files.`,
+          ? `This deletes ${entry.path} and everything in it from ${bot.name}'s files.`
+          : `This deletes ${entry.path} from ${bot.name}'s files.`,
       confirm: "Delete",
       run: () =>
         void deletePath(client, bot.id, entry.path).then(

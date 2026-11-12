@@ -35,7 +35,7 @@ export function SkillProposal(props: {
       </p>
       {proposal.why && <p className="mt-1 text-muted-foreground">{proposal.why}</p>}
       {open && <SkillText proposal={proposal} />}
-      <div className="-mx-2 mt-1 -mb-1 flex items-center gap-1">
+      <div className="-mx-2 mt-1 -mb-1 flex flex-wrap items-center gap-1">
         {proposal.state === "open" ? (
           <>
             <Button
@@ -63,6 +63,11 @@ export function SkillProposal(props: {
         <Button size="xs" variant="ghost" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
           {editing ? (open ? "Hide changes" : "Show changes") : open ? "Hide skill" : "Show skill"}
         </Button>
+        {proposal.source && (
+          <span className="min-w-0 px-2 text-ui wrap-anywhere text-muted-foreground">
+            Written after reading {proposal.source}
+          </span>
+        )}
       </div>
     </div>
   );

@@ -192,7 +192,13 @@ function FilesOf(props: { bot: RosterBot; folder: string }) {
   const openBot = useOpenBot(props.bot);
   return (
     <div className="h-full min-h-0 overflow-y-auto [scrollbar-gutter:stable_both-edges]">
-      <SpadeFiles bot={props.bot} folder={props.folder} onFolder={openBot} />
+      {/* A new bot, machine or folder starts fresh: no file left open, no question left asked. */}
+      <SpadeFiles
+        key={`${props.bot.machine.key}/${props.bot.id}/${props.folder}`}
+        bot={props.bot}
+        folder={props.folder}
+        onFolder={openBot}
+      />
     </div>
   );
 }

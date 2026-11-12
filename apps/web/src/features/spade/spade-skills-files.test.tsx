@@ -1,6 +1,7 @@
 import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { createMemoryHistory } from "@tanstack/react-router";
 import { beforeEach, expect, test } from "vitest";
 import { botRow, spadeApp, withEndpoint } from "@/test/spade.ts";
 
@@ -96,7 +97,7 @@ test("an edit of a skill shows the lines that change", async () => {
   expect(changes.textContent).not.toContain("Removed:");
 });
 
-test("a command the bot wants to run can be allowed always", async () => {
+test("a command the bot wants to run shows itself, and can be allowed always as it is", async () => {
   const { spade } = await spadeApp("/spade", (api) => {
     const writer = withWriter(api);
     api.ask(writer, "k1", "shell", { command: "npm test" });
@@ -105,7 +106,8 @@ test("a command the bot wants to run can be allowed always", async () => {
   const ask = await screen.findByText("Writer wants to run a command.");
   const bubble = ask.closest("[role=article]");
   if (!(bubble instanceof HTMLElement)) throw new Error("no bubble");
-  await userEvent.click(within(bubble).getByRole("button", { name: "Always" }));
+  expect(within(bubble).getByLabelText("Command").textContent).toBe("npm test");
+  await userEvent.click(within(bubble).getByRole("button", { name: "Always allow this command" }));
   await waitFor(() =>
     expect(spade.sent("POST", "/v1/conversations/c-writer/approvals/k1")).toEqual([
       { allowed: true, always: true },
@@ -149,4 +151,55 @@ test("Files lists the bot's folder, opens a file read-only and deletes after con
     ).toEqual(["/v1/agents/writer/workspace?path=todo.txt"]),
   );
   await waitFor(() => expect(screen.queryByText("todo.txt")).toBeNull());
+});
+
+test("moving to another folder closes the open file, and Delete names the file's path", async () => {
+  const history = createMemoryHistory({ initialEntries: ["/spade/writer?files=notes"] });
+  await spadeApp(
+    "/spade/writer?files=notes",
+    (api) => {
+      withWriter(api);
+      api.files.set("writer", { "notes/plan.md": "# Plan", "todo.txt": "milk" });
+    },
+    { history },
+  );
+  const inner = within(await screen.findByRole("list", { name: "Files" }));
+  const plan = (await inner.findAllByRole("listitem")).find((row) =>
+    row.textContent?.includes("plan.md"),
+  );
+  if (!plan) throw new Error("no plan.md row");
+  await userEvent.click(within(plan).getByRole("button", { name: "Delete" }));
+  const confirm = await screen.findByRole("dialog", { name: "Delete plan.md?" });
+  expect(confirm.textContent).toContain("This deletes notes/plan.md from Writer's files.");
+  await userEvent.click(within(confirm).getByRole("button", { name: "Cancel" }));
+
+  await userEvent.click(within(plan).getByRole("button", { name: /^plan\.md/ }));
+  await screen.findByLabelText("notes/plan.md");
+  history.push("/spade/writer?files=.");
+  const top = within(await screen.findByRole("list", { name: "Files" }));
+  await top.findByRole("button", { name: /^todo\.txt/ });
+  expect(screen.queryByLabelText("notes/plan.md")).toBeNull();
+});
+
+test("a proposal answered meanwhile shows as answered after Save is refused", async () => {
+  const { spade } = await spadeApp("/spade", (api) => proposed(api));
+  await userEvent.click(await botRow("Writer"));
+  const bubble = await skillBubble();
+  // Saved already (another window, or a Save whose answer was lost).
+  const kept = spade.proposals.get("writer")?.[0];
+  if (kept) kept.state = "saved";
+  await userEvent.click(bubble.getByRole("button", { name: "Save" }));
+  await bubble.findByText("Saved to your skills");
+  expect(bubble.queryByRole("button", { name: "Save" })).toBeNull();
+});
+
+test("a proposal written after reading a page says so beside Save", async () => {
+  await spadeApp("/spade", (api) => {
+    proposed(api);
+    const kept = api.proposals.get("writer")?.[0];
+    if (kept) kept.source = "https://example.com/tips";
+  });
+  await userEvent.click(await botRow("Writer"));
+  const bubble = await skillBubble();
+  bubble.getByText("Written after reading https://example.com/tips");
 });

@@ -31,6 +31,7 @@ const proposal = (id: string, callId: string, createdAt = 1): SpadeProposal => (
   base: undefined,
   state: "open",
   createdAt,
+  source: undefined,
 });
 
 const order = (items: ReturnType<typeof withProposals>) =>
@@ -63,6 +64,14 @@ describe("skill proposals in the chat", () => {
       proposal("p2", "gone"),
     ]);
     expect(order(items)).toEqual(["person", "bot", "person", "skill p2"]);
+  });
+
+  test("an older proposal without its reply doesn't push a later one out of its place", () => {
+    const items = withProposals(conversation.bubbles, conversation.entries, [
+      proposal("p0", "gone", 1),
+      proposal("p1", "c1", 2),
+    ]);
+    expect(order(items)).toEqual(["person", "bot", "skill p1", "person", "skill p0"]);
   });
 
   test("proposals that don't parse are left out", () => {

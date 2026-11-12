@@ -42,8 +42,18 @@ export function useSkillProposals(bot: string, view: SpadeView) {
 
   return {
     proposals: data ?? [],
+    /**
+     * Throws when Spade refused or didn't answer; the list is read again then, so a proposal
+     * already answered (elsewhere, or by a Save whose answer was lost) shows as it is.
+     */
     async answer(id: string, save: boolean): Promise<SpadeProposal> {
-      const answered = await answerProposal(client, bot, id, save);
+      let answered: SpadeProposal;
+      try {
+        answered = await answerProposal(client, bot, id, save);
+      } catch (error) {
+        void refetch();
+        throw error;
+      }
       cache.setQueryData<SpadeProposal[]>(key, (list) =>
         list?.map((proposal) => (proposal.id === id ? answered : proposal)),
       );

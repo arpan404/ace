@@ -22,6 +22,8 @@ export interface SpadeProposal {
   base: { description: string; body: string } | undefined;
   state: SpadeProposalState;
   createdAt: number;
+  /** Written after the bot read untrusted content: what ("https://example.com/page"). */
+  source: string | undefined;
 }
 
 const text = (value: unknown) => (typeof value === "string" ? value : undefined);
@@ -47,6 +49,7 @@ function parseProposal(raw: unknown): SpadeProposal | undefined {
       : undefined,
     state: state as SpadeProposalState,
     createdAt: typeof fields.created_at === "number" ? fields.created_at : 0,
+    source: text(fields.source) || undefined,
   };
 }
 
@@ -84,9 +87,11 @@ export function withProposals(
     if (entry.kind !== "reply") return;
     for (const part of entry.parts) if (part.kind === "call") callAt.set(part.key, index);
   });
+  // By where each goes, then by when it was made: one whose reply isn't loaded (at the end)
+  // never holds back a later one that has its place.
   const placed = proposals
-    .toSorted((a, b) => a.createdAt - b.createdAt)
-    .map((proposal) => ({ proposal, at: callAt.get(proposal.callId) ?? Infinity }));
+    .map((proposal) => ({ proposal, at: callAt.get(proposal.callId) ?? Infinity }))
+    .toSorted((a, b) => a.at - b.at || a.proposal.createdAt - b.proposal.createdAt);
   const items: SpadeChatItem[] = [];
   const drop = (upTo: number) => {
     while (placed.length && (placed[0]?.at ?? Infinity) <= upTo) {

@@ -101,8 +101,15 @@ export function SpadeChat(props: {
 const botSide = (item: SpadeChatItem) =>
   item.kind === "bot" || item.kind === "ask" || item.kind === "skill";
 
-/** Commands that ask can be allowed for the bot from then on. */
-const offersAlways = new Set(["shell"]);
+/**
+ * The exact command a shell call would run, which "always" covers (that command, nothing like
+ * it); undefined for every other tool.
+ */
+function shellCommand(name: string, args: unknown): string | undefined {
+  if (name !== "shell" || typeof args !== "object" || args === null) return undefined;
+  const command = (args as { command?: unknown }).command;
+  return typeof command === "string" ? command : undefined;
+}
 
 const Bubble = memo(function Bubble(props: {
   item: SpadeChatItem;
@@ -172,7 +179,7 @@ const Bubble = memo(function Bubble(props: {
           <Ask
             sentence={spadeApprovalSentence(item.name, bot.name)}
             details={item.arguments}
-            always={offersAlways.has(item.name)}
+            command={shellCommand(item.name, item.arguments)}
             onAnswer={(allowed, always) => props.onAnswer(item.callId, allowed, always)}
           />
         </BotRow>
@@ -208,17 +215,19 @@ function BotRow(props: { bot: ChatBot; face: boolean; children: React.ReactNode 
 
 /**
  * The bot asks to use a tool: its sentence, then Allow, Deny and Details (what the call would
- * do); with `always`, also Always (allow this tool for the bot from now on).
+ * do). A command shows itself instead of Details, with "Always allow this command", which
+ * allows that exact command for the bot from then on and nothing else.
  */
 function Ask(props: {
   sentence: string;
   details: unknown;
-  always: boolean;
+  command: string | undefined;
   onAnswer(allowed: boolean, always: boolean): Promise<boolean>;
 }) {
   const [answering, setAnswering] = useState<"allow" | "deny" | "always">();
   const [open, setOpen] = useState(false);
-  const details = callDetails(props.details);
+  const command = props.command;
+  const details = command === undefined ? callDetails(props.details) : undefined;
   const answer = (choice: "allow" | "deny" | "always") => {
     setAnswering(choice);
     void props.onAnswer(choice !== "deny", choice === "always").then((sent) => {
@@ -228,6 +237,14 @@ function Ask(props: {
   return (
     <div className={botBubble}>
       <p>{props.sentence}</p>
+      {command !== undefined && (
+        <pre
+          aria-label="Command"
+          className="no-scrollbar mt-1.5 max-h-48 overflow-auto rounded-md bg-code px-2.5 py-2 font-mono text-xs leading-normal whitespace-pre-wrap shadow-[inset_0_0_0_1px_var(--border)]"
+        >
+          {command}
+        </pre>
+      )}
       {open && details && (
         <pre
           aria-label="Details"
@@ -236,7 +253,7 @@ function Ask(props: {
           {details}
         </pre>
       )}
-      <div className="-mx-2 mt-1 -mb-1 flex gap-1">
+      <div className="-mx-2 mt-1 -mb-1 flex flex-wrap gap-1">
         <Button
           size="xs"
           variant="ghost"
@@ -245,14 +262,14 @@ function Ask(props: {
         >
           {answering === "allow" ? "Allowing…" : "Allow"}
         </Button>
-        {props.always && (
+        {command !== undefined && (
           <Button
             size="xs"
             variant="ghost"
             disabled={answering !== undefined}
             onClick={() => answer("always")}
           >
-            {answering === "always" ? "Allowing…" : "Always"}
+            {answering === "always" ? "Allowing…" : "Always allow this command"}
           </Button>
         )}
         <Button
