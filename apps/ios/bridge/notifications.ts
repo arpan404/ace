@@ -358,22 +358,23 @@ export class NotificationBridge {
   }
   /** The alert with how this phone shows it now (`notification-delivery.ts`). */
   #delivered(notification: Notification): Delivered {
-    const facts = {
-      status: notification.status,
-      delegated: this.#delegated(notification.threadId),
-    };
+    const facts = { status: notification.status, ...this.#delegation(notification.threadId) };
     const delivery = alertDelivery(facts, this.#phone, {
       foreground: this.#appState === "foreground",
       minuteOfDay: this.#minuteOfDay(),
     });
     return { ...notification, delivery };
   }
-  /** The thread list says an agent delegated this thread; unknown reads as the person's own. */
-  #delegated(threadId: string): boolean {
+  /**
+   * Whether the thread list says an agent delegated this thread, and whether a paired machine
+   * did; unknown reads as the person's own.
+   */
+  #delegation(threadId: string): { delegated: boolean; remote: boolean } {
     const list = this.#client.threads();
     try {
       const entry = list.store.thread(threadId);
-      return entry?.delegatedBy !== undefined || entry?.delegatedFrom !== undefined;
+      const remote = entry?.delegatedFrom !== undefined;
+      return { delegated: remote || entry?.delegatedBy !== undefined, remote };
     } finally {
       list.release();
     }

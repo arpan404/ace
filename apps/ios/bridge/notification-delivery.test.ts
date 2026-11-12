@@ -125,8 +125,10 @@ describe("phone notification delivery", () => {
   });
 });
 
-const own = (status: string) => ({ status, delegated: false });
-const delegated = (status: string) => ({ status, delegated: true });
+const own = (status: string) => ({ status, delegated: false, remote: false });
+const delegated = (status: string) => ({ status, delegated: true, remote: false });
+/** A child a paired machine delegated here: that machine's parent asks the person. */
+const remote = (status: string) => ({ status, delegated: true, remote: true });
 
 describe("which alerts the phone posts at all", () => {
   it("a background task finishing never alerts, whatever the settings", () => {
@@ -139,6 +141,14 @@ describe("which alerts the phone posts at all", () => {
     expect(alertDelivery(delegated("done"), defaultPhonePrefs, away).post).toBe(false);
     expect(alertDelivery(delegated("failed"), defaultPhonePrefs, away).post).toBe(false);
     expect(alertDelivery(delegated("needs_you"), defaultPhonePrefs, away).post).toBe(true);
+  });
+
+  it("a thread a paired machine delegated here never alerts on this one, even when it asks", () => {
+    const everything = prefs({ inApp: all(true), system: all(true) });
+    for (const status of ["needs_you", "catch_up", "done", "failed", "limits"]) {
+      expect(alertDelivery(remote(status), everything, away).post).toBe(false);
+      expect(alertDelivery(remote(status), everything, open).post).toBe(false);
+    }
   });
 
   it("the person's own thread finishing, failing or asking alerts", () => {

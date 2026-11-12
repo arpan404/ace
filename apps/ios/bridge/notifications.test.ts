@@ -128,7 +128,7 @@ async function phone(now?: () => number, runProgress?: KeptValue) {
     await new Promise((done) => setTimeout(done, 10));
     await barrier();
   };
-  return { daemon, act, sync, resolve, barrier, settle, of, interactions };
+  return { daemon, client, act, sync, resolve, barrier, settle, of, interactions };
 }
 
 const lastFeed = (of: (type: string) => Record<string, unknown>[]) =>
@@ -209,6 +209,33 @@ it("each alert says how this phone shows it, by the categories and quiet hours S
   expect(of("notifications.alert")[2]).toMatchObject({
     notification: { delivery: { post: false } },
   });
+});
+
+it("a child a paired machine delegated here doesn't alert on this phone, even when it asks", async () => {
+  const { daemon, client, sync, of } = await phone();
+  const child = ThreadId.parse("remote-child");
+  daemon.createThread({
+    id: child,
+    workspaceId: "ace",
+    title: "Review the queue fix",
+    provider: "codex",
+    delegatedFrom: { hostId: "host-a", threadId: "parent-on-a" },
+  });
+  // The app keeps the thread list open; the child is in it, from the other machine.
+  const list = client.threads();
+  closers.push(async () => list.release());
+  await vi.waitFor(() => expect(list.store.thread(child)?.delegatedFrom).toBeDefined());
+  sync(true);
+  // Its parent on the other machine asks the person; this phone has its own thread's alert only.
+  daemon.notify({ ...alert("n:remote"), threadId: child, status: "needs_you" });
+  daemon.notify({ ...alert("n:own"), status: "needs_you" });
+  await vi.waitFor(() => expect(of("notifications.alert")).toHaveLength(2));
+  const delivery = (id: string) =>
+    of("notifications.alert").find(
+      (patch) => (patch.notification as { id: string } | undefined)?.id === id,
+    )?.notification;
+  expect(delivery("n:remote")).toMatchObject({ delivery: { post: false } });
+  expect(delivery("n:own")).toMatchObject({ delivery: { post: true } });
 });
 
 it("a finished automation run is posted once, when run alerts are on, by the phone's choice", async () => {

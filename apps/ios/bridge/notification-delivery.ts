@@ -118,6 +118,11 @@ export interface AlertFacts {
   status: string;
   /** An agent delegated the thread (here, or from a paired machine): it reports to its parent. */
   delegated: boolean;
+  /**
+   * A paired machine delegated it here: that machine's parent asks the person and alerts there,
+   * so this one never does, as the desktop and web don't.
+   */
+  remote: boolean;
 }
 
 const never: PhoneDelivery = { post: false, interrupt: false, banner: false };
@@ -126,14 +131,15 @@ const never: PhoneDelivery = { post: false, interrupt: false, banner: false };
  * Whether the phone posts an alert at all, then how (`phoneDelivery`). It alerts only when the
  * person is needed, a failure stops a thread, or a thread of their own finishes: background
  * commands finishing never alert (the thread's own finish says it), and a delegated thread
- * alerts only for a request of its own, never for finishing or failing (its parent reports).
+ * alerts only for a request of its own, never for finishing or failing (its parent reports). A
+ * child a paired machine delegated here never alerts at all.
  */
 export function alertDelivery(
   alert: AlertFacts,
   prefs: PhoneNotificationPrefs,
   context: DeliveryContext,
 ): PhoneDelivery {
-  if (alert.status === "background_done") return never;
+  if (alert.status === "background_done" || alert.remote) return never;
   if (alert.delegated && alert.status !== "needs_you") return never;
   return phoneDelivery(alert.status, prefs, context);
 }
