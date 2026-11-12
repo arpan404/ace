@@ -53,6 +53,9 @@ export class FakeSpade {
   private readonly conversations = new Map<string, Conversation>();
   private readonly watchers = new Set<Push>();
   private readonly streams = new Map<string, { push: Push; conversation: string }>();
+  /** While set, `spade.http` requests wait in `held` until the test lets them through. */
+  holding = false;
+  private readonly held: { message: HttpRequest; push: Push }[] = [];
   private next = 1;
   private clock = 1_800_000_000_000;
 
@@ -65,11 +68,8 @@ export class FakeSpade {
         return true;
       case "spade.http":
         this.asked.push({ method: message.method, path: message.path });
-        push({
-          type: "spade.http.result",
-          requestId: message.requestId,
-          result: this.http(message),
-        });
+        if (this.holding) this.held.push({ message, push });
+        else this.answerHttp(message, push);
         return true;
       case "spade.live.subscribe":
         this.subscribe(message.requestId, message.path, push);
@@ -81,6 +81,27 @@ export class FakeSpade {
       default:
         return false;
     }
+  }
+
+  /** Requests waiting while `holding`. */
+  get waiting(): number {
+    return this.held.length;
+  }
+
+  /**
+   * Let the held requests through, and stop holding. `reply: false` does what each asks but
+   * sends no reply, as when the answer is lost with the connection.
+   */
+  letThrough(reply = true): void {
+    this.holding = false;
+    for (const { message, push } of this.held.splice(0)) {
+      if (reply) this.answerHttp(message, push);
+      else this.http(message);
+    }
+  }
+
+  private answerHttp(message: HttpRequest, push: Push) {
+    push({ type: "spade.http.result", requestId: message.requestId, result: this.http(message) });
   }
 
   /** A socket closed: its status watch and streams end with it. */
