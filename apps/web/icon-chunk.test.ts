@@ -35,7 +35,7 @@ function getModuleInfo(module: string): ModuleInfo | null {
   return found ? ({ ...found, id: module } as ModuleInfo) : null;
 }
 
-function chunkOf(id: string): string | null | undefined {
+function chunkOf(id: string) {
   const name = lazyIconChunk(thread).name;
   return typeof name === "function" ? name(id, { getModuleInfo }) : name;
 }
