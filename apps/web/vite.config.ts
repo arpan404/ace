@@ -22,6 +22,7 @@ import {
   zodWithoutUnusedMethods,
 } from "./zod-methods.ts";
 import { workerBundle } from "./worker-bundle.ts";
+import { protocolPieces } from "./protocol-pieces.ts";
 import { zodPureSchemas } from "./zod-pure-schemas.ts";
 import { notificationWorker } from "./notification-worker.ts";
 import { workerJsonZod } from "./worker-json-zod.ts";
@@ -94,6 +95,7 @@ export default defineConfig(({ mode }) => ({
   worker: {
     format: "es",
     plugins: () => [
+      protocolPieces(),
       workerZodWithoutJsonSchema(),
       workerJsonZod(),
       zodWithoutMetadata(),
