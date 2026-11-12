@@ -1,4 +1,4 @@
-import { aceToolsReadyBudgetMs, waitForAceTools } from "./mcp-ready.ts";
+import { waitForAceTools } from "./mcp-ready.ts";
 import { createExtensionCatalog } from "./extension-catalog.ts";
 import { openCodeMcpControls } from "./mcp-controls.ts";
 import { developerInstructions } from "@ace/mcp-server";
@@ -92,7 +92,7 @@ export class OpenCodeSession implements ProviderSession {
       directory: () => this.ownership.sessions.get(this.nativeSessionId)?.directory ?? ctx.cwd,
       frame: this.emit,
       correlate: ctx.onInputMessage,
-      barrier: () => this.barrier(),
+      barrier: () => this.admissionBarrier(),
       uncertain: () => {
         if (this.closed) return;
         this.recovering = true;
@@ -344,14 +344,29 @@ export class OpenCodeSession implements ProviderSession {
       await new Promise<void>((resolve, reject) => this.waiters.add({ resolve, reject }));
     }
     this.controller.signal.throwIfAborted();
-    await this.ensureMcp(
-      this.ownership.sessions.get(this.nativeSessionId)?.directory ?? this.ctx.cwd,
-    );
+    await this.ensureMcp(this.directory());
+  }
+  /**
+   * Before new input or a model change, an unconfirmed location looks once more for ace's
+   * tools. Stop, task cancellation and interaction answers use `barrier` alone, so a readiness
+   * check can never delay or fail them.
+   */
+  private async admissionBarrier(): Promise<void> {
+    await this.barrier();
+    const directory = this.directory();
+    if (this.ctx.aceMcp && this.mcpDirectories.get(directory) === "unconfirmed")
+      this.mcpDirectories.set(
+        directory,
+        await waitForAceTools(this.client, directory, this.server.runtime, 0),
+      );
+  }
+  private directory(): string {
+    return this.ownership.sessions.get(this.nativeSessionId)?.directory ?? this.ctx.cwd;
   }
   async configure(selection: ExecutionSelection): Promise<void> {
     if (selection.provider !== "opencode" || !selection.model)
       throw new Error("Invalid OpenCode selection");
-    await this.barrier();
+    await this.admissionBarrier();
     const model = selectedModel(selection.model, selection.options);
     if (!model) throw new Error("Missing OpenCode model");
     await this.client.session.switchModel({ sessionID: this.nativeSessionId, model });
@@ -416,24 +431,13 @@ export class OpenCodeSession implements ProviderSession {
     await this.recoveryRead;
   }
   private async ensureMcp(directory: string): Promise<void> {
-    if (!this.ctx.aceMcp) return;
-    const known = this.mcpDirectories.get(directory);
-    if (known === "ready") return;
-    if (!known) {
-      if (this.mcpDirectories.size >= 128) throw new Error("OpenCode MCP location limit exceeded");
-      await registerAceMcp(this.client, directory, this.ctx.aceMcp);
-    }
-    // An unconfirmed location is registered already: later sends only look once more, so a
-    // readiness plugin that never loads costs each send one quick call, not another wait.
-    const readiness = await waitForAceTools(
-      this.client,
-      directory,
-      this.server.runtime,
-      known ? 0 : aceToolsReadyBudgetMs,
-    );
+    if (!this.ctx.aceMcp || this.mcpDirectories.has(directory)) return;
+    if (this.mcpDirectories.size >= 128) throw new Error("OpenCode MCP location limit exceeded");
+    await registerAceMcp(this.client, directory, this.ctx.aceMcp);
+    const readiness = await waitForAceTools(this.client, directory, this.server.runtime);
+    // Registered either way: an unconfirmed location is never registered again, only re-checked.
     this.mcpDirectories.set(directory, readiness);
-    if (readiness === "unconfirmed" && !known)
-      this.emit("note", "mcp.readiness", { type: "unconfirmed" });
+    if (readiness === "unconfirmed") this.emit("note", "mcp.readiness", { type: "unconfirmed" });
   }
   private async readSnapshots(): Promise<void> {
     if (this.closed || this.opening) return;

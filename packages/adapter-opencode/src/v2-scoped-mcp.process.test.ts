@@ -300,6 +300,10 @@ test("a readiness plugin OpenCode never registers still opens the session, warns
       .object({ readinessRefusals: z.number() })
       .parse(await h.control("/test/mcp-tools")).readinessRefusals;
     expect(refusals).toBeGreaterThan(1);
+    // Stop never waits on readiness: it reaches OpenCode without another readiness call.
+    await session.interrupt({ cascade: true });
+    expect(await h.control("/test/mcp-tools")).toMatchObject({ readinessRefusals: refusals });
+    // Registering ace again would fail on the name collision the fake reports, as OpenCode does.
     await session.configure?.({
       provider: "opencode",
       model: "opencode-go/muse-spark-1.3-contributor",

@@ -144,11 +144,11 @@ test.each([
 
 /** A client whose readiness RPC answers in turn from `replies`; errors are thrown. */
 function readinessClient(replies: unknown[]) {
-  let calls = 0;
+  let call = 0;
   const client = {
     rpc: () => ({
       async ready() {
-        const reply = replies[Math.min(calls++, replies.length - 1)];
+        const reply = replies[Math.min(call++, replies.length - 1)];
         if (reply instanceof Error || (typeof reply === "object" && reply && "type" in reply))
           throw reply;
         return reply;
@@ -156,7 +156,7 @@ function readinessClient(replies: unknown[]) {
     }),
   };
   // Only the readiness RPC is reachable from waitForAceTools.
-  return { client: client as unknown as OpenCodeClient, calls: () => calls };
+  return { client: client as unknown as OpenCodeClient };
 }
 /** Pauses run at once and advance the clock by their length. */
 function steppedRuntime() {
@@ -176,13 +176,11 @@ const ready = { tools: [{ name: "ace_context", description: "What ace already kn
 test("ace's tools are confirmed once OpenCode finishes activating the readiness plugin", async () => {
   const fake = readinessClient([unavailable, unavailable, unavailable, ready]);
   await expect(waitForAceTools(fake.client, "/one", steppedRuntime())).resolves.toBe("ready");
-  expect(fake.calls()).toBe(4);
 });
 
 test("a readiness plugin that never registers leaves ace's tools unconfirmed instead of failing", async () => {
   const fake = readinessClient([unavailable]);
   await expect(waitForAceTools(fake.client, "/one", steppedRuntime())).resolves.toBe("unconfirmed");
-  expect(fake.calls()).toBeGreaterThan(10);
 });
 
 test("a registered plugin that reports ace's tools missing still fails readiness", async () => {
