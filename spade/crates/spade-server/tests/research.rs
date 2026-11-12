@@ -152,6 +152,14 @@ async fn research_writes_a_report_citing_exactly_the_pages_it_read() -> Result {
             .content
             .starts_with("Tokio is maintained and the most used")
     );
+    // Summarised from the report as saved: the citation of a page never read is gone, and
+    // what the check found is said.
+    assert!(!output.content.contains("[9]"), "{}", output.content);
+    assert!(
+        output
+            .content
+            .contains("1 claim was not confirmed by its sources")
+    );
     assert!(
         output
             .content
@@ -338,5 +346,128 @@ async fn a_research_result_makes_the_rest_of_the_turn_untrusted() -> Result {
         spade_core::context::untrusted_sources(&events, &registry),
         vec!["the result of research".to_owned()]
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_report_whose_check_failed_says_it_was_not_verified() -> Result {
+    let setup = setup(
+        FakeWeb {
+            hits: 2,
+            ..FakeWeb::default()
+        },
+        budget(2),
+        &[PLAN, REPORT, "this is not the JSON asked for"],
+    )
+    .await?;
+    let output = research(&setup, QUESTION).await;
+    assert!(
+        output.content.contains("Not verified"),
+        "{}",
+        output.content
+    );
+    let path = output.files.first().cloned().unwrap_or_default();
+    let report = setup.workspaces.of(&setup.agent)?.text(&path)?;
+    assert!(
+        report.contains("Not verified: the claims were not checked"),
+        "{report}"
+    );
+    assert!(!report.contains("## Not confirmed by its sources"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn reports_written_at_once_under_one_name_never_overwrite_each_other() -> Result {
+    // No spend budget: no model calls, so every run saves under the question's own name.
+    let setup = setup(
+        FakeWeb {
+            hits: 1,
+            delay: Duration::from_millis(50),
+            ..FakeWeb::default()
+        },
+        Budget {
+            spend_micros: 0,
+            ..budget(1)
+        },
+        &[],
+    )
+    .await?;
+    let runs = (0..5).map(|n| {
+        setup.tool.run(
+            &format!("{}.job{n}", setup.conversation),
+            json!({ "question": QUESTION }),
+        )
+    });
+    let outputs = futures_util::future::join_all(runs).await;
+    let paths: std::collections::HashSet<String> = outputs
+        .iter()
+        .filter_map(|o| o.files.first().cloned())
+        .collect();
+    assert_eq!(paths.len(), 5, "{paths:?}");
+    let workspace = setup.workspaces.of(&setup.agent)?;
+    for path in &paths {
+        assert!(workspace.text(path)?.contains("## Sources"));
+    }
+    assert_eq!(setup.spade.fake.seen().len(), 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn calls_started_at_once_cannot_all_pass_a_bots_cap() -> Result {
+    // The plan answer is slow, so the runs' first calls overlap; each costs 92 of a 100 cap.
+    let spade = Spade::start(
+        vec![
+            Script::reply("")
+                .plain(PLAN)
+                .delay(Duration::from_millis(300)),
+            Script::reply("").plain(REPORT),
+            Script::reply("").plain(CHECK),
+        ],
+        Vec::new(),
+    )
+    .await?;
+    let handle = EngineHandle::default();
+    handle.set(&spade.engine);
+    let workspaces = Workspaces::new(spade.dir.path().join("workspace"));
+    let tool = ResearchTool::new(
+        Arc::new(FakeWeb {
+            hits: 2,
+            ..FakeWeb::default()
+        }),
+        workspaces,
+        handle,
+    )
+    .with_budget(budget(2));
+    let agent = spade.new_agent("Scout", "").await?;
+    let (id, conversation) = (
+        agent["id"].as_str().unwrap_or_default().to_owned(),
+        agent["conversation"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned(),
+    );
+    spade
+        .put(
+            &format!("/v1/agents/{id}/oversight"),
+            json!({ "daily_cap_micros": 100 }),
+        )
+        .await?;
+    let runs = (0..3).map(|n| {
+        tool.run(
+            &format!("{conversation}.job{n}"),
+            json!({ "question": QUESTION }),
+        )
+    });
+    let outputs = futures_util::future::join_all(runs).await;
+    let said: Vec<&str> = outputs.iter().map(|o| o.content.as_str()).collect();
+    // One plan in flight holds the room: the other two were refused at once, not after the
+    // ledger caught up. The first run then writes (92 + 92) and its check is refused.
+    assert_eq!(spade.fake.seen().len(), 2, "{said:?}");
+    assert!(
+        said.iter().all(|s| s.contains("the bot's daily cap")),
+        "every run says it reached the cap: {said:?}"
+    );
+    let (_, shown) = spade.get(&format!("/v1/agents/{id}/oversight")).await?;
+    assert_eq!(shown["spending"]["today_micros"], 2 * 92);
     Ok(())
 }

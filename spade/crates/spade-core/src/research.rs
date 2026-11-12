@@ -80,7 +80,7 @@ pub struct Check {
     pub unsupported: Vec<Unsupported>,
 }
 
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, JsonSchema)]
 pub struct Unsupported {
     pub claim: String,
     pub why: String,
@@ -318,18 +318,38 @@ pub fn fix_citations(report: &str, sources: usize) -> String {
     out
 }
 
+/// How the check of the report against its sources went.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Checked {
+    /// The check ran; these claims were not supported (none when all held).
+    Ran(Vec<Unsupported>),
+    /// The check did not run or gave no usable answer, so nothing was verified: why, in words.
+    Not(String),
+}
+
+/// What a report saved without being checked says, under its text.
+pub const NOT_VERIFIED: &str = "Not verified: the claims were not checked against the sources";
+
 /// The report as saved: title, the model's text with its citations fixed, the claims the check
-/// did not confirm, why it stopped early, and the sources Spade read, numbered.
+/// did not confirm (or that nothing was checked), why it stopped early, and the sources Spade
+/// read, numbered.
 pub fn assemble(
     title: &str,
     body: &str,
-    unsupported: &[Unsupported],
+    checked: &Checked,
     stopped: Option<&str>,
     sources: &[Source],
 ) -> String {
     let mut out = format!("# {}\n\n", title.trim());
     out.push_str(fix_citations(body.trim(), sources.len()).trim());
     out.push_str("\n\n");
+    let unsupported: &[Unsupported] = match checked {
+        Checked::Ran(unsupported) => unsupported,
+        Checked::Not(why) => {
+            out.push_str(&format!("_{NOT_VERIFIED} ({why})._\n\n"));
+            &[]
+        }
+    };
     if !unsupported.is_empty() {
         out.push_str("## Not confirmed by its sources\n\n");
         for claim in unsupported {
@@ -355,6 +375,36 @@ pub fn assemble(
             source.title.trim()
         };
         out.push_str(&format!("{}. {} <{}>\n", source.n, title, source.url));
+    }
+    out
+}
+
+/// What the bot gets back: the summary of the report as saved (citations already fixed), what
+/// the check found, why it stopped early, and where the report is.
+pub fn result(
+    report: &str,
+    checked: &Checked,
+    stopped: Option<&str>,
+    path: &str,
+    sources: usize,
+) -> String {
+    let mut out = summary(report);
+    match checked {
+        Checked::Not(why) => out.push_str(&format!("\n\n{NOT_VERIFIED} ({why}).")),
+        Checked::Ran(unsupported) if unsupported.len() == 1 => {
+            out.push_str("\n\n1 claim was not confirmed by its sources; the report lists it.")
+        }
+        Checked::Ran(unsupported) if !unsupported.is_empty() => out.push_str(&format!(
+            "\n\n{} claims were not confirmed by their sources; the report lists them.",
+            unsupported.len()
+        )),
+        Checked::Ran(_) => {}
+    }
+    out.push_str(&format!(
+        "\n\nFull report: {path} ({sources} sources read)."
+    ));
+    if let Some(why) = stopped {
+        out.push_str(&format!(" It stopped early: it reached {why}."));
     }
     out
 }
@@ -475,10 +525,10 @@ mod tests {
         let report = assemble(
             "Runtimes",
             "## Summary\nTokio [1] [3].",
-            &[Unsupported {
+            &Checked::Ran(vec![Unsupported {
                 claim: "X".into(),
                 why: "not in [2]".into(),
-            }],
+            }]),
             Some("the page budget"),
             &sources,
         );
@@ -511,6 +561,52 @@ mod tests {
             questions: Vec::new(),
         };
         assert_eq!(tidy(empty, "Q", budget)[0].queries, vec!["Q"]);
+    }
+
+    #[test]
+    fn an_unchecked_report_and_its_result_say_they_were_not_verified() {
+        let not = Checked::Not("the check failed".into());
+        let report = assemble("T", "## Summary\nTokio [1] [7].", &not, None, &[]);
+        assert!(
+            report.contains("Not verified: the claims were not checked"),
+            "{report}"
+        );
+        let said = result(&report, &not, None, "research/t.md", 1);
+        assert!(said.contains("Not verified") && said.contains("research/t.md"));
+        let checked = assemble(
+            "T",
+            "## Summary\nTokio [1].",
+            &Checked::Ran(Vec::new()),
+            None,
+            &[],
+        );
+        assert!(!checked.contains("Not verified"));
+    }
+
+    #[test]
+    fn the_result_summarises_the_report_as_saved_with_its_warnings() {
+        let sources = [Source {
+            n: 1,
+            url: "https://a.dev".into(),
+            title: "A".into(),
+            passages: String::new(),
+        }];
+        let checked = Checked::Ran(vec![Unsupported {
+            claim: "X".into(),
+            why: "no".into(),
+        }]);
+        let report = assemble(
+            "T",
+            "## Summary\nTokio [1][9].\n\n## More\nM",
+            &checked,
+            Some("the time budget"),
+            &sources,
+        );
+        let said = result(&report, &checked, Some("the time budget"), "r.md", 1);
+        assert!(said.starts_with("Tokio [1]."), "{said}");
+        assert!(!said.contains("[9]"));
+        assert!(said.contains("1 claim was not confirmed"));
+        assert!(said.contains("stopped early: it reached the time budget"));
     }
 
     #[test]

@@ -13,13 +13,13 @@ use futures_util::stream;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use spade_core::research::{
-    self, Budget, Check, Depth, Hit, Plan, PlanQuestion, SOURCE_CHARS, Source,
+    self, Budget, Check, Checked, Depth, Hit, Plan, PlanQuestion, SOURCE_CHARS, Source,
 };
 use spade_core::tools::{Risk, ToolDef};
 use spade_models::{Prompt, ToolSpec};
 use tokio::time::Instant;
 
-use crate::engine::Engine;
+use crate::engine::{Admission, Engine};
 use crate::tools::{EngineHandle, Tool, ToolFuture, ToolOutput, parse};
 use crate::workspace::Workspaces;
 pub use web::{LiveWeb, Read, Web};
@@ -31,6 +31,8 @@ const RESULTS_PER_QUERY: usize = 8;
 /// Where reports go in the workspace.
 const FOLDER: &str = "research";
 const STATUS: &str = "Researching";
+/// Reports with one name before saving gives up.
+const MOST_SAME_NAME: usize = 1_000;
 
 pub struct ResearchTool {
     web: Arc<dyn Web>,
@@ -167,14 +169,22 @@ impl Run {
         } else if self.time_left().is_none() {
             Some("the time budget".to_owned())
         } else {
-            self.engine.may_spend(&self.conversation).err()
+            None
         };
         self.stopped = why;
         self.stopped.is_none()
     }
 
-    fn pay(&mut self, usage: &spade_models::Usage) {
-        self.spent += self.engine.charge(&self.conversation, &self.model, usage);
+    /// Admits one model call against the caps, counting calls in flight elsewhere (ADR 0135);
+    /// records why not when refused.
+    fn admit(&mut self, prompt: &Prompt) -> Option<Admission> {
+        match self.engine.admit(&self.conversation, &self.model, prompt) {
+            Ok(admitted) => Some(admitted),
+            Err(refused) => {
+                self.stopped = Some(refused.reached());
+                None
+            }
+        }
     }
 
     async fn typed<T>(&mut self, prompt: Prompt) -> Option<T>
@@ -183,6 +193,7 @@ impl Run {
     {
         let prompt = prompt.session(&self.conversation);
         let limit = self.time_left()?;
+        let admitted = self.admit(&prompt)?;
         let answer = tokio::time::timeout(
             limit,
             self.engine.models().generate::<T>(&self.model, &prompt),
@@ -190,13 +201,11 @@ impl Run {
         .await;
         match answer {
             Ok(Ok(generated)) => {
-                self.pay(&generated.usage);
+                self.spent += admitted.settle(&generated.usage);
                 Some(generated.value)
             }
             Ok(Err(error)) => {
-                if let Some(usage) = error.usage() {
-                    self.pay(&usage);
-                }
+                self.spent += admitted.settle_if(error.usage());
                 None
             }
             Err(_) => {
@@ -244,13 +253,22 @@ impl Run {
         }
         self.status(Some("writing the report".to_owned()));
         let body = self.write(question, &questions, &sources).await;
-        let unsupported = match &body {
-            Ok(text) if self.may_call() => self
+        let checked = match &body {
+            Ok(text) if self.may_call() => match self
                 .typed::<Check>(research::check_prompt(text, &sources))
                 .await
-                .map(|check| check.unsupported)
-                .unwrap_or_default(),
-            _ => Vec::new(),
+            {
+                Some(check) => Checked::Ran(check.unsupported),
+                None => Checked::Not(match &self.stopped {
+                    Some(why) => format!("it reached {why}"),
+                    None => "the check gave no usable answer".to_owned(),
+                }),
+            },
+            Ok(_) => Checked::Not(format!(
+                "it reached {}",
+                self.stopped.clone().unwrap_or_default()
+            )),
+            Err(_) => Checked::Not("there was no report to check".to_owned()),
         };
         let body = body.unwrap_or_else(|why| {
             format!(
@@ -258,13 +276,7 @@ impl Run {
                 sources.len()
             )
         });
-        let report = research::assemble(
-            &title,
-            &body,
-            &unsupported,
-            self.stopped.as_deref(),
-            &sources,
-        );
+        let report = research::assemble(&title, &body, &checked, self.stopped.as_deref(), &sources);
         let path = match self.save(workspaces, bot, &title, &report).await {
             Ok(path) => path,
             Err(why) => {
@@ -272,14 +284,14 @@ impl Run {
                     .untrusted();
             }
         };
-        let mut out = format!(
-            "{}\n\nFull report: {path} ({} sources read).",
-            research::summary(&body),
-            sources.len()
+        // Summarised from the report as saved: citations fixed, warnings included.
+        let out = research::result(
+            &report,
+            &checked,
+            self.stopped.as_deref(),
+            &path,
+            sources.len(),
         );
-        if let Some(why) = &self.stopped {
-            out.push_str(&format!(" It stopped early: it reached {why}."));
-        }
         let mut output = ToolOutput::ok(out).untrusted();
         output.files = vec![path];
         output
@@ -384,9 +396,15 @@ impl Run {
         let prompt =
             research::write_prompt(question, questions, sources).session(&self.conversation);
         let limit = self.time_left().ok_or("it reached the time budget")?;
+        let Some(admitted) = self.admit(&prompt) else {
+            return Err(format!(
+                "it reached {}",
+                self.stopped.clone().unwrap_or_default()
+            ));
+        };
         match tokio::time::timeout(limit, self.engine.models().chat(&self.model, &prompt)).await {
             Ok(Ok(reply)) => {
-                self.pay(&reply.usage);
+                self.spent += admitted.settle(&reply.usage);
                 let text = reply.text.trim().to_owned();
                 if text.is_empty() {
                     Err("the model wrote nothing".to_owned())
@@ -395,9 +413,7 @@ impl Run {
                 }
             }
             Ok(Err(error)) => {
-                if let Some(usage) = error.usage() {
-                    self.pay(&usage);
-                }
+                self.spent += admitted.settle_if(error.usage());
                 Err(error.to_string())
             }
             Err(_) => {
@@ -422,16 +438,22 @@ impl Run {
         let stem = format!("{FOLDER}/{date}-{}", research::slug(title));
         let report = report.to_owned();
         tokio::task::spawn_blocking(move || {
-            let mut path = format!("{stem}.md");
-            let mut n = 2;
-            while workspace.plain_file(&path) {
-                path = format!("{stem}-{n}.md");
-                n += 1;
+            // Created only where nothing is: a report written at the same moment under the
+            // same name takes the next suffix instead of replacing this one.
+            for n in 1..=MOST_SAME_NAME {
+                let path = if n == 1 {
+                    format!("{stem}.md")
+                } else {
+                    format!("{stem}-{n}.md")
+                };
+                if workspace
+                    .create_new(&path, &report)
+                    .map_err(|e| e.to_string())?
+                {
+                    return Ok(path);
+                }
             }
-            workspace
-                .write(&path, &report)
-                .map(|_| path)
-                .map_err(|e| e.to_string())
+            Err(format!("{MOST_SAME_NAME} reports already have this name"))
         })
         .await
         .map_err(|_| "the file work stopped".to_owned())?
