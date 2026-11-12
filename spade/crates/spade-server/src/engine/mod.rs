@@ -368,6 +368,8 @@ impl Engine {
             text: text.trim().to_owned(),
             context: None,
             images,
+            documents: Vec::new(),
+            voice: None,
             from_agent: None,
             from_routine: None,
         }))

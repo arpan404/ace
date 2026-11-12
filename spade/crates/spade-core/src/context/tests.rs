@@ -163,6 +163,8 @@ fn stored_context_rides_with_its_message_and_messages_in_a_row_join() {
             text: "Plan my day".into(),
             context: Some("Today is Monday.".into()),
             images: Vec::new(),
+            documents: Vec::new(),
+            voice: None,
             from_agent: None,
             from_routine: None,
         }),
@@ -463,6 +465,8 @@ fn attached_images_are_shown_when_available_and_described_when_not() {
         text: "Compare these".into(),
         context: None,
         images: vec![image("kept"), image("gone")],
+        documents: Vec::new(),
+        voice: None,
         from_agent: None,
         from_routine: None,
     })];
@@ -546,6 +550,8 @@ fn older_images_are_left_out_in_steps_so_the_prompt_start_stays_cached() {
                 text: format!("look {n}"),
                 context: None,
                 images: vec![image(n)],
+                documents: Vec::new(),
+                voice: None,
                 from_agent: None,
                 from_routine: None,
             })
@@ -574,6 +580,8 @@ fn image_turn(n: usize) -> [Event; 2] {
                 media_type: format!("image/png;n={n}"),
                 bytes: 3,
             }],
+            documents: Vec::new(),
+            voice: None,
             from_agent: None,
             from_routine: None,
         }),
@@ -670,6 +678,8 @@ fn a_message_from_another_bot_reads_as_one_not_as_the_person() {
         text: "Find flights".into(),
         context: None,
         images: Vec::new(),
+        documents: Vec::new(),
+        voice: None,
         from_agent: Some(crate::event::FromAgent {
             id: "a_2".into(),
             name: "Spade".into(),
@@ -692,6 +702,8 @@ fn a_turn_a_bot_started_or_steered_is_untrusted() {
             text: text.into(),
             context: None,
             images: Vec::new(),
+            documents: Vec::new(),
+            voice: None,
             from_agent: Some(crate::event::FromAgent {
                 id: "a_2".into(),
                 name: "Research".into(),

@@ -108,6 +108,8 @@ pub(super) fn with_recall(engine: &Engine, id: &str, event: Event) -> Event {
         text,
         context: None,
         images,
+        documents,
+        voice,
         from_agent: None,
         from_routine,
     }) = event
@@ -122,6 +124,8 @@ pub(super) fn with_recall(engine: &Engine, id: &str, event: Event) -> Event {
         text,
         context,
         images,
+        documents,
+        voice,
         from_agent: None,
         from_routine,
     })

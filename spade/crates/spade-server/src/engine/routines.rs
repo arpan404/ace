@@ -63,6 +63,8 @@ impl Engine {
             text: text.trim().to_owned(),
             context: None,
             images: Vec::new(),
+            documents: Vec::new(),
+            voice: None,
             from_agent: None,
             from_routine: Some(Box::new(from)),
         });

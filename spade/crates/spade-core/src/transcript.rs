@@ -201,6 +201,7 @@ impl Transcript {
                 }
             }
             Known::SkillsIndexed { .. }
+            | Known::Shared { .. }
             | Known::MemoryIndexed { .. }
             | Known::ContextCompacted { .. }
             | Known::AgentConfigured { .. } => {}

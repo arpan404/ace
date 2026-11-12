@@ -203,6 +203,8 @@ fn message(run: &str, heartbeat: bool) -> Event {
         text: "go".into(),
         context: None,
         images: Vec::new(),
+        documents: Vec::new(),
+        voice: None,
         from_agent: None,
         from_routine: Some(Box::new(FromRoutine {
             id: "rt_1".into(),

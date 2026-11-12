@@ -41,6 +41,18 @@ pub enum Capability {
     /// The endpoint withholds deferred tools and reveals them itself (Anthropic `defer_loading`).
     #[serde(rename = "native-tool-search")]
     NativeToolSearch,
+    /// Reads a PDF sent as a file (ADR 0134).
+    #[serde(rename = "pdf-input")]
+    PdfInput,
+    /// Serves the OpenAI-format `POST /images/generations` route.
+    #[serde(rename = "image-generation")]
+    ImageGeneration,
+    /// A chat model that answers with images when asked for them.
+    #[serde(rename = "image-output")]
+    ImageOutput,
+    /// Serves the OpenAI-format `POST /audio/transcriptions` route.
+    #[serde(rename = "transcription")]
+    Transcription,
 }
 
 /// US dollars per million tokens. Cache prices default to the input price when absent.
@@ -68,11 +80,15 @@ pub struct Model {
 }
 
 impl Capability {
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 8] = [
         Self::Tools,
         Self::Images,
         Self::Reasoning,
         Self::NativeToolSearch,
+        Self::PdfInput,
+        Self::ImageGeneration,
+        Self::ImageOutput,
+        Self::Transcription,
     ];
 
     /// The name used in files and the API.
@@ -82,6 +98,10 @@ impl Capability {
             Self::Images => "images",
             Self::Reasoning => "reasoning",
             Self::NativeToolSearch => "native-tool-search",
+            Self::PdfInput => "pdf-input",
+            Self::ImageGeneration => "image-generation",
+            Self::ImageOutput => "image-output",
+            Self::Transcription => "transcription",
         }
     }
 

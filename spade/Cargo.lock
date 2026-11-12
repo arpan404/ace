@@ -2455,6 +2455,7 @@ dependencies = [
  "js-sys",
  "log",
  "mime",
+ "mime_guess",
  "percent-encoding",
  "pin-project-lite",
  "quinn",
@@ -3138,6 +3139,8 @@ dependencies = [
 name = "spade-models"
 version = "0.1.0"
 dependencies = [
+ "axum",
+ "base64",
  "futures-util",
  "genai",
  "reqwest",
