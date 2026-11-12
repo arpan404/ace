@@ -263,7 +263,15 @@ fn catalog(root: &str) -> Result<Catalog> {
                         "base_url": "https://spare.example/v1/", "key": {},
                         "models": [{ "id": "m", "name": "Spare M", "context": 1000, "capabilities": ["tools"],
                                      "price": { "input": 100, "output": 100 } },
-                                   { "id": "s", "name": "S", "context": 1000, "capabilities": ["tools"] }] }]
+                                   { "id": "s", "name": "S", "context": 1000, "capabilities": ["tools"] }] },
+                      // Image and transcription models billed per call (ADR 0134), for the media
+                      // tests to point at their own fake.
+                      { "id": "media", "name": "Media", "format": "openai-chat",
+                        "base_url": "https://media.example/v1/", "key": {},
+                        "models": [{ "id": "paint-1", "name": "Paint", "capabilities": ["image-generation"],
+                                     "price": { "input": 0, "output": 0, "per_call": 1.5 } },
+                                   { "id": "ears-1", "name": "Ears", "capabilities": ["transcription"],
+                                     "price": { "input": 0, "output": 0, "per_call": 1.5 } }] }]
     });
     Ok(Catalog::from_json(&json.to_string())?)
 }

@@ -325,6 +325,9 @@ async fn transcription(State(state): State<AppState>, Body(body): Body<Recording
     match state.engine.transcribe(bytes).await {
         Ok(text) => Json(json!({ "text": text })).into_response(),
         Err(error @ TranscribeError::NotSet) => problem(StatusCode::CONFLICT, &error.to_string()),
+        Err(error @ TranscribeError::OverCap) => {
+            problem(StatusCode::PAYMENT_REQUIRED, &error.to_string())
+        }
         Err(error @ TranscribeError::Audio(_)) => bad(&error.to_string()),
         Err(error @ TranscribeError::Model(_)) => {
             problem(StatusCode::BAD_GATEWAY, &error.to_string())

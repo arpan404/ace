@@ -34,6 +34,7 @@ impl MediaRequest {
 
 #[derive(Clone)]
 struct Shared {
+    delay: std::time::Duration,
     image: Arc<Vec<u8>>,
     transcript: Arc<String>,
     seen: Arc<Mutex<Vec<MediaRequest>>>,
@@ -48,7 +49,17 @@ pub struct FakeMedia {
 impl FakeMedia {
     /// Answers images with `image` and transcriptions with `transcript`.
     pub async fn start(image: &[u8], transcript: &str) -> Result<Self, crate::Error> {
+        Self::slow(image, transcript, std::time::Duration::ZERO).await
+    }
+
+    /// Like `start`, answering images only after `delay`, as a real image model can take long.
+    pub async fn slow(
+        image: &[u8],
+        transcript: &str,
+        delay: std::time::Duration,
+    ) -> Result<Self, crate::Error> {
         let shared = Shared {
+            delay,
             image: Arc::new(image.to_vec()),
             transcript: Arc::new(transcript.to_owned()),
             seen: Arc::default(),
@@ -99,8 +110,12 @@ async fn images(
     body: Bytes,
 ) -> Response {
     record(&shared, &uri, &headers, &body);
-    axum::Json(json!({ "created": 1, "data": [{ "b64_json": STANDARD.encode(&*shared.image) }] }))
-        .into_response()
+    tokio::time::sleep(shared.delay).await;
+    axum::Json(
+        json!({ "created": 1, "data": [{ "b64_json": STANDARD.encode(&*shared.image) }],
+                       "usage": { "input_tokens": 50, "output_tokens": 1000 } }),
+    )
+    .into_response()
 }
 
 async fn chat(State(shared): State<Shared>, uri: Uri, headers: HeaderMap, body: Bytes) -> Response {
@@ -123,5 +138,7 @@ async fn transcribe(
     body: Bytes,
 ) -> Response {
     record(&shared, &uri, &headers, &body);
-    axum::Json(json!({ "text": format!(" {} ", shared.transcript) })).into_response()
+    axum::Json(json!({ "text": format!(" {} ", shared.transcript),
+                       "usage": { "type": "tokens", "input_tokens": 20, "output_tokens": 5 } }))
+    .into_response()
 }

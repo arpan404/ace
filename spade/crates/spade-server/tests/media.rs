@@ -230,6 +230,18 @@ async fn a_turn_whose_message_carries_a_document_asks_before_keeping_a_note() ->
     Ok(())
 }
 
+/// An endpoint made from the `media` preset (models billed per call), served by `media`.
+async fn media_endpoint(spade: &Spade, media: &FakeMedia) -> Result {
+    let (status, body) = spade
+        .post(
+            "/v1/endpoints",
+            json!({ "name": "Media", "preset": "media", "base_url": media.root, "needs_key": false }),
+        )
+        .await?;
+    assert_eq!(status, 201, "{body}");
+    Ok(())
+}
+
 #[tokio::test]
 async fn image_generate_exists_only_with_a_capable_model_and_stores_what_it_makes() -> Result {
     let media = FakeMedia::start(PNG, "").await?;
@@ -240,6 +252,7 @@ async fn image_generate_exists_only_with_a_capable_model_and_stores_what_it_make
             // The conversation's title, made after its first reply.
             Script::reply("").plain(r#"{"title":"Kites"}"#),
             Script::reply("").call("c2", "image_generate", json!({ "prompt": "a kite" })),
+            Script::reply("Making it."),
             Script::reply("Here it is."),
         ],
         Vec::new(),
@@ -253,21 +266,7 @@ async fn image_generate_exists_only_with_a_capable_model_and_stores_what_it_make
     assert_eq!(refused["is_error"], true, "{refused}");
     assert!(media.seen().is_empty());
 
-    let (status, body) = spade
-        .post(
-            "/v1/endpoints",
-            json!({ "name": "Painter", "format": "openai-chat", "base_url": media.root, "needs_key": false }),
-        )
-        .await?;
-    assert_eq!(status, 201, "{body}");
-    let (status, body) = spade
-        .post(
-            "/v1/endpoints/painter/models",
-            json!({ "id": "paint-1", "capabilities": ["image-generation"] }),
-        )
-        .await?;
-    assert!(status < 300, "{body}");
-
+    media_endpoint(spade, &media).await?;
     spade.say(&conversation, "Try again").await?;
     spade.wait_for(&conversation, "approval_requested").await?;
     let (status, _) = spade
@@ -278,14 +277,18 @@ async fn image_generate_exists_only_with_a_capable_model_and_stores_what_it_make
         .await?;
     assert!(status < 300);
     let events = spade
-        .wait_for_count(&conversation, "reply_finished", 2)
+        .wait_for_count(&conversation, "reply_finished", 3)
         .await?;
-    let made = finished(&events, "c2").ok_or("no c2 result")?;
-    assert_eq!(made["is_error"], false, "{made}");
+    let started = finished(&events, "c2").ok_or("no c2 result")?;
+    let job = &of_type(&events, "job_started")[0];
+    assert_eq!(job["reply"], started["reply"]);
     let shared = of_type(&events, "shared");
     assert_eq!(shared.len(), 1);
-    assert_eq!(shared[0]["reply"], made["reply"]);
+    assert_eq!(shared[0]["reply"], started["reply"]);
+    assert_eq!(shared[0]["call_id"], job["job"]);
     assert_eq!(shared[0]["images"][0]["sha256"], sha256(PNG));
+    let done = &of_type(&events, "job_finished")[0];
+    assert_eq!(done["is_error"], false, "{done}");
     let (status, kind, _, bytes) = raw(spade, &format!("/v1/images/{}", sha256(PNG))).await?;
     assert_eq!(
         (status, kind.as_str(), bytes.as_slice()),
@@ -300,6 +303,56 @@ async fn image_generate_exists_only_with_a_capable_model_and_stores_what_it_make
         .unwrap_or_default();
     assert!(last.contains("Shown to the person: 1 image"), "{last}");
     assert!(!last.contains("image_url"), "{last}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_slow_image_outlives_the_tool_deadline_and_its_cost_counts_against_the_cap() -> Result {
+    // The image takes longer than a turn waits for a tool, and costs more than today's cap.
+    let media = FakeMedia::slow(PNG, "", std::time::Duration::from_millis(900)).await?;
+    let dir = tempfile::tempdir()?;
+    let workspaces = Workspaces::new(dir.path().join("workspace"));
+    let bots = EngineHandle::default();
+    let spade = Spade::start_toolbox(
+        vec![
+            Script::reply("").call("c1", "image_generate", json!({ "prompt": "a kite" })),
+            Script::reply("Making it."),
+            Script::reply("").plain(r#"{"title":"Kites"}"#),
+            Script::reply("Here it is."),
+        ],
+        Toolbox::new(media_tools::all(workspaces.clone(), bots.clone()))
+            .with_source(media_tools::images(&bots)),
+        Options {
+            cap_usd: 1.0,
+            limits: spade_server::engine::Limits {
+                tool_timeout: std::time::Duration::from_millis(300),
+                ..spade_server::engine::Limits::default()
+            },
+            workspaces: Some(workspaces),
+            ..Options::default()
+        },
+    )
+    .await?;
+    bots.set(&spade.engine);
+    media_endpoint(&spade, &media).await?;
+    let (_, conversation) = bot(&spade).await?;
+    spade.say(&conversation, "Draw a kite").await?;
+    spade.wait_for(&conversation, "approval_requested").await?;
+    spade
+        .post(
+            &format!("/v1/conversations/{conversation}/approvals/c1"),
+            json!({ "allowed": true }),
+        )
+        .await?;
+    let events = spade.wait_for(&conversation, "shared").await?;
+    assert_eq!(
+        of_type(&events, "shared")[0]["images"][0]["sha256"],
+        sha256(PNG)
+    );
+    spade.wait_for(&conversation, "job_finished").await?;
+    // $1.50 for the image is past the $1 cap: the next message is refused.
+    let (status, body) = send(&spade, &conversation, json!({ "text": "Another" })).await?;
+    assert_eq!(status, 402, "{body}");
     Ok(())
 }
 
@@ -380,40 +433,84 @@ async fn a_spoken_message_reaches_the_bot_as_its_transcript_and_keeps_its_audio(
 }
 
 #[tokio::test]
-async fn transcription_uses_the_model_the_person_picked() -> Result {
+async fn transcription_uses_the_model_the_person_picked_and_counts_what_it_costs() -> Result {
     let media = FakeMedia::start(PNG, "lights off please").await?;
-    let setup = start(vec![Script::reply("unused")], Vec::new()).await?;
-    let spade = &setup.spade;
+    let spade = Spade::start_with(
+        vec![Script::reply("unused")],
+        Vec::new(),
+        Options {
+            cap_usd: 1.0,
+            ..Options::default()
+        },
+    )
+    .await?;
     let audio =
         json!({ "data": STANDARD.encode(b"\x1a\x45\xdf\xa3webm"), "media_type": "audio/webm" });
     let (status, _) = spade.post("/v1/transcriptions", audio.clone()).await?;
     assert_eq!(status, 409, "no model picked yet");
 
+    media_endpoint(&spade, &media).await?;
+    let (status, body) = spade
+        .put(
+            "/v1/settings",
+            json!({ "transcription_model": "media/ears-1" }),
+        )
+        .await?;
+    assert_eq!(status, 204, "{body}");
+    let (_, models) = spade.get("/v1/models").await?;
+    assert_eq!(models["transcription_model"], "media/ears-1");
+    let (status, body) = spade.post("/v1/transcriptions", audio.clone()).await?;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["text"], "lights off please");
+    assert_eq!(media.seen()[0].path, "/audio/transcriptions");
+    // It cost $1.50, past the $1 cap: the next one is refused before it reaches the endpoint.
+    let (status, _) = spade.post("/v1/transcriptions", audio).await?;
+    assert_eq!(status, 402);
+    assert_eq!(media.seen().len(), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn any_model_the_person_picks_transcribes_whatever_its_saved_capabilities() -> Result {
+    let media = FakeMedia::start(PNG, "hello").await?;
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
     spade
         .post(
             "/v1/endpoints",
             json!({ "name": "Ears", "format": "openai-chat", "base_url": media.root, "needs_key": false }),
         )
         .await?;
+    // Saved with no capabilities at all: the person's choice is what counts.
     spade
-        .post(
-            "/v1/endpoints/ears/models",
-            json!({ "id": "whisper", "capabilities": ["transcription"] }),
-        )
+        .post("/v1/endpoints/ears/models", json!({ "id": "plain" }))
         .await?;
     let (status, body) = spade
         .put(
             "/v1/settings",
-            json!({ "transcription_model": "ears/whisper" }),
+            json!({ "transcription_model": "ears/plain" }),
         )
         .await?;
     assert_eq!(status, 204, "{body}");
-    let (_, models) = spade.get("/v1/models").await?;
-    assert_eq!(models["transcription_model"], "ears/whisper");
+    let audio = json!({ "data": STANDARD.encode(b"OggS audio") });
     let (status, body) = spade.post("/v1/transcriptions", audio).await?;
-    assert_eq!(status, 200, "{body}");
-    assert_eq!(body["text"], "lights off please");
-    assert_eq!(media.seen()[0].path, "/audio/transcriptions");
+    assert_eq!(
+        (status, body["text"].as_str()),
+        (200, Some("hello")),
+        "{body}"
+    );
+    let (_, models) = spade.get("/v1/models").await?;
+    let ears = models["endpoints"]
+        .as_array()
+        .and_then(|e| e.iter().find(|e| e["id"] == "ears"))
+        .ok_or("no ears endpoint")?;
+    let plain = ears["models"]
+        .as_array()
+        .and_then(|m| m.iter().find(|m| m["id"] == "plain"))
+        .ok_or("no plain model")?;
+    assert!(
+        !plain["capabilities"].to_string().contains("transcription"),
+        "the model's facts are left alone: {plain}"
+    );
     Ok(())
 }
 

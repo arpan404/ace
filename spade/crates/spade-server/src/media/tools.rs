@@ -217,7 +217,7 @@ struct ImageArgs {
 
 impl Tool for ImageGenerate {
     fn def(&self) -> ToolDef {
-        def(
+        let def = def(
             IMAGE_GENERATE,
             "Make an image from a description and show it to the person. Optionally give a size \
              such as 1024x1024.",
@@ -227,7 +227,13 @@ impl Tool for ImageGenerate {
                     "required": ["prompt"] }),
             Risk::Write,
             false,
-        )
+        );
+        // A billed call that can take minutes: it runs as a background job, so the turn's tool
+        // deadline never cuts off an image already paid for.
+        ToolDef {
+            background: true,
+            ..def
+        }
     }
 
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {
@@ -248,14 +254,19 @@ impl Tool for ImageGenerate {
                 .size
                 .as_deref()
                 .filter(|s| s.len() <= 16 && s.chars().all(|c| c.is_ascii_alphanumeric()));
-            let images = match engine
+            if !engine.can_spend().unwrap_or(false) {
+                return ToolOutput::error("Today's spending cap is used up, so no image was made.");
+            }
+            let made = match engine
                 .models()
                 .generate_image(&model, &args.prompt, size)
                 .await
             {
-                Ok(images) => images,
+                Ok(made) => made,
                 Err(error) => return ToolOutput::maybe_ran(error.to_string()),
             };
+            engine.pay_call(&conversation, &model, &made.usage);
+            let images = made.value;
             let mut shared = Shared::default();
             for bytes in images.iter().take(crate::images::MOST_IMAGES) {
                 match engine.image_store().put(bytes) {

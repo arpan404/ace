@@ -83,6 +83,8 @@ pub enum TranscribeError {
     Audio(#[from] crate::media::AudioError),
     #[error("{0}")]
     Model(String),
+    #[error("today's spending cap is used up")]
+    OverCap,
     #[error(transparent)]
     Store(#[from] spade_store::StoreError),
 }
@@ -102,17 +104,38 @@ impl Engine {
             .set_setting(TRANSCRIPTION_MODEL, model.as_deref())?)
     }
 
-    /// The words in a recording, from the person's transcription model.
+    /// The words in a recording, from the person's transcription model. Refused once today's
+    /// cap is spent; what it cost is recorded like any model call.
     pub async fn transcribe(&self, audio: Vec<u8>) -> Result<String, TranscribeError> {
         let model = self.transcription_model()?.ok_or(TranscribeError::NotSet)?;
+        if !self.within_cap()? {
+            return Err(TranscribeError::OverCap);
+        }
         if audio.len() > crate::media::audio::MOST_AUDIO_BYTES {
             return Err(crate::media::AudioError::TooLarge.into());
         }
         let media_type =
             crate::media::audio::sniff(&audio).ok_or(crate::media::AudioError::NotAudio)?;
-        self.models
+        let heard = self
+            .models
             .transcribe(&model, audio, media_type)
             .await
-            .map_err(|error| TranscribeError::Model(error.to_string()))
+            .map_err(|error| TranscribeError::Model(error.to_string()))?;
+        // Not tied to a conversation: the recording is not sent yet.
+        self.pay_call("", &model, &heard.usage);
+        Ok(heard.value)
+    }
+
+    /// Records what an image or transcription call cost (ADR 0134): its tokens and its price per
+    /// call, in the same ledger as model calls, so the daily cap counts it.
+    pub(crate) fn pay_call(&self, conversation: &str, model: &str, usage: &spade_models::Usage) {
+        let cost = spade_core::spending::call_cost_micros(self.models.price(model), usage);
+        if cost > 0
+            && let Err(error) = self
+                .store
+                .record_spend(conversation, model, cost, self.now_ms())
+        {
+            tracing::error!(%error, "could not record what a media call cost");
+        }
     }
 }

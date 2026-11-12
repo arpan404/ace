@@ -14,6 +14,7 @@ use crate::client::Models;
 use crate::error::ModelError;
 use crate::format::Format;
 use crate::listing::{message_in, one_line, reason};
+use crate::prompt::{Generated, Usage};
 
 /// The most an image or transcription answer may be, in bytes.
 pub const MOST_MEDIA_ANSWER: usize = 48 * 1024 * 1024;
@@ -113,7 +114,7 @@ impl Models {
         reference: &str,
         prompt: &str,
         size: Option<&str>,
-    ) -> Result<Vec<Vec<u8>>, ModelError> {
+    ) -> Result<Generated<Vec<Vec<u8>>>, ModelError> {
         let target = self.target(reference).await?;
         if target.model.can(Capability::ImageGeneration) {
             let mut body = json!({ "model": target.model.id, "prompt": prompt, "n": 1 });
@@ -136,7 +137,7 @@ impl Models {
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
-            return none_is_empty(&target, images);
+            return none_is_empty(&target, images, usage_of(&answer));
         }
         if target.model.can(Capability::ImageOutput) {
             let body = json!({
@@ -160,7 +161,7 @@ impl Models {
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
-            return none_is_empty(&target, images);
+            return none_is_empty(&target, images, usage_of(&answer));
         }
         Err(ModelError::Provider {
             model: reference.to_owned(),
@@ -168,17 +169,15 @@ impl Models {
         })
     }
 
-    /// The words in `audio` (of `media_type`), by `reference`, a model with `transcription`.
+    /// The words in `audio` (of `media_type`), by `reference`: the model the person picked to
+    /// transcribe. Their choice is what counts, not the `transcription` capability.
     pub async fn transcribe(
         &self,
         reference: &str,
         audio: Vec<u8>,
         media_type: &str,
-    ) -> Result<String, ModelError> {
+    ) -> Result<Generated<String>, ModelError> {
         let target = self.target(reference).await?;
-        if !target.model.can(Capability::Transcription) {
-            return Err(target.fail("this model does not transcribe".to_owned()));
-        }
         if audio.len() > MOST_AUDIO_BYTES {
             return Err(target.fail("the recording is larger than 25 MB".to_owned()));
         }
@@ -196,19 +195,49 @@ impl Models {
             self.post(&target, "audio/transcriptions").multipart(form),
         )
         .await?;
-        answer
+        let text = answer
             .get("text")
             .and_then(Value::as_str)
             .map(|text| text.trim().to_owned())
-            .ok_or_else(|| target.fail("the endpoint sent no transcript".to_owned()))
+            .ok_or_else(|| target.fail("the endpoint sent no transcript".to_owned()))?;
+        Ok(Generated {
+            value: text,
+            usage: usage_of(&answer),
+        })
     }
 }
 
-fn none_is_empty(target: &Target, images: Vec<Vec<u8>>) -> Result<Vec<Vec<u8>>, ModelError> {
+fn none_is_empty(
+    target: &Target,
+    images: Vec<Vec<u8>>,
+    usage: Usage,
+) -> Result<Generated<Vec<Vec<u8>>>, ModelError> {
     if images.is_empty() {
         return Err(target.fail("the endpoint sent no image".to_owned()));
     }
-    Ok(images)
+    Ok(Generated {
+        value: images,
+        usage,
+    })
+}
+
+/// The tokens an answer reports: `input_tokens`/`output_tokens` (images and transcription
+/// routes) or `prompt_tokens`/`completion_tokens` (chat).
+fn usage_of(answer: &Value) -> Usage {
+    let usage = answer.get("usage");
+    let count = |keys: [&str; 2]| {
+        keys.iter().find_map(|key| {
+            usage
+                .and_then(|u| u.get(*key))
+                .and_then(Value::as_u64)
+                .and_then(|n| u32::try_from(n).ok())
+        })
+    };
+    Usage {
+        input_tokens: count(["input_tokens", "prompt_tokens"]),
+        output_tokens: count(["output_tokens", "completion_tokens"]),
+        ..Usage::default()
+    }
 }
 
 /// The file extension endpoints expect for a recording's media type.

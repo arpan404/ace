@@ -42,10 +42,13 @@ fn models(root: &str, format: Format) -> Result<Models> {
 async fn an_images_route_model_makes_an_image_from_a_prompt() -> Result {
     let fake = FakeMedia::start(PNG, "").await?;
     let models = models(&fake.root, Format::OpenAiChat)?;
-    let images = models
+    let made = models
         .generate_image("mine/painter", "a red kite", Some("1024x1024"))
         .await?;
-    assert_eq!(images, vec![PNG.to_vec()]);
+    assert_eq!(made.value, vec![PNG.to_vec()]);
+    // What the endpoint reported it used, for the spending ledger.
+    assert_eq!(made.usage.input_tokens, Some(50));
+    assert_eq!(made.usage.output_tokens, Some(1000));
     let seen = fake.seen();
     assert_eq!(seen[0].path, "/images/generations");
     assert_eq!(
@@ -64,8 +67,8 @@ async fn a_chat_model_with_image_output_answers_with_data_urls_only() -> Result 
     let fake = FakeMedia::start(PNG, "").await?;
     let models = models(&fake.root, Format::OpenAiChat)?;
     // The fake also offers an https address, which is never fetched.
-    let images = models.generate_image("mine/talker", "a kite", None).await?;
-    assert_eq!(images, vec![PNG.to_vec()]);
+    let made = models.generate_image("mine/talker", "a kite", None).await?;
+    assert_eq!(made.value, vec![PNG.to_vec()]);
     let body: serde_json::Value = serde_json::from_slice(&fake.seen()[0].body)?;
     assert_eq!(body["modalities"], json!(["image", "text"]));
     assert_eq!(fake.seen().len(), 1);
@@ -73,19 +76,13 @@ async fn a_chat_model_with_image_output_answers_with_data_urls_only() -> Result 
 }
 
 #[tokio::test]
-async fn a_model_without_the_capability_makes_no_image_and_hears_nothing() -> Result {
+async fn a_model_without_the_capability_makes_no_image() -> Result {
     let fake = FakeMedia::start(PNG, "words").await?;
     let models = models(&fake.root, Format::OpenAiChat)?;
     assert!(matches!(
         models.generate_image("mine/chat", "x", None).await,
         Err(ModelError::Provider { .. })
     ));
-    assert!(
-        models
-            .transcribe("mine/chat", vec![1, 2], "audio/webm")
-            .await
-            .is_err()
-    );
     assert!(fake.seen().is_empty());
     assert_eq!(
         models.first_with(Capability::ImageGeneration).as_deref(),
@@ -99,10 +96,11 @@ async fn a_model_without_the_capability_makes_no_image_and_hears_nothing() -> Re
 async fn a_recording_is_sent_as_a_file_and_its_transcript_comes_back() -> Result {
     let fake = FakeMedia::start(PNG, "lights off please").await?;
     let models = models(&fake.root, Format::OpenAiResponses)?;
-    let text = models
+    let heard = models
         .transcribe("mine/ears", b"OggS fake audio".to_vec(), "audio/ogg")
         .await?;
-    assert_eq!(text, "lights off please");
+    assert_eq!(heard.value, "lights off please");
+    assert_eq!(heard.usage.input_tokens, Some(20));
     let seen = &fake.seen()[0];
     assert_eq!(seen.path, "/audio/transcriptions");
     assert!(

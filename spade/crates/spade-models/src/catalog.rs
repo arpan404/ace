@@ -65,6 +65,10 @@ pub struct Price {
     pub cache_read: Option<f64>,
     #[serde(default)]
     pub cache_write: Option<f64>,
+    /// US dollars per call, for calls billed per image or per recording (ADR 0134), on top of any
+    /// tokens the endpoint reports.
+    #[serde(default)]
+    pub per_call: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
