@@ -127,11 +127,7 @@ fn check_stream(stream: &Stream, budget: &mut Budget) -> Result<(), DocError> {
         data = match *filter {
             b"FlateDecode" => flate(&data, budget)?,
             b"LZWDecode" => lzw(&data, early_change, budget)?,
-            b"ASCII85Decode" => {
-                let decoded = ascii85(&data).unwrap_or_default();
-                budget.count(decoded.len(), data.len(), decoded.len())?;
-                decoded
-            }
+            b"ASCII85Decode" => ascii85(&data, budget)?,
             // lopdf decodes nothing else, so nothing else can expand.
             _ => return Ok(()),
         };
@@ -179,36 +175,56 @@ fn lzw(data: &[u8], early_change: bool, budget: &mut Budget) -> Result<Vec<u8>, 
     Ok(out)
 }
 
-/// ASCII85 text decoded; `z` stands for four zero bytes. `None` when it is not ASCII85.
-fn ascii85(data: &[u8]) -> Option<Vec<u8>> {
-    let body = data.strip_prefix(b"<~").unwrap_or(data);
-    let end = find(body, b"~>").unwrap_or(body.len());
-    let body = &body[..end];
-    let mut out = Vec::with_capacity(body.len());
-    let mut group: Vec<u8> = Vec::with_capacity(5);
-    for &b in body.iter().filter(|b| !b.is_ascii_whitespace()) {
-        if b == b'z' && group.is_empty() {
-            out.extend_from_slice(&[0; 4]);
+/// ASCII85 decoded exactly as lopdf decodes it, counted as it comes out: `~>` is dropped only at
+/// the very end, whitespace is skipped, `z` gives four zero bytes, and the first byte outside
+/// `!`..=`u` ends the data while what came before is kept (so `<~` ends it at once, as `~` is
+/// outside). Where lopdf fails (a `z` inside a group, a value past 32 bits) it decodes nothing,
+/// and so nothing is counted.
+fn ascii85(data: &[u8], budget: &mut Budget) -> Result<Vec<u8>, DocError> {
+    let input = data.strip_suffix(b"~>").unwrap_or(data);
+    let mut out = Vec::new();
+    let mut counted = 0usize;
+    let mut buffer: u32 = 0;
+    let mut count = 0usize;
+    for &ch in input {
+        if ch == b'z' {
+            if count != 0 {
+                return Ok(Vec::new());
+            }
+            out.extend_from_slice(&[0, 0, 0, 0]);
+        } else if ch.is_ascii_whitespace() {
             continue;
+        } else if !(b'!'..=b'u').contains(&ch) {
+            break;
+        } else {
+            let Some(times) = buffer.checked_mul(85) else {
+                return Ok(Vec::new());
+            };
+            // lopdf adds without a check; a release build wraps.
+            buffer = times.wrapping_add(u32::from(ch - b'!'));
+            count += 1;
+            if count == 5 {
+                out.extend_from_slice(&buffer.to_be_bytes());
+                buffer = 0;
+                count = 0;
+            }
         }
-        if !(b'!'..=b'u').contains(&b) {
-            return None;
-        }
-        group.push(b - b'!');
-        if group.len() == 5 {
-            let value = group.iter().fold(0u64, |v, &d| v * 85 + u64::from(d));
-            out.extend_from_slice(&(u32::try_from(value).ok()?).to_be_bytes());
-            group.clear();
+        if out.len() - counted >= 64 * 1024 {
+            budget.count(out.len(), data.len(), out.len() - counted)?;
+            counted = out.len();
         }
     }
-    if !group.is_empty() {
-        let n = group.len();
-        group.resize(5, 84);
-        let value = group.iter().fold(0u64, |v, &d| v * 85 + u64::from(d));
-        let word = u32::try_from(value).ok()?.to_be_bytes();
-        out.extend_from_slice(&word[..n.saturating_sub(1)]);
+    if count > 0 {
+        for _ in count..5 {
+            let Some(times) = buffer.checked_mul(85) else {
+                return Ok(Vec::new());
+            };
+            buffer = times.wrapping_add(84);
+        }
+        out.extend_from_slice(&buffer.to_be_bytes()[..count - 1]);
     }
-    Some(out)
+    budget.count(out.len(), data.len(), out.len() - counted)?;
+    Ok(out)
 }
 
 /// Counts every cross-reference stream lopdf will inflate while finding objects: the section at
@@ -235,16 +251,17 @@ pub fn check_xref_streams(bytes: &[u8], limits: &Limits) -> Result<(), DocError>
                     .or_else(|| after.strip_prefix(b"\n"))
                     .or_else(|| after.strip_prefix(b"\r"))
                     .unwrap_or(after);
-                let end = find(after, b"endstream").unwrap_or(after.len());
-                (&section[..at], Some(&after[..end]))
+                (&section[..at], Some(after))
             }
             _ => {
                 let end = find(section, b"startxref").unwrap_or(section.len());
                 (&section[..end], None)
             }
         };
-        if let Some(data) = data {
-            layers(data, &mut budget, 0)?;
+        if let Some(after) = data {
+            for data in xref_data(head, after) {
+                layers(data, &mut budget, 0)?;
+            }
         }
         for key in [b"/Prev".as_slice(), b"/XRefStm".as_slice()] {
             if let Some(next) = number_after(head, key) {
@@ -270,11 +287,45 @@ fn layers(data: &[u8], budget: &mut Budget, depth: usize) -> Result<(), DocError
             layers(&decoded, budget, depth + 1)?;
         }
     }
-    if let Some(decoded) = ascii85(data) {
-        budget.count(decoded.len(), data.len(), decoded.len())?;
+    let decoded = ascii85(data, budget)?;
+    if !decoded.is_empty() {
         layers(&decoded, budget, depth + 1)?;
     }
     Ok(())
+}
+
+/// A cross-reference stream's data, every way lopdf may slice it: by its direct `/Length`, and
+/// up to the last `endstream` before the object's `endobj` (where lopdf looks when the length is
+/// indirect or wrong). `after` starts right after the `stream` keyword's line end.
+fn xref_data<'a>(head: &[u8], after: &'a [u8]) -> Vec<&'a [u8]> {
+    let mut out: Vec<&[u8]> = Vec::new();
+    if let Some(length) = direct_length(head) {
+        out.push(&after[..length.min(after.len())]);
+    }
+    let object = find(after, b"endobj").unwrap_or(after.len());
+    let end = rfind(&after[..object], b"endstream").unwrap_or(object);
+    let to_end = &after[..end];
+    if !out.contains(&to_end) {
+        out.push(to_end);
+    }
+    out
+}
+
+/// A dictionary's `/Length` when it is a number written there, not a reference (`12 0 R`).
+fn direct_length(head: &[u8]) -> Option<usize> {
+    let at = find(head, b"/Length")?;
+    let rest = &head[at + b"/Length".len()..];
+    let rest = rest.trim_ascii_start();
+    let digits = rest.iter().take_while(|b| b.is_ascii_digit()).count();
+    if digits == 0 {
+        return None;
+    }
+    let tail = rest[digits..].trim_ascii_start();
+    let generation = tail.iter().take_while(|b| b.is_ascii_digit()).count();
+    if generation > 0 && tail[generation..].trim_ascii_start().starts_with(b"R") {
+        return None;
+    }
+    std::str::from_utf8(&rest[..digits]).ok()?.parse().ok()
 }
 
 /// The offset after the last `startxref` in the file, as lopdf reads it.

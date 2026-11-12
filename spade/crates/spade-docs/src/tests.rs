@@ -246,6 +246,43 @@ fn a_cross_reference_stream_bomb_is_refused_before_the_parser_reads_it() -> Resu
 }
 
 #[test]
+fn ascii85_ended_by_a_stray_byte_still_has_what_came_before_counted() -> Result {
+    // lopdf stops at the first byte outside `!`..`u` and keeps what it decoded: a Flate bomb
+    // before a stray `{` is inflated, so it must be counted.
+    let mut data = ascii85(&zlib(&vec![b' '; 8 * 1024 * 1024])?);
+    data.truncate(data.len() - 2);
+    data.extend_from_slice(b"{not ascii85~>");
+    let dict = dictionary! {
+        "Filter" => vec!["ASCII85Decode".into(), "FlateDecode".into()],
+    };
+    let bytes = pdf_with_contents(dict, data)?;
+    assert_eq!(read(&bytes, "stray.pdf"), Err(DocError::Expands));
+    Ok(())
+}
+
+#[test]
+fn a_cross_reference_stream_is_counted_by_its_length_not_its_first_endstream() -> Result {
+    // The data starts with the word `endstream` (valid ASCII85), then four zero bytes per `z`:
+    // 68 MB once lopdf reads the stream by its /Length.
+    let mut data = b"endstreamA".to_vec();
+    data.extend(std::iter::repeat_n(b'z', 17 * 1024 * 1024));
+    let mut bytes = pdf(&["hello"], vec![])?;
+    let offset = bytes.len() + 1;
+    bytes.extend_from_slice(
+        format!(
+            "\n99 0 obj\n<< /Type /XRef /Size 100 /W [1 2 1] /Filter /ASCII85Decode /Length {} >>\nstream\n",
+            data.len()
+        )
+        .as_bytes(),
+    );
+    bytes.extend_from_slice(&data);
+    bytes
+        .extend_from_slice(format!("\nendstream\nendobj\nstartxref\n{offset}\n%%EOF\n").as_bytes());
+    assert_eq!(read(&bytes, "xref.pdf"), Err(DocError::Expands));
+    Ok(())
+}
+
+#[test]
 fn a_word_document_gives_its_paragraphs_tabs_and_tables() -> Result {
     let body = r#"<w:p><w:r><w:t>Terms &amp; conditions</w:t></w:r></w:p>
 <w:p><w:r><w:t xml:space="preserve">Name:</w:t><w:tab/><w:t>Ada</w:t></w:r></w:p>
