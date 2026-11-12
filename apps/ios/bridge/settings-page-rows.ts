@@ -230,6 +230,26 @@ const one = (
 });
 const savedHere = "Saved on this machine. A thread or project can override these defaults.";
 
+/** The web's machine marks, in its order; a pick keeps the machine's colour. */
+const machineIcons = [
+  ["laptop", "Laptop"],
+  ["desktop", "Desktop"],
+  ["monitor", "Monitor"],
+  ["server", "Server"],
+  ["cloud", "Cloud"],
+  ["cpu", "CPU"],
+  ["terminal", "Terminal"],
+  ["phone", "Phone"],
+] as const;
+function iconChoices(current: unknown): ChoiceSpec[] {
+  const color =
+    current && typeof current === "object" && "color" in current ? current.color : undefined;
+  return machineIcons.map(([kind, label]) => {
+    const value = color === undefined ? { kind } : { kind, color };
+    return { id: choiceId(value), label, value };
+  });
+}
+
 /** Every page the phone shows for a machine, by id. */
 export const settingsPages: Readonly<Record<string, PageSpec>> = {
   agents,
@@ -242,6 +262,12 @@ export const settingsPages: Readonly<Record<string, PageSpec>> = {
         key: "host.displayName",
         title: "Machine name",
         control: { kind: "text", placeholder: "Machine name" },
+      },
+      {
+        kind: "static",
+        key: "host.icon",
+        title: "Icon",
+        control: { kind: "choice", style: "menu", choices: iconChoices },
       },
       toggle("remote.enabled", "Remote connections"),
       toggle("remote.lan", "Local network"),

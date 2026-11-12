@@ -285,6 +285,9 @@ async function start(json: string): Promise<void> {
       const now = new Date(host.now());
       return now.getHours() * 60 + now.getMinutes();
     },
+    undefined,
+    undefined,
+    () => host.now(),
   );
   const owner = client;
   const activityGeneration = makeActivityGeneration();

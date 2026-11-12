@@ -581,3 +581,23 @@ test("an automation an agent made from a thread puts one line above that thread'
   // Another thread has none: no line at all.
   expect((await ask({ type: "automations.threadLine", threadId: "other" })).line).toBeNull();
 });
+
+test("a new automation offers the web's ideas as whole starting forms", async () => {
+  const { ask } = await fixture();
+  const opened = await ask({ type: "automations.form.open", workspace: "/w", zone });
+  const ideas = opened.ideas as { label: string; prompt: string; form: Record<string, unknown> }[];
+  expect(ideas.map((idea) => idea.label)).toEqual([
+    "When a pull request opens",
+    "Every night",
+    "Fridays",
+  ]);
+  // Each starts from the new form (its project and agent) with the idea's words and timing.
+  expect(ideas[1]?.form).toMatchObject({
+    workspace: "/w",
+    prompt: ideas[1]?.prompt,
+    trigger: "schedule",
+    cadence: "daily",
+    time: "02:00",
+  });
+  expect(ideas[0]?.form).toMatchObject({ trigger: "github", event: "pr_changed" });
+});

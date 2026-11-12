@@ -28,3 +28,9 @@ test("opening a skill on the computer, and its other lookups, put nothing out of
     expect(writeFamilies({ type: "skills.native", op })).toEqual([]);
   expect(writeFamilies({ type: "skills.native", op: "edit" })).toEqual(["skills", "catalog"]);
 });
+
+test("looking for installed CLIs again puts providers, the catalog and settings out of date", () => {
+  const rediscover = { type: "providers.request", operation: "refresh" };
+  expect(readFamily(rediscover)).toBeUndefined();
+  expect(writeFamilies(rediscover)).toEqual(["providers", "catalog", "settings", "settings-page"]);
+});

@@ -1,5 +1,15 @@
 import SwiftUI
 
+/// Rows that re-measured shorter than their estimates (a thread opened at its end, folds
+/// closing) shrink the content under a still offset, leaving the feed past its end: an empty
+/// screen until a drag bounces it back. Only a feed nobody is moving is put back.
+enum TranscriptEnd {
+    /// `toEnd`: how far the reachable end is below the bottom edge, negative past it.
+    static func stranded(oldHeight: Double, newHeight: Double, toEnd: Double, moving: Bool) -> Bool {
+        !moving && newHeight < oldHeight && toEnd < -1
+    }
+}
+
 /// Gesture intent is consumed once per page; layout changes and programmatic scrolls never page.
 /// Follow mode and scroll direction live in the viewport controller; intent
 /// tracks only the in-flight gesture and paging consumption.
@@ -14,6 +24,9 @@ private final class TranscriptScrollIntent {
         /// How far the end the feed can reach is below the bottom edge: negative only when the
         /// feed sits past it. A feed shorter than the screen starts at its top, which is its end.
         var toEnd: CGFloat { max(height + bottomInset - viewport, -topInset) - y }
+        static func strandedPastEnd(old: Metrics, new: Metrics, moving: Bool) -> Bool {
+            TranscriptEnd.stranded(oldHeight: Double(old.height), newHeight: Double(new.height), toEnd: Double(new.toEnd), moving: moving)
+        }
     }
     /// The feed's own animated scroll is still moving.
     var animating = false
@@ -273,6 +286,11 @@ struct ConversationFeed: View {
             // Geometry is an observation, not a new scroll request. The bounded correction
             // already handles lazy-row remeasurement after a content or composer change.
             if thread.loaded, new.bottom <= 1 { ThreadOpenTrace.shared.settled(thread.id) }
+            // Content that shrank under a still feed left it past its end: back to the real end,
+            // so the rows show instead of the dark below them.
+            if thread.loaded, TranscriptScrollIntent.Metrics.strandedPastEnd(old: old, new: new, moving: intent.active || intent.animating) {
+                proxy.scrollTo(TranscriptTail.id, anchor: .bottom)
+            }
             // Scroll to end follows the end's distance as it changes, mid-drag included: it floats
             // over the composer, so showing it moves nothing under the rows.
             defer { updateBehind() }
