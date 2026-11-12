@@ -5,7 +5,8 @@ import type { ServerWebSocket } from "bun";
 import { z } from "zod";
 import { CommandId, DeviceId, Notification, ThreadId } from "@ace/protocol";
 import { oversizedScenario, approvalRetryScenario } from "./review-scenarios.ts";
-import { manyActions, snapshotFrames } from "./many-actions.ts";
+import { manyActions } from "./many-actions.ts";
+import { socketFrames } from "./socket-frames.ts";
 import { LostReceipt } from "./lost-receipt.ts";
 import { threadScenarios } from "./thread-scenarios.ts";
 import { waitingScenario } from "./waiting-scenario.ts";
@@ -504,7 +505,7 @@ const server = Bun.serve<undefined>({
             }
             if (text.includes('"type":"snapshot"')) snapshots++;
             if (text.includes('"type":"events"')) replays++;
-            for (const frame of snapshotFrames(text)) {
+            for (const frame of socketFrames(text)) {
               if (frame.includes('"type":"snapshot.part"')) fragmentParts++;
               socket.send(frame);
             }
