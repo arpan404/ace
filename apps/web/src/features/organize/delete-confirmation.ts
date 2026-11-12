@@ -1,4 +1,4 @@
-import type { ArchiveStopsQuestion } from "@ace/ui-core";
+import { archiveStopsQuestion, type ArchiveStopsQuestion } from "@ace/ui-core";
 import { perWindow } from "@/lib/per-window.ts";
 
 export interface DeleteRequest {
@@ -65,3 +65,18 @@ export const DeleteConfirmationProvider = deletes.Provider;
 export const ArchiveConfirmationProvider = archives.Provider;
 export const useDeleteConfirmation = deletes.use;
 export const useArchiveConfirmation = archives.use;
+
+/**
+ * Archive at once (`go`), or once the person says Archive when that stops commands `threads`
+ * left running. One question for every thread in the archive, whichever machine each is on:
+ * the window holds one request at a time, so a second would replace the first.
+ */
+export function askBeforeArchive(
+  archiving: ReturnType<typeof useArchiveConfirmation>,
+  threads: readonly { title: string; leftRunning: number }[],
+  go: () => void,
+): void {
+  const question = archiveStopsQuestion(threads);
+  if (!question) return go();
+  archiving.open({ kind: "stops", question, archive: go });
+}

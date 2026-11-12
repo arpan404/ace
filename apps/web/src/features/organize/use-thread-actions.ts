@@ -7,7 +7,6 @@ import { useMemo } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { CommandRefused, failureMessage, stillAlive, waitingNote } from "@/lib/daemon-command.ts";
 import {
-  archiveStopsQuestion,
   deleteQuestion,
   isChatEntry,
   leftRunningCommands,
@@ -15,7 +14,11 @@ import {
   stopAndDeleteQuestion,
   type OrganizePatch,
 } from "@ace/ui-core";
-import { useArchiveConfirmation, useDeleteConfirmation } from "./delete-confirmation.ts";
+import {
+  askBeforeArchive,
+  useArchiveConfirmation,
+  useDeleteConfirmation,
+} from "./delete-confirmation.ts";
 import { chatChoice } from "@/lib/chat-choice.ts";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
 import { useOrganizeOverlay, type OrganizeOverlay } from "./overlay.ts";
@@ -70,9 +73,13 @@ export interface ThreadActions {
   setPinnedMany(entries: readonly ThreadTarget[], pinned: boolean): void;
   /**
    * Archive several threads at once, with one Undo. When any left commands running, which
-   * archiving stops, it asks first.
+   * archiving stops, it asks first; `archived` runs once the archive goes ahead (not on Cancel).
    */
-  archiveMany(entries: readonly ThreadTarget[]): void;
+  archiveMany(entries: readonly ThreadTarget[], archived?: () => void): void;
+  /** Archive several threads at once, with one Undo, without asking: the caller asked. */
+  archiveManyNow(entries: readonly ThreadTarget[]): void;
+  /** How many commands each thread left running, which archiving it would stop. */
+  leftRunning(entries: readonly ThreadTarget[]): { title: string; leftRunning: number }[];
   /** Delete several threads at once, for good: no Undo, so ask first. */
   removeMany(entries: readonly ThreadTarget[]): void;
   /** Move threads to another project, with one Undo back to where each was. */
@@ -331,6 +338,11 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
     lease.release();
     return counts;
   };
+  const archiveManyNow = (entries: readonly ThreadTarget[]) =>
+    void reversibleAll(
+      entries.map((entry) => ({ entry, action: archive(entry), undo: unarchive(entry) })),
+      `Archived ${count(entries.length)}`,
+    );
   /** Stop the whole tree and the commands it watches, as Stop & archive promises. */
   const stopTree = (listed: ThreadListEntry) => {
     const runId = listed.live?.rootRunId ?? undefined;
@@ -474,16 +486,13 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
       }
       for (const entry of changing) void act(entry, unpin(entry));
     },
-    archiveMany: (entries) => {
-      const archiveNow = () =>
-        void reversibleAll(
-          entries.map((entry) => ({ entry, action: archive(entry), undo: unarchive(entry) })),
-          `Archived ${count(entries.length)}`,
-        );
-      const question = archiveStopsQuestion(leftRunning(entries));
-      if (!question) return archiveNow();
-      archiving.open({ kind: "stops", question, archive: archiveNow });
-    },
+    archiveMany: (entries, archived) =>
+      askBeforeArchive(archiving, leftRunning(entries), () => {
+        archiveManyNow(entries);
+        archived?.();
+      }),
+    archiveManyNow,
+    leftRunning,
     removeMany: (entries) => removeAll(entries),
     moveMany: (entries, to) => {
       const moving = entries.filter((entry) => entry.workspaceId !== to.id);
@@ -530,9 +539,7 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
       const running = listed && runningWork(listed);
       if (!listed || !running) {
         // Done, but with commands left running: Undo brings the thread back, not them.
-        const question = archiveStopsQuestion(leftRunning([entry]));
-        if (!question) return archiveNow();
-        return archiving.open({ kind: "stops", question, archive: archiveNow });
+        return askBeforeArchive(archiving, leftRunning([entry]), archiveNow);
       }
       archiving.open({
         kind: "running",

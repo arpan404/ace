@@ -4,6 +4,7 @@ import type {
   ThreadActions,
   ThreadTarget,
 } from "./use-thread-actions.ts";
+import { askBeforeArchive, type useArchiveConfirmation } from "./delete-confirmation.ts";
 
 /** Where one list row's action goes: its machine's actions, and the thread's id there. */
 export interface RowRoute {
@@ -19,7 +20,10 @@ export interface RowRoute {
  * machine with that machine's rows, in the order given, so one machine's pins still lead the
  * group together and each machine offers its own Undo.
  */
-export function routedThreadActions(route: (rowId: string) => RowRoute | undefined): ThreadActions {
+export function routedThreadActions(
+  route: (rowId: string) => RowRoute | undefined,
+  archiving: ReturnType<typeof useArchiveConfirmation>,
+): ThreadActions {
   const on = <T extends ThreadTarget>(entry: T) => {
     const found = route(entry.id);
     return found && { actions: found.actions, entry: { ...entry, id: found.threadId } };
@@ -77,9 +81,24 @@ export function routedThreadActions(route: (rowId: string) => RowRoute | undefin
     setPinnedMany: (items, pinned) => {
       for (const [actions, group] of entries(items)) actions.setPinnedMany(group, pinned);
     },
-    archiveMany: (items) => {
-      for (const [actions, group] of entries(items)) actions.archiveMany(group);
+    // One question for the whole selection, every machine's commands counted together: Archive
+    // archives every machine's rows, Cancel none (`askBeforeArchive`).
+    archiveMany: (items, archived) => {
+      const groups = entries(items);
+      askBeforeArchive(
+        archiving,
+        groups.flatMap(([actions, group]) => actions.leftRunning(group)),
+        () => {
+          for (const [actions, group] of groups) actions.archiveManyNow(group);
+          archived?.();
+        },
+      );
     },
+    archiveManyNow: (items) => {
+      for (const [actions, group] of entries(items)) actions.archiveManyNow(group);
+    },
+    leftRunning: (items) =>
+      entries(items).flatMap(([actions, group]) => actions.leftRunning(group)),
     removeMany: (items) => {
       for (const [actions, group] of entries(items)) actions.removeMany(group);
     },
