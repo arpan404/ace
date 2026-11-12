@@ -15,14 +15,9 @@ struct ProviderBehaviourSection: View {
                     .font(AceDesign.Typeface.meta)
             }
             if let current = models.defaultModel {
-                Menu {
-                    Picker("Default model", selection: Binding(get: { current.choices.first { $0.current }?.key ?? "" }, set: { key in choose(key) })) {
-                        ForEach(current.choices, id: \.key) { Text($0.label).tag($0.key) }
-                    }
-                    if current.resettable {
-                        Divider()
-                        Button("Reset to the provider's default") { save(["kind": "defaultModel", "id": NSNull()]) }
-                    }
+                NavigationLink {
+                    DefaultModelPicker(choices: current.choices, resettable: current.resettable, choose: choose,
+                                       reset: { save(["kind": "defaultModel", "id": NSNull()]) })
                 } label: {
                     InsetRow(systemImage: nil, title: "Default model", subtitle: current.note) {
                         InsetValue(text: current.label)

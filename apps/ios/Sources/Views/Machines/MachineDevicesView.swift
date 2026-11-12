@@ -13,30 +13,32 @@ struct MachineDevicesView: View {
     @State private var revoking: FleetOverview.Device?
     @State private var revokingOthers = false
     @State private var notice: String?
+    @State private var retryRequest: [String: Any]?
     @State private var busy = false
     @State private var changes = 0
 
     var body: some View {
-        List {
+        QuietPage {
             if let overview {
                 if overview.forbidden {
-                    Section { ServiceProblem(message: overview.devicesProblem) }.insetRowBackground()
+                    QuietGroup { ServiceProblem(message: overview.devicesProblem) }
                 } else {
                     devices(overview)
                     links(overview)
                 }
-            } else if let problem {
-                Section {
+            }
+            if let problem {
+                QuietGroup {
                     ServiceProblem(message: problem)
                     Button("Retry") { Task { await read() } }
                 }
-                .insetRowBackground()
-            } else {
-                Section { SkeletonRows(count: 2, label: "Reading this machine's devices").listRowInsets(EdgeInsets()) }
-                    .insetRowBackground()
+
+            } else if overview == nil {
+                QuietGroup { SkeletonRows(count: 2, label: "Reading this machine's devices").listRowInsets(EdgeInsets()) }
+
             }
         }
-        .insetGroupedList()
+
         .smoothChange(overview == nil)
         .smoothChange(overview.map { $0.devices.map(\.id) + $0.pairings.map(\.id) })
         .sensoryFeedback(.success, trigger: changes)
@@ -68,12 +70,13 @@ struct MachineDevicesView: View {
             Button("Revoke all others", role: .destructive) { Task { await run(["op": "revokeOthers"]) } }
         } message: { Text("Every device paired with \(machine) except this phone disconnects and has to be paired again.") }
         .alert("Couldn't do that", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
+            if let retryRequest { Button("Retry") { Task { await run(retryRequest) } } }
             Button("OK") { notice = nil }
         } message: { Text(notice ?? "") }
     }
 
     @ViewBuilder private func devices(_ overview: FleetOverview) -> some View {
-        Section {
+        QuietGroup {
             if overview.devices.isEmpty, overview.devicesProblem == nil {
                 Text("No paired devices.").foregroundStyle(AceDesign.Ink.muted)
             }
@@ -87,26 +90,26 @@ struct MachineDevicesView: View {
                     Spacer(minLength: AceDesign.Space.related)
                     if model.canOperate {
                         Button("Revoke", role: .destructive) { revoking = device }
-                            .buttonStyle(.borderless).foregroundStyle(AceTheme.Status.failed).rowButtonTarget()
+                            .buttonStyle(.textAction(.destructive))
                             .accessibilityIdentifier("devices.revoke.\(device.id)")
                     }
                 }
                 .padding(.vertical, AceTheme.Spacing.xxs)
             }
-            if let problem = overview.devicesProblem { ServiceProblem(message: problem) }
+            if let problem = overview.devicesProblem { ServiceProblem(message: problem); Button("Retry") { Task { await read() } }.buttonStyle(.textAction()) }
             if model.canOperate, overview.devices.contains(where: { !$0.`self` }) {
                 Button("Revoke all other devices…", role: .destructive) { revokingOthers = true }
             }
         } header: { InsetHeader("Paired with \(machine)") } footer: {
             Text("Phones, tablets and browsers that follow and steer agents. They run none themselves.")
         }
-        .insetRowBackground()
+
     }
 
     @ViewBuilder private func links(_ overview: FleetOverview) -> some View {
         let open = overview.pairings.filter { Date(timeIntervalSince1970: $0.expiresAt / 1000) > Date() }
         if !open.isEmpty || overview.pairingsProblem != nil {
-            Section {
+            QuietGroup {
                 ForEach(open) { pairing in
                     HStack(spacing: AceDesign.Space.related) {
                         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
@@ -117,14 +120,14 @@ struct MachineDevicesView: View {
                         Spacer(minLength: AceDesign.Space.related)
                         if model.canOperate {
                             Button("Cancel") { Task { await run(["op": "cancelPairing", "id": pairing.id]) } }
-                                .buttonStyle(.borderless).rowButtonTarget()
+                                .buttonStyle(.textAction())
                                 .accessibilityIdentifier("devices.cancel.\(pairing.id)")
                         }
                     }
                 }
-                if let problem = overview.pairingsProblem { ServiceProblem(message: problem) }
+                if let problem = overview.pairingsProblem { ServiceProblem(message: problem); Button("Retry") { Task { await read() } }.buttonStyle(.textAction()) }
             } header: { InsetHeader("Open pairing links") } footer: { Text("Each works once. Cancel one you shared by mistake.") }
-            .insetRowBackground()
+
         }
     }
 
@@ -140,7 +143,7 @@ struct MachineDevicesView: View {
         return parts.joined(separator: " · ")
     }
     private func read() async {
-        guard model.connection == "ready" else { return }
+        guard model.connection == "ready" else { problem = "Can’t reach this machine. Reconnect and retry."; return }
         do { overview = try await model.fleetOverview(machine: machine); problem = nil }
         catch { problem = error.localizedDescription }
     }
@@ -148,7 +151,7 @@ struct MachineDevicesView: View {
         busy = true
         defer { busy = false }
         let answer = await model.fleet(request, machine: machine)
-        if answer.ok { changes += 1 } else { notice = answer.message }
+        if answer.ok { changes += 1; retryRequest = nil } else { retryRequest = request; notice = answer.message ?? "Couldn’t complete the request." }
         await read()
     }
 }
@@ -170,10 +173,20 @@ struct PairDeviceView: View {
     @State private var making = false
 
     var body: some View {
-        Form {
-            if let made, let url = made.url { result(made, url: url) } else { form }
+        QuietPage {
+            if let made, let url = made.url {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    if let expires = made.expiresAt, context.date.timeIntervalSince1970 * 1000 >= expires {
+                        QuietGroup {
+                            Text("Pairing link expired").font(AceDesign.Typeface.body)
+                            Button("Renew link") { Task { await make() } }.buttonStyle(.textAction(.prominent)).disabled(making)
+                        }
+                    } else { result(made, url: url) }
+                }
+                if let problem { QuietGroup { ServiceProblem(message: problem); Button("Retry") { Task { await make() } }.buttonStyle(.textAction()) } }
+            } else { form }
         }
-        .insetGroupedList()
+
         .smoothChange(made?.url)
         .smoothChange(access)
         .sensoryFeedback(.success, trigger: made?.url) { _, now in now != nil }
@@ -194,11 +207,11 @@ struct PairDeviceView: View {
     }
 
     @ViewBuilder private var form: some View {
-        Section {
+        QuietGroup {
             TextField("Device name (optional)", text: $label).accessibilityIdentifier("pair.label")
         } footer: { Text("The device shows under this name on \(machine), instead of the one it gives itself.") }
-        .insetRowBackground()
-        Section {
+
+        QuietGroup {
             ForEach(choices.access) { choice in
                 Button { access = choice.id } label: {
                     HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
@@ -216,13 +229,13 @@ struct PairDeviceView: View {
                 .accessibilityIdentifier("pair.access.\(choice.id)")
             }
         } header: { InsetHeader("Access") }
-        .insetRowBackground()
-        Section {
+
+        QuietGroup {
             Picker("Link works for", selection: $ttl) { ForEach(choices.linkLifetimes) { Text($0.label).tag($0.value) } }
             Picker("Device keeps access", selection: $keeps) { ForEach(choices.deviceLifetimes) { Text($0.label).tag($0.value) } }
         } header: { InsetHeader("Time") }
-        .insetRowBackground()
-        Section {
+
+        QuietGroup {
             ForEach(choices.extras) { extra in
                 Toggle(isOn: Binding(get: { extras.contains(extra.id) }, set: { if $0 { extras.insert(extra.id) } else { extras.remove(extra.id) } })) {
                     VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
@@ -233,12 +246,12 @@ struct PairDeviceView: View {
                 .toggleStyle(.systemSwitch)
             }
         } header: { InsetHeader("Also allow") }
-        .insetRowBackground()
-        if let problem { Section { ServiceProblem(message: problem) }.insetRowBackground() }
+
+        if let problem { QuietGroup { ServiceProblem(message: problem) } }
     }
 
     @ViewBuilder private func result(_ made: FleetAnswer, url: String) -> some View {
-        Section {
+        QuietGroup {
             VStack(spacing: AceDesign.Space.row) {
                 if let image = Self.qr(url) {
                     Image(uiImage: image).interpolation(.none).resizable().scaledToFit()
@@ -259,8 +272,8 @@ struct PairDeviceView: View {
             .frame(maxWidth: .infinity).padding(.vertical, AceDesign.Space.related)
             if let link = URL(string: url) { ShareLink(item: link) { Text("Share link") } }
         } footer: { Text("Scan it with ace on the other device, or open the link there.") }
-        .insetRowBackground()
-        Section { Button("Done") { done() } }.insetRowBackground()
+
+        QuietGroup { Button("Done") { done() } }
     }
 
     private func make() async {

@@ -63,6 +63,7 @@ struct ForgeCompose: Identifiable {
     var secondary: Choice?
     /// A line's current text, offered as a suggested change.
     var suggestion: String?
+    var suggestionOff: String?
     /// Why it can't be sent, shown in place of the buttons' use.
     var off: String?
 }

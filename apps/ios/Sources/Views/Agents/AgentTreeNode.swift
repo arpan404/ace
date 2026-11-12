@@ -53,6 +53,7 @@ struct AgentTreeNode: View {
                 if let request { answers(request) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            RowCaret()
         }
         .padding(.leading, CGFloat(level) * AgentTreeRails.indent)
         .padding(.vertical, AceDesign.Size.rowPaddingTop)

@@ -49,7 +49,7 @@ struct AccountAvatar: View {
     }
 }
 
-/// The avatar at the trailing end of the Threads and Chats header and its menu, as the web's
+/// The avatar at the leading edge of the Threads and Chats header and its menu, as the web's
 /// account menu: the person first (name, and their ace account's email), opening Profile; then
 /// Archived threads and Settings. Signing in and out is on Profile, as on the web.
 struct AccountMenuButton: View {
@@ -81,18 +81,18 @@ struct AccountMenuButton: View {
     }
 }
 
-/// The avatar's place in a home list's bar: its own round item after the scope and compose
-/// buttons, drawn bare on iOS 26 so the picture fills its circle, as the system's own apps do.
+/// The avatar's place in a home list's bar: its own round item at the bar's leading edge, with
+/// the scope and compose capsule alone on the right, drawn bare on iOS 26 so the picture fills
+/// its circle, as the system's own apps do.
 struct AccountToolbarItem: ToolbarContent {
     let open: (SettingsRoute) -> Void
     let settings: () -> Void
     var body: some ToolbarContent {
         if #available(iOS 26, *) {
-            ToolbarSpacer(.fixed, placement: .topBarTrailing)
-            ToolbarItem(placement: .topBarTrailing) { AccountMenuButton(open: open, settings: settings) }
+            ToolbarItem(placement: .topBarLeading) { AccountMenuButton(open: open, settings: settings) }
                 .sharedBackgroundVisibility(.hidden)
         } else {
-            ToolbarItem(placement: .topBarTrailing) { AccountMenuButton(open: open, settings: settings) }
+            ToolbarItem(placement: .topBarLeading) { AccountMenuButton(open: open, settings: settings) }
         }
     }
 }

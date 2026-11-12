@@ -57,7 +57,18 @@ struct FileScreen: View {
     var body: some View {
         main
             .background(AceTheme.Colours.background)
-            .threadTitle(name, subtitle: folder)
+            .navigationTitle(name)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    VStack(spacing: AceTheme.Spacing.none) {
+                        Text(name).aceMonospace(AceDesign.TextRole.rowTitle, relativeTo: .callout).lineLimit(1)
+                        if !folder.isEmpty {
+                            Text(folder).aceMonospace(AceDesign.TextRole.meta, relativeTo: .footnote)
+                                .foregroundStyle(AceDesign.Ink.muted).lineLimit(1).truncationMode(.middle)
+                        }
+                    }
+                }
+            }
             .navigationBarTitleDisplayMode(.inline)
             .navigationBarBackButtonHidden(editing)
             .toolbar { if editing { editToolbar } else { viewToolbar } }

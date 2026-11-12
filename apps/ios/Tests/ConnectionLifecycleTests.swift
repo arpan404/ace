@@ -94,11 +94,64 @@ import Testing
         #expect(model.error == nil)
     }
 
+    @Test func aRouteChangeToTheSameMachineKeepsTheOpenThreadOnScreenAndReopensItThere() async throws {
+        let sessions = Sessions()
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
+        await model.connect(target: try target("mac", port: SpikeFixture.port), directory: directory)
+        let direct = try #require(sessions.values.first)
+        direct.emit("ready")
+        await drain()
+        model.open("thread")
+        let first = try #require(model.thread?.epoch)
+        model.receive(try frame([reset(first), item("kept", epoch: first), ready(first)]))
+        let shown = try #require(model.thread)
+        #expect(shown.loaded)
+
+        // The same machine over another route (direct to relay): the page never empties.
+        let relay = Task { await model.connect(target: try target("mac", port: SpikeFixture.port + 1), directory: directory) }
+        await drain()
+        #expect(model.thread === shown)
+        #expect(shown.order == ["kept"])
+        direct.finishShutdown()
+        try await relay.value
+        let replacement = try #require(sessions.values.last)
+        #expect(replacement !== direct)
+        // The new route's runtime never saw this thread, so it is asked for it whole.
+        let open = try #require(replacement.actions.last { $0["type"] as? String == "open" })
+        #expect(open["threadId"] as? String == "thread")
+        #expect(open["warm"] as? Bool == false)
+
+        // Its cold reset stages behind the kept copy; only the matching fence replaces it.
+        let second = try #require(model.thread?.epoch)
+        model.receive(try frame([reset(second), item("fresh", epoch: second)]))
+        #expect(model.thread === shown)
+        #expect(shown.order == ["kept"])
+        #expect(shown.loaded)
+        model.receive(try frame([ready(second)]))
+        #expect(shown.order == ["fresh"])
+        model.disconnect()
+        await drain()
+        replacement.finishShutdown()
+        await model.disconnectAndWait()
+    }
+
     private var directory: URL { URL(fileURLWithPath: "/unused-lifecycle-contract") }
-    private func target(_ host: String) throws -> ConnectionTarget {
-        ConnectionTarget(endpoint: try #require(URL(string: "ws://127.0.0.1:\(SpikeFixture.port)")),
+    private func target(_ host: String, port: Int = SpikeFixture.port) throws -> ConnectionTarget {
+        ConnectionTarget(endpoint: try #require(URL(string: "ws://127.0.0.1:\(port)")),
                          hostId: host, deviceId: "phone", pin: nil, credential: { "{}" })
     }
+    private func reset(_ epoch: Int) -> [String: Any] {
+        ["type": "thread.reset", "threadId": "thread", "epoch": epoch, "revision": 1]
+    }
+    private func ready(_ epoch: Int) -> [String: Any] {
+        ["type": "thread.ready", "threadId": "thread", "epoch": epoch, "count": 1, "revision": 1]
+    }
+    private func item(_ id: String, epoch: Int) -> [String: Any] {
+        let row: [String: Any] = ["id": id, "index": 0, "type": "message", "role": "user", "text": id,
+                                  "complete": true, "createdAt": 0, "agentId": "root", "truncated": false]
+        return ["type": "thread.item", "threadId": "thread", "epoch": epoch, "id": id, "row": row]
+    }
+    private func frame(_ values: [[String: Any]]) throws -> Data { try JSONSerialization.data(withJSONObject: values) }
     private func drain() async { for _ in 0..<20 { await Task.yield() } }
 }
 
@@ -123,7 +176,13 @@ private final class Session: ClientSession, @unchecked Sendable {
         self.host = host; self.receive = receive; self.fail = fail
     }
     func start(itemLimit: Int) { fail(host) }
-    func invoke(_ name: String, json: String) {}
+    /// The bridge actions this runtime was sent, in order.
+    var actions: [[String: Any]] { lock.withLock { sent } }
+    private var sent: [[String: Any]] = []
+    func invoke(_ name: String, json: String) {
+        guard let value = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] else { return }
+        lock.withLock { sent.append(value) }
+    }
     func acknowledge(accepted: Bool) {}
     func stop(completion: @escaping @Sendable () -> Void) { lock.withLock { stopped = completion } }
     func finishShutdown() {

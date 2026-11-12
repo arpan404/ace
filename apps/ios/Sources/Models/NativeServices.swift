@@ -57,6 +57,9 @@ struct ServiceReply: Decodable, Sendable {
 }
 struct ServiceFailure: LocalizedError {
     let message: String
+    /// The request never got an answer (disconnected, timed out), as opposed to the machine
+    /// answering with a refusal.
+    var transport = false
     var errorDescription: String? { message }
 }
 
@@ -66,7 +69,7 @@ struct ServiceFailure: LocalizedError {
         try Task.checkCancellation()
         return try await withCheckedThrowingContinuation { continuation in
             waiting[id] = continuation
-            if !dispatch() { fail(id, message: "Machine disconnected. Retry when connected.") }
+            if !dispatch() { fail(id, message: "Machine disconnected. Retry when connected.", transport: true) }
         }
     }
     func receive(_ reply: ServiceReply) {
@@ -74,7 +77,9 @@ struct ServiceFailure: LocalizedError {
         if reply.ok, let value = reply.value { continuation.resume(returning: value) }
         else { continuation.resume(throwing: ServiceFailure(message: reply.message)) }
     }
-    func fail(_ id: String, message: String) { waiting.removeValue(forKey: id)?.resume(throwing: ServiceFailure(message: message)) }
+    func fail(_ id: String, message: String, transport: Bool = false) {
+        waiting.removeValue(forKey: id)?.resume(throwing: ServiceFailure(message: message, transport: transport))
+    }
     func cancel() {
         let pending = waiting
         waiting = [:]
@@ -114,7 +119,7 @@ extension ClientModel {
         // The SDK bounds network waits. This also bounds native decoding/delivery failures.
         let deadline = Task { @MainActor in
             do { try await Task.sleep(for: timeout) } catch { return }
-            services.fail(id, message: "The request timed out. Your input is still available; retry when connected.")
+            services.fail(id, message: "The request timed out. Your input is still available; retry when connected.", transport: true)
             action(["type": "service.cancel", "id": id])
         }
         defer { deadline.cancel() }

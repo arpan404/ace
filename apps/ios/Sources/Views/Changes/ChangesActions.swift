@@ -84,7 +84,7 @@ private struct ChangesActions<Header: View>: ViewModifier {
     /// The next step itself, one tap away.
     private func stepButton(_ step: ChangesSummary.Step) -> some View {
         Button { start(step) } label: {
-            if running { ProgressView() } else { Image(systemName: icon(step)) }
+            if running { ProgressView() } else { Text(label(step)) }
         }
         .disabled(running)
         .accessibilityLabel(label(step))

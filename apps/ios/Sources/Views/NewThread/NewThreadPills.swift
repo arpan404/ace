@@ -43,6 +43,8 @@ struct NewThreadPillsModel {
         /// Why it can't have a worktree ("Not a Git repository").
         var noWorktree: String?
         var reading: Bool
+        /// Why the project's branches couldn't be read; nil when they arrived.
+        var problem: String?
         var bases: [ComposeBase]
         var base: ComposeBaseRef?
     }
@@ -59,20 +61,37 @@ struct NewThreadPills: View {
     let chooseWorktree: (Bool) -> Void
     let chooseBase: (ComposeBaseRef) -> Void
     let chooseAccess: (String) -> Void
+    /// Asks the machine for the project's branches again, after a failed read.
+    let retryBranches: () -> Void
     @State private var choosingAccess = false
 
     var body: some View {
-        ChipFlow(spacing: AceDesign.Space.related) {
-            Button(action: chooseProject) { NewThreadPill(primary: true) { Text(model.project) } }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Project").accessibilityValue(model.project)
-                .accessibilityIdentifier("newThread.project")
-            if model.machines.count > 1 { machine }
-            modelPill
-            if let place = model.place { placePill(place) }
-            if let access = model.access, !access.choices.isEmpty { accessPill(access) }
+        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+            ChipFlow(spacing: AceDesign.Space.related) {
+                Button(action: chooseProject) { NewThreadPill(primary: true) { Text(model.project) } }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Project").accessibilityValue(model.project)
+                    .accessibilityIdentifier("newThread.project")
+                if model.machines.count > 1 { machine }
+                modelPill
+                if let place = model.place { placePill(place) }
+                if let access = model.access, !access.choices.isEmpty { accessPill(access) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if let problem = model.place?.problem {
+                // Where it runs can't be chosen until the branches arrive: say why, and ask again.
+                HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
+                    Text(problem).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                        .foregroundStyle(AceTheme.StatusText.failed)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: AceDesign.Space.related)
+                    Button("Try again", action: retryBranches)
+                        .buttonStyle(.textAction(.prominent))
+                        .accessibilityIdentifier("newThread.branches.retry")
+                }
+                .accessibilityElement(children: .contain)
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// "Opus 5.5 · Med": the model and its effort as one fact, as the thread's composer shows

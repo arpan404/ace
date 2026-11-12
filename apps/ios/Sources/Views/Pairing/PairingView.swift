@@ -12,15 +12,15 @@ struct PairingView: View {
     @State private var scanAttempt = 0
 
     var body: some View {
-        Form {
+        QuietPage {
             Group {
-                Section {
-                    Button { scanning = true } label: { Label("Scan pairing QR code", systemImage: "qrcode.viewfinder") }
+                QuietGroup {
+                    Button { scanning = true } label: { Text("Scan pairing QR code") }
                         .accessibilityIdentifier("pairing.scan")
                 } footer: {
                     Text("On your computer, run `ace pair` or open Settings › Machines and devices and create a pairing link.")
                 }
-                Section {
+                QuietGroup {
                     TextField("https://…/pair#…", text: $pasted, axis: .vertical)
                         .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
                         .privacySensitive().lineLimit(1...4)
@@ -31,12 +31,12 @@ struct PairingView: View {
                         .accessibilityIdentifier("pairing.continue")
                 } header: { InsetHeader("Or paste the link") }
                 if let entryError {
-                    Section { Text(entryError).foregroundStyle(AceTheme.StatusText.failed).accessibilityIdentifier("pairing.entryError") }
+                    QuietGroup { Text(entryError).foregroundStyle(AceTheme.StatusText.failed).accessibilityIdentifier("pairing.entryError") }
                 }
             }
-            .insetRowBackground()
+
         }
-        .insetGroupedList()
+
         .navigationTitle("Pair a machine")
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $link) { link in
@@ -76,12 +76,13 @@ struct ConfirmPairingView: View {
     let onPaired: () -> Void
     @State private var name = UIDevice.current.name
     @State private var pairing = false
+    @State private var submission: Task<Void, Never>?
     @State private var failure: ProblemNotice?
 
     var body: some View {
-        Form {
+        QuietPage {
             Group {
-                Section {
+                QuietGroup {
                     LabeledContent("Address", value: link.displayHost)
                     LabeledContent("Access", value: link.accessSummary)
                     VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
@@ -93,34 +94,36 @@ struct ConfirmPairingView: View {
                 } header: { InsetHeader("Computer") } footer: {
                     Text("Check that the fingerprint matches the link on your computer. ace only talks to the computer holding this key.")
                 }
-                Section {
+                QuietGroup {
                     TextField("My phone", text: $name).textInputAutocapitalization(.words).accessibilityIdentifier("pairing.name")
                 } header: { InsetHeader("This phone's name") }
                 if let failure {
-                    Section { Text(failure.message).foregroundStyle(AceTheme.StatusText.failed).accessibilityIdentifier("pairing.error") }
+                    QuietGroup { Text(failure.message).foregroundStyle(AceTheme.StatusText.failed).accessibilityIdentifier("pairing.error") }
                 }
-                Section {
+                QuietGroup {
                     Button {
-                        Task { await pair() }
+                        submission = Task { await pair() }
                     } label: {
-                        HStack { Text(pairing ? "Pairing…" : "Pair this phone"); if pairing { Spacer(); WorkingMark(label: "Pairing") } }
+                        HStack { Text(pairing ? "Pairing…" : failure == nil ? "Pair this phone" : "Retry"); if pairing { Spacer(); WorkingMark(label: "Pairing") } }
                     }
                     .disabled(pairing || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .buttonStyle(.textAction(.prominent))
                     .accessibilityIdentifier("pairing.confirm")
                 }
             }
-            .insetRowBackground()
+
         }
-        .insetGroupedList()
+
         .navigationTitle("Confirm computer")
         .navigationBarTitleDisplayMode(.inline)
-        .interactiveDismissDisabled(pairing)
+        .onDisappear { submission?.cancel(); submission = nil }
     }
     private func pair() async {
         pairing = true
         failure = nil
-        let problem = await machines.pair(link, name: String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(256)))
+        let problem = await machines.pair(link, name: pairingDeviceName(name))
         pairing = false
+        guard !Task.isCancelled else { return }
         if let problem { failure = problem } else { onPaired() }
     }
 }

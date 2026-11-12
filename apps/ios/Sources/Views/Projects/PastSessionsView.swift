@@ -29,17 +29,19 @@ struct PastSessionsView: View {
     @State private var path: [String] = []
     @State private var loading = false
     var body: some View {
-        List {
-            Group {
+        QuietPage {
+            QuietGroup {
                 ForEach(sessions) { session in
                     Button {
                         importing = session.id
                         Task { await open(session) }
                     } label: {
-                        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-                            Text(session.title.isEmpty ? "Untitled session" : session.title).foregroundStyle(AceDesign.Ink.primary).lineLimit(2)
-                            Text("\(session.provider.capitalized) · \(session.messageCount) messages").foregroundStyle(AceDesign.Ink.muted)
-                            if let reason = session.support.reason { Text(reason).foregroundStyle(AceDesign.Ink.subtle) }
+                        HStack {
+                            VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                                QuietRowText(title: session.title.isEmpty ? "Untitled session" : session.title, detail: "\(session.provider.capitalized) · \(session.messageCount) messages")
+                                if let reason = session.support.reason { Text(reason).font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.subtle) }
+                            }
+                            RowCaret()
                         }
                     }.disabled(importing != nil || session.support.status != "supported" || !model.canOperate)
                 }
@@ -50,9 +52,9 @@ struct PastSessionsView: View {
                 if !loading && sessions.isEmpty && problem == nil { EmptyState.search(query) }
                 if next != nil { Button("Show more sessions") { Task { await read(more: true) } }.disabled(loading) }
             }
-            .insetRowBackground()
+
         }
-        .insetGroupedList()
+
         .searchable(text: $query, prompt: "Search past sessions")
         .navigationTitle("Past CLI sessions").navigationBarTitleDisplayMode(.inline)
         .task(id: query) {

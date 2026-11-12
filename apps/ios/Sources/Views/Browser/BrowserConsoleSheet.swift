@@ -22,7 +22,14 @@ struct BrowserConsoleSheet: View {
             .scrollContentBackground(.hidden)
             .background(AceDesign.Surface.background)
             .overlay {
-                if entries.isEmpty {
+                if model.browser.logs?.state == "error" {
+                    VStack {
+                        Text(model.browser.logs?.message ?? "Couldn't read the log.").foregroundStyle(AceTheme.StatusText.failed)
+                        Button("Retry") { send(clear: false) }.buttonStyle(.textAction())
+                    }
+                } else if entries.isEmpty, model.browser.logs == nil || model.browser.logs?.state == "loading" {
+                    SkeletonRows(label: "Reading log")
+                } else if entries.isEmpty {
                     EmptyState(icon: .terminal, title: section == "console" ? "No messages" : "No requests")
                 }
             }
@@ -115,7 +122,9 @@ struct BrowserShotSheet: View {
                 if let image {
                     ScrollView { Image(uiImage: image).resizable().scaledToFit().padding(AceDesign.Space.margin) }
                 } else {
-                    EmptyState(icon: .camera, title: "Screenshot saved to this thread", line: shot.path)
+                    EmptyState(icon: .camera, title: "Screenshot saved to this thread") {
+                        Text(shot.path).aceMonospace(AceDesign.TextRole.meta, relativeTo: .footnote).foregroundStyle(AceDesign.Ink.muted).textSelection(.enabled)
+                    }
                 }
             }
             .background(AceDesign.Surface.background)

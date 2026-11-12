@@ -80,8 +80,8 @@ struct ModelPicker: View {
             SkeletonRows(count: 4, label: "Loading models").listRowBackground(Color.clear).listRowSeparator(.hidden)
                 .listRowInsets(EdgeInsets())
         case .failed(let title, let message):
-            EmptyState(icon: nil, title: title, line: message, failed: true) { Button("Try again", action: retry) }
-            .listRowSeparator(.hidden)
+            QuietProblemRow(title: title, detail: message, action: "Try again",
+                            identifier: "modelSheet.retry", run: retry)
         case .ready:
             if let starProblem { PickerNote(text: starProblem).accessibilityIdentifier("modelSheet.starProblem") }
             if !searching, let note = tab?.note {
