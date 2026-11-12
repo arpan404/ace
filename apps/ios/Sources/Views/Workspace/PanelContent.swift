@@ -18,6 +18,14 @@ struct PanelContent: View {
         // These two bring their own stack, as sheets.
         case .changes: ChangesSheet(model: model, title: title)
         case .agents: AgentsSheet(model: model, thread: thread, openThread: openThread)
+        case .summary:
+            NavigationStack {
+                ThreadSummaryPage(model: model, thread: thread, openThread: openThread,
+                                  openAgents: { model.panel(thread.id, ["op": "open", "kind": PanelTool.agents.rawValue]) },
+                                  openChanges: { model.panel(thread.id, ["op": "open", "kind": PanelTool.changes.rawValue]) })
+                    .navigationTitle("Summary")
+                    .navigationBarTitleDisplayMode(.inline)
+            }
         case .files:
             NavigationStack { FilesScreen(model: model, scope: .thread(thread.id), subtitle: subtitle, mention: mention) }
         case .terminal:

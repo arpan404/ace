@@ -160,7 +160,8 @@ struct ThreadView: View {
             .background { ThreadKeysPublisher(model: model, thread: thread, open: open, leave: leave) }
             .threadSheets(model: model, thread: thread, work: $showWork, logs: $showLogs)
             .modifier(ThreadPushedTools(model: model, thread: thread, pushed: $pushedTool, openThread: openThread,
-                                        openAgent: { agentRoute = $0 }, mention: model.canOperate ? { mention = $0 } : nil))
+                                        openAgent: { agentRoute = $0 }, openChanges: { open(.changes) },
+                                        mention: model.canOperate ? { mention = $0 } : nil))
             .navigationDestination(item: $agentRoute) { route in
                 SubagentView(route: route, model: model, thread: thread, push: { agentRoute = $0 },
                              openThread: { child in agentRoute = nil; openThread(child) })
@@ -505,7 +506,7 @@ struct ThreadView: View {
         case .tools: showTools = true
         case .logs: showLogs = true
         // Pages: with the side panel they opened as its tabs above.
-        case .changes, .files, .terminal, .browser, .agents: break
+        case .changes, .files, .terminal, .browser, .agents, .summary: break
         }
     }
     /// The title menu's actions, by the shared menu rules (`threadMenu`) for this thread's row.

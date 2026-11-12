@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Everything the ⋯ menu opens: each destination is listed once.
 enum ThreadDestination {
-    case work, changes, search, files, terminal, scripts, browser, devices, computer, tools, agents, logs
+    case work, changes, search, files, terminal, scripts, browser, devices, computer, tools, agents, summary, logs
     case rename, forkLast, merge, turns, attachments
     /// The side panel's tab this opens as on iPad; nil for what always opens over the thread.
     var panelTool: PanelTool? {
@@ -12,6 +12,7 @@ enum ThreadDestination {
         case .terminal: .terminal
         case .browser: .browser
         case .agents: .agents
+        case .summary: .summary
         case .scripts: .preview
         case .work, .search, .devices, .computer, .tools, .logs,
              .rename, .forkLast, .merge, .turns, .attachments: nil
