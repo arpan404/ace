@@ -1,4 +1,4 @@
-import { maxSpadeResponseBytes, maxSpadeUploadBytes } from "@ace/protocol";
+import { maxSpadeRequestBytes, maxSpadeResponseBytes } from "@ace/protocol";
 import {
   checkLivePath,
   checkSpadePath,
@@ -25,7 +25,7 @@ import type { LocalSpade, SpadeEndpointWatch } from "./endpoint-watch.ts";
 /** Live streams the app keeps open at once, across its windows. */
 const maxStreams = 16;
 const requestMs = 60_000;
-/** A message with eight images on a busy machine. */
+/** A message with eight documents and images, or a long recording, on a busy machine. */
 const uploadMs = 5 * 60_000;
 const healthMs = 3_000;
 
@@ -115,7 +115,7 @@ export function spadeDirect(
               ...(body ? { contentType: input.contentType ?? "application/json" } : {}),
             },
             {
-              signal: AbortSignal.timeout(limit === maxSpadeUploadBytes ? uploadMs : requestMs),
+              signal: AbortSignal.timeout(limit > maxSpadeRequestBytes ? uploadMs : requestMs),
               maxBytes: responseBodyLimit(input.method, input.path),
             },
           );

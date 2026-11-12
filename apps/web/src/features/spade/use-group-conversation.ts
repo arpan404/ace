@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { GroupFollow } from "./conversation-follow.ts";
-import type { SpadeMessage } from "./spade-images.ts";
+import type { SpadeMessage } from "./spade-attachments.ts";
 import { SpadeRequestError } from "./spade-requests.ts";
 import { postGroupMessage, stopGroup } from "./spade-teams-api.ts";
 import { spadeTransport } from "./spade-transport.ts";
@@ -34,7 +34,8 @@ export function useGroupConversation(group: { id: string; conversation: string }
     ready,
     retry: () => follow.retry(),
     async send(message: SpadeMessage): Promise<void> {
-      if (message.images.length) throw new Error("A group takes words only, not images.");
+      const refused = groupRefusal(message);
+      if (refused) throw new Error(refused);
       const key = `local-${crypto.randomUUID()}`;
       follow.apply({ kind: "sent", key, text: message.text });
       try {
@@ -59,4 +60,11 @@ export function useGroupConversation(group: { id: string; conversation: string }
       }
     },
   };
+}
+
+/** Why a group can't take `message` as it is, or `undefined` when it can: groups take words. */
+export function groupRefusal(message: SpadeMessage): string | undefined {
+  if (message.images.length || message.documents?.length || message.voice)
+    return "A group takes words only, not images, files or recordings.";
+  return undefined;
 }

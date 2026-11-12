@@ -126,17 +126,28 @@ pub fn next_turn(events: &[Event]) -> Option<Turn> {
                 text,
                 context,
                 images,
+                documents,
+                voice,
                 from_agent,
                 from_routine,
                 from_group,
             }) => {
+                let spoken = match voice {
+                    Some(_) => format!("{} {text}", context::SPOKEN),
+                    None => text.clone(),
+                };
                 let mut text = context::person_text(
-                    text,
+                    &spoken,
                     context.as_deref(),
                     from_agent.as_ref(),
                     from_routine.as_deref(),
                     from_group.as_deref(),
                 );
+                // The extracted text, with how to read on (`document_read` through spade_call).
+                for document in documents {
+                    text.push_str("\n\n");
+                    text.push_str(&context::document_text(document, false));
+                }
                 if !images.is_empty() {
                     text.push_str(&format!(
                         "\n\n[The person attached {} image(s); this bot can't see images yet.]",

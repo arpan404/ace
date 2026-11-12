@@ -12,6 +12,7 @@ encoding_rs = "0.8"
 html5ever = "0.40"
 if-addrs = "0.15"
 reqwest = { workspace = true, features = ["gzip"] }
+spade-docs = { path = "../spade-docs" }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["time"] }
 url = "2"
@@ -19,6 +20,7 @@ url = "2"
 [dev-dependencies]
 axum.workspace = true
 flate2 = "1"
+pdf-extract = "0.12.1"
 futures-util.workspace = true
 log = "0.4"
 tracing.workspace = true

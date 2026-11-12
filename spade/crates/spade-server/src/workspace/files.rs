@@ -198,9 +198,20 @@ impl Workspace {
     /// renamed over the old one. A file with other hard links is refused. Answers the bytes
     /// written.
     pub fn write(&self, relative: &str, content: &str) -> Result<usize, PathError> {
-        if content.len() > LARGEST_WRITE {
+        self.write_bytes(relative, content.as_bytes(), LARGEST_WRITE)
+    }
+
+    /// Writes `content` as [`Workspace::write`] does, allowing up to `largest` bytes: for files the
+    /// person attached (ADR 0134), which may be larger than what tools write.
+    pub fn write_bytes(
+        &self,
+        relative: &str,
+        content: &[u8],
+        largest: usize,
+    ) -> Result<usize, PathError> {
+        if content.len() > largest {
             return Err(PathError::Io(format!(
-                "that is {} bytes; files are written {LARGEST_WRITE} bytes at most",
+                "that is {} bytes; files are written {largest} bytes at most",
                 content.len()
             )));
         }
@@ -248,7 +259,7 @@ impl Workspace {
             .create_new(true)
             .follow(FollowSymlinks::No);
         let written = at.open_with(&temporary, &options).and_then(|mut file| {
-            file.write_all(content.as_bytes())?;
+            file.write_all(content)?;
             file.sync_all()
         });
         let renamed = written.and_then(|()| at.rename(&temporary, &at, &name));
@@ -486,6 +497,11 @@ impl Workspace {
     /// The file's bytes, for a download.
     pub fn bytes(&self, relative: &str) -> Result<Vec<u8>, PathError> {
         self.read_file(relative, u64::MAX / 2)
+    }
+
+    /// The file's bytes, refused past `largest`.
+    pub fn bytes_up_to(&self, relative: &str, largest: u64) -> Result<Vec<u8>, PathError> {
+        self.read_file(relative, largest)
     }
 
     /// Deletes a file, link or folder (with what is in it). The workspace itself stays.

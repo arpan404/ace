@@ -24,6 +24,7 @@ spade-ace = { path = "../spade-ace" }
 spade-connect = { path = "../spade-connect" }
 spade-mcp = { path = "../spade-mcp" }
 spade-fetch = { path = "../spade-fetch" }
+spade-docs = { path = "../spade-docs" }
 spade-search = { path = "../spade-search" }
 spade-store = { path = "../spade-store" }
 thiserror.workspace = true
@@ -33,6 +34,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
 cap-std = "4.0.3"
+cap = "0.1.2"
 cap-fs-ext = "4.0.3"
 
 [dev-dependencies]
@@ -46,6 +48,7 @@ rmcp = { version = "3.9.0", default-features = false, features = [
   "transport-streamable-http-server",
 ] }
 spade-testkit = { path = "../spade-testkit" }
+spade-docs = { path = "../spade-docs" }
 url = "2"
 tokio-util = "0.7"
 # Fake daemon WebSockets: routines' ace events, and the skill library shared with spade-ace's
