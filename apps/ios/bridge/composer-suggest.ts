@@ -9,7 +9,7 @@ import {
 } from "@ace/ui-core";
 import { z } from "zod";
 import type { PatchSink, Preview } from "./agents.ts";
-import { CatalogReads, type Target } from "./composer-catalog.ts";
+import { CatalogReads, staleRetries, staleRetry, type Target } from "./composer-catalog.ts";
 import { rowReference, suggestionRow, type RowSource } from "./composer-rows.ts";
 
 /*
@@ -95,13 +95,15 @@ export interface SuggestPorts {
 
 const pause = 120;
 const fresh = 30_000;
-const staleRetry = 1_500;
-const staleRetries = 6;
 const quiet = { timeoutMs: 15_000 };
 
 export class ComposerSuggest {
   readonly #ports: SuggestPorts;
   readonly #catalogs: CatalogReads;
+  /** The catalog reads, shared with the Skills and commands pages (`catalog-page.ts`). */
+  get catalogs(): CatalogReads {
+    return this.#catalogs;
+  }
   readonly #recent = new Map<string, string[]>();
   #tabs: { threadId: string; at: number; tabs: MentionTab[] } | undefined;
   /** The newest query; anything older is never answered. */

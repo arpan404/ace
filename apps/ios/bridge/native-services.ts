@@ -87,6 +87,7 @@ import type { InboxRequests } from "./inbox-manage.ts";
 import { NativeSkillLibrary, NativeSkillsRequest } from "./skill-library.ts";
 import { NativePluginsRequest, NativeSkillPlugins } from "./skill-plugins.ts";
 import { NativeAutomationRequest, type NativeAutomations } from "./automations.ts";
+import { NativeCatalogRequest, type CatalogPage } from "./catalog-page.ts";
 
 // The SDK validates every request and reply. The native bridge exposes only these services;
 // mutations of threads continue to go through the SDK's durable command outbox.
@@ -150,6 +151,8 @@ export class NativeServices {
   readonly threadFiles = new ThreadFileIndex();
   /** The files the fork being written in a thread carries, which its list can't remove. */
   carried: (threadId: string) => ReadonlySet<string> = () => new Set();
+  /** The Skills and commands pages' catalog reads, shared with the composer. */
+  catalog: CatalogPage | undefined;
   readonly owner: ClientCore;
   readonly sink: PatchSink;
   readonly devices: NativeDevices | undefined;
@@ -298,6 +301,11 @@ export class NativeServices {
       const outside = NativeOutsideRequest.safeParse(raw);
       if (outside.success) {
         this.#reply(id, true, await answerOutside(this.owner, outside.data, this.now), "");
+        return;
+      }
+      const catalog = NativeCatalogRequest.safeParse(raw);
+      if (catalog.success && this.catalog) {
+        this.#reply(id, true, await this.catalog.answer(catalog.data, controller.signal), "");
         return;
       }
       const skills = NativeSkillsRequest.safeParse(raw);
