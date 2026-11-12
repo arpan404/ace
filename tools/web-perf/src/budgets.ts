@@ -16,10 +16,13 @@ export const budgets = {
     routeKb: 345,
     /** CSS, gzip. 28.2 KB. */
     cssKb: 30,
-    /** A worker's eager script (client 82, machine 82, markdown 30, diff 15 KB). */
-    workerKb: 85,
-    /** A worker with the chunks it loads later, so splitting a worker never hides bytes. 99 KB. */
-    workerTotalKb: 102,
+    /** A worker's eager script (client 81.2, machine 84.7, highlight 15, diff 16 KB on 2026-11-12). */
+    workerKb: 87,
+    /**
+     * A worker with the chunks it loads later, so splitting a worker never hides bytes. Client
+     * 126.1, machine 129.4 KB on 2026-11-12 (ADR 0056's amendment of that day).
+     */
+    workerTotalKb: 135,
   },
   soak: {
     /** Events in the accelerated month-long run: 30 days at one event every 0.86 s. */
