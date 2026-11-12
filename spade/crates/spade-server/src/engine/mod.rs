@@ -13,6 +13,8 @@ mod index;
 mod jobs;
 mod maintenance;
 mod memory;
+mod oversight;
+mod review;
 pub mod roster;
 mod routines;
 mod turn;
@@ -23,6 +25,9 @@ pub use bots::MOST_HOPS;
 pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput};
 pub use maintenance::MaintenanceState;
 pub use memory::{MemoryCall, NoteError, NoteScope, note_json};
+pub use oversight::{
+    ActivityQuery, AgentOversight, Global, GlobalChange, OversightChange, OversightError,
+};
 pub use roster::{LastMessage, State};
 pub use types::{
     Activity, AgentChange, AgentError, AgentInput, AgentView, AnswerError, AvatarInput,
@@ -353,6 +358,9 @@ impl Engine {
         if self.disabled_main(id)? {
             return Err(SendError::Disabled);
         }
+        if let Some(why) = self.cap_refusal(id) {
+            return Err(SendError::BotCapped(why));
+        }
         let message = memory::with_recall(self, id, self.message(text, images)?);
         self.deliver(id, &message)?;
         Ok(())
@@ -573,7 +581,7 @@ impl Engine {
     }
 
     /// Records what a model call cost, failed or not.
-    fn pay(&self, id: &str, model: &str, usage: &spade_models::Usage) -> u64 {
+    pub(super) fn pay(&self, id: &str, model: &str, usage: &spade_models::Usage) -> u64 {
         let cost = spending::cost_micros(self.models.price(model), usage);
         if cost > 0
             && let Err(error) = self.store.record_spend(id, model, cost, self.now_ms())

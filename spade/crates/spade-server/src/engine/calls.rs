@@ -11,6 +11,7 @@ use spade_core::context;
 use spade_core::event::{Call, Known};
 use spade_core::gate::{self, Decision};
 use spade_core::maintenance::{Pause, Point, halts};
+use spade_core::review;
 use spade_core::tools::{CALL_TOOL, Risk, TOOL_SEARCH, describe, unwrap_call_tool};
 use spade_core::turn::{Pending, Status};
 use spade_core::{Event, Transcript};
@@ -103,7 +104,31 @@ pub(super) async fn handle_calls(
                     } else {
                         untrusted
                     };
-                    match gate::decide(def.risk, always, tainted) {
+                    let mut decision = gate::decide(def.risk, always, tainted);
+                    // The model review (ADR 0135) may turn a run into a question, never the
+                    // other way round.
+                    if review::reviewed(def.risk, decision) && engine.review_on(id) {
+                        let def = def.clone();
+                        match super::review::call(
+                            engine,
+                            id,
+                            reply,
+                            events,
+                            &registry,
+                            &pending.call,
+                            &name,
+                            &arguments,
+                            &def,
+                            stop,
+                        )
+                        .await
+                        {
+                            super::review::Reviewed::Allow => {}
+                            super::review::Reviewed::Escalate => decision = Decision::Ask,
+                            super::review::Reviewed::Stopped => return Handled::Stopped,
+                        }
+                    }
+                    match decision {
                         Decision::Run => runnable.push((pending.call, name, arguments)),
                         Decision::Ask => {
                             waiting = true;

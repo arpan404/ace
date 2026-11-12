@@ -117,6 +117,9 @@ impl Engine {
             Ok(target) => target,
             Err(why) => return ToolOutput::error(why),
         };
+        if let Some(why) = self.cap_refusal(&target.conversation) {
+            return ToolOutput::error(why);
+        }
         let depth = self.hops(caller) + 1;
         if depth > MOST_HOPS {
             return ToolOutput::error(format!(

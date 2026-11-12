@@ -95,6 +95,8 @@ pub(super) async fn run(
         engine.spawn_turn(&id);
     }
     name_if_untitled(&engine, &id).await;
+    // A turn (or its title) that took the bot to its cap says so, once.
+    engine.note_if_capped(&id);
 }
 
 /// Closes `reply`, retrying until it is closed. The worker still owns the reply meanwhile, so no
@@ -190,6 +192,13 @@ async fn drive(
                         String::new(),
                         "today's spending cap is used up".to_owned(),
                     );
+                }
+                // The bot's own cap (ADR 0135): no model call starts; it says so once.
+                if let Some((_, hit)) = engine.bot_cap(id) {
+                    return match engine.close_capped(id, &reply, &hit) {
+                        Ok(()) => Ended::Finished,
+                        Err(error) => Ended::Failed(String::new(), error.to_string()),
+                    };
                 }
                 if super::index::if_needed(engine, id, &events).await {
                     continue;
@@ -400,7 +409,7 @@ fn finish_unless_steered(engine: &Engine, id: &str, reply: &str) -> Result<bool,
 /// own), else after its first message.
 async fn name_if_untitled(engine: &Arc<Engine>, id: &str) {
     // Never for an agent being deleted: nothing is spent on a conversation about to go.
-    if engine.deleting(id) {
+    if engine.deleting(id) || engine.may_spend(id).is_err() {
         return;
     }
     let Ok(events) = engine.load(id) else { return };

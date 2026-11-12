@@ -185,14 +185,18 @@ fn fire(
         .agent(&r.agent_id)?
         .ok_or(RoutineError::NoAgent)?;
     let heartbeat = r.kind == HEARTBEAT;
+    let capped = engine.cap_refusal(&agent.conversation);
     let skip = if previous_open(engine, r, &agent.conversation)? {
-        Some(("skipped_running", "The last run was still going."))
+        Some((
+            "skipped_running",
+            "The last run was still going.".to_owned(),
+        ))
     } else if heartbeat && !engine.idle(&agent.conversation)? {
-        Some(("skipped_busy", "The bot was busy."))
+        Some(("skipped_busy", "The bot was busy.".to_owned()))
     } else if !engine.can_spend()? {
-        Some(("skipped_cap", "Today's spending cap is reached."))
+        Some(("skipped_cap", "Today's spending cap is reached.".to_owned()))
     } else {
-        None
+        capped.map(|why| ("skipped_cap", why))
     };
     let run = StoredRun {
         id: engine.new_id("run"),
@@ -200,9 +204,15 @@ fn fire(
         slot_ms: firing.slot_ms,
         at_ms: engine.now_ms(),
         cause: firing.cause.to_owned(),
-        outcome: skip.map_or("pending", |(outcome, _)| outcome).to_owned(),
+        outcome: skip
+            .as_ref()
+            .map_or("pending", |(outcome, _)| outcome)
+            .to_owned(),
         seq: None,
-        detail: Some(skip.map_or(firing.label.clone(), |(_, why)| why.to_owned())),
+        detail: Some(
+            skip.as_ref()
+                .map_or(firing.label.clone(), |(_, why)| why.clone()),
+        ),
     };
     let (slot, next) = match firing.claim {
         Some((slot, next)) => (Some(slot), next),

@@ -6,6 +6,7 @@ mod body;
 mod connectors;
 mod endpoints;
 mod memory;
+mod oversight;
 mod routines;
 mod workspace;
 
@@ -120,6 +121,7 @@ pub fn router(state: AppState) -> Router {
         )
         .merge(connectors::routes())
         .merge(memory::routes())
+        .merge(oversight::routes())
         .merge(workspace::routes())
         .route_layer(middleware::from_fn_with_state(state.clone(), authorize))
         .with_state(state.clone());
@@ -219,7 +221,7 @@ fn send_problem(error: &SendError) -> Response {
         SendError::Empty | SendError::TooLong | SendError::TooManyImages | SendError::Image(_) => {
             StatusCode::BAD_REQUEST
         }
-        SendError::OverCap => StatusCode::PAYMENT_REQUIRED,
+        SendError::OverCap | SendError::BotCapped(_) => StatusCode::PAYMENT_REQUIRED,
         SendError::Store(_) => StatusCode::INTERNAL_SERVER_ERROR,
     };
     problem(status, &error.to_string())

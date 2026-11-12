@@ -105,6 +105,8 @@ pub struct AgentView {
     pub last_message: Option<LastMessage>,
     /// What the agent waits on the person for: `approval` or `question` (ADR 0128).
     pub waiting_for: Option<&'static str>,
+    /// `{"spending", "review"}` (ADR 0135).
+    pub oversight: serde_json::Value,
 }
 
 /// Why an agent could not be created, changed or deleted.
@@ -162,6 +164,9 @@ pub enum SendError {
     TooLong,
     #[error("today's spending cap is used up")]
     OverCap,
+    /// The bot is at one of its own caps (ADR 0135); the words say which and until when.
+    #[error("{0}")]
+    BotCapped(String),
     #[error("a message can carry at most {} images", crate::images::MOST_IMAGES)]
     TooManyImages,
     #[error(transparent)]

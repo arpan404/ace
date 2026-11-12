@@ -274,7 +274,9 @@ impl Engine {
     fn view_of(&self, agent: Agent) -> Result<AgentView, StoreError> {
         let activity = self.activity(&agent.conversation)?;
         let status = self.status_for(&agent.conversation, &activity);
+        let oversight = self.oversight_json(&agent)?;
         Ok(AgentView {
+            oversight,
             state: activity.state,
             status,
             last_message: activity.last_message,

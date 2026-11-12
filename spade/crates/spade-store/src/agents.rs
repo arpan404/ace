@@ -214,6 +214,11 @@ impl Store {
             return Ok(false);
         };
         tx.execute("DELETE FROM agents WHERE id = ?1", params![id])?;
+        // Its caps and review switch (ADR 0135); its spend stays in the ledger.
+        tx.execute(
+            "DELETE FROM settings WHERE key = ?1",
+            params![crate::oversight::agent_key(id)],
+        )?;
         tx.execute(
             "DELETE FROM events WHERE conversation_id = ?1",
             params![conversation],
