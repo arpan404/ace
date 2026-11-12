@@ -55,7 +55,12 @@ export function readAloud(key: string, text: string) {
 
 export function stopReading() {
   set(undefined);
-  speechSynthesis.cancel();
+  if (canReadAloud()) speechSynthesis.cancel();
+}
+
+/** Stop reading if the reply `key` is what is being read (its bubble is going away). */
+export function stopReadingOf(key: string) {
+  if (speaking === key) stopReading();
 }
 
 /** Whether the reply `key` is being read now. */

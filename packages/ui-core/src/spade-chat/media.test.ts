@@ -97,6 +97,80 @@ describe("documents and voice on the person's messages", () => {
   });
 });
 
+/** A document as Spade stores it on the person's message. */
+const storedDocument = (sha256: string) => ({
+  sha256,
+  name: "notes.md",
+  media_type: "text/markdown",
+  bytes: 4,
+  chars: 4,
+  cut: false,
+  view: "Plan",
+});
+
+describe("matching a sent message to Spade's stored copy", () => {
+  const notes = {
+    sha256: hash("d"),
+    name: "notes.md",
+    mediaType: "text/markdown",
+    bytes: 4,
+    pages: undefined,
+    sheets: undefined,
+    chars: 0,
+    cut: false,
+  };
+  const recording = { sha256: hash("a"), mediaType: "audio/webm", bytes: 6 };
+  /** What the chat shows once `stored` arrives after sending `sent` (the pending message last). */
+  function after(
+    sent: { documents?: (typeof notes)[]; voice?: typeof recording },
+    stored: Record<string, unknown>,
+  ) {
+    const state = emptySpadeConversation();
+    foldSpade(state, { kind: "sent", key: "local-1", text: "Look", ...sent });
+    const input = parseSpadeLiveFrame(
+      "stored",
+      JSON.stringify({ seq: 1, at: 1, event: { type: "user_message", text: "Look", ...stored } }),
+    );
+    if (input) foldSpade(state, input);
+    return spadeBubbles(spadeView(state)).map((bubble) =>
+      bubble.kind === "person" ? (bubble.sending ? "sending" : "stored") : bubble.kind,
+    );
+  }
+
+  test("the stored copy with the same document and recording takes the sent one's place", () => {
+    expect(
+      after(
+        { documents: [notes], voice: recording },
+        {
+          documents: [storedDocument(hash("d"))],
+          voice: { sha256: hash("a"), media_type: "audio/webm", bytes: 6 },
+        },
+      ),
+    ).toEqual(["stored"]);
+  });
+
+  test("a stored message with the same words but another document is another message", () => {
+    expect(after({ documents: [notes] }, { documents: [storedDocument(hash("e"))] })).toEqual([
+      "stored",
+      "sending",
+    ]);
+    expect(after({ documents: [notes] }, {})).toEqual(["stored", "sending"]);
+  });
+
+  test("a stored message with the same words but no recording, or another, is another message", () => {
+    expect(after({ voice: recording }, {})).toEqual(["stored", "sending"]);
+    expect(after({}, { voice: { sha256: hash("b"), media_type: "audio/webm", bytes: 6 } })).toEqual(
+      ["stored", "sending"],
+    );
+    expect(
+      after(
+        { voice: recording },
+        { voice: { sha256: hash("b"), media_type: "audio/webm", bytes: 6 } },
+      ),
+    ).toEqual(["stored", "sending"]);
+  });
+});
+
 describe("what a bot's tools show", () => {
   test("shared images and documents go in that reply's bubble, after its words", () => {
     const c = conversation();

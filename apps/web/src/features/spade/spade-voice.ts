@@ -72,9 +72,17 @@ export interface VoiceSession {
 /** How long to wait for recognition to settle after the recording stops. */
 const settleMs = 3_000;
 
-/** Start recording, with on-device recognition alongside when `recognize`. */
-export async function startVoice(recognize: boolean): Promise<VoiceSession> {
+/**
+ * Start recording, with on-device recognition alongside when `recognize`. Once `signal` aborts
+ * nothing starts: a microphone granted after that is released at once and this rejects.
+ */
+export async function startVoice(recognize: boolean, signal: AbortSignal): Promise<VoiceSession> {
+  signal.throwIfAborted();
   const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  if (signal.aborted) {
+    for (const track of stream.getTracks()) track.stop();
+    signal.throwIfAborted();
+  }
   const recorder = new MediaRecorder(stream);
   const chunks: Blob[] = [];
   recorder.addEventListener("dataavailable", (event) => {
