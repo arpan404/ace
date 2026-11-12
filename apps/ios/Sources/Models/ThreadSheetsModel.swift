@@ -35,9 +35,23 @@ import Observation
     /// Work writes' outcomes and stale-lock clears, by request id.
     var workResults: [String: WorkResult] = [:]
 
+    /// Another machine, or no thread: nothing kept here applies any more.
     func reset() {
+        forgetFollowed()
+        notices = [:]; awaitingNotices = []; replyTexts = [:]
+    }
+
+    /// Another route to the same machine: the new runtime sends every sheet again, but what the
+    /// person typed stays, and sends the old route never answered read as uncertain.
+    func routeChanged() {
+        connectionLost()
+        forgetFollowed()
+    }
+
+    /// What the bridge sends while a sheet is followed.
+    private func forgetFollowed() {
         agents = nil; changes = nil; tree = []; files = [:]; pages = [:]; wholeLines = [:]
-        review = nil; replies = nil; notices = [:]; awaitingNotices = []; replyTexts = [:]; ready = nil; chip = nil; outcomes = [:]; draft = nil
+        review = nil; replies = nil; ready = nil; chip = nil; outcomes = [:]; draft = nil
         work = nil; branches = nil; workResults = [:]
         logs = nil; copies = [:]; summary = nil
     }

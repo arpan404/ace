@@ -205,10 +205,11 @@ import QuartzCore
         // so each is read whole again behind its kept rows (`ThreadModel.beginSnapshot`).
         let sameMachine = scope == target.scope
         let keeping = sameMachine ? thread : nil
-        if sameMachine { shelf.needSnapshots(); keeping?.requiresSnapshot = true } else { shelf.clear() }
+        // Typed review replies stay with it; the new runtime sends each sheet again.
+        if sameMachine { shelf.needSnapshots(); keeping?.requiresSnapshot = true; sheets.routeChanged() } else { shelf.clear(); sheets.reset() }
         scope = target.scope
         hostId = target.scope.hostId
-        inbox.removeAll(); projectsVersion &+= 1; pending = [:]; thread = keeping; inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
+        inbox.removeAll(); projectsVersion &+= 1; pending = [:]; thread = keeping; inboxLoaded = false; archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
         // Another machine's runtime: this one's saves and computer access no longer apply.
         browser.forgetSaves(); computerAccess.reset(); outside.reset()
         inboxLayout = .empty; chatLayout = .empty
