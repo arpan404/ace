@@ -80,8 +80,10 @@ test("a provider's row opens its page, with its accounts, models and facts; Back
   await harness().open("/settings/providers");
   await userEvent.click(await screen.findByRole("link", { name: "Claude Code" }));
   expect(await screen.findByRole("heading", { level: 2, name: "Claude Code" })).toBeTruthy();
+  // The version is stated once, under the title; About keeps where it's installed.
+  expect(screen.getByRole("main").textContent).toContain("2.1.4");
   const about = await screen.findByRole("region", { name: "About" }, { timeout: 10_000 });
-  expect(within(about).getByText("2.1.4")).toBeTruthy();
+  expect(within(about).queryByText("2.1.4")).toBeNull();
   expect(within(about).getByText("/opt/homebrew/bin/claude")).toBeTruthy();
   const accounts = await screen.findByRole("list", { name: "Claude Code accounts" });
   expect(within(accounts).getByText("Your CLI login")).toBeTruthy();
