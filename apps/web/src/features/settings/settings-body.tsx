@@ -38,7 +38,10 @@ export function SettingsBody(props: {
   trailing?: ReactNode;
   /** The page's views under the title (Fleet's Overview and Map), as page tabs. */
   tabs?: ReactNode;
-  /** A view that draws rather than lists takes a wider column. */
+  /**
+   * A view that draws rather than lists (Fleet's map) widens its content only: the title row and
+   * tabs stay on the standard column, so the title sits where every other page's does.
+   */
   wide?: boolean;
   children?: ReactNode;
 }) {
@@ -49,11 +52,12 @@ export function SettingsBody(props: {
     // The sidebar already says Settings and the page names itself below: the header keeps only
     // its controls, with the view's name for assistive tech.
     <Screen title="Settings" namedByPanel actions={props.actions}>
-      <div className="h-full overflow-auto">
+      {/* A container itself, so a wide view can measure the room the scroller gives it. */}
+      <div className={cn("h-full overflow-auto", props.wide && "@container")}>
         <div
           className={cn(
-            "@container mx-auto w-full px-5 pt-8 pb-20 sm:px-7",
-            props.wide ? "max-w-(--settings-wide-column)" : "max-w-(--settings-column)",
+            "mx-auto w-full max-w-(--settings-column) px-5 pt-8 pb-20 sm:px-7",
+            !props.wide && "@container",
           )}
         >
           {props.back && <div className="mb-1 text-ui">{props.back}</div>}
@@ -85,7 +89,7 @@ export function SettingsBody(props: {
           <div
             // A new page or machine starts its content over, with one short rise.
             key={`${pathname}:${machine?.primary ? "primary" : (machine?.id ?? "")}`}
-            className="fx-rise-in"
+            className={cn("fx-rise-in", props.wide && wideContent)}
           >
             {props.children}
           </div>
@@ -94,6 +98,14 @@ export function SettingsBody(props: {
     </Screen>
   );
 }
+
+/**
+ * A wide view's content: up to `--settings-wide-column` of the scroller's width, centred on the
+ * same axis as the column, with the column's own side padding. It is the container its rows
+ * measure, as the column is on other pages.
+ */
+const wideContent =
+  "@container w-[min(var(--settings-wide-column),100cqw)] ml-[calc(50%_-_min(var(--settings-wide-column),100cqw)_/_2)] px-5 sm:px-7";
 
 /**
  * What a page edits, under its title: the environment picked in the sidebar for a machine page,

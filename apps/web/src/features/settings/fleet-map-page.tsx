@@ -52,7 +52,7 @@ export function FleetMapPage() {
     ownId;
   const selected = map.nodes.find((node) => node.id === selectedId);
   return (
-    <FleetFrame>
+    <FleetFrame wide>
       <div
         ref={body}
         className={cn("grid gap-6", beside ? "grid-cols-[minmax(0,1fr)_260px]" : "grid-cols-1")}
