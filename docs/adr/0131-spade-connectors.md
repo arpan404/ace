@@ -4,7 +4,9 @@ Status: accepted. Date: 2026-11-12. Decided by: the owner (2026-11-12: build con
 reusing the app makers' own remote MCP servers first, as `spade/docs/design.md`, "Connectors",
 proposed). Builds on [ADR 0119](0119-spade-endpoint-keys.md), [ADR 0123](0123-spade-runs-as-its-own-service.md),
 [ADR 0126](0126-spade-agents.md) and [ADR 0127](0127-spade-main-bot-and-chat.md). Records how
-connectors fit [ADR 0002](0002-local-cli-providers.md).
+connectors fit [ADR 0002](0002-local-cli-providers.md). Amended by
+[ADR 0136](0136-spade-client-id-metadata-document.md): Spade signs in as a client ID metadata
+document hosted on acehq.dev where a server fetches them, with one shared callback address.
 
 ## Context
 
