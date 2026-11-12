@@ -5,6 +5,8 @@ mod agents;
 mod body;
 mod connectors;
 mod endpoints;
+mod memory;
+mod routines;
 
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -77,6 +79,21 @@ pub fn router(state: AppState) -> Router {
                 .delete(endpoints::delete_model),
         )
         .route("/settings", put(endpoints::settings))
+        .route(
+            "/agents/{id}/routines",
+            get(routines::list).post(routines::create),
+        )
+        .route(
+            "/agents/{id}/heartbeat",
+            get(routines::heartbeat).put(routines::set_heartbeat),
+        )
+        .route(
+            "/routines/{id}",
+            get(routines::get)
+                .patch(routines::update)
+                .delete(routines::delete),
+        )
+        .route("/routines/{id}/run", post(routines::run))
         .route("/conversations/{id}/events", get(events))
         .route(
             "/conversations/{id}/messages",
@@ -97,6 +114,7 @@ pub fn router(state: AppState) -> Router {
                 .delete(end_maintenance),
         )
         .merge(connectors::routes())
+        .merge(memory::routes())
         .route_layer(middleware::from_fn_with_state(state.clone(), authorize))
         .with_state(state.clone());
     let open = Router::new()
@@ -141,20 +159,31 @@ async fn health(State(state): State<AppState>, Query(challenge): Query<Challenge
     Json(body).into_response()
 }
 
-async fn authorize(State(state): State<AppState>, request: Request, next: Next) -> Response {
+async fn authorize(State(state): State<AppState>, mut request: Request, next: Next) -> Response {
     let expected = format!("Bearer {}", state.token);
     let given = request
         .headers()
         .get("authorization")
         .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    if given.len() == expected.len()
+        .unwrap_or("")
+        .to_owned();
+    let token = given.len() == expected.len()
         && given
             .bytes()
             .zip(expected.bytes())
             .fold(0u8, |acc, (a, b)| acc | (a ^ b))
-            == 0
+            == 0;
+    // A routine's webhook carries the routine's own secret, which its route checks.
+    if !token
+        && request.method() == axum::http::Method::POST
+        && routines::is_run_route(request.uri().path())
+        && let Some(secret) = given.strip_prefix("Bearer ")
     {
+        let secret = routines::WebhookBearer(secret.to_owned());
+        request.extensions_mut().insert(secret);
+        return next.run(request).await;
+    }
+    if token {
         next.run(request).await
     } else {
         problem(StatusCode::UNAUTHORIZED, "missing or wrong token")

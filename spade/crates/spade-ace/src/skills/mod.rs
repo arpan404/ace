@@ -136,6 +136,12 @@ impl AceSkills {
         }
     }
 
+    /// The daemon socket this library talks to, for others that open their own (routines'
+    /// thread events).
+    pub fn config(&self) -> &SkillsConfig {
+        &self.config
+    }
+
     /// Personal, plugin and builtin skills, and the project's when `workspace_id` names one.
     pub async fn list(&self, workspace_id: Option<&str>) -> Result<SkillList, SkillsError> {
         let result = self.request(Operation::List { workspace_id }).await?;

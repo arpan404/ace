@@ -12,7 +12,9 @@ mod endpoints;
 mod index;
 mod jobs;
 mod maintenance;
+mod memory;
 pub mod roster;
+mod routines;
 mod turn;
 mod types;
 
@@ -20,6 +22,7 @@ pub use agents::{BOT, MAIN, NAME_CHARS, TASK_CHARS};
 pub use bots::MOST_HOPS;
 pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput};
 pub use maintenance::MaintenanceState;
+pub use memory::{MemoryCall, NoteError, NoteScope, note_json};
 pub use roster::{LastMessage, State};
 pub use types::{
     Activity, AgentChange, AgentError, AgentInput, AgentView, AnswerError, AvatarInput,
@@ -40,7 +43,7 @@ use tokio::sync::{Notify, broadcast, watch};
 
 use crate::clock::{Clock, Ids};
 use crate::images::ImageStore;
-use crate::tools::{BotMessage, BotsList, EngineHandle, SkillLibrary, Toolbox};
+use crate::tools::{BotMessage, BotsList, EngineHandle, MemoryTool, SkillLibrary, Toolbox};
 
 /// Live state for one conversation.
 struct Live {
@@ -106,6 +109,8 @@ pub struct Engine {
     endpoint_lock: Mutex<()>,
     /// Endpoints being deleted: no agent may be moved onto one meanwhile.
     retiring: Mutex<std::collections::HashSet<String>>,
+    /// Routines' timer and settings (ADR 0129, `crate::routines`).
+    routines: crate::routines::Shared,
 }
 
 /// What `starting` says until setup has run long enough to say more.
@@ -120,10 +125,14 @@ impl Engine {
         let handle = EngineHandle::default();
         let adopt = setup.adopt;
         let keychain = setup.keychain;
-        let tools = setup
+        let mut tools = setup
             .tools
             .with_tool(Arc::new(BotsList(handle.clone())))
             .with_tool(Arc::new(BotMessage(handle.clone())));
+        for tool in MemoryTool::all(&handle) {
+            tools = tools.with_tool(tool);
+        }
+        let tools = crate::routines::with_tools(tools, &handle);
         let engine = Arc::new(Self {
             store: setup.store,
             models: setup.models,
@@ -151,6 +160,7 @@ impl Engine {
             starting: Mutex::new(STARTING),
             endpoint_lock: Mutex::default(),
             retiring: Mutex::default(),
+            routines: crate::routines::Shared::default(),
         });
         handle.set(&engine);
         engine.sync_endpoints()?;
@@ -253,9 +263,10 @@ impl Engine {
         let activity = Activity {
             answering: transcript.open_reply().is_some(),
             jobs: transcript.jobs.len(),
-            waiting_on_you: !transcript.awaiting.is_empty(),
+            waiting_on_you: !transcript.awaiting.is_empty() || transcript.asking(),
             state: State::of(&transcript),
             last_message: roster::last_message(&stored),
+            waiting_for: memory::waiting_for(&transcript),
         };
         self.activity
             .lock()
@@ -342,7 +353,7 @@ impl Engine {
         if self.disabled_main(id)? {
             return Err(SendError::Disabled);
         }
-        let message = self.message(text, images)?;
+        let message = memory::with_recall(self, id, self.message(text, images)?);
         self.deliver(id, &message)?;
         Ok(())
     }
@@ -358,6 +369,7 @@ impl Engine {
             context: None,
             images,
             from_agent: None,
+            from_routine: None,
         }))
     }
 
@@ -404,6 +416,9 @@ impl Engine {
         };
         if start {
             self.spawn_turn(id);
+        } else {
+            // A turn waiting on the person (an `ask_user` question) reads the message now.
+            memory::wake_on_message(self, id, event);
         }
         Ok(())
     }

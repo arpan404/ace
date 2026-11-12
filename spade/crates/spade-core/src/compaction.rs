@@ -126,6 +126,10 @@ pub struct Summary {
     pub open: Vec<String>,
     /// Ids, links and file paths still needed.
     pub references: Vec<String>,
+    /// Durable facts worth keeping beyond this conversation, saved as the bot's notes
+    /// (ADR 0128). Missing from a reply that leaves them out.
+    #[serde(default)]
+    pub notes: Vec<String>,
 }
 
 /// The request appended to the conversation's own prompt, so its input is mostly cache reads.
@@ -139,7 +143,10 @@ pub fn request(focus: Option<&str>) -> String {
          Be specific and brief: the goal, decisions made, facts learned with their sources, open \
          questions and next steps, and ids, links and paths still needed.{focus} Do not call any \
          tool. Reply with only a JSON object with the keys goal (a string) and decisions, facts, \
-         open and references (arrays of strings)."
+         open, references and notes (arrays of strings). notes holds what is worth remembering \
+         beyond this conversation: facts about the person, their standing preferences and lasting \
+         decisions, one short self-contained sentence each, leaving out what your notes already \
+         say and anything only this task needs."
     )
 }
 
@@ -272,7 +279,9 @@ pub fn carried_out(events: &[Event], keep_from: usize, registry: &Registry) -> V
             let recorded = started(events, &call.id).flatten();
             let facts =
                 recorded.or_else(|| registry.get(&name).map(|tool| (tool.risk, tool.background)));
-            let Some((_, background)) = facts.filter(|(risk, _)| *risk != Risk::Read) else {
+            let Some((_, background)) =
+                facts.filter(|(risk, _)| !matches!(risk, Risk::Read | Risk::Memory))
+            else {
                 continue;
             };
             if let Some(note) = outcome(events, &call.id, background) {

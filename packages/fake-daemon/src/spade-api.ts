@@ -1,5 +1,7 @@
 import type { FakeSpade, FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
 import { FakeSpadeConnectors } from "./spade-connectors-api.ts";
+import { FakeSpadeNotes } from "./spade-notes.ts";
+import { FakeSpadeRoutines } from "./spade-routines.ts";
 
 /*
  * A stateful stand-in for Spade's local API (ADR 0126, 0127), in Spade's own JSON: agents with
@@ -56,6 +58,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
   mainEnabled = true;
   /** What each endpoint lists live, by endpoint id; a number answers with that status. */
   liveModels = new Map<string, Json[] | number>();
+  /** What the bots remember, their own and the shared ones (ADR 0128). */
+  readonly notes: FakeSpadeNotes;
   /** Every request the app sent, in order. */
   readonly requests: FakeSpadeRequest[] = [];
   /** The person's connected apps and each bot's allow list (ADR 0131). */
@@ -64,10 +68,14 @@ export class FakeSpadeApi implements FakeSpadeServer {
   private sequence = 0;
   private readonly spade: FakeSpade;
   private readonly now: () => number;
+  /** Each bot's routines and heartbeat (ADR 0129). */
+  readonly routines: FakeSpadeRoutines;
 
   constructor(spade: FakeSpade, now: () => number = () => 1_000) {
     this.spade = spade;
     this.now = now;
+    this.notes = new FakeSpadeNotes(now);
+    this.routines = new FakeSpadeRoutines(now);
     spade.serve(this);
   }
 
@@ -107,7 +115,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
   /** The agent's state and its few words, on its row and its live stream. */
   status(agent: FakeSpadeAgent, state: FakeSpadeAgent["state"], status: string | null): void {
     agent.state = state;
-    agent.waiting_for = state === "waiting" ? "approval" : null;
+    agent.waiting_for = state === "waiting" ? (agent.waiting_for ?? "approval") : null;
     agent.status = status;
     this.spade.emit(`/v1/conversations/${agent.conversation}/live`, "status", { state, status });
   }
@@ -144,6 +152,31 @@ export class FakeSpadeApi implements FakeSpadeServer {
       ...(args === undefined ? {} : { arguments: args }),
     });
     this.status(agent, "waiting", "Waiting for you");
+  }
+
+  /** A reply that opens and asks the person a question (`ask_user`), then waits. */
+  question(agent: FakeSpadeAgent, callId: string, question: string, id = `r${++this.sequence}`) {
+    this.store(agent.conversation, { type: "reply_started", reply: id });
+    this.store(agent.conversation, {
+      type: "step_finished",
+      reply: id,
+      text: "",
+      calls: [{ id: callId, name: "ask_user", arguments: { question } }],
+    });
+    this.store(agent.conversation, {
+      type: "tool_started",
+      reply: id,
+      call_id: callId,
+      name: "ask_user",
+    });
+    this.store(agent.conversation, {
+      type: "question_asked",
+      reply: id,
+      call_id: callId,
+      question,
+    });
+    agent.waiting_for = "question";
+    this.status(agent, "waiting", null);
   }
 
   /** The bodies the app sent to `method path`, parsed. */
@@ -183,7 +216,15 @@ export class FakeSpadeApi implements FakeSpadeServer {
       if (!agent) return problem(404, "No such agent.");
       return this.connectors.agentRoute(request.method, id, agent.kind === "main", body);
     }
+    if (root === "notes") return this.notes.route(request.method, null, id, body, sub);
+    if (root === "agents" && id && sub === "notes")
+      return this.agents.some((agent) => agent.id === id)
+        ? this.notes.route(request.method, id, undefined, body)
+        : problem(404, "No such agent.");
+    if (root === "agents" && id && (sub === "routines" || sub === "heartbeat"))
+      return this.routines.agentRoute(request.method, id, sub, body);
     if (root === "agents") return this.agentRoute(request.method, id, body);
+    if (root === "routines" && id) return this.routines.route(request.method, id, sub, body);
     if (root === "connectors") return this.connectors.route(request.method, id, sub, body);
     if (root === "models" && request.method === "GET")
       return reply({
@@ -251,6 +292,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (method === "DELETE") {
       if (agent.kind === "main") return problem(409, "Spade can't be deleted.");
       this.agents = this.agents.filter((candidate) => candidate !== agent);
+      this.notes.forget(agent.id);
       return { status: 204 };
     }
     return problem(405, "Not allowed.");

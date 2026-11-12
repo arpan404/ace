@@ -67,6 +67,7 @@ fn a_second_compaction_only_cuts_after_the_first() {
         keep_from: 28,
         tokens_before: 8_000,
         images_left_out: None,
+        untrusted: false,
     }));
     events.extend((10..12).flat_map(|n| turn(n, 50)));
     let second = plan(&events, 8_000, 10_000)
@@ -89,6 +90,7 @@ fn the_model_sees_the_summary_then_the_kept_turns_with_the_top_unchanged() {
         keep_from: 8,
         tokens_before: 5_000,
         images_left_out: None,
+        untrusted: false,
     }));
     let after = context::prompt(context::SYSTEM, tools, &events);
 
@@ -192,6 +194,7 @@ fn completed_writes_are_listed_with_ids_and_arguments_and_reads_and_failures_are
             facts: vec![],
             open: vec![],
             references: vec![],
+            notes: vec![],
         },
         &carried_out(&events, events.len(), &registry),
     );
@@ -359,6 +362,7 @@ fn right_after_a_compaction_the_old_prompt_size_does_not_compact_again() {
         keep_from: first.unwrap_or(0),
         tokens_before: 8_000,
         images_left_out: None,
+        untrusted: false,
     }));
     assert_eq!(
         plan(&events, 8_000, 10_000),

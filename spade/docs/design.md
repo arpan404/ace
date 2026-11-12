@@ -60,7 +60,7 @@ matter; the encrypted channel and grants matter when Spade reaches a daemon from
 | `spade-ace`      | Talks to the ace daemon: locally first, through the relay for a hosted Spade                                                                                       | planned               |
 | `spade-mcp`      | MCP client over streamable HTTP (`rmcp`), shared by ace's tools and connectors                                                                                     | built                 |
 | `spade-connect`  | Connector catalogue, OAuth sign-in, sessions and per-bot access ([connectors.md](connectors.md))                                                                   | built                 |
-| `spade-memory`   | Memory storage and search                                                                                                                                          | planned               |
+| `spade-memory`   | Memory storage and search: built in `spade-core` (`memory`) and `spade-store` (`notes`) instead, see [memory.md](memory.md)                                        | built                 |
 
 Rules carried over from ace: pure core with a thin I/O shell; clocks, ids, randomness and
 network endpoints are injected; outside data is parsed before use; tests assert behaviour

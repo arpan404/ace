@@ -117,11 +117,10 @@ fields in a body are ignored. Times are integer milliseconds since the epoch.
   `{"kind":"generated","initials","color"}` with colour one of slate, red, orange, amber, green,
   teal, blue, indigo, violet, pink, or `{"kind":"spade"}`.
 - `state`: `idle`, `working` (a reply is open or a background job runs) or `waiting` (an approval
-  waits for the person). `working` is `state != "idle"`, kept for clients built on the first
+  or a question waits for the person). `working` is `state != "idle"`, kept for clients built on the first
   draft of this contract.
-- `waiting_for`: `"approval"` while `state` is `waiting`, else `null`. `"question"` is reserved
-  for when Spade has a tool that asks the person a question; none exists yet, so only approvals
-  wait today.
+- `waiting_for`: while `state` is `waiting`, `"question"` when the agent asked the person with
+  `ask_user` (see [memory.md](memory.md)), else `"approval"`; `null` otherwise.
 - `status`: a few plain words while not idle (`Thinking`, `Searching the web`, `Reading a page`,
   `Asking Research`, `Waiting for you`, `Working in the background`, `Using <tool>`); never
   arguments; `null` when idle.

@@ -11,15 +11,17 @@ import { AddEndpointDialog } from "./spade-add-endpoint.tsx";
 import { ConnectorSettings } from "./spade-connector-settings.tsx";
 import { setFastModel } from "./spade-api.ts";
 import { EndpointSection } from "./spade-endpoint-settings.tsx";
+import { SpadeNotes } from "./spade-notes.tsx";
 import { useSpadeEnabled } from "./use-spade-enabled.ts";
 import { modelsKey, useSpadeModels } from "./use-spade-models.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
 
 /**
- * Settings › Spade: on or off and its state; the fast model; then each of the person's model
- * endpoints (its key, its saved models, removing it) and Add endpoint, from a preset or custom;
- * then the apps Spade is connected to (ADR 0131).
+ * Settings › Spade: on or off and its state; the fast model; About you, the notes every bot
+ * sees (ADR 0128); then each of the person's model endpoints (its key, its saved models,
+ * removing it) and Add endpoint, from a preset or custom; then the apps Spade is connected to
+ * (ADR 0131).
  */
 export function SpadeSettings() {
   const id = useId();
@@ -47,6 +49,15 @@ export function SpadeSettings() {
         </SettingRow>
         {models.data && <FastModelRow models={models.data} />}
       </SettingSection>
+      {line.ready && (
+        <SettingSection label="About you" anchor="about-you">
+          <SpadeNotes
+            scope={{ kind: "shared" }}
+            label="About you"
+            placeholder="Add something about you"
+          />
+        </SettingSection>
+      )}
       {line.ready &&
         (models.isPending ? (
           <ListSkeleton label="endpoints" shape="row" rows={2} />

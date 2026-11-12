@@ -2694,6 +2694,7 @@ dependencies = [
 name = "spade-core"
 version = "0.1.0"
 dependencies = [
+ "jiff",
  "schemars 1.2.3",
  "serde",
  "serde_json",
@@ -2784,6 +2785,7 @@ dependencies = [
  "chrono",
  "futures-util",
  "hmac",
+ "jiff",
  "keyring-core",
  "reqwest",
  "rmcp",
@@ -2805,6 +2807,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-stream",
+ "tokio-tungstenite",
  "tokio-util",
  "tower",
  "tracing",

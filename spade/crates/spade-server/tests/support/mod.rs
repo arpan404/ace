@@ -15,7 +15,7 @@ use spade_core::tools::{Risk, ToolDef};
 use spade_keys::{KeyStore, Keys};
 use spade_models::{Catalog, Models, ToolSpec};
 use spade_server::api::AppState;
-use spade_server::clock::{CountingIds, SystemClock};
+use spade_server::clock::{Clock, CountingIds, Ids, SystemClock};
 use spade_server::engine::{Engine, Limits, Setup};
 use spade_server::tools::{
     AceLink, AceTarget, Retry, SkillLibrary, Tool, ToolFuture, ToolOutput, ToolSource, Toolbox,
@@ -158,6 +158,30 @@ pub struct Options {
     pub seed: Option<fn(&Store) -> spade_store::Result<()>>,
     /// Sets up connectors (ADR 0131), with the mock keychain.
     pub connectors: bool,
+    /// The engine's clock; the machine's when absent.
+    pub clock: Option<Arc<dyn Clock>>,
+    /// The engine's ids; counting from 1 when absent.
+    pub ids: Option<Arc<dyn Ids>>,
+}
+
+/// A clock a test sets by hand.
+#[derive(Default)]
+pub struct ManualClock(std::sync::atomic::AtomicI64);
+
+impl ManualClock {
+    pub fn at(ms: i64) -> Arc<Self> {
+        Arc::new(Self(std::sync::atomic::AtomicI64::new(ms)))
+    }
+
+    pub fn set(&self, ms: i64) {
+        self.0.store(ms, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl Clock for ManualClock {
+    fn now_ms(&self) -> i64 {
+        self.0.load(std::sync::atomic::Ordering::SeqCst)
+    }
 }
 
 /// A keychain prompt: reads wait until [`Gate::open`]. A gated delete can also be made to panic
@@ -215,6 +239,8 @@ impl Default for Options {
             keychain_delete_gate: None,
             keychain_gate_for: None,
             connectors: false,
+            clock: None,
+            ids: None,
         }
     }
 }
@@ -369,8 +395,14 @@ impl Spade {
             store,
             models,
             tools,
-            clock: Arc::new(SystemClock),
-            ids: Arc::new(CountingIds::default()),
+            clock: options
+                .clock
+                .clone()
+                .unwrap_or_else(|| Arc::new(SystemClock)),
+            ids: options
+                .ids
+                .clone()
+                .unwrap_or_else(|| Arc::new(CountingIds::default())),
             daily_cap_micros: spade_core::spending::usd_to_micros(options.cap_usd),
             utc_offset_seconds: 0,
             limits: options.limits,
@@ -430,6 +462,21 @@ impl Spade {
         let _ = (&mut self.task).await;
         let fake = FakeProvider::start_sequence(scripts).await?;
         Self::serve(fake, self.dir.clone(), tools, Options::default()).await
+    }
+
+    /// Like `restart`, with `options` for the new server.
+    pub async fn restart_with(
+        mut self,
+        tools: Vec<Arc<dyn Tool>>,
+        scripts: Vec<Script>,
+        options: Options,
+    ) -> Result<Self> {
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
+        let _ = (&mut self.task).await;
+        let fake = FakeProvider::start_sequence(scripts).await?;
+        Self::serve(fake, self.dir.clone(), tools, options).await
     }
 
     /// Stops this server as SIGTERM does (open turns pause, a running model step gets

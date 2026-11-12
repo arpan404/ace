@@ -8,12 +8,15 @@ pub enum Decision {
     Ask,
 }
 
-/// Reads run. Destructive calls always ask. A write asks unless the person chose "always" for
+/// Reads run, and so do changes to the bot's own notes unless the turn read untrusted content.
+/// Destructive calls always ask. A write asks unless the person chose "always" for
 /// that tool, and always asks in a turn that has read untrusted content (a web page or an email
 /// may carry instructions written to trick Spade).
 pub fn decide(risk: Risk, always_allowed: bool, untrusted_turn: bool) -> Decision {
     match risk {
         Risk::Read => Decision::Run,
+        Risk::Memory if untrusted_turn => Decision::Ask,
+        Risk::Memory => Decision::Run,
         Risk::Destructive => Decision::Ask,
         Risk::Write if untrusted_turn => Decision::Ask,
         Risk::Write if always_allowed => Decision::Run,
@@ -34,6 +37,8 @@ mod tests {
             (Risk::Write, true, false, Decision::Run),
             (Risk::Write, true, true, Decision::Ask),
             (Risk::Destructive, true, false, Decision::Ask),
+            (Risk::Memory, false, false, Decision::Run),
+            (Risk::Memory, true, true, Decision::Ask),
         ];
         for (risk, always, untrusted, expected) in cases {
             assert_eq!(

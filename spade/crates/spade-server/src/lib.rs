@@ -8,6 +8,7 @@ pub mod home;
 pub mod images;
 pub mod presets;
 pub mod proof;
+pub mod routines;
 pub mod startup;
 pub mod tools;
 
