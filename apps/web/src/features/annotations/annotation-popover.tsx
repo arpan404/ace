@@ -1,48 +1,70 @@
 import { ImageIcon, PencilSimpleIcon, TrashIcon } from "@phosphor-icons/react";
+import type { RefObject } from "react";
 import { ImageUrl } from "@/components/attachment-bytes.tsx";
 import type { ImageSource } from "@/components/attachment-format.ts";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
+import { Popover, PopoverContent } from "@/components/ui/popover.tsx";
+import { useOpenAfterMount } from "@/lib/pending-open.tsx";
 import { changeSummary } from "./annotation-words.ts";
-import { ChipFace } from "./chip-face.tsx";
 import type { AnnotationItem, DraftAnnotationsState } from "./draft-annotations.ts";
 import { MarkerNumber, TagBadge } from "./marker.tsx";
 import { badgeFor, regionContents } from "./region-summary.ts";
 import type { AnnotationSessionPort } from "./store.ts";
 
 /**
- * The annotation chip with its list: its count opens a popover of the draft's annotations (crop,
- * element, page text, comment) where each can be reopened in the page or removed. Loaded once a
- * draft holds annotations (`annotation-chip.tsx`), warmed while idle with the composer's parts.
+ * The annotation chip's list, as a popover from its count (`annotation-chip.tsx`): each
+ * annotation's crop, element, page text and comment, to reopen in the page or remove. Loaded on
+ * the chip's first open, warmed while idle with the composer's parts. It mounts closed and opens
+ * before the first paint, so it plays its opening transition.
  */
-export function AnnotationChipPopover(props: {
+export function AnnotationList(props: {
   threadId: string | undefined;
   annotations: DraftAnnotationsState;
   session: AnnotationSessionPort | undefined;
-  label: string;
-  onClear(): void;
+  open: boolean;
+  onOpenChange(open: boolean): void;
+  /** The chip's count: the list's anchor, and where focus returns when it closes. */
+  anchor: RefObject<HTMLButtonElement | null>;
+  popup: string;
 }) {
-  const { annotations, session } = props;
+  const { annotations, session, anchor } = props;
+  const { mounted, open } = useOpenAfterMount(props.open);
   const remove = (id: string) => {
     annotations.remove(id);
     session?.remove(id);
   };
   return (
-    <Popover>
-      <ChipFace label={props.label} onClear={props.onClear} trigger={PopoverTrigger} />
-      <PopoverContent side="top" align="start" className="w-[min(22rem,calc(100vw-2rem))] p-1">
-        <ul aria-label="Annotations" className="max-h-80 overflow-y-auto">
-          {annotations.items.map((item) => (
-            <Row
-              key={item.annotation.id}
-              item={item}
-              threadId={props.threadId}
-              session={session}
-              onRemove={remove}
-            />
-          ))}
-        </ul>
-      </PopoverContent>
+    <Popover
+      open={open}
+      onOpenChange={(next, details) => {
+        // A press on the count toggles; the popover's own outside press must not undo it.
+        const target = details.event?.target;
+        if (!next && target instanceof Node && anchor.current?.contains(target)) return;
+        props.onOpenChange(next);
+      }}
+    >
+      {mounted && (
+        <PopoverContent
+          id={props.popup}
+          anchor={anchor}
+          finalFocus={anchor}
+          side="top"
+          align="start"
+          className="w-[min(22rem,calc(100vw-2rem))] p-1"
+        >
+          <ul aria-label="Annotations" className="max-h-80 overflow-y-auto">
+            {annotations.items.map((item) => (
+              <Row
+                key={item.annotation.id}
+                item={item}
+                threadId={props.threadId}
+                session={session}
+                onRemove={remove}
+              />
+            ))}
+          </ul>
+        </PopoverContent>
+      )}
     </Popover>
   );
 }
