@@ -13,6 +13,7 @@ import { EditBotDialog } from "./spade-bot-dialog.tsx";
 import { SpadeChat, type ChatBot } from "./spade-chat.tsx";
 import { SpadeComposer } from "./spade-composer.tsx";
 import { SpadeFace } from "./spade-face.tsx";
+import { SpadeFiles } from "./spade-files.tsx";
 import { SpadeKeySetup } from "./spade-key-setup.tsx";
 import { SpadeMachineScope, spadeMachineKey } from "./spade-machine.tsx";
 import { SpadeStateStrip } from "./spade-state.tsx";
@@ -20,6 +21,7 @@ import { useDeleteBot } from "./use-bot-actions.ts";
 import { useSpadeConversation } from "./use-spade-conversation.ts";
 import { useSpadeEnabled } from "./use-spade-enabled.ts";
 import { useSpadeRoster, type RosterBot } from "./use-spade-roster.ts";
+import { useSkillProposals } from "./use-skill-proposals.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
 
 /** Spade's state line on this window's machine. */
@@ -99,8 +101,15 @@ export function SpadeHomeScreen() {
   );
 }
 
-/** `/spade/<agent id>` (with `on` when the bot runs on another machine): its conversation. */
-export function SpadeAgentScreen(props: { agentId: string; machine: string | undefined }) {
+/**
+ * `/spade/<agent id>` (with `on` when the bot runs on another machine): its conversation, or with
+ * `files` its files.
+ */
+export function SpadeAgentScreen(props: {
+  agentId: string;
+  machine: string | undefined;
+  files?: string | undefined;
+}) {
   const line = useSpadeLine();
   const roster = useSpadeRoster(line.ready);
   const machines = useMachines();
@@ -154,26 +163,64 @@ export function SpadeAgentScreen(props: { agentId: string; machine: string | und
         </BotScreen>
       }
     >
-      <Conversation key={`${bot.machine.key}/${bot.id}`} bot={bot} roster={roster.bots} />
+      {props.files === undefined ? (
+        <Conversation key={`${bot.machine.key}/${bot.id}`} bot={bot} roster={roster.bots} />
+      ) : (
+        <BotScreen bot={bot} files>
+          <FilesOf bot={bot} folder={props.files === "." ? "" : props.files} />
+        </BotScreen>
+      )}
     </SpadeMachineScope>
   );
 }
 
-/** The screen's frame for one bot: its face and name in the top bar, Edit and Delete in ⋯. */
-function BotScreen(props: { bot: RosterBot; children: ReactNode }) {
+/** Where a bot's screen goes: its conversation, or a folder of its files. */
+function useOpenBot(bot: RosterBot) {
+  const navigate = useNavigate();
+  return (files: string | undefined) =>
+    void navigate({
+      to: "/spade/$agentId",
+      params: { agentId: bot.id },
+      search: {
+        ...(bot.machine.primary ? {} : { on: bot.machine.key }),
+        ...(files === undefined ? {} : { files: files || "." }),
+      },
+    });
+}
+
+function FilesOf(props: { bot: RosterBot; folder: string }) {
+  const openBot = useOpenBot(props.bot);
+  return (
+    <div className="h-full min-h-0 overflow-y-auto [scrollbar-gutter:stable_both-edges]">
+      <SpadeFiles bot={props.bot} folder={props.folder} onFolder={openBot} />
+    </div>
+  );
+}
+
+/**
+ * The screen's frame for one bot: its face and name in the top bar; Files (or Conversation, on
+ * its files), Edit and Delete in ⋯.
+ */
+function BotScreen(props: { bot: RosterBot; files?: boolean; children: ReactNode }) {
   const { bot } = props;
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState<Confirming>();
   const remove = useDeleteBot();
   const navigate = useNavigate();
+  const openBot = useOpenBot(bot);
   const main = bot.kind === "main";
   return (
     <Screen
-      title={bot.name}
+      title={props.files ? `${bot.name} · Files` : bot.name}
       mark={<SpadeFace avatar={bot.avatar} size={20} />}
       menu={
         bot.away || bot.unavailable ? undefined : (
           <>
+            {props.files ? (
+              <MenuItem onClick={() => openBot(undefined)}>Conversation</MenuItem>
+            ) : (
+              <MenuItem onClick={() => openBot("")}>Files</MenuItem>
+            )}
             <MenuItem onClick={() => setEditing(true)}>{main ? "Edit Spade" : "Edit bot"}</MenuItem>
             {!main && (
               <MenuItem
@@ -210,6 +257,7 @@ function Conversation(props: { bot: RosterBot; roster: readonly RosterBot[] }) {
   const { view, problem } = conversation;
   const line = spadeStateLine(useSpadeStatus(), true);
   const toast = useToast();
+  const skills = useSkillProposals(bot.id, view);
   const [stopping, setStopping] = useState(false);
   // Stopping lasts until nothing is open: the reply and its background jobs.
   if (stopping && !view.busy) setStopping(false);
@@ -251,8 +299,21 @@ function Conversation(props: { bot: RosterBot; roster: readonly RosterBot[] }) {
               view={view}
               stopping={stopping}
               onStop={stop}
-              onAnswer={(callId, allowed) =>
-                conversation.answer(callId, allowed, false).then(
+              proposals={skills.proposals}
+              onProposal={(id, save) =>
+                skills.answer(id, save).then(
+                  () => true,
+                  (error: unknown) => {
+                    toast.error({
+                      title: save ? "Couldn't save the skill" : "Couldn't discard the skill",
+                      description: message(error),
+                    });
+                    return false;
+                  },
+                )
+              }
+              onAnswer={(callId, allowed, always) =>
+                conversation.answer(callId, allowed, always).then(
                   () => true,
                   (error: unknown) => {
                     toast.error({

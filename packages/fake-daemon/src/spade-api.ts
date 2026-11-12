@@ -55,6 +55,10 @@ export class FakeSpadeApi implements FakeSpadeServer {
   mainEnabled = true;
   /** What each endpoint lists live, by endpoint id; a number answers with that status. */
   liveModels = new Map<string, Json[] | number>();
+  /** Each agent's workspace files (ADR 0130), by path relative to it; folders are implied. */
+  files = new Map<string, Record<string, string>>();
+  /** Each agent's skill proposals, in Spade's JSON. */
+  proposals = new Map<string, Json[]>();
   /** Every request the app sent, in order. */
   readonly requests: FakeSpadeRequest[] = [];
   private readonly events = new Map<string, Stored[]>();
@@ -175,6 +179,10 @@ export class FakeSpadeApi implements FakeSpadeServer {
     const parts = path.split("/").slice(2).map(decodeURIComponent);
     const body = request.body ? (JSON.parse(request.body) as Json) : {};
     const [root, id, sub, subId] = parts;
+    if (root === "agents" && id && sub === "workspace")
+      return this.workspaceRoute(request.method, id, subId, new URLSearchParams(query));
+    if (root === "agents" && id && sub === "skill-proposals")
+      return this.proposalRoute(request.method, id, subId, body);
     if (root === "agents") return this.agentRoute(request.method, id, body);
     if (root === "models" && request.method === "GET")
       return reply({
@@ -245,6 +253,64 @@ export class FakeSpadeApi implements FakeSpadeServer {
       return { status: 204 };
     }
     return problem(405, "Not allowed.");
+  }
+
+  private workspaceRoute(
+    method: string,
+    agent: string,
+    view: string | undefined,
+    query: URLSearchParams,
+  ): FakeSpadeAnswer {
+    const files = this.files.get(agent) ?? {};
+    const path = query.get("path") ?? "";
+    if (path.startsWith("/") || path.split("/").includes(".."))
+      return problem(400, "paths may not use `..`");
+    if (method === "DELETE") {
+      if (!path) return problem(422, "the workspace itself cannot be deleted");
+      for (const name of Object.keys(files))
+        if (name === path || name.startsWith(`${path}/`)) delete files[name];
+      return { status: 204 };
+    }
+    if (view === "file") {
+      const text = files[path];
+      if (text === undefined) return problem(404, `${path} does not exist`);
+      return reply({ path, size: text.length, text, unreadable: null });
+    }
+    const prefix = path ? `${path}/` : "";
+    const entries = new Map<string, Json>();
+    for (const [name, text] of Object.entries(files)) {
+      if (!name.startsWith(prefix)) continue;
+      const [first = "", ...rest] = name.slice(prefix.length).split("/");
+      const folder = rest.length > 0;
+      entries.set(first, {
+        name: first,
+        path: `${prefix}${first}`,
+        kind: folder ? "folder" : "file",
+        size: folder ? 0 : text.length,
+        modified_at: null,
+      });
+    }
+    const list = [...entries.values()].toSorted(
+      (a, b) =>
+        Number(a.kind !== "folder") - Number(b.kind !== "folder") ||
+        String(a.name).localeCompare(String(b.name)),
+    );
+    return reply({ path, entries: list, truncated: false });
+  }
+
+  private proposalRoute(
+    method: string,
+    agent: string,
+    id: string | undefined,
+    body: Json,
+  ): FakeSpadeAnswer {
+    const list = this.proposals.get(agent) ?? [];
+    if (!id && method === "GET") return reply({ proposals: list });
+    const proposal = list.find((candidate) => candidate.id === id);
+    if (!proposal) return problem(404, "no such proposal");
+    if (proposal.state !== "open") return problem(409, "this proposal was already answered");
+    proposal.state = body.save === true ? "saved" : "discarded";
+    return reply({ proposal });
   }
 
   private endpointRoute(

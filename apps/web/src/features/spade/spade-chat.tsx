@@ -2,9 +2,11 @@ import { initials } from "@ace/ui-core";
 import {
   spadeApprovalSentence,
   spadeBubbles,
+  withProposals,
   type SpadeAvatar,
-  type SpadeBubble,
+  type SpadeChatItem,
   type SpadeImageRef,
+  type SpadeProposal,
   type SpadeView,
 } from "@ace/ui-core/spade-chat";
 import { memo, useEffect, useState } from "react";
@@ -12,6 +14,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
 import { SpadeFace } from "./spade-face.tsx";
+import { SkillProposal } from "./spade-skill-bubble.tsx";
 import { holdSpadePicture } from "./spade-images.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
 
@@ -32,7 +35,8 @@ const faceRoom = "w-7 shrink-0";
  * A bot's conversation as a chat (ADR 0127): the person's bubbles on the right on the active
  * fill, the bot's on the left with its face beside the last bubble of each run, messages other
  * bots sent here under their name and face. Nothing of how the bot works shows: no tool calls,
- * jobs or compaction. An approval arrives as the bot's bubble with Allow and Deny. While the bot
+ * jobs or compaction. An approval arrives as the bot's bubble with Allow and Deny, and a skill the
+ * bot offers as one with Save and Discard (ADR 0130), after the reply that made it. While the bot
  * works, one line under its last bubble: its face with moving eyes, its few words, and Stop.
  */
 export function SpadeChat(props: {
@@ -40,10 +44,12 @@ export function SpadeChat(props: {
   view: SpadeView;
   stopping: boolean;
   onStop(): void;
-  onAnswer(callId: string, allowed: boolean): Promise<boolean>;
+  onAnswer(callId: string, allowed: boolean, always: boolean): Promise<boolean>;
+  proposals?: readonly SpadeProposal[];
+  onProposal?(id: string, save: boolean): Promise<boolean>;
 }) {
   const { view, bot } = props;
-  const bubbles = spadeBubbles(view);
+  const bubbles = withProposals(spadeBubbles(view), view.entries, props.proposals ?? []);
   // Busy: anything open. Stop stays while it is, waiting on the person too; the face moves only
   // while the bot works itself.
   const busy = view.busy;
@@ -61,7 +67,14 @@ export function SpadeChat(props: {
         const lastOfRun =
           !(next && botSide(next) && botSide(item)) && !(busy && index === bubbles.length - 1);
         return (
-          <Bubble key={item.key} item={item} bot={bot} face={lastOfRun} onAnswer={props.onAnswer} />
+          <Bubble
+            key={item.key}
+            item={item}
+            bot={bot}
+            face={lastOfRun}
+            onAnswer={props.onAnswer}
+            onProposal={props.onProposal}
+          />
         );
       })}
       {busy && (
@@ -85,13 +98,18 @@ export function SpadeChat(props: {
   );
 }
 
-const botSide = (item: SpadeBubble) => item.kind === "bot" || item.kind === "ask";
+const botSide = (item: SpadeChatItem) =>
+  item.kind === "bot" || item.kind === "ask" || item.kind === "skill";
+
+/** Commands that ask can be allowed for the bot from then on. */
+const offersAlways = new Set(["shell"]);
 
 const Bubble = memo(function Bubble(props: {
-  item: SpadeBubble;
+  item: SpadeChatItem;
   bot: ChatBot;
   face: boolean;
-  onAnswer(callId: string, allowed: boolean): Promise<boolean>;
+  onAnswer(callId: string, allowed: boolean, always: boolean): Promise<boolean>;
+  onProposal: ((id: string, save: boolean) => Promise<boolean>) | undefined;
 }) {
   const { item, bot } = props;
   switch (item.kind) {
@@ -154,10 +172,24 @@ const Bubble = memo(function Bubble(props: {
           <Ask
             sentence={spadeApprovalSentence(item.name, bot.name)}
             details={item.arguments}
-            onAnswer={(allowed) => props.onAnswer(item.callId, allowed)}
+            always={offersAlways.has(item.name)}
+            onAnswer={(allowed, always) => props.onAnswer(item.callId, allowed, always)}
           />
         </BotRow>
       );
+    case "skill": {
+      const answer = props.onProposal;
+      return (
+        <BotRow bot={bot} face={props.face}>
+          <SkillProposal
+            proposal={item.proposal}
+            botName={bot.name}
+            className={botBubble}
+            onAnswer={(save) => (answer ? answer(item.proposal.id, save) : Promise.resolve(false))}
+          />
+        </BotRow>
+      );
+    }
   }
 });
 
@@ -174,18 +206,22 @@ function BotRow(props: { bot: ChatBot; face: boolean; children: React.ReactNode 
   );
 }
 
-/** The bot asks to use a tool: its sentence, then Allow, Deny and Details (what the call would do). */
+/**
+ * The bot asks to use a tool: its sentence, then Allow, Deny and Details (what the call would
+ * do); with `always`, also Always (allow this tool for the bot from now on).
+ */
 function Ask(props: {
   sentence: string;
   details: unknown;
-  onAnswer(allowed: boolean): Promise<boolean>;
+  always: boolean;
+  onAnswer(allowed: boolean, always: boolean): Promise<boolean>;
 }) {
-  const [answering, setAnswering] = useState<boolean>();
+  const [answering, setAnswering] = useState<"allow" | "deny" | "always">();
   const [open, setOpen] = useState(false);
   const details = callDetails(props.details);
-  const answer = (allowed: boolean) => {
-    setAnswering(allowed);
-    void props.onAnswer(allowed).then((sent) => {
+  const answer = (choice: "allow" | "deny" | "always") => {
+    setAnswering(choice);
+    void props.onAnswer(choice !== "deny", choice === "always").then((sent) => {
       if (!sent) setAnswering(undefined);
     });
   };
@@ -205,17 +241,27 @@ function Ask(props: {
           size="xs"
           variant="ghost"
           disabled={answering !== undefined}
-          onClick={() => answer(true)}
+          onClick={() => answer("allow")}
         >
-          {answering === true ? "Allowing…" : "Allow"}
+          {answering === "allow" ? "Allowing…" : "Allow"}
         </Button>
+        {props.always && (
+          <Button
+            size="xs"
+            variant="ghost"
+            disabled={answering !== undefined}
+            onClick={() => answer("always")}
+          >
+            {answering === "always" ? "Allowing…" : "Always"}
+          </Button>
+        )}
         <Button
           size="xs"
           variant="ghost"
           disabled={answering !== undefined}
-          onClick={() => answer(false)}
+          onClick={() => answer("deny")}
         >
-          {answering === false ? "Denying…" : "Deny"}
+          {answering === "deny" ? "Denying…" : "Deny"}
         </Button>
         {details && (
           <Button
