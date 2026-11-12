@@ -5,7 +5,15 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { MachineCodePrompt } from "@/features/ace-account/index.ts";
 import { useMachinePool } from "@/lib/machine-pool.ts";
 import type { Machine } from "@/lib/machines.ts";
-import type { FleetDevice, MapFix, MapNode } from "@ace/ui-core/fleet-map";
+import {
+  fixLabel,
+  fixWords,
+  nodeFixes,
+  signInHint,
+  type FleetDevice,
+  type MapFix,
+  type MapNode,
+} from "@ace/ui-core/fleet-map";
 import { settingKeys } from "./data/setting-keys.ts";
 import type { FleetMapData } from "./data/use-fleet-map.ts";
 import { useSettingControl } from "./data/use-settings.ts";
@@ -19,18 +27,6 @@ import { useMachineAction } from "./machine-unlock.tsx";
  * code prompt, the network settings, reconnecting, removing or forgetting, and what signing in
  * on a paired device gives. The first is the primary one.
  */
-
-const words: Record<MapFix, string> = {
-  enterCode: "Enter code",
-  openAccount: "Try again",
-  turnOnLan: "Turn on local network",
-  turnOnRemote: "Turn on remote access",
-  reconnect: "Try again",
-  removeMachine: "Remove",
-  forgetMachine: "Forget",
-  removeDevice: "Remove",
-  askSignIn: "Ask it to sign in",
-};
 
 function FixButton(props: {
   fix: MapFix;
@@ -46,7 +42,7 @@ function FixButton(props: {
       disabled={props.disabled}
       onClick={props.onClick}
     >
-      {props.label ?? words[props.fix]}
+      {props.label ?? fixWords[props.fix]}
     </Button>
   );
 }
@@ -81,8 +77,7 @@ function SignInFix(props: { name: string; first: boolean }) {
   const [shown, setShown] = useState(false);
   return shown ? (
     <p role="status" className="basis-full text-xs leading-5 text-muted-foreground">
-      Open app.acehq.dev on {props.name} and sign in with your ace account. It then reaches every
-      machine from anywhere, with no code.
+      {signInHint(props.name)}
     </p>
   ) : (
     <FixButton fix="askSignIn" first={props.first} onClick={() => setShown(true)} />
@@ -136,7 +131,7 @@ function AccountFixes(props: { node: MapNode; data: FleetMapData; openings: Acco
   const [confirming, setConfirming] = useState<Confirming>();
   const toast = useToast();
   if (!machine) return null;
-  const fixes = node.problem?.fixes ?? (node.offer ? [node.offer] : []);
+  const fixes = nodeFixes(node);
   const state = openings.state(node.id);
   const prompt = connection && state?.kind === "asking" && asking && (
     <div className="mt-2.5">
@@ -160,7 +155,7 @@ function AccountFixes(props: { node: MapNode; data: FleetMapData; openings: Acco
             key={fix}
             fix={fix}
             first={index === 0}
-            label={node.problem ? undefined : "Open"}
+            label={fixLabel(node, fix)}
             disabled={!openings.available || openings.openings.get(node.id)?.kind === "connecting"}
             onClick={() => openings.open(machine)}
           />

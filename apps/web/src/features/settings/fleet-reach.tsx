@@ -11,8 +11,12 @@ import {
   useThisMachineAccount,
 } from "@/features/ace-account/index.ts";
 import type { Machine } from "@/lib/machines.ts";
-import { accountLine, directLine, type DirectNetwork } from "@ace/ui-core/fleet-map";
-import { listNames } from "@ace/ui-core";
+import {
+  accountLine,
+  directLine,
+  networkOffQuestion,
+  type DirectNetwork,
+} from "@ace/ui-core/fleet-map";
 import { settingKeys } from "./data/setting-keys.ts";
 import { useRemoteStatus, useSettingControl } from "./data/use-settings.ts";
 import { useMachineAccountAccess } from "./machine-account.tsx";
@@ -68,16 +72,15 @@ export function ReachRows(props: {
               key={row.network}
               {...row}
               live={networks?.[row.network]}
-              onRisky={(run) =>
-                props.dependents.length
-                  ? setRisky({
-                      title: `Turn off ${row.label} on ${where}?`,
-                      body: `${listNames(props.dependents)} may disconnect until they can reach ${where} another way.`,
-                      confirm: "Turn off",
-                      run,
-                    })
-                  : run()
-              }
+              onRisky={(run) => {
+                const question = networkOffQuestion({
+                  network: row.label,
+                  where,
+                  dependents: props.dependents,
+                });
+                if (question) setRisky({ ...question, run });
+                else run();
+              }}
             />
           ))}
         </>

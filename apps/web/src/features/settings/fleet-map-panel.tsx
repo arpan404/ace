@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { primaryMachineId } from "@/lib/machines.ts";
 import { cn } from "@/lib/cn.ts";
-import type { FleetMap, MapNode, MapTone } from "@ace/ui-core/fleet-map";
+import { nodeStateWords, type FleetMap, type MapNode, type MapTone } from "@ace/ui-core/fleet-map";
 import type { FleetMapData } from "./data/use-fleet-map.ts";
 import { MapFixes } from "./fleet-map-fixes.tsx";
 import type { AccountOpenings } from "./fleet-map-openings.ts";
@@ -18,15 +18,6 @@ const dot: Record<MapTone, string> = {
   bad: "bg-status-failed",
   unknown: "bg-subtle-foreground opacity-50",
 };
-
-const stateWords = (node: MapNode) =>
-  node.tone === "on"
-    ? "Connected"
-    : node.tone === "warn"
-      ? "Needs you"
-      : node.tone === "bad"
-        ? "Can't connect"
-        : node.status;
 
 function ToneDot(props: { tone: MapTone }) {
   return (
@@ -46,7 +37,7 @@ export function MapPanel(props: { node: MapNode; data: FleetMapData; openings: A
       <h3 className="text-base font-semibold">{node.name}</h3>
       <span className="mt-1 inline-flex items-center gap-1.5 text-xs text-muted-foreground">
         <ToneDot tone={node.tone} />
-        {stateWords(node)}
+        {nodeStateWords(node)}
       </span>
       <dl className="mt-3 border-t border-border-soft">
         {node.lines.map((line) => (

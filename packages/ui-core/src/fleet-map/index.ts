@@ -10,3 +10,4 @@ export * from "./map-facts.ts";
 export * from "./map-nodes.ts";
 export * from "./map-types.ts";
 export * from "./networks.ts";
+export * from "./map-words.ts";
