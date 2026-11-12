@@ -28,8 +28,8 @@ import Testing
         let recorder = Recorder()
         return (RelaySocket(route: route) { recorder.add($0, $1) }, recorder)
     }
-    private func hello(code: String? = nil) -> String {
-        var hello: [String: Any] = ["type": "hello", "protocolVersion": 1, "deviceId": "ios-live", "grant": "fixture-grant"]
+    private func hello(code: String? = nil, device: String = "ios-live") -> String {
+        var hello: [String: Any] = ["type": "hello", "protocolVersion": 1, "deviceId": device, "grant": "fixture-grant"]
         if let code { hello["machineCode"] = code }
         return String(decoding: try! JSONSerialization.data(withJSONObject: hello), as: UTF8.self)
     }
@@ -59,6 +59,23 @@ import Testing
         socket.send(#"{"type":"ping"}"#)
         try await events.wait { $0.texts.count >= 3 }
         #expect(events.texts[2] == #"{"type":"pong"}"#)
+        #expect(!events.types.contains("close"))
+    }
+
+    @Test(.enabled(if: fixture != nil))
+    func aStreamManyFlowWindowsLongArrivesWholeBecauseThePhoneReturnsCredit() async throws {
+        let (socket, events) = try socket()
+        defer { socket.close() }
+        socket.open()
+        try await events.wait { $0.types.contains("open") }
+        socket.send(hello(code: "2468", device: "ios-stream"))
+        // The pong, then 40 messages of 200 KB: 8 MB, eight windows of 1 MiB.
+        try await events.wait { $0.texts.count >= 41 }
+        #expect(events.texts.last?.contains("fixture_stream_39") == true)
+        // The phone's own sends are flow controlled too, and still answered.
+        socket.send(#"{"type":"ping"}"#)
+        try await events.wait { $0.texts.count >= 42 }
+        #expect(events.texts.last == #"{"type":"pong"}"#)
         #expect(!events.types.contains("close"))
     }
 
