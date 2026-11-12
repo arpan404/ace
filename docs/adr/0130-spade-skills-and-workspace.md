@@ -4,7 +4,9 @@ Status: accepted. Date: 2026-11-12. Decided by: the owner (2026-11-12: make Spad
 bots learn from the work they do and each has a place to work). Builds on
 [ADR 0103](0103-skill-library.md) (the skill library), [ADR 0123](0123-spade-runs-as-its-own-service.md)
 (Spade's service and data folder), [ADR 0126](0126-spade-agents.md) and
-[ADR 0127](0127-spade-main-bot-and-chat.md) (bots, one conversation each, shown as a chat).
+[ADR 0127](0127-spade-main-bot-and-chat.md) (bots, one conversation each, shown as a chat). Revised
+the same day after review, by the owner's decisions: no read-only command allowlist, "always"
+per exact command, and taint that persists in files.
 
 ## Context
 
@@ -34,7 +36,7 @@ only effects are web reads, ace's tools and messages to other bots.
    refused (`409`) and the proposal stays open; the person can ask the bot again. Saved skills are
    ordinary library skills: every bot and every ace agent can use them.
 4. **Bots keep notes on skills they used.** `skill_feedback {name, verdict: helpful | outdated,
-   note?}` stores the bot's latest verdict on a skill. `skill_load` shows the bot its own notes
+note?}` stores the bot's latest verdict on a skill. `skill_load` shows the bot its own notes
    with the skill, so an outdated one leads to a proposed edit rather than being followed again.
 
 ### A workspace per bot
@@ -42,57 +44,83 @@ only effects are web reads, ace's tools and messages to other bots.
 5. **One folder per bot, on its machine.** `<Spade's data folder>/workspace/<bot id>/`, created on
    first use and deleted with the bot. Tools: `workspace_list`, `workspace_read` (a window of lines),
    `workspace_search`, `workspace_write` and `workspace_edit` (one exact replacement). Every path is
-   relative to the folder; absolute paths, `..` and anything that resolves outside it after
-   following symlinks are refused.
+   relative to the folder; absolute paths, `~` and `..` are refused. Every file operation goes
+   through the folder's opened directory handle, one component at a time relative to it (`cap-std`),
+   so no path, symlink or folder swapped mid-operation reaches outside. Writes go to a new file
+   beside the target and are renamed over it, never truncated in place, and a file with more than
+   one hard link is never written. The same holds for kept outputs (9).
 6. **A shell in the folder.** `shell {command, timeout_s?}` runs the command in the bot's folder
-   with `sh -c` on macOS and Linux and `cmd /C` on Windows (one platform branch, in one module). It
-   runs in its own process group (on Windows, its process tree), is killed with the whole group
-   on timeout (default 60 s, at most 110 s, inside the harness's 120 s tool limit), and its output
-   is capped. The
-   environment is built, not inherited: `PATH`, `HOME` (the workspace), `LANG`, `TERM=dumb` and the
-   platform's few required variables. Spade's token, endpoint keys and the ace grant never reach it.
-7. **Risk.** File reads, lists and searches are reads. Writes and edits are writes. A shell command
-   is a write, so it asks, unless it is in a short built-in allowlist of read-only commands (`ls`,
-   `cat`, `head`, `tail`, `wc`, `grep`, `find` without `-exec`/`-delete`, `pwd`, `echo`, `date`,
-   `stat`, `du`, `diff`, `tree`, `git status|log|diff|show`, without the options that write)
-   with no shell syntax that could do more (redirection, `;`, `&`, `|`, backticks, `$`) and no
-   argument that reaches outside the folder (absolute, `~`, `..`), or the person answered an
-   earlier one with "Always" for that bot. On Windows every command asks. A turn that read
-   untrusted output asks for every write and every command not on the allowlist, as before
-   (harness.md). Workspace files and shell output count as trusted: the folder holds only what
-   the bot wrote or ran with the person's leave.
-8. **Large output becomes a file.** A result over 16,000 characters (a shell's output, a search) is
+   with `/bin/sh -c` on macOS and Linux and `cmd.exe /C` on Windows (one platform branch, in one
+   module). On macOS and Linux it runs in its own process group; on Windows in a job object set to
+   kill everything in it when closed. Either way everything the command started is killed on
+   timeout (default 60 s, at most 110 s, inside the harness's 120 s tool limit) and again when the
+   run ends, and the output readers end with it; what was read before a lingering process held a
+   pipe is kept. Output is capped. The environment is built, not inherited: `HOME` (the
+   workspace), `LANG`, `TERM=dumb`, the platform's few required variables, and a `PATH` of system
+   folders only (never Spade's own, `.`, an empty entry or anything in the workspace; on Windows,
+   cmd.exe is also told not to look in the current folder first). Spade's token, endpoint keys and
+   the ace grant never reach it.
+7. **Risk.** File reads, lists and searches are reads; writes and edits are writes. Every shell
+   command asks, even one that only reads, unless the person answered that exact command (the same
+   string, for that bot) with **Always allow this command**; "always" never covers a command's
+   shape or every command. Reading without asking goes through the file tools only.
+8. **Taint persists.** A turn that read untrusted content (the web, another bot, any shell
+   output, an untrusted file, a skill note written in such a turn) asks for every write, "always"
+   or not, as before (harness.md). Beyond the turn:
+   - Files written in such a turn, and every file a shell command changes (its output is
+     untrusted), are recorded as untrusted by path and content hash, outside the bot's folder, with
+     what they came from. Kept outputs inherit it.
+   - Reading such a file (by its path, or the same content anywhere) marks that one result
+     untrusted (`tool_finished.untrusted`), which taints the turn that read it. A file rewritten
+     whole in a clean turn is trusted again.
+   - A skill note written in such a turn taints the turn that loads the skill; a proposal made in
+     one records the source and the app shows it beside Save ("Written after reading …").
+9. **Large output becomes a file.** A result over 16,000 characters (a shell's output, a search) is
    written to `.spade/outputs/<call>.txt` in the workspace and the model gets its head and tail and
    the path, which it can page through with `workspace_read`.
+10. **A Save is reconciled.** Before writing, the proposal records the attempt. If the library's
+    answer never comes, the proposal stays open with the attempt; the next Save or Discard first
+    looks in the library for the skill with the proposal's content (or the edit's base hash) and
+    settles from that instead of writing twice. One answer to a proposal runs at a time, claimed
+    before its state is read.
 
 ### In the app
 
-9. **Files.** The bot's menu gains **Files**: a cardless page that lists the bot's workspace
-   (folders first), opens text files read-only, downloads a file, and deletes a file or folder after
-   the person confirms. The chat itself shows nothing of the file and shell tools (ADR 0127); a
-   shell command that asks arrives as the usual approval bubble, with **Always** beside Allow and
-   Deny.
+11. **Files.** The bot's menu gains **Files**: a cardless page that lists the bot's workspace
+    (folders first), opens text files read-only, downloads a file, and deletes a file or folder
+    after the person confirms (the confirmation names its path). Moving to another machine, bot
+    or folder closes what was open. The chat itself shows nothing of the file and shell tools
+    (ADR 0127); a shell command that asks arrives as the usual approval bubble, showing the exact
+    command, with **Allow**, **Always allow this command** and **Deny**. A refused or unanswered
+    Save or Discard reads the proposals again, so one already answered shows as it is.
 
 ## Consequences
 
 - Bots get better with use, and what they learn is reviewed by the person before any agent reads
   it.
 - A bot can do real work on files and with commands without the person's machine being open to
-  it: one folder, a clean environment, and the person asked for anything but plain reads.
-- The allowlist is short on purpose; most commands ask until the person allows them always.
-- Text a bot saved from the web in one turn reads as trusted in a later one. The person approved
-  the write that saved it; marking file reads untrusted would make every later write ask.
-- The workspace is not a sandbox: an allowed command runs with the person's user rights. Process
-  isolation is left for later.
-- Proposals and notes are files in Spade's data folder, not database rows, so no migration is
-  needed.
+  it: one folder, a clean environment, and the person asked before any command they have not
+  allowed by its exact text.
+- Shell output taints its turn, so a second command in the same turn asks even when allowed
+  always; "always" saves a question at the start of later turns. Files a command changed stay
+  untrusted until rewritten whole in a clean turn, so work that leans on commands asks more.
+- The workspace is not a sandbox: an allowed command runs with the person's user rights and can
+  reach the whole machine. Process isolation is left for later.
+- Proposals, notes and taint records are files in Spade's data folder, not database rows, so no
+  migration is needed.
 
 ## Tests
 
 - Paths with `..`, absolute paths and a symlink pointing out of the workspace are refused.
 - A shell command over its timeout is killed with its whole process group.
 - The shell's environment carries none of Spade's secrets.
-- An allowlisted command runs without asking; any other command asks.
+- Every command asks; "always" allows only that exact command, in later turns.
+- A program planted in the workspace is never found by name; `PATH` holds no `.`, empty entry or
+  workspace folder.
+- A file with another hard link is never written; nothing lands outside through a link.
+- A file written after reading a page, or changed by a command, taints the turn that reads it.
+- Output read before a lingering process held a pipe is kept.
 - Output over the limit is stored as a file and the model gets the path.
 - A saved proposal reaches the skill library (a fake daemon receives `create`/`edit`); a discarded
-  one does not.
+  one does not; a Save whose answer was lost is found in the library and not written twice; a
+  proposal made after reading a page names it.
