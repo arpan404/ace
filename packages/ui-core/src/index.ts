@@ -175,6 +175,7 @@ export * from "./agent-changes.ts";
 export * from "./agent-step.ts";
 export * from "./catch-up.ts";
 export * from "./check-runs.ts";
+export * from "./summary-results.ts";
 export * from "./needs-you.ts";
 export * from "./jump-window.ts";
 export * from "./held-range.ts";
