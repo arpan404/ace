@@ -45,6 +45,26 @@ export function failureLine(provider: ProviderKind, reason: SpadeBrainFailure): 
   }
 }
 
+/** Codes for a session that can't run read-only, which a Spade bot's session must. */
+const noReadOnly = new Set(["permission_mode_unsupported", "access_mode_unavailable"]);
+
+/** The one line for a turn ace refused or couldn't start, by ace's code (and its own title). */
+export function startFailure(
+  provider: ProviderKind,
+  code: string | undefined,
+  title?: string,
+): { reason: SpadeBrainFailure; message: string } {
+  if (code && noReadOnly.has(code))
+    return {
+      reason: "unavailable",
+      message: `${providerNames[provider]} has no read-only mode, which Spade's bots need. Choose another subscription.`,
+    };
+  const reason = refusalReason(code);
+  if (reason === "failed" && title)
+    return { reason, message: `${providerNames[provider]} couldn't start: ${title}`.slice(0, 500) };
+  return { reason, message: failureLine(provider, reason) };
+}
+
 /** Why a run failed, from the error ace recorded on it. */
 export function failureReason(error: AgentError | undefined): SpadeBrainFailure {
   if (!error) return "failed";
@@ -63,6 +83,8 @@ export function refusalReason(error: string | undefined): SpadeBrainFailure {
     case "provider_disabled":
     case "account_unavailable":
     case "model_unavailable":
+    case "permission_mode_unsupported":
+    case "access_mode_unavailable":
       return "unavailable";
     default:
       return "failed";
@@ -180,6 +202,17 @@ export class BrainWatch {
         return [];
       case "interaction.opened":
         return this.fail("needs_permission");
+      case "queue.updated": {
+        // ace couldn't deliver the turn (the session didn't open, no read-only mode): it holds
+        // the message with why. The service lets go of it; Spade hears the line.
+        if (!payload.paused || !payload.lastFailure) return [];
+        const failed = startFailure(
+          this.provider,
+          payload.lastFailure.code,
+          payload.lastFailure.title,
+        );
+        return this.fail(failed.reason, failed.message);
+      }
       case "run.ended": {
         if (!this.runs.has(payload.runId)) return [];
         if (payload.state === "completed") {

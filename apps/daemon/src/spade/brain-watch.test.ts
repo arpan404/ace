@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { AgentId, ItemId, ToolCall, type AgentModelRoster } from "@ace/protocol";
 import { subscriptionsFrom } from "./brain-sessions.ts";
-import { BrainWatch, failureReason } from "./brain-watch.ts";
+import { BrainWatch, failureReason, startFailure } from "./brain-watch.ts";
 
 const roster = (providers: AgentModelRoster["providers"]): AgentModelRoster => ({
   providers,
@@ -137,4 +137,24 @@ test("every native tool the watcher doesn't know to be trusted taints the turn, 
     toolCall(root, "s", { kind: "mcp", server: "ace", tool: "spade_call" }),
   ].flatMap((event) => trusted.next(event).filter((frame) => frame.type === "read"));
   expect(quiet).toEqual([]);
+});
+
+test("only providers with a read-only mode are offered, since a bot's session runs read-only", () => {
+  const listed = subscriptionsFrom(
+    roster([
+      { provider: "claude", accounts: [{ id: "c" }], sets },
+      { provider: "cursor", accounts: [{ id: "k" }], sets },
+      { provider: "antigravity", accounts: [{ id: "a" }], sets },
+      { provider: "acp", accounts: [{ id: "x" }], sets },
+    ]),
+  );
+  expect(listed.providers.map((entry) => entry.provider)).toEqual(["claude"]);
+});
+
+test("a provider that can't run read-only is unavailable, with the reason in one line", () => {
+  expect(startFailure("cursor", "permission_mode_unsupported")).toEqual({
+    reason: "unavailable",
+    message: "Cursor has no read-only mode, which Spade's bots need. Choose another subscription.",
+  });
+  expect(startFailure("codex", "provider_unavailable").reason).toBe("not_installed");
 });

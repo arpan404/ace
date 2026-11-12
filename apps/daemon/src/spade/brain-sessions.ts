@@ -12,10 +12,11 @@ import {
   type Thread,
   type WorkspaceId,
 } from "@ace/protocol";
+import { reportedOrTable } from "@ace/provider-kit/access-modes";
 import { cursorInstanceId } from "@ace/provider-kit/cursor-selection";
 import { commandContext, type CommandContext, type CommandHandler } from "../commands.ts";
 import type { Store } from "../store.ts";
-import { BrainWatch, failureLine, providerNames, refusalReason } from "./brain-watch.ts";
+import { BrainWatch, providerNames, startFailure } from "./brain-watch.ts";
 
 /** Where Spade's bots' hidden sessions live: Spade's own hidden project (ADR 0121). */
 export interface SpadeProject {
@@ -32,6 +33,8 @@ export interface SpadeBrainsDeps {
         targetInstance(provider: ProviderKind): string;
         /** Commits what providers reported so far. */
         flush?(): Promise<void>;
+        /** Drops a thread's hold and continuation (nothing then resumes it by itself). */
+        discardRecovery(id: ThreadId): void;
       }
     | undefined;
   /** Spade's project, from its host thread; undefined while Spade is off. */
@@ -127,11 +130,12 @@ export class SpadeBrains {
             delivery: "queue",
             ...(existing.execution?.model === request.model ? {} : { model: request.model }),
           };
-      const result = this.send(engine.internalHandler, payload, request.bot);
+      const sendId = this.deps.id();
+      const result = this.send(engine.internalHandler, payload, request.bot, sendId);
       const root = this.deps.store.getThread(threadId)?.rootAgentId;
       if (!result.ok || !root) {
-        const reason = refusalReason(result.ok ? undefined : result.error);
-        emit({ type: "failed", reason, message: failureLine(request.provider, reason) });
+        const failed = startFailure(request.provider, result.ok ? undefined : result.error);
+        emit({ type: "failed", ...failed });
         return;
       }
       const watch = new BrainWatch(root, request.provider);
@@ -144,6 +148,13 @@ export class SpadeBrains {
       const pump = () => {
         for (let event = queued.shift(); event && !watch.ended; event = queued.shift()) {
           const frames = watch.next(event.payload);
+          // ace held the turn's message after failing to deliver it: let go of it, so nothing
+          // sends it later behind Spade's back, and leave the session unheld for the next turn.
+          if (
+            event.payload.type === "queue.updated" &&
+            frames.some((frame) => frame.type === "failed")
+          )
+            this.release(engine, threadId, event.payload.revision, sendId);
           // A native prompt would wait in a thread nobody sees and hold every later turn: the
           // whole session tree stops before Spade hears why.
           if (
@@ -196,8 +207,31 @@ export class SpadeBrains {
     return thread;
   }
 
-  private send(handler: CommandHandler, payload: CommandPayload, bot: string): CommandResult {
-    const command = Command.parse({ id: this.deps.id(), deviceId: device, payload });
+  /** Removes Spade's undelivered message from the session's queue and drops its hold. */
+  private release(
+    engine: { internalHandler: CommandHandler; discardRecovery(id: ThreadId): void },
+    threadId: ThreadId,
+    revision: number,
+    messageId: string,
+  ): void {
+    const command = Command.parse({
+      id: this.deps.id(),
+      deviceId: device,
+      payload: { type: "queue.remove", threadId, expectedRevision: revision, messageId },
+    });
+    this.deps.store.recordCommand(command.id, command.deviceId, () =>
+      engine.internalHandler.handle(command, commandContext(this.deps.store)),
+    );
+    engine.discardRecovery(threadId);
+  }
+
+  private send(
+    handler: CommandHandler,
+    payload: CommandPayload,
+    bot: string,
+    id: string,
+  ): CommandResult {
+    const command = Command.parse({ id, deviceId: device, payload });
     const context: CommandContext = {
       ...commandContext(this.deps.store),
       host: { host: "spade-bot", key: bot },
@@ -233,7 +267,11 @@ export function subscriptionsFrom(roster: AgentModelRoster | undefined): SpadeSu
     const models = entry.sets
       .filter((set) => !set.legacy)
       .flatMap((set) => set.ids.map((id) => ({ id, name: set.names?.[id] ?? id })));
-    if (accounts.length === 0 || models.length === 0) return [];
+    // A bot's session runs read-only or not at all: a provider without that mode isn't offered.
+    const readOnly = reportedOrTable(entry.provider, undefined).some(
+      (offer) => offer.mode === "read-only",
+    );
+    if (!readOnly || accounts.length === 0 || models.length === 0) return [];
     return [{ provider: entry.provider, name: providerNames[entry.provider], accounts, models }];
   });
   return { providers };

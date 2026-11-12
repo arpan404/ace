@@ -31,6 +31,7 @@ function daemon(defaultAccount: string) {
     store,
     engine: () => ({
       targetInstance: () => defaultAccount,
+      discardRecovery: () => {},
       internalHandler: {
         handle(command: Command) {
           sent.push(command.payload);

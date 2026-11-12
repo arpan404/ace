@@ -314,6 +314,20 @@ export class Permissions {
     const capabilities =
       nativeCapabilities ?? thread?.effectiveCapabilities ?? thread?.capabilities;
     const offers = offersOf(provider, capabilities);
+    // A Spade bot's session (ADR 0133) runs read-only or not at all: no native mode the person
+    // chose for the provider, no provider default, no override.
+    if (thread?.host === "spade-bot") {
+      const readOnly = offers.find((offer) => offer.mode === "read-only");
+      if (!readOnly)
+        throw new AccessError(
+          "access_mode_unavailable",
+          `${provider} offers no read-only mode, which a Spade bot's session needs`,
+        );
+      const selection = this.contained(id, provider, readOnly.mode, offers);
+      if (selection !== "read-only")
+        throw new AccessError("access_mode_unavailable", "a Spade bot's session must be read-only");
+      return { selection, native: readOnly.native };
+    }
     let selection: AccessSelection | null;
     if (defaults.custom && supportsPermissionMode(capabilities, defaults.custom))
       selection = customSelection(defaults.custom);

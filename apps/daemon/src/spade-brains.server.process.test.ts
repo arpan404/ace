@@ -373,3 +373,47 @@ test("a quota failure or a daemon restart holds nothing back: Spade's next turn 
     }
   });
 }, 60_000);
+
+test("a bot's session runs read-only even when the person chose another native mode for the provider", async () => {
+  await withSpade(async (f, grant) => {
+    await f.daemon.settings.set(
+      "access.nativeModes",
+      { claude: "bypassPermissions" },
+      { kind: "global" },
+    );
+    const turn = sendTurn(f.daemon, grant, { instructions: "Rules", message: "Hello" });
+    const thread = ThreadId.parse((await until(() => sessionOf(turn.frames), "session")).thread);
+    await until(() => f.h.inputs.get(thread)?.length === 1, "the message to arrive");
+    // Claude's read-only native mode, never the person's choice for their own threads.
+    expect(f.h.contexts.get(thread)?.permissionMode).toBe("plan");
+    expect(f.daemon.store.getThread(thread)?.permission?.effective).toBe("read-only");
+    provide(f, thread, reply("Hi."), ended);
+    await turn.done;
+  });
+}, 30_000);
+
+test("a turn ace can't deliver ends with one line and leaves nothing held or resent", async () => {
+  await withSpade(async (f, grant) => {
+    const first = sendTurn(f.daemon, grant, { instructions: "Rules", message: "One" });
+    const thread = ThreadId.parse((await until(() => sessionOf(first.frames), "session")).thread);
+    await until(() => f.h.inputs.get(thread)?.length === 1, "the first message");
+    provide(f, thread, reply("Hi.", "a1"), ended);
+    await first.done;
+    // The CLI drops the next message unread.
+    f.h.failNextSend("rejected", "queue");
+    const second = sendTurn(f.daemon, grant, { instructions: "Rules", message: "Two" });
+    await second.done;
+    expect(second.frames.at(-1)).toMatchObject({ type: "failed" });
+    // The next turn goes straight through, and "Two" is never sent again behind Spade's back.
+    const third = sendTurn(f.daemon, grant, { instructions: "Rules", message: "Three" });
+    await until(() => f.h.inputs.get(thread)?.includes("Three"), "the third message, unheld");
+    provide(f, thread, reply("Done.", "a3"), ended);
+    await third.done;
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(f.h.attempts.filter((a) => a.threadId === thread).map((a) => a.text)).toEqual([
+      expect.stringContaining("One"),
+      "Two",
+      "Three",
+    ]);
+  });
+}, 30_000);
