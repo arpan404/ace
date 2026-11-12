@@ -6,7 +6,9 @@
 //!   metadata and scopes until a valid access token comes;
 //! - dynamic client registration (can be switched off), PKCE S256, exact redirect checks,
 //!   `resource` on both requests, `iss` in the redirect, rotating refresh tokens;
-//! - a static token can be accepted instead, for servers that take an API key.
+//! - a static token can be accepted instead, for servers that take an API key;
+//! - client ID metadata documents when switched on: a URL client ID is fetched and checked as
+//!   [`crate::client_document::fetch_and_check`] does.
 //!
 //! Tests drive the sign-in by fetching the authorization address with [`FakeConnector::approve`],
 //! which plays the person approving and returns the redirect the browser would follow.
@@ -59,6 +61,9 @@ struct State {
     tools: Mutex<Vec<Tool>>,
     peers: Mutex<Vec<Peer<RoleServer>>>,
     registration: AtomicBool,
+    /// Fetches the metadata document a URL client ID names, and says so in its metadata.
+    client_documents: AtomicBool,
+    documents_fetched: AtomicUsize,
     /// Names itself in the redirect (`iss`, RFC 9207), as it says in its metadata.
     names_itself: AtomicBool,
     endless_metadata: AtomicBool,
@@ -96,6 +101,8 @@ impl FakeConnector {
             tools: Mutex::new(tools),
             peers: Mutex::default(),
             registration: AtomicBool::new(true),
+            client_documents: AtomicBool::new(false),
+            documents_fetched: AtomicUsize::new(0),
             names_itself: AtomicBool::new(true),
             endless_metadata: AtomicBool::new(false),
             leaky_listing: AtomicBool::new(false),
@@ -164,6 +171,16 @@ impl FakeConnector {
     /// Leave `iss` out of the redirect and out of the metadata, as many servers still do.
     pub fn without_iss(&self) {
         self.state.names_itself.store(false, Ordering::SeqCst);
+    }
+
+    /// Accept URL client IDs, fetching each client ID metadata document, and advertise it.
+    pub fn fetch_client_documents(&self) {
+        self.state.client_documents.store(true, Ordering::SeqCst);
+    }
+
+    /// How many client ID metadata documents it fetched and accepted.
+    pub fn documents_fetched(&self) -> usize {
+        self.state.documents_fetched.load(Ordering::SeqCst)
     }
 
     /// Stop offering dynamic client registration.
@@ -361,6 +378,9 @@ async fn server_metadata(Shared(state): Shared<Arc<State>>) -> Response {
         "authorization_response_iss_parameter_supported": state.names_itself.load(Ordering::SeqCst),
         "token_endpoint_auth_methods_supported": ["none"],
     });
+    if state.client_documents.load(Ordering::SeqCst) {
+        metadata["client_id_metadata_document_supported"] = json!(true);
+    }
     if state.registration.load(Ordering::SeqCst) {
         metadata["registration_endpoint"] = json!(format!("{base}/tenant/register"));
     }
@@ -408,14 +428,22 @@ async fn authorize(
     Query(query): Query<HashMap<String, String>>,
 ) -> Response {
     let base = lock(&state.base).clone();
-    let mut book = lock(&state.book);
-    book.last_authorize = query.clone();
     let get = |k: &str| query.get(k).cloned().unwrap_or_default();
     let (client, redirect) = (get("client_id"), get("redirect_uri"));
-    if !book
-        .clients
-        .get(&client)
-        .is_some_and(|r| r.contains(&redirect))
+    lock(&state.book).last_authorize = query.clone();
+    let document = state.client_documents.load(Ordering::SeqCst) && client.starts_with("http");
+    if document {
+        if let Err(why) = crate::client_document::fetch_and_check(&client, &redirect).await {
+            return (StatusCode::BAD_REQUEST, format!("invalid_client: {why}")).into_response();
+        }
+        state.documents_fetched.fetch_add(1, Ordering::SeqCst);
+    }
+    let mut book = lock(&state.book);
+    if !document
+        && !book
+            .clients
+            .get(&client)
+            .is_some_and(|r| r.contains(&redirect))
     {
         return (StatusCode::BAD_REQUEST, "unknown client or redirect").into_response();
     }
