@@ -9,6 +9,7 @@ import {
   spadeActivitySearch,
   spadeActivityWords,
   spadeBubbles,
+  spadeDollarsOf,
   spadeMicrosOf,
   spadeMoney,
   spadeView,
@@ -86,6 +87,18 @@ describe("spending", () => {
     expect(spadeMicrosOf("abc")).toBeNull();
   });
 
+  test("a cap keeps every micro both ways, and a sum too large or too fine is refused", () => {
+    for (const micros of [1_000, 1, 2_500_000, 123_456_789]) {
+      expect(spadeMicrosOf(spadeDollarsOf(micros))).toBe(micros);
+    }
+    expect(spadeDollarsOf(1_000)).toBe("0.001");
+    expect(spadeDollarsOf(2_500_000)).toBe("2.5");
+    expect(spadeMicrosOf("0.001")).toBe(1_000);
+    expect(spadeMicrosOf("0.0000001")).toBeNull();
+    expect(spadeMicrosOf("9".repeat(400))).toBeNull();
+    expect(spadeMicrosOf("9007199254.740993")).toBeNull();
+  });
+
   test("oversight reads the service's cap, spend and review default", () => {
     expect(
       parseSpadeOversight(
@@ -117,6 +130,22 @@ const words = (fields: Record<string, unknown>) =>
   ).sentence;
 
 describe("activity", () => {
+  test("a page says where the next one starts, even when it has no entries", () => {
+    const empty = parseSpadeActivity(
+      JSON.stringify({ entries: [], more: true, next_before: 5_001 }),
+    );
+    expect(empty?.nextBefore).toBe(5_001);
+    const older = parseSpadeActivity(
+      JSON.stringify({
+        entries: [{ id: "9-0", seq: 9, at: 1, kind: "cap", summary: "" }],
+        more: true,
+      }),
+    );
+    expect(older?.nextBefore).toBe(9);
+    const last = parseSpadeActivity(JSON.stringify({ entries: [], more: false, next_before: 3 }));
+    expect(last?.nextBefore).toBeUndefined();
+  });
+
   test("entries are read newest first as sent; one without an id is left out", () => {
     const page = parseSpadeActivity(
       JSON.stringify({

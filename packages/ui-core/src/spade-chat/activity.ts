@@ -60,10 +60,15 @@ const entryShape = z.object({
   cost_micros: z.number().nonnegative().nullish().catch(undefined),
 });
 
-/** `{"entries": […], "more": bool}`; an entry this client can't read is left out. */
+/**
+ * `{"entries": […], "more": bool, "next_before": seq | null}`; an entry this client can't read
+ * is left out. `nextBefore` is where the next page starts: Spade reads a long history a part at
+ * a time, so a page can be empty and still have more after it. An older Spade sends no cursor;
+ * then the last entry's `seq` is it.
+ */
 export function parseSpadeActivity(
   body: string,
-): { entries: SpadeActivityEntry[]; more: boolean } | undefined {
+): { entries: SpadeActivityEntry[]; more: boolean; nextBefore: number | undefined } | undefined {
   const record = spadeRecord(spadeJson(body));
   if (!record || !Array.isArray(record.entries)) return undefined;
   const entries = record.entries.flatMap((raw): SpadeActivityEntry[] => {
@@ -86,7 +91,14 @@ export function parseSpadeActivity(
       },
     ];
   });
-  return { entries, more: record.more === true };
+  const more = record.more === true;
+  const cursor = record.next_before;
+  const nextBefore = !more
+    ? undefined
+    : typeof cursor === "number" && Number.isSafeInteger(cursor)
+      ? cursor
+      : entries.at(-1)?.seq;
+  return { entries, more, nextBefore };
 }
 
 /** An entry as one row: its sentence, the detail under it, and its outcome and cost, muted. */

@@ -61,7 +61,11 @@ A bot is **at its cap** when its spend this day (or month) is at least that cap.
 midnight."}`; `bot_message` to it answers the caller with that error; its routines and
   heartbeat are skipped with that detail.
 
-A model call already running finishes, so a cap can be passed by one call's cost.
+Every model call (a step, compaction, a title, a review, research) is admitted against the caps
+counting the calls still in flight at their estimated cost (prompt size, output limit, price),
+and the estimate is released when its real cost is recorded. Calls started at once therefore
+can't all pass a cap the ledger has not reached yet; a cap can be passed by the calls admitted
+before it was reached. The service's daily cap is counted in the same day as the bots' caps.
 
 ## Activity log
 
@@ -95,8 +99,11 @@ redaction. `spend` and `review` carry `cost_micros`.
 
 `GET /v1/agents/{id}/activity` takes `kind` (comma-separated kinds), `day` (`YYYY-MM-DD` in the
 person's zone), `q` (words, case-insensitive, all must appear in `name` or `summary`), `before`
-(an entry `seq`; entries before it) and `limit` (1 to 500, default 200). Answer:
-`{"entries": [Entry], "more": bool}`, newest first; `more` says older entries match.
+(an event `seq`; entries before it) and `limit` (1 to 500, default 200). Answer:
+`{"entries": [Entry], "more": bool, "next_before": seq|null}`, newest first. Spade reads the
+history in windows of 2,000 events from the newest, SQLite filtering by event type and day and
+the rows decoded outside the database lock, and at most 20,000 events per request: a page may
+be empty with `more` true. `next_before` is where the next page starts; pass it as `before`.
 
 ## Model review
 

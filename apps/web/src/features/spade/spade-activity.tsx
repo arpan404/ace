@@ -53,7 +53,7 @@ export function SpadeActivity(props: { bot: RosterBot }) {
         },
         signal,
       ),
-    getNextPageParam: (page) => (page.more ? page.entries.at(-1)?.seq : undefined),
+    getNextPageParam: (page) => page.nextBefore,
     // What it did changes while it works.
     refetchInterval: 30_000,
   });
@@ -123,7 +123,11 @@ export function SpadeActivity(props: { bot: RosterBot }) {
           </div>
         ) : entries.length === 0 ? (
           <p className="text-ui text-muted-foreground">
-            {filtered ? "Nothing matches." : `${bot.name} hasn't done anything yet.`}
+            {activity.hasNextPage
+              ? "Nothing in the most recent part of its history."
+              : filtered
+                ? "Nothing matches."
+                : `${bot.name} hasn't done anything yet.`}
           </p>
         ) : (
           <ol aria-label="Activity" className="flex flex-col">

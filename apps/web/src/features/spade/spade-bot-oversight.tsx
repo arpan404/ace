@@ -25,16 +25,27 @@ export function useOversightChoice(bot: {
   spending: SpadeSpending | undefined;
   review: boolean | undefined;
 }) {
-  const [daily, setDaily] = useState(spadeDollarsOf(bot.spending?.dailyCapMicros));
-  const [monthly, setMonthly] = useState(spadeDollarsOf(bot.spending?.monthlyCapMicros));
+  const [daily, setDailyText] = useState(spadeDollarsOf(bot.spending?.dailyCapMicros));
+  const [monthly, setMonthlyText] = useState(spadeDollarsOf(bot.spending?.monthlyCapMicros));
+  // A cap is sent only once the person has typed in its field: saving the name or the task
+  // never rewrites a cap from how the form shows it.
+  const [edited, setEdited] = useState({ daily: false, monthly: false });
+  const setDaily = (value: string) => {
+    setDailyText(value);
+    setEdited((was) => ({ ...was, daily: true }));
+  };
+  const setMonthly = (value: string) => {
+    setMonthlyText(value);
+    setEdited((was) => ({ ...was, monthly: true }));
+  };
   const [review, setReview] = useState(choiceOf(bot.review));
   const dailyMicros = spadeMicrosOf(daily);
   const monthlyMicros = spadeMicrosOf(monthly);
   const change: SpadeAgentOversightChange = {
-    ...(dailyMicros !== null && dailyMicros !== bot.spending?.dailyCapMicros
+    ...(edited.daily && dailyMicros !== null && dailyMicros !== bot.spending?.dailyCapMicros
       ? { daily_cap_micros: dailyMicros ?? null }
       : {}),
-    ...(monthlyMicros !== null && monthlyMicros !== bot.spending?.monthlyCapMicros
+    ...(edited.monthly && monthlyMicros !== null && monthlyMicros !== bot.spending?.monthlyCapMicros
       ? { monthly_cap_micros: monthlyMicros ?? null }
       : {}),
     ...(review !== choiceOf(bot.review)
@@ -50,7 +61,7 @@ export function useOversightChoice(bot: {
     setMonthly,
     setReview,
     /** A cap that isn't a number of dollars: the form can't save it. */
-    invalid: dailyMicros === null || monthlyMicros === null,
+    invalid: (edited.daily && dailyMicros === null) || (edited.monthly && monthlyMicros === null),
     changed: Object.keys(change).length > 0,
     save: async (client: SpadeTarget) => {
       if (Object.keys(change).length > 0) await setAgentOversight(client, bot.id, change);

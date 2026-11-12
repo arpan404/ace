@@ -50,6 +50,11 @@ export class FakeSpadeOversight {
   };
   /** Each bot's activity entries, newest first, in Spade's JSON. */
   readonly activity = new Map<string, Json[]>();
+  /**
+   * How many event numbers one request reads back from where it starts, as Spade bounds a
+   * long history; unbounded when unset.
+   */
+  readsPerRequest: number | undefined;
 
   route(method: string, body: Json): FakeSpadeAnswer {
     if (method === "GET") return reply({ oversight: this.oversight });
@@ -92,6 +97,16 @@ export class FakeSpadeOversight {
         (before === null || Number(entry.seq) < Number(before))
       );
     });
-    return reply({ entries: matching.slice(0, limit), more: matching.length > limit });
+    const top =
+      before === null
+        ? Math.max(0, ...(this.activity.get(agent) ?? []).map((e) => Number(e.seq))) + 1
+        : Number(before);
+    const low = this.readsPerRequest === undefined ? -Infinity : top - this.readsPerRequest;
+    const read = matching.filter((entry) => Number(entry.seq) >= low);
+    const page = read.slice(0, limit);
+    const olderLeft = matching.some((entry) => Number(entry.seq) < low);
+    const nextBefore =
+      read.length > limit ? Number(page.at(-1)?.seq) : olderLeft ? Math.max(low, 1) : null;
+    return reply({ entries: page, more: nextBefore !== null, next_before: nextBefore });
   }
 }

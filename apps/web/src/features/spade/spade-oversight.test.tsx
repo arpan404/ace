@@ -1,11 +1,12 @@
 import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { botRow, spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
+afterEach(() => vi.restoreAllMocks());
 
 const spending = {
   today_micros: 420_000,
@@ -201,4 +202,90 @@ test("Settings › Spade tells Spade the person's zone and shows each bot's spen
   await waitFor(() =>
     expect(spade.sent("PUT", "/v1/oversight")).toContainEqual({ review_default: true }),
   );
+});
+
+test("Show older goes on from where Spade stopped reading, past a part with nothing in it", async () => {
+  const { spade } = await spadeApp("/spade", (api) => {
+    seed(api);
+    api.oversight.readsPerRequest = 1_000;
+    api.oversight.activity.set("scout", [
+      entry(5, { kind: "routine", name: "Daily briefing", summary: "9:00" }),
+    ]);
+    // A later entry far above it, so the first request reads only the newest part.
+    api.oversight.activity
+      .get("scout")
+      ?.unshift(entry(4_000, { kind: "routine", name: "Evening digest", summary: "18:00" }));
+  });
+  await openMenu("Activity");
+  const list = within(await screen.findByRole("list", { name: "Activity" }));
+  expect(list.getAllByRole("listitem")).toHaveLength(1);
+  await userEvent.click(await screen.findByRole("button", { name: "Show older" }));
+  await waitFor(() => expect(activityReads(spade)).toContain("before=3001&limit=100"));
+  // That part held nothing; the cursor still moves on, never repeating.
+  await userEvent.click(await screen.findByRole("button", { name: "Show older" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Show older" }));
+  await waitFor(() =>
+    expect(
+      within(screen.getByRole("list", { name: "Activity" })).getAllByRole("listitem"),
+    ).toHaveLength(2),
+  );
+});
+
+test("a cap under a cent reopens as typed, and saving the name never rewrites a cap", async () => {
+  const { spade } = await spadeApp("/spade", (api) => {
+    withEndpoint(api);
+    api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
+    api.addAgent({
+      id: "scout",
+      name: "Scout",
+      spending: { ...spending, daily_cap_micros: 1_000 },
+    });
+  });
+  await openMenu("Edit bot");
+  const form = within(await screen.findByRole("dialog", { name: "Edit Scout" }));
+  expect((form.getByRole("textbox", { name: "Daily cap" }) as HTMLInputElement).value).toBe(
+    "0.001",
+  );
+  const name = form.getByRole("textbox", { name: "Name" });
+  await userEvent.clear(name);
+  await userEvent.type(name, "Scout Two");
+  await userEvent.click(form.getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(spade.sent("PATCH", "/v1/agents/scout")).toHaveLength(1));
+  expect(spade.sent("PUT", "/v1/agents/scout/oversight")).toEqual([]);
+});
+
+test("a cap too large to store can't be saved instead of clearing the cap", async () => {
+  const { spade } = await spadeApp("/spade", seed);
+  await openMenu("Edit bot");
+  const form = within(await screen.findByRole("dialog", { name: "Edit Scout" }));
+  const daily = form.getByRole("textbox", { name: "Daily cap" });
+  await userEvent.clear(daily);
+  await userEvent.click(daily);
+  await userEvent.paste("9".repeat(400));
+  expect(form.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(true);
+  expect(spade.sent("PUT", "/v1/agents/scout/oversight")).toEqual([]);
+});
+
+test("a new time zone reaches Spade when the window comes back, and spend is read again", async () => {
+  const { spade } = await spadeApp("/settings/spade", seed);
+  const first = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  await waitFor(() =>
+    expect(spade.sent("PUT", "/v1/oversight")).toContainEqual({ time_zone: first }),
+  );
+  await screen.findByRole("region", { name: "Spending and review" });
+  const zone = first === "Asia/Tokyo" ? "Europe/Lisbon" : "Asia/Tokyo";
+  const real = Intl.DateTimeFormat.prototype.resolvedOptions;
+  vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockImplementation(function (
+    this: Intl.DateTimeFormat,
+  ) {
+    return { ...real.call(this), timeZone: zone };
+  });
+  const reads = () =>
+    spade.requests.filter((r) => r.method === "GET" && r.path === "/v1/oversight").length;
+  const before = reads();
+  window.dispatchEvent(new Event("focus"));
+  await waitFor(() =>
+    expect(spade.sent("PUT", "/v1/oversight")).toContainEqual({ time_zone: zone }),
+  );
+  await waitFor(() => expect(reads()).toBeGreaterThan(before));
 });

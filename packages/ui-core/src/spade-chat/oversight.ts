@@ -117,18 +117,29 @@ const money = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
 });
 
-/** Dollars a person typed ("1", "$2.50") as micros; undefined for empty, null for unreadable. */
+/**
+ * Dollars a person typed ("1", "$2.50", "0.001") as micros; undefined for empty, null for
+ * anything that isn't a sum Spade can store exactly: not a number, more than six decimal places
+ * (a micro is the smallest unit), or too large to hold as a whole number of micros.
+ */
 export function spadeMicrosOf(typed: string): number | undefined | null {
   const text = typed.trim().replace(/^\$/, "").replaceAll(",", "");
   if (!text) return undefined;
-  if (!/^\d*(\.\d*)?$/.test(text) || text === ".") return null;
-  return Math.round(Number(text) * 1_000_000);
+  const parts = /^(\d*)(?:\.(\d{0,6}))?$/.exec(text);
+  if (!parts || text === ".") return null;
+  // Whole dollars and micros added as integers, so no float rounding moves a cap.
+  const total = Number(parts[1] || "0") * 1_000_000 + Number((parts[2] ?? "").padEnd(6, "0"));
+  return Number.isSafeInteger(total) ? total : null;
 }
 
-/** Micros as the dollars an input shows: "1", "2.5"; empty for no cap. */
+/** Micros as the dollars an input shows, exactly: "1", "2.5", "0.001"; empty for no cap. */
 export function spadeDollarsOf(value: number | undefined): string {
   if (value === undefined) return "";
-  return String(Math.round(value / 10_000) / 100);
+  const whole = Math.floor(value / 1_000_000);
+  const fraction = String(value % 1_000_000)
+    .padStart(6, "0")
+    .replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}` : String(whole);
 }
 
 /** The roster's muted words for a bot at a cap. */
