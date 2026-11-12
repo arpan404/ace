@@ -407,6 +407,12 @@ test("a key goes to the machine's keychain through Spade, and the phone only lea
     // Without a key no new bot can run on it.
     choices: [],
   });
+  // A new bot's face takes one of the shared colours, by name, with the fill to draw.
+  expect(before).toMatchObject({
+    colors: expect.arrayContaining([
+      { id: "teal", fill: expect.stringMatching(/^#[0-9A-F]{6}$/i) },
+    ]),
+  });
 
   expect(await ask({ type: "spade.key", endpoint: "openai", key: "sk-test-123" })).toEqual({
     ok: true,

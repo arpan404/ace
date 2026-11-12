@@ -5,6 +5,7 @@ import {
   spadeAgentNameMax,
   spadeAgentTaskMax,
   spadeAvatarColors,
+  spadeAvatarFill,
   spadeKeyLine,
   spadeModelFacts,
   spadeStopAnswered,
@@ -197,10 +198,12 @@ async function enable(
 
 /**
  * Settings › Spade's sections (each endpoint, its key line and its models with their facts),
- * and the models a new bot can run on: those of endpoints that need no key or have one.
+ * the models a new bot can run on (those of endpoints that need no key or have one), and the
+ * colours its face can take.
  */
 function modelRows(models: SpadeModels) {
   return {
+    colors: spadeAvatarColors.map((color) => ({ id: color, fill: spadeAvatarFill[color] })),
     endpoints: models.endpoints.map((endpoint) => ({
       id: endpoint.id,
       name: endpoint.name,
