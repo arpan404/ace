@@ -3,6 +3,8 @@ import { hostId, type KeyPair } from "@ace/secure-channel";
 import { HostedAddress } from "@ace/protocol/ace-account";
 import type { MachineAccount } from "./account-access/machine-account.ts";
 
+const hostedOrigin = (url: string) => new URL(HostedAddress.parse(url)).origin;
+
 /**
  * ace's hosted relay, which admits only machines signed in to an ace account (ADR 0111). An
  * address on a former host of ace's backend is the same relay.
@@ -10,8 +12,7 @@ import type { MachineAccount } from "./account-access/machine-account.ts";
 export function isHostedRelay(relayUrl: string, hostedRelayUrl: string | undefined): boolean {
   if (!relayUrl || !hostedRelayUrl) return false;
   try {
-    const origin = (url: string) => new URL(HostedAddress.parse(url)).origin;
-    return origin(relayUrl) === origin(hostedRelayUrl);
+    return hostedOrigin(relayUrl) === hostedOrigin(hostedRelayUrl);
   } catch {
     return false;
   }

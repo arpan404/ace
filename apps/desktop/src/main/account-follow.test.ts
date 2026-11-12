@@ -177,9 +177,9 @@ it("a daemon that starts during a check is checked again once that check ends", 
 });
 
 it("a session the app saved under ace's former address is handed to a daemon at the current one", () => {
-  const daemon = { ...lapsed("user_a"), origin: "https://cloud.acehq.dev" };
+  const atCloud = { ...lapsed("user_a"), origin: "https://cloud.acehq.dev" };
   const saved = sessionsByCurrentOrigin({ "https://relay.acehq.dev": session });
-  expect(planHandover(daemon, saved)).toEqual({
+  expect(planHandover(atCloud, saved)).toEqual({
     origin: "https://cloud.acehq.dev",
     token: session,
     expected: "held",

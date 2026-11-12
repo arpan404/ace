@@ -73,10 +73,12 @@ export const ACE_HOSTED_ACCOUNT_ORIGIN = "https://cloud.acehq.dev";
 export const ACE_FORMER_HOSTED_ACCOUNT_ORIGINS: readonly string[] = ["https://relay.acehq.dev"];
 
 const currentHost = new URL(ACE_HOSTED_ACCOUNT_ORIGIN).host;
-const formerHosts = ACE_FORMER_HOSTED_ACCOUNT_ORIGINS.map((origin) => new URL(origin).host);
+const formerHosts = new Set(
+  ACE_FORMER_HOSTED_ACCOUNT_ORIGINS.map((origin) => new URL(origin).host),
+);
 function onCurrentHost(value: string): string {
   const parts = /^(https|wss):\/\/([^/?#]+)(.*)$/is.exec(value);
-  if (!parts?.[1] || !parts[2] || !formerHosts.includes(parts[2].toLowerCase())) return value;
+  if (!parts?.[1] || !parts[2] || !formerHosts.has(parts[2].toLowerCase())) return value;
   return `${parts[1].toLowerCase()}://${currentHost}${parts[3] ?? ""}`;
 }
 
