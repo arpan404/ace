@@ -37,7 +37,11 @@ const said = (entries: readonly SpadeEntry[]) =>
       : entry.kind === "reply"
         ? `spade: ${[
             ...entry.parts.map((part) =>
-              part.kind === "text" ? part.text : `[${part.name} ${part.state}]`,
+              part.kind === "call"
+                ? `[${part.name} ${part.state}]`
+                : part.kind === "remembered"
+                  ? `[remembered ${part.note.text}]`
+                  : part.text,
             ),
             ...(entry.live ? [`${entry.live}…`] : []),
           ].join(" | ")}${entry.end ? ` (${entry.end.kind})` : ""}`
