@@ -30,6 +30,7 @@ struct Cloud {
     refresh_down: bool,
     refreshes: Vec<String>,
     starts: usize,
+    start_gate: Option<Arc<tokio::sync::Notify>>,
 }
 
 #[derive(Clone)]
@@ -76,8 +77,15 @@ async fn start(
         return refuse(StatusCode::UNAUTHORIZED, "unauthorized");
     }
     let request: Value = serde_json::from_str(&body).unwrap_or_default();
+    let gate = {
+        let mut cloud = lock(&state);
+        cloud.starts += 1;
+        cloud.start_gate.clone()
+    };
+    if let Some(gate) = gate {
+        gate.notified().await;
+    }
     let mut cloud = lock(&state);
-    cloud.starts += 1;
     cloud.approved = false;
     cloud.challenge = request["code_challenge"].as_str().unwrap_or("").to_owned();
     cloud.public_key = request["public_key"].as_str().unwrap_or("").to_owned();
@@ -155,6 +163,12 @@ async fn refresh(
 }
 
 impl FakeCloud {
+    /// Hold start answers until the test releases the request.
+    pub fn hold_starts(&self) -> Arc<tokio::sync::Notify> {
+        let gate = Arc::new(tokio::sync::Notify::new());
+        lock(&self.state).start_gate = Some(gate.clone());
+        gate
+    }
     /// A cloud whose access tokens last `expires_in` seconds.
     pub async fn start(expires_in: u64) -> Self {
         let state = Arc::new(Mutex::new(Cloud {

@@ -118,6 +118,7 @@ impl Connectors {
             code_challenge: pkce::challenge(&verifier),
             public_key: key.public_key(),
         };
+        let epoch = self.epoch(&target.id);
         let started = cloud
             .start(&app, &request)
             .await
@@ -134,7 +135,7 @@ impl Connectors {
         let poller = Poller {
             id: target.id.clone(),
             serial,
-            epoch: self.epoch(&target.id),
+            epoch,
             app: app.clone(),
             sign_in: started.sign_in,
             verifier,
@@ -143,6 +144,12 @@ impl Connectors {
             client_id: started.client_id,
             expires_at_ms: now + crate::hub::seconds_ms(started.expires_in),
         };
+        let _writing = self.writes.lock().await;
+        if self.epoch(&target.id) != epoch {
+            return Err(ConnectError::Failed(
+                "the app was disconnected meanwhile".into(),
+            ));
+        }
         // One sign-in per connector: this one replaces any other.
         lock(&self.pending).retain(|_, p| p.id != target.id);
         self.drop_device(&target.id);

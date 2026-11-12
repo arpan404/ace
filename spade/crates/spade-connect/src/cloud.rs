@@ -113,6 +113,9 @@ impl CloudClient {
         step: &str,
         body: &B,
     ) -> Result<(u16, A), CloudError> {
+        if !secure_cloud_url(&self.url) {
+            return Err(CloudError::Unreachable);
+        }
         let grant = self
             .credential
             .grant()
@@ -143,6 +146,68 @@ impl CloudClient {
             Ok(refusal) => Err(CloudError::Refused(refusal.error)),
             // Not the cloud's own refusal: a proxy or load balancer between, so it's away.
             Err(_) => Err(CloudError::Unreachable),
+        }
+    }
+}
+
+fn secure_cloud_url(address: &str) -> bool {
+    let Ok(url) = url::Url::parse(address) else {
+        return false;
+    };
+    url.scheme() == "https"
+        || (url.scheme() == "http"
+            && match url.host() {
+                Some(url::Host::Domain(host)) => host == "localhost",
+                Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+                Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+                None => false,
+            })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    struct NeverCredential;
+    impl AccountCredential for NeverCredential {
+        fn grant(&self) -> Credential<'_> {
+            panic!("unsafe cloud must not obtain credentials")
+        }
+    }
+    #[tokio::test]
+    async fn insecure_cloud_is_refused_before_obtaining_a_credential() {
+        for address in [
+            "http://cloud.acehq.dev",
+            "ftp://localhost",
+            "http://localhost.evil",
+            "broken",
+        ] {
+            let client = CloudClient::new(
+                &Cloud {
+                    url: address.into(),
+                    credential: Arc::new(NeverCredential),
+                },
+                Duration::from_secs(1),
+            );
+            assert!(matches!(
+                client
+                    .start(
+                        "asana",
+                        &StartRequest {
+                            code_challenge: String::new(),
+                            public_key: String::new()
+                        }
+                    )
+                    .await,
+                Err(CloudError::Unreachable)
+            ));
+        }
+        for address in [
+            "https://cloud.acehq.dev",
+            "http://localhost:8080",
+            "http://127.0.0.2",
+            "http://[::1]:8080",
+        ] {
+            assert!(secure_cloud_url(address));
         }
     }
 }

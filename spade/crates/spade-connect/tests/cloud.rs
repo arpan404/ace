@@ -161,3 +161,21 @@ async fn the_persons_own_client_id_signs_in_directly_not_through_spade_cloud() -
     assert_eq!(cloud.starts(), 0);
     Ok(())
 }
+
+#[tokio::test]
+async fn disconnect_during_cloud_start_cannot_restore_a_pending_sign_in() -> Result {
+    let app = FakeConnector::start(app_tools()).await;
+    let cloud = FakeCloud::start(3600).await;
+    let release = cloud.hold_starts();
+    let spade = spade_with_cloud(&app.url(), &cloud.url(), true)?;
+    let connectors = spade.connectors.clone();
+    let starting = tokio::spawn(async move { connectors.connect(from_catalogue()).await });
+    wait_for(|| cloud.starts() == 1).await?;
+    spade.connectors.disconnect(FAKE_ENTRY).await?;
+    release.notify_one();
+    assert!(starting.await?.is_err());
+    cloud.approve();
+    assert!(spade.connectors.get(FAKE_ENTRY).is_none());
+    assert!(spade.keys.connector_secret(FAKE_ENTRY, "access")?.is_none());
+    Ok(())
+}
