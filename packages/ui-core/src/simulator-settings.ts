@@ -39,6 +39,15 @@ export const toolchainInstallers = {
   android: { href: "https://developer.android.com/studio", label: "Install Android Studio" },
 } as const;
 
+/** The words around the tool rows: their check, and ace's own download of simulator streaming. */
+export const toolWords = {
+  checkAgain: "Check again",
+  problem: "Couldn't check the tools.",
+  download: "Download",
+  downloading: "Downloading…",
+  downloadFailed: "Couldn't download the simulator tools",
+} as const;
+
 /** The tools Settings › Simulators lists, in its order. */
 export const simulatorToolIds = ["xcode", "serve-sim", "android"] as const;
 
