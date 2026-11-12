@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { afterEach, expect, it } from "vitest";
 import type { DaemonStatus } from "../shared/contract.ts";
 import { followDaemonAccount, planHandover, resumeDaemonAccount } from "./account-follow.ts";
+import { sessionsByCurrentOrigin } from "./account-origins.ts";
 
 const closers: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -173,4 +174,26 @@ it("a daemon that starts during a check is checked again once that check ends", 
   gates[0]?.resolve();
   await new Promise((resolve) => setImmediate(resolve));
   expect(gates).toHaveLength(2);
+});
+
+it("a session the app saved under ace's former address is handed to a daemon at the current one", () => {
+  const atCloud = { ...lapsed("user_a"), origin: "https://cloud.acehq.dev" };
+  const saved = sessionsByCurrentOrigin({ "https://relay.acehq.dev": session });
+  expect(planHandover(atCloud, saved)).toEqual({
+    origin: "https://cloud.acehq.dev",
+    token: session,
+    expected: "held",
+    sameAccountAs: "user_a",
+  });
+});
+
+it("a session saved under ace's current address wins over one left under the former address", () => {
+  const newer = "n".repeat(43);
+  expect(
+    sessionsByCurrentOrigin({
+      "https://relay.acehq.dev": session,
+      "https://cloud.acehq.dev": newer,
+      [origin]: session,
+    }),
+  ).toEqual({ "https://cloud.acehq.dev": newer, [origin]: session });
 });

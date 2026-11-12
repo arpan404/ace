@@ -76,3 +76,23 @@ private final class Clock: @unchecked Sendable {
         #expect(merged[1].connectionTarget == nil)
     }
 }
+
+@Suite struct AceHostedOriginTests {
+    @Test func aSessionSavedUnderAcesFormerAddressIsStillSignedInAtTheCurrentOne() throws {
+        let secrets = MemorySecrets()
+        try secrets.set("https://relay.acehq.dev", "saved-before-the-move")
+        let session = AceAccountSessionStore(origin: try #require(URL(string: "https://cloud.acehq.dev")), secrets: secrets)
+        #expect(session.token() == "saved-before-the-move")
+        // Moved: signing out at the current address leaves nothing behind.
+        #expect(try secrets.get("https://cloud.acehq.dev") == "saved-before-the-move")
+        try session.clear()
+        #expect(session.token() == nil)
+    }
+
+    @Test func anotherBackendNeverTakesAcesFormerSession() throws {
+        let secrets = MemorySecrets()
+        try secrets.set("https://relay.acehq.dev", "ace-session")
+        let other = AceAccountSessionStore(origin: try #require(URL(string: "https://accounts.example")), secrets: secrets)
+        #expect(other.token() == nil)
+    }
+}

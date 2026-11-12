@@ -1,12 +1,18 @@
 import { SettingsError } from "@ace/settings";
 import { hostId, type KeyPair } from "@ace/secure-channel";
+import { HostedAddress } from "@ace/protocol/ace-account";
 import type { MachineAccount } from "./account-access/machine-account.ts";
 
-/** ace's hosted relay, which admits only machines signed in to an ace account (ADR 0111). */
+const hostedOrigin = (url: string) => new URL(HostedAddress.parse(url)).origin;
+
+/**
+ * ace's hosted relay, which admits only machines signed in to an ace account (ADR 0111). An
+ * address on a former host of ace's backend is the same relay.
+ */
 export function isHostedRelay(relayUrl: string, hostedRelayUrl: string | undefined): boolean {
   if (!relayUrl || !hostedRelayUrl) return false;
   try {
-    return new URL(relayUrl).origin === new URL(hostedRelayUrl).origin;
+    return hostedOrigin(relayUrl) === hostedOrigin(hostedRelayUrl);
   } catch {
     return false;
   }

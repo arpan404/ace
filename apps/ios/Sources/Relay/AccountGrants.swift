@@ -37,12 +37,33 @@ final class AccountGrants: @unchecked Sendable {
 }
 
 /// Where the phone keeps its ace session token: the Keychain, per account origin.
+/// ace's backend moved from these addresses to `current` (`ACE_FORMER_HOSTED_ACCOUNT_ORIGINS`);
+/// it still answers there with the same sessions, so a session saved under one is still good.
+enum AceHostedOrigins {
+    static let current = "https://cloud.acehq.dev"
+    static let former = ["https://relay.acehq.dev"]
+
+    /// The session saved under `key` (an account origin). For ace's current address, one left
+    /// under a former address is moved to it, so the person stays signed in after the move.
+    static func savedToken(_ secrets: any SecretStore, key: String) throws -> String? {
+        if let token = try secrets.get(key) { return token }
+        guard key == current else { return nil }
+        for address in former {
+            guard let token = try secrets.get(address) else { continue }
+            try secrets.set(key, token)
+            try? secrets.delete(address)
+            return token
+        }
+        return nil
+    }
+}
+
 struct AceAccountSessionStore: Sendable {
     let origin: URL
     var secrets: any SecretStore = KeychainSecrets(service: "app.ace.ios.account")
     private var key: String { origin.absoluteString }
 
-    func token() -> String? { (try? secrets.get(key)).flatMap { $0 } }
+    func token() -> String? { (try? AceHostedOrigins.savedToken(secrets, key: key)).flatMap { $0 } }
     func save(_ token: String) throws { try secrets.set(key, token) }
     func clear() throws { try secrets.delete(key) }
     /// This phone's device id on the account: the grant's subject, and the name each machine

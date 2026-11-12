@@ -6,8 +6,10 @@
  * `issueBearer`.
  *
  * An OAuth pair is bound to the resource it was issued for (RFC 8707): the MCP URL of one way
- * in, such as `https://relay.acehq.dev/m/<hostId>/mcp`. It works there and nowhere else. A pasted
- * token is for the loopback endpoint `ace mcp enroll` prints.
+ * in, such as `https://cloud.acehq.dev/m/<hostId>/mcp`. It works there and nowhere else. A pasted
+ * token is for the loopback endpoint `ace mcp enroll` prints. ace's relay still answers at its
+ * former address and states the origin the caller used, so a pair issued for
+ * `https://relay.acehq.dev/m/<hostId>/mcp` keeps working there.
  */
 import { createHash } from "node:crypto";
 import type { OutsideGrant } from "@ace/protocol";

@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { safeStorage } from "electron";
 import { z } from "zod";
+import { savedOriginKey, sessionsByCurrentOrigin } from "./account-origins.ts";
 
 const available = () =>
   safeStorage.isEncryptionAvailable() &&
@@ -17,7 +18,9 @@ export function accountSecrets(directory: string) {
     try {
       const bytes = await readFile(path);
       const data: unknown = JSON.parse(safeStorage.decryptString(bytes));
-      return z.record(z.string(), z.string().regex(/^[A-Za-z0-9_-]{43}$/)).parse(data);
+      const saved = z.record(z.string(), z.string().regex(/^[A-Za-z0-9_-]{43}$/)).parse(data);
+      // Sessions saved under ace's former address; the next write stores them under the current one.
+      return sessionsByCurrentOrigin(saved);
     } catch (error) {
       const missing = z.object({ code: z.literal("ENOENT") }).safeParse(error);
       if (missing.success) return {};
@@ -31,7 +34,7 @@ export function accountSecrets(directory: string) {
   }
   return {
     read(origin: string) {
-      return serial(async () => (await read())[origin] ?? null);
+      return serial(async () => (await read())[savedOriginKey(origin)] ?? null);
     },
     /** Every saved session, by account origin. */
     all(): Promise<Readonly<Record<string, string>>> {
@@ -40,8 +43,8 @@ export function accountSecrets(directory: string) {
     write(origin: string, token: string | null) {
       return serial(async () => {
         const entries = await read();
-        if (token) entries[origin] = token;
-        else delete entries[origin];
+        if (token) entries[savedOriginKey(origin)] = token;
+        else delete entries[savedOriginKey(origin)];
         await mkdir(directory, { recursive: true, mode: 0o700 });
         const temporary = `${path}.${randomUUID()}`;
         await writeFile(temporary, safeStorage.encryptString(JSON.stringify(entries)), {

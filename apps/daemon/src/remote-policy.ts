@@ -1,5 +1,6 @@
 import type { Config } from "./config.ts";
 import type { SettingsValues } from "@ace/protocol";
+import { HostedAddress } from "@ace/protocol/ace-account";
 import { isHostedRelay } from "./relay-account.ts";
 
 export type RemotePreferences = Pick<
@@ -67,7 +68,8 @@ export function remotePlan(
   if (chosenUrl && !chosenIsHosted)
     relays.push({ url: chosenUrl, hosted: false, chosen: true, key: chosenUrl });
   const hosted = chosenIsHosted || (enabled && accountId !== undefined);
-  const url = chosenIsHosted ? chosenUrl : hostedUrl;
+  // A relay setting saved on a former address of ace's backend runs at the current address.
+  const url = chosenIsHosted ? HostedAddress.parse(chosenUrl) : hostedUrl;
   if (hosted && url)
     relays.push({
       url,

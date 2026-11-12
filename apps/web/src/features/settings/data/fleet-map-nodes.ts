@@ -68,13 +68,13 @@ export function machineNode(machine: MapMachineInput): MapNode {
     via === undefined
       ? "Unknown"
       : via.kind === "account"
-        ? "ace relay"
+        ? "ace cloud"
         : via.kind === "relay"
           ? `Relay, ${hostOf(via.url) ?? "your relay"}`
           : `${way === "other" ? "Direct" : capitalize(wayWords[way ?? "lan"])}, ${hostOf(via.url) ?? via.url}`;
   const wayLabel = relayed
     ? via?.kind === "account"
-      ? "ace relay"
+      ? "ace cloud"
       : "relay"
     : way === "other" || way === undefined
       ? (hostOf(via?.url) ?? "direct")
@@ -188,7 +188,7 @@ export function accountNode(machine: MapAccountInput, now: number): MapNode {
     offer: undefined,
   };
   const lines = [
-    { label: "Reached", value: "ace relay" },
+    { label: "Reached", value: "ace cloud" },
     { label: "Last seen", value: capitalize(seen) },
   ];
   const opening = machine.opening;
@@ -215,7 +215,7 @@ export function accountNode(machine: MapAccountInput, now: number): MapNode {
       ...base,
       tone: "on",
       status: "Online",
-      wire: wire("relay", "ace relay"),
+      wire: wire("relay", "ace cloud"),
       lines,
       problem: undefined,
     };
@@ -251,7 +251,7 @@ export function accountNode(machine: MapAccountInput, now: number): MapNode {
     ...base,
     tone: "unknown",
     status: "On your ace account",
-    wire: wire("relay", "ace relay"),
+    wire: wire("relay", "ace cloud"),
     lines,
     problem: undefined,
     offer: "openAccount",
@@ -378,7 +378,7 @@ export function ownNode(input: FleetMapInput): MapNode {
   const onRelay = networks !== undefined && (serving(networks.account) || serving(networks.relay));
   const reached = networks
     ? [
-        serving(networks.account) ? "ace relay" : undefined,
+        serving(networks.account) ? "ace cloud" : undefined,
         serving(networks.relay) && networks.relay.address !== networks.account.address
           ? "your relay"
           : undefined,
@@ -407,7 +407,7 @@ export function ownNode(input: FleetMapInput): MapNode {
           from: relayEnd,
           kind: "relay",
           relayed: true,
-          label: serving(networks.account) ? "ace relay" : "relay",
+          label: serving(networks.account) ? "ace cloud" : "relay",
         }
       : undefined,
     lines: [
