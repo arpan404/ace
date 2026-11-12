@@ -6,7 +6,7 @@ import { AcpIdentity, maxMessageBytes, type Command } from "@ace/protocol";
 import type { EngineRepository } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
 import type { EngineLimits } from "./limits.ts";
-import type { EngineOptions } from "./index.ts";
+import type { EngineOptions } from "./engine-options.ts";
 
 const fail = (error: string) => ({ ok: false as const, error });
 

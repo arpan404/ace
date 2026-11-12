@@ -115,7 +115,11 @@ function moveErrorCode(error: unknown): string {
 function movable(store: Store, thread: Thread): string | undefined {
   const error = threadMoveError(thread);
   if (error !== "thread_busy") return error;
-  const held =
+  return recoveryHeld(store, thread) ? undefined : error;
+}
+
+function recoveryHeld(store: Store, thread: Thread): boolean {
+  return (
     thread.status.state === "waiting" &&
     thread.status.on === "queue" &&
     store.atomic((db) =>
@@ -125,18 +129,22 @@ function movable(store: Store, thread: Thread): string | undefined {
           .get() &&
         db.prepare("SELECT 1 FROM engine_queue WHERE thread_id=? AND paused=1").get(thread.id),
       ),
-    );
-  return held ? undefined : error;
+    )
+  );
 }
 
 /**
  * Why a thread can't be continued on another machine now (ADR 0101): thread.move's checks for a
- * live tree, pending input and live terminals. A worktree thread may go; its worktree travels.
+ * live tree, pending input and live terminals, and the workspace fence's for provider work. A
+ * replied thread reads done while a build it left running still writes to the checkout (ADR
+ * 0116); copying it then would leave that process behind here. A worktree thread may go; its
+ * worktree travels.
  */
 export function continueError(
   store: Store,
   id: ThreadId,
   ownsWork: (id: ThreadId) => boolean,
+  runsProviderWork: (id: ThreadId) => boolean,
 ): string | undefined {
   const thread = store.getThread(id);
   if (!thread) return "thread_not_found";
@@ -145,5 +153,8 @@ export function continueError(
     : thread;
   const error = movable(store, local);
   if (error) return error;
-  return threadHasPendingWork(store, thread.id, ownsWork) ? "thread_busy" : undefined;
+  if (threadHasPendingWork(store, thread.id, ownsWork)) return "thread_busy";
+  // A paused recovery hold runs nothing until Continue; what it lost track of travels with it.
+  if (!recoveryHeld(store, thread) && runsProviderWork(thread.id)) return "thread_busy";
+  return undefined;
 }
