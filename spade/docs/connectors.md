@@ -18,8 +18,12 @@ maker's own documentation on the date the file records (`source` names the page)
 | `token`        | A token or API key the person made in the app, sent as `Authorization: Bearer` |
 
 An entry Spade ships its own client ID for (`config/connector-apps.json`, see Spade's own apps
-below) gets `oauth` first. Entries that stay on `oauth_client` say in their notes why: the maker
-requires a client secret, which Spade never ships.
+below) gets `oauth` first. So does an entry marked `"via": "cloud"` (Asana, Box, Canva, HubSpot):
+the maker requires a client secret, which Spade never ships, so it signs in through
+[Spade Cloud](cloud.md) with the person's ace account (ADR 0139). Signed out of ace, connecting it
+says so with Sign in to ace; the person's own client ID still works. Its row says "Signs in
+through Spade Cloud", or why it can't renew while the cloud or ace is away; it keeps working until
+its token expires. Renewals go through the cloud, and the tokens stay in the keychain.
 
 Servers that accept only clients the maker approved are left out: Figma, and Vercel, which takes
 client ID metadata documents but doesn't name itself in its answers (see Client below). Any other
