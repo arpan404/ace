@@ -50,8 +50,7 @@ Every agent has two tools:
 
 ## Endpoints and models
 
-The person's endpoints and saved models are in Spade's database; keys stay in the OS keychain (ADR
-0119) or the endpoint's environment variable. `config/models.json`, built into the binary and read
+The person's endpoints and saved models are in Spade's database; keys stay in the OS keychain (ADR 0119) or the endpoint's environment variable. `config/models.json`, built into the binary and read
 from there on every start, holds presets: endpoint templates and known facts about model ids
 (context, capabilities, prices). On the first start with schema 2, every preset whose key is already
 present becomes one of the person's endpoints with the same id, so existing keys keep working.
@@ -152,8 +151,8 @@ fields in a body are ignored. Times are integer milliseconds since the epoch.
   3.75 MB at most, stored like attached images) or `{"kind":"generated","color"?}` (a colour is
   picked from the agent's id when absent). An absent avatar is a generated one.
 - **Endpoint** = `{"id", "name", "format", "base_url", "session_header", "header_names",
-  "needs_key", "key_set", "key_source": "keychain"|"environment"|null, "models": [{"id", "name",
-  "context", "capabilities", "source": "listed"|"typed"|"preset"}]}`. Header values and keys are
+"needs_key", "key_set", "key_source": "keychain"|"environment"|null, "models": [{"id", "name",
+"context", "capabilities", "source": "listed"|"typed"|"preset"}]}`. Header values and keys are
   never answered. The id is a slug of the name, unique (`-2`, `-3`, …). `format` is `openai-chat`,
   `openai-responses` or `anthropic`; `needs_key` defaults to true (false for a local server).
   With `preset`, missing fields come from that preset, its key variable and models included.
