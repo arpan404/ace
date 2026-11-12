@@ -79,6 +79,8 @@ import {
 
 export type { RegistryQuery } from "./api.ts";
 
+/** What `onMessage` and `onStream` hand back once closed: nothing was added, so nothing to stop. */
+const noListener = () => {};
 /** Shared connection, stores and validated wire operations used by page and worker clients. */
 /** An app that never said where it is: in the foreground, on no thread. */
 const foregroundPresence = {
@@ -893,7 +895,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   }
   /** Binary stream messages (browser frames); the caller releases it. */
   onStream(listener: (message: StreamMessage) => void): () => void {
-    if (this.closed) throw new ClientError("offline");
+    if (this.closed) return noListener;
     if (this.#streamListeners.size >= (this.options.limits?.listeners ?? defaultLimits.listeners))
       throw new ClientError("limit");
     this.#streamListeners.add(listener);
@@ -903,7 +905,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   }
   /** Uncorrelated service messages (such as `settings.changed`); the caller releases it. */
   onMessage(listener: (message: ServerMessage) => void): () => void {
-    if (this.closed) throw new ClientError("offline");
+    if (this.closed) return noListener;
     if (this.#serviceListeners.size >= (this.options.limits?.listeners ?? defaultLimits.listeners))
       throw new ClientError("limit");
     this.#serviceListeners.add(listener);

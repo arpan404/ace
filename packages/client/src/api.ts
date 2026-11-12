@@ -157,11 +157,15 @@ export interface ClientApi {
     input: Q,
     options?: RequestOptions,
   ): Promise<ServiceResponse<Q>>;
-  /** Uncorrelated service messages (such as `settings.changed`); call the result to stop. */
+  /**
+   * Uncorrelated service messages (such as `settings.changed`); call the result to stop. A closed
+   * client hears nothing more: it takes the listener without error and never calls it.
+   */
   onMessage(listener: (message: ServerMessage) => void): () => void;
   /**
    * Binary stream messages (a browser frame's JPEG as bytes); call the result to stop. Absent
-   * where the client can't receive them, so a viewer asks for frames as JSON instead.
+   * where the client can't receive them, so a viewer asks for frames as JSON instead. Like
+   * `onMessage`, a closed client takes the listener and never calls it.
    */
   onStream?(listener: (message: StreamMessage) => void): () => void;
   /**
