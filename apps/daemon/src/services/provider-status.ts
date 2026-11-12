@@ -13,6 +13,10 @@ import { hasUnauthenticatedOpenCodeModels } from "../provider-model-availability
 import { daemonCursorInstance } from "./cursor-instance.ts";
 import { cursorHosts } from "./cursor-hosts.ts";
 import type { ServiceContext } from "./types.ts";
+import { defaultCodexHome } from "../account-homes.ts";
+import { claudeToolStatus, codexToolStatus } from "../native-tools/read.ts";
+import { cachedToolFiles, nodeFileSystem } from "../native-tools/files.ts";
+import { claudeChromeSetting, codexToolSourceSetting } from "./native-tools.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
 export function startProviderStatuses(context: ServiceContext): void {
@@ -42,6 +46,7 @@ export function startProviderStatuses(context: ServiceContext): void {
       ? context.services.accountRegistry?.selectedCursorSdk()
       : context.services.accountRegistry?.selectedProvider(provider)) ??
     (provider === "cursor" ? "cursor-sdk-default" : `${provider}-cli-default`);
+  const toolFiles = cachedToolFiles(nodeFileSystem);
   const statuses = new ProviderStatuses(
     {
       ...context.options.providerStatus,
@@ -95,6 +100,22 @@ export function startProviderStatuses(context: ServiceContext): void {
           apiKey: apiKeySupport(row.provider, row.version, help),
           authMethod: reportedAuthMethod(row.authDetail),
         };
+      },
+      async nativeTools(row) {
+        const env = context.options.accounts?.env ?? process.env;
+        const settings = context.services.settings;
+        if (row.provider === "claude")
+          return claudeToolStatus(await claudeChromeSetting(settings), env, toolFiles);
+        if (row.provider !== "codex") return {};
+        const account = row.instanceId
+          ? context.services.accountRegistry?.get(row.instanceId)?.instance
+          : undefined;
+        return codexToolStatus({
+          setting: await codexToolSourceSetting(settings),
+          env,
+          homeDir: account?.homeDir ?? defaultCodexHome(env),
+          files: toolFiles,
+        });
       },
       async versions(row, signal) {
         if (context.options.providerStatus?.versions)
@@ -213,6 +234,16 @@ export function startProviderStatuses(context: ServiceContext): void {
   );
   context.services.providerStatuses = statuses;
   context.resources.own(() => statuses.close());
+  // A changed tool source or Chrome choice shows on the provider rows without waiting.
+  const stopTools = context.services.settings
+    ?.subscribe(
+      { keys: ["providers.codex.toolSource", "providers.claude.chrome"], scope: {} },
+      (notification) => {
+        if (notification.type === "changed") void statuses.refreshAfterMutation().catch(() => {});
+      },
+    )
+    .catch(() => undefined);
+  context.resources.own(async () => (await stopTools)?.());
 }
 export function createProviderStatusesSession(context: SocketContext): SocketService {
   let pending = 0;

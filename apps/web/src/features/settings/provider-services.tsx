@@ -53,7 +53,7 @@ export function ProviderServices(props: { provider: ProviderKind; name: string }
               <span className="truncate font-medium">{source.label}</span>
               {error && (
                 <StatusLine
-                  tone={error.code === "no_models" ? "idle" : "problem"}
+                  tone={error.code === "no_models" ? "idle" : "action"}
                   text={error.code === "no_models" ? "No models enabled" : "Needs attention"}
                 />
               )}

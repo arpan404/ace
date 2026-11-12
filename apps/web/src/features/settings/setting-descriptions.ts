@@ -1,42 +1,19 @@
 /** Explain the effect of a control; pages can replace this with a current-state explanation. */
 export const settingDescriptions: Readonly<Partial<Record<string, string>>> = {
-  "profile.name": "Shown beside your messages. Saved when you leave this field or press Enter.",
-  "providers.default":
-    "The provider new threads start with. You can choose another in each thread.",
-  "terminals.openIn": "Where terminal tabs open in this window.",
-  "editor.default": "The editor used when you open a project or file from ace.",
-  "usage.railMeasure": "What the rail's Usage icon shows for each account.",
-  "threads.useWorktree":
-    "Start new threads in separate Git worktrees so their changes stay isolated.",
-  "threads.forkOnSwitch":
-    "Create a new thread when changing providers. The original conversation stays unchanged.",
-  "threads.settleOnMerge":
-    "Move a thread out of the active list when its linked pull request is merged.",
-  "threads.settleOnClose":
-    "Move a thread out of the active list when its linked pull request is closed without merging.",
-  "generation.model": "The model ace uses for titles and other generated text.",
-  "generation.autoDraftCommits": "Generate a draft commit message from your changes.",
-  "automations.enabled": "Allow scheduled automations to run on this machine.",
-  "app.openAtLogin": "Start the desktop app when you sign in to your computer.",
-  "app.background": "Keep ace running after you close its windows.",
-  "app.preventSleep": "Keep this computer awake while agents are working.",
-  "appearance.mode": "Use a light or dark interface, or follow your system.",
-  "appearance.theme": "Choose the interface colors.",
-  "appearance.accent": "Choose the color used for selected controls.",
-  "appearance.translucency": "Adjust how much shows through floating menus and the composer.",
-  "appearance.reduceMotion":
-    "Reduce movement in interface animations. System follows your device preference.",
-  "appearance.transcriptSize": "Change the text size in conversations.",
-  "browser.profile": "Choose whether new browsers keep sign-ins and cookies or start fresh.",
-  "browser.loss": "Choose what happens to browser sessions when the desktop app disconnects.",
-  "browser.revealAgentPages": "Bring pages opened by agents into view automatically.",
-  "storage.backupWorktrees":
-    "Commits everything not in .gitignore, .env included, and pushes to origin.",
-  "browser.deviceToolbar": "Show device and viewport controls when you open a browser tab.",
-  "browser.pip": "Show a floating browser preview while an agent browses or the page plays sound.",
-  "browser.extensionsButton": "The puzzle-piece button beside the address, listing extensions.",
-  "browser.connectionStats":
-    "How long your clicks and keys take to reach the page and come back, in the ⋯ menu.",
-  "browser.appDownloads":
-    "Pages in the desktop app's own browser save here. ace's Chrome uses its folder above.",
+  "profile.name": "Shown beside your messages.",
+  "providers.default": "Each thread can switch.",
+  "terminals.openIn": "In this window.",
+  "editor.default": "For projects and files you open from ace.",
+  "usage.railMeasure": "What the rail's Usage icon shows.",
+  "threads.useWorktree": "Keeps each thread's changes apart.",
+  "threads.forkOnSwitch": "The original thread stays as it was.",
+  "threads.settleOnClose": "Closed without merging.",
+  "generation.autoDraftCommits": "Drafted from your changes.",
+  "automations.enabled": "Scheduled automations run on this machine.",
+  "app.background": "After you close its windows.",
+  "appearance.translucency": "Menus and the composer.",
+  "appearance.reduceMotion": "System follows your device.",
+  "storage.backupWorktrees": "Pushes everything not in .gitignore, .env included.",
+  "browser.pip": "While an agent browses or a page plays sound.",
+  "browser.connectionStats": "Round-trip time for clicks and keys, in the ⋯ menu.",
 };

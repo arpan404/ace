@@ -37,7 +37,7 @@ import type { PaletteStart } from "@/lib/layout.tsx";
 import { AllowFolder } from "./allow-folder.tsx";
 import { AllowedPlaces, RefusedNotice, RowMeta } from "./folder-notices.tsx";
 import { Problem } from "./form-parts.tsx";
-import { useNativePicker } from "./native-picker.ts";
+import { useNativePicker } from "@/lib/native-picker.ts";
 import { useAddFolder } from "./use-add-folder.ts";
 import { useHostHome, useRecentFolders } from "./use-folders.ts";
 import { useLocalFolder, type LocalRow } from "./use-local-folder.ts";

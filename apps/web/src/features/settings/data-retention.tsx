@@ -23,7 +23,7 @@ export function DataRetentionSettings() {
     <SettingSection
       label="Data window"
       scope="daemon"
-      note="Idle threads, unused attachments and old logs go after this many days. Pinned and live work stays."
+      note="Idle threads, unused attachments and old logs are removed after this. Pinned and live work stays."
     >
       <NumberRow
         id="storage.retentionDays"
@@ -113,7 +113,7 @@ function NumberRow(props: {
           inputMode="numeric"
           min={props.min}
           max={props.max}
-          className={cn(fieldClassName, "h-8 w-24 tabular-nums")}
+          className={cn(fieldClassName, "h-8 w-20 tabular-nums")}
           value={draft ?? props.value ?? ""}
           disabled={!ready || saving || props.value === undefined || props.pinnedBy !== undefined}
           onChange={(event) => setDraft(event.target.value)}

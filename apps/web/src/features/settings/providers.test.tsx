@@ -14,45 +14,84 @@ function stage(app: Harness, provider: ProviderKind, staged: Partial<ProviderSta
   Object.assign(found, staged);
 }
 
-const section = (name = "Installed providers") =>
-  screen.findByRole("region", { name }, { timeout: 10_000 });
+const section = (name = "Installed") => screen.findByRole("region", { name }, { timeout: 10_000 });
 
 /** The row of the list that holds the link to `name`'s page. */
 async function rowOf(name: string) {
   return screen.findByRole("group", { name }, { timeout: 10_000 });
 }
 
-test("the list says each provider's state in one line and asks only where something's wrong", async () => {
+test("the list says each provider's state and accounts in one line and asks only where something's wrong", async () => {
   // The fake's machine: Claude Code signed in, Codex's CLI login signed out, OpenCode and Pi
   // connected through their services, Cursor's sign-in expired, Antigravity not installed.
   await harness().open("/settings/providers");
   const installed = await section();
-  expect(within(await rowOf("Claude Code")).queryByText("Ready")).toBeNull();
-  expect(within(await rowOf("Codex")).getByText("Update available")).toBeTruthy();
-  expect(within(await rowOf("OpenCode")).queryByText("Ready")).toBeNull();
+  const claude = await rowOf("Claude Code");
+  expect(await within(claude).findByText("Ready")).toBeTruthy();
+  expect(within(claude).getByText(/· 3 accounts$/)).toBeTruthy();
+  expect(within(claude).queryByRole("button")).toBeNull();
+  expect(await within(await rowOf("Gemini CLI")).findByText(/· 1 account$/)).toBeTruthy();
   expect(await within(await rowOf("Cursor")).findByText("Needs attention")).toBeTruthy();
-  // The list opens each provider's one place for account and CLI actions.
-  expect(within(await rowOf("Codex")).getByRole("button", { name: "Update" })).toBeTruthy();
+  // The one action a row needs, on the list: Codex has a newer CLI out.
+  expect(
+    within(await rowOf("Codex")).getByRole("button", { name: "Update to 0.161.0" }),
+  ).toBeTruthy();
   expect(within(installed).getByText("2.1.4")).toBeTruthy();
-  const missing = await section("Available to install");
-  expect(within(missing).getByRole("link", { name: "Antigravity" })).toBeTruthy();
+  const available = await section("ACP agents");
+  expect(within(available).getByRole("link", { name: "Antigravity" })).toBeTruthy();
+  expect(
+    within(within(available).getByRole("group", { name: "Antigravity" })).getByRole("button", {
+      name: "Install",
+    }),
+  ).toBeTruthy();
+}, 30_000);
+
+test("Update all, shown only while an update is waiting, updates every provider that has one", async () => {
+  const app = harness();
+  app.daemon.services.providerInstalls.autoComplete = false;
+  await app.open("/settings/providers");
+  const installed = await section();
+  await userEvent.click(await within(installed).findByRole("button", { name: "Update all" }));
+  for (const name of ["Codex", "Gemini CLI"])
+    expect(
+      await within(await rowOf(name)).findByRole("progressbar", {
+        name: `${name} installation progress`,
+      }),
+    ).toBeTruthy();
+  expect(within(await rowOf("Claude Code")).queryByRole("progressbar")).toBeNull();
+}, 30_000);
+
+test("with every provider up to date there is no Update all", async () => {
+  const app = harness();
+  stage(app, "codex", { updateAvailable: false });
+  const gemini = app.daemon.services.registry.installations.find(
+    (entry) => entry.acpAgentId === "official:gemini",
+  );
+  if (!gemini) throw new Error("Missing installed ACP fixture");
+  gemini.version = "0.63.0";
+  await app.open("/settings/providers");
+  const installed = await section();
+  await within(installed).findByRole("group", { name: "Codex" });
+  expect(within(await rowOf("Gemini CLI")).queryByRole("button", { name: /^Update/ })).toBeNull();
+  expect(within(installed).queryByRole("button", { name: "Update all" })).toBeNull();
 }, 30_000);
 
 test("a provider's row opens its page, with its accounts, models and facts; Back returns", async () => {
   await harness().open("/settings/providers");
   await userEvent.click(await screen.findByRole("link", { name: "Claude Code" }));
   expect(await screen.findByRole("heading", { level: 2, name: "Claude Code" })).toBeTruthy();
-  await userEvent.click(screen.getByText("Advanced", { selector: "summary" }));
+  // The version is stated once, under the title; About keeps where it's installed.
+  expect(screen.getByRole("main").textContent).toContain("2.1.4");
   const about = await screen.findByRole("region", { name: "About" }, { timeout: 10_000 });
-  expect(within(about).getByText("2.1.4")).toBeTruthy();
+  expect(within(about).queryByText("2.1.4")).toBeNull();
   expect(within(about).getByText("/opt/homebrew/bin/claude")).toBeTruthy();
   const accounts = await screen.findByRole("list", { name: "Claude Code accounts" });
   expect(within(accounts).getByText("Your CLI login")).toBeTruthy();
   expect(within(accounts).getByText("Signed in")).toBeTruthy();
   expect(within(accounts).getByText("Work")).toBeTruthy();
-  // Sign out is on the page, apart from everything else.
+  // Log out is on the page, apart from everything else.
   await userEvent.click(within(accounts).getByRole("button", { name: "Manage Personal" }));
-  expect(await screen.findByRole("menuitem", { name: "Sign out" })).toBeTruthy();
+  expect(await screen.findByRole("menuitem", { name: "Log out" })).toBeTruthy();
   await userEvent.keyboard("{Escape}");
 
   await userEvent.click(screen.getByRole("link", { name: "Back to Providers" }));
@@ -100,7 +139,6 @@ test("OpenCode's page shows each service; a failing one reconnects with its choi
 
 test("Connect a service on Pi's page opens the CLI's own choices", async () => {
   await harness().open("/settings/providers/pi");
-  await userEvent.click(await screen.findByText("Advanced", { selector: "summary" }));
   // The native terminal recipe remains available alongside working catalog readiness.
   const about = await screen.findByRole("region", { name: "About" }, { timeout: 10_000 });
   expect(about.textContent).toContain("Run pi, then type /login");
@@ -134,9 +172,9 @@ test("a CLI older than ace supports says so, offers Update, and clears once it i
   await app.open("/settings/providers");
   const row = await rowOf("Claude Code");
   expect(await within(row).findByText("Update needed")).toBeTruthy();
-  expect(within(row).getByRole("button", { name: "Update" })).toBeTruthy();
+  expect(within(row).getByRole("button", { name: /^Update/ })).toBeTruthy();
   expect(within(row).queryByRole("button", { name: /Sign in/ })).toBeNull();
-  await userEvent.click(within(row).getByRole("link", { name: "Open Claude Code" }));
+  await userEvent.click(within(row).getByRole("link", { name: "Claude Code" }));
   expect(
     await screen.findByText(
       "Claude Code 2.1.200 is older than 2.1.286, the oldest version ace supports. Update Claude Code, then refresh.",
@@ -180,9 +218,7 @@ test("a CLI that isn't installed offers the supervised installer on its page", a
   app.daemon.services.installed.delete("codex");
   stage(app, "codex", { installed: false });
   await app.open("/settings/providers");
-  await userEvent.click(
-    within(await section("Available to install")).getByRole("link", { name: "Codex" }),
-  );
+  await userEvent.click(within(await section("ACP agents")).getByRole("link", { name: "Codex" }));
   expect(await screen.findByRole("button", { name: "Install" })).toBeTruthy();
   expect(screen.queryByRole("region", { name: "Sign out of Codex" })).toBeNull();
   expect(screen.queryByRole("region", { name: "Models" })).toBeNull();
@@ -190,7 +226,7 @@ test("a CLI that isn't installed offers the supervised installer on its page", a
 
 test("Manage models offers named controls for current and older models without repeating accounts", async () => {
   await harness().open("/settings/providers/codex");
-  const models = await screen.findByRole("region", { name: "Behaviour" }, { timeout: 10_000 });
+  const models = await screen.findByRole("region", { name: "Models" }, { timeout: 10_000 });
   await userEvent.click(await within(models).findByRole("button", { name: "Manage" }));
   const shown = await screen.findByRole("list", { name: "Models" });
   expect(within(shown).getByRole("button", { name: "Star GPT-6.1 Sol" })).toBeTruthy();
@@ -201,7 +237,7 @@ test("Manage models offers named controls for current and older models without r
 test("a provider's default model can be changed, even to a legacy one, and reads as the person's", async () => {
   const app = harness();
   await app.open("/settings/providers/claude");
-  const models = await screen.findByRole("region", { name: "Behaviour" }, { timeout: 10_000 });
+  const models = await screen.findByRole("region", { name: "Models" }, { timeout: 10_000 });
   await userEvent.click(
     await within(models).findByRole("button", { name: "Default model: Opus 5.5" }),
   );
@@ -244,14 +280,10 @@ test("Usage shows daily tokens by provider and an API-price estimate per model",
 
 test("an ACP agent added by command joins the list, and its page removes it", async () => {
   await harness().open("/settings/providers");
-  await section("Installed providers");
-  await userEvent.click(screen.getByRole("button", { name: "Add an ACP agent…" }));
-  const dialog = await screen.findByRole(
-    "dialog",
-    { name: "Add an ACP agent" },
-    { timeout: 10_000 },
+  await section();
+  await userEvent.click(
+    within(await section("ACP agents")).getByRole("button", { name: "Add an agent by command" }),
   );
-  await userEvent.click(await within(dialog).findByRole("button", { name: "Add by command" }));
   const form = await screen.findByRole("form", { name: "Add an ACP agent by command" });
   await userEvent.click(within(form).getByRole("button", { name: "Add agent" }));
   expect(await within(form).findByText("Give the agent a name.")).toBeTruthy();
@@ -265,9 +297,8 @@ test("an ACP agent added by command joins the list, and its page removes it", as
   await userEvent.click(
     await screen.findByRole("link", { name: "Qwen Code" }, { timeout: 10_000 }),
   );
-  await userEvent.click(screen.getByText("Advanced", { selector: "summary" }));
   await userEvent.click(await screen.findByRole("button", { name: "Remove Qwen Code" }));
-  expect(await section("Installed providers")).toBeTruthy();
+  expect(await section()).toBeTruthy();
   await waitFor(() => expect(screen.queryByRole("link", { name: "Qwen Code" })).toBeNull());
 }, 30_000);
 
@@ -287,7 +318,7 @@ test("a provider with one available model labels it in the singular", async () =
     .filter((entry) => entry.provider !== "codex")
     .concat(model);
   await app.open("/settings/providers/codex");
-  const models = await screen.findByRole("region", { name: "Behaviour" });
+  const models = await screen.findByRole("region", { name: "Models" });
   expect(await within(models).findByText("1 model · legacy models in a submenu")).toBeTruthy();
   expect(within(models).queryByText("1 models")).toBeNull();
 });
@@ -303,7 +334,7 @@ test("a vanished saved default stays unavailable until the person picks its reco
     (row) => row.id !== "opencode-go/muse-spark-1.3-contributor",
   );
   await app.open("/settings/providers/opencode");
-  const models = await screen.findByRole("region", { name: "Behaviour" });
+  const models = await screen.findByRole("region", { name: "Models" });
   await userEvent.click(
     await within(models).findByRole("button", {
       name: "Default model: Muse Spark 1.3 Contributor, Unavailable",
@@ -328,7 +359,9 @@ test("a failed update reads as an update failure and keeps the CLI among install
   app.daemon.services.providerInstalls.autoComplete = false;
   app.daemon.services.providerInstalls.scenarios.codex = "failure";
   await app.open("/settings/providers");
-  await userEvent.click(within(await rowOf("Codex")).getByRole("button", { name: "Update" }));
+  await userEvent.click(
+    within(await rowOf("Codex")).getByRole("button", { name: "Update to 0.161.0" }),
+  );
   await within(await rowOf("Codex")).findByRole("progressbar");
   app.daemon.services.providerInstalls.complete("fake-install-1");
   const row = await rowOf("Codex");

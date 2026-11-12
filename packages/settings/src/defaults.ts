@@ -44,6 +44,8 @@ export const defaults: SettingsValues = {
   "providers.verifier.model": "default",
   "providers.verifier.tier": "default",
   "providers.verifier.reasoningEffort": "default",
+  "providers.codex.toolSource": null,
+  "providers.claude.chrome": "auto",
   "browser.backend": "auto",
   "browser.backendLoss": "pause",
   "browser.profile": "persistent",

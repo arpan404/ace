@@ -2,11 +2,10 @@ import { Link } from "@tanstack/react-router";
 import { SettingNote, SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { useAccountMachines } from "@/features/ace-account/index.ts";
-import { Screen } from "@/features/shell/index.ts";
 import { settingRow } from "../settings-index.ts";
-import { ProfileHero, useProfileAccount } from "./account.tsx";
+import { SettingsBody } from "../settings-body.tsx";
+import { PersonSection, useProfileAccount } from "./account.tsx";
 import { Legal, NameSetting } from "./you.tsx";
-import { SignOutButton } from "./sign-out-button.tsx";
 
 const none: readonly { id: string }[] = [];
 
@@ -18,22 +17,12 @@ const none: readonly { id: string }[] = [];
 export function NoMachineProfilePage() {
   const account = useProfileAccount();
   return (
-    <Screen
-      title="Profile"
-      namedByPanel
-      actions={account.session ? <SignOutButton account={account} /> : undefined}
-    >
-      <div className="h-full overflow-auto">
-        <div className="@container mx-auto flex w-full max-w-[52rem] flex-col gap-12 px-5 pt-12 pb-20 sm:px-8">
-          <ProfileHero account={account} />
-          <div className="flex flex-col">
-            {account.session && <AccountMachines />}
-            <NameSetting />
-          </div>
-          <Legal />
-        </div>
-      </div>
-    </Screen>
+    <SettingsBody page="Profile">
+      <PersonSection account={account} />
+      {account.session && <AccountMachines />}
+      <NameSetting />
+      <Legal />
+    </SettingsBody>
   );
 }
 

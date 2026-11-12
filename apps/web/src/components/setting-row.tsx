@@ -59,8 +59,12 @@ export function SettingRow(props: {
     >
       <div
         className={cn(
-          "flex min-h-(--setting-row-height) items-center gap-4",
-          compact ? "py-(--setting-row-y)" : "py-3",
+          "flex items-center gap-4",
+          // A label alone takes a shorter row than a label over its description.
+          props.description
+            ? "min-h-(--setting-row-height)"
+            : "min-h-(--setting-row-height-single)",
+          !props.description ? "py-1.5" : compact ? "py-(--setting-row-y)" : "py-3",
           !props.inline && "@max-[440px]:flex-col @max-[440px]:items-stretch",
         )}
       >
@@ -74,7 +78,10 @@ export function SettingRow(props: {
             {props.title}
           </Title>
           {props.description && (
-            <span id={hintId} className="max-w-prose text-xs leading-relaxed text-muted-foreground">
+            <span
+              id={hintId}
+              className="max-w-prose text-xs leading-relaxed text-subtle-foreground"
+            >
               {props.description}
             </span>
           )}
@@ -85,6 +92,9 @@ export function SettingRow(props: {
               // A trailing ghost button's label lines up with the column's edge, not its padding
               // (its negative margin would otherwise count against the max-width its siblings keep).
               "ml-auto flex min-w-0 max-w-[60%] shrink-0 flex-wrap items-center justify-end gap-2 *:max-w-full [&>[data-variant=ghost]:last-child]:-mr-2.5 [&>[data-variant=ghost]:last-child]:max-w-none",
+              // Every select and picker in a row takes one width, so controls start on one edge.
+              "[&_[data-slot=select]]:w-(--setting-select-width) [&_[data-slot=select]]:max-w-full",
+              "[&_[data-slot=input]:not([type=number])]:w-(--setting-select-width) [&_[data-slot=input]]:max-w-full",
               !props.inline &&
                 "@max-[440px]:ml-0 @max-[440px]:max-w-full @max-[440px]:justify-start",
             )}
@@ -187,7 +197,7 @@ export function SettingsGroupTitle(props: {
 }
 
 /**
- * A group's rows, set apart by space alone; a row takes a soft wash under the pointer. Put rows (`SettingRow`), prose
+ * A group's rows on one rounded surface, hairlines between them. Put rows (`SettingRow`), prose
  * (`SettingNote`), actions (`SettingFooter`), lists of rows (`SettingList`) and disclosures
  * (`SettingDisclosure`) in it; each keeps the page's one left edge. `SettingSection` adds a
  * title; use this alone for rows that head a page without one.
@@ -197,7 +207,8 @@ export function SettingCard(props: { children: ReactNode; className?: string }) 
     <InCard value>
       <div
         className={cn(
-          "flex flex-col border-t border-border-soft divide-y divide-border-soft",
+          // One rounded surface per group, rows inset from its edge with hairlines between them.
+          "flex flex-col rounded-lg bg-surface-1 px-4 divide-y divide-border-soft",
           props.className,
         )}
       >
@@ -229,7 +240,13 @@ export function SettingFooter(props: { children: ReactNode; className?: string }
 
 /** A list of rows inside a card; its rows inset themselves, the list adds the hairlines. */
 export function SettingList({ className, ...props }: ComponentProps<"ul">) {
-  return <ul {...slot} className={cn("flex flex-col", className)} {...props} />;
+  return (
+    <ul
+      {...slot}
+      className={cn("flex flex-col divide-y divide-border-soft", className)}
+      {...props}
+    />
+  );
 }
 
 /** One row of a `SettingList`: the row's height and inset, whatever it holds. */

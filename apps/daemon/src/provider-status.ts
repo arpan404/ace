@@ -32,6 +32,8 @@ export interface ProviderStatusOptions extends DiscoveryOptions {
     row: Status,
   ): Partial<Pick<Status, "auth" | "authMethod" | "accountLabel" | "authDetail" | "instanceId">>;
   authInfo?(row: Status, signal: AbortSignal): Promise<Pick<Status, "apiKey" | "authMethod">>;
+  /** The provider's own tools for the selected account, from config files only (ADR 0138). */
+  nativeTools?(row: Status): Promise<Pick<Status, "nativeTools" | "toolSource">>;
   versions?(
     row: Status,
     signal: AbortSignal,
@@ -268,10 +270,15 @@ export class ProviderStatuses {
           .authInfo?.(result, this.controller.signal)
           .catch(() => undefined);
         assertSelection(row);
+        const tools = result.installed
+          ? await this.options.nativeTools?.(result).catch(() => undefined)
+          : undefined;
+        assertSelection(row);
         return {
           ...result,
           ...versions,
           ...authInfo,
+          ...tools,
         };
       } catch {
         return {

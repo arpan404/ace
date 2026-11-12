@@ -2,6 +2,7 @@ import { useSearch } from "@tanstack/react-router";
 import { useState } from "react";
 import { openExternal, openExternalWhenReady } from "@/boot/open-external.ts";
 import { ProfileAvatar } from "@/components/profile-avatar.tsx";
+import { SettingNote, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import {
   useAccountPicture,
@@ -9,6 +10,7 @@ import {
   useAceAccountStore,
 } from "@/features/ace-account/index.ts";
 import { useProfileName } from "@/lib/profile.ts";
+import { SignOutButton } from "./sign-out-button.tsx";
 
 /**
  * What the desktop app's `ace://account/signed-in` link said about a sign-in that didn't
@@ -62,38 +64,38 @@ export function useProfileAccount() {
 export type ProfileAccount = ReturnType<typeof useProfileAccount>;
 
 /**
- * The top of Profile, centred: the avatar, the name and the account's email. Signed out, one
- * sentence on what an account adds and Sign in; while signing in, where to finish and how to
- * stop. ace works without an account.
+ * Profile's first group: the person as one row (avatar, name, the account's email or its state)
+ * with the account's one action at its end. Signed out, one line on what an account adds and
+ * Sign in; while signing in, how to reopen the browser or stop. ace works without an account.
  */
-export function ProfileHero(props: { account: ProfileAccount }) {
+export function PersonSection(props: { account: ProfileAccount }) {
   const { session, signIn, store, restoring, error, shown } = props.account;
   const picture = useAccountPicture();
   const login = signIn?.login;
+  const line =
+    session?.account.email ??
+    (signIn
+      ? "Finishing sign-in in your browser"
+      : "Not signed in. An account opens your machines from anywhere.");
   return (
-    <section
-      id="account.signIn"
-      aria-label="ace account"
-      className="flex scroll-mt-32 flex-col items-center text-center"
-    >
-      <ProfileAvatar name={shown} picture={picture} className="size-24 text-3xl" iconSize={36} />
-      <h2 className="mt-5 text-2xl leading-8 font-semibold tracking-[-0.015em]">
-        {shown || "Your profile"}
-      </h2>
-      <p className="mt-1 text-base text-muted-foreground">
-        {session?.account.email ?? (signIn ? "Finishing sign-in in your browser" : "Not signed in")}
-      </p>
-      {!session && (
-        <div className="mt-5 flex max-w-md flex-col items-center gap-4">
-          <p className="text-ui leading-normal text-muted-foreground">
-            {signIn
-              ? "Continue in your browser. This page updates when you're done."
-              : "Sign in to open your machines from your phone or another computer, anywhere. Everything here works without an account."}
-          </p>
-          {signIn ? (
-            <div className="flex items-center gap-2">
+    <SettingSection label="ace account" anchor="account.signIn">
+      <div
+        data-setting-slot=""
+        className="flex min-h-(--setting-row-height) items-center gap-3 py-3"
+      >
+        <ProfileAvatar name={shown} picture={picture} className="size-9 text-sm" iconSize={16} />
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <p className="truncate text-ui font-medium text-foreground">{shown || "You"}</p>
+          <p className="truncate text-xs text-subtle-foreground">{line}</p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2 [&>[data-variant=ghost]:last-child]:-mr-2.5">
+          {session ? (
+            <SignOutButton account={props.account} />
+          ) : signIn ? (
+            <>
               {login && (
                 <Button
+                  size="sm"
                   variant="ghost"
                   onClick={() =>
                     void openExternal(login.loginUrl).catch(() =>
@@ -104,12 +106,13 @@ export function ProfileHero(props: { account: ProfileAccount }) {
                   {signIn.openBlocked ? "Open browser" : "Open browser again"}
                 </Button>
               )}
-              <Button variant="ghost" onClick={() => store?.cancelSignIn()}>
+              <Button size="sm" variant="ghost" onClick={() => store?.cancelSignIn()}>
                 Cancel
               </Button>
-            </div>
+            </>
           ) : (
             <Button
+              size="sm"
               variant="primary"
               disabled={!store || restoring}
               onClick={props.account.startSignIn}
@@ -118,12 +121,12 @@ export function ProfileHero(props: { account: ProfileAccount }) {
             </Button>
           )}
         </div>
-      )}
+      </div>
       {error && (
-        <p role="alert" className="mt-3 text-ui text-destructive">
+        <SettingNote role="alert" className="text-destructive">
           {error}
-        </p>
+        </SettingNote>
       )}
-    </section>
+    </SettingSection>
   );
 }

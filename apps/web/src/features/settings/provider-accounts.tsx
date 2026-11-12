@@ -5,15 +5,13 @@ import {
   accountStatus,
   antigravitySignInLabel,
   headlineWindows,
-  isAddedAgentAccount,
   providerAccountViews,
   type AccountView,
 } from "@ace/ui-core";
 import { DotsThreeIcon } from "@phosphor-icons/react";
 import { useRef, useState } from "react";
-import { CompactWindow, formatResets } from "@/features/accounts/index.ts";
+import { formatResets } from "@/features/accounts/index.ts";
 import { accountLimit } from "@ace/ui-core";
-import { StatusLine } from "@/components/provider-tile.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import {
@@ -36,6 +34,9 @@ import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/compo
 import { useToast } from "@/components/ui/toast.tsx";
 import { daemonErrorCode, describeDaemonError } from "@/lib/daemon-command.ts";
 import { useNow } from "@/lib/time.ts";
+import { cn } from "@/lib/cn.ts";
+import { AccountWindows } from "./account-windows.tsx";
+import { accountFix, accountSignInTarget, agentProvider } from "./provider-problem.ts";
 import { useAccountViews } from "@/features/accounts/index.ts";
 import { preloadSignIn, useInlineSignIn, useSignIn } from "@/features/sign-in/index.ts";
 import { AddAccountRow, AccountKeyMark } from "@/features/account-management/index.ts";
@@ -47,16 +48,11 @@ import {
 } from "@/features/account-management/index.ts";
 
 /*
- * Every account of a provider in one list: who it is, how it signs in, which one new threads
- * use, where it stands and how much of its plan is left. Each has its own Sign in again, Make
- * default, Edit label and Remove; Add account names one and starts its sign-in straight away.
+ * Every account of a provider on one rounded group: who it is, which one new threads use, where
+ * it stands and how much of its plan is left, its one fix, and a menu with everything else
+ * (Sign in again, Rename, Change badge, Make default, Log out, Remove account). Add account
+ * names one and starts its sign-in straight away.
  */
-
-/**
- * Agents reached over ACP sign in through their own ACP sign-in. Antigravity can have accounts
- * added; any other agent keeps its one CLI login, which ace signs in and out.
- */
-const agentProvider = (provider: ProviderKind) => provider === "acp" || provider === "antigravity";
 
 export function ProviderAccounts(props: {
   provider: ProviderKind;
@@ -110,6 +106,9 @@ export function ProviderAccounts(props: {
   );
 }
 
+/** A status in its tone's colour, words only: an account's sub line. */
+const toneOf = { ready: "done", action: "needs-you", problem: "failed", idle: "idle" } as const;
+
 function AccountItem(props: {
   account: AccountView;
   provider: ProviderKind;
@@ -134,167 +133,152 @@ function AccountItem(props: {
   const provider = props.provider;
   const support = useApiKeySupport(provider);
   const native = canAddAccounts(provider) ? provider : undefined;
-  // Antigravity's CLI login and the CLIs' own logins go unnamed; any other account is named.
-  // The dialog names the agent, not "ACP agent".
-  const cliLogin =
-    account.implicit || (provider === "antigravity" && !isAddedAgentAccount(account));
-  const target = {
-    ...(agentProvider(provider) ? { name: props.name } : {}),
-    ...(cliLogin ? {} : { instance: account.id }),
-  };
+  const target = accountSignInTarget(account, provider, props.name);
   // Accounts ace added can be removed; a CLI's or agent's own login can't.
   const removable = native !== undefined && !account.implicit && account.acpHome !== "default_cli";
-  const needsSignIn =
-    state.text === "Signed out" ||
-    state.text === "Not signed in yet" ||
-    (state.text !== "Limit reached" && !state.canRun && !account.quota.blockers.homeUnavailable);
-  const showDefault = !needsSignIn && !account.isDefault && native !== undefined;
+  const fix = accountFix(account, state);
+  const showDefault = !fix && !account.isDefault && native !== undefined;
   const makeDefault = () => {
     if (native)
       void actions.setDefault(native, account.id).catch(fail(`Couldn't make ${label} the default`));
   };
+  const windows = state.canRun && account.windows[0] ? headlineWindows(account.windows) : [];
+  const limit = state.text === "Limit reached" ? accountLimit(account, now).resetsAt : undefined;
+  // The state in words when it matters, or when no usage stands for it.
+  const words =
+    state.tone !== "ready" || !windows.length
+      ? limit !== undefined
+        ? `Limit reached · ${formatResets(limit, now).toLowerCase()}`
+        : state.text
+      : undefined;
+  const home = account.implicit ? account.cliHome : undefined;
   return (
     // A new account's link (#account-<id>) scrolls to its row and flashes it.
     <SettingListItem
       id={`account-${account.id}`}
       tabIndex={-1}
-      className="group focus-ring-inset hover:bg-accent"
+      className="flex-wrap gap-x-3 gap-y-2 py-2 focus-ring-inset"
     >
-      <div className="flex min-h-9 min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
-        <div className="flex min-w-0 flex-1 flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-2">
-          <span className="flex min-w-0 items-center gap-2">
-            <AccountBadge account={account} tooltip={false} />
-            <Tip label={label}>
-              {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard */}
-              <span tabIndex={0} className="truncate rounded-xs font-medium focus-ring">
-                {label}
-              </span>
-            </Tip>
-            <AccountKeyMark method={account.authMethod} />
-            {account.isDefault && (
-              <span className="shrink-0 text-xs text-muted-foreground">Default</span>
-            )}
-            {account.antigravitySignIn && (
-              <span className="shrink-0 text-xs text-subtle-foreground">
-                {antigravitySignInLabel(account.antigravitySignIn)}
-              </span>
-            )}
-          </span>
-          {account.implicit && account.cliHome && (
-            <span
-              className="max-w-full truncate pl-7 text-xs text-subtle-foreground sm:pl-0"
-              title={account.cliHome}
-            >
-              {account.cliHome}
+      <AccountBadge account={account} tooltip={false} />
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="flex min-w-0 items-center gap-2">
+          <Tip label={label}>
+            {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard */}
+            <span tabIndex={0} className="truncate rounded-xs font-medium focus-ring">
+              {label}
+            </span>
+          </Tip>
+          <AccountKeyMark method={account.authMethod} />
+          {account.isDefault && (
+            <span className="shrink-0 rounded-full bg-accent px-1.5 text-xs leading-[18px] font-medium text-muted-foreground">
+              Default
             </span>
           )}
-        </div>
-        <div className="flex items-center justify-end gap-2 ml-auto">
-          {/* The reading always shows; Make default sits beside it, never in its place. */}
-          {showDefault && (
-            <Button size="sm" variant="ghost" onClick={makeDefault}>
-              Make default
-            </Button>
+          {account.antigravitySignIn && (
+            <span className="shrink-0 text-xs text-subtle-foreground">
+              {antigravitySignInLabel(account.antigravitySignIn)}
+            </span>
           )}
-          <span className="inline-flex items-center">
-            {state.canRun && account.windows[0] ? (
-              <span className="flex flex-col items-end gap-1">
-                {headlineWindows(account.windows).map((window) => (
-                  <CompactWindow key={window.id} window={window} now={now} />
-                ))}
+        </span>
+        {(words || home) && (
+          <span className="flex min-w-0 items-baseline gap-1 text-xs text-subtle-foreground">
+            {words && (
+              <span
+                data-tone={toneOf[state.tone]}
+                className={cn("shrink-0", state.tone !== "ready" && "text-(--tone-text)")}
+              >
+                {words}
               </span>
-            ) : (
-              <StatusLine
-                tone={state.tone}
-                text={
-                  state.text === "Limit reached" &&
-                  accountLimit(account, now).resetsAt !== undefined
-                    ? `Limit reached · ${formatResets(accountLimit(account, now).resetsAt ?? now, now).toLowerCase()}`
-                    : state.text
-                }
-              />
+            )}
+            {words && home && <span aria-hidden>·</span>}
+            {home && (
+              <span className="min-w-0 truncate" title={home}>
+                {home}
+              </span>
             )}
           </span>
-          {signIn && props.manageable && needsSignIn ? (
-            <Button size="sm" variant="secondary" onClick={() => signIn({ provider, ...target })}>
-              {state.text === "Signed out" || state.text === "Not signed in yet"
-                ? "Sign in"
-                : "Reconnect"}
-            </Button>
-          ) : null}
-          {signIn && props.manageable ? (
-            <Menu>
-              <MenuTrigger
-                render={
-                  <IconButton
-                    ref={menuTrigger}
-                    icon={DotsThreeIcon}
-                    label={`Manage ${label}`}
-                    size="sm"
-                    className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100"
-                    onPointerEnter={() => void preloadSignIn()}
-                  />
-                }
-              />
-              <MenuContent align="end" finalFocus={renaming ? false : undefined}>
-                {needsSignIn && !account.isDefault && native && (
-                  <MenuItem onClick={makeDefault}>Make default</MenuItem>
-                )}
-                <MenuItem onClick={() => signIn({ provider, ...target })}>Sign in again</MenuItem>
-                {support.data?.supported &&
-                  (provider === "opencode" ? (
-                    (support.data.upstreams ?? []).flatMap((upstream) => {
-                      const parsed = ApiKeyUpstream.safeParse(upstream);
-                      return parsed.success
-                        ? [
-                            <MenuItem
-                              key={upstream}
-                              onClick={() =>
-                                keyLogin.start({
-                                  provider,
-                                  ...(account.implicit ? {} : { instance: account.id }),
-                                  method: "api_key",
-                                  upstream: parsed.data,
-                                })
-                              }
-                            >
-                              Use {apiKeyUpstreamLabel(parsed.data)} API key
-                            </MenuItem>,
-                          ]
-                        : [];
-                    })
-                  ) : (
-                    <MenuItem
-                      onClick={() =>
-                        keyLogin.start({
-                          provider,
-                          ...(account.implicit ? {} : { instance: account.id }),
-                          method: "api_key",
-                        })
-                      }
-                    >
-                      Use API key
-                    </MenuItem>
-                  ))}
-                <MenuItem onClick={() => signIn({ provider, action: "logout", ...target })}>
-                  Sign out
+        )}
+      </div>
+      {/* On a narrow screen the usage and actions wrap under the name. */}
+      <div className="ml-auto flex items-center justify-end gap-2 @max-[34rem]:w-full @max-[34rem]:pl-8">
+        {windows.length > 0 && <AccountWindows windows={windows} now={now} />}
+        {signIn && props.manageable && fix ? (
+          <Button size="sm" variant="secondary" onClick={() => signIn(target)}>
+            {fix === "sign_in" ? "Sign in" : "Reconnect"}
+          </Button>
+        ) : null}
+        {showDefault && (
+          <Button size="sm" variant="ghost" onClick={makeDefault}>
+            Make default
+          </Button>
+        )}
+        {signIn && props.manageable ? (
+          <Menu>
+            <MenuTrigger
+              render={
+                <IconButton
+                  ref={menuTrigger}
+                  icon={DotsThreeIcon}
+                  label={`Manage ${label}`}
+                  size="sm"
+                  onPointerEnter={() => void preloadSignIn()}
+                />
+              }
+            />
+            <MenuContent align="end" finalFocus={renaming ? false : undefined}>
+              <MenuItem onClick={() => signIn(target)}>Sign in again</MenuItem>
+              {support.data?.supported &&
+                (provider === "opencode" ? (
+                  (support.data.upstreams ?? []).flatMap((upstream) => {
+                    const parsed = ApiKeyUpstream.safeParse(upstream);
+                    return parsed.success
+                      ? [
+                          <MenuItem
+                            key={upstream}
+                            onClick={() =>
+                              keyLogin.start({
+                                provider,
+                                ...(account.implicit ? {} : { instance: account.id }),
+                                method: "api_key",
+                                upstream: parsed.data,
+                              })
+                            }
+                          >
+                            Use {apiKeyUpstreamLabel(parsed.data)} API key
+                          </MenuItem>,
+                        ]
+                      : [];
+                  })
+                ) : (
+                  <MenuItem
+                    onClick={() =>
+                      keyLogin.start({
+                        provider,
+                        ...(account.implicit ? {} : { instance: account.id }),
+                        method: "api_key",
+                      })
+                    }
+                  >
+                    Use API key
+                  </MenuItem>
+                ))}
+              <MenuItem onClick={() => setRenaming(true)}>Rename</MenuItem>
+              <MenuItem onClick={() => setRenaming(true)}>Change badge</MenuItem>
+              {!account.isDefault && native && (
+                <MenuItem onClick={makeDefault}>Make default</MenuItem>
+              )}
+              <MenuSeparator />
+              <MenuItem onClick={() => signIn({ ...target, action: "logout" })}>Log out</MenuItem>
+              {removable && (
+                <MenuItem danger onClick={() => setRemoving(true)}>
+                  Remove account…
                 </MenuItem>
-                <MenuItem onClick={() => setRenaming(true)}>Rename</MenuItem>
-                <MenuItem onClick={() => setRenaming(true)}>Change badge</MenuItem>
-                {removable && (
-                  <>
-                    <MenuSeparator />
-                    <MenuItem className="text-destructive" onClick={() => setRemoving(true)}>
-                      Remove
-                    </MenuItem>
-                  </>
-                )}
-              </MenuContent>
-            </Menu>
-          ) : (
-            <span aria-hidden className="size-6 shrink-0" />
-          )}
-        </div>
+              )}
+            </MenuContent>
+          </Menu>
+        ) : (
+          <span aria-hidden className="size-6 shrink-0" />
+        )}
       </div>
       {renaming && (
         <AccountLabelEditor
@@ -311,6 +295,7 @@ function AccountItem(props: {
       <RemoveAccount
         open={removing}
         label={account.label}
+        name={props.name}
         provider={provider}
         apiKey={account.authMethod === "api_key"}
         onCancel={() => setRemoving(false)}
@@ -327,6 +312,8 @@ function AccountItem(props: {
 function RemoveAccount(props: {
   open: boolean;
   label: string;
+  /** The provider's name, for the title. */
+  name: string;
   provider: ProviderKind;
   apiKey: boolean;
   onCancel(): void;
@@ -336,7 +323,9 @@ function RemoveAccount(props: {
     <Dialog open={props.open} onOpenChange={(open) => !open && props.onCancel()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Remove {props.label}?</DialogTitle>
+          <DialogTitle>
+            Remove {props.label} from {props.name}?
+          </DialogTitle>
           <DialogDescription>
             {props.apiKey ? "ace never stored your API key. " : ""}
             {["codex", "claude", "cursor", "antigravity"].includes(props.provider)
@@ -349,7 +338,7 @@ function RemoveAccount(props: {
             Cancel
           </Button>
           <Button variant="danger" onClick={props.onConfirm}>
-            Remove
+            Remove account
           </Button>
         </DialogFooter>
       </DialogContent>

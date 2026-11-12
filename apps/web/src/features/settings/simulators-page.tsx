@@ -69,7 +69,7 @@ function SimulatorsSwitchRow() {
       <SettingRow
         id="devices.enabled"
         title="Use simulators and emulators"
-        description="Watch and drive this machine's iOS Simulators and Android emulators from any thread, and let agents use them."
+        description="Watch and drive them from any thread, and let agents use them."
         htmlFor={id}
         inline
       >
@@ -100,7 +100,7 @@ function InThisWindow() {
     <SettingSection label="In this window">
       <SettingRow
         {...settingRow("devices.frame")}
-        description="Draws the phone or tablet around its screen. Off shows the screen alone."
+        description="The phone or tablet around its screen."
         htmlFor={frameId}
         inline
       >

@@ -38,3 +38,17 @@ export {
   builtinGuides,
   prepareBuiltinSkills,
 } from "./builtins.ts";
+
+export {
+  parseCodexToolConfig,
+  codexToolOverrides,
+  codexToolEntryNames,
+  relocateCodexHome,
+  mergeCodexToolTables,
+  readCodexToolSource,
+  emptyCodexToolTables,
+  type CodexToolTables,
+  type CodexToolSource,
+  type CodexToolSourceProblem,
+  type ToolSourceFiles,
+} from "./codex-tool-source.ts";

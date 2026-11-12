@@ -78,7 +78,7 @@ export function StorageRetentionControls(props: { onSaved(): void }) {
       label="Retention"
       anchor="storage.retention"
       scope="daemon"
-      note="Days to keep archived threads and unused data, by kind. Empty keeps it; pins and live work always stay."
+      note="Days to keep archived threads and unused data. Empty keeps it; pinned and live work stays."
     >
       {values ? (
         StorageKind.options.map((kind) => (
@@ -93,7 +93,7 @@ export function StorageRetentionControls(props: { onSaved(): void }) {
               type="number"
               min={1}
               max={36500}
-              className={cn(fieldClassName, "h-8 w-24 tabular-nums")}
+              className={cn(fieldClassName, "h-8 w-20 tabular-nums")}
               placeholder="Keep"
               value={values[kind] ?? ""}
               disabled={!ready || running}
@@ -113,7 +113,7 @@ export function StorageRetentionControls(props: { onSaved(): void }) {
       )}
       <SettingRow
         {...settingRow("storage.dailyCleanup")}
-        description="Runs every day. Worktrees have their own setting."
+        description="Worktrees have their own setting."
         inline
       >
         <Switch

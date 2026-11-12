@@ -53,7 +53,7 @@ export function WorktreeStorageSettings(props: {
     <SettingSection
       label="Worktrees"
       scope="daemon"
-      note="Automatic deletion only removes clean worktrees merged into origin/main."
+      note="Only clean worktrees merged into origin/main are deleted."
     >
       <SettingRow {...settingRow("storage.worktreeDeletion")} inline>
         <Switch
@@ -71,7 +71,7 @@ export function WorktreeStorageSettings(props: {
             min={1}
             max={3650}
             inputMode="numeric"
-            className={cn(fieldClassName, "h-8 w-24 tabular-nums")}
+            className={cn(fieldClassName, "h-8 w-20 tabular-nums")}
             value={draft ?? days ?? 30}
             disabled={disabled || typeof days !== "number"}
             onChange={(event) => setDraft(event.target.value)}
