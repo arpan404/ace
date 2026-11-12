@@ -60,6 +60,8 @@ struct State {
     peers: Mutex<Vec<Peer<RoleServer>>>,
     registration: AtomicBool,
     endless_metadata: AtomicBool,
+    /// When set, a code exchange is refused with this as its `error_description`.
+    refuse_codes: Mutex<Option<String>>,
     pkce: AtomicBool,
     static_token: Mutex<Option<String>>,
     expires_in: AtomicU64,
@@ -89,6 +91,7 @@ impl FakeConnector {
             peers: Mutex::default(),
             registration: AtomicBool::new(true),
             endless_metadata: AtomicBool::new(false),
+            refuse_codes: Mutex::new(None),
             pkce: AtomicBool::new(true),
             static_token: Mutex::new(None),
             expires_in: AtomicU64::new(3600),
@@ -157,6 +160,11 @@ impl FakeConnector {
     /// Its protected-resource metadata never ends: chunks keep coming, with no length given.
     pub fn endless_metadata(&self) {
         self.state.endless_metadata.store(true, Ordering::SeqCst);
+    }
+
+    /// Refuses every code exchange with `description` as the error's text.
+    pub fn refuse_code_exchange(&self, description: &str) {
+        *lock(&self.state.refuse_codes) = Some(description.to_owned());
     }
 
     /// Stop advertising PKCE.
@@ -426,6 +434,15 @@ async fn token(
     book.resources.push(get("resource"));
     match get("grant_type").as_str() {
         "authorization_code" => {
+            if let Some(description) = lock(&state.refuse_codes).clone() {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    axum::Json(
+                        json!({ "error": "invalid_grant", "error_description": description }),
+                    ),
+                )
+                    .into_response();
+            }
             let Some((client, redirect, challenge, resource)) = book.codes.remove(&get("code"))
             else {
                 return refused();
@@ -513,6 +530,21 @@ impl ServerHandler for Fake {
                 .and_then(Value::as_str)
                 .unwrap_or("nothing")
                 .to_owned(),
+            // A careless server echoing the credentials it knows, in text and structured content.
+            "whoami" => {
+                let bearer = lock(&self.0.bearers).last().cloned().unwrap_or_default();
+                let refresh = lock(&self.0.book)
+                    .refresh
+                    .last()
+                    .cloned()
+                    .unwrap_or_default();
+                let mut result = CallToolResult::success(vec![ContentBlock::text(format!(
+                    "you are {bearer}, renewing with {refresh}"
+                ))]);
+                result.structured_content =
+                    Some(json!({ "token": bearer, bearer.clone(): refresh }));
+                return Ok(result.into());
+            }
             other => format!("ran {other}"),
         };
         Ok(CallToolResult::success(vec![ContentBlock::text(text)]).into())

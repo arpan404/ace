@@ -41,6 +41,8 @@ const MOST_CALLS: usize = 64;
 pub struct McpConfig {
     url: String,
     token: Option<Secret>,
+    /// Other credentials the server could echo back (a refresh token, a client secret).
+    redact: Vec<Secret>,
     headers: HashMap<HeaderName, HeaderValue>,
     timeout: Duration,
     direct: bool,
@@ -53,6 +55,7 @@ impl McpConfig {
         Self {
             url: url.into(),
             token: None,
+            redact: Vec::new(),
             headers: HashMap::new(),
             timeout,
             direct: false,
@@ -63,6 +66,14 @@ impl McpConfig {
     #[must_use]
     pub fn bearer(mut self, token: Secret) -> Self {
         self.token = Some(token);
+        self
+    }
+
+    /// Removes `secret` from every answer and error, as the bearer is: for credentials the
+    /// server may know but is never sent, such as a refresh token or a client secret.
+    #[must_use]
+    pub fn redacting(mut self, secret: Secret) -> Self {
+        self.redact.push(secret);
         self
     }
 
@@ -94,10 +105,44 @@ impl McpConfig {
         self.timeout
     }
 
+    fn secrets(&self) -> impl Iterator<Item = &Secret> {
+        self.token.iter().chain(&self.redact)
+    }
+
     fn scrub(&self, text: impl Into<String>) -> String {
-        match &self.token {
-            Some(token) => token.scrub(text),
-            None => text.into(),
+        self.secrets()
+            .fold(text.into(), |text, secret| secret.scrub(text))
+    }
+
+    /// Every string in `value`, keys included, with every credential removed.
+    fn scrub_value(&self, value: &mut Value) {
+        match value {
+            Value::String(text) if self.secrets().any(|secret| secret.appears_in(text)) => {
+                *text = self.scrub(std::mem::take(text));
+            }
+            Value::Array(items) => items.iter_mut().for_each(|item| self.scrub_value(item)),
+            Value::Object(fields) => {
+                let entries = std::mem::take(fields);
+                for (key, mut field) in entries {
+                    self.scrub_value(&mut field);
+                    fields.insert(self.scrub(key), field);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn scrub_error(&self, error: ToolsError) -> ToolsError {
+        match error {
+            ToolsError::Unavailable(why) => ToolsError::Unavailable(self.scrub(why)),
+            ToolsError::NotRun(why) => ToolsError::NotRun(self.scrub(why)),
+            ToolsError::OutcomeUnknown(why) => ToolsError::OutcomeUnknown(self.scrub(why)),
+            ToolsError::Server { code, message } => ToolsError::Server {
+                code,
+                message: self.scrub(message),
+            },
+            ToolsError::Protocol(why) => ToolsError::Protocol(self.scrub(why)),
+            other => other,
         }
     }
 }
@@ -198,7 +243,21 @@ impl McpClient {
 
     /// Calls one tool. `arguments` is a JSON object, or null for none. A call is sent at most
     /// once: `NotRun` means it did not run, `OutcomeUnknown` and `Timeout` that it may have.
+    ///
+    /// Every credential this client knows (its bearer and those it was told to redact) is
+    /// removed from the answer, text and structured content alike, and from errors: a server
+    /// that echoes a token back never gets it stored or shown to a model.
     pub async fn call(&self, name: &str, arguments: Value) -> Result<McpToolResult, ToolsError> {
+        match self.call_raw(name, arguments).await {
+            Ok(mut result) => {
+                self.config.scrub_value(&mut result);
+                Ok(map::call_result(result))
+            }
+            Err(error) => Err(self.config.scrub_error(error)),
+        }
+    }
+
+    async fn call_raw(&self, name: &str, arguments: Value) -> Result<Value, ToolsError> {
         let mut params = json!({ "name": name });
         match arguments {
             Value::Object(object) => params["arguments"] = Value::Object(object),
@@ -259,7 +318,7 @@ impl McpClient {
             None => serde_json::to_value(answer)
                 .map_err(|error| ToolsError::Protocol(self.config.scrub(error.to_string())))?,
         };
-        Ok(map::call_result(result))
+        Ok(result)
     }
 
     /// The cached listing when it belongs to the live session, which still answers a ping;

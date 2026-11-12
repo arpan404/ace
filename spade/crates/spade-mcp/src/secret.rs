@@ -15,6 +15,11 @@ impl Secret {
         &self.0
     }
 
+    /// Whether `text` holds the secret.
+    pub fn appears_in(&self, text: &str) -> bool {
+        !self.0.is_empty() && text.contains(&self.0)
+    }
+
     /// `text` with every copy of the secret replaced, for errors that quote a server or library.
     pub fn scrub(&self, text: impl Into<String>) -> String {
         let text = text.into();

@@ -51,6 +51,27 @@ pub enum CallError {
     Failed(String),
 }
 
+/// What a connector's client sends and what it keeps out of every answer.
+#[derive(Default)]
+pub(crate) struct Credentials {
+    pub(crate) access: Option<String>,
+    /// Refresh token, client secret: never sent to the server, redacted all the same.
+    pub(crate) others: Vec<String>,
+}
+
+impl Credentials {
+    pub(crate) fn config(self, url: String, timeout: Duration) -> McpConfig {
+        let mut config = McpConfig::new(url, timeout);
+        if let Some(access) = self.access {
+            config = config.bearer(Secret::new(access));
+        }
+        for other in self.others {
+            config = config.redacting(Secret::new(other));
+        }
+        config
+    }
+}
+
 /// Why a client could not be had.
 enum Unready {
     NeedsReconnect,
@@ -291,18 +312,32 @@ impl Connectors {
         if let Some(client) = existing {
             return Ok((client, generation));
         }
-        let token = match &record.auth {
-            Auth::None => None,
+        let credentials = match &record.auth {
+            Auth::None => Credentials::default(),
             Auth::Token | Auth::Oauth(_) => {
                 let keys = self.keys.as_ref().ok_or(Unready::NeedsReconnect)?;
-                match secrets::get(keys, &record.id, secrets::ACCESS).await {
-                    Ok(Some(token)) => Some(token),
+                let access = match secrets::get(keys, &record.id, secrets::ACCESS).await {
+                    Ok(Some(token)) => token,
                     Ok(None) => return Err(Unready::NeedsReconnect),
                     Err(why) => return Err(Unready::Other(why)),
+                };
+                // Never sent to the server, but redacted from what it answers all the same.
+                let mut others = Vec::new();
+                for kind in [secrets::REFRESH, secrets::CLIENT_SECRET] {
+                    if let Some(secret) = secrets::get(keys, &record.id, kind)
+                        .await
+                        .map_err(Unready::Other)?
+                    {
+                        others.push(secret);
+                    }
+                }
+                Credentials {
+                    access: Some(access),
+                    others,
                 }
             }
         };
-        Ok(self.install_client(&record.id, token))
+        Ok(self.install_client(&record.id, credentials))
     }
 
     fn current_client(&self, id: &str) -> Option<(Arc<McpClient>, u64)> {
@@ -313,18 +348,14 @@ impl Connectors {
 
     /// Puts a client with `token` in place, unless one is there already (a renewal may have
     /// installed one meanwhile).
-    fn install_client(&self, id: &str, token: Option<String>) -> (Arc<McpClient>, u64) {
+    fn install_client(&self, id: &str, credentials: Credentials) -> (Arc<McpClient>, u64) {
         let url = self.record(id).map(|r| r.url).unwrap_or_default();
         let mut live = self.live.write().unwrap_or_else(|p| p.into_inner());
         let session = live.entry(id.to_owned()).or_default();
         if let Some(client) = &session.client {
             return (client.clone(), session.generation);
         }
-        let mut config = McpConfig::new(url, self.timeout);
-        if let Some(token) = token {
-            config = config.bearer(Secret::new(token));
-        }
-        let client = Arc::new(McpClient::new(config));
+        let client = Arc::new(McpClient::new(credentials.config(url, self.timeout)));
         session.client = Some(client.clone());
         (client, session.generation)
     }
@@ -404,8 +435,14 @@ impl Connectors {
             let session = live.entry(record.id.clone()).or_default();
             // The old client is dropped, not closed: a call on it still completes.
             session.generation += 1;
-            let mut config = McpConfig::new(record.url.clone(), self.timeout);
-            config = config.bearer(Secret::new(tokens.access));
+            let credentials = Credentials {
+                access: Some(tokens.access),
+                others: [Some(refresh), tokens.refresh, client.secret]
+                    .into_iter()
+                    .flatten()
+                    .collect(),
+            };
+            let config = credentials.config(record.url.clone(), self.timeout);
             session.client = Some(Arc::new(McpClient::new(config)));
             session.wake.clone()
         };

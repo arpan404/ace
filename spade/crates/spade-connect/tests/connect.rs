@@ -386,6 +386,39 @@ async fn sign_in_metadata_that_never_ends_is_cut_off_at_the_limit() -> Result {
 }
 
 #[tokio::test]
+async fn a_server_echoing_credentials_never_gets_them_into_a_result() -> Result {
+    let app = FakeConnector::start(vec![tool("whoami", Some(true), None)]).await;
+    let spade = spade()?;
+    let view = signed_in(&spade, &app).await?;
+    let result = spade
+        .connectors
+        .call(&view.id, "whoami", serde_json::json!({}))
+        .await?;
+    let shown = format!("{} {:?}", text(&result), result.structured);
+    assert!(shown.contains("[redacted]"), "{shown}");
+    for token in app.issued_tokens() {
+        assert!(
+            !shown.contains(&token),
+            "{token} reached the result: {shown}"
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_refused_code_exchange_says_so_in_spades_words_not_the_servers() -> Result {
+    let app = FakeConnector::start(app_tools()).await;
+    app.refuse_code_exchange("<script>steal()</script> call +1 555 0100");
+    let spade = spade()?;
+    let url = sign_in_url(&spade, by_url(&app.url())).await?;
+    let back = app.approve(&url).await;
+    let refused = spade.connectors.finish(callback(&back)?).await;
+    let said = refused.err().map(|e| e.to_string()).unwrap_or_default();
+    assert_eq!(said, "the app refused the sign-in");
+    Ok(())
+}
+
+#[tokio::test]
 async fn a_token_connects_at_once_and_a_wrong_one_is_refused() -> Result {
     let app = FakeConnector::start(app_tools()).await;
     app.accept_token("api-key-123");

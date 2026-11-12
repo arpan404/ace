@@ -84,8 +84,10 @@ pub enum FinishError {
     /// The answer came from a different authorization server than the one asked (RFC 9207).
     #[error("this sign-in came back from the wrong server, so Spade ignored it")]
     WrongIssuer,
-    #[error("the sign-in was not completed ({0})")]
-    Declined(String),
+    /// The app said no (the person declined, or it refused Spade). What it said is not shown:
+    /// its words reach the person's browser on Spade's own page.
+    #[error("the sign-in was cancelled or refused")]
+    Declined,
     #[error("{0}")]
     Failed(String),
 }
@@ -191,13 +193,8 @@ impl Connectors {
         if !oauth::issuer_matches(&pending.attempt, callback.iss.as_deref()) {
             return Err(FinishError::WrongIssuer);
         }
-        if let Some(error) = callback.error {
-            let code: String = error
-                .chars()
-                .filter(|c| c.is_ascii_alphanumeric() || *c == '_')
-                .take(60)
-                .collect();
-            return Err(FinishError::Declined(code));
+        if callback.error.is_some() {
+            return Err(FinishError::Declined);
         }
         let code = callback
             .code
@@ -209,7 +206,19 @@ impl Connectors {
             .ok_or_else(|| FinishError::Failed(ConnectError::NoKeychain.to_string()))?;
         let tokens = oauth::exchange(&self.http, &pending.attempt, &code)
             .await
-            .map_err(|e| FinishError::Failed(e.to_string()))?;
+            .map_err(|error| {
+                // Fixed words only: the token endpoint's own text never reaches the page.
+                FinishError::Failed(
+                    match error {
+                        OauthError::Refused(_) => "the app refused the sign-in",
+                        OauthError::Network(_) => "Spade could not reach the app's sign-in server",
+                        OauthError::Unsupported(_) | OauthError::NeedsClient => {
+                            "the app's sign-in server answered something Spade could not use"
+                        }
+                    }
+                    .into(),
+                )
+            })?;
         let id = pending.id.clone();
         let failed = |e: String| FinishError::Failed(e);
         secrets::put(&keys, &id, secrets::ACCESS, Some(tokens.access.clone()))
