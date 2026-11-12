@@ -1,7 +1,6 @@
 import { useState } from "react";
-import { FileIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
-import { fileIcon } from "@/components/file-icon.ts";
+import { knownFileIcon } from "@/components/file-icon.ts";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { FileName, kindGlyph } from "./attachment-face.tsx";
@@ -63,8 +62,7 @@ export function FileChip(props: {
 }) {
   const { file } = props;
   const meta = fileMeta(file) + (file.delivery ? ` · ${deliveryLabels[file.delivery]}` : "");
-  const byName = fileIcon(file.name);
-  const glyph = byName === FileIcon ? kindGlyph(describeFile(file).kind) : byName;
+  const glyph = knownFileIcon(file.name) ?? kindGlyph(describeFile(file).kind);
   const tip = (
     <>
       <span className="block tabular-nums">{meta}</span>
