@@ -85,11 +85,18 @@ const reply = (text: string, item = "answer"): Fact => ({
 });
 const ended = { type: "turn.ended", agent: "root", outcome: "completed" } satisfies Fact;
 
-async function withSpade(run: (f: Fixture, grant: string) => Promise<void>) {
+async function withSpade(
+  run: (f: Fixture, grant: string) => Promise<void>,
+  brainSettleMs?: number,
+) {
   let home = "";
   const service = fakeSpadeService(() => home);
   const f = await daemonFixture(undefined, {
-    spade: { service: service.control, pollMs: { waiting: 50, ready: 200 } },
+    spade: {
+      service: service.control,
+      pollMs: { waiting: 50, ready: 200 },
+      ...(brainSettleMs === undefined ? {} : { brainSettleMs }),
+    },
   });
   home = join(f.h.home, "daemon");
   try {
@@ -496,29 +503,44 @@ test("a bot's session takes commands only from the brain service: not agents, no
   });
 }, 30_000);
 
-test("a turn finishes only once the session's background work has settled", async () => {
+const backgroundShell: Fact = {
+  type: "background.started",
+  agent: "root",
+  task: "bg1",
+  kind: "shell",
+  title: "make check",
+  stoppable: true,
+};
+
+test("a turn finishes only once the session's background work has settled, timed from the root's end", async () => {
   await withSpade(async (f, grant) => {
     const turn = sendTurn(f.daemon, grant, { instructions: "Rules", message: "Run the check" });
     const thread = ThreadId.parse((await until(() => sessionOf(turn.frames), "session")).thread);
     await until(() => f.h.inputs.get(thread)?.length === 1, "the message to arrive");
-    provide(
-      f,
-      thread,
-      {
-        type: "background.started",
-        agent: "root",
-        task: "bg1",
-        kind: "shell",
-        title: "make check",
-        stoppable: true,
-      },
-      reply("Started the check; I'll report back."),
-      ended,
+    // The CLI's own turn runs longer than the settle time; that time only counts once it ends.
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    provide(f, thread, backgroundShell, reply("Started the check; I'll report back."), ended);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(turn.frames.some((frame) => frame.type === "finished" || frame.type === "failed")).toBe(
+      false,
     );
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    expect(turn.frames.some((frame) => frame.type === "finished")).toBe(false);
     provide(f, thread, { type: "background.ended", task: "bg1", status: "completed" });
     await turn.done;
     expect(turn.frames.at(-1)).toMatchObject({ type: "finished" });
-  });
+  }, 1_000);
+}, 30_000);
+
+test("background work that never settles is stopped and the turn fails with one line", async () => {
+  await withSpade(async (f, grant) => {
+    const turn = sendTurn(f.daemon, grant, { instructions: "Rules", message: "Run the check" });
+    const thread = ThreadId.parse((await until(() => sessionOf(turn.frames), "session")).thread);
+    await until(() => f.h.inputs.get(thread)?.length === 1, "the message to arrive");
+    provide(f, thread, backgroundShell, reply("Started."), ended);
+    await turn.done;
+    expect(turn.frames.at(-1)).toMatchObject({
+      type: "failed",
+      message: "Claude Code left background work running; it was stopped.",
+    });
+    expect(f.h.interrupts).toContain(thread);
+  }, 500);
 }, 30_000);

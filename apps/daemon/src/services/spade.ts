@@ -26,6 +26,8 @@ export interface DaemonSpadeOptions {
   service?: SpadeServiceControl;
   runtime?: SpadeLinkRuntime;
   pollMs?: { waiting: number; ready: number };
+  /** How long a bot's finished turn waits for its session's other work (ADR 0133). */
+  brainSettleMs?: number;
 }
 
 /**
@@ -99,6 +101,15 @@ export async function startSpade(context: ServiceContext): Promise<void> {
       );
     },
     id: context.id,
+    ...(options.brainSettleMs === undefined ? {} : { settleMs: options.brainSettleMs }),
+    clock: {
+      now: () => Date.now(),
+      after(ms, run) {
+        const timer = setTimeout(run, ms);
+        timer.unref();
+        return () => clearTimeout(timer);
+      },
+    },
   });
   services.spadeBrainSeq = (threadId) => brains.streamSeq(threadId);
   services.spadeBrains = brainHttp({

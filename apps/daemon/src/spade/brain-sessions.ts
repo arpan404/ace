@@ -46,6 +46,8 @@ export interface SpadeBrainsDeps {
   id(): string;
   /** How long a finished turn waits for the session's other work to settle; 2 minutes. */
   settleMs?: number;
+  /** The clock the settle wait reads and the timer it looks again by. */
+  clock: { now(): number; after(ms: number, run: () => void): () => void };
 }
 
 const defaultSettleMs = 120_000;
@@ -173,14 +175,17 @@ export class SpadeBrains {
             this.interrupt(engine.internalHandler, threadId);
           for (const frame of frames) {
             // The root's run ended; the turn is done once nothing else in the session runs.
-            if (frame.type === "finished") settling = frame;
-            else send(frame);
+            if (frame.type === "finished") {
+              settling = frame;
+              settleBy = this.deps.clock.now() + (this.deps.settleMs ?? defaultSettleMs);
+            } else send(frame);
           }
         }
         return sent;
       };
       let settling: Extract<SpadeBrainFrame, { type: "finished" }> | undefined;
-      const settleBy = Date.now() + (this.deps.settleMs ?? defaultSettleMs);
+      // Set when the root's run finishes: the session's other work gets its time from then.
+      let settleBy = Number.POSITIVE_INFINITY;
       send({ type: "session", thread: threadId, fresh });
       this.live.set(threadId, pump);
       try {
@@ -202,7 +207,7 @@ export class SpadeBrains {
               send(settling);
               break;
             }
-            if (Date.now() >= settleBy) {
+            if (this.deps.clock.now() >= settleBy) {
               // Background work outlived the turn: the tree stops before Spade hears so.
               this.interrupt(engine.internalHandler, threadId);
               send({
@@ -216,7 +221,7 @@ export class SpadeBrains {
           await new Promise<void>((resolve) => {
             wake = resolve;
             // Work can settle without a new event (a process exits): look again soon.
-            if (settling) setTimeout(resolve, settlePollMs).unref();
+            if (settling) this.deps.clock.after(settlePollMs, resolve);
           });
           wake = undefined;
         }

@@ -42,6 +42,7 @@ function daemon(defaultAccount: string) {
     }),
     project: () => ({ workspaceId: WorkspaceId.parse("01a1ceeb-4bd0-749c-bcfa-4a8c428ddd74") }),
     roster: () => undefined,
+    clock: { now: () => 0, after: () => () => {} },
     id: () => crypto.randomUUID(),
   });
   return { brains, sent };
