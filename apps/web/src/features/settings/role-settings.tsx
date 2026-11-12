@@ -11,10 +11,10 @@ import {
 import { CaretDownIcon, CheckIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
-import { Button } from "@/components/ui/button.tsx";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
-import { Select, type SelectOption } from "@/components/ui/select.tsx";
+import { Select, selectTrigger, type SelectOption } from "@/components/ui/select.tsx";
+import { cn } from "@/lib/cn.ts";
 import { ModelPickerPanel } from "@/features/model-picker/index.ts";
 import { useModelChoices, useModelCatalogState } from "@/features/models/index.ts";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
@@ -93,24 +93,17 @@ function RoleRow(props: { role: RunRole }) {
           )}
           <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger
+              // Drawn as a Select, so the Roles column matches the selects around it.
               data-slot="select"
-              render={
-                // The width and shape of a Select, so the Roles column lines up with the others.
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  disabled={offline}
-                  className="h-8 min-w-36 justify-between pr-2 pl-2.5 font-normal"
-                />
-              }
+              disabled={offline}
+              className={cn(selectTrigger, "min-w-36")}
               aria-label={`${row.title}: ${label}`}
             >
               <span className="inline-flex min-w-0 items-center gap-2">
                 {provider && (
                   <ProviderAccountIcon provider={provider} size={14} accountLabel={false} />
                 )}
-                <span className="max-w-48 truncate">{label}</span>
+                <span className="truncate">{label}</span>
               </span>
               <CaretDownIcon aria-hidden size={12} className="text-subtle-foreground" />
             </PopoverTrigger>
