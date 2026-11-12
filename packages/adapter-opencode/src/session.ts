@@ -1,4 +1,4 @@
-import { waitForAceTools } from "./mcp-ready.ts";
+import { aceToolsReadyBudgetMs, waitForAceTools } from "./mcp-ready.ts";
 import { createExtensionCatalog } from "./extension-catalog.ts";
 import { openCodeMcpControls } from "./mcp-controls.ts";
 import { developerInstructions } from "@ace/mcp-server";
@@ -32,7 +32,8 @@ const PreviousModel = z.object({
 });
 const InterruptResult = z.object({ interrupted: z.boolean() });
 export class OpenCodeSession implements ProviderSession {
-  private mcpDirectories = new Set<string>();
+  /** Locations where ace's MCP server is registered, and whether its tools were confirmed. */
+  private mcpDirectories = new Map<string, "ready" | "unconfirmed">();
   private ctx: SessionContext;
   private server: OpenCodeServer;
   private client: OpenCodeClient;
@@ -415,11 +416,24 @@ export class OpenCodeSession implements ProviderSession {
     await this.recoveryRead;
   }
   private async ensureMcp(directory: string): Promise<void> {
-    if (!this.ctx.aceMcp || this.mcpDirectories.has(directory)) return;
-    if (this.mcpDirectories.size >= 128) throw new Error("OpenCode MCP location limit exceeded");
-    await registerAceMcp(this.client, directory, this.ctx.aceMcp);
-    await waitForAceTools(this.client, directory, this.server.runtime);
-    this.mcpDirectories.add(directory);
+    if (!this.ctx.aceMcp) return;
+    const known = this.mcpDirectories.get(directory);
+    if (known === "ready") return;
+    if (!known) {
+      if (this.mcpDirectories.size >= 128) throw new Error("OpenCode MCP location limit exceeded");
+      await registerAceMcp(this.client, directory, this.ctx.aceMcp);
+    }
+    // An unconfirmed location is registered already: later sends only look once more, so a
+    // readiness plugin that never loads costs each send one quick call, not another wait.
+    const readiness = await waitForAceTools(
+      this.client,
+      directory,
+      this.server.runtime,
+      known ? 0 : aceToolsReadyBudgetMs,
+    );
+    this.mcpDirectories.set(directory, readiness);
+    if (readiness === "unconfirmed" && !known)
+      this.emit("note", "mcp.readiness", { type: "unconfirmed" });
   }
   private async readSnapshots(): Promise<void> {
     if (this.closed || this.opening) return;

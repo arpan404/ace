@@ -35,6 +35,10 @@ export default {
     await context.rpc.register(mcpReadyRpc, {
       async ready(_, { signal }) {
         signal.throwIfAborted();
+        // OpenCode 2.2.7 may activate this plugin after ace's tools already loaded; the
+        // current catalog then answers without waiting for another reload.
+        if ((await context.tool.list()).some((tool) => tool.id === aceReadinessTool))
+          settled.resolve();
         await new Promise<void>((resolve, reject) => {
           const abort = () => reject(new Error("ace MCP readiness cancelled"));
           signal.addEventListener("abort", abort, { once: true });
