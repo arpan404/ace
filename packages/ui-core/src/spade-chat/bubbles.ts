@@ -15,6 +15,8 @@ export type SpadeBubble =
       /** Not stored by Spade yet. */
       sending: boolean;
     }
+  /** One of the bot's routines fired: a small label, `Daily briefing · 9:00`. */
+  | { kind: "routine"; key: string; name: string; label: string }
   /** A message another bot sent into this conversation, labelled with the name it had. */
   | { kind: "other"; key: string; agent: { id: string; name: string }; text: string }
   | {
@@ -38,10 +40,33 @@ export type SpadeBubble =
       arguments: unknown;
     };
 
+/** What a bot answers a heartbeat when nothing needs the person (`spade_core::routine::QUIET`). */
+export const spadeQuiet = "[quiet]";
+
+/** Whether a reply's text is the quiet answer (case and a trailing full stop ignored). */
+export function isSpadeQuiet(text: string): boolean {
+  return text.trim().replace(/\.+$/, "").trim().toLowerCase() === spadeQuiet;
+}
+
 export function spadeBubbles(view: SpadeView): SpadeBubble[] {
   const bubbles: SpadeBubble[] = [];
+  // Whether only heartbeats came since the last reply ended: a quiet answer to them shows as
+  // nothing, like the heartbeats themselves (ADR 0129; `silent_replies` in spade-core).
+  let beatOnly = false;
   for (const entry of view.entries) {
+    if (entry.kind === "job") beatOnly = false;
     if (entry.kind === "user") {
+      beatOnly = entry.fromRoutine?.heartbeat === true;
+      if (entry.fromRoutine) {
+        if (!entry.fromRoutine.heartbeat)
+          bubbles.push({
+            kind: "routine",
+            key: entry.key,
+            name: entry.fromRoutine.name,
+            label: entry.fromRoutine.label,
+          });
+        continue;
+      }
       bubbles.push(
         entry.fromAgent
           ? { kind: "other", key: entry.key, agent: entry.fromAgent, text: entry.text }
@@ -60,6 +85,14 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
     if (entry.live) words.push(entry.live);
     const text = words.join("\n\n").trim();
     const end = entry.end && entry.end.kind !== "finished" ? entry.end.kind : undefined;
+    if (beatOnly) {
+      const quiet =
+        entry.end === undefined
+          ? spadeQuiet.startsWith(text.toLowerCase())
+          : entry.end.kind === "finished" && isSpadeQuiet(text);
+      if (entry.end !== undefined) beatOnly = false;
+      if (quiet) continue;
+    }
     // A reply with nothing to say yet shows only as the working line.
     if (!text && !end) continue;
     bubbles.push({

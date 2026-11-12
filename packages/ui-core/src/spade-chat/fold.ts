@@ -72,6 +72,8 @@ export type SpadeEntry =
       pending?: true;
       /** Sent by another bot, not the person. */
       fromAgent?: { id: string; name: string };
+      /** Fired by one of the bot's routines or its heartbeat, not the person. */
+      fromRoutine?: { id: string; name: string; label: string; heartbeat: boolean };
     }
   | SpadeReplyEntry
   /** The model now reads a summary of what came before. */
@@ -201,7 +203,7 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       const mine = state.pending.findIndex(
         (message) => message.text === event.text && sameImages(message.images, event.images),
       );
-      if (mine >= 0 && !event.from_agent)
+      if (mine >= 0 && !event.from_agent && !event.from_routine)
         state.pending = state.pending.filter((_, index) => index !== mine);
       steer(state, {
         kind: "user",
@@ -211,6 +213,7 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         ...(event.from_agent
           ? { fromAgent: { id: event.from_agent.id, name: event.from_agent.name } }
           : {}),
+        ...(event.from_routine ? { fromRoutine: event.from_routine } : {}),
       });
       return true;
     }
