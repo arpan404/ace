@@ -7,8 +7,8 @@ import { linkedReferences, localReference } from "./linked-files.ts";
  */
 
 describe("what an answer grants", () => {
-  test("absolute, home and Windows paths an answer names in code or prose are granted", () => {
-    const granted = linkedReferences(
+  test("absolute, home and Windows paths an answer names in code or prose are granted", async () => {
+    const granted = await linkedReferences(
       [
         "Wrote `/tmp/report.pdf` and ~/Downloads/notes.txt.",
         "On Windows it is `C:\\Users\\dev\\Downloads\\report.pdf` or ~\\Desktop\\todo.md.",
@@ -24,8 +24,8 @@ describe("what an answer grants", () => {
       expect(granted.has(path), path).toBe(true);
     expect(granted.has("src/app/x.tsx")).toBe(false);
   });
-  test("inline code grants a machine path with spaces; running text and commands grant none", () => {
-    const granted = linkedReferences(
+  test("inline code grants a machine path with spaces; running text and commands grant none", async () => {
+    const granted = await linkedReferences(
       [
         "I wrote `~/Downloads/Group38 Proposal/Draft3.pdf` and `C:\\Program Files\\App\\a b.json`.",
         "Run `/usr/bin/python3 run.py` on ~/Downloads/My Notes.md.",
@@ -47,5 +47,29 @@ describe("the local path a link names", () => {
   test("web and other scheme links name no local file", () => {
     expect(localReference("https://example.com/a.pdf")).toBeUndefined();
     expect(localReference("mailto:dev@example.com")).toBeUndefined();
+  });
+  test("a path inside a fenced code block grants nothing: the page never links one there", async () => {
+    const granted = await linkedReferences(
+      [
+        "Run this:",
+        "",
+        "```sh",
+        "cat /etc/hosts ~/notes.txt",
+        "```",
+        "Then open `/tmp/out.txt`.",
+      ].join("\n"),
+    );
+    expect(granted.has("/etc/hosts")).toBe(false);
+    expect(granted.has("~/notes.txt")).toBe(false);
+    expect(granted.has("/tmp/out.txt")).toBe(true);
+  });
+  test("a percent-encoded link is granted as the page opens it, decoded", async () => {
+    const granted = await linkedReferences("See [the report](/tmp/My%20Report.pdf).");
+    expect(granted.has("/tmp/My Report.pdf")).toBe(true);
+  });
+  test("a link's own wording grants no path it merely mentions", async () => {
+    const granted = await linkedReferences("Read [/tmp/secret.txt](https://example.com/page).");
+    expect(granted.has("https://example.com/page")).toBe(true);
+    expect(granted.has("/tmp/secret.txt")).toBe(false);
   });
 });
