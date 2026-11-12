@@ -114,3 +114,12 @@ test("rows stay read while GitHub is still applying Mark all read, for one poll 
   at += 61_000;
   expect(await unreadIds(ask)).toEqual(before);
 });
+
+test("a Mark all read GitHub refused leaves the rows unread on the next read", async () => {
+  const at = Date.parse("2026-10-21T00:00:00Z");
+  const { ask, daemon } = await connected(undefined, undefined, undefined, () => at);
+  const before = await unreadIds(ask);
+  daemon.workspace.inbox.setOutcome("refused");
+  expect((await readAll(ask)).ok).toBe(false);
+  expect(await unreadIds(ask)).toEqual(before);
+});

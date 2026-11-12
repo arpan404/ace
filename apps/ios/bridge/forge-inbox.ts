@@ -216,9 +216,10 @@ export async function writeInbox(
   });
   let reply: InboxWriteReply = { type: "forge.write", ok: true, message: "", uncertain: false };
   for (const input of writes) {
-    if (input.action === "read-all") sent.set(request.project, at);
     reply = await send(owner, reads, request.project, input);
     if (!reply.ok) return reply;
+    // Only a read-all GitHub took keeps rows read while it applies; a refused one changes nothing.
+    if (input.action === "read-all") sent.set(request.project, at);
   }
   return reply;
 }
