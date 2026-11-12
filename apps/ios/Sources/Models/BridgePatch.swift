@@ -167,7 +167,8 @@ struct TranscriptRow: Codable, Sendable, Identifiable, Equatable {
     let quiet: Bool?
 }
 /// The words inside the person's bubble (`@ace/ui-core` `bubbleContent`): prose, code and mention
-/// runs in order, whether it folds behind "Show more", and how it was sent ("steer", "queue").
+/// runs in order (or the markdown to render), whether it folds behind "Show more", and how it was
+/// sent ("steer", "queue").
 struct BubbleLine: Codable, Sendable, Equatable {
     struct Segment: Codable, Sendable, Equatable {
         /// "text", "code" or "mention".
@@ -184,6 +185,12 @@ struct BubbleLine: Codable, Sendable, Equatable {
     let readable: Bool
     let long: Bool
     let origin: String
+    /// How many lines a folded bubble shows: ten for the person's words, four for a brief another
+    /// thread sent (`@ace/ui-core` `personFold`, `sentFold`). Absent from older bridges.
+    var fold: Int? = nil
+    /// Markdown the writer meant, line breaks kept, rendered as answers are; empty for words drawn
+    /// as typed. When set, `segments` is the source as one run, which Copy returns.
+    var markdown: String? = nil
 }
 /// Where a thread moved to another provider (`@ace/ui-core` `handoffMarker`): the models whose
 /// work carried over, oldest first, and the one taking the conversation.
