@@ -38,6 +38,21 @@ function deflateMessage(json: Uint8Array): Uint8Array | undefined {
   return undefined;
 }
 
+/**
+ * The relay closed the stream's socket: its WebSocket close code and reason. ace's hosted relay
+ * closes a stream with 1000 "Peer closed" when the other end went away, and with its own code
+ * when it ends the stream itself (1008 rate limit, 1009 frame too large, 1011 relay state).
+ */
+export class RelayStreamClosed extends Error {
+  readonly code: number;
+  readonly reason: string;
+  constructor(code: number, reason: string) {
+    super(`Relay stream closed (${code}${reason ? ` ${reason}` : ""})`);
+    this.name = "RelayStreamClosed";
+    this.code = code;
+    this.reason = reason;
+  }
+}
 /** Inflate a peer's message, never past the logical message limit. */
 function inflateMessage(deflated: Uint8Array): Uint8Array {
   return inflateRawSync(deflated, { maxOutputLength: LOGICAL_MESSAGE_LIMIT });
@@ -210,7 +225,9 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
     sendCredit(flow.consumed(fragmentCost(plain.length)));
     return plain;
   };
-  socket.once("close", (code) => end(new Error(`Channel connection closed (${code})`)));
+  socket.once("close", (code, reason) =>
+    end(new RelayStreamClosed(code, reason.toString("utf8").slice(0, 123))),
+  );
   socket.once("error", end);
   let compressible: ((message: Outgoing) => boolean) | undefined;
   const sendData = async (data: Uint8Array, kind: FragmentKind): Promise<void> => {

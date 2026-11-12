@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import type { HostChannel } from "@ace/relay";
+import { RelayStreamClosed, type HostChannel } from "@ace/relay";
 import type { ChannelClose } from "@ace/protocol";
 import type { MainSocket } from "./main-socket.ts";
 import type { SessionActor } from "./devices.ts";
@@ -27,6 +27,16 @@ const CLOSING = 2;
 const CLOSED = 3;
 
 /**
+ * The close a channel's end reads as. The relay's own close of the stream keeps its code and
+ * reason ("Peer closed" when the far end went away); any other failure is an abnormal 1006 with
+ * what broke (a decrypt failure, an overrun window). A local close has already finished.
+ */
+function endedBy(cause: Error | undefined): [number, string] {
+  if (cause instanceof RelayStreamClosed) return [cause.code, cause.reason];
+  return [1006, cause?.message.slice(0, 123) ?? ""];
+}
+
+/**
  * A relayed main channel seen as a socket, so the daemon's one main-socket handler serves it
  * exactly as it serves a direct one: same hello, scopes, admission, outbox backpressure,
  * replay and close codes. The relay has no close frame, so a close sends `channel.close` with
@@ -49,7 +59,7 @@ export class RelaySocket extends EventEmitter implements MainSocket {
     this.#channel = channel;
     this.#deflate = options.deflate;
     this.#delay = options.delay;
-    void channel.closed.then(() => this.#finish(1006, ""));
+    void channel.closed.then((cause) => this.#finish(...endedBy(cause)));
   }
   get readyState(): 0 | 1 | 2 | 3 {
     return this.#state;
