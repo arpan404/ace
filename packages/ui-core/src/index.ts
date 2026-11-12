@@ -386,6 +386,7 @@ export * from "./text-completions.ts";
 export * from "./forge-lifecycle-words.ts";
 export * from "./forge-milestones.ts";
 export * from "./forge-inbox-writes.ts";
+export * from "./merge-run-words.ts";
 export * from "./pr-check-model.ts";
 export * from "./pr-fix-requests.ts";
 export * from "./pr-conflicts-model.ts";

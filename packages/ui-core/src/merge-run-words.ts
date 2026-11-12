@@ -1,8 +1,9 @@
-import { verifySettled, type VerifyRun } from "@ace/protocol";
+import { verifyMergeLimit, verifySettled, type VerifyResult, type VerifyRun } from "@ace/protocol";
 
 /*
- * The merge strip in words (ADR 0094): one sentence for a merge run's progress or ending, and
- * the text actions it offers. Pure.
+ * The merge strip in words (ADR 0094), shared by the web's Pull requests list and the phone's:
+ * what picking ready pull requests offers, one sentence for a merge run's progress or ending,
+ * the text actions it offers, and which run the strip shows. Pure.
  */
 
 export type StripAction =
@@ -28,9 +29,9 @@ function listed(words: readonly string[]): string {
 }
 
 /** "#1219", "#1219 and #1221", "#1219, #1221 and #1197". */
-export const numbers = (prs: readonly number[]) => listed(prs.map((pr) => `#${pr}`));
+export const prNumbers = (prs: readonly number[]) => listed(prs.map((pr) => `#${pr}`));
 
-export const pullRequests = (count: number) => `${count} pull request${count === 1 ? "" : "s"}`;
+export const pullRequestCount = (count: number) => `${count} pull request${count === 1 ? "" : "s"}`;
 
 const capital = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
 
@@ -43,7 +44,7 @@ const log = { kind: "log", label: "Show log" } as const;
 function progress(run: VerifyRun, prs: readonly number[], base: string): string {
   if (run.state === "queued") return "Waiting for this project's earlier run";
   const step = run.steps.find((each) => each.state === "running");
-  const together = prs.length > 1 ? `${numbers(prs)} together` : numbers(prs);
+  const together = prs.length > 1 ? `${prNumbers(prs)} together` : prNumbers(prs);
   switch (step?.kind) {
     case "fetch":
       return `Fetching ${listed([base, ...prs.map((pr) => `#${pr}`)])}`;
@@ -62,12 +63,12 @@ function progress(run: VerifyRun, prs: readonly number[], base: string): string 
 
 /** Some merged, some not: what did. */
 const mergedPart = (merged: readonly number[]) =>
-  merged.length ? `merged ${numbers(merged)}` : "nothing was merged";
+  merged.length ? `merged ${prNumbers(merged)}` : "nothing was merged";
 
 /** How a settled run ended, and what the person can do next. */
 function ending(run: VerifyRun, prs: readonly number[], base: string): RunWords {
   if (run.state === "merged")
-    return { sentence: `Merged ${pullRequests(run.merged.length)}`, actions: [dismiss] };
+    return { sentence: `Merged ${pullRequestCount(run.merged.length)}`, actions: [dismiss] };
   if (run.state === "cancelled")
     return { sentence: "Stopped; nothing was merged", actions: [dismiss] };
   if (run.state === "interrupted")
@@ -76,7 +77,7 @@ function ending(run: VerifyRun, prs: readonly number[], base: string): RunWords 
       actions: [again, dismiss],
     };
   const failure = run.failure;
-  const together = prs.length > 1 ? `${numbers(prs)} together` : numbers(prs);
+  const together = prs.length > 1 ? `${prNumbers(prs)} together` : prNumbers(prs);
   switch (failure?.code) {
     case "conflict": {
       const pr = failure.pr;
@@ -158,3 +159,64 @@ export function runWords(run: VerifyRun, fallbackBase: string): RunWords {
     actions: run.state === "merging" ? [] : [stop],
   };
 }
+
+/** The ways a merge run may merge, as the strip's menu words them. */
+export const mergeRunMethods: readonly { value: "squash" | "merge" | "rebase"; label: string }[] = [
+  { value: "squash", label: "Squash" },
+  { value: "merge", label: "Merge commit" },
+  { value: "rebase", label: "Rebase" },
+];
+
+/** "Verify and merge 3 pull requests into main": what the strip offers for the picked rows. */
+export const mergePickWords = (count: number, base: string) =>
+  `Verify and merge ${pullRequestCount(count)} into ${base}`;
+
+/**
+ * Why a ready row can't join the merge selection now, or undefined when it can: a run takes at
+ * most `verifyMergeLimit` pull requests, all into one base.
+ */
+export function mergePickBlocked(input: {
+  picked: boolean;
+  /** How many are picked already. */
+  count: number;
+  /** The base of those picked; undefined when none is. */
+  base: string | undefined;
+  rowBase: string | undefined;
+}): string | undefined {
+  if (input.picked) return undefined;
+  if (input.count >= verifyMergeLimit)
+    return `At most ${verifyMergeLimit} pull requests merge at once`;
+  if (input.base !== undefined && input.rowBase !== input.base)
+    return `Pick pull requests into ${input.base}`;
+  return undefined;
+}
+
+const settled = (run: VerifyRun) => verifySettled.includes(run.state);
+
+/**
+ * The merge run the strip shows: the newest live one not dismissed, or the ending of the one
+ * started here until it is dismissed or a new selection begins (`picking`).
+ */
+export function shownMergeRun(
+  runs: readonly VerifyRun[],
+  state: { dismissed: ReadonlySet<string>; own: string | undefined; picking: boolean },
+): VerifyRun | undefined {
+  const run = runs.find(
+    (each) =>
+      each.target.kind === "merge" &&
+      !state.dismissed.has(each.id) &&
+      (!settled(each) || each.id === state.own),
+  );
+  return run && (!settled(run) || !state.picking) ? run : undefined;
+}
+
+const refusals: Partial<Record<NonNullable<VerifyResult["error"]>, string>> = {
+  no_command: "This project has no check command.",
+  busy: "Too many runs are waiting in this project. Try again once one ends.",
+  forbidden: "This device can't start runs on this machine.",
+  settled: "Merging on GitHub has begun, so it can't be stopped.",
+};
+
+/** Why Verify refused to start or stop a merge run, in a sentence. */
+export const mergeRunRefusal = (code: VerifyResult["error"] | undefined) =>
+  (code ? refusals[code] : undefined) ?? "Verify didn't answer. Try again.";

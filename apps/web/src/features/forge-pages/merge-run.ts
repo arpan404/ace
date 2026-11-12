@@ -1,26 +1,20 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import type { ForgePrRow, VerifyRun, VerifyTarget } from "@ace/protocol";
 import {
-  verifyMergeLimit,
-  type ForgePrRow,
-  type VerifyRun,
-  type VerifyTarget,
-} from "@ace/protocol";
-import { type MergeMethod, workKey } from "@ace/ui-core";
+  mergePickBlocked,
+  mergeRunRefusal,
+  shownMergeRun,
+  type MergeMethod,
+  workKey,
+} from "@ace/ui-core";
 import { useToast } from "@/components/ui/toast.tsx";
 import { isSettled, useVerifyActions, VerifyRefused } from "@/lib/verify.ts";
 
 const keyOf = (row: ForgePrRow) => workKey(row.ref.repository, row.ref.number);
 
-const refusals: Partial<Record<VerifyRefused["code"], string>> = {
-  no_command: "This project has no check command.",
-  busy: "Too many runs are waiting in this project. Try again once one ends.",
-  forbidden: "This device can't start runs on this machine.",
-  settled: "Merging on GitHub has begun, so it can't be stopped.",
-};
 const refusal = (error: unknown) =>
-  (error instanceof VerifyRefused ? refusals[error.code] : undefined) ??
-  "Verify didn't answer. Try again.";
+  mergeRunRefusal(error instanceof VerifyRefused ? error.code : undefined);
 
 /**
  * The list's verified merge: the ready pull requests picked for it, in list order, and the
@@ -40,13 +34,8 @@ export function useMergeRun(
   const cache = useQueryClient();
   const selected = ready.filter((row) => row.headSha && picked.has(keyOf(row)));
   const base = selected[0]?.baseBranch;
-  const run = runs.find(
-    (each) =>
-      each.target.kind === "merge" &&
-      !dismissed.has(each.id) &&
-      (!isSettled(each) || each.id === own),
-  );
-  const shown = run && (!isSettled(run) || selected.length === 0) ? run : undefined;
+  const run = shownMergeRun(runs, { dismissed, own, picking: false });
+  const shown = shownMergeRun(runs, { dismissed, own, picking: selected.length > 0 });
   // What merged left the open list: read it again.
   const merged = run && isSettled(run) && run.merged.length > 0 ? run.id : undefined;
   useEffect(() => {
@@ -74,11 +63,12 @@ export function useMergeRun(
     isPicked: (row: ForgePrRow) => picked.has(keyOf(row)),
     /** Why `row` can't join the selection now; undefined when it can. */
     blocked(row: ForgePrRow): string | undefined {
-      if (picked.has(keyOf(row))) return undefined;
-      if (selected.length >= verifyMergeLimit)
-        return `At most ${verifyMergeLimit} pull requests merge at once`;
-      if (base !== undefined && row.baseBranch !== base) return `Pick pull requests into ${base}`;
-      return undefined;
+      return mergePickBlocked({
+        picked: picked.has(keyOf(row)),
+        count: selected.length,
+        base,
+        rowBase: row.baseBranch,
+      });
     },
     toggle(row: ForgePrRow) {
       const key = keyOf(row);
