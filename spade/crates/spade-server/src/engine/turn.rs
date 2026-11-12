@@ -27,7 +27,9 @@ enum Ended {
 }
 
 /// What one model step produced.
-enum Step {
+pub(super) enum Step {
+    /// The bot's own cap held at admission.
+    Capped(spade_core::oversight::Hit),
     Answered,
     Calls,
     Paused,
@@ -95,6 +97,8 @@ pub(super) async fn run(
         engine.spawn_turn(&id);
     }
     name_if_untitled(&engine, &id).await;
+    // A turn (or its title) that took the bot to its cap says so, once.
+    engine.note_if_capped(&id);
 }
 
 /// Closes `reply`, retrying until it is closed. The worker still owns the reply meanwhile, so no
@@ -171,30 +175,68 @@ async fn drive(
             Next::Idle => return Ended::Finished,
             Next::CallModel { reply } => {
                 *driven = Some(reply.clone());
+                let model = turn_model(engine, &events, &reply);
+                // A subscription (ADR 0133) runs its own loop and keeps its own context: Spade's
+                // step, cost and cap limits and compaction are for endpoint models.
+                let cli = spade_core::brain::CliModel::is(&model);
                 let done = progress(&events);
-                if done.steps >= engine.limits.max_steps {
+                if !cli && done.steps >= engine.limits.max_steps {
                     let limit = engine.limits.max_steps;
                     return Ended::Failed(
                         String::new(),
                         format!("the turn reached its limit of {limit} steps"),
                     );
                 }
-                if done.cost_micros >= engine.limits.turn_cost_micros {
+                if !cli && done.cost_micros >= engine.limits.turn_cost_micros {
                     return Ended::Failed(
                         String::new(),
                         "the turn reached its cost limit".to_owned(),
                     );
                 }
-                if !engine.within_cap().unwrap_or(false) {
+                if !cli && !engine.within_cap().unwrap_or(false) {
                     return Ended::Failed(
                         String::new(),
                         "today's spending cap is used up".to_owned(),
                     );
                 }
+                // The bot's own cap (ADR 0135): no model call starts; it says so once.
+                if let Some((_, hit)) = engine.bot_cap(id) {
+                    return match engine.close_capped(id, &reply, &hit) {
+                        Ok(()) => Ended::Finished,
+                        Err(error) => Ended::Failed(String::new(), error.to_string()),
+                    };
+                }
                 if super::index::if_needed(engine, id, &events).await {
                     continue;
                 }
-                let model = turn_model(engine, &events, &reply);
+                if super::memory::index_if_due(engine, id, &events) {
+                    continue;
+                }
+                if cli {
+                    let step =
+                        super::brain::step(engine, id, &reply, &events, &model, &mut stop, pause)
+                            .await;
+                    match step {
+                        Step::Answered => {
+                            match super::brain::finish_unless_steered(engine, id, &reply) {
+                                Ok(true) => return Ended::Finished,
+                                Ok(false) => {}
+                                Err(error) => return Ended::Failed(String::new(), error),
+                            }
+                        }
+                        Step::Calls => {}
+                        Step::Capped(hit) => {
+                            return match engine.close_capped(id, &reply, &hit) {
+                                Ok(()) => Ended::Finished,
+                                Err(error) => Ended::Failed(String::new(), error.to_string()),
+                            };
+                        }
+                        Step::Paused => return Ended::Paused,
+                        Step::Stopped(text) => return Ended::Stopped(text),
+                        Step::Failed(text, error) => return Ended::Failed(text, error),
+                    }
+                    continue;
+                }
                 // Stop interrupts a compaction too; nothing is stored for one cut short. A pause
                 // lets it finish like a model step, unless the pause is immediate.
                 let compacted = tokio::select! {
@@ -212,6 +254,12 @@ async fn drive(
                         Err(error) => return Ended::Failed(String::new(), error),
                     },
                     Step::Calls => {}
+                    Step::Capped(hit) => {
+                        return match engine.close_capped(id, &reply, &hit) {
+                            Ok(()) => Ended::Finished,
+                            Err(error) => Ended::Failed(String::new(), error.to_string()),
+                        };
+                    }
                     Step::Paused => return Ended::Paused,
                     Step::Stopped(text) => return Ended::Stopped(text),
                     Step::Failed(text, error) => return Ended::Failed(text, error),
@@ -240,7 +288,7 @@ fn turn_model(engine: &Engine, events: &[Event], reply: &str) -> String {
             }
             _ => None,
         })
-        .unwrap_or_else(|| engine.default_model())
+        .unwrap_or_else(|| engine.keyless_default_model())
 }
 
 async fn model_step(
@@ -259,14 +307,44 @@ async fn model_step(
     engine.set_status(id, Some(super::roster::THINKING.to_owned()));
     // Each step's snapshot starts from its own text.
     *live.current.lock().unwrap_or_else(|p| p.into_inner()) = None;
-    let opened = tokio::select! {
-        opened = engine.models.stream(&model, &prompt) => opened,
+    // Admitted against the caps counting calls in flight (ADR 0135); paid for when it ends.
+    // Waits while only the estimates of calls still running stand in the way.
+    let hint = super::ledger::turn_hint(events);
+    let admission = tokio::select! {
+        admission = engine.admit_waiting(id, &model, &prompt, hint) => admission,
         _ = stopped(stop) => return Step::Stopped(String::new()),
         _ = pausing(pause, Point::Streaming) => return Step::Paused,
     };
+    let admitted = match admission {
+        Ok(admitted) => admitted,
+        Err(super::ledger::Refusal::Bot { hit, .. }) => return Step::Capped(hit),
+        Err(super::ledger::Refusal::Service | super::ledger::Refusal::InFlight) => {
+            return Step::Failed(String::new(), "today's spending cap is used up".to_owned());
+        }
+    };
+    // A step cut off before its usage came is still paid for: its prompt, and what streamed.
+    let input = super::ledger::prompt_tokens(&prompt);
+    let partly = |text: &str| {
+        let streamed = u32::try_from(text.len() / 4).unwrap_or(u32::MAX);
+        super::ledger::likely_usage(input, hint, streamed)
+    };
+    let opened = tokio::select! {
+        opened = engine.models.stream(&model, &prompt) => opened,
+        _ = stopped(stop) => {
+            admitted.settle(&partly(""));
+            return Step::Stopped(String::new());
+        }
+        _ = pausing(pause, Point::Streaming) => {
+            admitted.settle(&partly(""));
+            return Step::Paused;
+        }
+    };
     let stream = match opened {
         Ok(stream) => stream,
-        Err(error) => return Step::Failed(String::new(), error.to_string()),
+        Err(error) => {
+            admitted.settle_if(error.usage());
+            return Step::Failed(String::new(), error.to_string());
+        }
     };
     let mut stream = Box::pin(stream);
     let mut text = String::new();
@@ -276,12 +354,16 @@ async fn model_step(
         tokio::select! {
             changed = stop.changed() => {
                 if changed.is_err() || *stop.borrow() {
+                    admitted.settle(&partly(&text));
                     return Step::Stopped(text);
                 }
             }
             // Cut mid-stream: what streamed so far is dropped and asked for again on resume (its
             // checkpoints stay, so the person still sees them meanwhile).
-            _ = pausing(pause, Point::Streaming) => return Step::Paused,
+            _ = pausing(pause, Point::Streaming) => {
+                admitted.settle(&partly(&text));
+                return Step::Paused;
+            }
             next = stream.next() => match next {
                 Some(Ok(Delta::Text(piece))) => {
                     text.push_str(&piece);
@@ -324,14 +406,20 @@ async fn model_step(
                     if let Err(error) = engine.record(id, &step) {
                         return Step::Failed(String::new(), error.to_string());
                     }
-                    if cost > 0 {
-                        let _ = engine.store.record_spend(id, &model, cost, engine.now_ms());
-                    }
+                    // The ledger gets the same cost the step records.
+                    let _ = cost;
+                    admitted.settle(&usage);
                     *live.current.lock().unwrap_or_else(|p| p.into_inner()) = None;
                     return if made_calls { Step::Calls } else { Step::Answered };
                 }
-                Some(Err(error)) => return Step::Failed(text, error.to_string()),
-                None => return Step::Failed(text, "the model's reply ended early".to_owned()),
+                Some(Err(error)) => {
+                    admitted.settle(&error.usage().unwrap_or_else(|| partly(&text)));
+                    return Step::Failed(text, error.to_string());
+                }
+                None => {
+                    admitted.settle(&partly(&text));
+                    return Step::Failed(text, "the model's reply ended early".to_owned());
+                }
             }
         }
     }
@@ -340,7 +428,7 @@ async fn model_step(
 /// Adds a streamed piece to the open reply's snapshot in place, so each piece costs its own
 /// length; the text is copied whole only when the step's snapshot starts (`text` is everything
 /// streamed so far, `piece` included) and when a subscriber joins.
-fn add_piece(current: &mut Option<Snapshot>, reply: &str, text: &str, piece: &str) {
+pub(super) fn add_piece(current: &mut Option<Snapshot>, reply: &str, text: &str, piece: &str) {
     match current {
         Some(snapshot) if snapshot.reply == reply => snapshot.text.push_str(piece),
         _ => {
@@ -397,7 +485,7 @@ fn finish_unless_steered(engine: &Engine, id: &str, reply: &str) -> Result<bool,
 /// own), else after its first message.
 async fn name_if_untitled(engine: &Arc<Engine>, id: &str) {
     // Never for an agent being deleted: nothing is spent on a conversation about to go.
-    if engine.deleting(id) {
+    if engine.deleting(id) || engine.may_spend(id).is_err() {
         return;
     }
     let Ok(events) = engine.load(id) else { return };
@@ -412,21 +500,27 @@ async fn name_if_untitled(engine: &Arc<Engine>, id: &str) {
         Ok(Some(model)) => model,
         _ => engine.reply_model(id),
     };
-    let suggested = match engine
-        .models
-        .generate::<title::Suggestion>(&fast, &title::prompt(&first).session(id))
-        .await
-    {
-        Ok(generated) => {
-            engine.pay(id, &fast, &generated.usage);
-            title::clean(&generated.value.title)
-        }
-        Err(error) => {
-            if let Some(usage) = error.usage() {
-                engine.pay(id, &fast, &usage);
+    let prompt = title::prompt(&first).session(id);
+    let admitted = engine
+        .admit_waiting(id, &fast, &prompt, super::ledger::Hint::default())
+        .await;
+    let suggested = match admitted {
+        // At a cap the title comes from the first message, at no cost.
+        Err(_) => None,
+        Ok(admitted) => match engine
+            .models
+            .generate::<title::Suggestion>(&fast, &prompt)
+            .await
+        {
+            Ok(generated) => {
+                admitted.settle(&generated.usage);
+                title::clean(&generated.value.title)
             }
-            None
-        }
+            Err(error) => {
+                admitted.settle_if(error.usage());
+                None
+            }
+        },
     };
     let name = suggested.unwrap_or_else(|| title::fallback(&first));
     if let Err(error) = engine.record(id, &Event::renamed(name)) {

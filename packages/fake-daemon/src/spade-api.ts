@@ -1,4 +1,10 @@
 import type { FakeSpade, FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
+import { FakeSpadeConnectors } from "./spade-connectors-api.ts";
+import { FakeSpadeNotes } from "./spade-notes.ts";
+import { FakeSpadeOversight, type FakeSpadeSpending } from "./spade-oversight.ts";
+import { FakeSpadeRoutines } from "./spade-routines.ts";
+import { base64Bytes, sha256Hex } from "./sha256.ts";
+import { FakeSpadeTeams } from "./spade-teams.ts";
 
 /*
  * A stateful stand-in for Spade's local API (ADR 0126, 0127), in Spade's own JSON: agents with
@@ -22,12 +28,17 @@ export interface FakeSpadeAgent {
   state: "idle" | "working" | "waiting";
   waiting_for: "approval" | "question" | null;
   status: string | null;
+  /** Why its latest reply on a subscription failed (ADR 0133). */
+  problem?: string | null;
   last_message: {
     from: "person" | "agent";
     text: string;
     at: number;
     from_agent: { id: string; name: string } | null;
   } | null;
+  /** Its spend and caps (ADR 0135); left out, as an older Spade does, until set. */
+  spending?: FakeSpadeSpending;
+  review?: boolean | null;
 }
 
 interface Stored {
@@ -47,24 +58,65 @@ export class FakeSpadeApi implements FakeSpadeServer {
   endpoints: Json[] = [];
   presets: Json[] = [];
   fastModel: string | null = null;
+  /** `endpoint/model` for voice messages (ADR 0134). */
+  transcriptionModel: string | null = null;
+  /** Stored images by hash with their media type; any other hash answers 404. */
+  images = new Map<string, string>();
+  /** What `POST /v1/transcriptions` answers. */
+  transcript = "";
   /** False: this machine has no keychain, so key writes answer 503. */
   keychain = true;
   /** A status every key write answers with, to stage a failure. */
   keyFailure: number | undefined;
   /** `PUT /v1/main`: false leaves the main agent out of the list, as Spade does. */
   mainEnabled = true;
+  /** The person's subscriptions as ace lists them (ADR 0133), in Spade's JSON. */
+  subscriptions: Json[] = [];
   /** What each endpoint lists live, by endpoint id; a number answers with that status. */
   liveModels = new Map<string, Json[] | number>();
+  /** Each agent's workspace files (ADR 0130), by path relative to it; folders are implied. */
+  files = new Map<string, Record<string, string>>();
+  /** Each agent's skill proposals, in Spade's JSON. */
+  proposals = new Map<string, Json[]>();
+  /** What the bots remember, their own and the shared ones (ADR 0128). */
+  readonly notes: FakeSpadeNotes;
   /** Every request the app sent, in order. */
   readonly requests: FakeSpadeRequest[] = [];
+  /** The person's connected apps and each bot's allow list (ADR 0131). */
+  readonly connectors = new FakeSpadeConnectors();
+  /** Caps, the review and the activity log (ADR 0135). */
+  readonly oversight = new FakeSpadeOversight();
   private readonly events = new Map<string, Stored[]>();
   private sequence = 0;
   private readonly spade: FakeSpade;
   private readonly now: () => number;
+  /** Each bot's routines and heartbeat (ADR 0129). */
+  readonly routines: FakeSpadeRoutines;
+  /** Groups, templates, duplicate, export and import (ADR 0132). */
+  readonly teams: FakeSpadeTeams;
 
   constructor(spade: FakeSpade, now: () => number = () => 1_000) {
     this.spade = spade;
     this.now = now;
+    this.notes = new FakeSpadeNotes(now);
+    this.routines = new FakeSpadeRoutines(now);
+    const agents = () => this.agents;
+    this.teams = new FakeSpadeTeams({
+      // The list as it is now: a delete replaces it.
+      get agents() {
+        return agents();
+      },
+      addAgent: (fields) => this.addAgent(fields),
+      openConversation: (id) => void this.events.set(id, this.events.get(id) ?? []),
+      store: (conversation, event) => this.store(conversation, event),
+      emitStatus: (conversation, state, status, waiting) =>
+        this.spade.emit(
+          `/v1/conversations/${conversation}/live`,
+          "status",
+          waiting ? { state, status, waiting_member: waiting } : { state, status },
+        ),
+      now,
+    });
     spade.serve(this);
   }
 
@@ -104,7 +156,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
   /** The agent's state and its few words, on its row and its live stream. */
   status(agent: FakeSpadeAgent, state: FakeSpadeAgent["state"], status: string | null): void {
     agent.state = state;
-    agent.waiting_for = state === "waiting" ? "approval" : null;
+    agent.waiting_for = state === "waiting" ? (agent.waiting_for ?? "approval") : null;
     agent.status = status;
     this.spade.emit(`/v1/conversations/${agent.conversation}/live`, "status", { state, status });
   }
@@ -143,6 +195,31 @@ export class FakeSpadeApi implements FakeSpadeServer {
     this.status(agent, "waiting", "Waiting for you");
   }
 
+  /** A reply that opens and asks the person a question (`ask_user`), then waits. */
+  question(agent: FakeSpadeAgent, callId: string, question: string, id = `r${++this.sequence}`) {
+    this.store(agent.conversation, { type: "reply_started", reply: id });
+    this.store(agent.conversation, {
+      type: "step_finished",
+      reply: id,
+      text: "",
+      calls: [{ id: callId, name: "ask_user", arguments: { question } }],
+    });
+    this.store(agent.conversation, {
+      type: "tool_started",
+      reply: id,
+      call_id: callId,
+      name: "ask_user",
+    });
+    this.store(agent.conversation, {
+      type: "question_asked",
+      reply: id,
+      call_id: callId,
+      question,
+    });
+    agent.waiting_for = "question";
+    this.status(agent, "waiting", null);
+  }
+
   /** The bodies the app sent to `method path`, parsed. */
   sent(method: string, path: string): Json[] {
     return this.requests
@@ -156,7 +233,9 @@ export class FakeSpadeApi implements FakeSpadeServer {
     const conversation = decodeURIComponent(match[1] ?? "");
     const list = this.events.get(conversation) ?? [];
     const after = Number(match[2]);
-    const agent = this.agents.find((candidate) => candidate.conversation === conversation);
+    const agent =
+      this.agents.find((candidate) => candidate.conversation === conversation) ??
+      this.teams.groups.find((candidate) => candidate.conversation === conversation);
     return [
       ...list
         .filter((stored) => stored.seq > after)
@@ -175,18 +254,64 @@ export class FakeSpadeApi implements FakeSpadeServer {
     const parts = path.split("/").slice(2).map(decodeURIComponent);
     const body = request.body ? (JSON.parse(request.body) as Json) : {};
     const [root, id, sub, subId] = parts;
+    if (root === "agents" && id && sub === "workspace")
+      return this.workspaceRoute(request.method, id, subId, new URLSearchParams(query));
+    if (root === "agents" && id && sub === "skill-proposals")
+      return this.proposalRoute(request.method, id, subId, body);
+    if (root === "agents" && id && sub === "connectors") {
+      const agent = this.agents.find((candidate) => candidate.id === id);
+      if (!agent) return problem(404, "No such agent.");
+      return this.connectors.agentRoute(request.method, id, agent.kind === "main", body);
+    }
+    if (root === "oversight") return this.oversight.route(request.method, body);
+    if (root === "agents" && id && (sub === "oversight" || sub === "activity")) {
+      const agent = this.agents.find((candidate) => candidate.id === id);
+      if (!agent) return problem(404, "No such agent.");
+      return sub === "activity"
+        ? this.oversight.activityRoute(id, new URLSearchParams(query))
+        : this.oversight.agentRoute(request.method, agent, body);
+    }
+    if (root === "notes") return this.notes.route(request.method, null, id, body, sub);
+    if (root === "agents" && id && sub === "notes")
+      return this.agents.some((agent) => agent.id === id)
+        ? this.notes.route(request.method, id, undefined, body)
+        : problem(404, "No such agent.");
+    if (root === "agents" && id === "import" && request.method === "POST")
+      return this.teams.importRoute(body);
+    if (root === "agents" && id && (sub === "duplicate" || sub === "export"))
+      return this.teams.agentRoute(request.method, id, sub, body);
+    if (root === "groups") return this.teams.groupRoute(request.method, id, sub, body);
+    if (root === "templates" && request.method === "GET")
+      return reply({ templates: this.teams.templates });
+    if (root === "agents" && id && (sub === "routines" || sub === "heartbeat"))
+      return this.routines.agentRoute(request.method, id, sub, body);
     if (root === "agents") return this.agentRoute(request.method, id, body);
+    if (root === "routines" && id) return this.routines.route(request.method, id, sub, body);
+    if (root === "connectors") return this.connectors.route(request.method, id, sub, body);
     if (root === "models" && request.method === "GET")
       return reply({
         endpoints: this.endpoints,
         presets: this.presets,
         fast_model: this.fastModel,
+        transcription_model: this.transcriptionModel,
         keychain: this.keychain,
       });
+    if (root === "subscriptions" && request.method === "GET")
+      return reply({ providers: this.subscriptions, error: null });
     if (root === "endpoints") return this.endpointRoute(request.method, id, sub, body, query);
     if (root === "keys" && id) return this.keyRoute(request.method, id);
     if (root === "settings" && request.method === "PUT") {
-      this.fastModel = typeof body.fast_model === "string" ? body.fast_model : null;
+      if ("fast_model" in body)
+        this.fastModel = typeof body.fast_model === "string" ? body.fast_model : null;
+      if ("transcription_model" in body) {
+        const model =
+          typeof body.transcription_model === "string" ? body.transcription_model : null;
+        // As Spade: any `endpoint/model` on a saved endpoint, whatever its facts say.
+        const [endpoint, ...rest] = model?.split("/") ?? [];
+        if (model !== null && !(rest.join("/") && this.endpoints.some((e) => e.id === endpoint)))
+          return problem(400, "The transcription model must be on one of your endpoints.");
+        this.transcriptionModel = model;
+      }
       return { status: 204 };
     }
     if (root === "main") {
@@ -195,7 +320,23 @@ export class FakeSpadeApi implements FakeSpadeServer {
     }
     if (root === "conversations" && id)
       return this.conversationRoute(request, id, sub, subId, query);
-    if (root === "images") return { status: 404, body: "" };
+    if (root === "images") {
+      const type = id ? this.images.get(id) : undefined;
+      return type
+        ? { status: 200, body: `bytes of ${id}`, contentType: type }
+        : { status: 404, body: "" };
+    }
+    if (root === "transcriptions" && request.method === "POST")
+      return this.transcriptionModel
+        ? reply({ text: this.transcript })
+        : problem(409, "No transcription model is set.");
+    // A stored document or recording: its bytes, as text here.
+    if ((root === "documents" || root === "audio") && id && request.method === "GET")
+      return {
+        status: 200,
+        body: `bytes of ${id}`,
+        contentType: root === "audio" ? "audio/webm" : "application/octet-stream",
+      };
     return problem(404, "Not found.");
   }
 
@@ -242,9 +383,68 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (method === "DELETE") {
       if (agent.kind === "main") return problem(409, "Spade can't be deleted.");
       this.agents = this.agents.filter((candidate) => candidate !== agent);
+      this.notes.forget(agent.id);
       return { status: 204 };
     }
     return problem(405, "Not allowed.");
+  }
+
+  private workspaceRoute(
+    method: string,
+    agent: string,
+    view: string | undefined,
+    query: URLSearchParams,
+  ): FakeSpadeAnswer {
+    const files = this.files.get(agent) ?? {};
+    const path = query.get("path") ?? "";
+    if (path.startsWith("/") || path.split("/").includes(".."))
+      return problem(400, "paths may not use `..`");
+    if (method === "DELETE") {
+      if (!path) return problem(422, "the workspace itself cannot be deleted");
+      for (const name of Object.keys(files))
+        if (name === path || name.startsWith(`${path}/`)) delete files[name];
+      return { status: 204 };
+    }
+    if (view === "file") {
+      const text = files[path];
+      if (text === undefined) return problem(404, `${path} does not exist`);
+      return reply({ path, size: text.length, text, unreadable: null });
+    }
+    const prefix = path ? `${path}/` : "";
+    const entries = new Map<string, Json>();
+    for (const [name, text] of Object.entries(files)) {
+      if (!name.startsWith(prefix)) continue;
+      const [first = "", ...rest] = name.slice(prefix.length).split("/");
+      const folder = rest.length > 0;
+      entries.set(first, {
+        name: first,
+        path: `${prefix}${first}`,
+        kind: folder ? "folder" : "file",
+        size: folder ? 0 : text.length,
+        modified_at: null,
+      });
+    }
+    const list = [...entries.values()].toSorted(
+      (a, b) =>
+        Number(a.kind !== "folder") - Number(b.kind !== "folder") ||
+        String(a.name).localeCompare(String(b.name)),
+    );
+    return reply({ path, entries: list, truncated: false });
+  }
+
+  private proposalRoute(
+    method: string,
+    agent: string,
+    id: string | undefined,
+    body: Json,
+  ): FakeSpadeAnswer {
+    const list = this.proposals.get(agent) ?? [];
+    if (!id && method === "GET") return reply({ proposals: list });
+    const proposal = list.find((candidate) => candidate.id === id);
+    if (!proposal) return problem(404, "no such proposal");
+    if (proposal.state !== "open") return problem(409, "this proposal was already answered");
+    proposal.state = body.save === true ? "saved" : "discarded";
+    return reply({ proposal });
   }
 
   private endpointRoute(
@@ -339,7 +539,10 @@ export class FakeSpadeApi implements FakeSpadeServer {
     }
     if (sub === "messages" && request.method === "POST") {
       const body = request.body ? (JSON.parse(request.body) as Json) : {};
-      this.store(id, { type: "user_message", text: body.text ?? "" });
+      const media = mediaOf(body);
+      for (const image of (media.images ?? []) as Json[])
+        this.images.set(String(image.sha256), String(image.media_type));
+      this.store(id, { type: "user_message", text: body.text ?? "", ...media });
       if (agent)
         agent.last_message = {
           from: "person",
@@ -372,4 +575,51 @@ export class FakeSpadeApi implements FakeSpadeServer {
     }
     return problem(404, "Not found.");
   }
+}
+
+/** What Spade names an upload by: the SHA-256 of its bytes, and their count. */
+function uploadIdentity(data: unknown) {
+  let bytes: Uint8Array;
+  try {
+    bytes = base64Bytes(String(data));
+  } catch {
+    bytes = new TextEncoder().encode(String(data));
+  }
+  return { sha256: sha256Hex(bytes), bytes: bytes.length };
+}
+
+/** A sent message's images, documents and recording, stored as Spade stores them (ADR 0134). */
+function mediaOf(body: Json): Json {
+  const images = Array.isArray(body.images) ? (body.images as Json[]) : [];
+  const files = Array.isArray(body.files) ? (body.files as Json[]) : [];
+  const voice = body.voice as Json | undefined;
+  return {
+    ...(images.length
+      ? {
+          images: images.map((image) => {
+            const { sha256, bytes } = uploadIdentity(image.data);
+            return { sha256, media_type: "image/png", bytes };
+          }),
+        }
+      : {}),
+    ...(files.length
+      ? {
+          documents: files.map((file) => {
+            const { sha256, bytes } = uploadIdentity(file.data);
+            const name = String(file.name);
+            const pdf = name.endsWith(".pdf");
+            const media_type = pdf ? "application/pdf" : "application/octet-stream";
+            return { sha256, name, media_type, bytes, chars: 0, cut: false, view: "" };
+          }),
+        }
+      : {}),
+    ...(voice
+      ? {
+          voice: {
+            ...uploadIdentity(voice.data),
+            media_type: String(voice.media_type),
+          },
+        }
+      : {}),
+  };
 }

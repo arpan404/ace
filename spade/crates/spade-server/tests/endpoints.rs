@@ -679,3 +679,119 @@ async fn an_endpoint_a_reply_still_runs_on_cannot_be_deleted() -> Result {
     assert_eq!(status, 204, "free once the reply is done");
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn while_one_delete_waits_on_the_keychain_no_other_can_touch_or_reuse_the_endpoint() -> Result
+{
+    let gate = support::Gate::default();
+    let opener = gate.clone();
+    let _open_at_end = scopeguard(move || opener.open());
+    let spade = Spade::start_with(
+        vec![Script::reply("unused")],
+        Vec::new(),
+        support::Options {
+            keychain_delete_gate: Some(gate.clone()),
+            ..support::Options::default()
+        },
+    )
+    .await?;
+    let (status, _) = spade
+        .post(
+            "/v1/endpoints",
+            json!({ "name": "Gate", "format": "openai-chat", "base_url": "http://127.0.0.1:7",
+                    "needs_key": false }),
+        )
+        .await?;
+    assert_eq!(status, 201);
+    // The first delete removes the key, and that waits on the keychain.
+    let first = {
+        let (http, base) = (spade.http.clone(), spade.base.clone());
+        tokio::spawn(async move {
+            http.delete(format!("{base}/v1/endpoints/gate"))
+                .bearer_auth(support::TOKEN)
+                .send()
+                .await
+                .map(|r| r.status().as_u16())
+        })
+    };
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    // Bounded: without the guard a second delete would wait on the keychain too.
+    let (status, body) =
+        tokio::time::timeout(Duration::from_secs(2), spade.delete("/v1/endpoints/gate"))
+            .await
+            .map_err(|_| "a second delete ran instead of being refused")??;
+    assert_eq!(status, 409, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("already being removed")),
+        "{body}"
+    );
+    let (status, _) = patch(&spade, "/v1/endpoints/gate", json!({ "name": "Renamed" })).await?;
+    assert_eq!(status, 409, "no change while it is being removed");
+    let (status, _) = spade
+        .post("/v1/endpoints/gate/models", json!({ "id": "m" }))
+        .await?;
+    assert_eq!(status, 409);
+    // A new endpoint of that name never takes the id being removed.
+    let (status, body) = spade
+        .post(
+            "/v1/endpoints",
+            json!({ "name": "Gate", "format": "openai-chat", "base_url": "http://127.0.0.1:8",
+                    "needs_key": false }),
+        )
+        .await?;
+    assert_eq!(status, 201, "{body}");
+    assert_eq!(body["endpoint"]["id"], "gate-2");
+    gate.open();
+    assert_eq!(first.await??, 204);
+    assert_eq!(endpoint(&spade, "gate").await?, Value::Null);
+    assert_eq!(
+        endpoint(&spade, "gate-2").await?["base_url"],
+        "http://127.0.0.1:8/"
+    );
+    Ok(())
+}
+
+/// Runs `f` when dropped.
+fn scopeguard(f: impl FnOnce()) -> impl Drop {
+    struct Guard<F: FnOnce()>(Option<F>);
+    impl<F: FnOnce()> Drop for Guard<F> {
+        fn drop(&mut self) {
+            if let Some(f) = self.0.take() {
+                f();
+            }
+        }
+    }
+    Guard(Some(f))
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_delete_that_panics_leaves_the_endpoint_free_to_delete_again() -> Result {
+    let gate = support::Gate::default();
+    gate.open();
+    let spade = Spade::start_with(
+        vec![Script::reply("unused")],
+        Vec::new(),
+        support::Options {
+            keychain_delete_gate: Some(gate.clone()),
+            ..support::Options::default()
+        },
+    )
+    .await?;
+    let (status, _) = spade
+        .post(
+            "/v1/endpoints",
+            json!({ "name": "Gate", "format": "openai-chat", "base_url": "http://127.0.0.1:7",
+                    "needs_key": false }),
+        )
+        .await?;
+    assert_eq!(status, 201);
+    gate.panic_next();
+    let (status, _) = spade.delete("/v1/endpoints/gate").await?;
+    assert_eq!(status, 500, "the panicking delete fails");
+    // Not left "already being removed" until a restart.
+    let (status, body) = spade.delete("/v1/endpoints/gate").await?;
+    assert_eq!(status, 204, "{body}");
+    Ok(())
+}

@@ -485,7 +485,8 @@ it("incremental sidebar membership and payloads share a snapshot during an exter
   let removed = false;
   const statements = vi.spyOn(f.store, "statement").mockImplementation((sql) => {
     const prepared = statement(sql);
-    if (!sql.startsWith("SELECT threads.id") || !sql.includes("AND NOT")) return prepared;
+    // The membership read: the sidebar facts, from the facts table or evaluated from threads.
+    if (!sql.startsWith("SELECT ") || !sql.includes(" AS settled,")) return prepared;
     const all = prepared.all.bind(prepared);
     const rows = vi.spyOn(prepared, "all").mockImplementation((...params) => {
       const result = all(...params);

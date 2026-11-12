@@ -1,4 +1,5 @@
 import * as forgeWorktree from "@ace/protocol/forge-worktree";
+import * as workspaceActions from "@ace/protocol/workspace-actions";
 import * as entities from "@ace/protocol/entities";
 import * as ids from "@ace/protocol/ids";
 import * as notifications from "@ace/protocol/notifications";
@@ -84,6 +85,7 @@ export const protocolEntryPoints: ReadonlyMap<string, Record<string, unknown>> =
   ["./handoff-read", handoffRead],
   ["./pi", pi],
   ["./forge-inbox", forgeInbox],
+  ["./workspace-actions", workspaceActions],
 ]);
 
 export function protocolCatalog(): { entries: SchemaEntry[]; tools: ToolEntry[] } {

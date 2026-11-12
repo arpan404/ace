@@ -29,8 +29,11 @@ export class SpadeRequestError extends Error {
 
 /** What a refusal says to the person, by Spade's status where its own words would be vague. */
 function refusal(status: number, body: string): string {
-  if (status === 402) return "Today's spending cap is reached. Spade will answer again tomorrow.";
-  return spadeProblem(body) ?? `Spade answered ${status}.`;
+  // A cap's refusal says which cap and until when, in Spade's own words (ADR 0135).
+  const words = spadeProblem(body);
+  if (status === 402)
+    return words ?? "Today's spending cap is reached. Spade will answer again tomorrow.";
+  return words ?? `Spade answered ${status}.`;
 }
 
 /** A connection, or the transport over it (`spadeTransport`). */
@@ -38,8 +41,11 @@ export type SpadeTarget = ClientApi | SpadeTransport;
 const transportOf = (target: SpadeTarget) =>
   target instanceof SpadeTransport ? target : spadeTransport(target);
 
-/** Uploads with images may be tens of megabytes: give them the time a slow link needs. */
-const uploadTimeoutMs = 5 * 60_000;
+/**
+ * Uploads with documents may be hundreds of megabytes: five minutes, and a second more for
+ * every megabyte, the time a slow link needs.
+ */
+const uploadTimeoutMs = (length: number) => 5 * 60_000 + Math.ceil(length / 1_000_000) * 1_000;
 
 /** One exchange, resolving with Spade's answer on 2xx (in its encoding) and throwing otherwise. */
 async function spadeAnswer(
@@ -47,10 +53,10 @@ async function spadeAnswer(
   exchange: SpadeExchange,
   signal: AbortSignal | undefined,
 ): Promise<{ body: SpadeBody; contentType: string | undefined }> {
-  const large = (exchange.body?.length ?? 0) > maxSpadeRequestBytes;
+  const length = exchange.body?.length ?? 0;
   const answer = await transportOf(target).exchange(exchange, {
     signal,
-    ...(large ? { timeoutMs: uploadTimeoutMs } : {}),
+    ...(length > maxSpadeRequestBytes ? { timeoutMs: uploadTimeoutMs(length) } : {}),
   });
   if (answer.kind === "error") throw new SpadeRequestError(answer.message, undefined, answer.code);
   if (answer.status < 200 || answer.status > 299)
@@ -98,11 +104,28 @@ export async function spadeBlob(
   return new Blob([bytes], { type });
 }
 
-/** A message's body as Spade takes it: images as `{data}` with their base64. */
-export function spadeBody(message: { text: string; images: readonly { data: string }[] }) {
+/** A message's body as Spade takes it: images as `{data}`, documents as `{name, data}`, a voice
+ * recording with its transcript (the message's words). */
+export function spadeBody(message: {
+  text: string;
+  images: readonly { data: string }[];
+  documents?: readonly { name: string; data: string }[] | undefined;
+  voice?: { data: string; mediaType: string } | undefined;
+}) {
+  const documents = message.documents ?? [];
   return {
     text: message.text,
     ...(message.images.length ? { images: message.images.map(({ data }) => ({ data })) } : {}),
+    ...(documents.length ? { files: documents.map(({ name, data }) => ({ name, data })) } : {}),
+    ...(message.voice
+      ? {
+          voice: {
+            data: message.voice.data,
+            media_type: message.voice.mediaType,
+            transcript: message.text,
+          },
+        }
+      : {}),
   };
 }
 

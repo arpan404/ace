@@ -1,3 +1,4 @@
+import "@/styles/model-control.css";
 import { useState, type KeyboardEvent, type PointerEvent } from "react";
 import { AceMark } from "@/components/ace-mark.tsx";
 import { cn } from "@/lib/cn.ts";

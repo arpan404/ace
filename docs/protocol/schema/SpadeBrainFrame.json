@@ -1,0 +1,136 @@
+{
+  "$id": "https://ace.local/protocol/v1/SpadeBrainFrame.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "fresh": {
+          "type": "boolean"
+        },
+        "thread": {
+          "type": "string"
+        },
+        "type": {
+          "const": "session",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "thread",
+        "fresh"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "type": {
+          "const": "text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "text"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "source": {
+          "maxLength": 200,
+          "type": "string"
+        },
+        "type": {
+          "const": "read",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "source"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "status": {
+          "anyOf": [
+            {
+              "maxLength": 200,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "type": {
+          "const": "status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "status"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "finished",
+          "type": "string"
+        },
+        "usage": {
+          "properties": {
+            "input": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "output": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "input",
+            "output"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "type",
+        "usage"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "message": {
+          "maxLength": 500,
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "https://ace.local/protocol/v1/SpadeBrainFailure.json"
+        },
+        "type": {
+          "const": "failed",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "reason",
+        "message"
+      ],
+      "type": "object"
+    }
+  ]
+}

@@ -35,7 +35,7 @@ export type SpadeHealthInfo = z.infer<typeof SpadeHealthInfo>;
 export const SpadeDirectRequest = z.object({
   method: SpadeMethod,
   path: z.string().min(1).max(2048),
-  /** The whole body, sent as one request: a message with eight images fits. */
+  /** The whole body, sent as one request: a message with eight documents and images fits. */
   body: z.string().max(maxSpadeUploadBytes).optional(),
   contentType: z.string().max(256).optional(),
 });

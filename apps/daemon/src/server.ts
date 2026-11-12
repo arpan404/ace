@@ -34,6 +34,7 @@ import {
 import type { PluginServerMessage } from "@ace/protocol/plugins";
 import { busyRefusal } from "./busy-refusal.ts";
 import { defaultPressure, Outbox } from "./outbox.ts";
+import { orderedSocket } from "./ordered-socket.ts";
 import { WireTrimmer } from "@ace/projection/wire-trim";
 import { SocketInput } from "./socket-input.ts";
 import { CommandLanes } from "./command-lanes.ts";
@@ -318,6 +319,7 @@ export async function startServer(options: ServerOptions): Promise<{
       { ...defaultPressure, ...options.pressure },
       runtime.now,
       encoder,
+      runtime.delay,
     );
     // What this client's hello said it can put back stays out of its snapshots and pages.
     let trimmer = new WireTrimmer(undefined);
@@ -362,7 +364,8 @@ export async function startServer(options: ServerOptions): Promise<{
       stillAdmitted() && holds(authenticated.get(socket), scope);
     const sessions = createServiceSessions({
       options,
-      socket,
+      // Every service write goes after what the outbox holds (`ordered-socket.ts`).
+      socket: orderedSocket(socket, () => outbox.releaseHeld()),
       sessionId,
       local: isLocal,
       // The host's own credential only: an account device is never the host, on any path.
@@ -534,6 +537,9 @@ export async function startServer(options: ServerOptions): Promise<{
         if (relayed) holdGrant(relayed.grantExpiresAt, actor.id);
         device = actor.id;
         trimmer = new WireTrimmer(message.trims);
+        // Only the main socket streams deltas, so only it packs frames (`frame-holder.ts`).
+        if (message.channel === undefined && message.framing?.includes("lines"))
+          outbox.packFrames();
         peer.access =
           relayed || accountAdmitted
             ? "paired"

@@ -2,16 +2,7 @@ import { createHash } from "node:crypto";
 import { designTokens } from "@ace/design-tokens";
 import { chartSeries } from "@ace/themes";
 import type { BrowserService } from "@ace/browser";
-import {
-  inlineVisualizationUrl,
-  measuredLayoutProblems,
-  phoneWidth,
-  previewMaxHeight,
-  previewMeasure,
-  previewReport,
-  styleKitVersion,
-  type HtmlTheme,
-} from "@ace/html";
+import type { HtmlTheme } from "@ace/html";
 import {
   htmlPreviewToolkit,
   type HtmlLayoutPort,
@@ -64,6 +55,16 @@ export async function previewHtml(
   page: Parameters<HtmlPreviewPort["preview"]>[0],
   signal: AbortSignal,
 ): Promise<HtmlPreviewResult> {
+  // parse5 loads on the first preview, not at daemon start.
+  const {
+    inlineVisualizationUrl,
+    measuredLayoutProblems,
+    phoneWidth,
+    previewMaxHeight,
+    previewMeasure,
+    previewReport,
+    styleKitVersion,
+  } = await import("@ace/html");
   const theme = previewTheme(page.scheme);
   const shots = await service.previewPage({
     url: inlineVisualizationUrl(page.html, theme, page.mode, styleKitVersion),
@@ -146,6 +147,7 @@ export function htmlLayout(
       const service = browser();
       if (!service) return undefined;
       try {
+        const { phoneWidth } = await import("@ace/html");
         const { problems } = await previewHtml(
           service,
           { ...page, scheme: "dark", widths: [phoneWidth] },

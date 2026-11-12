@@ -243,6 +243,7 @@ pub(super) fn record_paused(engine: &Engine, id: &str, reply: &str) {
                 is_error: true,
                 images: Vec::new(),
                 uncertain: true,
+                untrusted: false,
             })
         })
         .collect();

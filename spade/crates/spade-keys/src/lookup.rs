@@ -43,7 +43,23 @@ impl Keys {
         Self::new(|request| request.env.and_then(|name| std::env::var(name).ok()))
     }
 
-    /// The key for `request`, if found and not blank.
+    /// The key for `endpoint` (or its variable `env`), looked up on tokio's blocking pool: a
+    /// keychain read can block for as long as a prompt waits, and must never hold up an async
+    /// worker. Use this from async code; [`Keys::get`] from blocking code.
+    pub async fn find(&self, endpoint: &str, env: Option<&str>) -> Option<String> {
+        let (keys, endpoint, env) = (self.clone(), endpoint.to_owned(), env.map(str::to_owned));
+        tokio::task::spawn_blocking(move || {
+            keys.get(KeyRequest {
+                endpoint: &endpoint,
+                env: env.as_deref(),
+            })
+        })
+        .await
+        .ok()
+        .flatten()
+    }
+
+    /// The key for `request`, if found and not blank. Blocks while the keychain does.
     pub fn get(&self, request: KeyRequest<'_>) -> Option<String> {
         (self.0)(request)
             .map(|v| v.trim().to_owned())

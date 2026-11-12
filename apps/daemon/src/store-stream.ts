@@ -1,4 +1,5 @@
-import { Event, type EventPayload, type ThreadId } from "@ace/protocol";
+import type { Event, EventPayload, ThreadId } from "@ace/protocol";
+import { canonicalEvent } from "./canonical-event.ts";
 import type { StreamSequences } from "./stream-sequences.ts";
 import { isStoreBusy, LiveWriteRetry } from "./store-busy.ts";
 import { liveWriteRetry } from "./live-write-retry.ts";
@@ -89,7 +90,7 @@ export class StoreStream {
   append(id: ThreadId, payloads: EventPayload[], at: number, snapshot: BufferedSnapshot): void {
     let seq = this.buffer.head ?? this.options.sequences.head();
     const events = payloads.map((payload) =>
-      Event.parse({
+      canonicalEvent({
         seq: (seq = this.options.sequences.next(seq)),
         id: this.options.nextId(),
         threadId: id,

@@ -71,7 +71,7 @@ fn a_zero_size_window_still_moves_forward() {
 }
 
 #[test]
-fn html_text_json_and_xml_are_read_and_others_are_not() {
+fn html_text_json_xml_and_pdf_are_read_and_others_are_not() {
     let cases = [
         ("text/html; charset=utf-8", Some(Reading::Html)),
         ("Application/XHTML+XML", Some(Reading::Html)),
@@ -81,9 +81,11 @@ fn html_text_json_and_xml_are_read_and_others_are_not() {
         ("application/ld+json", Some(Reading::Text)),
         ("application/xml", Some(Reading::Text)),
         ("application/atom+xml", Some(Reading::Text)),
-        ("application/pdf", None),
+        ("application/pdf", Some(Reading::Pdf)),
+        // Generic binary may be a PDF; its bytes decide.
+        ("application/octet-stream", Some(Reading::Pdf)),
         ("image/png", None),
-        ("application/octet-stream", None),
+        ("application/zip", None),
     ];
     for (header, expected) in cases {
         assert_eq!(reading(&media_type(header)), expected, "{header}");

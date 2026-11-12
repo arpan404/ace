@@ -147,6 +147,23 @@ impl Models {
         self.key(endpoint).is_some()
     }
 
+    /// The key for a call, read off the async workers (see [`Keys::find`]).
+    async fn key_for_call(&self, endpoint: &Endpoint) -> Option<String> {
+        self.keys
+            .find(&endpoint.id, endpoint.key_env.as_deref())
+            .await
+    }
+
+    /// The key for a media call, read off the async workers.
+    pub(crate) async fn key_for(&self, endpoint: &Endpoint) -> Option<String> {
+        self.key_for_call(endpoint).await
+    }
+
+    /// The HTTP client every call goes through (no redirects followed).
+    pub(crate) fn http(&self) -> &reqwest::Client {
+        &self.http
+    }
+
     fn key(&self, endpoint: &Endpoint) -> Option<String> {
         self.keys.get(KeyRequest {
             endpoint: &endpoint.id,
@@ -160,10 +177,14 @@ impl Models {
             .endpoint(endpoint_id)
             .ok_or_else(|| ModelError::UnknownModel(format!("{endpoint_id}/")))?;
         let key = if endpoint.needs_key {
-            Some(self.key(&endpoint).ok_or_else(|| ModelError::MissingKey {
-                endpoint: endpoint.id.clone(),
-                var: endpoint.key_env.clone(),
-            })?)
+            Some(
+                self.key_for_call(&endpoint)
+                    .await
+                    .ok_or_else(|| ModelError::MissingKey {
+                        endpoint: endpoint.id.clone(),
+                        var: endpoint.key_env.clone(),
+                    })?,
+            )
         } else {
             None
         };
@@ -176,7 +197,7 @@ impl Models {
     }
 
     pub async fn chat(&self, reference: &str, prompt: &Prompt) -> Result<Reply, ModelError> {
-        let call = self.call(reference, prompt)?;
+        let call = self.call(reference, prompt).await?;
         let response = self
             .client
             .exec_chat(call.target, request(prompt), Some(&call.options))
@@ -218,7 +239,7 @@ impl Models {
     where
         T: JsonSchema + DeserializeOwned,
     {
-        let call = self.call(reference, prompt)?;
+        let call = self.call(reference, prompt).await?;
         let options = call.options.with_response_format(typed::spec::<T>()?);
         let response = self
             .client
@@ -242,7 +263,7 @@ impl Models {
         reference: &str,
         prompt: &Prompt,
     ) -> Result<impl Stream<Item = Result<Delta, ModelError>> + Send + use<>, ModelError> {
-        let call = self.call(reference, prompt)?;
+        let call = self.call(reference, prompt).await?;
         let options = call
             .options
             .with_capture_usage(true)
@@ -289,15 +310,18 @@ impl Models {
             .flat_map(futures_util::stream::iter))
     }
 
-    fn call(&self, reference: &str, prompt: &Prompt) -> Result<Call, ModelError> {
+    async fn call(&self, reference: &str, prompt: &Prompt) -> Result<Call, ModelError> {
         let (endpoint, model) = self
             .resolve(reference)
             .ok_or_else(|| ModelError::UnknownModel(reference.to_owned()))?;
         let auth = if endpoint.needs_key {
-            let key = self.key(&endpoint).ok_or_else(|| ModelError::MissingKey {
-                endpoint: endpoint.id.clone(),
-                var: endpoint.key_env.clone(),
-            })?;
+            let key = self
+                .key_for_call(&endpoint)
+                .await
+                .ok_or_else(|| ModelError::MissingKey {
+                    endpoint: endpoint.id.clone(),
+                    var: endpoint.key_env.clone(),
+                })?;
             AuthData::from_single(key)
         } else {
             // The SDK's OpenAI path needs some key; local servers ignore this one.

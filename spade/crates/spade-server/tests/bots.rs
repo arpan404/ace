@@ -180,11 +180,16 @@ async fn a_chain_of_bot_messages_deeper_than_three_is_refused() -> Result {
                 text: "Pass this on".into(),
                 context: None,
                 images: Vec::new(),
+                documents: Vec::new(),
+                voice: None,
                 from_agent: Some(FromAgent {
                     id: "a_x".into(),
                     name: "Far".into(),
                     depth: 3,
+                    machine: None,
                 }),
+                from_routine: None,
+                from_group: None,
             }),
             1,
         )?;

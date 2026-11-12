@@ -129,6 +129,25 @@ const server = createServer((request, response) => {
         return;
       }
     }
+    // A bot's MCP server (ADR 0133): one tool, `remember`, that echoes which bot ran it.
+    const botMcp = /^\/v1\/agents\/([^/]+)\/mcp$/.exec(url.pathname);
+    if (request.method === "POST" && botMcp?.[1]) {
+      const rpc = JSON.parse(body) as { id: number; method: string; params?: unknown };
+      if (rpc.method === "tools/list")
+        return json(response, 200, {
+          jsonrpc: "2.0",
+          id: rpc.id,
+          result: { tools: [{ name: "remember", inputSchema: { type: "object" } }] },
+        });
+      return json(response, 200, {
+        jsonrpc: "2.0",
+        id: rpc.id,
+        result: {
+          content: [{ type: "text", text: `${botMcp[1]} ran ${JSON.stringify(rpc.params)}` }],
+          isError: false,
+        },
+      });
+    }
     if (request.method === "POST" && url.pathname === "/v1/conversations")
       return json(response, 201, { id: "c1", received: body });
     if (request.method === "GET" && live?.[1]) {

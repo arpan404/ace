@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { initials } from "../profile.ts";
 import { spadeJson, spadeRecord } from "./json.ts";
+import { parseSpadeReview, parseSpadeSpending, type SpadeSpending } from "./oversight.ts";
 
 /*
  * Spade's agents (ADR 0126, 0127): Spade itself, the main bot, and the person's bots, each a name,
@@ -67,7 +68,7 @@ export interface SpadeAgent {
   /** What the agent is for, in the person's words: its instructions. */
   task: string;
   avatar: SpadeAvatar;
-  /** `endpoint/model`. */
+  /** `endpoint/model`, or `cli:<provider>[@<account>]/<model>` on a subscription. */
   model: string;
   /** Its one conversation's id, for the conversation routes. */
   conversation: string;
@@ -79,7 +80,13 @@ export interface SpadeAgent {
   waitingFor: "approval" | "question" | undefined;
   /** A few words on what it is doing now, while it works. */
   status: string | undefined;
+  /** Why its latest reply on a subscription failed (signed out, out of quota), until one works. */
+  problem: string | undefined;
   lastMessage: SpadeLastMessage | undefined;
+  /** Its spend and caps (ADR 0135); undefined from a Spade before them. */
+  spending: SpadeSpending | undefined;
+  /** Its own model review switch; undefined follows the default. */
+  review: boolean | undefined;
   /** The agent as Spade sent it, fields this client doesn't know included. */
   raw: Record<string, unknown>;
 }
@@ -117,6 +124,7 @@ const agentShape = z.object({
   /** Before 0127 Spade said only whether it worked. */
   working: z.boolean().optional().catch(undefined),
   status: z.string().nullish().catch(undefined),
+  problem: z.string().nullish().catch(undefined),
   last_message: lastMessageShape.nullish().catch(undefined),
 });
 
@@ -133,6 +141,11 @@ function avatarOf(raw: unknown, name: string, main: boolean): SpadeAvatar {
     initials: generated?.initials || initials(name) || "?",
     color: picked.success ? picked.data : "slate",
   };
+}
+
+/** A bot's face as Spade sent it anywhere (a group member's, say); unreadable reads as initials. */
+export function parseSpadeAvatar(raw: unknown, name: string): SpadeAvatar {
+  return avatarOf(raw, name, false);
 }
 
 /** One agent value; undefined when it has no id or no conversation. */
@@ -157,9 +170,12 @@ export function parseSpadeAgentValue(raw: unknown): SpadeAgent | undefined {
     state: agent.state ?? (agent.working ? "working" : "idle"),
     waitingFor: agent.waiting_for ?? undefined,
     status: agent.status || undefined,
+    problem: agent.problem || undefined,
     lastMessage: last
       ? { from: last.from, text: last.text, at: last.at, fromAgent: last.from_agent ?? undefined }
       : undefined,
+    spending: parseSpadeSpending(record.spending),
+    review: parseSpadeReview(record.review),
     raw: record,
   };
 }

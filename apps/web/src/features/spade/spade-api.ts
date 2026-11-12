@@ -4,12 +4,15 @@ import {
   parseSpadeEndpoint,
   parseSpadeLiveModels,
   parseSpadeModels,
+  parseSpadeSubscriptions,
+  parseSpadeTranscription,
   type SpadeAgent,
   type SpadeAvatarColor,
   type SpadeEndpoint,
   type SpadeFormat,
   type SpadeModelInfo,
   type SpadeModels,
+  type SpadeSubscription,
 } from "@ace/ui-core/spade-chat";
 import { segment, spadeHttp, type SpadeTarget } from "./spade-requests.ts";
 
@@ -42,7 +45,17 @@ export interface SpadeAgentDraft {
   avatar: SpadeAvatarChoice;
 }
 
-export async function createAgent(target: SpadeTarget, draft: SpadeAgentDraft) {
+/**
+ * A new bot. From a template (ADR 0132) the model may be left out (the template's kind picks
+ * it), and its routines are made in `time_zone`, an IANA zone.
+ */
+export type SpadeNewAgent = Omit<SpadeAgentDraft, "model"> & {
+  model?: string;
+  template?: string;
+  time_zone?: string;
+};
+
+export async function createAgent(target: SpadeTarget, draft: SpadeNewAgent) {
   const body = await spadeHttp(target, "POST", "/v1/agents", { body: draft });
   return sure(parseSpadeAgent(body), "new agent");
 }
@@ -69,6 +82,15 @@ export async function setMainHosted(target: SpadeTarget, enabled: boolean): Prom
 
 export async function readModels(target: SpadeTarget, options: Signal = {}): Promise<SpadeModels> {
   return sure(parseSpadeModels(await spadeHttp(target, "GET", "/v1/models", options)), "models");
+}
+
+/** The person's subscriptions a bot can think with, as ace lists them (ADR 0133). */
+export async function readSubscriptions(
+  target: SpadeTarget,
+  options: Signal = {},
+): Promise<{ providers: SpadeSubscription[]; error: string | undefined }> {
+  const body = await spadeHttp(target, "GET", "/v1/subscriptions", options);
+  return sure(parseSpadeSubscriptions(body), "subscriptions");
 }
 
 /** What the endpoint itself lists now. */
@@ -150,4 +172,23 @@ export async function setKey(target: SpadeTarget, endpoint: string, key: string)
 
 export async function removeKey(target: SpadeTarget, endpoint: string): Promise<void> {
   await spadeHttp(target, "DELETE", `/v1/keys/${segment(endpoint)}`);
+}
+
+/** `endpoint/model` that turns recordings into words; null clears it (ADR 0134). */
+export async function setTranscriptionModel(
+  target: SpadeTarget,
+  model: string | null,
+): Promise<void> {
+  await spadeHttp(target, "PUT", "/v1/settings", { body: { transcription_model: model } });
+}
+
+/** A recording's words, from the transcription model's endpoint. */
+export async function transcribe(
+  target: SpadeTarget,
+  recording: { data: string; mediaType: string },
+): Promise<string> {
+  const body = await spadeHttp(target, "POST", "/v1/transcriptions", {
+    body: { data: recording.data, media_type: recording.mediaType },
+  });
+  return sure(parseSpadeTranscription(body), "transcription");
 }

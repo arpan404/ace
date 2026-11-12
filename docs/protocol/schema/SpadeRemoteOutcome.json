@@ -1,0 +1,47 @@
+{
+  "$id": "https://ace.local/protocol/v1/SpadeRemoteOutcome.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "body": {},
+        "kind": {
+          "const": "response",
+          "type": "string"
+        },
+        "status": {
+          "maximum": 599,
+          "minimum": 100,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "status",
+        "body"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "code": {
+          "$ref": "https://ace.local/protocol/v1/SpadeRemoteErrorCode.json"
+        },
+        "kind": {
+          "const": "error",
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 1024,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "code",
+        "message"
+      ],
+      "type": "object"
+    }
+  ]
+}

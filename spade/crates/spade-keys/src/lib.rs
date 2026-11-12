@@ -1,6 +1,7 @@
-//! Spade's endpoint API keys, kept in the operating system's credential store (ADR 0119): the
-//! Keychain on macOS, Credential Manager on Windows, the Secret Service on Linux. Keys are never
-//! written anywhere else, and no error or debug output ever contains one.
+//! Spade's endpoint API keys and connector tokens (ADR 0131), kept in the operating system's
+//! credential store (ADR 0119): the Keychain on macOS, Credential Manager on Windows, the Secret
+//! Service on Linux. Keys are never written anywhere else, and no error or debug output ever
+//! contains one.
 //!
 //! The store is a value passed in, never a global, so tests use `keyring-core`'s in-memory mock
 //! and never touch a real keychain.
@@ -88,6 +89,32 @@ impl KeyStore {
     /// Forgets the ace grant for `slot`. Returns whether there was one.
     pub fn delete_ace_grant(&self, slot: &str) -> Result<bool, KeyError> {
         Self::remove(&self.account(&format!("{ACE_GRANT}:{slot}"))?)
+    }
+
+    /// A connector's secret of `kind` (`access`, `refresh`, `client_secret`), if stored
+    /// (ADR 0131). Account `connector:<id>:<kind>`.
+    pub fn connector_secret(&self, id: &str, kind: &str) -> Result<Option<String>, KeyError> {
+        self.read(&self.connector_entry(id, kind)?)
+    }
+
+    /// Stores a connector's secret of `kind`, replacing any earlier one.
+    pub fn set_connector_secret(&self, id: &str, kind: &str, secret: &str) -> Result<(), KeyError> {
+        let secret = checked(secret)?;
+        self.connector_entry(id, kind)?
+            .set_password(secret)
+            .map_err(|error| classify(&error))
+    }
+
+    /// Forgets a connector's secret of `kind`. Returns whether there was one.
+    pub fn delete_connector_secret(&self, id: &str, kind: &str) -> Result<bool, KeyError> {
+        Self::remove(&self.connector_entry(id, kind)?)
+    }
+
+    fn connector_entry(&self, id: &str, kind: &str) -> Result<Entry, KeyError> {
+        if id.trim().is_empty() || kind.trim().is_empty() {
+            return Err(KeyError::Invalid("the connector id is empty"));
+        }
+        self.account(&format!("connector:{id}:{kind}"))
     }
 
     fn read(&self, entry: &Entry) -> Result<Option<String>, KeyError> {

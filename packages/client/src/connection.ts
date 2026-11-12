@@ -361,6 +361,8 @@ export class Connection {
       deviceId: this.#options.deviceId,
       ...(this.#options.installId ? { installId: this.#options.installId } : {}),
       trims: [...supportedWireTrims],
+      // A frame may hold several messages, one per line; #receiveFrame reads each in turn.
+      framing: ["lines"],
       ...(transport.compression?.length ? { compression: [...transport.compression] } : {}),
       ...(transport.flowControl?.length ? { flowControl: [...transport.flowControl] } : {}),
       ...parseCredential(credential),
@@ -371,6 +373,12 @@ export class Connection {
     this.#lost(1002, reason, error);
   }
   #receiveFrame(frame: Frame, epoch: number): void {
+    // A packed frame (hello `framing: lines`) is its messages in order, as if each came alone.
+    // JSON text never holds a raw newline, so a single message never splits.
+    if (typeof frame === "string" && frame.includes("\n")) {
+      for (const line of frame.split("\n")) this.#receiveFrame(line, epoch);
+      return;
+    }
     if (epoch !== this.#epoch) {
       if (epoch === this.#draining?.epoch) this.#drainFrame(frame, this.#draining);
       return;
@@ -624,13 +632,14 @@ export class Connection {
       // A standby hears nothing else it needs before it is taken, but its grant's answers.
       untaken: (transport, frame) => {
         if (typeof frame !== "string" || !frame.includes('"account.grant.refresh.result"')) return;
-        try {
-          const message = this.#codec.decode(JSON.parse(frame));
-          if (message?.type === "account.grant.refresh.result")
-            this.#grantAnswered(transport, message);
-        } catch {
-          /* Not an answer this keeper can use; the standby's own checks handle a bad path. */
-        }
+        for (const line of frame.split("\n"))
+          try {
+            const message = this.#codec.decode(JSON.parse(line));
+            if (message?.type === "account.grant.refresh.result")
+              this.#grantAnswered(transport, message);
+          } catch {
+            /* Not an answer this keeper can use; the standby's own checks handle a bad path. */
+          }
       },
     }).then((path) => this.#kept(path));
   }

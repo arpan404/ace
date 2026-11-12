@@ -48,6 +48,7 @@ const reads = new ThreadReads({
   flush: () => {},
   headSeq: () => head,
   getThread,
+  readThread: getThread,
   inTransaction: () => true,
   report: (error) => console.error(error),
 });

@@ -15,6 +15,7 @@ import type { DaemonPreview } from "./preview.ts";
 import type { RemoteAuth } from "./remote-auth.ts";
 import type { ServerOptions } from "./server-options.ts";
 import { webHttp } from "./web-http.ts";
+import { brainPathPrefix } from "./spade/brain-http.ts";
 
 type Handler = (request: IncomingMessage, response: ServerResponse) => void;
 /** `/mcp` (with or without a query) to the daemon's MCP handler; everything else to `next`. */
@@ -23,6 +24,9 @@ function mcpFirst(options: ServerOptions, next: Handler): Handler {
     const path = (request.url ?? "/").split("?")[0];
     const serve = options.mcp?.handleHttp;
     if (path === "/mcp" && serve) return serve(request, response);
+    // Spade's bots' turns on the person's subscriptions (ADR 0133), with Spade's grant.
+    const brains = options.spadeBrains;
+    if (path?.startsWith(brainPathPrefix) && brains) return brains(request, response);
     next(request, response);
   };
 }

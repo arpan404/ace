@@ -9,14 +9,6 @@ import {
   type HtmlPreviewWidth,
   type McpAttribution,
 } from "@ace/protocol";
-import {
-  checkHtmlForPublish,
-  estimateHtmlLayout,
-  lintHtmlLayout,
-  previewWidths,
-  resolveHtmlMode,
-  validateHtml,
-} from "@ace/html";
 import { PublicToolError } from "./public-error.ts";
 import { maxHtmlInputBytes } from "./result-budgets.ts";
 import type { Toolkit } from "./toolkits.ts";
@@ -132,6 +124,9 @@ export function htmlToolkit(port: HtmlPublicationPort, layout?: HtmlLayoutPort):
       registry.register({
         ...htmlToolCatalog[0],
         async run(input, { caller, signal }) {
+          // parse5 loads on the first page, not at daemon start.
+          const { checkHtmlForPublish, estimateHtmlLayout, resolveHtmlMode } =
+            await import("@ace/html");
           refuse(checkHtmlForPublish(input.html).diagnostics);
           const measured = await layout?.measure(
             { html: input.html, mode: resolveHtmlMode(input.html, input.mode) },
@@ -150,6 +145,8 @@ export function htmlPreviewToolkit(port: HtmlPreviewPort): Toolkit {
       registry.registerContent({
         ...htmlToolCatalog[1],
         async run(input, { signal }) {
+          const { lintHtmlLayout, previewWidths, resolveHtmlMode, validateHtml } =
+            await import("@ace/html");
           // Only safety problems stop a preview; layout problems are what it is for, so they are
           // listed beside the pictures that show them (html_render refuses them).
           refuse(validateHtml(input.html).diagnostics);

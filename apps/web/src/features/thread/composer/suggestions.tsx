@@ -18,6 +18,8 @@ export interface Suggestion {
   /** A tab of this thread's browser. */
   tab?: MentionTab | undefined;
   entry?: CatalogEntry | undefined;
+  /** A name inserted as plain text (a Spade group's member), never a reference chip. */
+  plain?: boolean | undefined;
 }
 export type Suggestions = (
   | { state: "closed" }

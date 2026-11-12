@@ -11,7 +11,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::body::{Body, present};
-use super::{AppState, problem};
+use super::{AppState, off_thread, problem};
 use crate::engine::{EndpointError, EndpointInput, EndpointView, ModelInput};
 
 #[derive(Deserialize)]
@@ -67,6 +67,9 @@ pub(super) struct ModelId {
 pub(super) struct Settings {
     #[serde(default, deserialize_with = "present")]
     fast_model: Option<Option<String>>,
+    /// The model that transcribes voice (ADR 0134).
+    #[serde(default, deserialize_with = "present")]
+    transcription_model: Option<Option<String>>,
 }
 
 /// Where the endpoint's key comes from, if it has one: the keychain wins, as in every call.
@@ -129,6 +132,11 @@ fn endpoint_problem(error: &EndpointError) -> Response {
 }
 
 pub(super) async fn models(State(state): State<AppState>) -> Response {
+    off_thread(move || models_now(&state)).await
+}
+
+/// Reads where each key comes from, so it runs off the async workers.
+fn models_now(state: &AppState) -> Response {
     let engine = &state.engine;
     let (views, fast) = match (engine.endpoint_views(), engine.fast_model()) {
         (Ok(views), Ok(fast)) => (views, fast),
@@ -149,10 +157,13 @@ pub(super) async fn models(State(state): State<AppState>) -> Response {
         })
         .collect();
     Json(json!({
-        "endpoints": views.iter().map(|v| endpoint_json(&state, v)).collect::<Vec<_>>(),
+        "endpoints": views.iter().map(|v| endpoint_json(state, v)).collect::<Vec<_>>(),
         "presets": presets,
         "fast_model": fast,
+        "transcription_model": engine.transcription_model().ok().flatten(),
         "keychain": state.keys.is_some(),
+        "starting": engine.starting().is_some(),
+        "starting_reason": engine.starting(),
     }))
     .into_response()
 }
@@ -161,14 +172,15 @@ pub(super) async fn create(
     State(state): State<AppState>,
     Body(body): Body<EndpointBody>,
 ) -> Response {
-    match state.engine.create_endpoint(body.input()) {
+    off_thread(move || match state.engine.create_endpoint(body.input()) {
         Ok(view) => (
             StatusCode::CREATED,
             Json(json!({ "endpoint": endpoint_json(&state, &view) })),
         )
             .into_response(),
         Err(error) => endpoint_problem(&error),
-    }
+    })
+    .await
 }
 
 pub(super) async fn update(
@@ -182,18 +194,22 @@ pub(super) async fn update(
             "a preset applies only when adding an endpoint",
         );
     }
-    match state.engine.update_endpoint(&id, body.input()) {
-        Ok(view) => Json(json!({ "endpoint": endpoint_json(&state, &view) })).into_response(),
-        Err(error) => endpoint_problem(&error),
-    }
+    off_thread(
+        move || match state.engine.update_endpoint(&id, body.input()) {
+            Ok(view) => Json(json!({ "endpoint": endpoint_json(&state, &view) })).into_response(),
+            Err(error) => endpoint_problem(&error),
+        },
+    )
+    .await
 }
 
 /// Deletes an endpoint no agent uses, its key in the keychain first.
 pub(super) async fn delete(State(state): State<AppState>, Path(id): Path<String>) -> Response {
-    match state.engine.delete_endpoint(&id) {
+    off_thread(move || match state.engine.delete_endpoint(&id) {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => endpoint_problem(&error),
-    }
+    })
+    .await
 }
 
 /// The endpoint's own model list, live.
@@ -234,10 +250,11 @@ pub(super) async fn save_model(
         context: body.context,
         capabilities: body.capabilities,
     };
-    match state.engine.save_model(&id, input) {
+    off_thread(move || match state.engine.save_model(&id, input) {
         Ok(view) => Json(json!({ "endpoint": endpoint_json(&state, &view) })).into_response(),
         Err(error) => endpoint_problem(&error),
-    }
+    })
+    .await
 }
 
 pub(super) async fn delete_model(
@@ -260,6 +277,11 @@ pub(super) async fn settings(
         && let Err(error) = state.engine.set_fast_model(fast.as_deref())
     {
         return endpoint_problem(&error);
+    }
+    if let Some(model) = body.transcription_model
+        && let Err(error) = state.engine.set_transcription_model(model.as_deref())
+    {
+        return problem(StatusCode::BAD_REQUEST, &error.to_string());
     }
     StatusCode::NO_CONTENT.into_response()
 }

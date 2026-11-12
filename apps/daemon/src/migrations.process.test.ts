@@ -1,5 +1,4 @@
 import { readdirSync } from "node:fs";
-import { rewindSchemaTo, versionBeforeStep } from "./schema-rewind-test-support.ts";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +8,13 @@ import { pairingLinkProof } from "@ace/client/link-proof";
 import { Agent, DeviceId, InstallId, Item, type EventPayload } from "@ace/protocol";
 import { Store, createDevThread } from "@ace/daemon";
 import { schemaVersion } from "./migrations.ts";
+import {
+  beforeInstalls,
+  beforeOutsideClients,
+  undoInstalls,
+  undoMachineCode,
+  undoOutsideClients,
+} from "./upgrade-test-support.ts";
 
 test.each([1, 9, 13])(
   "a daemon database at older schema %s is refused untouched instead of upgraded",
@@ -41,9 +47,6 @@ test.each([1, 9, 13])(
     }
   },
 );
-
-/** The schema just before the ADR 0115 steps: no install, fold or account link columns. */
-const beforeInstalls = versionBeforeStep("ADD COLUMN install_id");
 
 const agent = (threadId: string, id: string, parentId: string | null) =>
   Agent.parse({
@@ -90,9 +93,10 @@ test("a schema 14 database upgrades in place and its threads keep the root's mes
     // Schema 14 had no per-item agent column, no device expiry, no thread_cold, no machine code
     // and no install ids.
     const db = new DatabaseSync(path);
-    rewindSchemaTo(db, 14);
     db.exec(
-      "DROP TABLE machine_code; DROP TABLE machine_code_passes; DROP TABLE thread_cold; DROP TABLE machine_message_rejections; DROP TABLE machine_child_messages; DROP TABLE machine_child_launches; DROP TABLE machine_children; DROP TABLE machine_threads;",
+      // Newest steps first: dropping a column rechecks triggers on tables already gone.
+      undoMachineCode +
+        " DROP INDEX item_heads_thread_agent; ALTER TABLE item_heads DROP COLUMN agent_id; ALTER TABLE devices DROP COLUMN expires_at; DROP TABLE thread_cold; DROP TRIGGER machine_message_rejections_revoked; DROP TABLE machine_message_rejections; DROP TABLE machine_child_messages; DROP TABLE machine_child_launches; DROP TABLE machine_children; DROP TABLE machine_threads; UPDATE schema_version SET version=14 WHERE id=1",
     );
     db.close();
     const upgraded = new Store(path);
@@ -136,7 +140,11 @@ test("a thread an agent opened before startedBy existed names its starter after 
       "request-1",
       "{}",
     );
-    rewindSchemaTo(db, 23);
+    // The remote-child liveness step and every step after it came later, so they go too.
+    db.exec(
+      undoMachineCode +
+        "DROP INDEX machine_children_seen; DROP INDEX machine_children_stopping; ALTER TABLE machine_children DROP COLUMN seen_at; ALTER TABLE machine_children DROP COLUMN silent_since; ALTER TABLE machine_children DROP COLUMN stop_started_at; ALTER TABLE machine_children DROP COLUMN stop_attempts; ALTER TABLE machine_children DROP COLUMN stop_last_at; ALTER TABLE machine_children DROP COLUMN stopped_unconfirmed; UPDATE schema_version SET version=23 WHERE id=1",
+    );
     db.close();
     const upgraded = new Store(path);
     try {
@@ -183,7 +191,7 @@ test("paired devices keep working credentials through the upgrade to install ids
     store.close();
     // The release before installs had ids: no install, fold or account link columns.
     const db = new DatabaseSync(path);
-    rewindSchemaTo(db, beforeInstalls);
+    db.exec(`${undoInstalls} UPDATE schema_version SET version=${beforeInstalls} WHERE id=1`);
     db.close();
 
     for (let open = 0; open < 2; open++) {
@@ -226,7 +234,9 @@ test("a populated schema 28 database keeps credentials, install ids and folded r
     store.close();
     // The release before account links: schema 28, with installs and folds but no link column.
     const db = new DatabaseSync(path);
-    rewindSchemaTo(db, versionBeforeStep("ADD COLUMN account_link"));
+    db.exec(
+      `${undoOutsideClients}ALTER TABLE devices DROP COLUMN account_link; UPDATE schema_version SET version=${beforeOutsideClients - 1} WHERE id=1`,
+    );
     db.close();
 
     const reopened = new Store(path);

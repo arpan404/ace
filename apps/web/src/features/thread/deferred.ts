@@ -9,12 +9,13 @@ import {
 } from "./interactions/deferred-card.ts";
 import { DeferredCopyAnswer, DeferredEvent, DeferredFailedTurn } from "./items/deferred-review.ts";
 import { preloadStepLabels } from "./items/step-labels.ts";
+import { DeferredStepDetail } from "./items/deferred-step-detail.ts";
 import { DeferredBackgroundTask } from "./items/background-task-line.tsx";
 import { DeferredSubagents } from "./items/subagents.tsx";
 import { preloadJump } from "./long/jump.ts";
-import { DeferredWorkCard } from "./header/work-button.tsx";
+import { DeferredWorkPopover } from "./header/work-button.tsx";
 
-export { DeferredInteractionCard };
+export { DeferredInteractionCard, DeferredStepDetail };
 
 /*
  * Parts of the thread screen that only appear on demand: a step's detail (output, diff,
@@ -23,10 +24,6 @@ export { DeferredInteractionCard };
  * load after the transcript has painted, while the browser is idle, so they are ready before
  * they are needed without weighing on the route's first paint (ADR 0056 route budget).
  */
-export const DeferredStepDetail = deferredComponent(() =>
-  import("./items/step-detail.tsx").then((module) => module.StepDetail),
-);
-
 /** The header's ⋯ menu items (the shared thread actions). */
 export const DeferredThreadMenu = deferredComponent(() =>
   import("./header/thread-menu.tsx").then((module) => module.ThreadMenuItems),
@@ -73,8 +70,8 @@ export function preloadDeferred(): Promise<unknown> {
     DeferredCopyAnswer.preload(),
     preloadStepLabels(),
     DeferredThreadMenu.preload(),
-    // The header's Work card, so its first open draws at once.
-    DeferredWorkCard.preload(),
+    // The header's Work card and its popover, so its first open draws at once.
+    DeferredWorkPopover.preload(),
     // The workspace's tab kinds (icons, badges, loaders), so a tool opens without waiting.
     threadWorkspace.load(),
     preloadComposerParts(),

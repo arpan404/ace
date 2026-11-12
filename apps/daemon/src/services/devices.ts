@@ -3,7 +3,6 @@ import { deviceControlDelivery } from "@ace/devices/tools";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
 import { logError, logFields } from "@ace/diagnostics";
 import { installScreenHelper } from "@ace/screen";
-import { mayCompress } from "../compression-policy.ts";
 import { ThreadId, AgentId, ItemId } from "@ace/protocol";
 import { basename, join } from "node:path";
 import { homedir } from "node:os";
@@ -14,6 +13,7 @@ import { LazyDevices, lazyDevices } from "../lazy-devices.ts";
 import { screenHelperExecutable } from "../screen-helper-path.ts";
 import { deviceAccessRefused, devicesUnavailable } from "./device-refusals.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
+import { writeDeviceMessage } from "./device-write.ts";
 
 export async function startDevices(context: ServiceContext): Promise<void> {
   const { resources, services, options } = context;
@@ -145,13 +145,7 @@ export function createDevicesSession(context: SocketContext): SocketService {
     async write(message) {
       if (!context.connected() || !context.authorize("admin"))
         throw new Error("Device socket revoked");
-      await new Promise<void>((resolve, reject) =>
-        context.socket.send(
-          JSON.stringify(message),
-          { compress: mayCompress(message.type) },
-          (error) => (error ? reject(error) : resolve()),
-        ),
-      );
+      await writeDeviceMessage(context.socket, message);
     },
   });
   return {

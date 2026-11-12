@@ -22,6 +22,7 @@ import {
   zodWithoutUnusedMethods,
 } from "./zod-methods.ts";
 import { workerBundle } from "./worker-bundle.ts";
+import { protocolPieces } from "./protocol-pieces.ts";
 import { zodPureSchemas } from "./zod-pure-schemas.ts";
 import { notificationWorker } from "./notification-worker.ts";
 import { workerJsonZod } from "./worker-json-zod.ts";
@@ -84,7 +85,9 @@ export default defineConfig(({ mode }) => ({
           groups: [
             initialChunk(fileURLToPath(new URL("./src/main.tsx", import.meta.url))),
             mermaidChunk(),
-            lazyIconChunk(),
+            lazyIconChunk(
+              `${fileURLToPath(new URL("./src/routes/_home.t.$threadId.tsx", import.meta.url))}?tsr-split=component`,
+            ),
           ],
         },
       },
@@ -94,6 +97,7 @@ export default defineConfig(({ mode }) => ({
   worker: {
     format: "es",
     plugins: () => [
+      protocolPieces(),
       workerZodWithoutJsonSchema(),
       workerJsonZod(),
       zodWithoutMetadata(),

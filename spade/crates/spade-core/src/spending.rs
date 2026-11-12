@@ -23,6 +23,13 @@ pub fn cost_micros(price: Option<Price>, usage: &Usage) -> u64 {
     }
 }
 
+/// What one image or transcription call cost (ADR 0134): its tokens at the token prices, plus the
+/// model's price per call.
+pub fn call_cost_micros(price: Option<Price>, usage: &Usage) -> u64 {
+    let per_call = price.and_then(|p| p.per_call).map_or(0, usd_to_micros);
+    cost_micros(price, usage).saturating_add(per_call)
+}
+
 /// Dollars as millionths of a dollar.
 pub fn usd_to_micros(usd: f64) -> u64 {
     if usd.is_finite() && usd > 0.0 {
@@ -77,7 +84,24 @@ mod tests {
             output: 10.0,
             cache_read: Some(0.1),
             cache_write: Some(2.5),
+            per_call: None,
         }
+    }
+
+    #[test]
+    fn an_image_call_costs_its_tokens_and_its_price_per_call() {
+        let price = Price {
+            per_call: Some(0.04),
+            ..sonnet()
+        };
+        let usage = Usage {
+            input_tokens: Some(100),
+            output_tokens: Some(1_000),
+            ..Usage::default()
+        };
+        // 100 × 2 + 1,000 × 10 = 10,200 micros, plus 40,000 for the call.
+        assert_eq!(call_cost_micros(Some(price), &usage), 50_200);
+        assert_eq!(call_cost_micros(None, &usage), 0);
     }
 
     #[test]
@@ -100,6 +124,7 @@ mod tests {
             output: 10.0,
             cache_read: None,
             cache_write: None,
+            per_call: None,
         };
         let usage = Usage {
             input_tokens: Some(1_000),

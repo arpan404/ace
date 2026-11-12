@@ -312,6 +312,23 @@
         "jobIds"
       ],
       "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "const": "spade",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "https://ace.local/protocol/v1/SpadeInboxRequest.json"
+        }
+      },
+      "required": [
+        "op",
+        "request"
+      ],
+      "type": "object"
     }
   ]
 }

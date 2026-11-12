@@ -9,26 +9,34 @@ publish.workspace = true
 [dependencies]
 base64.workspace = true
 hmac.workspace = true
+jiff.workspace = true
 sha2.workspace = true
 tempfile.workspace = true
 axum.workspace = true
 chrono.workspace = true
 futures-util.workspace = true
+schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 spade-core = { path = "../spade-core" }
 spade-keys = { path = "../spade-keys" }
 spade-models = { path = "../spade-models" }
 spade-ace = { path = "../spade-ace" }
+spade-connect = { path = "../spade-connect" }
+spade-mcp = { path = "../spade-mcp" }
 spade-fetch = { path = "../spade-fetch" }
+spade-docs = { path = "../spade-docs" }
 spade-search = { path = "../spade-search" }
 spade-store = { path = "../spade-store" }
 thiserror.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["process", "io-util"] }
 tokio-stream.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
+cap-std = "4.0.3"
+cap = "0.1.2"
+cap-fs-ext = "4.0.3"
 
 [dev-dependencies]
 keyring-core.workspace = true
@@ -41,8 +49,16 @@ rmcp = { version = "3.9.0", default-features = false, features = [
   "transport-streamable-http-server",
 ] }
 spade-testkit = { path = "../spade-testkit" }
+spade-docs = { path = "../spade-docs" }
+url = "2"
 tokio-util = "0.7"
+# Fake daemon WebSockets: routines' ace events, and the skill library shared with spade-ace's
+# tests.
+tokio-tungstenite = "0.30.0"
 tower = "0.5"
 
 [lints]
 workspace = true
+
+[target."cfg(windows)".dependencies]
+win32job = "2.1.0"

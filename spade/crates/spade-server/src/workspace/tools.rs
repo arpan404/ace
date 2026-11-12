@@ -1,0 +1,450 @@
+//! The workspace tools a bot is offered: `workspace_list`, `workspace_read`, `workspace_search`,
+//! `workspace_write`, `workspace_edit` and `shell`. Each finds the calling bot from the call's key
+//! and works only in that bot's folder.
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use serde::Deserialize;
+use serde_json::{Value, json};
+use spade_core::tools::{Risk, ToolDef};
+use spade_models::ToolSpec;
+
+use super::shell::{Ran, Shell};
+use super::{PathError, Workspace, Workspaces};
+use crate::tools::{EngineHandle, Tool, ToolFuture, ToolOutput, TurnFacts, parse};
+
+/// The shell's deadline when the model names none, and the longest it may name: inside the
+/// harness's own 120 s tool limit, so the shell reports a timeout itself.
+pub const SHELL_TIMEOUT: Duration = Duration::from_secs(60);
+pub const LONGEST_SHELL: Duration = Duration::from_secs(110);
+
+/// What every workspace tool shares: where workspaces are and who is calling.
+#[derive(Clone)]
+struct Place {
+    all: Workspaces,
+    bots: EngineHandle,
+}
+
+impl Place {
+    fn workspace(&self, key: &str) -> Result<Workspace, ToolOutput> {
+        let bot = self
+            .bots
+            .agent_for_key(key)
+            .ok_or_else(|| ToolOutput::error("This conversation has no bot, so no workspace."))?;
+        self.all
+            .of(&bot)
+            .map_err(|error| ToolOutput::error(error.to_string()))
+    }
+}
+
+/// Every workspace tool, for `bots` (set once the engine exists) and the shell `shell`.
+pub fn tools(all: Workspaces, bots: EngineHandle, shell: Shell) -> Vec<Arc<dyn Tool>> {
+    let place = Place { all, bots };
+    vec![
+        Arc::new(WorkspaceList(place.clone())),
+        Arc::new(WorkspaceRead(place.clone())),
+        Arc::new(WorkspaceSearch(place.clone())),
+        Arc::new(WorkspaceWrite(place.clone())),
+        Arc::new(WorkspaceEdit(place.clone())),
+        Arc::new(ShellTool { place, shell }),
+    ]
+}
+
+fn def(name: &str, description: &str, schema: Value, risk: Risk) -> ToolDef {
+    shown_def(name, description, schema, risk, false)
+}
+
+fn shown_def(
+    name: &str,
+    description: &str,
+    schema: Value,
+    risk: Risk,
+    untrusted_output: bool,
+) -> ToolDef {
+    ToolDef {
+        spec: ToolSpec {
+            name: name.to_owned(),
+            description: description.to_owned(),
+            schema,
+        },
+        risk,
+        untrusted_output,
+        deferred: false,
+        background: false,
+    }
+}
+
+/// Runs file work off the async threads and turns its error into words for the model.
+fn blocking(
+    place: &Place,
+    key: &str,
+    work: impl FnOnce(Workspace) -> Result<ToolOutput, PathError> + Send + 'static,
+) -> ToolFuture {
+    let workspace = place.workspace(key);
+    Box::pin(async move {
+        let workspace = match workspace {
+            Ok(workspace) => workspace,
+            Err(output) => return output,
+        };
+        tokio::task::spawn_blocking(move || work(workspace))
+            .await
+            .unwrap_or_else(|_| Err(PathError::Io("the file work stopped".to_owned())))
+            .unwrap_or_else(|error| ToolOutput::error(error.to_string()))
+    })
+}
+
+/// A file name for a call's large output, from its key.
+fn output_name(key: &str) -> String {
+    key.chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect()
+}
+
+pub struct WorkspaceList(Place);
+
+#[derive(Deserialize)]
+struct ListArgs {
+    #[serde(default)]
+    path: String,
+}
+
+/// A result, marked untrusted unless everything it shows is trusted.
+fn marked(output: ToolOutput, trusted: bool) -> ToolOutput {
+    if trusted { output } else { output.untrusted() }
+}
+
+impl Tool for WorkspaceList {
+    fn def(&self) -> ToolDef {
+        def(
+            "workspace_list",
+            "Lists a folder in your workspace (your own folder on this machine for files you \
+             keep and work on). Paths are relative to the workspace; leave path empty for its top.",
+            json!({ "type": "object", "properties": { "path": { "type": "string" } } }),
+            Risk::Read,
+        )
+    }
+
+    fn run(&self, key: &str, arguments: Value) -> ToolFuture {
+        let args: ListArgs = match parse(arguments) {
+            Ok(args) => args,
+            Err(output) => return Box::pin(async move { output }),
+        };
+        blocking(&self.0, key, move |workspace| {
+            let listing = workspace.list(&args.path)?;
+            // Names are content too: trusted only when every entry shown is a trusted file.
+            let trusted = workspace.listing_trusted(&listing);
+            if listing.entries.is_empty() {
+                return Ok(marked(ToolOutput::ok("The folder is empty."), trusted));
+            }
+            let mut lines: Vec<String> = listing
+                .entries
+                .iter()
+                .map(|entry| match entry.kind {
+                    super::EntryKind::Folder => format!("{}/", entry.path),
+                    super::EntryKind::Link => format!("{} (link)", entry.path),
+                    super::EntryKind::File => format!("{} ({} bytes)", entry.path, entry.size),
+                })
+                .collect();
+            if listing.truncated {
+                lines.push(format!("[Only the first {} shown.]", lines.len()));
+            }
+            Ok(marked(ToolOutput::ok(lines.join("\n")), trusted))
+        })
+    }
+}
+
+pub struct WorkspaceRead(Place);
+
+#[derive(Deserialize)]
+struct ReadArgs {
+    path: String,
+    #[serde(default)]
+    offset: Option<usize>,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+impl Tool for WorkspaceRead {
+    fn def(&self) -> ToolDef {
+        def(
+            "workspace_read",
+            "Reads a text file in your workspace, a window of lines at a time: offset is the first \
+             line (from 1), limit how many (400 unless given).",
+            json!({ "type": "object",
+                    "properties": { "path": { "type": "string" },
+                                    "offset": { "type": "integer", "minimum": 1 },
+                                    "limit": { "type": "integer", "minimum": 1 } },
+                    "required": ["path"] }),
+            Risk::Read,
+        )
+    }
+
+    fn run(&self, key: &str, arguments: Value) -> ToolFuture {
+        let args: ReadArgs = match parse(arguments) {
+            Ok(args) => args,
+            Err(output) => return Box::pin(async move { output }),
+        };
+        blocking(&self.0, key, move |workspace| {
+            let path = workspace.normal(&args.path)?;
+            let text = workspace.text(&path)?;
+            let trusted = workspace.file_trusted(&path, text.as_bytes());
+            let window = super::files::window(
+                &path,
+                &text,
+                args.offset.unwrap_or(1),
+                args.limit.unwrap_or(super::files::READ_LINES),
+            );
+            Ok(marked(ToolOutput::ok(window), trusted))
+        })
+    }
+}
+
+pub struct WorkspaceSearch(Place);
+
+#[derive(Deserialize)]
+struct SearchArgs {
+    text: String,
+    #[serde(default)]
+    path: String,
+    #[serde(default)]
+    ignore_case: bool,
+}
+
+impl Tool for WorkspaceSearch {
+    fn def(&self) -> ToolDef {
+        def(
+            "workspace_search",
+            "Finds lines containing some text in your workspace's files (under path, or all).",
+            json!({ "type": "object",
+                    "properties": { "text": { "type": "string" },
+                                    "path": { "type": "string" },
+                                    "ignore_case": { "type": "boolean" } },
+                    "required": ["text"] }),
+            Risk::Read,
+        )
+    }
+
+    fn run(&self, key: &str, arguments: Value) -> ToolFuture {
+        let args: SearchArgs = match parse(arguments) {
+            Ok(args) => args,
+            Err(output) => return Box::pin(async move { output }),
+        };
+        let name = output_name(key);
+        blocking(&self.0, key, move |workspace| {
+            let found = workspace.search(&args.path, &args.text, args.ignore_case)?;
+            let start = workspace.normal(&args.path)?;
+            let trusted = workspace.plain_folder(&start)
+                && found.files.iter().all(|(path, hash)| {
+                    workspace.plain_file(path) && workspace.trust().trusted(path, hash)
+                });
+            let shown = workspace.keep_large(&name, &found.text);
+            Ok(marked(ToolOutput::ok(shown), trusted))
+        })
+    }
+}
+
+pub struct WorkspaceWrite(Place);
+
+#[derive(Deserialize)]
+struct WriteArgs {
+    path: String,
+    content: String,
+}
+
+impl Tool for WorkspaceWrite {
+    fn def(&self) -> ToolDef {
+        def(
+            "workspace_write",
+            "Writes a whole file in your workspace, creating its folders; replaces the file if it \
+             exists.",
+            json!({ "type": "object",
+                    "properties": { "path": { "type": "string" },
+                                    "content": { "type": "string" } },
+                    "required": ["path", "content"] }),
+            Risk::Write,
+        )
+    }
+
+    fn run(&self, key: &str, arguments: Value) -> ToolFuture {
+        self.run_in(key, arguments, &TurnFacts::default())
+    }
+
+    fn run_in(&self, key: &str, arguments: Value, turn: &TurnFacts) -> ToolFuture {
+        let args: WriteArgs = match parse(arguments) {
+            Ok(args) => args,
+            Err(output) => return Box::pin(async move { output }),
+        };
+        let untrusted = turn.untrusted.clone();
+        blocking(&self.0, key, move |workspace| {
+            let path = workspace.normal(&args.path)?;
+            let bytes = workspace.write(&path, &args.content)?;
+            workspace
+                .trust()
+                .record_write(&path, args.content.as_bytes(), untrusted.as_deref());
+            Ok(ToolOutput::ok(format!("Wrote {bytes} bytes to {path}.")))
+        })
+    }
+}
+
+pub struct WorkspaceEdit(Place);
+
+#[derive(Deserialize)]
+struct EditArgs {
+    path: String,
+    old: String,
+    new: String,
+}
+
+impl Tool for WorkspaceEdit {
+    fn def(&self) -> ToolDef {
+        def(
+            "workspace_edit",
+            "Changes a file in your workspace: replaces the one place `old` appears with `new`. \
+             Copy `old` exactly, with enough around it to appear once.",
+            json!({ "type": "object",
+                    "properties": { "path": { "type": "string" },
+                                    "old": { "type": "string" },
+                                    "new": { "type": "string" } },
+                    "required": ["path", "old", "new"] }),
+            Risk::Write,
+        )
+    }
+
+    fn run(&self, key: &str, arguments: Value) -> ToolFuture {
+        self.run_in(key, arguments, &TurnFacts::default())
+    }
+
+    fn run_in(&self, key: &str, arguments: Value, turn: &TurnFacts) -> ToolFuture {
+        let args: EditArgs = match parse(arguments) {
+            Ok(args) => args,
+            Err(output) => return Box::pin(async move { output }),
+        };
+        let untrusted = turn.untrusted.clone();
+        blocking(&self.0, key, move |workspace| {
+            let path = workspace.normal(&args.path)?;
+            let (before, after) = workspace.edit(&path, &args.old, &args.new)?;
+            workspace.trust().record_edit(
+                &path,
+                before.as_bytes(),
+                after.as_bytes(),
+                untrusted.as_deref(),
+            );
+            Ok(ToolOutput::ok(format!("Changed {path}.")))
+        })
+    }
+}
+
+pub struct ShellTool {
+    place: Place,
+    shell: Shell,
+}
+
+#[derive(Deserialize)]
+struct ShellArgs {
+    command: String,
+    #[serde(default)]
+    timeout_s: Option<u64>,
+}
+
+impl Tool for ShellTool {
+    fn def(&self) -> ToolDef {
+        shown_def(
+            "shell",
+            "Runs a shell command in your workspace folder (sh on macOS and Linux, cmd on \
+             Windows) and answers its output. Stops it after timeout_s seconds (60 unless given, \
+             110 at most). The person is asked before every command they have not allowed \
+             always. To read files, use workspace_read and workspace_search instead.",
+            json!({ "type": "object",
+                    "properties": { "command": { "type": "string" },
+                                    "timeout_s": { "type": "integer", "minimum": 1, "maximum": 110 } },
+                    "required": ["command"] }),
+            Risk::Write,
+            // A command can bring in anything: its output is untrusted, and so is every file it
+            // makes or changes (only Spade's file tools make trusted files).
+            true,
+        )
+    }
+
+    /// "Always" allows this exact command, nothing like it.
+    fn always_scope(&self, arguments: &Value) -> Option<String> {
+        Some(
+            arguments
+                .get("command")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+        )
+    }
+
+    fn run(&self, key: &str, arguments: Value) -> ToolFuture {
+        let workspace = self.place.workspace(key);
+        let shell = self.shell.clone();
+        let name = output_name(key);
+        Box::pin(async move {
+            let args: ShellArgs = match parse(arguments) {
+                Ok(args) => args,
+                Err(output) => return output,
+            };
+            let workspace = match workspace {
+                Ok(workspace) => workspace,
+                Err(output) => return output,
+            };
+            let dir = match workspace.path() {
+                Ok(dir) => dir,
+                Err(error) => return ToolOutput::error(error.to_string()),
+            };
+            let timeout = args
+                .timeout_s
+                .map_or(SHELL_TIMEOUT, Duration::from_secs)
+                .clamp(Duration::from_secs(1), LONGEST_SHELL);
+            let ran = shell.run(&dir, &args.command, timeout).await;
+            let failed = ran
+                .as_ref()
+                .map_or(true, |ran| ran.timed_out || ran.code != Some(0));
+            let text = match &ran {
+                Ok(ran) => describe(ran, timeout),
+                Err(error) => error.clone(),
+            };
+            // Nothing a command makes is trusted, so nothing needs marking here.
+            let shown = tokio::task::spawn_blocking(move || workspace.keep_large(&name, &text))
+                .await
+                .unwrap_or_else(|_| "The output could not be read.".to_owned());
+            if failed {
+                ToolOutput::error(shown)
+            } else {
+                ToolOutput::ok(shown)
+            }
+        })
+    }
+}
+
+/// A run as the model reads it: how it ended, then its output.
+fn describe(ran: &Ran, timeout: Duration) -> String {
+    let mut text = if ran.timed_out {
+        format!(
+            "Stopped after {} seconds: it had not finished, so it was killed with everything it \
+             started.",
+            timeout.as_secs()
+        )
+    } else {
+        match ran.code {
+            Some(code) => format!("Exit code {code}."),
+            None => "Ended by a signal.".to_owned(),
+        }
+    };
+    if !ran.stdout.is_empty() {
+        text.push('\n');
+        text.push_str(&ran.stdout);
+    }
+    if !ran.stderr.is_empty() {
+        text.push_str("\n[stderr]\n");
+        text.push_str(&ran.stderr);
+    }
+    if ran.cut {
+        text.push_str(
+            "\n[Some output was dropped: past 4 MiB, or still coming when the command ended.]",
+        );
+    }
+    text
+}

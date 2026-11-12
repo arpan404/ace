@@ -27,6 +27,16 @@ test("the thread an agent started shows where it was started as a card whose Ope
   ).toBeTruthy();
 });
 
+test("hovering the card of a thread an agent started opens that thread's details, as its row in Threads does", async () => {
+  const app = harness();
+  for (const scenario of startedConversation()) app.play(scenario).runUntilBlocked();
+  await app.open(`/t/${startedConversationIds.source}`);
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  const card = await within(feed).findByRole("region", { name: "New thread: Separate Codex chat" });
+  await userEvent.hover(within(card).getByRole("link", { name: "Open Separate Codex chat" }));
+  expect(await screen.findByLabelText(/^Details for Separate Codex chat/)).toBeTruthy();
+});
+
 test("an agent-started thread is in the thread list, opens with a usable composer and survives a reload", async () => {
   const app = harness();
   for (const scenario of startedConversation()) app.play(scenario).runUntilBlocked();

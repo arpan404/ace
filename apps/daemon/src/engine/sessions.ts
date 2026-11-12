@@ -1,4 +1,5 @@
 import { interruptedNotice } from "./thread-liveness.ts";
+import { spadeBotAceTools } from "../spade/brain-tools.ts";
 import { lostWork } from "./lost-work.ts";
 import { providerCommandMetadata, type ProviderCommandEvent } from "./provider-command-metadata.ts";
 import { isDefaultSelection } from "@ace/models";
@@ -248,6 +249,9 @@ export class Sessions {
         ...(mode ? { permissionMode: mode } : {}),
         ...codexContext,
         ...(aceMcp ? { aceMcp } : {}),
+        ...(this.dependencies.repo.store.getThread(actor.id)?.host === "spade-bot"
+          ? { spadeBot: { allowAceTools: spadeBotAceTools } }
+          : {}),
         options: transition.selection?.options ?? metadata.options ?? {},
         ...(identity ? { acpIdentity: identity } : {}),
         onCapabilities: (effectiveCapabilities, acpSupport) => {

@@ -3,7 +3,7 @@ import { CaretDownIcon, CheckIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 import { useFloatingMaterial } from "./floating-material.tsx";
-import { layers, menuItem, popupFrame } from "./menu-styles.ts";
+import { layers, menuItem, menuLabel, popupFrame } from "./menu-styles.ts";
 
 /** The quiet filled control every picker opens from: Select, DatePicker, TimePicker. */
 export const selectTrigger = cn(
@@ -16,6 +16,19 @@ export interface SelectOption<T extends string> {
   label: string;
   icon?: ReactNode;
   disabled?: boolean | undefined;
+  /** Options sharing a group follow one label; options before any group have none. */
+  group?: string | undefined;
+}
+
+/** Consecutive options by group, keeping their order. */
+function grouped<T extends string>(options: readonly SelectOption<T>[]) {
+  const runs: { group: string | undefined; options: SelectOption<T>[] }[] = [];
+  for (const option of options) {
+    const last = runs.at(-1);
+    if (last && last.group === option.group) last.options.push(option);
+    else runs.push({ group: option.group, options: [option] });
+  }
+  return runs;
 }
 
 /**
@@ -74,28 +87,44 @@ function Select<T extends string>(props: {
         >
           <SelectPrimitive.Popup className={cn(material, popupFrame, "min-w-(--anchor-width)")}>
             <SelectPrimitive.List className="max-h-64 overflow-y-auto">
-              {props.options.map((option) => (
-                <SelectPrimitive.Item
-                  key={option.value}
-                  value={option.value}
-                  aria-label={option.label}
-                  disabled={option.disabled}
-                  className={menuItem}
-                >
-                  {option.icon}
-                  <SelectPrimitive.ItemText className="min-w-0 flex-1 truncate">
-                    {option.label}
-                  </SelectPrimitive.ItemText>
-                  <SelectPrimitive.ItemIndicator className="ml-auto">
-                    <CheckIcon aria-hidden size={14} />
-                  </SelectPrimitive.ItemIndicator>
-                </SelectPrimitive.Item>
-              ))}
+              {grouped(props.options).map((run) =>
+                run.group === undefined ? (
+                  run.options.map((option) => <SelectItem key={option.value} option={option} />)
+                ) : (
+                  <SelectPrimitive.Group key={`group:${run.group}`}>
+                    <SelectPrimitive.GroupLabel className={cn(menuLabel, "pt-2")}>
+                      {run.group}
+                    </SelectPrimitive.GroupLabel>
+                    {run.options.map((option) => (
+                      <SelectItem key={option.value} option={option} />
+                    ))}
+                  </SelectPrimitive.Group>
+                ),
+              )}
             </SelectPrimitive.List>
           </SelectPrimitive.Popup>
         </SelectPrimitive.Positioner>
       </SelectPrimitive.Portal>
     </SelectPrimitive.Root>
+  );
+}
+
+function SelectItem<T extends string>({ option }: { option: SelectOption<T> }) {
+  return (
+    <SelectPrimitive.Item
+      value={option.value}
+      aria-label={option.label}
+      disabled={option.disabled}
+      className={menuItem}
+    >
+      {option.icon}
+      <SelectPrimitive.ItemText className="min-w-0 flex-1 truncate">
+        {option.label}
+      </SelectPrimitive.ItemText>
+      <SelectPrimitive.ItemIndicator className="ml-auto">
+        <CheckIcon aria-hidden size={14} />
+      </SelectPrimitive.ItemIndicator>
+    </SelectPrimitive.Item>
   );
 }
 

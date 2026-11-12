@@ -7,7 +7,7 @@
       "type": "string"
     },
     "index": {
-      "maximum": 1023,
+      "maximum": 4095,
       "minimum": 0,
       "type": "integer"
     },

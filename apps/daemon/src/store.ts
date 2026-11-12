@@ -23,6 +23,7 @@ import {
 import { purgeTranscript } from "./storage/transcript.ts";
 import { SearchReplay } from "./search-replay.ts";
 import { migrateSidebarRevisions } from "./sidebar-revisions.ts";
+import { openSidebarColumns } from "./sidebar-columns.ts";
 import { seedSentMessages } from "./draft-migration.ts";
 import { mapRecordedPermissionModes } from "./permission-mode-migration.ts";
 import { indexEngineRecords } from "./engine-record-indexes.ts";
@@ -272,6 +273,8 @@ export class Store {
       this.workspaceReservations = new WorkspaceReservations(this.db, (sql) => this.statement(sql));
       this.atomic(migrateThreadClient);
       this.atomic(migrateThreadCold);
+      // Needs every threads column the sidebar reads; its triggers cover the passes below.
+      this.atomic((db) => openSidebarColumns(db));
       this.atomic(mapRecordedPermissionModes);
       this.atomic(indexEngineRecords);
       this.usageReplay = new UsageReplay(this.db);
@@ -305,6 +308,7 @@ export class Store {
         flush: () => this.flushLiveWrites(),
         headSeq: () => this.headSeq(),
         getThread: (id) => this.getThread(id),
+        readThread: (id) => this.readThread(id),
         inTransaction: () => this.transactionEvents !== undefined,
         report: (error) => this.onError(error),
       });
@@ -899,7 +903,7 @@ export class Store {
     return binding;
   }
   completeWorkspacePreparation(id: ThreadId, expectedPath: string, path: string): boolean {
-    const thread = this.getThread(id);
+    const thread = this.readThread(id);
     if (!thread || thread.deletedAt !== undefined) return false;
     this.workspaceReservations.assertAvailable(expectedPath);
     this.workspaceReservations.assertAvailable(path);
@@ -1317,7 +1321,7 @@ export class Store {
   }
   deleteThread(id: ThreadId): void {
     this.transaction(() => {
-      if (!this.getThread(id)) return;
+      if (!this.readThread(id)) return;
       this.recordDataDeletion(id);
       this.statement("DELETE FROM events WHERE thread_id = ?").run(id);
       this.statement("DELETE FROM threads WHERE id = ?").run(id);

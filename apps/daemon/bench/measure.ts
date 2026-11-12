@@ -16,6 +16,7 @@ import { bunBinary } from "../../../scripts/runtimes.ts";
 import { workerPreloadVariable } from "@ace/provider-kit/worker";
 import { threadCensus } from "./threads.ts";
 import { observedWorkers, settledWorkerViolations } from "./budgets.ts";
+import { soakReader } from "./soak-reader.ts";
 
 const run = promisify(execFile);
 const argument = (name: string, fallback: string) =>
@@ -31,6 +32,14 @@ const collect = process.argv.includes("--collect");
 const collectWorkers = process.argv.includes("--collect-workers");
 if (collectWorkers && !collect) throw new Error("Worker collection requires --collect");
 const freshCycles = process.argv.includes("--fresh-cycles");
+/** A client keeps the thread list open and opens every cycled thread, as the desktop would. */
+const subscribeCycles = process.argv.includes("--subscribe");
+/** The reader also settles each thread it opened, keeping the Inbox at a person's size. */
+const settleCycles = process.argv.includes("--settle");
+/** The reader connects again every cycle, as a sleeping laptop or a phone does. */
+const reconnectCycles = process.argv.includes("--reconnect");
+if (reconnectCycles && !subscribeCycles) throw new Error("--reconnect requires --subscribe");
+if (settleCycles && !subscribeCycles) throw new Error("--settle requires --subscribe");
 const cpuProfile = argument("cpu-prof", "");
 const regions = process.argv.includes("--regions");
 const allocationOutput = argument("malloc-stacks", "");
@@ -42,6 +51,8 @@ function mark(next: string) {
 }
 /** The kinds of worker that may stay, one each, once the workload ended (the gate's own). */
 const settleKinds = argument("settle-workers", "").split(",").filter(Boolean);
+/** Deltas each cycled thread streams before its turn ends. */
+const cycleEvents = z.coerce.number().int().min(0).max(10000).parse(argument("cycle-events", "0"));
 const warmupCycles = z.coerce.number().int().min(0).max(128).parse(argument("warmup-cycles", "0"));
 const home = await mkdtemp(join(tmpdir(), "ace-perf-"));
 // Beside the home, not in it: a non-empty unversioned ACE_HOME is backed up to `<home>-v0` at
@@ -118,7 +129,7 @@ child.on("exit", () => {
 function request(
   data:
     | { op: "sessions"; count: number }
-    | { op: "cycle"; count: number; fresh?: boolean }
+    | { op: "cycle"; count: number; fresh?: boolean; events?: number }
     | { op: "emit"; thread: string; count: number }
     | { op: "finish"; threads: string[] }
     | { op: "memory" | "plans" },
@@ -322,16 +333,30 @@ async function measure() {
     heapUsed: number;
     workers: typeof activeSample.workers;
   }[] = [];
+  const token = await readFile(join(home, "daemon-token"), "utf8");
+  let reader = subscribeCycles ? await soakReader(endpoint, token, settleCycles) : undefined;
+  const cycle = async () => {
+    const cycled = await request({
+      op: "cycle",
+      count: 16,
+      fresh: freshCycles,
+      events: cycleEvents,
+    });
+    if (reader && reconnectCycles) {
+      await reader.close();
+      reader = await soakReader(endpoint, token, settleCycles);
+    }
+    await reader?.open(cycled.threads);
+  };
   mark("warmup");
-  for (let i = 0; i < warmupCycles; i++)
-    await request({ op: "cycle", count: 16, fresh: freshCycles });
+  for (let i = 0; i < warmupCycles; i++) await cycle();
   mark("collection before soak");
   const collectedStart = collect ? await collectMemory() : null;
   const retainedStart = collectedStart?.memory ?? null;
   const soakStart = performance.now();
   mark("soak");
   while (performance.now() - soakStart < soakMs) {
-    await request({ op: "cycle", count: 16, fresh: freshCycles });
+    await cycle();
     await delay(200);
     const reading = await sample();
     soak.push({
@@ -344,6 +369,8 @@ async function measure() {
   mark("collection after soak");
   const collectedEnd = collect ? await collectMemory() : null;
   const retainedEnd = collectedEnd?.memory ?? null;
+  // Open through both collections, so its own connection is in both and only growth differs.
+  await reader?.close();
   const endRegions = regions ? await memoryRegions() : undefined;
   if (allocationOutput) {
     if (process.platform !== "darwin" || !child.pid)

@@ -232,7 +232,8 @@ async fn a_refused_token_is_named_and_never_echoed() {
 #[tokio::test]
 async fn a_call_that_runs_too_long_times_out() {
     let fake = FakeMcp::start(usual_tools()).await;
-    let tools = client(&fake, TOKEN, Duration::from_millis(400));
+    // `slow` takes 30 s; 3 s leaves a slow machine room for the call after it.
+    let tools = client(&fake, TOKEN, Duration::from_secs(3));
     assert_eq!(
         tools.call("slow", json!({})).await.err(),
         Some(ToolsError::Timeout)
@@ -276,13 +277,20 @@ async fn a_late_answer_to_a_given_up_call_never_reaches_a_later_call() {
     let fake = FakeMcp::start(usual_tools()).await;
     let tools = client(&fake, TOKEN, Duration::from_secs(5));
     fake.hold_answers();
-    // The caller gives up and drops the call before its answer comes.
-    let given_up = tokio::time::timeout(
-        Duration::from_millis(300),
-        tools.call("echo", json!({ "say": "old" })),
-    )
-    .await;
-    assert!(given_up.is_err());
+    // The caller gives up and drops the call before its answer comes, once ace has it (a
+    // fixed wait could end before a slow machine even sent it).
+    let reached = async {
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while fake.tool_call_frames() == 0 && std::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    };
+    let given_up = tokio::select! {
+        answer = tools.call("echo", json!({ "say": "old" })) => Some(answer),
+        () = reached => None,
+    };
+    assert!(given_up.is_none(), "answered while held: {given_up:?}");
+    assert_eq!(fake.tool_call_frames(), 1);
     // Dropping the call asks ace to cancel it.
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
     while fake.cancels() == 0 && std::time::Instant::now() < deadline {
@@ -358,7 +366,8 @@ async fn a_redirected_call_is_not_followed_anywhere() {
         }
     });
     let fake = FakeMcp::start(usual_tools()).await;
-    let tools = client(&fake, TOKEN, Duration::from_secs(2));
+    // Shorter than the 10 s the other place holds a socket, so a followed redirect still shows.
+    let tools = client(&fake, TOKEN, Duration::from_secs(5));
     assert!(tools.tools().await.is_ok());
 
     fake.redirect_calls_to(format!("http://{target}/elsewhere"));

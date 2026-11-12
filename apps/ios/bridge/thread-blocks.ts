@@ -27,11 +27,19 @@ import {
   summarizeWork,
   thoughtMs,
   workCounts,
+  receiptEntry,
+  receiptResults,
+  resultLead,
+  turnSubagents,
   type SubagentGroupStatus,
   type SubagentState,
 } from "@ace/ui-core";
 import type { StatusToken } from "@ace/ui-core/mobile";
-import { readSubagentGroup, type SubagentEntry } from "@ace/ui-core/subagent-group";
+import {
+  readSubagentGroup,
+  readSubagentResults,
+  type SubagentEntry,
+} from "@ace/ui-core/subagent-group";
 
 /**
  * A delegated child's state as the thread list has it (`listedSubagentState`): after a reconnect
@@ -167,8 +175,40 @@ function agentRow(store: ThreadSource, entry: SubagentEntry, fresh: boolean) {
   };
 }
 
-function subagents(store: ThreadSource, ids: readonly string[], listed: ListedState | undefined) {
-  const entries = readSubagentGroup(store, ids).value.map((entry) => rolledUp(entry, listed));
+/** The children receipts of delegated work delivered, each at its latest result. */
+function received(store: ThreadSource, receiptIds: readonly string[]): SubagentEntry[] {
+  const { results, deliveredAt } = receiptResults(receiptIds.map((id) => store.item(id)));
+  const threads = new Set(results.map((result) => result.threadId));
+  const launches = new Map(
+    readSubagentResults(store, threads).value.map((entry) => [entry.childThreadId, entry]),
+  );
+  return results.map((result) =>
+    receiptEntry(
+      result,
+      launches.get(result.threadId),
+      undefined,
+      deliveredAt,
+      resultLead(result.result),
+    ),
+  );
+}
+
+function subagents(
+  store: ThreadSource,
+  ids: readonly string[],
+  listed: ListedState | undefined,
+  receiptIds: readonly string[] = [],
+) {
+  const launched = readSubagentGroup(store, ids).value.map((entry) => rolledUp(entry, listed));
+  // A completed turn's group also holds the children it was handed work by receipts.
+  // Receipts' children read at the worse of what they delivered and what the list says now, so
+  // one launched earlier that took new work or waits on the person never reads done here.
+  const entries = receiptIds.length
+    ? turnSubagents(
+        launched,
+        received(store, receiptIds).map((entry) => rolledUp(entry, listed)),
+      )
+    : launched;
   const states = entries.map((entry) => entry.state);
   // A copy the daemon hasn't confirmed shows its last-seen states and never live activity.
   const fresh = store.unconfirmed !== true;
@@ -291,8 +331,8 @@ export function blockRow(
     case "subagents":
       return {
         ...base,
-        items: [...block.itemIds],
-        agents: subagents(store, block.itemIds, listed),
+        items: [...blockItems(block)],
+        agents: subagents(store, block.itemIds, listed, block.receiptIds),
       };
     case "question":
       return {
@@ -485,7 +525,11 @@ export function followBlocks(
           // redraws, since no receipt row says it for the group (`buildBlocks`).
           for (const shownId of following) {
             const shown = blocks.get(shownId);
-            if (shown?.kind === "subagents" && shown.itemIds.includes(id)) touched.add(shownId);
+            if (
+              shown?.kind === "subagents" &&
+              (shown.itemIds.includes(id) || shown.receiptIds?.includes(id))
+            )
+              touched.add(shownId);
           }
         }
         if (key === "order") for (const block of ordered) touched.add(block);

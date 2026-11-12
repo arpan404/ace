@@ -14,6 +14,7 @@ const Options = z.object({
     .default(512 * 1024),
 });
 const Row = z.object({ seq: z.number().int().positive(), bytes: z.number().int().nonnegative() });
+const PageEnd = z.number().int().nonnegative();
 // SQLite extracts only analytics fields. Large title/cwd/native data never crosses into Node.
 const field = (path: string) => `json_extract(payload, '$.${path}')`;
 const text = (expression: string) =>
@@ -98,11 +99,7 @@ export class UsageReplay {
   read(input: unknown, headSeq: number): { throughSeq: number; events: UsageEvent[] } {
     const q = Options.parse(input);
     const boundary = this.pageEnd.get(q.afterSeq, headSeq, q.afterSeq, headSeq, q.limit - 1);
-    const end = z
-      .number()
-      .int()
-      .nonnegative()
-      .parse(boundary?.seq ?? headSeq);
+    const end = PageEnd.parse(boundary?.seq ?? headSeq);
     const events: UsageEvent[] = [];
     let bytes = 2;
     let throughSeq = end;

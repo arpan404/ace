@@ -4,11 +4,9 @@
 @import "./motion.css";
 @import "./glass.css";
 @import "./legacy-aliases.css";
-@import "./model-control.css";
-@import "./composer-strip.css";
-@import "./composer-pill.css";
-@import "./composer-markdown.css";
 @import "./usage.css";
+/* The composer's and the model control's sheets (composer-*.css, model-control.css) load with
+   the components that draw them, which load after the first paint. */
 
 /*
  * Scan only web runtime source. Tailwind turns class-like strings into CSS; generated
@@ -28,6 +26,14 @@
 /* Reduced motion follows the app's setting (`[data-reduce-motion]`), not only the OS query. */
 @custom-variant motion-reduce (&:where([data-reduce-motion], [data-reduce-motion] *));
 @custom-variant motion-safe (&:where(:root:not([data-reduce-motion]), :root:not([data-reduce-motion]) *));
+/*
+ * Inside the last `group/row`, as Tailwind's `group-last/row` matches. Tailwind writes that one as
+ * `:is(.group\/row:last-child *)`, and a universal selector after `:last-child` makes Chromium
+ * restyle the whole subtree of any element that gains or loses last-child, anywhere on the page
+ * (a streamed answer appending a block restyled thousands of nodes). Ending in the element's own
+ * class confines that restyle to elements carrying it.
+ */
+@custom-variant last-row (.group\/row:last-child &);
 
 /* Tailwind utilities resolve to token variables, so a theme swap needs no component edits. */
 @theme inline {

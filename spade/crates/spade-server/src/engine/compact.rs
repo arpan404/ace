@@ -11,6 +11,9 @@ use spade_models::Message;
 
 use super::Engine;
 
+/// What compacting by hand answers when a cap was reached as it was about to ask the model.
+pub(super) const AT_CAP: &str = "the bot is at a spending cap";
+
 /// The summary used when the model cannot write one: older turns are left out, visibly.
 const LEFT_OUT: &str = "Earlier messages were left out to fit the model's context; ask the person \
                         if something from before is needed.";
@@ -48,8 +51,7 @@ pub(super) async fn if_needed(
     else {
         return false;
     };
-    run(engine, id, model, events, plan, None).await;
-    true
+    run(engine, id, model, events, plan, None).await
 }
 
 /// Compacts now, keeping only the latest turn, with an optional focus for the summary.
@@ -67,8 +69,11 @@ pub(super) async fn now(
     let Some(keep_from) = compaction::safe_starts(&events, already).last().copied() else {
         return Ok(false);
     };
-    run(engine, id, model, &events, Plan { keep_from }, focus).await;
-    Ok(true)
+    if run(engine, id, model, &events, Plan { keep_from }, focus).await {
+        Ok(true)
+    } else {
+        Err(AT_CAP.to_owned())
+    }
 }
 
 async fn run(
@@ -78,7 +83,7 @@ async fn run(
     events: &[Event],
     plan: Plan,
     focus: Option<&str>,
-) {
+) -> bool {
     // The summary request goes after the whole current prompt, with the same tools, so its input
     // is cache reads. Typed output is not used: it would change the request and miss the cache.
     let images = engine.images_for(model);
@@ -89,10 +94,16 @@ async fn run(
         text: compaction::request(focus),
         images: Vec::new(),
     });
-    let carried = compaction::carried_out(events, plan.keep_from, &engine.tools.registry());
+    let carried = compaction::carried_out(events, plan.keep_from, &engine.tools.registry_for(id));
+    // Admitted like every model call (ADR 0135); at a cap nothing is compacted or spent.
+    // It waits while only calls still running stand in the way.
+    let hint = super::ledger::turn_hint(events);
+    let Ok(admitted) = engine.admit_waiting(id, model, &prompt, hint).await else {
+        return false;
+    };
     let written = match engine.models.chat(model, &prompt).await {
         Ok(reply) => {
-            engine.pay(id, model, &reply.usage);
+            admitted.settle(&reply.usage);
             if reply.calls.is_empty() {
                 compaction::parse_summary(&reply.text)
             } else {
@@ -100,13 +111,16 @@ async fn run(
             }
         }
         Err(error) => {
-            if let Some(usage) = error.usage() {
-                engine.pay(id, model, &usage);
-            }
+            admitted.settle_if(error.usage());
             tracing::warn!(%error, "summary failed; leaving older turns out instead");
             None
         }
     };
+    // Facts drawn from untrusted text are only suggested to the person, never kept straight.
+    let untrusted = spade_core::memory::untrusted_span(events, &engine.tools.registry_for(id));
+    if let Some(summary) = &written {
+        super::memory::keep_extracted(engine, id, &summary.notes, untrusted);
+    }
     let summary = match written {
         Some(summary) => compaction::render(&summary, &carried),
         None => {
@@ -125,10 +139,12 @@ async fn run(
         keep_from: plan.keep_from,
         tokens_before: last_prompt_tokens(events),
         images_left_out: Some(context::images_to_leave_out(events, plan.keep_from)),
+        untrusted,
     });
     if let Err(error) = engine.record(id, &event) {
         tracing::error!(%error, "could not store a compaction");
     }
+    true
 }
 
 /// The model this conversation uses: its latest turn's.

@@ -29,7 +29,7 @@ without spare hardware, may come later.
 | Development and internal testing call models with an OpenCode Go API key                                                                                                       | decided  |
 | Model access uses the `genai` crate behind Spade's own `spade-models` crate (see Models)                                                                                       | decided  |
 | The model list is curated: the current model of each family worth running, nothing older                                                                                       | decided  |
-| Connectors reuse existing MCP servers before we write our own (see Connectors)                                                                                                 | proposed |
+| Connectors reuse the app makers' own remote MCP servers first (ADR 0131, [connectors.md](connectors.md))                                                                       | decided  |
 | A hosted Spade would reach daemons through ace's relay with a Spade grant (draft ADR `docs/adr/drafts/spade-daemon-access.md`)                                                 | proposed |
 | Endpoint keys are typed into the app and kept in the OS keychain only, then the endpoint's environment variable (ADR 0119)                                                     | decided  |
 
@@ -58,8 +58,9 @@ matter; the encrypted channel and grants matter when Spade reaches a daemon from
 | `spade-testkit`  | Test-only fake model endpoint                                                                                                                                      | built                 |
 | `spade-protocol` | Types generated from ace's schemas, plus Spade's own                                                                                                               | planned               |
 | `spade-ace`      | Talks to the ace daemon: locally first, through the relay for a hosted Spade                                                                                       | planned               |
-| `spade-mcp`      | Connector catalogue and MCP client (`rmcp`)                                                                                                                        | planned               |
-| `spade-memory`   | Memory storage and search                                                                                                                                          | planned               |
+| `spade-mcp`      | MCP client over streamable HTTP (`rmcp`), shared by ace's tools and connectors                                                                                     | built                 |
+| `spade-connect`  | Connector catalogue, OAuth sign-in, sessions and per-bot access ([connectors.md](connectors.md))                                                                   | built                 |
+| `spade-memory`   | Memory storage and search: built in `spade-core` (`memory`) and `spade-store` (`notes`) instead, see [memory.md](memory.md)                                        | built                 |
 
 Rules carried over from ace: pure core with a thin I/O shell; clocks, ids, randomness and
 network endpoints are injected; outside data is parsed before use; tests assert behaviour
@@ -81,9 +82,10 @@ long-context prices are not modelled yet, so very long prompts are under-counted
 and GLM-5.3, its Anthropic-format endpoint for Claude Haiku 5.5. Check that Go's terms allow its key
 outside OpenCode before relying on it in production. The Go key is never shipped.
 
-**CLI brains (planned).** Subscription models run as an ace provider session through the daemon,
-with Spade's tools, skills and memory attached as an MCP server and the approval gate inside those
-tools. Spade's roles can point at an endpoint or a CLI.
+**CLI brains.** Subscription models run as an ace provider session through the daemon, one
+hidden session per bot, with the bot's tools reached through ace's MCP endpoint (`spade_tools`,
+`spade_call`) and the approval gate inside those tools. A bot's model can be an endpoint's or
+`cli:<provider>/<model>` ([cli-brains.md](cli-brains.md), ADR 0133).
 
 **SDK.** `genai` behind `spade-models`, compared with `aisdk` and `rig-core` on 2026-11-08 for
 native Anthropic support (caching, thinking blocks across tool turns) and typed output. Spade owns
@@ -137,7 +139,7 @@ metadata), CGNAT, multicast, reserved and NAT64 local-use addresses and their IP
 address of this machine or on its links (read from its interfaces on every fetch; an unreadable
 list refuses the fetch). It connects only to the addresses it checked, never through a proxy, so
 DNS cannot swap them. Every redirect is checked again, at most five, all within one deadline. It
-reads at most 5 MB after decompression, and only HTML, text, JSON and XML (PDF later), decoded in
+reads at most 5 MB after decompression, and only HTML, text, JSON and XML (and PDFs up to 20 MB, see media.md), decoded in
 the page's own character encoding. HTML is read by html5ever's tokenizer and Spade's own tree
 builder with fixed limits (128 attributes per tag, 256 open elements, 100,000 tags, 1 MiB of text,
 2 KB per link), and becomes light Markdown from the main content (`main`, else the one `article`

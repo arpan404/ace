@@ -1,0 +1,44 @@
+{
+  "$id": "https://ace.local/protocol/v1/SpadeBrainTurnRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "account": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "bot": {
+      "$ref": "https://ace.local/protocol/v1/SpadeBotId.json"
+    },
+    "instructions": {
+      "maxLength": 262144,
+      "type": "string"
+    },
+    "instructionsChanged": {
+      "default": false,
+      "type": "boolean"
+    },
+    "message": {
+      "maxLength": 1048576,
+      "minLength": 1,
+      "type": "string"
+    },
+    "model": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    }
+  },
+  "required": [
+    "bot",
+    "provider",
+    "model",
+    "instructions",
+    "message"
+  ],
+  "type": "object"
+}

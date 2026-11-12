@@ -8,7 +8,8 @@ import { Agent } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { createDevThread } from "./commands.ts";
 import { Store } from "./store.ts";
-import { rewindSchema } from "./schema-rewind-test-support.ts";
+import { schemaVersionBefore } from "./migrations.ts";
+import { undoMachineCode } from "./upgrade-test-support.ts";
 import { retiredWorkflowMigration } from "./retired-workflow-migration.ts";
 
 // A real persisted database is necessary to exercise the upgrade and SQLite readers together.
@@ -65,13 +66,23 @@ test("upgrading an unfinished Offshift run settles stale work and preserves old 
     await store.close();
     const db = new DatabaseSync(path);
     try {
-      // Reconstruct the previous release: before the workflow removal and every later step,
-      // with the workflow's tables it removes.
-      rewindSchema(db, retiredWorkflowMigration);
-      db.exec(`
+      // Reconstruct the previous release: before the workflow removal, so undo the later
+      // steps too, newest first, ending with the machine-child liveness step's columns.
+      db.exec(`${undoMachineCode}
+        DROP INDEX IF EXISTS machine_children_seen;
+        DROP INDEX IF EXISTS machine_children_stopping;
+        ALTER TABLE machine_children DROP COLUMN seen_at;
+        ALTER TABLE machine_children DROP COLUMN silent_since;
+        ALTER TABLE machine_children DROP COLUMN stop_started_at;
+        ALTER TABLE machine_children DROP COLUMN stop_attempts;
+        ALTER TABLE machine_children DROP COLUMN stop_last_at;
+        ALTER TABLE machine_children DROP COLUMN stopped_unconfirmed;
         CREATE TABLE offshift_runs(thread_id TEXT,id TEXT,body TEXT,PRIMARY KEY(thread_id,id));
         CREATE TABLE offshift_receipts(thread_id TEXT,run_id TEXT,request_id TEXT,input TEXT);
       `);
+      db.prepare("UPDATE schema_version SET version=?").run(
+        schemaVersionBefore(retiredWorkflowMigration),
+      );
       for (const id of [thread.id, active.id]) {
         db.prepare("INSERT INTO offshift_runs VALUES (?, 'run', ?)").run(
           id,

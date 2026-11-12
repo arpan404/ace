@@ -1,7 +1,7 @@
 import { Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn.ts";
 import { panelMotion, usePresence } from "@/lib/motion.ts";
-import { DeferredWorkCard, workSurface } from "./work-button.tsx";
+import { DeferredWorkCard, workSurface } from "./work-surface.ts";
 import {
   workCardColumnWidth,
   workCardFitsSide,

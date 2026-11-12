@@ -11,13 +11,14 @@ use spade_core::context;
 use spade_core::event::{Call, Known};
 use spade_core::gate::{self, Decision};
 use spade_core::maintenance::{Pause, Point, halts};
+use spade_core::review;
 use spade_core::tools::{CALL_TOOL, Risk, TOOL_SEARCH, describe, unwrap_call_tool};
 use spade_core::turn::{Pending, Status};
 use spade_core::{Event, Transcript};
 use tokio::sync::watch;
 
 use super::Engine;
-use crate::tools::ToolOutput;
+use crate::tools::{ToolOutput, TurnFacts};
 
 const DECLINED: &str = "The person declined this action.";
 
@@ -40,9 +41,17 @@ pub(super) async fn handle_calls(
     stop: &mut watch::Receiver<bool>,
     pause: &mut watch::Receiver<Pause>,
 ) -> Handled {
-    let registry = engine.tools.registry();
+    let registry = engine.tools.registry_for(id);
     let transcript = Transcript::fold(events);
     let untrusted = context::untrusted_turn(events, &registry);
+    // What a tool keeps (a trusted file, a note, a proposal's source) answers to everything the
+    // prompt shows, not just this turn: untrusted text from an earlier turn is still in view.
+    let in_view = context::untrusted_in_view(events, &registry);
+    let facts = TurnFacts {
+        untrusted: (!in_view.is_empty()).then(|| in_view.join(", ")),
+    };
+    // A note outlives the turn: one written while a tainted summary is in view asks too.
+    let untrusted_memory = untrusted || context::untrusted_summary(events);
     let mut runnable: Vec<(Call, String, Value)> = Vec::new();
     let mut waiting = false;
     // Started with no stored result. This worker runs every call it starts to its stored end, so
@@ -52,6 +61,28 @@ pub(super) async fn handle_calls(
         let (name, arguments) = resolve(&pending.call);
         match pending.status {
             Status::New if name == TOOL_SEARCH => runnable.push((pending.call, name, arguments)),
+            // `ask_user` (ADR 0128) waits like an approval; the person's next message answers it.
+            Status::New if name == context::ASK_USER => match super::memory::question(&arguments) {
+                Err(refused) => finish_tool(engine, id, reply, &pending.call, &name, refused).await,
+                Ok(question) => {
+                    waiting = true;
+                    let asked = Event::Known(Known::QuestionAsked {
+                        reply: reply.to_owned(),
+                        call_id: pending.call.id.clone(),
+                        question,
+                    });
+                    match engine.record_unless_stopped(id, reply, &asked) {
+                        Ok(true) => {}
+                        Ok(false) => return Handled::Stopped,
+                        Err(error) => return Handled::Failed(error.to_string()),
+                    }
+                }
+            },
+            Status::Asked => waiting = true,
+            Status::Answered => {
+                let answered = ToolOutput::ok(context::ANSWERED);
+                finish_tool(engine, id, reply, &pending.call, &name, answered).await;
+            }
             Status::New => match registry.get(&name) {
                 None => {
                     let missing = ToolOutput::error(format!(
@@ -60,8 +91,44 @@ pub(super) async fn handle_calls(
                     finish_tool(engine, id, reply, &pending.call, &name, missing).await;
                 }
                 Some(def) => {
-                    let always = transcript.always_allowed.iter().any(|t| t == &name);
-                    match gate::decide(def.risk, always, untrusted) {
+                    let always = match engine
+                        .tools
+                        .get_for(id, &name)
+                        .and_then(|tool| tool.always_scope(&arguments))
+                    {
+                        Some(scope) => allowed_always_for(engine, id, events, &name, &scope),
+                        None => transcript.always_allowed.iter().any(|t| t == &name),
+                    };
+                    let tainted = if def.risk == Risk::Memory {
+                        untrusted_memory
+                    } else {
+                        untrusted
+                    };
+                    let mut decision = gate::decide(def.risk, always, tainted);
+                    // The model review (ADR 0135) may turn a run into a question, never the
+                    // other way round.
+                    if review::reviewed(def.risk, decision) && engine.review_on(id) {
+                        let def = def.clone();
+                        match super::review::call(
+                            engine,
+                            id,
+                            reply,
+                            events,
+                            &registry,
+                            &pending.call,
+                            &name,
+                            &arguments,
+                            &def,
+                            stop,
+                        )
+                        .await
+                        {
+                            super::review::Reviewed::Allow => {}
+                            super::review::Reviewed::Escalate => decision = Decision::Ask,
+                            super::review::Reviewed::Stopped => return Handled::Stopped,
+                        }
+                    }
+                    match decision {
                         Decision::Run => runnable.push((pending.call, name, arguments)),
                         Decision::Ask => {
                             waiting = true;
@@ -95,7 +162,7 @@ pub(super) async fn handle_calls(
         finish_tool(engine, id, reply, &call, &name, unknown).await;
     }
     if !runnable.is_empty() {
-        return run_tools(engine, id, reply, runnable, stop, pause).await;
+        return run_tools(engine, id, reply, runnable, &facts, stop, pause).await;
     }
     if waiting {
         let live = engine.live(id);
@@ -121,6 +188,33 @@ pub(super) async fn handle_calls(
     Handled::Continue
 }
 
+/// Whether the person answered "always" to an earlier call of `name` with the same scope (for
+/// the shell, the exact same command). Read from the conversation's own events, so it holds for
+/// the bot across restarts and compaction.
+fn allowed_always_for(
+    engine: &Engine,
+    id: &str,
+    events: &[Event],
+    name: &str,
+    scope: &str,
+) -> bool {
+    let Some(tool) = engine.tools.get_for(id, name) else {
+        return false;
+    };
+    events.iter().any(|event| match event {
+        Event::Known(Known::ApprovalAnswered {
+            call_id,
+            allowed: true,
+            always: true,
+            ..
+        }) => events.iter().any(|asked| {
+            matches!(asked, Event::Known(Known::ApprovalRequested { call_id: c, name: n, arguments, .. })
+                if c == call_id && n == name && tool.always_scope(arguments).as_deref() == Some(scope))
+        }),
+        _ => false,
+    })
+}
+
 /// A call's real tool and arguments: `call_tool` names its tool inside.
 fn resolve(call: &Call) -> (String, Value) {
     if call.name == CALL_TOOL
@@ -136,6 +230,7 @@ async fn run_tools(
     id: &str,
     reply: &str,
     calls: Vec<(Call, String, Value)>,
+    facts: &TurnFacts,
     stop: &mut watch::Receiver<bool>,
     pause: &mut watch::Receiver<Pause>,
 ) -> Handled {
@@ -165,7 +260,7 @@ async fn run_tools(
             // that ran for one that did not.
             // What the tool is now is stored with its start, so compaction reads a write as one
             // even once the tool is gone or reclassified.
-            let def = engine.tools.registry().get(&name).cloned();
+            let def = engine.tools.registry_for(id).get(&name).cloned();
             let background = def.as_ref().is_some_and(|def| def.background);
             let risk = match &def {
                 Some(def) => Some(def.risk),
@@ -203,9 +298,9 @@ async fn run_tools(
                 finished.push_back((call, name, started));
                 continue;
             }
-            let (engine, id) = (engine.clone(), id.to_owned());
+            let (engine, id, facts) = (engine.clone(), id.to_owned(), facts.clone());
             running.push(async move {
-                let output = run_one(&engine, &id, &call.id, &name, arguments).await;
+                let output = run_one(&engine, &id, &call.id, &name, arguments, &facts).await;
                 (call, name, output)
             });
         }
@@ -267,20 +362,26 @@ async fn run_one(
     call_id: &str,
     name: &str,
     arguments: Value,
+    facts: &TurnFacts,
 ) -> ToolOutput {
     if name == TOOL_SEARCH {
         let query = arguments.get("query").and_then(Value::as_str).unwrap_or("");
-        let registry = engine.tools.registry();
+        let registry = engine.tools.registry_for(id);
         let found = registry.search(query, 5);
         return ToolOutput::ok(describe(&found));
     }
-    let Some(tool) = engine.tools.get(name) else {
+    let Some(tool) = engine.tools.get_for(id, name) else {
         return ToolOutput::error(format!("There is no tool named {name}."));
     };
     // Unique across conversations, and the same on every retry of this call.
     let key = format!("{id}.{call_id}");
     let reads_only = tool.def().risk == Risk::Read;
-    match tokio::time::timeout(engine.limits.tool_timeout, tool.run(&key, arguments)).await {
+    match tokio::time::timeout(
+        engine.limits.tool_timeout,
+        tool.run_in(&key, arguments, facts),
+    )
+    .await
+    {
         Ok(output) => output,
         Err(_) => {
             let seconds = engine.limits.tool_timeout.as_secs();
@@ -325,8 +426,23 @@ async fn finish_tool(
         is_error: output.is_error,
         images,
         uncertain: output.uncertain,
+        untrusted: output.untrusted,
     });
-    super::jobs::keep_trying(|| engine.record(id, &event).map(|_| ())).await;
+    // What it showed the person is stored with its result (ADR 0134), never apart from it.
+    let mut events = vec![event];
+    if !output.shared.is_empty() {
+        events.push(Event::Known(Known::Shared {
+            reply: reply.to_owned(),
+            call_id: call.id.clone(),
+            images: output.shared.images,
+            documents: output.shared.documents,
+        }));
+    }
+    super::jobs::keep_trying(|| {
+        let _order = engine.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+        engine.append_events(id, &events).map(|_| ())
+    })
+    .await;
 }
 
 pub(super) fn trim(text: &str, longest: usize) -> String {

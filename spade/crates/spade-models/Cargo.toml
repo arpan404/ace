@@ -9,7 +9,8 @@ publish.workspace = true
 [dependencies]
 futures-util.workspace = true
 genai.workspace = true
-reqwest.workspace = true
+reqwest = { workspace = true, features = ["multipart"] }
+base64.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -19,6 +20,7 @@ thiserror.workspace = true
 [dev-dependencies]
 spade-testkit = { path = "../spade-testkit" }
 tokio.workspace = true
+axum.workspace = true
 
 [lints]
 workspace = true

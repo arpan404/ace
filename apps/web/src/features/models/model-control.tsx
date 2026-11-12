@@ -1,3 +1,4 @@
+import "@/styles/model-control.css";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { effortLabel, effortShortLabel, speedLabel } from "@ace/ui-core";
 import { CaretDownIcon, ClockIcon } from "@phosphor-icons/react";

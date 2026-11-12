@@ -91,7 +91,9 @@ inherited. Endpoints no Spade shipped are taken whole; a shipped endpoint nobody
 only when it has a key. Either way it is moved to
 `models.json.old` and never read again.
 
-A model is `endpoint/model`, split at the first `/` (endpoint ids have none; model ids may). Any
+A model is `endpoint/model`, split at the first `/` (endpoint ids have none; model ids may), or
+one of the person's subscriptions, `cli:<provider>[@<account>]/<model>`
+([cli-brains.md](cli-brains.md)). Any
 model id on one of the person's endpoints works, saved or not. Its facts come from what the person
 saved, else the endpoint's own listing when saved from it, else the presets' facts for that id,
 else defaults: context 128,000, capabilities `["tools"]`.
@@ -110,20 +112,21 @@ fields in a body are ignored. Times are integer milliseconds since the epoch.
 
 **Agent** = `{"id", "kind": "main"|"bot", "name", "task", "avatar", "model", "conversation",
 "created_at", "updated_at", "last_activity", "state", "working", "waiting_for", "status",
-"last_message"}`
+"problem", "last_message"}`
 
 - `avatar`: `{"kind":"image","sha256"}` (served by `GET /v1/images/{sha256}`),
   `{"kind":"generated","initials","color"}` with colour one of slate, red, orange, amber, green,
   teal, blue, indigo, violet, pink, or `{"kind":"spade"}`.
 - `state`: `idle`, `working` (a reply is open or a background job runs) or `waiting` (an approval
-  waits for the person). `working` is `state != "idle"`, kept for clients built on the first
+  or a question waits for the person). `working` is `state != "idle"`, kept for clients built on the first
   draft of this contract.
-- `waiting_for`: `"approval"` while `state` is `waiting`, else `null`. `"question"` is reserved
-  for when Spade has a tool that asks the person a question; none exists yet, so only approvals
-  wait today.
+- `waiting_for`: while `state` is `waiting`, `"question"` when the agent asked the person with
+  `ask_user` (see [memory.md](memory.md)), else `"approval"`; `null` otherwise.
 - `status`: a few plain words while not idle (`Thinking`, `Searching the web`, `Reading a page`,
   `Asking Research`, `Waiting for you`, `Working in the background`, `Using <tool>`); never
   arguments; `null` when idle.
+- `problem`: why the agent's latest reply on a subscription failed (signed out, out of quota),
+  until a later reply finishes; `null` otherwise ([cli-brains.md](cli-brains.md)).
 - `last_message`: `{"from": "person"|"agent", "text", "at", "from_agent": {"id","name"}|null}` or
   `null`. The latest message in the conversation: a message to the agent (`person`; with
   `from_agent` set when another bot sent it) or the agent's reply text (`agent`), never tool

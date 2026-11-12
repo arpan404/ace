@@ -213,6 +213,17 @@ impl Engine {
 
     /// The model a new agent gets when none is chosen: the person's first usable model, else the
     /// presets' main role.
+    /// A default chosen without reading any key: the first saved model, else the presets'
+    /// main role.
+    pub(super) fn keyless_default_model(&self) -> String {
+        self.models
+            .endpoints()
+            .iter()
+            .find_map(|e| e.models.first().map(|m| format!("{}/{}", e.id, m.id)))
+            .or_else(|| self.models.for_role(Role::Main).map(str::to_owned))
+            .unwrap_or_default()
+    }
+
     pub fn default_model(&self) -> String {
         let endpoints = self.models.endpoints();
         endpoints
@@ -242,6 +253,17 @@ impl Engine {
             .ok_or(EndpointError::NotFound)
     }
 
+    /// Whether the keychain holds a key for `id`. Keychain I/O can block (a prompt), so it is
+    /// never done while `endpoint_lock` is held.
+    fn key_in_keychain(&self, id: &str) -> Result<bool, EndpointError> {
+        match &self.keychain {
+            Some(keychain) => keychain
+                .has(id)
+                .map_err(|e| EndpointError::Keychain(e.to_string())),
+            None => Ok(false),
+        }
+    }
+
     /// Adds an endpoint, from a preset or from scratch. Its id is a slug of its name.
     pub fn create_endpoint(&self, input: EndpointInput) -> Result<EndpointView, EndpointError> {
         let preset = match &input.preset {
@@ -261,55 +283,73 @@ impl Engine {
             .clone()
             .or_else(|| preset.as_ref().map(|p| p.name.clone()))
             .unwrap_or_default();
-        let taken: HashSet<String> = self.store.endpoints()?.into_iter().map(|e| e.id).collect();
-        // An id that still has a key in the keychain is taken too: a new endpoint never inherits
-        // a key left from another (whose delete could not remove it).
         let base = slug(&name);
-        let mut id = None;
-        for n in 1..=1_000 {
-            let candidate = if n == 1 {
-                base.clone()
-            } else {
-                format!("{base}-{n}")
+        // The id is picked without the lock (an id that still has a key in the keychain is taken
+        // too, so a new endpoint never inherits a key left from another, and reading the keychain
+        // can block), then written under it if still free; else the next one is tried.
+        let mut skip: HashSet<String> = HashSet::new();
+        for _ in 0..5 {
+            let taken: HashSet<String> =
+                self.store.endpoints()?.into_iter().map(|e| e.id).collect();
+            let mut id = None;
+            for n in 1..=1_000 {
+                let candidate = if n == 1 {
+                    base.clone()
+                } else {
+                    format!("{base}-{n}")
+                };
+                if taken.contains(&candidate)
+                    || skip.contains(&candidate)
+                    || self.retiring(&candidate)
+                {
+                    continue;
+                }
+                if !self.key_in_keychain(&candidate)? {
+                    id = Some(candidate);
+                    break;
+                }
+            }
+            let id = id.ok_or_else(|| invalid("too many endpoints share this name"))?;
+            let mut stored = match &preset {
+                Some(preset) => self.stored_preset(preset, id.clone(), name.clone()),
+                None => StoredEndpoint {
+                    id: id.clone(),
+                    name: name.clone(),
+                    format: String::new(),
+                    base_url: String::new(),
+                    headers: Vec::new(),
+                    session_header: None,
+                    needs_key: true,
+                    key_env: None,
+                    preset: None,
+                    created_ms: self.now_ms(),
+                    models: Vec::new(),
+                },
             };
-            if taken.contains(&candidate) {
+            apply(&mut stored, input.clone())?;
+            if let Some(preset) = &preset {
+                bind_to_origin(&mut stored, preset);
+            }
+            let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
+            if self.retiring(&id) {
+                skip.insert(id);
                 continue;
             }
-            let keyed = match &self.keychain {
-                Some(keychain) => keychain
-                    .has(&candidate)
-                    .map_err(|e| EndpointError::Keychain(e.to_string()))?,
-                None => false,
-            };
-            if !keyed {
-                id = Some(candidate);
-                break;
+            match self.store.insert_endpoint(&stored) {
+                Ok(()) => {
+                    self.sync_endpoints()?;
+                    return self.endpoint_view(&stored.id);
+                }
+                // Taken while the keychain was read: try the next id.
+                Err(StoreError::Exists(_)) => {
+                    skip.insert(id);
+                }
+                Err(error) => return Err(error.into()),
             }
         }
-        let id = id.ok_or_else(|| invalid("too many endpoints share this name"))?;
-        let mut stored = match &preset {
-            Some(preset) => self.stored_preset(preset, id, name),
-            None => StoredEndpoint {
-                id,
-                name,
-                format: String::new(),
-                base_url: String::new(),
-                headers: Vec::new(),
-                session_header: None,
-                needs_key: true,
-                key_env: None,
-                preset: None,
-                created_ms: self.now_ms(),
-                models: Vec::new(),
-            },
-        };
-        apply(&mut stored, input)?;
-        if let Some(preset) = &preset {
-            bind_to_origin(&mut stored, preset);
-        }
-        self.store.insert_endpoint(&stored)?;
-        self.sync_endpoints()?;
-        self.endpoint_view(&stored.id)
+        Err(EndpointError::Conflict(
+            "endpoints with this name kept appearing; try again".to_owned(),
+        ))
     }
 
     pub fn update_endpoint(
@@ -317,76 +357,137 @@ impl Engine {
         id: &str,
         input: EndpointInput,
     ) -> Result<EndpointView, EndpointError> {
-        let before = self.endpoint_view(id)?.stored;
-        let mut stored = before.clone();
-        apply(&mut stored, input)?;
-        // A key or headers belong to the host they were set for: never hand them to another.
-        // Checked whatever `needs_key` says now, since it can be turned back on later.
-        let was = base_url::origin(&before.base_url).unwrap_or_default();
-        if !same_origin(&stored.base_url, &before.base_url) {
-            // The keychain itself, so a failed read refuses the change instead of passing as
-            // "no key" (the old key would then go to the new host once the keychain is back).
-            let in_keychain = match &self.keychain {
-                Some(keychain) => keychain
-                    .has(id)
-                    .map_err(|e| EndpointError::Keychain(e.to_string()))?,
-                None => false,
-            };
-            let key = in_keychain
-                || self
-                    .endpoint_of(&before)
-                    .is_some_and(|e| self.models.key_found(&e));
-            if key {
-                return Err(EndpointError::Conflict(format!(
-                    "this endpoint has a key for {}; remove it first (DELETE /v1/keys/{id}{}) and \
-                     add the new host's key after",
-                    was,
-                    before
-                        .key_env
-                        .as_ref()
-                        .map(|v| format!(", and unset {v}"))
-                        .unwrap_or_default()
-                )));
+        // Decided on a read without the lock (the host check reads the keychain, which can
+        // block), then written under it only if the endpoint is still as read; else decided again.
+        for _ in 0..5 {
+            let before = self.endpoint_view(id)?.stored;
+            let mut stored = before.clone();
+            apply(&mut stored, input.clone())?;
+            self.check_host_change(id, &before, &stored)?;
+            let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
+            self.not_retiring(id)?;
+            if self.endpoint_view(id)?.stored != before {
+                continue;
             }
-            if let Some(var) = &before.key_env {
-                return Err(EndpointError::Conflict(format!(
-                    "this endpoint takes its key from {var}, which is for {was}; add a new \
-                     endpoint for the other host instead"
-                )));
-            }
-            if !stored.headers.is_empty() {
-                return Err(EndpointError::Conflict(format!(
-                    "this endpoint sends extra headers to {was}; send \"headers\": {{}} with the new \
-                     base URL to drop them, then add the new host's"
-                )));
-            }
+            self.store.update_endpoint(&stored)?;
+            self.sync_endpoints()?;
+            return self.endpoint_view(id);
         }
-        self.store.update_endpoint(&stored)?;
-        self.sync_endpoints()?;
-        self.endpoint_view(id)
+        Err(EndpointError::Conflict(
+            "the endpoint kept changing; try again".to_owned(),
+        ))
     }
 
-    /// Deletes an endpoint no agent uses. The fast model is cleared if it was on it.
-    pub fn delete_endpoint(&self, id: &str) -> Result<(), EndpointError> {
-        if !self.store.endpoints()?.iter().any(|e| e.id == id) {
-            return Err(EndpointError::NotFound);
+    /// A key or headers belong to the host they were set for: never hand them to another.
+    /// Checked whatever `needs_key` says now, since it can be turned back on later. Reads the
+    /// keychain; never call it with `endpoint_lock` held.
+    fn check_host_change(
+        &self,
+        id: &str,
+        before: &StoredEndpoint,
+        after: &StoredEndpoint,
+    ) -> Result<(), EndpointError> {
+        if same_origin(&after.base_url, &before.base_url) {
+            return Ok(());
         }
+        let was = base_url::origin(&before.base_url).unwrap_or_default();
+        // The keychain itself, so a failed read refuses the change instead of passing as "no
+        // key" (the old key would then go to the new host once the keychain is back).
+        let key = self.key_in_keychain(id)?
+            || self
+                .endpoint_of(before)
+                .is_some_and(|e| self.models.key_found(&e));
+        if key {
+            return Err(EndpointError::Conflict(format!(
+                "this endpoint has a key for {was}; remove it first (DELETE /v1/keys/{id}{}) and \
+                 add the new host's key after",
+                before
+                    .key_env
+                    .as_ref()
+                    .map(|v| format!(", and unset {v}"))
+                    .unwrap_or_default()
+            )));
+        }
+        if let Some(var) = &before.key_env {
+            return Err(EndpointError::Conflict(format!(
+                "this endpoint takes its key from {var}, which is for {was}; add a new endpoint for \
+                 the other host instead"
+            )));
+        }
+        if !after.headers.is_empty() {
+            return Err(EndpointError::Conflict(format!(
+                "this endpoint sends extra headers to {was}; send \"headers\": {{}} with the new \
+                 base URL to drop them, then add the new host's"
+            )));
+        }
+        Ok(())
+    }
+
+    /// Who keeps `id` in use: agents whose model is on it, and agents with a reply still open
+    /// (or paused) on one of its models.
+    fn endpoint_users(&self, id: &str) -> Result<Vec<String>, StoreError> {
         let mut users = self.store.agents_using_endpoint(id)?;
-        // An agent moved to another model may still have a reply open (or paused) on this one.
         for name in self.replies_on_endpoint(id)? {
             if !users.contains(&name) {
                 users.push(name);
             }
         }
-        if !users.is_empty() {
-            return Err(EndpointError::InUse(users));
-        }
-        // The key goes first: if it cannot, the endpoint (and its id) stays, so nothing can
-        // later pick up a key left behind.
+        Ok(users)
+    }
+
+    /// Deletes an endpoint no agent uses, its keychain key first. The fast model is cleared if it
+    /// was on it.
+    pub fn delete_endpoint(&self, id: &str) -> Result<(), EndpointError> {
+        let row = {
+            let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
+            if self.retiring(id) {
+                return Err(EndpointError::Conflict(
+                    "this endpoint is already being removed".to_owned(),
+                ));
+            }
+            let Some(row) = self.store.endpoints()?.into_iter().find(|e| e.id == id) else {
+                return Err(EndpointError::NotFound);
+            };
+            let users = self.endpoint_users(id)?;
+            if !users.is_empty() {
+                return Err(EndpointError::InUse(users));
+            }
+            // This delete owns the endpoint until it ends: no other delete, change, model save or
+            // new endpoint with this id, and no agent can be moved onto it, while the key goes.
+            self.retiring
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .insert(id.to_owned());
+            row
+        };
+        // Released however the delete ends, a panic included, so the endpoint never stays
+        // blocked until a restart.
+        let _owned = Retiring {
+            set: &self.retiring,
+            id,
+        };
+        self.retire_endpoint(&row)
+    }
+
+    fn retire_endpoint(&self, row: &StoredEndpoint) -> Result<(), EndpointError> {
+        let id = row.id.as_str();
+        // The key goes first, outside the lock (it can block): if it cannot, the endpoint and its
+        // id stay, so nothing can later pick up a key left behind.
         if let Some(keychain) = &self.keychain {
             keychain
                 .delete(id)
                 .map_err(|e| EndpointError::Keychain(e.to_string()))?;
+        }
+        let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
+        // Only the very row this delete started with, never a replacement under the same id.
+        match self.store.endpoints()?.into_iter().find(|e| e.id == id) {
+            None => return Ok(()),
+            Some(now) if now != *row => {
+                return Err(EndpointError::Conflict(
+                    "the endpoint changed while it was being removed, so it was kept".to_owned(),
+                ));
+            }
+            Some(_) => {}
         }
         if self
             .fast_model()?
@@ -401,6 +502,24 @@ impl Engine {
             .remove(id);
         self.sync_endpoints()?;
         Ok(())
+    }
+
+    /// Refuses a change to an endpoint that is being deleted.
+    fn not_retiring(&self, id: &str) -> Result<(), EndpointError> {
+        if self.retiring(id) {
+            return Err(EndpointError::Conflict(
+                "this endpoint is being removed".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Whether `id` is being deleted.
+    pub(super) fn retiring(&self, id: &str) -> bool {
+        self.retiring
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains(id)
     }
 
     /// Names of agents with a reply open (or paused) on a model of `endpoint`.
@@ -452,6 +571,8 @@ impl Engine {
         endpoint: &str,
         input: ModelInput,
     ) -> Result<EndpointView, EndpointError> {
+        let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
+        self.not_retiring(endpoint)?;
         let id = input.id.trim().to_owned();
         if id.is_empty() || id.len() > 300 || id.chars().any(char::is_control) {
             return Err(invalid(
@@ -530,6 +651,8 @@ impl Engine {
 
     /// Forgets a saved model. Agents on it keep working, with defaults.
     pub fn delete_model(&self, endpoint: &str, id: &str) -> Result<bool, EndpointError> {
+        let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
+        self.not_retiring(endpoint)?;
         let deleted = self.store.delete_model(endpoint, id)?;
         self.sync_endpoints()?;
         Ok(deleted)
@@ -620,6 +743,21 @@ fn apply(stored: &mut StoredEndpoint, input: EndpointInput) -> Result<(), Endpoi
         stored.needs_key = needs_key;
     }
     Ok(())
+}
+
+/// A delete's hold on its endpoint id, released when dropped.
+struct Retiring<'a> {
+    set: &'a std::sync::Mutex<std::collections::HashSet<String>>,
+    id: &'a str,
+}
+
+impl Drop for Retiring<'_> {
+    fn drop(&mut self) {
+        self.set
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(self.id);
+    }
 }
 
 #[cfg(test)]

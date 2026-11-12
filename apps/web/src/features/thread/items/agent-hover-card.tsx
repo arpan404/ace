@@ -1,6 +1,7 @@
 import { providerAccount, providerNames, subagentLabels } from "@ace/ui-core";
 import type { ReactElement, ReactNode } from "react";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card.tsx";
+import { HoverCard, HoverCardTrigger } from "@/components/ui/hover-card.tsx";
+import { HoverCardContent } from "@/components/ui/hover-card-content.tsx";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useAccountViews } from "@/lib/account-views.ts";

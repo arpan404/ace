@@ -77,6 +77,7 @@ export async function startWorkspaceActions({
     reconcileThread: async (id) => {
       await services.engine?.reconcileThread(id);
     },
+    runsProviderWork: (id) => services.engine?.runsProviderWork(id) ?? false,
     changeWorkspace: (id, commandId, effect, reservation, commit) => {
       if (!services.engine) throw new Error("engine_unavailable");
       return services.engine.changeWorkspace(id, commandId, effect, reservation, commit);

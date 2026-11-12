@@ -1,31 +1,20 @@
 import { useThreadMeta } from "@ace/client-react";
 import { listTreeFacts, treeWorking } from "@ace/ui-core";
 import { CirclesThreeIcon } from "@phosphor-icons/react";
-import {
-  Suspense,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type RefObject,
-} from "react";
+import { Suspense, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { Popover, PopoverContent } from "@/components/ui/popover.tsx";
-import { cn } from "@/lib/cn.ts";
+import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
+import { PendingDismiss } from "@/lib/pending-open.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
+import { DeferredWorkCard } from "./work-surface.ts";
 import { useWorkCardState, useWorkCardStore, type WorkCardStore } from "./work-card-store.ts";
 
-/** The card's groups load on first open, off the thread route's first paint. */
-export const DeferredWorkCard = deferredComponent(() =>
-  import("./work-card.tsx").then((module) => module.WorkCard),
+/** The icon's popover around the card, loaded with it (`work-popover.tsx`). */
+export const DeferredWorkPopover = deferredComponent(() =>
+  Promise.all([import("./work-popover.tsx"), DeferredWorkCard.preload()]).then(
+    ([module]) => module.WorkPopover,
+  ),
 );
-
-/**
- * The floating surface both placements share: solid, 280px, as tall as its content. It holds the
- * thread's facts and controls, which are content, so it is never glass.
- */
-export const workSurface =
-  "ace-floating-solid w-[280px] overflow-x-hidden overflow-y-auto overscroll-contain rounded-popup border border-border bg-popover text-popover-foreground shadow-glass";
 
 /** Space kept between the card and the composer below it. */
 const composerGap = 12;
@@ -54,15 +43,7 @@ export function WorkButton(props: { threadId: string }) {
     return () => store.attachButton(null);
   }, [store]);
   return (
-    <Popover
-      open={popover}
-      onOpenChange={(next, details) => {
-        // A press on the icon toggles; the popover's own outside press must not undo it.
-        const target = details.event?.target;
-        if (!next && target instanceof Node && button.current?.contains(target)) return;
-        store?.setOpen(next);
-      }}
-    >
+    <>
       <span className="relative inline-flex">
         <IconButton
           ref={button}
@@ -89,28 +70,31 @@ export function WorkButton(props: { threadId: string }) {
         )}
       </span>
       {opened && (
-        <PopoverContent
-          anchor={button}
-          // Opened from the shortcut too, the card hands focus back to its icon on close.
-          finalFocus={button}
-          align="end"
-          keepMounted
-          aria-label="Thread details"
-          style={room === undefined ? undefined : ({ "--work-max": `${room}px` } as CSSProperties)}
-          className={cn(
-            workSurface,
-            "max-h-[min(var(--available-height),var(--work-max,70vh))] p-0 data-starting-style:scale-[0.94] motion-reduce:data-starting-style:scale-100",
-          )}
+        // The card's code arrives after the first open: until then Escape or a press elsewhere
+        // still closes it, and a failed load closes it, leaving the thread as it was, until the
+        // next open tries again.
+        <LocalBoundary
+          label="thread details"
+          fallback={null}
+          onFailed={() => store?.setOpen(false)}
+          retryWhen={popover}
         >
-          <Suspense fallback={null}>
-            <DeferredWorkCard.Component
+          <Suspense
+            fallback={
+              popover && <PendingDismiss anchor={button} onDismiss={() => store?.setOpen(false)} />
+            }
+          >
+            <DeferredWorkPopover.Component
               threadId={props.threadId}
-              onClose={() => store?.setOpen(false)}
+              open={popover}
+              button={button}
+              store={store}
+              room={room}
             />
           </Suspense>
-        </PopoverContent>
+        </LocalBoundary>
       )}
-    </Popover>
+    </>
   );
 }
 

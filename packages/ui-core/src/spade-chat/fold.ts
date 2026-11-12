@@ -1,4 +1,6 @@
-import type { SpadeImageRef, SpadeKnownEvent, SpadeLiveInput, SpadeStored } from "./wire.ts";
+import { spadeRemembered, type SpadeRememberedNote } from "./notes.ts";
+import type { SpadeDocumentRef, SpadeImageRef, SpadeVoiceRef } from "./media.ts";
+import type { SpadeKnownEvent, SpadeLiveInput, SpadeStored } from "./wire.ts";
 
 /** A background job: the tool it runs and, for a delegation, how many tasks it handed out. */
 export interface SpadeJob {
@@ -43,7 +45,20 @@ export type SpadeCallState =
 
 export type SpadeReplyPart =
   | { kind: "text"; key: string; text: string }
-  | { kind: "call"; key: string; name: string; state: SpadeCallState };
+  | { kind: "call"; key: string; name: string; state: SpadeCallState }
+  /** A note the bot saved or rewrote with its memory tools (ADR 0128). */
+  | { kind: "remembered"; key: string; note: SpadeRememberedNote }
+  /** The bot asked the person (`ask_user`); their next message answers it. */
+  | { kind: "question"; key: string; text: string }
+  /** Workspace files a tool kept (a research report): chips on the bot's next bubble. */
+  | { kind: "files"; key: string; paths: readonly string[] }
+  /** Images and documents a tool showed the person (`image_generate`, `share_file`; ADR 0134). */
+  | {
+      kind: "shared";
+      key: string;
+      images: readonly SpadeImageRef[];
+      documents: readonly SpadeDocumentRef[];
+    };
 
 export type SpadeReplyEnd =
   | { kind: "finished" }
@@ -69,15 +84,32 @@ export type SpadeEntry =
       key: string;
       text: string;
       images: readonly SpadeImageRef[];
+      /** Present only when the message carries any. */
+      documents?: readonly SpadeDocumentRef[];
+      /** A voice message's recording; `text` is its transcript. */
+      voice?: SpadeVoiceRef;
       pending?: true;
       /** Sent by another bot, not the person. */
       fromAgent?: { id: string; name: string };
+      /** Fired by one of the bot's routines or its heartbeat, not the person. */
+      fromRoutine?: { id: string; name: string; label: string; heartbeat: boolean };
+      /** Sent here from a group the bot is in (ADR 0132). */
+      fromGroup?: { id: string; name: string };
     }
   | SpadeReplyEntry
   /** The model now reads a summary of what came before. */
   | { kind: "compacted"; key: string }
   /** A background job ended; its result went to Spade. */
-  | { kind: "job"; key: string; name: string; outcome: SpadeJobOutcome };
+  | {
+      kind: "job";
+      key: string;
+      name: string;
+      outcome: SpadeJobOutcome;
+      /** Workspace files it kept, for chips on the bot's next bubble. */
+      files: readonly string[];
+    }
+  /** The bot reached a spending cap (ADR 0135): one bubble of the bot's, once per period. */
+  | { kind: "cap"; key: string; scope: "daily" | "monthly"; capMicros: number };
 
 /** How a background job ended: on its own, with an error, or because the person pressed Stop. */
 export type SpadeJobOutcome = "done" | "failed" | "stopped";
@@ -87,6 +119,8 @@ export interface SpadeApproval {
   callId: string;
   name: string;
   arguments: unknown;
+  /** Why the model review asked the person rather than let it run (ADR 0135). */
+  reason: string | undefined;
 }
 
 export interface SpadeConversationState {
@@ -99,7 +133,7 @@ export interface SpadeConversationState {
   title: string;
   entries: SpadeEntry[];
   /** Messages sent from here that Spade hasn't stored yet. */
-  pending: { key: string; text: string; images: readonly SpadeImageRef[] }[];
+  pending: SpadePendingMessage[];
   /** The open reply's id and its entry's index. */
   open: { reply: string; index: number } | undefined;
   /** Where each call of the open reply is shown: its entry's index. */
@@ -107,20 +141,42 @@ export interface SpadeConversationState {
   /** Running tool calls by call id. */
   running: Map<string, { reply: string; name: string }>;
   approvals: SpadeApproval[];
+  /** The open reply's question waiting on the person's next message. */
+  question: { reply: string; callId: string } | undefined;
   /** Background jobs still running, by job id (the id of the call that started each). */
   jobs: Map<string, SpadeJob>;
   /** Jobs a Stop asked to end: their errored end reads as stopped, not failed. */
   stopping: Set<string>;
   /** Stored events of types this client doesn't read, kept count of and otherwise ignored. */
   unknown: number;
+  /** Why the model review escalated each call, by call id, until its approval is answered. */
+  reviews: Map<string, string>;
+  /** Each cap reached, by scope and period, so one shows once. */
+  caps: Set<string>;
   /** What the agent last said it does now, from the live stream; cleared once it is idle. */
   status: string | undefined;
+}
+
+/** A message sent from here that Spade hasn't stored yet, as the person sent it. */
+export interface SpadePendingMessage {
+  key: string;
+  text: string;
+  images: readonly SpadeImageRef[];
+  documents?: readonly SpadeDocumentRef[];
+  voice?: SpadeVoiceRef;
 }
 
 export type SpadeFoldInput =
   | SpadeLiveInput
   /** The person sent `text`; it shows at once and stays until Spade stores it or refuses it. */
-  | { kind: "sent"; key: string; text: string; images?: readonly SpadeImageRef[] }
+  | {
+      kind: "sent";
+      key: string;
+      text: string;
+      images?: readonly SpadeImageRef[];
+      documents?: readonly SpadeDocumentRef[];
+      voice?: SpadeVoiceRef;
+    }
   | { kind: "refused"; key: string };
 
 export function emptySpadeConversation(): SpadeConversationState {
@@ -135,9 +191,12 @@ export function emptySpadeConversation(): SpadeConversationState {
     calls: new Map(),
     running: new Map(),
     approvals: [],
+    question: undefined,
     jobs: new Map(),
     stopping: new Set(),
     unknown: 0,
+    reviews: new Map(),
+    caps: new Set(),
     status: undefined,
   };
 }
@@ -158,7 +217,13 @@ export function foldSpade(state: SpadeConversationState, input: SpadeFoldInput):
     case "sent":
       state.pending = [
         ...state.pending,
-        { key: input.key, text: input.text, images: input.images ?? [] },
+        {
+          key: input.key,
+          text: input.text,
+          images: input.images ?? [],
+          ...(input.documents?.length ? { documents: input.documents } : {}),
+          ...(input.voice ? { voice: input.voice } : {}),
+        },
       ];
       return true;
     case "caught_up": {
@@ -198,18 +263,24 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
   const key = `s${stored.seq}`;
   switch (event.type) {
     case "user_message": {
-      const mine = state.pending.findIndex(
-        (message) => message.text === event.text && sameImages(message.images, event.images),
-      );
-      if (mine >= 0 && !event.from_agent)
-        state.pending = state.pending.filter((_, index) => index !== mine);
+      const mine = state.pending.findIndex((message) => sameMessage(message, event));
+      const relayed = event.from_agent || event.from_routine || event.from_group;
+      if (mine >= 0 && !relayed) state.pending = state.pending.filter((_, index) => index !== mine);
+      // The person's message here answers the bot's question; another bot's, or a group's, doesn't.
+      if (!event.from_agent && !event.from_group) state.question = undefined;
       steer(state, {
         kind: "user",
         key,
         text: event.text,
         images: event.images,
+        ...(event.documents.length ? { documents: event.documents } : {}),
+        ...(event.voice ? { voice: event.voice } : {}),
         ...(event.from_agent
           ? { fromAgent: { id: event.from_agent.id, name: event.from_agent.name } }
+          : {}),
+        ...(event.from_routine ? { fromRoutine: event.from_routine } : {}),
+        ...(event.from_group
+          ? { fromGroup: { id: event.from_group.id, name: event.from_group.name } }
           : {}),
       });
       return true;
@@ -257,12 +328,19 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
     case "approval_requested":
       state.approvals = [
         ...state.approvals.filter((approval) => approval.callId !== event.call_id),
-        { reply: event.reply, callId: event.call_id, name: event.name, arguments: event.arguments },
+        {
+          reply: event.reply,
+          callId: event.call_id,
+          name: event.name,
+          arguments: event.arguments,
+          reason: state.reviews.get(event.call_id),
+        },
       ];
       setCall(state, event.reply, event.call_id, event.name, "waiting");
       return true;
     case "approval_answered":
       state.approvals = state.approvals.filter((approval) => approval.callId !== event.call_id);
+      state.reviews.delete(event.call_id);
       if (!event.allowed) setCall(state, event.reply, event.call_id, undefined, "declined");
       return true;
     case "tool_started":
@@ -272,6 +350,29 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
     case "tool_finished":
       state.running.delete(event.call_id);
       setCall(state, event.reply, event.call_id, event.name, event.is_error ? "failed" : "done");
+      remembered(state, event.reply, key, event.name, event.content, event.is_error === true);
+      if (event.files.length)
+        updateOpen(state, event.reply, (entry) => ({
+          ...entry,
+          parts: [...entry.parts, { kind: "files", key: `${key}:files`, paths: event.files }],
+        }));
+      return true;
+    case "shared":
+      if (!event.images.length && !event.documents.length) return false;
+      return updateOpen(state, event.reply, (entry) => ({
+        ...entry,
+        parts: [
+          ...entry.parts,
+          { kind: "shared", key, images: event.images, documents: event.documents },
+        ],
+      }));
+    case "question_asked":
+      if (state.open?.reply !== event.reply) return false;
+      state.question = { reply: event.reply, callId: event.call_id };
+      updateOpen(state, event.reply, (entry) => ({
+        ...entry,
+        parts: [...entry.parts, { kind: "question", key, text: event.question }],
+      }));
       return true;
     case "job_started":
       state.jobs.set(event.job, {
@@ -285,7 +386,23 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       const stopped = state.stopping.delete(event.job);
       const outcome = event.is_error ? (stopped ? "stopped" : "failed") : "done";
       // Its result goes to Spade like a message: what Spade says about it reads below it.
-      steer(state, { kind: "job", key, name: event.name, outcome });
+      steer(state, { kind: "job", key, name: event.name, outcome, files: event.files });
+      return true;
+    }
+    case "cap_reached": {
+      const period = `${event.scope}:${JSON.stringify(event.period_start ?? stored.at)}`;
+      if (state.caps.has(period)) return false;
+      state.caps.add(period);
+      state.entries.push({ kind: "cap", key, scope: event.scope, capMicros: event.cap_micros });
+      return true;
+    }
+    case "call_reviewed": {
+      if (event.verdict !== "escalate") return false;
+      state.reviews.set(event.call_id, event.reason);
+      const at = state.approvals.findIndex((approval) => approval.callId === event.call_id);
+      const asked = state.approvals[at];
+      if (!asked) return false;
+      state.approvals = state.approvals.with(at, { ...asked, reason: event.reason });
       return true;
     }
     case "reply_finished":
@@ -307,7 +424,9 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       // An approval for a stopped reply can no longer be answered.
       const before = state.approvals.length;
       if (event.reply) state.approvals = state.approvals.filter((a) => a.reply !== event.reply);
-      return state.approvals.length !== before;
+      const asked = state.question !== undefined && state.question.reply === event.reply;
+      if (asked) state.question = undefined;
+      return state.approvals.length !== before || asked;
     }
     case "renamed":
       if (state.title === event.title) return false;
@@ -318,6 +437,36 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
 
 const sameImages = (a: readonly SpadeImageRef[], b: readonly SpadeImageRef[]) =>
   a.length === b.length && a.every((image, index) => image.sha256 === b[index]?.sha256);
+
+/** The same file: by hash when both know it, else by name and size. */
+const sameDocument = (a: SpadeDocumentRef, b: SpadeDocumentRef) =>
+  a.sha256 && b.sha256 ? a.sha256 === b.sha256 : a.name === b.name && a.bytes === b.bytes;
+
+const sameDocuments = (a: readonly SpadeDocumentRef[], b: readonly SpadeDocumentRef[]) =>
+  a.length === b.length && a.every((document, index) => sameDocumentAt(document, b[index]));
+const sameDocumentAt = (a: SpadeDocumentRef, b: SpadeDocumentRef | undefined) =>
+  b !== undefined && sameDocument(a, b);
+
+/** Both carry no recording, or the same one (by hash when both know it, else by size). */
+const sameVoice = (a: SpadeVoiceRef | undefined, b: SpadeVoiceRef | undefined) =>
+  a === undefined || b === undefined
+    ? a === b
+    : a.sha256 && b.sha256
+      ? a.sha256 === b.sha256
+      : a.bytes === b.bytes;
+
+/**
+ * Whether Spade's stored `event` is the person's pending `message`: the same words, images,
+ * documents and recording. A stored message that only shares the words is another one.
+ */
+const sameMessage = (
+  message: SpadePendingMessage,
+  event: Extract<SpadeKnownEvent, { type: "user_message" }>,
+) =>
+  message.text === event.text &&
+  sameImages(message.images, event.images) &&
+  sameDocuments(message.documents ?? [], event.documents) &&
+  sameVoice(message.voice, event.voice);
 
 /**
  * A message while a reply is open steers it: the reply carries on under the message, so what
@@ -334,6 +483,23 @@ function steer(state: SpadeConversationState, message: SpadeEntry) {
   else state.entries.splice(open.index, 1);
   state.entries.push(message, { ...entry, key: `${entry.key}@${message.key}`, parts: [] });
   open.index = state.entries.length - 1;
+}
+
+/** A memory tool's result that saved or rewrote a note shows as its one line in the reply. */
+function remembered(
+  state: SpadeConversationState,
+  reply: string,
+  key: string,
+  name: string,
+  content: unknown,
+  isError: boolean,
+) {
+  const note = spadeRemembered(name, content, isError);
+  if (note)
+    updateOpen(state, reply, (entry) => ({
+      ...entry,
+      parts: [...entry.parts, { kind: "remembered", key, note }],
+    }));
 }
 
 /** Replace the open reply's entry when it is `reply`; `change` returns undefined for no change. */
@@ -435,6 +601,7 @@ function closeOpen(state: SpadeConversationState, end: SpadeReplyEnd, text: stri
     state.calls.delete(callId);
   }
   state.approvals = state.approvals.filter((approval) => approval.reply !== open.reply);
+  if (state.question?.reply === open.reply) state.question = undefined;
   for (const [callId, call] of state.running)
     if (call.reply === open.reply) state.running.delete(callId);
   state.open = undefined;

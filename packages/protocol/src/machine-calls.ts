@@ -7,6 +7,7 @@ import { ThreadStatus } from "./thread-status.ts";
 import { WatchedThread } from "./agent-monitor.ts";
 import { MessageText } from "./message-limits.ts";
 import { MessageArrival } from "./message-arrival.ts";
+import { SpadeInboxRequest } from "./spade-remote.ts";
 
 /**
  * Agent calls between paired machines (ADR 0078). The calling daemon forwards over the target's
@@ -193,6 +194,11 @@ export const MachineCall = z.discriminatedUnion("op", [
     op: z.literal("command.jobs"),
     jobIds: z.array(CommandJobId).min(1).max(16),
   }),
+  /**
+   * A request for Spade's inbox there (ADR 0132), passed through unread except `op`: Spade owns
+   * its schema. Under the Agents grant; answered with `MachineSpadeResult`.
+   */
+  z.strictObject({ op: z.literal("spade"), request: SpadeInboxRequest }),
 ]);
 export type MachineCall = z.infer<typeof MachineCall>;
 export const MachineCallRequest = z.object({ origin: MachineCallOrigin, call: MachineCall });

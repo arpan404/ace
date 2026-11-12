@@ -9,7 +9,7 @@ pub mod config;
 
 use std::time::Duration;
 
-use spade_keys::{KeyRequest, Keys};
+use spade_keys::Keys;
 
 pub use config::{Backend, ConfigError, Kind, SearchConfig};
 
@@ -102,13 +102,11 @@ impl Search {
         count: usize,
     ) -> Result<Vec<(String, String, String)>, String> {
         let key = if backend.needs_key {
-            let request = KeyRequest {
-                endpoint: &backend.id,
-                env: backend.key_env.as_deref(),
-            };
+            // Off the async workers: a keychain read can block on a prompt.
             Some(
                 self.keys
-                    .get(request)
+                    .find(&backend.id, backend.key_env.as_deref())
+                    .await
                     .ok_or("no key in the keychain or environment")?,
             )
         } else {

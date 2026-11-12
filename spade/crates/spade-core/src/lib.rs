@@ -1,12 +1,21 @@
 //! Spade's pure logic: no I/O, no clocks, no randomness. Everything here is decided from its
 //! inputs, so it is tested directly.
 
+pub mod activity;
+pub mod brain;
 pub mod checkpoint;
 pub mod compaction;
 pub mod context;
 pub mod event;
 pub mod gate;
+pub mod group;
 pub mod maintenance;
+pub mod memory;
+pub mod oversight;
+pub mod redact;
+pub mod research;
+pub mod review;
+pub mod routine;
 pub mod skills;
 pub mod spending;
 pub mod title;

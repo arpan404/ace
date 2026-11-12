@@ -32,21 +32,25 @@ function send(
     body?: Buffer | undefined;
     contentType?: string | undefined;
     accept?: string;
+    headers?: Readonly<Record<string, string>> | undefined;
   },
   signal: AbortSignal,
   authorized = true,
 ): Promise<IncomingMessage> {
   return new Promise((resolve, reject) => {
-    const headers = headersFor(
-      connection,
-      {
-        ...(input.accept ? { accept: input.accept } : {}),
-        ...(input.body === undefined
-          ? {}
-          : { contentType: input.contentType ?? "application/json", length: input.body.length }),
-      },
-      authorized,
-    );
+    const headers = {
+      ...input.headers,
+      ...headersFor(
+        connection,
+        {
+          ...(input.accept ? { accept: input.accept } : {}),
+          ...(input.body === undefined
+            ? {}
+            : { contentType: input.contentType ?? "application/json", length: input.body.length }),
+        },
+        authorized,
+      ),
+    };
     const outgoing = request(
       {
         host: connection.host,
@@ -88,10 +92,19 @@ async function answer(response: IncomingMessage, maxBytes: number): Promise<Spad
   return { kind: "response", status: response.statusCode ?? 502, body, contentType };
 }
 
-/** One request to Spade's API; the answer comes back as bytes, uninterpreted. */
+/**
+ * One request to Spade's API; the answer comes back as bytes, uninterpreted. `headers` are the
+ * daemon's own (never a client's); the token, accept and body headers always win over them.
+ */
 export async function spadeRequest(
   connection: SpadeConnection,
-  input: { method: string; path: string; body?: Buffer | undefined; contentType?: string },
+  input: {
+    method: string;
+    path: string;
+    body?: Buffer | undefined;
+    contentType?: string;
+    headers?: Readonly<Record<string, string>>;
+  },
   options: { signal: AbortSignal; maxBytes: number },
 ): Promise<SpadeAnswer> {
   return answer(await send(connection, input, options.signal), options.maxBytes);

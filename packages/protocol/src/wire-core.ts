@@ -271,6 +271,13 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
        * daemon sends the full shape.
        */
       trims: z.array(z.string().max(32)).max(16).optional(),
+      /**
+       * Frame packing this client can undo: `lines` lets the daemon put several server messages
+       * in one text frame, each one's JSON on its own line (joined by `\n`, which JSON text
+       * never holds raw), in the order they were sent. Unknown names are ignored; without
+       * `lines` every frame holds exactly one message.
+       */
+      framing: z.array(z.string().max(32)).max(8).optional(),
     })
     .refine(
       (hello) =>

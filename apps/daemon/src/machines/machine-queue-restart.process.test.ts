@@ -6,7 +6,8 @@ import { z } from "zod";
 import { MonitorSnapshot, ThreadId, WaitResult, type AgentControlOperation } from "@ace/protocol";
 import { SettingsService } from "@ace/settings";
 import { pairedMachines } from "./machine-test-support.ts";
-import { rewindSchema } from "../schema-rewind-test-support.ts";
+import { schemaVersionBefore } from "../migrations.ts";
+import { undoMachineCode } from "../upgrade-test-support.ts";
 import { machineChildLaunches } from "../machine-tables.ts";
 
 type Pair = Awaited<ReturnType<typeof pairedMachines>>;
@@ -182,14 +183,17 @@ it("a delegation made before the slot table existed counts against the limit onc
   // The database goes back to the layout before run slots were tracked: the delegation is in
   // machine_threads only, before the two schema steps that track them (and the grants, remote
   // jobs, started-by and retired-workflow steps after them, which need nothing back, and the
-  // liveness step, whose
-  // columns go too). Starting the daemon upgrades it.
+  // liveness, machine code, install and outside client steps, which go too). Starting the
+  // daemon upgrades it.
   await pair.restartTarget((dataDir) => {
     const db = new DatabaseSync(join(dataDir, "events.sqlite"));
     try {
-      rewindSchema(db, machineChildLaunches);
       db.exec(
-        "DROP TABLE machine_child_launches; DROP TABLE machine_message_rejections; DROP TABLE machine_child_cursors;",
+        undoMachineCode +
+          "DROP INDEX machine_children_seen; DROP INDEX machine_children_stopping; ALTER TABLE machine_children DROP COLUMN seen_at; ALTER TABLE machine_children DROP COLUMN silent_since; ALTER TABLE machine_children DROP COLUMN stop_started_at; ALTER TABLE machine_children DROP COLUMN stop_attempts; ALTER TABLE machine_children DROP COLUMN stop_last_at; ALTER TABLE machine_children DROP COLUMN stopped_unconfirmed; DROP TABLE machine_child_launches; DROP TRIGGER machine_message_rejections_revoked; DROP TABLE machine_message_rejections; DROP TABLE machine_child_cursors; DROP INDEX machine_children_unsettled; DROP INDEX machine_children_parent; DROP INDEX machine_children_undelivered; DROP INDEX machine_children_lost; ALTER TABLE machine_children DROP COLUMN device_id; ALTER TABLE machine_children DROP COLUMN lost_at; ALTER TABLE machine_children DROP COLUMN lost_key; ALTER TABLE machine_children DROP COLUMN lost_ask",
+      );
+      db.prepare("UPDATE schema_version SET version=?").run(
+        schemaVersionBefore(machineChildLaunches),
       );
     } finally {
       db.close();
