@@ -124,7 +124,7 @@ fn still_open(engine: &Engine, id: &str, reply: &str) -> Result<bool, spade_stor
 }
 
 /// Resolves once Stop is pressed (or the turn's signal goes away).
-async fn stopped(stop: &mut watch::Receiver<bool>) {
+pub(super) async fn stopped(stop: &mut watch::Receiver<bool>) {
     let _ = stop.wait_for(|stopped| *stopped).await;
 }
 
@@ -328,25 +328,23 @@ async fn model_step(
         let streamed = u32::try_from(text.len() / 4).unwrap_or(u32::MAX);
         super::ledger::likely_usage(input, hint, streamed)
     };
-    let opened = tokio::select! {
-        opened = engine.models.stream(&model, &prompt) => opened,
-        _ = stopped(stop) => {
+    // Sent again while it fails before anything streams; only a call the endpoint answered is
+    // paid for, and one cut off while waiting for its answer may have been.
+    let mut stream = match super::retry::open(engine, id, &model, &prompt, stop, pause).await {
+        super::retry::Opened::Answering(stream) => stream,
+        super::retry::Opened::Stopped => {
             admitted.settle(&partly(""));
             return Step::Stopped(String::new());
         }
-        _ = pausing(pause, Point::Streaming) => {
+        super::retry::Opened::Paused => {
             admitted.settle(&partly(""));
             return Step::Paused;
         }
-    };
-    let stream = match opened {
-        Ok(stream) => stream,
-        Err(error) => {
+        super::retry::Opened::Failed(error) => {
             admitted.settle_if(error.usage());
             return Step::Failed(String::new(), error.to_string());
         }
     };
-    let mut stream = Box::pin(stream);
     let mut text = String::new();
     let mut calls: Vec<ToolCall> = Vec::new();
     let mut checkpoints = Checkpoints::new(engine.now_ms());

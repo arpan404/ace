@@ -30,6 +30,8 @@ pub struct Limits {
     pub remote_asks_per_day: usize,
     /// Asks to other machines that may wait in the outbox at once.
     pub remote_asks_waiting: usize,
+    /// Sending a model step again when it failed before anything streamed.
+    pub retry: super::retry::Retry,
 }
 
 impl Default for Limits {
@@ -45,6 +47,7 @@ impl Default for Limits {
             job_timeout: Duration::from_secs(30 * 60),
             remote_asks_per_day: 500,
             remote_asks_waiting: 500,
+            retry: super::retry::Retry::default(),
         }
     }
 }

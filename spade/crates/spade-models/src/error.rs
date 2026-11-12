@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::prompt::Usage;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -23,6 +25,18 @@ pub enum ModelError {
     #[error("{model}: {message}")]
     Provider { model: String, message: String },
 
+    /// The endpoint never answered: the request could not be sent, or it was refused with an
+    /// HTTP error before anything streamed. Nothing was billed. `transient` failures (the
+    /// network, `408`, `429`, `5xx`) may succeed if sent again, after `retry_after` when the
+    /// endpoint named a wait.
+    #[error("{model}: {message}")]
+    Unanswered {
+        model: String,
+        message: String,
+        transient: bool,
+        retry_after: Option<Duration>,
+    },
+
     /// The endpoint answered (and charged for it) but sent nothing usable.
     #[error("{model} returned no text")]
     Empty { model: String, usage: Usage },
@@ -43,6 +57,26 @@ impl ModelError {
     pub fn usage(&self) -> Option<Usage> {
         match self {
             Self::Empty { usage, .. } | Self::Shape { usage, .. } => Some(*usage),
+            _ => None,
+        }
+    }
+
+    /// Whether sending the same request again may succeed: it never reached a model, and the
+    /// failure was the network's or the endpoint's passing state, not the request's.
+    pub fn transient(&self) -> bool {
+        matches!(
+            self,
+            Self::Unanswered {
+                transient: true,
+                ..
+            }
+        )
+    }
+
+    /// How long the endpoint asked to wait before sending again (`retry-after`).
+    pub fn retry_after(&self) -> Option<Duration> {
+        match self {
+            Self::Unanswered { retry_after, .. } => *retry_after,
             _ => None,
         }
     }

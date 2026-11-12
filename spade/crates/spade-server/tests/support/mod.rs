@@ -168,6 +168,8 @@ pub struct Options {
     pub ids: Option<Arc<dyn Ids>>,
     /// Where bots on subscriptions reach ace (ADR 0133), set before work opens.
     pub brains: Option<spade_server::engine::BrainSource>,
+    /// Sending a model step again; quick waits when absent, so a failing endpoint is not slow.
+    pub model_retry: Option<spade_server::engine::Retry>,
 }
 
 /// A clock a test sets by hand.
@@ -250,6 +252,7 @@ impl Default for Options {
             clock: None,
             ids: None,
             brains: None,
+            model_retry: None,
         }
     }
 }
@@ -433,7 +436,14 @@ impl Spade {
                 .unwrap_or_else(|| Arc::new(CountingIds::default())),
             daily_cap_micros: spade_core::spending::usd_to_micros(options.cap_usd),
             utc_offset_seconds: 0,
-            limits: options.limits,
+            limits: Limits {
+                retry: options.model_retry.unwrap_or(spade_server::engine::Retry {
+                    tries: 3,
+                    first_wait: Duration::from_millis(10),
+                    longest: Duration::from_secs(1),
+                }),
+                ..options.limits
+            },
             skills: options.skills,
             images: spade_server::images::ImageStore::open(&dir.path().join("images"))?,
             adopt: options.adopt.clone(),

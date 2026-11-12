@@ -48,6 +48,14 @@ turn's total.
   new one. Stop cancels jobs and records them stopped without starting a turn; after a restart each
   lost job is delivered as "unknown outcome". The conversation list shows `jobs` running, so a
   conversation never reads as idle while one is out.
+- **Sending a step again:** a model step that fails before anything streamed, because the
+  request could not be sent or the endpoint answered `408`, `429` or `5xx`, is sent again: three
+  tries in all, waiting 2 s and then 6 s, or the endpoint's `retry-after` when it gives one, and
+  never more than 20 s of waiting in all (an endpoint asking for longer is not waited for). The
+  status line reads "Retrying" meanwhile; Stop and a pause end the wait. A refused request was
+  never billed, so it costs nothing; only the call that answered is paid for. Once anything has
+  streamed the step is never sent again: a cut stream fails or is interrupted as below. Other
+  refusals (`400`, `401`, a missing model) fail at once.
 - **Stop** cancels the model stream and running tools; calls left without a result are answered
   "not run" in later prompts.
 - **Limits:** 30 steps, $2 per turn, the daily cap; each ends the turn with `reply_failed` and a

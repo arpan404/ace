@@ -59,6 +59,8 @@ pub struct Script {
     pub delay: Duration,
     /// Answer with this HTTP status instead.
     pub fail: Option<u16>,
+    /// With `fail`, the `retry-after` header sent with it.
+    pub retry_after: Option<String>,
     /// Input tokens reported as read from the cache, and as written to it.
     pub cache_read: u32,
     pub cache_write: u32,
@@ -76,6 +78,7 @@ impl Script {
             chunks: 2,
             delay: Duration::ZERO,
             fail: None,
+            retry_after: None,
             cache_read: 0,
             cache_write: 0,
             calls: Vec::new(),
@@ -103,6 +106,12 @@ impl Script {
             fail: Some(status),
             ..Self::reply("")
         }
+    }
+
+    /// With `failing`, asks the caller to wait this long (`retry-after`, in seconds).
+    pub fn retry_after(mut self, seconds: &str) -> Self {
+        self.retry_after = Some(seconds.to_owned());
+        self
     }
 
     /// Reports `read` input tokens served from the cache and `write` written to it.
@@ -255,12 +264,20 @@ async fn answer(
     if let Some(status) = script.fail {
         let status = StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
         let error = json!({ "error": { "message": "fake endpoint failure", "type": "fake" } });
-        return (
+        let mut response = (
             status,
             [("content-type", "application/json")],
             error.to_string(),
         )
             .into_response();
+        if let Some(wait) = script
+            .retry_after
+            .as_deref()
+            .and_then(|wait| axum::http::HeaderValue::from_str(wait).ok())
+        {
+            response.headers_mut().insert("retry-after", wait);
+        }
+        return response;
     }
     let tokens = Tokens {
         read: script.cache_read,

@@ -16,7 +16,7 @@ use crate::catalog::{Catalog, Endpoint, Model, Price, Role};
 use crate::error::{self, ModelError};
 use crate::listing::{self, ListBounds, Listed};
 use crate::prompt::{Delta, Generated, Message, Prompt, Reply, ToolCall, Usage};
-use crate::{thoughts, typed};
+use crate::{failure, thoughts, typed};
 use spade_keys::{KeyRequest, Keys};
 
 /// Calls models on the person's endpoints. Starts with the presets' endpoints; the server sets the
@@ -202,7 +202,7 @@ impl Models {
             .client
             .exec_chat(call.target, request(prompt), Some(&call.options))
             .await
-            .map_err(|error| provider_error(&call.reference, &error))?;
+            .map_err(|error| failure::read(&call.reference, &error, false))?;
         let usage = usage(&response.usage);
         let calls: Vec<ToolCall> = response
             .content
@@ -245,7 +245,7 @@ impl Models {
             .client
             .exec_chat(call.target, request(prompt), Some(&options))
             .await
-            .map_err(|error| provider_error(&call.reference, &error))?;
+            .map_err(|error| failure::read(&call.reference, &error, false))?;
         let cost = usage(&response.usage);
         let text = response.first_text().ok_or_else(|| ModelError::Empty {
             model: call.reference.clone(),
@@ -274,11 +274,19 @@ impl Models {
             .client
             .exec_chat_stream(call.target, request(prompt), Some(&options))
             .await
-            .map_err(|error| provider_error(&call.reference, &error))?;
+            .map_err(|error| failure::read(&call.reference, &error, false))?;
         let reference = call.reference;
+        // Whether the endpoint began a successful answer: a failure before that never reached a
+        // model and may be sent again; one after it is the model's.
+        let mut answered = false;
         Ok(response
             .stream
             .filter_map(move |event| {
+                // The SDK starts every stream with `Start` before the request is even sent, so
+                // only what came after it shows the endpoint answered.
+                if matches!(&event, Ok(e) if !matches!(e, ChatStreamEvent::Start)) {
+                    answered = true;
+                }
                 let delta = match event {
                     Ok(ChatStreamEvent::Chunk(chunk)) => Some(vec![Ok(Delta::Text(chunk.content))]),
                     Ok(ChatStreamEvent::ReasoningChunk(chunk)) => {
@@ -303,7 +311,7 @@ impl Models {
                     }
                     // Start, heartbeats and partial tool-call chunks carry nothing the caller needs.
                     Ok(_) => None,
-                    Err(error) => Some(vec![Err(provider_error(&reference, &error))]),
+                    Err(error) => Some(vec![Err(failure::read(&reference, &error, answered))]),
                 };
                 std::future::ready(delta)
             })
@@ -433,12 +441,5 @@ fn usage(usage: &genai::chat::Usage) -> Usage {
         output_tokens: count(usage.completion_tokens),
         cache_read_tokens: count(details.and_then(|d| d.cached_tokens)),
         cache_write_tokens: count(details.and_then(|d| d.cache_creation_tokens)),
-    }
-}
-
-fn provider_error(model: &str, error: &genai::Error) -> ModelError {
-    ModelError::Provider {
-        model: model.to_owned(),
-        message: error.to_string(),
     }
 }

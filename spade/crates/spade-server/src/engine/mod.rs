@@ -22,6 +22,7 @@ mod media;
 mod memory;
 mod outbox;
 mod oversight;
+mod retry;
 mod review;
 pub mod roster;
 mod routines;
@@ -41,6 +42,7 @@ pub use oversight::{
     ActivityPage, ActivityQuery, AgentOversight, Global, GlobalChange, OversightChange,
     OversightError,
 };
+pub use retry::Retry;
 pub use roster::{LastMessage, State};
 pub use types::{
     Activity, AgentChange, AgentError, AgentInput, AgentView, AnswerError, AvatarInput,

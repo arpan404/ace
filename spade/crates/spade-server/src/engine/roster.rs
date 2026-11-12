@@ -139,6 +139,8 @@ pub fn tool_status(tool: &str, bot: Option<&str>) -> String {
 }
 
 pub const THINKING: &str = "Thinking";
+/// A model step failed before anything streamed and is being sent again.
+pub const RETRYING: &str = "Retrying";
 pub const WAITING_FOR_YOU: &str = "Waiting for you";
 pub const IN_BACKGROUND: &str = "Working in the background";
 

@@ -9,6 +9,7 @@ pub mod catalog;
 mod client;
 pub mod config;
 mod error;
+mod failure;
 mod format;
 pub mod listing;
 mod media;
