@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { admissionWords, appUpdateWords } from "./host-checks.ts";
+import { admissionWords, appUpdateWords, checksRunning, checksRunningLine } from "./host-checks.ts";
 
 const open = { holds: [], busy: 0, waiting: 0 };
 
@@ -77,4 +77,16 @@ test("the desktop app's update reads as its version and one line, loud only for 
       report: { ...report, available: "1.4.2", downloaded: true, restartRequired: true },
     }),
   ).toEqual({ version: "1.4.1", line: "Restart to finish updating", needsYou: true });
+});
+
+test("a checks run in progress counts its time, and only checks tell the person they can leave", () => {
+  const cases: [Parameters<typeof checksRunningLine>, string][] = [
+    [["doctor", 12_000], "Checking for 12s. You can leave this page; the checks keep running."],
+    [["fix", 75_000], "Repairing for 1m 15s."],
+  ];
+  for (const [input, line] of cases) expect(checksRunningLine(...input)).toBe(line);
+  expect(checksRunning("doctor")).toEqual({
+    lead: "Checking for",
+    note: "You can leave this page; the checks keep running.",
+  });
 });

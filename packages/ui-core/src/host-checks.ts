@@ -1,4 +1,5 @@
 import type { Admission, AppUpdate, DiagnosticsHealth } from "@ace/protocol";
+import { formatElapsed } from "./time.ts";
 
 /** Each read-only setup check's name as people know it, and what to do when it fails. */
 export const hostChecks: Record<string, { label: string; fix: string }> = {
@@ -38,6 +39,28 @@ export const checkStatusWords = {
   warn: "Needs attention",
   fail: "Needs a fix",
 } as const;
+
+/** The checks run (Run checks, Run safe repairs), which outlives the page that started it. */
+export const checksRunWords = {
+  failed: "Couldn't finish the checks. Reconnect to this computer and try again.",
+  busy: "Other checks are running on this computer. Try again when they finish.",
+} as const;
+
+/**
+ * The words around a running run's elapsed time, for a client that counts it itself: "Checking
+ * for" 12s, then the note. Only checks say the page can be left; repairs just count.
+ */
+export function checksRunning(operation: "doctor" | "fix"): { lead: string; note: string } {
+  return operation === "fix"
+    ? { lead: "Repairing for", note: "" }
+    : { lead: "Checking for", note: "You can leave this page; the checks keep running." };
+}
+
+/** "Checking for 12s. You can leave this page; the checks keep running." */
+export function checksRunningLine(operation: "doctor" | "fix", elapsedMs: number): string {
+  const { lead, note } = checksRunning(operation);
+  return `${lead} ${formatElapsed(elapsedMs)}.${note ? ` ${note}` : ""}`;
+}
 
 /** Each daemon queue's name as people know it. */
 export const queueLabels: Record<string, string> = {

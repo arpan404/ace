@@ -1,7 +1,12 @@
 import { useConnectionState } from "@ace/client-react";
 import { Link } from "@tanstack/react-router";
-import { formatElapsed, type ReadinessTone } from "@ace/ui-core";
-import { checkStatusWords, hostChecks, unknownCheck } from "@ace/ui-core/host-care";
+import type { ReadinessTone } from "@ace/ui-core";
+import {
+  checkStatusWords,
+  checksRunningLine,
+  hostChecks,
+  unknownCheck,
+} from "@ace/ui-core/host-care";
 import { StatusLine } from "@/components/provider-tile.tsx";
 import { StatusLabel } from "@/components/status-label.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -38,9 +43,7 @@ export function RunChecks(props: {
       </div>
       {running && (
         <p role="status" className="text-sm text-muted-foreground">
-          {running.operation === "fix"
-            ? `Repairing for ${formatElapsed(now - (since ?? now))}.`
-            : `Checking for ${formatElapsed(now - (since ?? now))}. You can leave this page; the checks keep running.`}
+          {checksRunningLine(running.operation, now - (since ?? now))}
         </p>
       )}
       {error && (

@@ -3,6 +3,7 @@ import { useClient, useConnectionState } from "@ace/client-react";
 import type { DiagnosticRepair, DiagnosticReport, DiagnosticsRun } from "@ace/protocol";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { checksRunWords } from "@ace/ui-core/host-care";
 import { catalogKey } from "@/lib/model-catalog.ts";
 import { refreshProviders } from "@/lib/provider-readiness.ts";
 import { useClock } from "@/lib/time.ts";
@@ -11,8 +12,8 @@ import { useClock } from "@/lib/time.ts";
 const CHECKS_TIMEOUT_MS = 16 * 60_000;
 const checksRunKey = ["daemon", "checks-run"] as const;
 const idle: DiagnosticsRun = { state: "idle" };
-const failedText = "Couldn't finish the checks. Reconnect to this computer and try again.";
-const busyText = "Other checks are running on this computer. Try again when they finish.";
+const failedText = checksRunWords.failed;
+const busyText = checksRunWords.busy;
 
 /** The daemon's run as this page knows it. */
 interface ChecksRead {
