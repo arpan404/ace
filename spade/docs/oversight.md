@@ -62,10 +62,15 @@ midnight."}`; `bot_message` to it answers the caller with that error; its routin
   heartbeat are skipped with that detail.
 
 Every model call (a step, compaction, a title, a review, research) is admitted against the caps
-counting the calls still in flight at their estimated cost (prompt size, output limit, price),
-and the estimate is released when its real cost is recorded. Calls started at once therefore
-can't all pass a cap the ledger has not reached yet; a cap can be passed by the calls admitted
-before it was reached. The service's daily cap is counted in the same day as the bots' caps.
+counting the calls still in flight at their estimated cost, and the estimate is released when its
+real cost is recorded. The estimate is the prompt at about four characters a token, the part the
+endpoint will read from its cache (a turn's previous prompt) at the cache-read price, and as
+output the call's own limit, else the longest of the turn's last three answers, else 1,024 tokens.
+Only real spend reaching a cap refuses a call (and only that stores `cap_reached` or closes a
+turn). When it is the estimates of running calls that would pass a cap, the call waits until one
+of them settles and looks again. A step cut off before its usage arrived (Stop, a pause, an
+error, an early end) is charged what the error reported, else its prompt and what streamed. The
+service's daily cap is counted in the same day as the bots' caps.
 
 ## Activity log
 

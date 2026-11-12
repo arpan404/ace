@@ -11,6 +11,9 @@ use spade_models::Message;
 
 use super::Engine;
 
+/// What compacting by hand answers when a cap was reached as it was about to ask the model.
+pub(super) const AT_CAP: &str = "the bot is at a spending cap";
+
 /// The summary used when the model cannot write one: older turns are left out, visibly.
 const LEFT_OUT: &str = "Earlier messages were left out to fit the model's context; ask the person \
                         if something from before is needed.";
@@ -69,7 +72,7 @@ pub(super) async fn now(
     if run(engine, id, model, &events, Plan { keep_from }, focus).await {
         Ok(true)
     } else {
-        Err("the bot is at a spending cap".to_owned())
+        Err(AT_CAP.to_owned())
     }
 }
 
@@ -93,7 +96,9 @@ async fn run(
     });
     let carried = compaction::carried_out(events, plan.keep_from, &engine.tools.registry_for(id));
     // Admitted like every model call (ADR 0135); at a cap nothing is compacted or spent.
-    let Ok(admitted) = engine.admit(id, model, &prompt) else {
+    // It waits while only calls still running stand in the way.
+    let hint = super::ledger::turn_hint(events);
+    let Ok(admitted) = engine.admit_waiting(id, model, &prompt, hint).await else {
         return false;
     };
     let written = match engine.models.chat(model, &prompt).await {

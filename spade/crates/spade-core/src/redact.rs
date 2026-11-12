@@ -377,17 +377,39 @@ mod tests {
         ] {
             assert_eq!(text(case), case);
         }
-        let args = arguments(&json!({ "key": "Enter", "session_id": "s1", "max_tokens": 5,
-                                      "keywords": "rust", "api_key": "abc" }));
-        assert!(args.contains("key: Enter") && args.contains("session_id: s1"), "{args}");
+        let args = arguments(
+            &json!({ "key": "Enter", "session_id": "s1", "max_tokens": 5,
+                                      "keywords": "rust", "api_key": "abc" }),
+        );
+        assert!(
+            args.contains("key: Enter") && args.contains("session_id: s1"),
+            "{args}"
+        );
         assert!(args.contains("max_tokens: 5") && args.contains("keywords: rust"));
         assert!(!args.contains("abc"));
-        for name in ["api_key", "apiKey", "X-Api-Key", "accessToken", "client_secret",
-                     "DB_PASSWORD", "authorization", "session_token", "Cookie"] {
+        for name in [
+            "api_key",
+            "apiKey",
+            "X-Api-Key",
+            "accessToken",
+            "client_secret",
+            "DB_PASSWORD",
+            "authorization",
+            "session_token",
+            "Cookie",
+        ] {
             assert!(secret_name(name), "{name}");
         }
-        for name in ["key", "keywords", "tokens", "max_tokens", "author", "session_id",
-                     "session", "monkey"] {
+        for name in [
+            "key",
+            "keywords",
+            "tokens",
+            "max_tokens",
+            "author",
+            "session_id",
+            "session",
+            "monkey",
+        ] {
             assert!(!secret_name(name), "{name}");
         }
     }

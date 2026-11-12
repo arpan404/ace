@@ -59,7 +59,13 @@ pub(super) async fn call(
         arguments,
     };
     let prompt = review::prompt(&case).session(id);
-    let (verdict, reason, cost) = match engine.admit(id, &model, &prompt) {
+    // Waits while only calls still running stand in the way; only a cap really reached
+    // escalates for that reason.
+    let admission = tokio::select! {
+        admission = engine.admit_waiting(id, &model, &prompt, super::ledger::Hint::default()) => admission,
+        _ = stop.wait_for(|stopped| *stopped) => return Reviewed::Stopped,
+    };
+    let (verdict, reason, cost) = match admission {
         Err(refused) => (
             Verdict::Escalate,
             format!(

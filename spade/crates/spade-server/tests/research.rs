@@ -471,3 +471,56 @@ async fn calls_started_at_once_cannot_all_pass_a_bots_cap() -> Result {
     assert_eq!(shown["spending"]["today_micros"], 2 * 92);
     Ok(())
 }
+
+#[tokio::test]
+async fn calls_waiting_only_on_estimates_go_on_once_the_real_cost_is_known() -> Result {
+    // The cap is far above what a call costs (92) but below what the first plan is estimated
+    // at while it runs: the second run waits for it instead of stopping at the cap.
+    let mut answers = vec![
+        Script::reply("")
+            .plain(PLAN)
+            .delay(Duration::from_millis(300)),
+    ];
+    answers.extend((0..8).map(|_| Script::reply("").plain(PLAN)));
+    let spade = Spade::start(answers, Vec::new()).await?;
+    let handle = EngineHandle::default();
+    handle.set(&spade.engine);
+    let tool = ResearchTool::new(
+        Arc::new(FakeWeb {
+            hits: 1,
+            ..FakeWeb::default()
+        }),
+        Workspaces::new(spade.dir.path().join("workspace")),
+        handle,
+    )
+    .with_budget(budget(1));
+    let agent = spade.new_agent("Scout", "").await?;
+    let (id, conversation) = (
+        agent["id"].as_str().unwrap_or_default().to_owned(),
+        agent["conversation"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned(),
+    );
+    spade
+        .put(
+            &format!("/v1/agents/{id}/oversight"),
+            json!({ "daily_cap_micros": 2_000 }),
+        )
+        .await?;
+    let runs = (0..2).map(|n| {
+        tool.run(
+            &format!("{conversation}.job{n}"),
+            json!({ "question": QUESTION }),
+        )
+    });
+    let outputs = futures_util::future::join_all(runs).await;
+    for output in &outputs {
+        assert!(!output.content.contains("cap"), "{}", output.content);
+    }
+    // Both planned, wrote and checked.
+    assert_eq!(spade.fake.seen().len(), 6);
+    let events = spade.events(&conversation).await?;
+    assert!(!events.iter().any(|e| e["type"] == "cap_reached"));
+    Ok(())
+}

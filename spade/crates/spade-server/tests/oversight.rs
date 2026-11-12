@@ -610,3 +610,32 @@ async fn a_long_history_is_read_a_bounded_part_at_a_time_and_paged_to_its_start(
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn a_step_stopped_mid_stream_is_still_paid_for() -> Result {
+    let spade = Spade::start(
+        vec![
+            Script::reply(&"word ".repeat(40))
+                .chunks(40)
+                .delay(Duration::from_millis(40)),
+        ],
+        Vec::new(),
+    )
+    .await?;
+    let (agent, conversation) = bot(&spade, "Talker").await?;
+    spade.say(&conversation, "Talk").await?;
+    spade.wait_for(&conversation, "reply_progress").await?;
+    let (status, _) = spade
+        .post(&format!("/v1/conversations/{conversation}/stop"), json!({}))
+        .await?;
+    assert_eq!(status, 202);
+    settled(&spade, &conversation).await?;
+    // No usage came (the stream was cut), but its prompt and what streamed are charged, on
+    // top of the title asked for afterwards (92).
+    let spending = roster_spending(&spade, &agent).await?;
+    assert!(
+        spending["today_micros"].as_u64().is_some_and(|m| m > 92),
+        "{spending}"
+    );
+    Ok(())
+}

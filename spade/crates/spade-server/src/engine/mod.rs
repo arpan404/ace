@@ -15,7 +15,7 @@ mod inbox;
 mod index;
 mod jobs;
 mod ledger;
-pub(crate) use ledger::Admission;
+pub(crate) use ledger::{Admission, Hint};
 mod maintenance;
 mod memory;
 mod outbox;
@@ -87,6 +87,8 @@ pub struct Engine {
     daily_cap_micros: u64,
     /// Model calls admitted and not yet paid for (ADR 0135, `ledger`).
     in_flight: Mutex<ledger::InFlight>,
+    /// Woken each time an admitted call settles, for calls waiting on its estimate.
+    released: Notify,
     limits: Limits,
     skills: Option<Arc<dyn SkillLibrary>>,
     images: ImageStore,
@@ -159,6 +161,7 @@ impl Engine {
             ids: setup.ids,
             daily_cap_micros: setup.daily_cap_micros,
             in_flight: Mutex::default(),
+            released: Notify::new(),
             limits: setup.limits,
             skills: setup.skills,
             images: setup.images,
@@ -529,6 +532,10 @@ impl Engine {
         match compact::now(self, id, &model, focus).await {
             Ok(true) => Ok(()),
             Ok(false) => Err(CompactError::Nothing),
+            Err(error) if error == compact::AT_CAP => Err(CompactError::BotCapped(
+                self.cap_refusal(id)
+                    .unwrap_or_else(|| "today's spending cap is used up".to_owned()),
+            )),
             Err(error) => Err(CompactError::Failed(error)),
         }
     }

@@ -280,21 +280,43 @@ async fn model_step(
     // Each step's snapshot starts from its own text.
     *live.current.lock().unwrap_or_else(|p| p.into_inner()) = None;
     // Admitted against the caps counting calls in flight (ADR 0135); paid for when it ends.
-    let admitted = match engine.admit(id, &model, &prompt) {
-        Ok(admitted) => admitted,
-        Err(super::ledger::Refusal::Bot { hit, .. }) => return Step::Capped(hit),
-        Err(super::ledger::Refusal::Service) => {
-            return Step::Failed(String::new(), "today's spending cap is used up".to_owned());
-        }
-    };
-    let opened = tokio::select! {
-        opened = engine.models.stream(&model, &prompt) => opened,
+    // Waits while only the estimates of calls still running stand in the way.
+    let hint = super::ledger::turn_hint(events);
+    let admission = tokio::select! {
+        admission = engine.admit_waiting(id, &model, &prompt, hint) => admission,
         _ = stopped(stop) => return Step::Stopped(String::new()),
         _ = pausing(pause, Point::Streaming) => return Step::Paused,
     };
+    let admitted = match admission {
+        Ok(admitted) => admitted,
+        Err(super::ledger::Refusal::Bot { hit, .. }) => return Step::Capped(hit),
+        Err(super::ledger::Refusal::Service | super::ledger::Refusal::InFlight) => {
+            return Step::Failed(String::new(), "today's spending cap is used up".to_owned());
+        }
+    };
+    // A step cut off before its usage came is still paid for: its prompt, and what streamed.
+    let input = super::ledger::prompt_tokens(&prompt);
+    let partly = |text: &str| {
+        let streamed = u32::try_from(text.len() / 4).unwrap_or(u32::MAX);
+        super::ledger::likely_usage(input, hint, streamed)
+    };
+    let opened = tokio::select! {
+        opened = engine.models.stream(&model, &prompt) => opened,
+        _ = stopped(stop) => {
+            admitted.settle(&partly(""));
+            return Step::Stopped(String::new());
+        }
+        _ = pausing(pause, Point::Streaming) => {
+            admitted.settle(&partly(""));
+            return Step::Paused;
+        }
+    };
     let stream = match opened {
         Ok(stream) => stream,
-        Err(error) => return Step::Failed(String::new(), error.to_string()),
+        Err(error) => {
+            admitted.settle_if(error.usage());
+            return Step::Failed(String::new(), error.to_string());
+        }
     };
     let mut stream = Box::pin(stream);
     let mut text = String::new();
@@ -304,12 +326,16 @@ async fn model_step(
         tokio::select! {
             changed = stop.changed() => {
                 if changed.is_err() || *stop.borrow() {
+                    admitted.settle(&partly(&text));
                     return Step::Stopped(text);
                 }
             }
             // Cut mid-stream: what streamed so far is dropped and asked for again on resume (its
             // checkpoints stay, so the person still sees them meanwhile).
-            _ = pausing(pause, Point::Streaming) => return Step::Paused,
+            _ = pausing(pause, Point::Streaming) => {
+                admitted.settle(&partly(&text));
+                return Step::Paused;
+            }
             next = stream.next() => match next {
                 Some(Ok(Delta::Text(piece))) => {
                     text.push_str(&piece);
@@ -358,8 +384,14 @@ async fn model_step(
                     *live.current.lock().unwrap_or_else(|p| p.into_inner()) = None;
                     return if made_calls { Step::Calls } else { Step::Answered };
                 }
-                Some(Err(error)) => return Step::Failed(text, error.to_string()),
-                None => return Step::Failed(text, "the model's reply ended early".to_owned()),
+                Some(Err(error)) => {
+                    admitted.settle(&error.usage().unwrap_or_else(|| partly(&text)));
+                    return Step::Failed(text, error.to_string());
+                }
+                None => {
+                    admitted.settle(&partly(&text));
+                    return Step::Failed(text, "the model's reply ended early".to_owned());
+                }
             }
         }
     }
@@ -441,7 +473,10 @@ async fn name_if_untitled(engine: &Arc<Engine>, id: &str) {
         _ => engine.reply_model(id),
     };
     let prompt = title::prompt(&first).session(id);
-    let suggested = match engine.admit(id, &fast, &prompt) {
+    let admitted = engine
+        .admit_waiting(id, &fast, &prompt, super::ledger::Hint::default())
+        .await;
+    let suggested = match admitted {
         // At a cap the title comes from the first message, at no cost.
         Err(_) => None,
         Ok(admitted) => match engine
