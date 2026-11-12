@@ -1,4 +1,4 @@
-@import "../../../../../packages/markit/web/style.css";
+@import "@ace/markit-web/style.css";
 
 /* Map markit's palette onto ace design tokens; keep its layout. */
 .markit-ace .markit,
