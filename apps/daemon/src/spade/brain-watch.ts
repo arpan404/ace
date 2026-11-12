@@ -7,6 +7,7 @@ import type {
   SpadeBrainFailure,
   SpadeBrainFrame,
 } from "@ace/protocol";
+import { spadeBotAceTools } from "./brain-tools.ts";
 
 /** What people call each provider, for status and failure lines. */
 export const providerNames: Record<ProviderKind, string> = {
@@ -108,14 +109,8 @@ function toolStatus(item: Extract<Item, { type: "tool_call" }>): string {
   }
 }
 
-const trustedAceTools = new Set([
-  "spade_tools",
-  "spade_call",
-  "machines",
-  "models",
-  "projects_find",
-  "automations_list",
-]);
+/** ace's tools a bot's session is offered, all of which return only ace's own state. */
+const trustedAceTools = new Set(spadeBotAceTools);
 
 /**
  * What a tool call of the CLI's own (any agent in the session, any adapter) let into the turn,

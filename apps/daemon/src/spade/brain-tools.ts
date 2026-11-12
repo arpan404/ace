@@ -8,6 +8,23 @@ import { spadeRequest, type SpadeConnection } from "./forward.ts";
 /** The two tools a bot's hidden session gets for the bot's own tools (ADR 0133). */
 export const spadeBrainToolNames = spadeBridgeTools;
 
+/**
+ * Everything a bot's session is offered of ace's (ADR 0133): the bridge to the bot's gated
+ * tools, ace's reads that return only ace's own state, and the means to find and call those. Any
+ * other ace tool would act or read outside text with no gate, since nobody answers a prompt
+ * there; `ask` is withheld separately (`askAvailable`).
+ */
+export const spadeBotAceTools: readonly string[] = [
+  ...spadeBridgeTools,
+  "machines",
+  "models",
+  "projects_find",
+  "automations_list",
+  "guide",
+  "tools_find",
+  "tools_call",
+];
+
 const answer = z.object({ result: z.string(), isError: z.boolean() });
 
 export interface BrainToolsOptions {

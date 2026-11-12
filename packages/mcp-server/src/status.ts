@@ -19,6 +19,11 @@ export type StatusReader = (caller: McpAttribution) => {
   askAvailable?: boolean;
   /** Registered tools unavailable until their backing service is offered. */
   unavailableTools?: readonly string[];
+  /**
+   * When set, the only tools this caller is offered, by bare name: listed, found and callable
+   * (directly or through `tools_call`). Everything else is withheld whatever its group.
+   */
+  onlyTools?: readonly string[];
   disabled?: Partial<Record<McpCapability, string>>;
   /** Why the groups off for this caller are off, where the defaults would mislead. */
   offReasons?: GroupOffReasons;

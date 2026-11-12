@@ -1,5 +1,5 @@
 import { createTextRedactor } from "@ace/redaction";
-import { spadeBrainToolNames, spadeBrainToolkit } from "../spade/brain-tools.ts";
+import { spadeBotAceTools, spadeBrainToolNames, spadeBrainToolkit } from "../spade/brain-tools.ts";
 import { htmlPublication } from "../html-publication.ts";
 import { htmlLayout, htmlPreview, MeasuredLayouts } from "../html-preview.ts";
 import { imagePublication } from "../image-publication.ts";
@@ -23,23 +23,6 @@ import { cancelLockedUseWhenTurnedOff } from "../computer-locked-use.ts";
 import { daemonComputerToolkit } from "../computer-tools.ts";
 /** Tools that wait on the person inside the caller's own thread: none for a host thread. */
 const hostWithheldTools = ["browser_request_help"];
-/**
- * A Spade bot's session (ADR 0133) acts only through Spade's gated tools: nothing that starts,
- * steers or schedules other agents, whose work would run ungated and whose results never come
- * back to a host thread's turn.
- */
-const botWithheldTools = [
-  "delegate",
-  "wait",
-  "thread_start",
-  "agent_message",
-  "agent_cancel",
-  "thread_control",
-  "thread_fork",
-  "transfer",
-  "automation_put",
-  "automation_run",
-];
 
 export { computerPlatform } from "../computer-tools.ts";
 import { handoffToolkit } from "./handoff-tools.ts";
@@ -265,9 +248,11 @@ export async function startMcp(context: ServiceContext): Promise<void> {
           thread?.host === undefined &&
           (thread?.provider === "cursor" ||
             !!services.agentControl?.delegations.journal.get(caller.threadId)),
+        // A Spade bot's session (ADR 0133) gets an allow-list, never a deny-list.
+        ...(thread?.host === "spade-bot" ? { onlyTools: spadeBotAceTools } : {}),
         unavailableTools: [
           ...(thread?.host === undefined ? [] : hostWithheldTools),
-          ...(thread?.host === "spade-bot" ? botWithheldTools : spadeBrainToolNames),
+          ...(thread?.host === "spade-bot" ? [] : spadeBrainToolNames),
           ...(services.machines?.caller.serves("commands") ? [] : commandToolNames),
           ...(services.computer || services.machines?.caller.serves("screen")
             ? []

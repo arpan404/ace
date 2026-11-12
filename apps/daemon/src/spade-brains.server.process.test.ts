@@ -231,18 +231,31 @@ test("subscriptions list the providers this daemon has installed and signed in, 
       const names = (await client.listTools()).tools.map((tool) => tool.name);
       expect(names).toEqual(expect.arrayContaining(["spade_tools", "spade_call"]));
       expect(names).not.toContain("ask");
-      // Nothing that starts, steers or schedules other agents: their work would run ungated.
-      for (const withheld of [
+      // Only the bridge and ace's own-state reads: nothing that acts or reads outside text
+      // ungated, whether listed, found or dispatched.
+      const ungated = [
+        "command_run",
+        "browser_act",
+        "browser_open",
+        "notify",
+        "note_add",
         "delegate",
         "thread_start",
-        "agent_message",
-        "thread_control",
-        "thread_fork",
-        "transfer",
-        "automation_put",
-        "automation_run",
-      ])
-        expect(names, withheld).not.toContain(withheld);
+        "context",
+      ];
+      for (const tool of ungated) expect(names, tool).not.toContain(tool);
+      for (const query of ["run a shell command", "click in the browser", "notify the person"]) {
+        const found = await client.callTool({ name: "tools_find", arguments: { query } });
+        for (const tool of ungated)
+          expect(JSON.stringify(found.structuredContent ?? found.content), tool).not.toContain(
+            `"${tool}"`,
+          );
+      }
+      const dispatched = await client.callTool({
+        name: "tools_call",
+        arguments: { name: "notify", arguments: { text: "Done" } },
+      });
+      expect(dispatched.isError).toBe(true);
       const called = await client.callTool({
         name: "spade_call",
         arguments: { tool: "remember", arguments: { note: "milk" } },

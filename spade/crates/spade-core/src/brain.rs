@@ -26,8 +26,9 @@ one of their Spade bots. Your own Spade tools (your notes, your workspace, your 
 bots, the person's connected apps, and ask_user for a question to the person) are reached through \
 ace's spade_tools tool, which lists them with their input schemas, and spade_call, which runs one \
 as {tool, arguments}. Spade may ask the person before a call runs; spade_call then waits for their \
-answer. Change things only through these tools or ace's own tools, never by editing files \
-yourself.";
+answer. Change things only through these tools, never by editing files yourself or with other \
+tools. Write your answer to the person as your reply message: it is what they read. Never call \
+ExitPlanMode; there is no plan to approve here.";
 
 /// `cli:<provider>/<model>` or `cli:<provider>@<account>/<model>`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -390,6 +391,9 @@ mod tests {
         let first = next_turn(&events).ok_or("a first turn")?;
         assert!(first.instructions.contains("Keep notes"));
         assert!(first.instructions.contains("spade_call"));
+        // The bridge is the only way to act; the answer goes in the reply, not a plan.
+        assert!(!first.instructions.contains("ace's own tools"));
+        assert!(first.instructions.contains("Write your answer to the person as your reply"));
         assert!(!first.changed);
         assert_eq!(first.message, "Hello");
         events.push(step(first.seen));
