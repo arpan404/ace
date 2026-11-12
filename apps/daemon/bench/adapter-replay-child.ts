@@ -95,6 +95,8 @@ async function daemonSink(): Promise<Sink> {
     createTranslator: provider.createTranslator,
     silenceMs: provider.silenceMs,
     storeOptions: { bufferScheduler: { delay: buffer.setTimer } },
+    // Every planned replay keeps its own live thread; the default cap is 64.
+    limits: { maxActiveThreads: 4096 },
   });
   // A fresh thread and its provider session for every planned replay, made before any window.
   const targets: { threadId: string; context: SessionContext }[][] = [];
