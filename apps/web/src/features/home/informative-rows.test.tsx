@@ -18,19 +18,12 @@ import { rowText } from "@/test/row-text.ts";
  */
 function relayAfterFailedTurn(): Scenario {
   const scenario = watchingRelay();
-  return {
-    ...scenario,
-    steps: scenario.steps.map((step) =>
-      step.kind === "facts"
-        ? {
-            ...step,
-            facts: step.facts.map((fact) =>
-              fact.type === "turn.ended" ? facts.endTurn("root", "failed") : fact,
-            ),
-          }
-        : step,
-    ),
-  };
+  for (const step of scenario.steps)
+    if (step.kind === "facts")
+      step.facts = step.facts.map((fact) =>
+        fact.type === "turn.ended" ? facts.endTurn("root", "failed") : fact,
+      );
+  return scenario;
 }
 
 function task(app: ReturnType<typeof harness>, id: string, title: string) {
