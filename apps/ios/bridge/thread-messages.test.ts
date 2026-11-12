@@ -75,24 +75,30 @@ test("a thought still going reads Thinking…", async () => {
   expect(row.thought).toBe("Thinking…");
 });
 
-test("the person's bubble carries its fenced code as its own run", async () => {
+/** The person's bubble whose text is `text`, once its row arrives. */
+const bubbleFor = (text: string) =>
+  rows("thread.item").find((item) => item.role === "user" && item.text === text)?.bubble as
+    | Record<string, unknown>
+    | undefined;
+
+test("a fenced block renders as markdown; a paste that is plainly code is its own code run", async () => {
   const fake = start("bubble");
+  const fenced = "Run this:\n```sh\nbun run test\n```\nthen report back";
+  const paste = "const a = 1;\nconst b = 2;\nexport { a, b };";
   fake.apply("bubble", [
-    facts.message("root", "ask", "user", "Run this:\n```sh\nbun run test\n```\nthen report back"),
+    facts.message("root", "ask", "user", fenced),
+    facts.message("root", "paste", "user", paste),
   ]);
   open(connect(fake), "bubble");
-  const row = await until(
-    () => rows("thread.item").find((item) => item.role === "user"),
-    "the bubble",
-  );
-  expect(row.bubble).toMatchObject({
-    segments: [
-      { kind: "text", text: "Run this:" },
-      { kind: "code", text: "bun run test" },
-      { kind: "text", text: "then report back" },
-    ],
+  expect(await until(() => bubbleFor(fenced), "the fenced bubble")).toMatchObject({
+    segments: [{ kind: "text", text: fenced }],
+    markdown: "Run this:  \n```sh\nbun run test\n```\nthen report back",
     readable: true,
     long: false,
+  });
+  expect(await until(() => bubbleFor(paste), "the pasted bubble")).toMatchObject({
+    segments: [{ kind: "code", text: paste }],
+    markdown: "",
   });
 });
 
@@ -187,4 +193,102 @@ test("a settled turn's opened log times its thought by the step after it", async
     .filter((frame) => frame.type === "thread.stepsPage")
     .flatMap((page) => page.rows as { type: string; thought: string | null }[]);
   expect(steps.find((step) => step.type === "reasoning")?.thought).toBe("Thought for 15s");
+});
+
+/** A brief another thread's agent sent this one, as the daemon stamps it. */
+const brief = (item: string, text: string, origin: Record<string, unknown>): Fact => ({
+  type: "item.upsert",
+  agent: "root",
+  item,
+  draft: { type: "message", role: "user", complete: true, parts: [{ type: "text", text }], origin },
+});
+const sentRow = () =>
+  rows("thread.block").find((row) => event(row)?.kind === "sent")?.event as
+    | Record<string, unknown>
+    | undefined;
+const sixLines = "Fix the flaky upload test.\nOne\nTwo\nThree\nFour\nFive";
+
+test("a brief another thread sent is the person's bubble, under a line naming and linking its sender", async () => {
+  const fake = start("sent");
+  fake.apply("sent", [
+    brief("b1", sixLines, {
+      kind: "parent_agent",
+      parentThreadId: "starter",
+      from: { provider: "claude" },
+    }),
+  ]);
+  open(connect(fake), "sent");
+  const row = await until(sentRow, "the sent row");
+  expect(row.sent).toEqual({
+    provider: "claude",
+    threadId: "starter",
+    host: "",
+    line: "Sent from another thread",
+  });
+  // Its words are the bubble's, folded to four lines since a brief is often long.
+  expect(row.bubble).toMatchObject({
+    segments: [{ kind: "text", text: sixLines }],
+    readable: true,
+    long: true,
+    fold: 4,
+    markdown: "",
+  });
+});
+
+test("a sender on a paired machine is named with its machine, and its host passed for the link", async () => {
+  const fake = fixture();
+  fake.createThread({
+    id: "remote",
+    workspaceId: "ace",
+    title: "remote",
+    provider: "codex",
+    delegatedFrom: {
+      hostId: "host-linux",
+      hostName: "Linux box",
+      threadId: "far",
+      threadTitle: "Upload fixes",
+    },
+  });
+  fake.apply("remote", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    brief("b2", "Short brief", { kind: "parent_agent", commandId: "c-1" }),
+  ]);
+  open(connect(fake), "remote");
+  const row = await until(sentRow, "the sent row");
+  expect(row.sent).toEqual({
+    provider: "",
+    threadId: "far",
+    host: "host-linux",
+    line: "Sent by Upload fixes · Linux box",
+  });
+  expect(row.bubble).toMatchObject({ long: false });
+});
+
+test("a sender ace knows nothing of reads Sent from another thread, with no thread to open", async () => {
+  const fake = start("unknown");
+  fake.apply("unknown", [brief("b3", "Do the thing", { kind: "parent_agent", commandId: "c-2" })]);
+  open(connect(fake), "unknown");
+  const row = await until(sentRow, "the sent row");
+  expect(row.sent).toMatchObject({ threadId: "", host: "", line: "Sent from another thread" });
+});
+
+test("markdown the person meant reaches native with every line break kept; plain text has none", async () => {
+  const fake = start("marked");
+  fake.apply("marked", [
+    facts.message("root", "ask", "user", "## Plan\n- one\n- two"),
+    facts.message("root", "plain", "user", "see you\nlater #3"),
+  ]);
+  open(connect(fake), "marked");
+  const marked = await until(() => bubbleFor("## Plan\n- one\n- two"), "the markdown bubble");
+  expect(marked).toMatchObject({
+    markdown: "## Plan  \n- one  \n- two",
+    // What Copy returns: the words as written, never the drawn text.
+    segments: [{ kind: "text", text: "## Plan\n- one\n- two" }],
+  });
+  const plain = await until(() => bubbleFor("see you\nlater #3"), "the plain bubble");
+  expect(plain).toMatchObject({
+    markdown: "",
+    segments: [{ kind: "text", text: "see you\nlater #3" }],
+  });
 });

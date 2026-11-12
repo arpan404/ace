@@ -9,21 +9,27 @@ import {
   eventView,
   isLimitError,
   isLongMessage,
+  looksLikeMarkdown,
+  personFold,
   sentByLine,
+  sentFold,
   mayBeSystemInput,
   messageOrigin,
   referenceSegments,
   thoughtLabel,
   thoughtMs,
+  withHardBreaks,
+  type BubbleFold,
   type EventView,
 } from "@ace/ui-core";
 import { preview } from "./presentation.ts";
 
 /*
  * What the phone's message rows show beyond an item's text, from the same `@ace/ui-core`
- * decisions the web draws: the person's bubble (its words, code runs, mention chips, the long
- * fold, how it was sent, the passages it replies to), an event's one row (`eventView`), a thought's header and whether an
- * answer still streams. Swift draws these as given. Display text is bounded.
+ * decisions the web draws: the person's bubble (its words, code runs, mention chips, markdown it
+ * meant, the long fold, how it was sent, the passages it replies to), an event's one row
+ * (`eventView`), a brief another thread sent with the line naming its sender, a thought's header
+ * and whether an answer still streams. Swift draws these as given. Display text is bounded.
  */
 
 const bubbleChars = 16_384;
@@ -44,20 +50,30 @@ function bounded<T extends { text: string }>(runs: readonly T[]): T[] {
 }
 
 /**
- * Plain words drawn as the person's bubble (a subagent's prompt from its parent): the same runs
- * of words and code, bound and fold as a message the person wrote.
+ * Markdown a writer meant (`looksLikeMarkdown`), to render as answers are, with every line break
+ * kept (`withHardBreaks`); empty for text drawn as typed. Its runs are then the source as one text
+ * run, which is what Copy returns.
  */
-export function textBubble(text: string) {
+function markdownOf(text: string): string {
+  return looksLikeMarkdown(text) ? preview(withHardBreaks(text), bubbleChars) : "";
+}
+
+/**
+ * Plain words drawn as the person's bubble (a subagent's prompt from its parent, a brief another
+ * thread sent): the same runs of words and code, markdown and fold as a message the person
+ * wrote. `fold` is how long it may be before it folds, and how many lines it then shows.
+ */
+export function textBubble(text: string, fold: BubbleFold = personFold) {
+  const markdown = markdownOf(text);
+  const runs = markdown ? [{ kind: "text" as const, text }] : bubbleSegments(text);
   return {
     segments: bounded(
-      bubbleSegments(text).map((segment) => ({
-        kind: segment.kind,
-        text: segment.text,
-        mention: "",
-      })),
+      runs.map((segment) => ({ kind: segment.kind, text: segment.text, mention: "" })),
     ),
     readable: text.trim().length > 0,
-    long: isLongMessage(text),
+    long: isLongMessage(text, fold),
+    fold: fold.shown,
+    markdown,
     origin: "",
   };
 }
@@ -67,17 +83,21 @@ export function bubbleOf(item: Item) {
   if (item.type !== "message" || item.role !== "user") return null;
   const content = bubbleContent(item.parts);
   const mentions = content.parts.some((part) => part.type === "mention");
+  // Mention chips are drawn as runs; markdown renders only text that has none.
+  const markdown = mentions ? "" : markdownOf(content.text);
   const runs = mentions
     ? referenceSegments(content.parts).map((segment) =>
         segment.kind === "text"
           ? { kind: "text", text: segment.text, mention: "" }
           : { kind: "mention", text: segment.name, mention: segment.mention },
       )
-    : bubbleSegments(content.text).map((segment) => ({
-        kind: segment.kind,
-        text: segment.text,
-        mention: "",
-      }));
+    : markdown
+      ? [{ kind: "text", text: content.text, mention: "" }]
+      : bubbleSegments(content.text).map((segment) => ({
+          kind: segment.kind,
+          text: segment.text,
+          mention: "",
+        }));
   const segments = bounded(runs);
   const origin = messageOrigin(item)?.kind ?? "";
   return {
@@ -86,6 +106,8 @@ export function bubbleOf(item: Item) {
     quotes: (content.quotes ?? []).map((quote) => ({ text: preview(quote.text, 1024) })),
     readable: content.readable,
     long: isLongMessage(content.text),
+    fold: personFold.shown,
+    markdown,
     origin: origins.has(origin) ? origin : "",
   };
 }
@@ -182,12 +204,20 @@ function flatten(view: EventView) {
     case "quiet":
       return { ...row, text: preview(view.text, 4096) };
     case "sent":
-      // The sender's line and mark; the message's words open from it, as on the web.
+      // The person's sent bubble of its words, folded short, under the line naming its sender.
+      // `line` names the title recorded here; Swift prefers a local sender's current title.
+      // With no thread to open (`threadId` empty) the line is plain text.
       return {
         ...row,
         provider: view.sent.provider ?? "",
         text: sentByLine(view.sent),
-        detail: preview(view.text, 4096),
+        sent: {
+          provider: view.sent.provider ?? "",
+          threadId: view.sent.threadId ?? "",
+          host: view.sent.host?.id ?? "",
+          line: preview(sentByLine(view.sent), 512),
+        },
+        bubble: textBubble(view.text, sentFold),
       };
     default:
       return row;
