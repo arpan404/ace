@@ -23,6 +23,7 @@ import {
 import { purgeTranscript } from "./storage/transcript.ts";
 import { SearchReplay } from "./search-replay.ts";
 import { migrateSidebarRevisions } from "./sidebar-revisions.ts";
+import { openSidebarColumns } from "./sidebar-columns.ts";
 import { seedSentMessages } from "./draft-migration.ts";
 import { mapRecordedPermissionModes } from "./permission-mode-migration.ts";
 import { indexEngineRecords } from "./engine-record-indexes.ts";
@@ -272,6 +273,8 @@ export class Store {
       this.workspaceReservations = new WorkspaceReservations(this.db, (sql) => this.statement(sql));
       this.atomic(migrateThreadClient);
       this.atomic(migrateThreadCold);
+      // Needs every threads column the sidebar reads; its triggers cover the passes below.
+      this.atomic((db) => openSidebarColumns(db));
       this.atomic(mapRecordedPermissionModes);
       this.atomic(indexEngineRecords);
       this.usageReplay = new UsageReplay(this.db);

@@ -1,13 +1,12 @@
 import type { SQLOutputValue, StatementSync } from "node:sqlite";
 import { SidebarIndex, type SidebarFacts } from "./sidebar-index.ts";
-import {
-  sidebarActivity,
-  sidebarCounted,
-  sidebarDeleted,
-  sidebarSettled,
-} from "./sidebar-page-storage.ts";
+import { sidebarColumnsReadable } from "./sidebar-columns.ts";
+import { sidebarFactColumns } from "./sidebar-facts.ts";
 
-const facts = `SELECT threads.id AS id, COALESCE(revisions.revision, 0) AS revision, workspace_id AS workspace, (${sidebarDeleted}) AS deleted, archived_at IS NOT NULL AS archived, CASE WHEN (${sidebarSettled}) THEN 1 WHEN NOT (${sidebarSettled}) THEN 0 END AS settled, CASE WHEN (${sidebarCounted}) THEN 1 ELSE 0 END AS counted, ${sidebarActivity} AS activity, archived_at AS archived_at`;
+const fromColumns =
+  "SELECT sidebar.thread_id AS id, COALESCE(revisions.revision, 0) AS revision, sidebar.workspace_id AS workspace_id, sidebar.deleted AS deleted, sidebar.archived AS archived, sidebar.settled AS settled, sidebar.counted AS counted, sidebar.activity AS activity, sidebar.archived_at AS archived_at";
+// The same facts evaluated from threads, while a row's JSON keeps them out of the table.
+const fromThreads = `SELECT threads.id AS id, COALESCE(revisions.revision, 0) AS revision, ${sidebarFactColumns}`;
 
 /**
  * The sidebar index kept current from the threads table itself. Each sync reads only rows
@@ -36,7 +35,9 @@ export class SidebarLive {
       return;
     }
     const rows = this.statement(
-      `${facts} FROM sidebar_thread_revisions AS revisions JOIN threads ON threads.id = revisions.thread_id WHERE revisions.revision > ? ORDER BY revisions.revision`,
+      sidebarColumnsReadable(this.statement)
+        ? `${fromColumns} FROM sidebar_thread_revisions AS revisions JOIN sidebar_thread_columns AS sidebar ON sidebar.thread_id = revisions.thread_id WHERE revisions.revision > ? ORDER BY revisions.revision`
+        : `${fromThreads} FROM sidebar_thread_revisions AS revisions JOIN threads ON threads.id = revisions.thread_id WHERE revisions.revision > ? ORDER BY revisions.revision`,
     ).all(this.seen);
     for (const row of rows) {
       const next = decodeFacts(row);
@@ -73,7 +74,9 @@ export class SidebarLive {
   private rebuild(deletes: SQLOutputValue): void {
     let seen = 0;
     const all = this.statement(
-      `${facts} FROM threads LEFT JOIN sidebar_thread_revisions AS revisions ON revisions.thread_id = threads.id`,
+      sidebarColumnsReadable(this.statement)
+        ? `${fromColumns} FROM sidebar_thread_columns AS sidebar LEFT JOIN sidebar_thread_revisions AS revisions ON revisions.thread_id = sidebar.thread_id`
+        : `${fromThreads} FROM threads LEFT JOIN sidebar_thread_revisions AS revisions ON revisions.thread_id = threads.id`,
     )
       .all()
       .map((row) => {
@@ -96,7 +99,7 @@ function decodeFacts(row: Record<string, SQLOutputValue>): SidebarFacts {
   return {
     id: String(row.id),
     revision: Number(row.revision),
-    workspace: row.workspace ?? null,
+    workspace: row.workspace_id ?? null,
     deleted: row.deleted === 1,
     archived: row.archived === 1,
     settled: row.settled === 1 ? true : row.settled === 0 ? false : null,
