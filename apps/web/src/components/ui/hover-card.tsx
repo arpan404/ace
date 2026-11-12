@@ -7,4 +7,11 @@ import { PreviewCard } from "@base-ui/react/preview-card";
 const HoverCard = PreviewCard.Root;
 const HoverCardTrigger = PreviewCard.Trigger;
 
-export { HoverCard, HoverCardTrigger };
+/** Opens its card through Base UI's own open, as a request held by `useOpenGate` asked. */
+class ReplayHoverCardHandle extends PreviewCard.Handle<unknown> {
+  replay(details: PreviewCard.Root.ChangeEventDetails) {
+    this.attachedStore?.setOpen(true, details);
+  }
+}
+
+export { HoverCard, HoverCardTrigger, ReplayHoverCardHandle };
