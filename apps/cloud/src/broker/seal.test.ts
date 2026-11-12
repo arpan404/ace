@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { expect, it } from "vitest";
 import { encodeBase64url } from "@ace/account-grant";
 import { open, seal } from "./seal.ts";
@@ -21,7 +22,7 @@ const bytes = (text: string) => new TextEncoder().encode(text);
 it("the vectors Spade's Rust checks seal and open byte for byte here too", async () => {
   const { cases } = JSON.parse(
     await readFile(
-      new URL("../../../../spade/crates/spade-cloud-wire/test-vectors.json", import.meta.url),
+      join(import.meta.dirname, "../../../../spade/crates/spade-cloud-wire/test-vectors.json"),
       "utf8",
     ),
   ) as { cases: Vector[] };

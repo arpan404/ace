@@ -67,12 +67,27 @@ function answer(status: number, body: unknown): Response {
 
 type Caller = { account: string; app: App; client: Client };
 
+const redirect = (publicUrl: string, app: App) =>
+  `${publicUrl.replace(/\/$/, "")}${CALLBACK_PATH}/${app.id}`;
+
+function authorizationUrl(who: Caller, publicUrl: string, state: string, challenge: string) {
+  const url = new URL(who.app.authorization_endpoint);
+  const query = url.searchParams;
+  query.append("response_type", "code");
+  query.append("client_id", who.client.id);
+  query.append("redirect_uri", redirect(publicUrl, who.app));
+  query.append("state", state);
+  query.append("code_challenge", challenge);
+  query.append("code_challenge_method", "S256");
+  query.append("resource", who.app.resource);
+  if (who.app.scopes.length) query.append("scope", who.app.scopes.join(" "));
+  return url.toString();
+}
+
 export function broker(deps: BrokerDeps) {
   const { signIns, now, log } = deps;
   const tokens = maker(deps.fetch);
   const randomValue = () => encodeBase64url(deps.random(32));
-  const redirect = (publicUrl: string, app: App) =>
-    `${publicUrl.replace(/\/$/, "")}${CALLBACK_PATH}/${app.id}`;
 
   /** Who is asking: the account a valid cloud credential names, within budget, and the app. */
   async function caller(request: Request, appId: string): Promise<Caller | Response> {
@@ -102,20 +117,6 @@ export function broker(deps: BrokerDeps) {
       return refuse("app_unavailable");
     }
     return { account, app: configured.app, client: configured.client };
-  }
-
-  function authorizationUrl(caller: Caller, publicUrl: string, state: string, challenge: string) {
-    const url = new URL(caller.app.authorization_endpoint);
-    const query = url.searchParams;
-    query.append("response_type", "code");
-    query.append("client_id", caller.client.id);
-    query.append("redirect_uri", redirect(publicUrl, caller.app));
-    query.append("state", state);
-    query.append("code_challenge", challenge);
-    query.append("code_challenge_method", "S256");
-    query.append("resource", caller.app.resource);
-    if (caller.app.scopes.length) query.append("scope", caller.app.scopes.join(" "));
-    return url.toString();
   }
 
   async function start(request: Request, appId: string): Promise<Response> {

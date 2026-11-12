@@ -29,7 +29,7 @@ export async function startWorker(options: Parameters<typeof launchWorker>[0] = 
     db: env.ACCOUNTS,
     env,
     /** A request to the Worker at any address, such as `https://cloud.acehq.dev/…`. */
-    dispatch: (url: string, init?: RequestInit) => worker.fetch(url, init),
+    dispatch: (url: string, init?: Parameters<typeof worker.fetch>[1]) => worker.fetch(url, init),
     /**
      * Evicts the relay object for `hostId` as the runtime does when it hibernates: its memory
      * is dropped, its sockets stay connected with their attachments, and the next event

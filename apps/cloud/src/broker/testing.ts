@@ -7,13 +7,14 @@ import type { Book } from "./sign-ins.ts";
 import type { SignInDirectory, SignInStore } from "./store.ts";
 import { stateRoute } from "./store.ts";
 
+const routeOf = (account: string) =>
+  Array.from(sha256(new TextEncoder().encode(account)), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+
 /** Sign-ins kept in a map, through the same pure core the Durable Object uses. */
 export function memorySignIns(): SignInDirectory & { held(): number } {
   const books = new Map<string, Book>();
-  const routeOf = (account: string) =>
-    Array.from(sha256(new TextEncoder().encode(account)), (byte) =>
-      byte.toString(16).padStart(2, "0"),
-    ).join("");
   const store = (route: string): SignInStore => {
     const change = async <T>(apply: (book: Book) => { book: Book; verdict: T }) => {
       const { book, verdict } = apply(books.get(route) ?? []);
