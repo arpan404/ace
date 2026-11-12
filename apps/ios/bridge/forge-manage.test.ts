@@ -174,3 +174,57 @@ test("a new pull request opens from a branch, and asking again for the same bran
     message: "These branches already have an open pull request.",
   });
 });
+
+test("a new pull request can be given reviewers, assignees, labels and a milestone, chosen from the repository's", async () => {
+  const { ask } = await connected();
+  const context = (await ask({ type: "forge.newpr.context", project: "ace" })) as NewPrContextReply;
+  expect(context.details?.people).toEqual(["you", "dana", "mira", "sam"]);
+  expect(context.details?.labels[0]).toEqual({
+    name: "bug",
+    color: "d73a4a",
+    description: "Something isn't working",
+  });
+  expect(context.details?.milestones).toEqual([
+    { number: 3, title: "October polish", due: "Due Oct 31, 2026" },
+    { number: 4, title: "Mobile beta", due: "Due Nov 20, 2026" },
+    { number: 5, title: "Later", due: null },
+  ]);
+  // GitHub takes at most ten assignees; the sheet stops there.
+  expect(context.details?.most).toEqual({ reviewers: 100, assignees: 10, labels: 100 });
+  const opened = (await ask({
+    type: "forge.newpr.create",
+    project: "ace",
+    repository: ace,
+    base: "main",
+    head: { owner: "acme", name: "ace", branch: "feature/release-notes" },
+    title: "Release notes page",
+    body: "",
+    draft: false,
+    reviewers: ["mira"],
+    assignees: ["you", "dana"],
+    labels: ["web", "docs"],
+    milestone: 4,
+  })) as NewPrCreateReply;
+  expect(opened).toMatchObject({ ok: true, message: "" });
+  const pr = await manage(ask, opened.number ?? 0);
+  expect(pr.metadata).toMatchObject({ labels: ["web", "docs"], assignees: ["you", "dana"] });
+  expect(pr.milestone?.title).toBe("Mobile beta");
+});
+
+test("a new pull request without details opens as before", async () => {
+  const { ask } = await connected();
+  const opened = (await ask({
+    type: "forge.newpr.create",
+    project: "ace",
+    repository: ace,
+    base: "main",
+    head: { owner: "acme", name: "ace", branch: "feature/release-notes" },
+    title: "Release notes page",
+    body: "",
+    draft: true,
+  })) as NewPrCreateReply;
+  expect(opened.ok).toBe(true);
+  const pr = await manage(ask, opened.number ?? 0);
+  expect(pr.metadata).toMatchObject({ labels: [], assignees: [] });
+  expect(pr.milestone).toBeNull();
+});

@@ -2,8 +2,8 @@ import SwiftUI
 
 /// New pull request from any branch of the project (the web's New pull request page): the branch
 /// to merge into and the one it comes from, what it would hold, then its title, description (the
-/// repository's template to start) and Draft. Create opens it; branches that already have an
-/// open pull request open that one instead, never a second.
+/// repository's template to start), who reviews it and how it is filed, and Draft. Create opens
+/// it; branches that already have an open pull request open that one instead, never a second.
 struct ForgeNewPullSheet: View {
     let client: ClientModel
     let project: String
@@ -16,6 +16,8 @@ struct ForgeNewPullSheet: View {
     @State private var title = ""
     @State private var body_ = ""
     @State private var draft = false
+    /// Reviewers, assignees, labels and milestone: kept while branches are switched, as the web's.
+    @State private var details = ForgeNewPrDetailsDraft()
     @State private var creating = false
     @State private var message: String?
     @Environment(\.dismiss) private var dismiss
@@ -69,9 +71,11 @@ struct ForgeNewPullSheet: View {
                         .accessibilityIdentifier("forge.newpr.title")
                     ForgeEditor(text: $body_, placeholder: "Description", minLines: 4,
                                 completer: ForgeCompleter(client: client, project: project, repository: context.repository, on: nil))
-                    Toggle("Draft", isOn: $draft).aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
                 }
                 .padding(.horizontal, AceTheme.Spacing.lg)
+                if let options = context.details { ForgeNewPullDetailsSection(details: options, draft: $details) }
+                Toggle("Draft", isOn: $draft).aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+                    .padding(.horizontal, AceTheme.Spacing.lg)
                 if let message {
                     Text(message).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTone.failed.text)
                         .padding(.horizontal, AceTheme.Spacing.lg)
@@ -142,7 +146,7 @@ struct ForgeNewPullSheet: View {
         creating = true
         Task {
             let outcome = await client.forgeNewPrCreate(project: project, repository: context.repository, base: base, head: headJSON(context),
-                                                        title: title, body: body_, draft: draft)
+                                                        title: title, body: body_, draft: draft, details: details)
             creating = false
             if outcome.ok, let number = outcome.number { opened(number); dismiss() }
             else { message = outcome.message }
