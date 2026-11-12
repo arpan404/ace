@@ -138,6 +138,8 @@ function ServerChoice(props: {
           <label htmlFor={ids.token} className="sr-only">{`Token for ${props.name}`}</label>
           <Input
             id={ids.token}
+            // Opened by the person's click, so the field they asked for takes the typing.
+            autoFocus
             type="password"
             autoComplete="off"
             spellCheck={false}
@@ -169,6 +171,7 @@ function ServerChoice(props: {
           <label htmlFor={ids.clientId} className="sr-only">{`Client ID for ${props.name}`}</label>
           <Input
             id={ids.clientId}
+            autoFocus
             autoComplete="off"
             spellCheck={false}
             placeholder="Client ID"

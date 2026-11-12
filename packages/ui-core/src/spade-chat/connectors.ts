@@ -170,7 +170,7 @@ export function spadeConnectorLine(connector: SpadeConnector): string {
     case "signing_in":
       return "Waiting for you to finish signing in";
     case "needs_reconnect":
-      return "Signed out. Reconnect to use it again.";
+      return "Signed out";
     case "unreachable":
       return connector.problem ? `Can't reach it: ${connector.problem}` : "Can't reach it";
   }

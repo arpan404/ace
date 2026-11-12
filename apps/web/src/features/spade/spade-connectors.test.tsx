@@ -108,7 +108,7 @@ test("an app whose sign-in ended reconnects from its row", async () => {
   });
   const tab = browserTab();
   const section = await connectors();
-  expect(await section.findByText("Signed out. Reconnect to use it again.")).toBeTruthy();
+  expect(await section.findByText("Signed out")).toBeTruthy();
   await userEvent.click(section.getByRole("button", { name: "Reconnect" }));
   await waitFor(() => expect(spade.sent("POST", "/v1/connectors/linear/connect")).toHaveLength(1));
   await waitFor(() => expect(tab.location.replace).toHaveBeenCalled());
