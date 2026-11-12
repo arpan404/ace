@@ -14,7 +14,7 @@ import { settingRow } from "./settings-index.ts";
 export function SourceControlProjects() {
   const dialogs = useProjectDialogsIfHosted();
   const projects = useProjectDirectory().projects.filter((project) => project.kind !== "chat");
-  const { lists } = useProjectRepositoryLists(projects.map((project) => project.id));
+  const { lists, failed } = useProjectRepositoryLists(projects.map((project) => project.id));
   if (!dialogs) return null;
   return (
     <SettingSection
@@ -24,13 +24,15 @@ export function SourceControlProjects() {
       {projects.map((project) => {
         const value = lists.get(project.id);
         const used = value ? reviewRepositories(value) : [];
-        const description = !value
-          ? undefined
-          : used.length === 0
-            ? "No repository on your Git hosts"
-            : used.length === 1 && used[0]
-              ? repositoryLabel(used[0])
-              : `${used.length} repositories${value.primary ? ` · Primary ${repositoryLabel(value.primary)}` : ""}`;
+        const description = failed.has(project.id)
+          ? "Couldn't read its repositories"
+          : !value
+            ? undefined
+            : used.length === 0
+              ? "Not linked"
+              : used.length === 1 && used[0]
+                ? repositoryLabel(used[0])
+                : `${used.length} repositories${value.primary ? ` · Primary ${repositoryLabel(value.primary)}` : ""}`;
         return (
           <SettingRow key={project.id} title={project.name} description={description} inline>
             <Button

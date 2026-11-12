@@ -6,7 +6,6 @@ import {
   actionErrorText,
   defaultForgeHost,
   forgeCanCheck,
-  forgeClis,
   forgeNames,
   forgeOrder,
   hostForge,
@@ -21,7 +20,6 @@ import {
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { daemonErrorCode } from "@/lib/daemon-command.ts";
 import {
-  apiState,
   readFailureCode,
   readReadiness,
   refreshSourceControl,
@@ -29,7 +27,6 @@ import {
 import { Select } from "@/components/ui/select.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
-import { Skeleton } from "@/components/ui/skeleton.tsx";
 import {
   SettingFooter,
   SettingNote,
@@ -48,8 +45,8 @@ import { SourceControlHosts } from "./source-control-hosts.tsx";
 
 /**
  * Settings › Source control for the machine Settings edits (`SettingsOutlet` renders this page
- * against it): its Git host readiness, the host and account requests use, and a Git transport
- * check per project.
+ * against it): its Git hosts with the shown host's readiness, the host and account requests use,
+ * and a Git transport check per project.
  */
 export function SourceControlSettings() {
   const client = useClient();
@@ -165,9 +162,6 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
       remote !== preferences.remote);
   const shownEntry = preferences?.hosts.find((entry) => entry.host === preferences.host);
   const savedForge = shownEntry ? hostForge(shownEntry) : "github";
-  const savedName = forgeNames[savedForge];
-  const cliName = forgeClis[savedForge];
-  const canCheck = forgeCanCheck(savedForge);
   const loading = readiness.isFetching && !readiness.isError;
   const disabled = saving || loading;
   const readError = readiness.isError
@@ -178,6 +172,13 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
     <>
       <SourceControlHosts
         preferences={preferences}
+        shown={{
+          status,
+          forge: savedForge,
+          loading,
+          canRescan: forgeCanCheck(savedForge),
+          error: readError ?? error,
+        }}
         disabled={disabled || !status}
         onAdd={(provider) => {
           const fixed = defaultForgeHost(provider);
@@ -198,71 +199,15 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
           const next = preferences && removeHost(preferences, target);
           if (next) void write(next);
         }}
+        onRescan={() => void refreshSourceControl(queries, client)}
       />
-      <SettingSection label={savedName}>
-        <SettingRow
-          title={`${savedName} ${canCheck ? "CLI" : "connection"}`}
-          description={
-            status && !loading ? (
-              `${!canCheck ? "API support pending" : status.cli === "available" ? `${cliName ?? ""} ${status.version}` : "Not installed"} · ${status.preferences.host}`
-            ) : loading ? (
-              <Skeleton className="mt-1 w-40" />
-            ) : undefined
-          }
-        >
-          {canCheck && (
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={disabled}
-              onClick={() => void refreshSourceControl(queries, client)}
-            >
-              Rescan
-            </Button>
-          )}
-        </SettingRow>
-        {status && !loading && (
-          <SettingRow title={`${savedName} API`} inline>
-            <span className="text-sm text-muted-foreground">
-              {canCheck ? apiState(status) : "Not available yet"}
-            </span>
-          </SettingRow>
-        )}
-        {status?.accounts.length && !loading ? (
-          <SettingRow title="CLI accounts" inline>
-            <span className="text-sm text-muted-foreground">
-              {status.accounts
-                .map((entry) => `${entry.login}${entry.active ? " (active)" : ""}`)
-                .join(", ")}
-            </span>
-          </SettingRow>
-        ) : null}
-        {(savedForge === "gitlab" || savedForge === "origin") && (
-          <SettingNote>
-            Pull request details and changed files are available in Code review. Reviews and merge
-            actions open on the host.
-          </SettingNote>
-        )}
-        {/* What to do next; when everything is ready the rows above already say so. */}
-        {status && !loading && status.api !== "ready" && (
-          <SettingNote role="status">{status.instructions}</SettingNote>
-        )}
-        {(readError ?? error) && (
-          <SettingNote role="alert" className="text-destructive">
-            {readError ?? error}
-          </SettingNote>
-        )}
-      </SettingSection>
       <div ref={preferencesRef}>
         <SettingSection label="Preferences" scope="daemon">
           <SettingSwitch
             setting={settingKeys.autoDraftCommits}
             entry="generation.autoDraftCommits"
           />
-          <SettingRow
-            {...settingRow("sourceControl.provider")}
-            description="The provider for this host."
-          >
+          <SettingRow {...settingRow("sourceControl.provider")}>
             <Select
               label="Git provider"
               value={forge}
@@ -284,10 +229,10 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
             title={`${forgeNames[forge]} host`}
             description={
               forge === "github"
-                ? "github.com, or a GitHub Enterprise hostname."
+                ? "github.com or a GitHub Enterprise hostname"
                 : forge === "origin"
-                  ? "Cursor Origin is one hosted service."
-                  : `The hostname of your ${forgeNames[forge]} installation.`
+                  ? "One hosted service"
+                  : "Your installation's hostname"
             }
             htmlFor="sc-host"
           >
@@ -300,7 +245,7 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
           </SettingRow>
           <SettingRow
             {...settingRow("sourceControl.account")}
-            description="Requests stop if the CLI is signed in as someone else."
+            description="Requests stop if the CLI is signed in as anyone else"
             htmlFor="sc-account"
           >
             <Input
@@ -313,7 +258,7 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
           </SettingRow>
           <SettingRow
             {...settingRow("sourceControl.remote")}
-            description="The Git remote that names a project's repository."
+            description="Names each project's repository"
             htmlFor="sc-remote"
           >
             <Input
@@ -346,10 +291,7 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
       {/* Project dialogs edit this window's own daemon's projects. */}
       {machineId === "primary" && <SourceControlProjects />}
       <SettingSection label="Git transport">
-        <SettingRow
-          title="Check a project's remote"
-          description="Reads from the remote; nothing is pushed."
-        >
+        <SettingRow title="Check a project's remote" description="Read only; nothing is pushed">
           <Select
             label="Project transport check"
             value={workspace}
