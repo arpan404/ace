@@ -1,11 +1,12 @@
 import type { Toolkit } from "@ace/mcp-server";
 import { SpadeToolCallInput, type ThreadId } from "@ace/protocol";
 import { maxToolTimeoutMs } from "@ace/mcp-server";
+import { spadeBridgeTools } from "@ace/provider-kit/ace-tool-names";
 import { z } from "zod";
 import { spadeRequest, type SpadeConnection } from "./forward.ts";
 
 /** The two tools a bot's hidden session gets for the bot's own tools (ADR 0133). */
-export const spadeBrainToolNames = ["spade_tools", "spade_call"] as const;
+export const spadeBrainToolNames = spadeBridgeTools;
 
 const answer = z.object({ result: z.string(), isError: z.boolean() });
 
