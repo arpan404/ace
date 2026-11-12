@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Start a device: every simulator and emulator that's off, by kind, searched and filtered by
-/// the bridge with the web's rules. Choosing one boots it and opens its screen.
+/// the bridge with the web's rules. Choosing one boots it, when it can boot, and opens its screen.
 struct DeviceCatalogSheet: View {
     @Bindable var model: ClientModel
     let threadId: String?
@@ -71,14 +71,16 @@ struct DeviceCatalogSheet: View {
         .buttonStyle(.plain)
         .listRowBackground(Color.clear)
         .listRowSeparatorTint(AceTheme.Colours.separator)
-        .disabled(booting != nil || !model.canOperate)
+        .disabled(booting != nil || (tile.bootable && !model.canOperate))
         .accessibilityIdentifier("devices.catalog.row")
     }
 
     private func search() { devices.watch(model, threadId: threadId, deviceId: nil, query: query, platform: platform) }
 
-    /// Boot, then show its screen: booting is how a person asks to see the device.
+    /// Boot, then show its screen: booting is how a person asks to see the device. One that can't
+    /// boot (offline, not authorized) opens as it is, and its screen says what it needs.
     private func start(_ tile: DeviceTile) async {
+        guard tile.bootable else { chosen(tile); return }
         booting = tile.id
         defer { booting = nil }
         guard await devices.perform(model, threadId: threadId, ["op": "boot", "deviceId": tile.id]) else { return }

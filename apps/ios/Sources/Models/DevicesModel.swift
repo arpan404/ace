@@ -29,6 +29,8 @@ struct DeviceTile: Codable, Sendable, Equatable, Identifiable, Hashable {
     let detail: String
     let running: Bool
     let live: Bool
+    /// Boot can start it; an offline or unauthorized device only opens.
+    let bootable: Bool
     /// "Claude is using it"; empty while nobody is.
     let control: String
 }
@@ -62,6 +64,9 @@ struct DeviceScreenInfo: Codable, Sendable, Equatable {
         var x: Double? = nil
         var y: Double? = nil
     }
+    /// Over the dark screen while it isn't streaming (`deviceIdle` in ui-core): one sentence and
+    /// the one next step, `start`, `boot`, `refresh`, `retryCleanup` or empty.
+    struct Idle: Codable, Sendable, Equatable { let sentence: String; let action: String }
     let id: String
     let name: String
     let platform: String
@@ -70,8 +75,11 @@ struct DeviceScreenInfo: Codable, Sendable, Equatable {
     let `where`: String
     let live: Bool
     let running: Bool
+    /// Boot can start it: shut down and not already booting.
+    let bootable: Bool
     let busy: Bool
     let cleanupRequired: Bool
+    let idle: Idle
     let recording: Bool
     let interactive: Bool
     let control: Control
@@ -97,6 +105,9 @@ struct DevicesView: Codable, Sendable, Equatable {
     let connected: Bool
     let loading: Bool
     let enabled: Bool
+    /// Devices are turned off for this machine, in the web's words; nil while they're on.
+    struct Off: Codable, Sendable, Equatable { let title: String; let description: String }
+    let off: Off?
     let offline: DeviceProblem?
     let running: [DeviceTile]
     let groups: [Group]

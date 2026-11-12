@@ -8,13 +8,14 @@ import Testing
 @MainActor @Suite struct DevicesViewTests {
     private static let frame = #"{"bezel":{"top":0.045,"right":0.045,"bottom":0.045,"left":0.045},"screenRadius":0.14,"bodyRadius":0.185,"band":0.012,"homeButton":false}"#
     private static let patch = #"""
-    {"type":"devices.view","threadId":"thread-1","view":{"connected":true,"loading":false,"enabled":true,"offline":null,
-     "running":[{"id":"ios:7d1b2c4e-5a6f-4e8d-9b0a-1c2d3e4f5a6b","name":"iPhone 17 Pro","platform":"ios","kind":"iphone","detail":"iOS 26.0 · Live","running":true,"live":true,"control":"Claude is using it"}],
-     "groups":[{"label":"Android phone","rows":[{"id":"android:Pixel_9","name":"Pixel 9","platform":"android","kind":"android-phone","detail":"Android 15 · Off","running":false,"live":false,"control":""}]}],
+    {"type":"devices.view","threadId":"thread-1","view":{"connected":true,"loading":false,"enabled":true,"off":null,"offline":null,
+     "running":[{"id":"ios:7d1b2c4e-5a6f-4e8d-9b0a-1c2d3e4f5a6b","name":"iPhone 17 Pro","platform":"ios","kind":"iphone","detail":"iOS 26.0 · Live","running":true,"live":true,"bootable":false,"control":"Claude is using it"}],
+     "groups":[{"label":"Android phone","rows":[{"id":"android:Pixel_9","name":"Pixel 9","platform":"android","kind":"android-phone","detail":"Android 15 · Off","running":false,"live":false,"bootable":true,"control":""}]}],
      "notes":[{"message":"A device tool is missing on this machine.","hint":"Install the device and recording tools, then try again."}],
      "toolsMissing":true,
      "device":{"id":"ios:7d1b2c4e-5a6f-4e8d-9b0a-1c2d3e4f5a6b","name":"iPhone 17 Pro","platform":"ios","kind":"iphone","subtitle":"iOS 26.0 · Live","where":"Live",
-       "live":true,"running":true,"busy":false,"cleanupRequired":false,"recording":false,"interactive":false,
+       "live":true,"running":true,"bootable":false,"busy":false,"cleanupRequired":false,
+       "idle":{"sentence":"iPhone 17 Pro is running. Its live view is stopped.","action":"start"},"recording":false,"interactive":false,
        "control":{"sentence":"Claude is using iPhone 17 Pro","action":"take"},
        "buttons":[{"label":"Volume up","key":"volumeUp"}],"frame":{"portrait":FRAME,"landscape":FRAME},
        "screen":{"width":393,"height":852},
@@ -29,6 +30,7 @@ import Testing
         let view = try #require(model.view)
         #expect(view.running.map(\.control) == ["Claude is using it"])
         #expect(view.groups.first?.rows.first?.name == "Pixel 9")
+        #expect(view.groups.first?.rows.first?.bootable == true)
         #expect(view.notes.first?.text == "A device tool is missing on this machine. Install the device and recording tools, then try again.")
         let device = try #require(view.device)
         #expect(device.control.sentence == "Claude is using iPhone 17 Pro")

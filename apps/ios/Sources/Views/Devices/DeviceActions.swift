@@ -122,7 +122,7 @@ struct DeviceMenu: View {
             }
             if info.running {
                 Button("Shut down…", ace: .power, role: .destructive, action: shutdown)
-            } else {
+            } else if info.bootable {
                 Button("Boot", ace: .power, action: boot).disabled(info.busy)
             }
         }

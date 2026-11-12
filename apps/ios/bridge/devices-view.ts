@@ -5,12 +5,15 @@ import {
   deviceButtons,
   deviceCatalog,
   deviceControls,
+  deviceIdle,
   deviceKind,
+  devicesOff,
   deviceProblem,
   inventoryNotes,
   deviceRows,
   deviceScreen,
   frameGeometry,
+  type DeviceIdle,
   type DeviceProblem,
   type DeviceRow,
   type FrameGeometry,
@@ -70,6 +73,8 @@ export interface DeviceTile {
   detail: string;
   running: boolean;
   live: boolean;
+  /** Boot can start it (shut down, not already booting); an offline one only opens. */
+  bootable: boolean;
   /** "Claude is using it", "You're in control"; empty while nobody is. */
   control: string;
 }
@@ -93,8 +98,12 @@ export interface DeviceScreenView {
   where: string;
   live: boolean;
   running: boolean;
+  /** Boot can start it: shut down and not already booting. */
+  bootable: boolean;
   busy: boolean;
   cleanupRequired: boolean;
+  /** Over the dark screen while it isn't streaming: one sentence and the one next step. */
+  idle: DeviceIdle;
   recording: boolean;
   /** You can touch it: live and not held by an agent or another person. */
   interactive: boolean;
@@ -123,6 +132,8 @@ export interface PhoneDevicesView {
   connected: boolean;
   loading: boolean;
   enabled: boolean;
+  /** Devices are turned off for this machine, in the web's words; null while they're on. */
+  off: { title: string; description: string } | null;
   /** Why the channel is down, once it failed or closed. */
   offline: DeviceProblem | null;
   running: DeviceTile[];
@@ -187,6 +198,7 @@ function tile(input: DevicesViewInput, row: DeviceRow, state: DeviceState | unde
     detail: controls ? [row.runtime, controls.where].filter(Boolean).join(" · ") : row.detail,
     running: row.running,
     live: row.live,
+    bootable: row.bootable,
     control: tileControl(input, state),
   };
 }
@@ -226,8 +238,10 @@ function screen(
     where: controls.where,
     live: controls.live,
     running: controls.running,
+    bootable: row.bootable,
     busy: controls.busy,
     cleanupRequired: controls.cleanupRequired,
+    idle: deviceIdle(row, controls),
     recording: state?.recording === true,
     interactive: controls.live && controls.controller !== "agent" && !othersLease,
     control: controlLine(input, state, row.name),
@@ -301,12 +315,14 @@ export function phoneDevicesView(input: DevicesViewInput): PhoneDevicesView {
               hint: "ace keeps trying.",
             }
           : null;
+  const enabled =
+    snapshot.enabled ??
+    (snapshot.states.length ? snapshot.states.some((state) => state.enabled) : false);
   return {
     connected: snapshot.connected,
     loading: !snapshot.inventoryLoaded,
-    enabled:
-      snapshot.enabled ??
-      (snapshot.states.length ? snapshot.states.some((state) => state.enabled) : false),
+    enabled,
+    off: enabled ? null : devicesOff(),
     offline,
     running,
     groups,

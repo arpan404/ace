@@ -315,3 +315,78 @@ test("a missing Android SDK is a setup note, never the open Simulator's problem"
   expect(shown.device?.problem).toBeNull();
   expect(shown.notes).toEqual([{ message: issue.message, hint: issue.hint }]);
 });
+
+test("a stopped device offers Boot only when it can boot, and says what it is doing in the web's words", () => {
+  const offline = AppDevice.parse({ ...pixel, state: "offline" });
+  const at = (device: AppDevice, states: DeviceState[] = []) =>
+    view(states, {
+      deviceId: device.id,
+      snapshot: {
+        connected: true,
+        inventoryLoaded: true,
+        devices: [iphone, ipad, device],
+        states,
+        issues: [],
+        enabled: true,
+      },
+    }).device;
+
+  expect(at(pixel)?.idle).toEqual({ sentence: "Pixel 9 is shut down.", action: "boot" });
+  expect(at(pixel)?.bootable).toBe(true);
+  expect(at(offline)?.idle).toEqual({
+    sentence: "Pixel 9 is offline. Reconnect it, or restart its emulator, then refresh.",
+    action: "refresh",
+  });
+  expect(at(offline)?.bootable).toBe(false);
+  const booting = DeviceState.parse({
+    device: pixel,
+    enabled: true,
+    lifecycle: "idle",
+    controller: "none",
+    booting: true,
+  });
+  expect(at(pixel, [booting])?.bootable).toBe(false);
+  expect(at(pixel, [booting])?.idle).toEqual({ sentence: "Booting…", action: "" });
+  expect(view([live({ lifecycle: "idle", streamId: undefined })]).device?.idle).toEqual({
+    sentence: "iPhone 17 Pro is running. Its live view is stopped.",
+    action: "start",
+  });
+});
+
+test("the Start sheet marks which devices can boot, so an offline one opens without booting", () => {
+  const offline = AppDevice.parse({ ...pixel, state: "offline" });
+  const shown = view([], {
+    snapshot: {
+      connected: true,
+      inventoryLoaded: true,
+      devices: [iphone, ipad, offline],
+      states: [],
+      issues: [],
+      enabled: true,
+    },
+  });
+  const tiles = shown.groups.flatMap((group) => group.rows);
+  expect(tiles.map((tile) => [tile.name, tile.bootable])).toEqual([
+    ["iPad Air 13-inch", true],
+    ["Pixel 9", false],
+  ]);
+});
+
+test("devices turned off for the machine say so as the web does; while on, there is no notice", () => {
+  const off = view([], {
+    snapshot: {
+      connected: true,
+      inventoryLoaded: true,
+      devices: [iphone],
+      states: [],
+      issues: [],
+      enabled: false,
+    },
+  });
+  expect(off.off).toEqual({
+    title: "Simulators and emulators are off",
+    description:
+      "They're turned off for this machine. Turn them on in Settings › Simulators to watch and drive them here and let this thread's agents use them.",
+  });
+  expect(view([]).off).toBeNull();
+});

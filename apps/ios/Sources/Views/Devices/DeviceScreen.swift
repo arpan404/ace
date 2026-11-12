@@ -153,18 +153,20 @@ struct DeviceScreen: View {
                 Text(problem.message).multilineTextAlignment(.center)
                 idleButton("Open settings") { operate(["op": "permissions.request", "permission": problem.permission ?? ""], device: false) }
                 idleButton("Try again") { operate(["op": "start", "fps": 60]) }
-            } else if info.busy {
-                WorkingMark()
-                Text(info.where)
-            } else if info.cleanupRequired {
-                Text("The live view didn't stop cleanly.")
-                idleButton("Retry cleanup") { operate(["op": "stop"]) }
-            } else if info.running {
-                Text("The live view is off.")
-                idleButton("Start live view") { operate(["op": "start", "fps": 60]) }
             } else {
-                Text("\(info.name) is off.")
-                idleButton("Boot") { boot() }
+                // The sentence and its one next step are ui-core's `deviceIdle`, as the web's.
+                if info.busy { WorkingMark() }
+                Text(info.idle.sentence).multilineTextAlignment(.center)
+                switch info.idle.action {
+                case "start": idleButton("Start live view") { operate(["op": "start", "fps": 60]) }
+                case "boot": idleButton("Boot") { boot() }
+                case "retryCleanup": idleButton("Retry cleanup") { operate(["op": "stop"]) }
+                case "refresh":
+                    // Reading the list again needs no control, so a viewer can refresh too.
+                    Button("Refresh") { Task { await devices.refresh(model) } }
+                        .buttonStyle(.textAction(.prominent)).disabled(devices.busy)
+                default: EmptyView()
+                }
             }
         }
         .aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
