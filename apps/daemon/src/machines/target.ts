@@ -48,6 +48,10 @@ export interface MachineTargetDeps {
   commandJobs(session: string | undefined, jobIds: readonly string[]): MachineCommandJobsResult;
   /** This machine's Spade while it answers, for inbox requests from other machines (ADR 0132). */
   spade(): SpadeConnection | undefined;
+  /** This daemon's local token, which signs inbox requests for Spade (ADR 0132). */
+  inboxKey(): string | undefined;
+  /** The time, for inbox signatures. */
+  now(): number;
   log(message: string, fields: Record<string, unknown>): void;
 }
 export interface MachineAnswer {
@@ -227,7 +231,15 @@ export function createMachineTarget(deps: MachineTargetDeps) {
       case "command.jobs":
         return deps.commandJobs(deps.guests.existing(device, origin), call.jobIds);
       case "spade":
-        return forwardToInbox(deps.spade(), origin, call.request, signal);
+        return forwardToInbox(
+          deps.spade(),
+          deps.inboxKey(),
+          device,
+          origin,
+          call.request,
+          signal,
+          deps.now(),
+        );
     }
   }
   return {

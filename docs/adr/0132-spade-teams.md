@@ -87,10 +87,12 @@ and want to copy a bot that works, or move it to another machine.
 
 8. **Only the person's own machines.** The target daemon takes the call only from a paired or
    account machine of the same person, under its Agents grant (ADR 0105): reading the bot list
-   needs Read, delivering or stopping needs Read and act. It stamps the calling machine's host id
-   and name on the request; Spade's inbox refuses any request without that stamp, and the
-   daemon's `spade.http` path refuses the inbox route, so neither the app nor a device can
-   pretend to be another machine.
+   needs Read, delivering or stopping needs Read and act; a guest pairing from a time-limited link
+   is refused. It stamps the pairing the call authenticated with and the machine's name, and
+   signs the request with its own local token; Spade checks that signature against the token in
+   ace's home and refuses anything else, so Spade's bearer token alone never reaches the inbox,
+   and the daemon's `spade.http` path refuses the inbox route. Neither the app, a device nor a
+   local process holding only Spade's token can pretend to be another machine.
 
 9. **Exactly once.** Each ask carries an idempotency key made by the sending Spade. The sender
    stores the ask in an outbox before sending; the receiver stores the key in the same

@@ -36,6 +36,7 @@ import { machineRequest } from "../machines/transport.ts";
 import { TransferClient, transferTransport } from "../transfers/client.ts";
 import { findHostThread } from "../spade/host-thread.ts";
 import { SpadeRemote } from "../spade/remote.ts";
+import { readLocalToken } from "../local-token.ts";
 import type { ServiceContext } from "./types.ts";
 
 /** The shell's timers for polls; nothing waits on them at exit. */
@@ -181,6 +182,14 @@ export function startMachines(context: ServiceContext): void {
     grants,
     commandJobs: (session, jobIds) => commands.states(session, jobIds),
     spade: () => services.spade?.ready()?.connection,
+    inboxKey: () => {
+      try {
+        return readLocalToken(config.dataDir);
+      } catch {
+        return undefined;
+      }
+    },
+    now,
     hosts: {
       devices,
       screen,

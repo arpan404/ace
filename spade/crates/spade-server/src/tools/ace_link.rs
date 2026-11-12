@@ -407,6 +407,18 @@ impl AceLink {
             .map(|c| c.skills.config().clone())
     }
 
+    /// The daemon's local token, read now from ace's home: the key its signature on inbox
+    /// requests is checked with (ADR 0132).
+    pub fn inbox_key(&self) -> Option<String> {
+        match &self.target {
+            AceTarget::Discover(home) => std::fs::read_to_string(home.join("daemon-token"))
+                .ok()
+                .map(|token| token.trim().to_owned())
+                .filter(|token| !token.is_empty()),
+            AceTarget::Fixed(config) => Some(config.skills.token().expose().to_owned()),
+        }
+    }
+
     fn skills(&self) -> Option<Arc<AceSkills>> {
         self.current
             .read()

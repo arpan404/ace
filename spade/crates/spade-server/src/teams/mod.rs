@@ -4,6 +4,7 @@
 //! `engine::inbox`); this module holds what they share, the way ace is reached, and the tools.
 
 mod portable;
+pub mod proof;
 mod remote;
 mod templates;
 mod tools;
