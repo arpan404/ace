@@ -5,7 +5,7 @@ import { useState, type ReactNode } from "react";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
 import { railDotClass, railPlaceClass } from "@/components/rail-place.ts";
 import { SpadeMark } from "@/components/spade-mark.tsx";
-import { spadeAvailable } from "@/lib/spade-available.ts";
+import { useSpadeShown } from "@/lib/spade-available.ts";
 import { Tip, TooltipSide } from "@/components/ui/tooltip.tsx";
 import { AccountMenu } from "./account-menu.tsx";
 import { UpdateButton } from "./update-button.tsx";
@@ -91,6 +91,8 @@ export function AppRail(props: {
   const threads = useLastPlace(current === "home", "/new");
   const chats = useLastPlace(current === "chats", "/chats");
   const spade = useLastPlace(current === "spade", "/spade");
+  // Until the daemon says, the mark stays as coming soon: Spade is hidden by default.
+  const spadeShown = useSpadeShown() === true;
   return (
     <nav
       aria-label="App"
@@ -114,7 +116,7 @@ export function AppRail(props: {
           last={chats}
           signal={signals.chats}
         />
-        {spadeAvailable ? (
+        {spadeShown ? (
           (props.spade?.(current === "spade", spade.to, spade.search) ?? (
             <SpadePlace current={current === "spade"} last={spade} />
           ))

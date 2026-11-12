@@ -748,11 +748,14 @@ function matches(entry: SettingEntry, query: string): boolean {
   return words(query).every((word) => haystack.some((candidate) => candidate.startsWith(word)));
 }
 
-/** Settings rows matching `query`, titles that start with it first. Empty for an empty query. */
-export function searchSettings(query: string): SettingEntry[] {
+/**
+ * Settings rows matching `query`, titles that start with it first, on the pages this machine
+ * shows (`spadeShown`: Spade's too). Empty for an empty query.
+ */
+export function searchSettings(query: string, spadeShown: boolean): SettingEntry[] {
   const text = query.trim().toLowerCase();
   if (!text) return [];
-  const visible = visibleSettingsPages();
+  const visible = visibleSettingsPages(spadeShown);
   const found = settingsIndex.filter(
     (entry) =>
       visible.some((page) => page.to === entry.page) &&

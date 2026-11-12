@@ -156,7 +156,7 @@ test("Use my Chrome is installed and controlled from Settings › Browser, not C
 
 test("searching for Use my Chrome lands on Settings › Browser", async () => {
   const { searchSettings } = await import("./settings-index.ts");
-  const found = searchSettings("use my chrome").map((entry) => entry.page);
+  const found = searchSettings("use my chrome", true).map((entry) => entry.page);
   expect(found.length).toBeGreaterThan(0);
   expect(new Set(found)).toEqual(new Set(["/settings/browser"]));
 });

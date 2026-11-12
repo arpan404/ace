@@ -59,12 +59,13 @@ export const unreachableReason = "Spade isn't reachable.";
  * while the daemon is down or hasn't said. A direct look that found nobody overrides the
  * daemon's last ready (it may be stale): Spade isn't reachable. Otherwise what the daemon says.
  * The unreachable status is `off` with a reason, so the screens show that one sentence and
- * offer no switch.
+ * offer no switch. Spade hidden by the daemon (ADR 0139) stays hidden, whatever Spade answers.
  */
 export function spadeStatusWith(
   daemon: SpadeStatus | undefined,
   direct: DirectHealth | undefined,
 ): SpadeStatus | undefined {
+  if (daemon?.hidden) return daemon;
   if (direct?.ready === false && daemon?.state === "ready")
     return { state: "off", reason: unreachableReason };
   if (!direct?.ready) return daemon;

@@ -40,6 +40,15 @@ test("Spade answering directly is ready even while the daemon is down", () => {
   expect(spadeStatusWith(failed, { ready: true, version: undefined })).toEqual({ state: "ready" });
 });
 
+test("Spade hidden by the daemon stays hidden even when it answers the desktop app directly", () => {
+  const hidden = {
+    state: "off" as const,
+    hidden: true,
+    reason: "Spade is hidden on this machine.",
+  };
+  expect(spadeStatusWith(hidden, { ready: true, version: "0.4.0" })).toBe(hidden);
+});
+
 test("without a direct answer, the daemon's word stands", () => {
   const starting = { state: "starting" as const };
   expect(spadeStatusWith(starting, { ready: false })).toBe(starting);

@@ -10,6 +10,7 @@ import {
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { useViewListKeys } from "@/components/ui/view-row.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
+import { useSpadeShown } from "@/lib/spade-available.ts";
 import { entryRoute, pageTitle, searchSettings } from "./settings-index.ts";
 import {
   settingsGroupTitles,
@@ -31,9 +32,8 @@ export function SettingsPageLinks(props: { pages?: readonly SettingsPath[] }) {
   const pathname = useLocation({ select: (location) => location.pathname });
   const current = settingsPageOf(pathname)?.to;
   const listKeys = useViewListKeys<HTMLDivElement>();
-  const pages = props.pages
-    ? visibleSettingsPages().filter((page) => props.pages?.includes(page.to))
-    : visibleSettingsPages();
+  const visible = visibleSettingsPages(useSpadeShown() === true);
+  const pages = props.pages ? visible.filter((page) => props.pages?.includes(page.to)) : visible;
   return (
     <div className="flex flex-col" {...listKeys}>
       {groupOrder.map((group) => {
@@ -75,8 +75,9 @@ function PageList(props: { pages: readonly SettingsPage[]; current: string | und
 export function SettingsNav() {
   const [query, setQuery] = useState("");
   const text = query.trim().toLowerCase();
-  const found = searchSettings(query);
-  const pages = visibleSettingsPages()
+  const spadeShown = useSpadeShown() === true;
+  const found = searchSettings(query, spadeShown);
+  const pages = visibleSettingsPages(spadeShown)
     .filter(
       (page) =>
         page.title.toLowerCase().includes(text) || found.some((entry) => entry.page === page.to),
