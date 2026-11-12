@@ -1,5 +1,6 @@
 import type { Fact } from "@ace/core";
 import { facts } from "@ace/fake-daemon";
+import { HostId, MessageOrigin, ThreadId } from "@ace/protocol";
 import { formatMessageQuotes } from "@ace/ui-core";
 import { afterEach, expect, test } from "vitest";
 import { connect, fixture, latest, native, open, reset, rows, until } from "./thread-harness.ts";
@@ -196,11 +197,17 @@ test("a settled turn's opened log times its thought by the step after it", async
 });
 
 /** A brief another thread's agent sent this one, as the daemon stamps it. */
-const brief = (item: string, text: string, origin: Record<string, unknown>): Fact => ({
+const brief = (item: string, text: string, origin: unknown): Fact => ({
   type: "item.upsert",
   agent: "root",
   item,
-  draft: { type: "message", role: "user", complete: true, parts: [{ type: "text", text }], origin },
+  draft: {
+    type: "message",
+    role: "user",
+    complete: true,
+    parts: [{ type: "text", text }],
+    origin: MessageOrigin.parse(origin),
+  },
 });
 const sentRow = () =>
   rows("thread.block").find((row) => event(row)?.kind === "sent")?.event as
@@ -243,9 +250,9 @@ test("a sender on a paired machine is named with its machine, and its host passe
     title: "remote",
     provider: "codex",
     delegatedFrom: {
-      hostId: "host-linux",
+      hostId: HostId.parse("host-linux"),
       hostName: "Linux box",
-      threadId: "far",
+      threadId: ThreadId.parse("far"),
       threadTitle: "Upload fixes",
     },
   });
