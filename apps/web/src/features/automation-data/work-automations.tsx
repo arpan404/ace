@@ -1,6 +1,10 @@
 import { useNavigate } from "@tanstack/react-router";
-import { nextRunText, localTimeZone } from "@ace/ui-core/automations";
-import { pluralCount } from "@ace/ui-core";
+import {
+  localTimeZone,
+  projectAutomationsFailed,
+  projectAutomationsLine,
+  projectSchedules,
+} from "@ace/ui-core/automations";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useNow } from "@/lib/time.ts";
 import { useAutomations } from "./use-automations.ts";
@@ -11,11 +15,7 @@ import { useAutomations } from "./use-automations.ts";
  */
 export function useProjectAutomations(workspaceId: string, workspacePath: string | undefined) {
   const query = useAutomations();
-  const entries = query.data?.filter(
-    ({ automation }) =>
-      automation.trigger.kind === "schedule" &&
-      (automation.workspace === workspaceId || automation.workspace === workspacePath),
-  );
+  const entries = query.data && projectSchedules(query.data, workspaceId, workspacePath);
   return { entries, failed: query.isError, retry: () => void query.refetch() };
 }
 
@@ -38,22 +38,12 @@ export function WorkAutomationsLine(props: {
         data-tone="failed"
         className="focus-ring-inset mx-2 rounded-sm text-left text-xs text-(--tone-text)"
       >
-        Couldn't read automations. Try again
+        {projectAutomationsFailed}
       </button>
     );
-  if (!entries?.length) return null;
-  const next = entries
-    .filter((entry) => entry.automation.enabled && entry.nextRunAt !== undefined)
-    .toSorted((left, right) => (left.nextRunAt ?? 0) - (right.nextRunAt ?? 0))[0];
-  const when = next
-    ? nextRunText(next.automation, next.nextRunAt, now, localTimeZone(), running)
-    : undefined;
-  const line = [
-    `${pluralCount(entries.length, "automation")} in this project`,
-    when && `next ${when.charAt(0).toLowerCase()}${when.slice(1)}`,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const line =
+    entries && projectAutomationsLine(entries, { now, localZone: localTimeZone(), running });
+  if (!line) return null;
   return (
     <button
       type="button"

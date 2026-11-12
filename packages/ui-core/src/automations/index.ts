@@ -103,6 +103,12 @@ export {
 } from "./sidebar-rows.ts";
 export { projectRepository } from "./project-repository.ts";
 export {
+  projectAutomationsFailed,
+  projectAutomationsLine,
+  projectSchedules,
+  type ProjectLineFacts,
+} from "./project-line.ts";
+export {
   actionLabel,
   automationLine,
   lineText,
