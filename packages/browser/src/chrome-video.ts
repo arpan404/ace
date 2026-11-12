@@ -238,18 +238,19 @@ export class ChromeVideo implements VideoHost {
     );
     if (loaded.id !== videoExtensionId)
       throw new Error("The video extension loaded under another id");
-    // An attached target may not have run its script yet: always so on Windows, and on any
-    // platform for an extension installed again over a running one.
-    const scriptsLag = process.platform === "win32" || not.worker !== undefined;
+    // An attached target may not have run its script yet, or may be paused before it: always
+    // so on Windows, on any platform for an extension installed again over a running one (a
+    // failed load retried is one), and under load anywhere. Calling an export then throws, or
+    // never answers at all, so every load waits for the exports.
     const attached = await this.attach(`${origin}worker.js`, not.worker);
     this.workerTarget = attached.targetId;
     const worker = attached.session;
-    if (scriptsLag) await this.untilExport(worker, "ready");
+    await this.untilExport(worker, "ready");
     await evaluate(worker, "aceVideo.ready", []);
     const opened = await this.attach(`${origin}offscreen.html`, not.document);
     this.documentTarget = opened.targetId;
     const document = opened.session;
-    if (scriptsLag) await this.untilExport(document, "supported");
+    await this.untilExport(document, "supported");
     document.on("Runtime.bindingCalled", (raw) => this.receive(raw));
     await document.send("Runtime.addBinding", { name: "aceVideoEvent" });
     return { worker, document };
