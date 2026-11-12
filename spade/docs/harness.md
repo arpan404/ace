@@ -64,7 +64,8 @@ turn's total.
 
 Spade's own tools are always offered in full, in name order: `web_search` (SearXNG, then Brave),
 `web_fetch` (one page as text, a window at a time, refusing local and private addresses),
-`todo`, and, when Spade knows where ace is (`SPADE_ACE_HOME`), `skill_search` and `skill_load`
+`todo`, the workspace tools and `shell` ([workspace.md](workspace.md)), and, when Spade knows where
+ace is (`SPADE_ACE_HOME`), `skill_search`, `skill_load`, `skill_propose` and `skill_feedback`
 (they say ace is away while it is). Output from `web_search`,
 `web_fetch` and most of ace's tools is untrusted, so a write later in that turn asks.
 
