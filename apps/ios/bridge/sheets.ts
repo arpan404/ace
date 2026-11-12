@@ -1,4 +1,5 @@
 import type { Scheduler, ThreadSource } from "@ace/client";
+import { localTimeZone } from "@ace/ui-core/automations";
 import { z } from "zod";
 import { followAgents, type AgentsFollow, type PatchSink, type Preview } from "./agents.ts";
 import { ChangesAction, changesAction } from "./changes-actions.ts";
@@ -43,6 +44,8 @@ const OpenAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("summary"), open: z.boolean() }),
   z.object({ kind: z.literal("summary.clear") }),
   z.object({ kind: z.literal("summary.closed"), shown: z.boolean() }),
+  /** Read the project's automations again, after the line said the read failed. */
+  z.object({ kind: z.literal("summary.automations") }),
   z.object({ kind: z.literal("work"), open: z.boolean() }),
   z.object({ kind: z.literal("work.refresh") }),
   z.object({ kind: z.literal("work.branches") }),
@@ -66,6 +69,8 @@ export interface SheetDeps {
   id?: () => string;
   /** The Summary's timers: its turn reads and the time Now counts. */
   scheduler?: Scheduler;
+  /** The phone's IANA zone, for the Summary's next automation start. */
+  zone?: () => string;
 }
 
 export interface OpenThread {
@@ -256,7 +261,12 @@ export class Sheets {
           thread.epoch,
           this.#sink,
           this.#preview,
-          { now: this.#deps.now ?? (() => 0), scheduler, cleared: this.#cleared },
+          {
+            now: this.#deps.now ?? (() => 0),
+            zone: this.#deps.zone ?? localTimeZone,
+            scheduler,
+            cleared: this.#cleared,
+          },
         );
         return true;
       }
@@ -265,6 +275,9 @@ export class Sheets {
         return this.#summary !== undefined;
       case "summary.closed":
         this.#summary?.closedPrs(action.shown);
+        return this.#summary !== undefined;
+      case "summary.automations":
+        this.#summary?.automations();
         return this.#summary !== undefined;
       case "work.refresh":
         void this.#work?.read();

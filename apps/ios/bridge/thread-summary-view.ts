@@ -35,13 +35,20 @@ import {
   type AgentForest,
   type ThreadWork,
 } from "@ace/ui-core";
+import {
+  projectAutomationsFailed,
+  projectAutomationsLine,
+  projectSchedules,
+} from "@ace/ui-core/automations";
 import type { Preview } from "./agents.ts";
+import type { PersonAutomations } from "./project-automations.ts";
 
 /*
  * The open thread's Summary as the phone draws it, worded by the web Summary tab's own rules
  * (`@ace/ui-core`): Now, Since you looked, the agent tree's count, Results (pull requests, files
- * changed and by whom, checks, failed commands) and the plan. Every section is left out when it
- * has nothing to say. Pure: the facts come in, the clock is `now`.
+ * changed and by whom, checks, failed commands), the plan and the project's automations line.
+ * Every section is left out when it has nothing to say. Pure: the facts come in, the clock is
+ * `now`.
  */
 
 /** A shown plan: whose list it is and its items. */
@@ -53,6 +60,10 @@ export interface SummaryPlan {
 export interface SummaryFacts {
   threadId: string;
   thread: Pick<Thread, "status" | "details" | "workspaceId">;
+  /** The person's automations, once read; the project's schedules are worded from them. */
+  automations: PersonAutomations | undefined;
+  /** The phone's IANA zone. */
+  zone: string;
   forest: AgentForest;
   works: ReadonlyMap<string, ThreadWork>;
   turn: TurnSummary | undefined;
@@ -104,6 +115,11 @@ export interface SummaryView {
     total: number;
     todos: { id: string; text: string; status: TodoEntry["status"]; words: string }[];
   } | null;
+  /**
+   * The project's schedules in one quiet line opening Automations; when the read failed, the
+   * line says so and a tap reads again. Null when the project has none.
+   */
+  automations: { line: string; failed: boolean } | null;
 }
 
 const toolStatus = (item: Item | undefined): ToolStatus | undefined =>
@@ -187,6 +203,24 @@ function planView(plans: readonly SummaryPlan[], preview: Preview): SummaryView[
   return { count: planCount({ done, total: todos.length }), done, total: todos.length, todos };
 }
 
+function automationsView(facts: SummaryFacts): SummaryView["automations"] {
+  const read = facts.automations;
+  if (read?.kind === "failed") return { line: projectAutomationsFailed, failed: true };
+  if (read?.kind !== "read") return null;
+  const details = facts.thread.details;
+  const schedules = projectSchedules(
+    read.entries,
+    facts.thread.workspaceId,
+    details?.workspace?.path,
+  );
+  const line = projectAutomationsLine(schedules, {
+    now: facts.now,
+    localZone: facts.zone,
+    running: read.running,
+  });
+  return line ? { line, failed: false } : null;
+}
+
 export function summaryView(facts: SummaryFacts, preview: Preview): SummaryView {
   const prs = summaryPullRequests(facts.thread.details?.linkedPrs ?? []);
   const { rows, fold } = summaryPrRows(prs, facts.showClosed);
@@ -233,5 +267,6 @@ export function summaryView(facts: SummaryFacts, preview: Preview): SummaryView 
           }
         : null,
     plan: planView(facts.plans, preview),
+    automations: automationsView(facts),
   };
 }

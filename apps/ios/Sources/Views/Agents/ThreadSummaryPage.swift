@@ -2,8 +2,9 @@ import SwiftUI
 
 /// The thread at a glance, as the web's Summary tab has it: Now (who needs the person, or how long
 /// the work has run or took and what came of it), Since you looked, the agent tree's count opening
-/// Agents, Results (pull requests, files changed and by whom, checks, other failed commands) and
-/// the plan. A section with nothing in it is left out. The bridge follows the thread only while
+/// Agents, Results (pull requests, files changed and by whom, checks, other failed commands), the
+/// plan, and the project's automations in one quiet line opening Automations. A section with
+/// nothing in it is left out. The bridge follows the thread only while
 /// this is on screen and words every line (`bridge/thread-summary.ts`); this view only draws and
 /// routes. Cardless, as inner pages are (design language §5).
 struct ThreadSummaryPage: View {
@@ -20,6 +21,7 @@ struct ThreadSummaryPage: View {
     var openAgent: ((SubagentRoute) -> Void)? = nil
     @Environment(\.openPullRequest) private var openPull
     @State private var showClosed = false
+    @State private var showAutomations = false
     private var summary: ThreadSummarySheet? { model.sheets.summary }
 
     var body: some View {
@@ -31,6 +33,13 @@ struct ThreadSummaryPage: View {
             .animation(.default, value: summary)
         }
         .background(AceDesign.Surface.background)
+        .sheet(isPresented: $showAutomations) {
+            NavigationStack {
+                AutomationsView(model: model)
+                    .navigationTitle("Automations")
+                    .navigationBarTitleDisplayMode(.inline)
+            }
+        }
         .onAppear { model.sheet(["kind": "summary", "open": true]) }
         .onDisappear { model.sheet(["kind": "summary", "open": false]) }
         .accessibilityIdentifier("summary.page")
@@ -46,6 +55,26 @@ struct ThreadSummaryPage: View {
         }
         if summary.hasResults { results(summary) }
         if let plan = summary.plan { SummaryPlanSection(plan: plan) }
+        if let automations = summary.automations { automationsLine(automations) }
+    }
+
+    /// The project's schedules in one quiet line at the foot; a failed read says so in red and a
+    /// tap reads again.
+    private func automationsLine(_ automations: ThreadSummarySheet.Automations) -> some View {
+        Button {
+            if automations.failed { model.sheet(["kind": "summary.automations"]) } else { showAutomations = true }
+        } label: {
+            Text(automations.line)
+                .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                .foregroundStyle(automations.failed ? AceTheme.StatusText.failed : AceDesign.Ink.subtle)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, AceDesign.Space.margin)
+        .accessibilityHint(automations.failed ? "Reads them again" : "Opens Automations")
+        .accessibilityIdentifier("summary.automations")
     }
 
     private func catchUp(_ lines: [ThreadSummarySheet.Line]) -> some View {

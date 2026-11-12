@@ -13,23 +13,27 @@ import {
   type ThreadWork,
 } from "@ace/ui-core";
 import { touchesTree, type PatchSink, type Preview } from "./agents.ts";
+import { readPersonAutomations, type PersonAutomations } from "./project-automations.ts";
 import { summaryView, type SummaryPlan } from "./thread-summary-view.ts";
 
 /*
  * The thread's Summary while its page is shown, as the web's Summary tab reads it: the thread's
  * live entities and those of every delegated thread its tree reaches (each held through an
  * optional lease, so it takes only spare room), the newest turn from the turn index (read again
- * as the thread moves on, at most every two seconds), and the catch-up since this device's read
- * cursor. One coalesced patch carries it all; closing lets every lease and timer go.
+ * as the thread moves on, at most every two seconds), the catch-up since this device's read
+ * cursor, and the person's automations for the project's line (read again every minute, as the
+ * web reads them). One coalesced patch carries it all; closing lets every lease and timer go.
  */
 
 export type SummaryReads = Pick<
   ClientCore,
-  "thread" | "threadRoom" | "turnsPage" | "threadCatchUp" | "threadReadState"
+  "thread" | "threadRoom" | "turnsPage" | "threadCatchUp" | "threadReadState" | "request"
 >;
 
 export interface SummaryDeps {
   now(): number;
+  /** The phone's IANA zone, so the next start reads on its clock. */
+  zone(): string;
   scheduler: Scheduler;
   /** The catch-up cursor the person cleared, by thread, kept while the app runs. */
   cleared: Map<string, number>;
@@ -38,6 +42,8 @@ export interface SummaryDeps {
 const key = "thread:summary";
 /** At most one read of the newest turn this often while the thread's events stream in. */
 const turnEveryMs = 2_000;
+/** The daemon publishes no automation changes: they are read again this often while shown. */
+const automationsEveryMs = 60_000;
 
 const present = <T>(value: T | undefined): value is T => value !== undefined;
 
@@ -86,6 +92,9 @@ export class ThreadSummary {
   #turnAgain = false;
   #catchUp: { since: number; reply: ThreadCatchUpResponse } | undefined;
   #showClosed = false;
+  #automations: PersonAutomations | undefined;
+  #automationsRead = 0;
+  #automationsWait: (() => void) | undefined;
   #tick: (() => void) | undefined;
   #closed = false;
   /** The spare room last tried at: one try per rise, cleared once room runs out. */
@@ -126,7 +135,13 @@ export class ThreadSummary {
     this.#stops.push(room.subscribe(() => this.#roomChanged(room.getSnapshot())));
     this.#readTurn();
     void this.#readCatchUp();
+    void this.#readAutomations();
     this.#put();
+  }
+
+  /** Read the person's automations again: the line's retry after a failed read. */
+  automations(): void {
+    void this.#readAutomations();
   }
 
   /** Clear: Since you looked goes, until the thread moves on past this cursor. */
@@ -150,6 +165,7 @@ export class ThreadSummary {
     }
     this.#held.clear();
     this.#turnWait?.();
+    this.#automationsWait?.();
     this.#tick?.();
     this.#sink.clear(key);
   }
@@ -197,6 +213,21 @@ export class ThreadSummary {
     } catch {
       // No catch-up is said rather than a wrong one.
     }
+  }
+
+  /** The person's automations now, and again a minute after each read while the page shows. */
+  async #readAutomations(): Promise<void> {
+    if (this.#closed) return;
+    this.#automationsWait?.();
+    const read = ++this.#automationsRead;
+    const automations = await readPersonAutomations(this.#reads);
+    if (this.#closed || read !== this.#automationsRead) return;
+    this.#automations = automations;
+    this.#automationsWait = this.#deps.scheduler.set(automationsEveryMs, () => {
+      this.#automationsWait = undefined;
+      void this.#readAutomations();
+    });
+    this.#put();
   }
 
   /**
@@ -318,6 +349,8 @@ export class ThreadSummary {
           catchUp: shown,
           plans: this.#plans(),
           showClosed: this.#showClosed,
+          automations: this.#automations,
+          zone: this.#deps.zone(),
           now,
           name: (threadId, agent) => this.#name(threadId, agent),
           agent: (id) => this.#store.agent(id),

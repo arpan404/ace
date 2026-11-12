@@ -2,9 +2,9 @@ import { afterEach, describe, expect, test } from "vitest";
 import { facts, type FakeDaemon } from "@ace/fake-daemon";
 import type { Fact } from "@ace/core";
 import type { ClientOptions } from "@ace/client";
-import { ThreadId, type Thread, type ThreadStatus } from "@ace/protocol";
+import { ThreadId, type Automation, type Thread, type ThreadStatus } from "@ace/protocol";
 import { Sheets } from "./sheets.ts";
-import { ThreadSummary } from "./thread-summary.ts";
+import { ThreadSummary, type SummaryReads } from "./thread-summary.ts";
 import type { SummaryView } from "./thread-summary-view.ts";
 import { plainPreview, RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
 
@@ -17,6 +17,9 @@ const closers: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
   for (const close of closers.splice(0).toReversed()) await close();
 });
+
+/** 10 000 seconds into 1970, a Thursday: 02:46:40 UTC. */
+const now = 10_000_000;
 
 const timers = {
   set(delay: number, callback: () => void) {
@@ -51,9 +54,10 @@ async function opened(
   await until(() => lease.store.thread !== undefined, "thread snapshot");
   const sink = new RecordingSink();
   const cleared = new Map<string, number>();
-  const follow = () => {
-    const summary = new ThreadSummary(client, lease.store, threadId, 1, sink, plainPreview, {
-      now: () => 10_000_000,
+  const follow = (reads: SummaryReads = client) => {
+    const summary = new ThreadSummary(reads, lease.store, threadId, 1, sink, plainPreview, {
+      now: () => now,
+      zone: () => "UTC",
       scheduler: timers,
       cleared,
     });
@@ -117,6 +121,29 @@ const write = (agent: string, item: string, path: string): Fact[] => [
   }),
   facts.toolDone(agent, item),
 ];
+
+/** A daily 9:00 UTC schedule of the person's in `workspace`. */
+const nightly = (id: string, workspace: string): Automation => ({
+  id,
+  title: id,
+  enabled: true,
+  workspace,
+  provider: "claude",
+  prompt: "Check for outdated dependencies",
+  worktree: true,
+  trigger: {
+    kind: "schedule",
+    schedule: {
+      kind: "rrule",
+      expression: "FREQ=DAILY;BYHOUR=9;BYMINUTE=0",
+      timezone: "UTC",
+      startAt: 0,
+    },
+  },
+  missedRun: "run_once",
+  concurrency: 1,
+  jitterMs: 0,
+});
 
 describe("the phone's Summary", () => {
   test("Now says working with the subagent at work, then done once the whole tree settled", async () => {
@@ -347,12 +374,50 @@ describe("the phone's Summary", () => {
     expect(room.getSnapshot()).toBe(spare);
   });
 
+  test("the project's schedules close the Summary in one line, and a failed read offers a retry", async () => {
+    const { client, sink, follow } = await opened("scheduled", working, {
+      details: { workspace: { id: "ace", name: "ace", path: "/code/ace" } },
+      before: (fake) =>
+        fake.seedServices({
+          settings: { "automations.enabled": true },
+          automations: [
+            nightly("by-id", "ace"),
+            nightly("by-folder", "/code/ace"),
+            nightly("elsewhere", "relay"),
+          ],
+        }),
+    });
+    // The first read fails; the person's retry reads again.
+    let fail = true;
+    const reads: SummaryReads = {
+      thread: (id, options) => client.thread(id, options),
+      threadRoom: () => client.threadRoom(),
+      turnsPage: (request) => client.turnsPage(request),
+      threadCatchUp: (request) => client.threadCatchUp(request),
+      threadReadState: (request) => client.threadReadState(request),
+      request: ((request, options) =>
+        fail && request.type === "automation.list"
+          ? Promise.reject(new Error("dropped"))
+          : client.request(request, options)) as SummaryReads["request"],
+    };
+    const summary = follow(reads);
+    await until(() => view(sink)?.automations?.failed === true, "the failed read");
+    expect(view(sink)?.automations?.line).toBe("Couldn't read automations. Try again");
+    fail = false;
+    summary.automations();
+    await until(() => view(sink)?.automations?.failed === false, "the read again");
+    // Only this project's, by its id or its folder; the soonest start said once.
+    expect(view(sink)?.automations?.line).toBe(
+      "2 automations in this project · next today 9:00 AM · in 6h",
+    );
+  });
+
   test("the thread's sheets open the Summary, and leaving the thread lets it go", async () => {
     const { client, store, sink } = await opened("routed", [
       facts.rootAgent("codex"),
       facts.turn("root"),
     ]);
-    const sheets = new Sheets(sink, plainPreview, { now: () => 10_000_000, scheduler: timers });
+    const sheets = new Sheets(sink, plainPreview, { now: () => now, scheduler: timers });
     const bare = { owner: client, store, threadId: "routed", epoch: 1 };
     const thread = { ...bare, reads: client };
     // A client that can't read the turn index has no Summary to open.

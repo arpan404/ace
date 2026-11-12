@@ -1,7 +1,7 @@
 import Foundation
 
 /// The open thread's Summary as the bridge words it (`bridge/thread-summary-view.ts`): Now,
-/// Since you looked, the agent tree's count, Results and the plan. Each list is empty, and each
+/// Since you looked, the agent tree's count, Results, the plan and the project's automations. Each list is empty, and each
 /// optional nil, when its section has nothing to say; Swift only draws and routes.
 struct ThreadSummarySheet: Codable, Sendable, Equatable {
     struct Now: Codable, Sendable, Equatable {
@@ -62,6 +62,12 @@ struct ThreadSummarySheet: Codable, Sendable, Equatable {
         let total: Int
         let todos: [Todo]
     }
+    /// The project's schedules in one line opening Automations; `failed` when the read failed, and
+    /// a tap reads again.
+    struct Automations: Codable, Sendable, Equatable {
+        let line: String
+        let failed: Bool
+    }
     /// The thread's project, where its pull requests open.
     let workspaceId: String
     let now: Now
@@ -73,6 +79,8 @@ struct ThreadSummarySheet: Codable, Sendable, Equatable {
     let checks: [Check]
     let commands: Commands?
     let plan: Plan?
+    /// Nil when the project has none, and from older bridges.
+    var automations: Automations? = nil
 
     /// Results has a pull request, changed files, a check or a failed command to show.
     var hasResults: Bool { !prs.isEmpty || prFold != nil || files != nil || !checks.isEmpty || commands != nil }

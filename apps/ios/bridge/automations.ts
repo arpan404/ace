@@ -36,6 +36,7 @@ import {
   FormOpen,
   FormPreview,
 } from "./automation-form.ts";
+import { machineRunsAutomations } from "./project-automations.ts";
 
 /*
  * The phone's Automations screens as ready-made rows (ADR 0015): the list with each one's status
@@ -313,7 +314,7 @@ export class NativeAutomations {
         { type: "automation.list", includeThreads: true },
         { signal, ...timeout },
       ),
-      this.#running(signal),
+      machineRunsAutomations(this.#deps.owner, signal),
     ]);
     if (!reply.ok)
       return { ...refused(reply.error), unavailable: reply.error === "automation_unavailable" };
@@ -394,18 +395,4 @@ export class NativeAutomations {
     }
     return refused(reply.error);
   }
-
-  /** Whether the machine runs automations (`automations.enabled`); undefined when unread. */
-  async #running(signal: AbortSignal): Promise<boolean | undefined> {
-    const reply = await this.#deps.owner
-      .request(
-        { type: "settings.get", key: "automations.enabled", scope: {} },
-        { signal, ...timeout },
-      )
-      .catch(() => undefined);
-    const value = Setting.safeParse(reply).data?.entries?.[0]?.value;
-    return typeof value === "boolean" ? value : undefined;
-  }
 }
-
-const Setting = z.object({ entries: z.array(z.object({ value: z.unknown() })).optional() });
