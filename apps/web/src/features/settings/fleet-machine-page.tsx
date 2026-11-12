@@ -40,7 +40,7 @@ function dependentsOf(machine: Machine, fleet: Fleet): Dependents {
     machine: machine.id,
     devices: fleet.joined,
     machines: fleet.facts,
-    devicesRead: fleet.devicesRead,
+    read: fleet.reads,
     viewer: machine.primary ? undefined : "This window",
   });
 }

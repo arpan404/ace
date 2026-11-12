@@ -115,7 +115,8 @@ test("what reaches a machine is its paired devices and the machines linked to it
     ]),
     linkDeviceIds(facts),
   );
-  const read = new Set(["studio", "mac", "mini"]);
+  const all = new Set(["studio", "mac", "mini"]);
+  const read = { devices: all, links: all };
   expect(reachDependents("studio", joined, facts, read)).toEqual(["iPhone", "Mac"]);
   expect(reachDependents("mini", joined, facts, read)).toEqual([]);
 });
@@ -127,11 +128,24 @@ test("what reaches a machine is unknown while its devices or an answering machin
     { id: "mini", name: "Mini", online: false, links: undefined },
   ];
   const joined = fleetDevices(new Map([["studio", [device("p1", "iPhone")]]]), new Set());
-  expect(reachDependents("studio", joined, facts, new Set(["studio"]))).toBe("unknown");
-  const read = [{ id: "mac", name: "Mac", online: true, links: [] }, ...facts.slice(1)];
-  expect(reachDependents("studio", joined, read, new Set())).toBe("unknown");
+  const studio = new Set(["studio"]);
+  // Mac answers but its links weren't read.
+  expect(reachDependents("studio", joined, facts, { devices: studio, links: studio })).toBe(
+    "unknown",
+  );
+  const both = new Set(["studio", "mac"]);
+  expect(reachDependents("studio", joined, facts, { devices: new Set(), links: both })).toBe(
+    "unknown",
+  );
   // An offline machine's links say nothing about now, so they're not waited for.
-  expect(reachDependents("studio", joined, read, new Set(["studio"]))).toEqual(["iPhone"]);
+  expect(reachDependents("studio", joined, facts, { devices: studio, links: both })).toEqual([
+    "iPhone",
+  ]);
+  // Links kept from before a failed read don't count as read.
+  const kept = facts.map((fact) => Object.assign({}, fact, { links: [] }));
+  expect(reachDependents("studio", joined, kept, { devices: studio, links: studio })).toBe(
+    "unknown",
+  );
 });
 
 test("what reaches a machine as a client sees it puts the client first in place of its own device", () => {
@@ -140,12 +154,21 @@ test("what reaches a machine as a client sees it puts the client first in place 
     new Map([["studio", [{ ...device("p1", "iPhone"), self: true }, device("i1", "iPad")]]]),
     new Set(),
   );
-  const read = new Set(["studio"]);
-  const input = { machine: "studio", devices: joined, machines: facts, devicesRead: read };
+  const studio = new Set(["studio"]);
+  const input = {
+    machine: "studio",
+    devices: joined,
+    machines: facts,
+    read: { devices: studio, links: studio },
+  };
   expect(clientDependents({ ...input, viewer: "This iPhone" })).toEqual(["This iPhone", "iPad"]);
   // On its own computer the client reaches it locally: only the others count.
   expect(clientDependents({ ...input, viewer: undefined })).toEqual(["iPad"]);
-  expect(clientDependents({ ...input, devicesRead: new Set(), viewer: "This window" })).toBe(
-    "unknown",
-  );
+  expect(
+    clientDependents({
+      ...input,
+      read: { devices: new Set(), links: studio },
+      viewer: "This window",
+    }),
+  ).toBe("unknown");
 });

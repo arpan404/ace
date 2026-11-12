@@ -6,6 +6,7 @@ import {
   remoteOffLine,
   type FleetDevice,
   type FleetMachineFacts,
+  type FleetReads,
   type NetworkOffQuestion,
   type Tone,
 } from "@ace/ui-core/fleet-map";
@@ -57,8 +58,8 @@ export interface MachineReachInput {
   part: FleetMapPart;
   devices: readonly FleetDevice[];
   machines: readonly FleetMachineFacts[];
-  /** The machines whose paired devices were read. */
-  devicesRead: ReadonlySet<string>;
+  /** What the latest read of each machine returned. */
+  reads: FleetReads;
   /** This phone, which reaches every machine it shows and so always depends on it. */
   viewer: string;
 }
@@ -83,7 +84,7 @@ export function machineReach(input: MachineReachInput): FleetMachineReach {
     machine: id,
     devices: input.devices,
     machines: input.machines,
-    devicesRead: input.devicesRead,
+    read: input.reads,
     viewer: input.viewer,
   });
   const account = accountReachLine(part.networks?.account, name);

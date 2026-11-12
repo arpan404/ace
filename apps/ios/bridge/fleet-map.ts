@@ -14,6 +14,7 @@ import {
   type FleetDevice,
   type FleetMachineFacts,
   type FleetMapInput,
+  type FleetReads,
   type MachineStatus,
   type MachineVia,
   type MapArt,
@@ -244,9 +245,11 @@ export function combineFleetMap(request: FleetMapCombineRequest, now: number): F
     paired.set(machine.id, list);
   }
   const devices = fleetDevices(paired, linkDeviceIds(facts));
-  const devicesRead = new Set(
-    machines.flatMap(({ machine, part }) => (part?.devices ? [machine.id] : [])),
-  );
+  // What this read of each answering machine returned; a field that failed is null in its part.
+  const reads: FleetReads = {
+    devices: new Set(machines.flatMap(({ machine, part }) => (part?.devices ? [machine.id] : []))),
+    links: new Set(machines.flatMap(({ machine, part }) => (part?.links ? [machine.id] : []))),
+  };
   const names = (id: string) => machines.find((entry) => entry.machine.id === id)?.machine.name;
   const machineRows = machines
     .map(({ input }) => machineNode(input, inSentence))
@@ -311,7 +314,7 @@ export function combineFleetMap(request: FleetMapCombineRequest, now: number): F
               part,
               devices,
               machines: facts,
-              devicesRead,
+              reads,
               viewer,
             }),
           ]

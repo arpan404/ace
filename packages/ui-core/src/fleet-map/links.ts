@@ -159,18 +159,27 @@ export function fleetDevices(
 export type Dependents = readonly string[] | "unknown";
 
 /**
+ * The machines whose paired devices and whose links the client's latest read of each returned.
+ * A list kept on screen from before a failed read isn't in them: it says nothing about now.
+ */
+export interface FleetReads {
+  devices: ReadonlySet<string>;
+  links: ReadonlySet<string>;
+}
+
+/**
  * What reaches `machine` now, by name: the devices paired with it and the machines linked to it.
- * Unknown until its paired devices (`devicesRead` holds the machines whose lists were read) and
- * every answering machine's links are read: an empty list would turn a network off unasked.
+ * Unknown until its paired devices and every answering machine's links have been read: an empty
+ * or stale list would turn a network off unasked.
  */
 export function reachDependents(
   machine: string,
   devices: readonly FleetDevice[],
   machines: readonly FleetMachineFacts[],
-  devicesRead: ReadonlySet<string>,
+  read: FleetReads,
 ): Dependents {
-  if (!devicesRead.has(machine)) return "unknown";
-  if (machines.some((other) => other.id !== machine && other.online && !other.links))
+  if (!read.devices.has(machine)) return "unknown";
+  if (machines.some((other) => other.id !== machine && other.online && !read.links.has(other.id)))
     return "unknown";
   return [
     ...devices
@@ -190,10 +199,10 @@ export function clientDependents(input: {
   machine: string;
   devices: readonly FleetDevice[];
   machines: readonly FleetMachineFacts[];
-  devicesRead: ReadonlySet<string>;
+  read: FleetReads;
   viewer: string | undefined;
 }): Dependents {
-  const found = reachDependents(input.machine, input.devices, input.machines, input.devicesRead);
+  const found = reachDependents(input.machine, input.devices, input.machines, input.read);
   if (found === "unknown") return found;
   const self = new Set(input.devices.filter((device) => device.self).map((device) => device.name));
   const others = found.filter((name) => !self.has(name));
