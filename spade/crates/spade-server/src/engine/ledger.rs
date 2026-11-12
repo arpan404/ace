@@ -69,6 +69,16 @@ impl Admission {
         self.engine.pay(&self.conversation, &self.model, usage)
     }
 
+    /// Records what a call with the endpoint's own web search cost: its tokens and each search
+    /// the endpoint billed.
+    pub(crate) fn settle_searches(self, usage: &Usage, searches: u32) -> u64 {
+        let cost =
+            spending::search_cost_micros(self.engine.models.price(&self.model), usage, searches);
+        self.engine
+            .record_cost(&self.conversation, &self.model, cost);
+        cost
+    }
+
     /// Records the cost of an answer that may not have come (an error that still reported use).
     pub(crate) fn settle_if(self, usage: Option<Usage>) -> u64 {
         match usage {

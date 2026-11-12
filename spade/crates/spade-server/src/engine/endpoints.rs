@@ -11,6 +11,8 @@ use spade_store::{StoreError, StoredEndpoint, StoredModel};
 use super::Engine;
 
 const FAST_MODEL: &str = "fast_model";
+/// The person's own SearXNG address, for `web_search`.
+const SEARXNG_URL: &str = "searxng_url";
 const NAME_CHARS: usize = 60;
 const MOST_HEADERS: usize = 32;
 const MOST_MODELS: usize = 2_000;
@@ -661,6 +663,16 @@ impl Engine {
     /// The model for side jobs such as titles, when the person set one.
     pub fn fast_model(&self) -> Result<Option<String>, StoreError> {
         self.store.setting(FAST_MODEL)
+    }
+
+    /// The person's own SearXNG address, when they set one.
+    pub fn searxng_url(&self) -> Result<Option<String>, StoreError> {
+        self.store.setting(SEARXNG_URL)
+    }
+
+    /// Keeps the person's own SearXNG address (`None` forgets it). The caller checks it first.
+    pub fn set_searxng_url(&self, url: Option<&str>) -> Result<(), StoreError> {
+        self.store.set_setting(SEARXNG_URL, url)
     }
 
     pub fn set_fast_model(&self, model: Option<&str>) -> Result<(), EndpointError> {

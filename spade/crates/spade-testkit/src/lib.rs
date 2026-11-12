@@ -61,6 +61,8 @@ pub struct Script {
     pub fail: Option<u16>,
     /// With `fail`, the `retry-after` header sent with it.
     pub retry_after: Option<String>,
+    /// A plain (non-streamed) call is answered with exactly this JSON body.
+    pub raw: Option<Value>,
     /// Input tokens reported as read from the cache, and as written to it.
     pub cache_read: u32,
     pub cache_write: u32,
@@ -79,6 +81,7 @@ impl Script {
             delay: Duration::ZERO,
             fail: None,
             retry_after: None,
+            raw: None,
             cache_read: 0,
             cache_write: 0,
             calls: Vec::new(),
@@ -104,6 +107,15 @@ impl Script {
     pub fn failing(status: u16) -> Self {
         Self {
             fail: Some(status),
+            ..Self::reply("")
+        }
+    }
+
+    /// Answers a plain call with `body` as it is, for answers no other script builds (an
+    /// endpoint's own web search).
+    pub fn raw(body: Value) -> Self {
+        Self {
+            raw: Some(body),
             ..Self::reply("")
         }
     }
@@ -278,6 +290,9 @@ async fn answer(
             response.headers_mut().insert("retry-after", wait);
         }
         return response;
+    }
+    if let (Some(body), false) = (&script.raw, streamed) {
+        return json_response(body.clone());
     }
     let tokens = Tokens {
         read: script.cache_read,

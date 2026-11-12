@@ -30,7 +30,7 @@ pub use skills::{
 };
 pub use todo::Todo;
 pub use web_fetch::WebFetch;
-pub use web_search::WebSearch;
+pub use web_search::{NOT_SET_UP, WebSearch};
 
 pub type ToolFuture = Pin<Box<dyn Future<Output = ToolOutput> + Send>>;
 

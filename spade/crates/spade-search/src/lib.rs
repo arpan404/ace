@@ -112,6 +112,17 @@ impl Search {
         Ok(())
     }
 
+    /// Whether a key for backend `id` is found (keychain, then its environment variable).
+    pub async fn has_key(&self, id: &str) -> bool {
+        let Some(backend) = self.backends.iter().find(|b| b.id == id) else {
+            return false;
+        };
+        self.keys
+            .find(&backend.id, backend.key_env.as_deref())
+            .await
+            .is_some()
+    }
+
     /// The person's own SearXNG address, when they set one.
     pub fn searxng(&self) -> Option<String> {
         self.searxng

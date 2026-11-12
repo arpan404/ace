@@ -10,6 +10,7 @@ mod media;
 mod memory;
 mod oversight;
 mod routines;
+mod search;
 mod teams;
 mod workspace;
 
@@ -54,6 +55,8 @@ pub struct AppState {
     pub learning: Option<Arc<crate::learning::Learning>>,
     /// The person's connected apps (ADR 0131).
     pub connectors: Option<Arc<spade_connect::Connectors>>,
+    /// Web search's backends, whose settings the person changes (docs/design.md, Web search).
+    pub search: Option<Arc<spade_search::Search>>,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -107,6 +110,11 @@ pub fn router(state: AppState) -> Router {
         .route("/models", get(endpoints::models))
         .route("/images/{sha256}", get(image))
         .route("/keys/{endpoint}", put(set_key).delete(delete_key))
+        .route("/search", get(search::read).put(search::change))
+        .route(
+            "/search/brave-key",
+            put(search::set_brave_key).delete(search::delete_brave_key),
+        )
         .route("/ace", get(ace_state).put(set_grant).delete(forget_grant))
         .route(
             "/maintenance",
