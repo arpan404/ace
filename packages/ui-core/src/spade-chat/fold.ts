@@ -1,7 +1,7 @@
 import { spadeRemembered, type SpadeRememberedNote } from "./notes.ts";
 import { spadeNeedsSearchSetup } from "./web-search.ts";
 import type { SpadeDocumentRef, SpadeImageRef, SpadeVoiceRef } from "./media.ts";
-import type { SpadeKnownEvent, SpadeLiveInput, SpadeStored } from "./wire.ts";
+import type { SpadeFailureKind, SpadeKnownEvent, SpadeLiveInput, SpadeStored } from "./wire.ts";
 
 /** A background job: the tool it runs and, for a delegation, how many tasks it handed out. */
 export interface SpadeJob {
@@ -66,7 +66,14 @@ export type SpadeReplyPart =
 export type SpadeReplyEnd =
   | { kind: "finished" }
   | { kind: "stopped" }
-  | { kind: "failed"; error: string }
+  | {
+      kind: "failed";
+      /** What went wrong as the endpoint or Spade said it: for the activity log and Details. */
+      error: string;
+      failure: SpadeFailureKind;
+      /** The endpoint's id, when the endpoint was to blame. */
+      endpoint: string | undefined;
+    }
   | { kind: "interrupted" };
 
 export interface SpadeReplyEntry {
@@ -420,7 +427,17 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
     case "reply_stopped":
       return closeReply(state, event.reply, { kind: "stopped" }, event.text);
     case "reply_failed":
-      return closeReply(state, event.reply, { kind: "failed", error: event.error }, event.text);
+      return closeReply(
+        state,
+        event.reply,
+        {
+          kind: "failed",
+          error: event.error,
+          failure: event.kind,
+          endpoint: event.endpoint ?? undefined,
+        },
+        event.text,
+      );
     case "reply_interrupted":
       return closeReply(state, event.reply, { kind: "interrupted" }, event.text);
     case "context_compacted":

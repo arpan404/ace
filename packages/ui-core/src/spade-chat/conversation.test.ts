@@ -104,7 +104,30 @@ describe("a reply", () => {
     expect(reply?.kind === "reply" && reply.end).toEqual({
       kind: "failed",
       error: "the model is overloaded",
+      // Stored before kinds existed: nothing more is known.
+      failure: "other",
+      endpoint: undefined,
     });
+  });
+
+  test("a failure keeps its kind and endpoint; a kind this client doesn't know reads as other", () => {
+    const c = conversation();
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.stored({
+      type: "reply_failed",
+      reply: "r1",
+      text: "",
+      error: "openrouter/m: error sending request",
+      kind: "unreachable",
+      endpoint: "openrouter",
+    });
+    c.stored({ type: "reply_started", reply: "r2" });
+    c.stored({ type: "reply_failed", reply: "r2", text: "", error: "x", kind: "solar_flare" });
+    const ends = c.view().entries.flatMap((entry) => (entry.kind === "reply" ? [entry.end] : []));
+    expect(ends).toMatchObject([
+      { kind: "failed", failure: "unreachable", endpoint: "openrouter" },
+      { kind: "failed", failure: "other" },
+    ]);
   });
 
   test("words before and after a tool read as separate steps", () => {
@@ -572,5 +595,64 @@ describe("the conversation as a chat", () => {
     expect(c.view().status).toBe("Reading a page");
     c.stored({ type: "reply_finished", reply: "r1", text: "Done." });
     expect(c.view().status).toBeUndefined();
+  });
+});
+
+const retryFailed = (kind = "rate_limited") => ({
+  type: "reply_failed",
+  reply: "r1",
+  text: "",
+  error: "429 Too Many Requests",
+  kind,
+  endpoint: "openrouter",
+});
+const retryOf = (c: ReturnType<typeof conversation>) => {
+  const last = spadeBubbles(c.view()).at(-1);
+  return last?.kind === "bot" ? last.failure?.retry : "no bot bubble";
+};
+
+describe("Try again on a failed reply", () => {
+  test("sends the person's last message again", () => {
+    const c = conversation();
+    c.stored({ type: "user_message", text: "Plan my week" });
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.stored(retryFailed());
+    expect(retryOf(c)).toBe("Plan my week");
+  });
+
+  test("isn't offered once the conversation moved on, nor for a cap", () => {
+    const moved = conversation();
+    moved.stored({ type: "user_message", text: "Plan my week" });
+    moved.stored({ type: "reply_started", reply: "r1" });
+    moved.stored(retryFailed());
+    moved.stored({ type: "user_message", text: "Never mind" });
+    expect(spadeBubbles(moved.view()).some((b) => b.kind === "bot" && b.failure?.retry)).toBe(
+      false,
+    );
+    const capped = conversation();
+    capped.stored({ type: "user_message", text: "Plan my week" });
+    capped.stored({ type: "reply_started", reply: "r1" });
+    capped.stored(retryFailed("cap"));
+    expect(retryOf(capped)).toBeUndefined();
+  });
+
+  test("isn't offered for a message with a picture, which sending the words again would lose", () => {
+    const c = conversation();
+    c.stored({ type: "user_message", text: "What is this?", images: [{ sha256: "a".repeat(64) }] });
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.stored(retryFailed());
+    expect(retryOf(c)).toBeUndefined();
+  });
+
+  test("isn't offered for a message a routine sent", () => {
+    const c = conversation();
+    c.stored({
+      type: "user_message",
+      text: "Morning briefing",
+      from_routine: { id: "t1", name: "Briefing", label: "8:00" },
+    });
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.stored(retryFailed());
+    expect(retryOf(c)).toBeUndefined();
   });
 });

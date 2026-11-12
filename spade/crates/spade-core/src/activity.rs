@@ -345,7 +345,7 @@ impl Log {
             }
             Known::ReplyFinished { reply, .. } => self.turn_ended(stored, reply, "finished"),
             Known::ReplyStopped { reply, .. } => self.turn_ended(stored, reply, "stopped"),
-            Known::ReplyFailed { reply, .. } => self.turn_ended(stored, reply, "failed"),
+            Known::ReplyFailed { reply, error, .. } => self.turn_failed(stored, reply, error),
             Known::ReplyInterrupted { reply, .. } => self.turn_ended(stored, reply, "interrupted"),
             _ => {}
         }
@@ -372,6 +372,25 @@ impl Log {
                 outcome: Some(how),
                 reply: Some(reply.to_owned()),
                 cost: Some(cost),
+            },
+        );
+    }
+}
+
+impl Log {
+    /// A failed turn always shows, with what went wrong in the endpoint's or Spade's words (the
+    /// conversation says it in one plain sentence), and what it cost when it cost anything.
+    fn turn_failed(&mut self, stored: &Stored<'_>, reply: &str, error: &str) {
+        let (_, cost) = self.turns.remove(reply).unwrap_or_default();
+        self.push(
+            stored,
+            Kind::Spend,
+            Fields {
+                name: None,
+                summary: redact::one_line(error),
+                outcome: Some("failed"),
+                reply: Some(reply.to_owned()),
+                cost: (cost > 0).then_some(cost),
             },
         );
     }

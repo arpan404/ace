@@ -294,7 +294,23 @@ async fn a_failed_reply_says_what_kind_of_failure_it_was_and_names_the_endpoint(
             failed["error"]
                 .as_str()
                 .is_some_and(|e| e.contains(&status.to_string())),
-            "the endpoint's own words stay for the activity log: {failed}"
+            "the endpoint's own words stay with the event: {failed}"
+        );
+        // And in the activity log, though the refused calls cost nothing.
+        let agent = bot(&spade, &id).await?["id"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        let (_, log) = spade
+            .get(&format!("/v1/agents/{agent}/activity?kind=spend"))
+            .await?;
+        let entry = &log["entries"][0];
+        assert_eq!(entry["outcome"], "failed", "{log}");
+        assert!(
+            entry["summary"]
+                .as_str()
+                .is_some_and(|e| e.contains(&status.to_string())),
+            "{log}"
         );
     }
     Ok(())

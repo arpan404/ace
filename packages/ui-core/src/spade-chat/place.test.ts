@@ -3,6 +3,7 @@ import {
   parseSpadeEvents,
   spadeApprovalSentence,
   spadeCallLine,
+  spadeFailureSentence,
   spadeJobEndLine,
   spadeSetupSentence,
   spadeStateLine,
@@ -82,4 +83,23 @@ test("a background job's end reads in words, agents' work as the agents'", () =>
   expect(spadeJobEndLine("research", "failed")).toBe("Couldn't research in the background");
   expect(spadeJobEndLine("delegate", "stopped")).toBe("Stopped the agents");
   expect(spadeJobEndLine("research", "stopped")).toBe("Stopped researching");
+});
+
+describe("a failed reply's sentence", () => {
+  test("names the endpoint as the person named it, in plain words by kind", () => {
+    expect(spadeFailureSentence("unreachable", "OpenCode Go")).toBe("Couldn't reach OpenCode Go.");
+    expect(spadeFailureSentence("key", "OpenCode Go")).toBe("OpenCode Go refused the key.");
+    expect(spadeFailureSentence("rate_limited", "OpenCode Go")).toBe(
+      "OpenCode Go is limiting requests right now.",
+    );
+    expect(spadeFailureSentence("model", "OpenCode Go")).toBe(
+      "The model on OpenCode Go failed to answer.",
+    );
+    expect(spadeFailureSentence("cap", undefined)).toBe("It reached a spending limit.");
+  });
+
+  test("an endpoint this app doesn't know reads as the endpoint", () => {
+    expect(spadeFailureSentence("key", undefined)).toBe("The endpoint refused the key.");
+    expect(spadeFailureSentence("unreachable", undefined)).toBe("Couldn't reach the endpoint.");
+  });
 });

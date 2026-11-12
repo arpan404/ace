@@ -1,5 +1,6 @@
 import type { SpadeStatus } from "@ace/protocol";
 import type { SpadeCallState } from "./fold.ts";
+import type { SpadeFailureKind } from "./wire.ts";
 
 /*
  * Spade's states and tools in words. Tool names are Spade's own (`web_search`) or an ace tool
@@ -223,4 +224,31 @@ export function spadeJobEndLine(name: string, outcome: "done" | "failed" | "stop
   if (name === "wait") return failed ? "Couldn't wait for the agents" : "Done waiting for agents";
   const words = spadeToolWords(name);
   return failed ? `Couldn't ${words.base} in the background` : `${words.done} in the background`;
+}
+
+/**
+ * A failed reply in one plain sentence, by its kind (`reply_failed`), naming the endpoint by the
+ * name the person gave it; "the endpoint" when it isn't known. The endpoint's own words stay
+ * with Details and the activity log.
+ */
+export function spadeFailureSentence(kind: SpadeFailureKind, endpoint: string | undefined): string {
+  // A name stays as the person wrote it; only the stand-in starts a sentence capitalised.
+  const name = endpoint ?? "the endpoint";
+  const subject = endpoint ?? "The endpoint";
+  switch (kind) {
+    case "unreachable":
+      return `Couldn't reach ${name}.`;
+    case "key":
+      return `${subject} refused the key.`;
+    case "rate_limited":
+      return `${subject} is limiting requests right now.`;
+    case "model":
+      return endpoint
+        ? `The model on ${endpoint} failed to answer.`
+        : "The model failed to answer.";
+    case "cap":
+      return "It reached a spending limit.";
+    case "other":
+      return "Couldn't finish this reply.";
+  }
 }

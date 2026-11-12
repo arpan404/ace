@@ -301,7 +301,7 @@ pub enum FailureKind {
     RateLimited,
     /// The model or the endpoint failed while answering, or refused the request.
     Model,
-    /// A spending cap or a turn's own limit stopped it.
+    /// A spending cap stopped it: the day's, or the turn's own cost limit.
     Cap,
     /// Anything else, and any kind a later build adds.
     #[default]

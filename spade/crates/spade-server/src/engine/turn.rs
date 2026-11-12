@@ -56,7 +56,7 @@ impl Failure {
         Self { kind, endpoint }
     }
 
-    /// A spending cap or a turn limit.
+    /// A spending cap: the day's, or the turn's own cost limit.
     fn cap() -> Self {
         Self {
             kind: FailureKind::Cap,
@@ -239,10 +239,9 @@ async fn drive(
                 let done = progress(&events);
                 if !cli && done.steps >= engine.limits.max_steps {
                     let limit = engine.limits.max_steps;
-                    return Ended::FailedAs(
+                    return Ended::Failed(
                         String::new(),
                         format!("the turn reached its limit of {limit} steps"),
-                        Failure::cap(),
                     );
                 }
                 if !cli && done.cost_micros >= engine.limits.turn_cost_micros {
