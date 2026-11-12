@@ -229,10 +229,10 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
             title={`${forgeNames[forge]} host`}
             description={
               forge === "github"
-                ? "github.com or a GitHub Enterprise hostname"
+                ? "github.com or a GitHub Enterprise hostname."
                 : forge === "origin"
-                  ? "One hosted service"
-                  : "Your installation's hostname"
+                  ? "One hosted service."
+                  : "Your installation's hostname."
             }
             htmlFor="sc-host"
           >
@@ -245,7 +245,7 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
           </SettingRow>
           <SettingRow
             {...settingRow("sourceControl.account")}
-            description="Requests stop if the CLI is signed in as anyone else"
+            description="Requests stop if the CLI is signed in as anyone else."
             htmlFor="sc-account"
           >
             <Input
@@ -258,7 +258,7 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
           </SettingRow>
           <SettingRow
             {...settingRow("sourceControl.remote")}
-            description="Names each project's repository"
+            description="Names each project's repository."
             htmlFor="sc-remote"
           >
             <Input
@@ -291,7 +291,7 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
       {/* Project dialogs edit this window's own daemon's projects. */}
       {machineId === "primary" && <SourceControlProjects />}
       <SettingSection label="Git transport">
-        <SettingRow title="Check a project's remote" description="Read only; nothing is pushed">
+        <SettingRow title="Check a project's remote" description="Read only; nothing is pushed.">
           <Select
             label="Project transport check"
             value={workspace}
