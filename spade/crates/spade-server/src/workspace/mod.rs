@@ -238,6 +238,35 @@ fn usable(name: &str) -> bool {
             .any(|c| c < ' ' || matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*')))
 }
 
+/// `name` as one this system can keep as a file, for names Spade did not choose (an attached
+/// file's): on Windows the characters [`usable`] refuses become `_`, trailing dots and spaces go,
+/// and a device name gets `_` after it (`CON.txt` is `CON_.txt`). Elsewhere it is unchanged.
+pub fn storable(name: &str) -> String {
+    if !cfg!(windows) || usable(name) {
+        return name.to_owned();
+    }
+    let replaced: String = name
+        .chars()
+        .map(|c| {
+            if c < ' ' || matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*') {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let trimmed = replaced.trim_end_matches(['.', ' ']);
+    let name = if trimmed.is_empty() { "file" } else { trimmed };
+    if usable(name) {
+        return name.to_owned();
+    }
+    // Only a device name is left to refuse; `_` after its stem makes it a plain name.
+    match name.split_once('.') {
+        Some((stem, rest)) => format!("{stem}_.{rest}"),
+        None => format!("{name}_"),
+    }
+}
+
 /// A cleaned path as the model and the person see it: relative, with `/`.
 fn shown(path: &Path) -> String {
     path.components()
@@ -317,6 +346,31 @@ mod tests {
         ] {
             assert!(clean(fine).is_ok(), "{fine}");
         }
+    }
+
+    #[test]
+    fn a_name_windows_refuses_becomes_one_it_keeps() {
+        let names = [
+            ("Meeting 10:30.pdf", "Meeting 10_30.pdf"),
+            ("why?.docx", "why_.docx"),
+            ("\"draft\".txt", "_draft_.txt"),
+            ("notes.", "notes"),
+            ("notes. . ", "notes"),
+            ("a: b?.pdf", "a_ b_.pdf"),
+            ("CON.txt", "CON_.txt"),
+            ("nul", "nul_"),
+            ("...", "file"),
+        ];
+        for (given, kept) in names {
+            let stored = storable(given);
+            if cfg!(windows) {
+                assert_eq!(stored, kept, "{given}");
+                assert!(clean(&stored).is_ok(), "{given} -> {stored}");
+            } else {
+                assert_eq!(stored, given, "names are kept as given off Windows");
+            }
+        }
+        assert_eq!(storable("report.pdf"), "report.pdf");
     }
 
     #[test]
