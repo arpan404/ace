@@ -296,10 +296,15 @@ test("Read aloud isn't offered where the system can't speak", async () => {
 });
 
 test("choosing a transcription model stores only that setting, leaving the model's facts alone, and Turn off clears it", async () => {
+  const saved = {
+    id: "saved/model",
+    name: "Saved model",
+    source: "typed",
+    capabilities: ["images"],
+  };
   const { spade } = await spadeApp("/settings/spade", (api) => {
     withEndpoint(api);
-    const saved = api.endpoints[0]?.models[0];
-    if (saved) saved.capabilities = ["images"];
+    api.endpoints[0] = { ...api.endpoints[0], models: [saved] };
     api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
   });
   await userEvent.click(await screen.findByRole("button", { name: "Model" }));
@@ -312,7 +317,7 @@ test("choosing a transcription model stores only that setting, leaving the model
   );
   await screen.findByRole("button", { name: "Turn off" });
   expect(spade.sent("POST", "/v1/endpoints/openrouter/models")).toEqual([]);
-  expect(spade.endpoints[0]?.models[0]?.capabilities).toEqual(["images"]);
+  expect(spade.endpoints[0]).toMatchObject({ models: [saved] });
   await userEvent.click(screen.getByRole("button", { name: "Turn off" }));
   await waitFor(() =>
     expect(spade.sent("PUT", "/v1/settings").at(-1)).toEqual({ transcription_model: null }),
