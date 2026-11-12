@@ -534,6 +534,11 @@ pub fn untrusted_turn(events: &[Event], registry: &Registry) -> bool {
             from_agent: Some(_),
             ..
         }) => true,
+        // A search that found tools returns their names, descriptions and schemas, written by
+        // whoever serves them (ace, a connector's app): text from outside Spade.
+        Event::Known(Known::ToolFinished { name, content, .. }) if name == TOOL_SEARCH => {
+            content != crate::tools::NO_TOOLS_MATCHED
+        }
         Event::Known(Known::ToolFinished { name, .. } | Known::JobFinished { name, .. }) => {
             // A tool no longer listed (ace switched it off, or its list is not back yet after a
             // restart) cannot vouch for its output.
