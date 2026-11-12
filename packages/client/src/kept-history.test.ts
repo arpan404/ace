@@ -22,7 +22,7 @@ async function open(storage: ReadSnapshotStorage, now: () => number, seq = 10) {
   const lease = f.client.thread("thread");
   f.deliver({
     type: "snapshot",
-    subscriptionId: f.wire("thread").subscriptionId,
+    subscriptionId: (await f.subscribed("thread")).subscriptionId,
     seq,
     view: view("Current", seq),
   });

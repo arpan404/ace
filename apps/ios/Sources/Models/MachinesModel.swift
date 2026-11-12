@@ -284,6 +284,12 @@ import Observation
     }
     /// Network changes reach every runtime; the SDK owns each reconnect, and a machine on its
     /// account relay checks whether its direct address answers on the new network.
+    /// Whether the network and power allow reading likely threads ahead, for every machine.
+    private(set) var readAheadAllowed = false
+    func readAhead(_ allowed: Bool) {
+        readAheadAllowed = allowed
+        for session in inbox.sessions { session.client.readAheadAllowed = allowed }
+    }
     func network(online: Bool, interfaceChanged: Bool) {
         for session in inbox.sessions {
             session.client.network(online)
@@ -349,6 +355,7 @@ import Observation
                                                linking: adoptions.linking.contains(entry.hostId))
         guard let target = target(for: entry) else { return }
         let client = makeClient()
+        client.readAheadAllowed = readAheadAllowed
         let hostId = entry.hostId
         client.onConnection = { [weak self] state in
             Task { @MainActor in

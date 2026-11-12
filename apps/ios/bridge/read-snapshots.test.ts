@@ -9,7 +9,7 @@ await vi.hoisted(async () => {
 
 import { Client, type ClientOptions } from "@ace/client";
 import { FakeDaemon, facts, fakeTransport } from "@ace/fake-daemon";
-import { DeviceId } from "@ace/protocol";
+import { ClientMessage, DeviceId, ServerMessage } from "@ace/protocol";
 import { followInbox } from "./inbox.ts";
 import type { HostRequest } from "@ace/native-host";
 import { nativeReadSnapshots } from "./read-snapshots.ts";
@@ -127,4 +127,112 @@ test("a running thread reopens from its rows after a relaunch, unconfirmed, and 
   closers.push(() => live.release());
   await until(() => live.store.unconfirmed === false, "confirmed by the daemon");
   expect(live.store.thread?.status.state).not.toBe("working");
+});
+
+/** The fake daemon's transport, recording what the phone subscribes with and what comes back. */
+function recorded(daemon: FakeDaemon) {
+  const subscribes: { threadId: string; afterSeq: number | undefined }[] = [];
+  const replies: { type: string }[] = [];
+  const transport: ClientOptions["transport"] = () => {
+    const inner = fakeTransport(daemon);
+    return {
+      open(events) {
+        inner.open({
+          ...events,
+          message(text) {
+            if (typeof text === "string") replies.push(ServerMessage.parse(JSON.parse(text)));
+            events.message(text);
+          },
+        });
+      },
+      send(text) {
+        const message = ClientMessage.parse(JSON.parse(text));
+        if (message.type === "subscribe" && message.scope.kind === "thread")
+          subscribes.push({ threadId: message.scope.threadId, afterSeq: message.afterSeq });
+        inner.send(text);
+      },
+      close() {
+        inner.close();
+      },
+    };
+  };
+  return { transport, subscribes, replies };
+}
+
+test("a thread kept on the phone reopens after a relaunch from its cursor, replaying only what changed", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1_000 });
+  daemon.createThread({
+    id: "kept",
+    workspaceId: "ace",
+    title: "Kept",
+    provider: "codex",
+    hasSentMessage: true,
+  });
+  daemon.apply("kept", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Fix it"),
+    facts.message("root", "answer", "assistant", "Done"),
+    facts.endTurn("root"),
+  ]);
+  const { call } = nativeStore();
+
+  const first = phone(daemon, call, () => fakeTransport(daemon));
+  await first.start();
+  const opened = first.thread("kept");
+  await until(() => opened.store.order.length === 2, "first launch loaded");
+  const cursor = opened.store.cursor;
+  opened.release();
+  await first.close();
+
+  // Asked again from another device while the phone was away.
+  daemon.apply("kept", [facts.turn("root"), facts.message("root", "again", "user", "One more")]);
+  const wire = recorded(daemon);
+  const again = phone(daemon, call, wire.transport);
+  // Opened from the rows before the machine answers, as a relaunch paints.
+  const reopened = again.thread("kept");
+  closers.push(() => reopened.release());
+  await until(() => reopened.store.order.length === 2, "restored from rows");
+  await again.start();
+  await until(() => reopened.store.order.length === 3 && !reopened.store.unconfirmed, "caught up");
+  expect(wire.subscribes).toEqual([{ threadId: "kept", afterSeq: cursor }]);
+  expect(wire.replies.some((reply) => reply.type === "snapshot")).toBe(false);
+});
+
+/** A daemon holding one thread, asked once. */
+function seeded(daemon: FakeDaemon) {
+  daemon.createThread({
+    id: "kept",
+    workspaceId: "ace",
+    title: "Kept",
+    provider: "codex",
+    hasSentMessage: true,
+  });
+  daemon.apply("kept", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Fix it"),
+  ]);
+  return daemon;
+}
+
+test("a thread kept from a fixture run before reads afresh: another database under the same host id", async () => {
+  const before = seeded(new FakeDaemon({ clock: () => 1_000 }));
+  const { call } = nativeStore();
+  const first = phone(before, call, () => fakeTransport(before));
+  await first.start();
+  const opened = first.thread("kept");
+  await until(() => opened.store.order.length === 1, "first launch loaded");
+  opened.release();
+  await first.close();
+
+  // Restarted: the same host id, sequences counted again from the start.
+  const after = seeded(new FakeDaemon({ clock: () => 1_000 }));
+  const wire = recorded(after);
+  const again = phone(after, call, wire.transport);
+  await again.start();
+  const reopened = again.thread("kept");
+  closers.push(() => reopened.release());
+  await until(() => wire.replies.some((reply) => reply.type === "snapshot"), "read afresh");
+  expect(wire.subscribes).toEqual([{ threadId: "kept", afterSeq: undefined }]);
 });

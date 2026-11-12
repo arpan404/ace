@@ -254,6 +254,7 @@ import QuartzCore
             open(showing.id)
             onOpenThread = opened
         }
+        if readAheadAllowed { action(["type": "readAhead", "allowed": true]) }
     }
     /// Outbox and cached views are bound to one host and device identity.
     nonisolated static func database(hostId: String, deviceId: String, in directory: URL) -> URL {
@@ -810,6 +811,11 @@ import QuartzCore
         return await admissions.wait(id: id) { command(["type": "background_task.stop", "taskId": taskId], requestId: id) }
     }
     func network(_ online: Bool) { action(["type": "network", "online": online]) }
+    /// Whether the network and power allow reading likely threads ahead (`bridge/read-ahead.ts`).
+    /// Sent again to every runtime this model starts.
+    var readAheadAllowed = false {
+        didSet { if readAheadAllowed != oldValue { action(["type": "readAhead", "allowed": readAheadAllowed]) } }
+    }
     func retry() { action(["type": "retry"]) }
     /// Send the typed machine code with the next connection. The phone keeps no copy.
     func enterMachineCode(_ code: String) {

@@ -1,6 +1,6 @@
 # 0105: The phone's chat cache: one row per item, seven days, twenty settled
 
-Date: 2026-10-26. Status: accepted. Amends [ADR 0030](0030-client-sdk.md) (read snapshots),
+Date: 2026-10-26. Status: accepted. Amended by [ADR 0128](0128-resume-kept-threads.md) (read-ahead). Amends [ADR 0030](0030-client-sdk.md) (read snapshots),
 [ADR 0074](0074-native-ios-client.md) and [ADR 0096](0096-native-host-contract.md).
 
 ## Context

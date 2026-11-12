@@ -400,6 +400,12 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
     protocolVersion: z.literal(1),
     headSeq: seq,
     /**
+     * Names the daemon's event database, made once with it. Sequences are this database's own: a
+     * restored or reset database under the same host id starts them again, so a client resumes a
+     * cursor kept on disk only under the same id (ADR 0128). Absent from older daemons.
+     */
+    databaseId: z.string().min(1).max(128).optional(),
+    /**
      * For an ace account device: how long this socket's grant has left, in milliseconds. The
      * daemon closes the socket (4014) soon after unless `account.grant.refresh` brings a fresh
      * one. Absent for other credentials and from daemons that don't enforce it.
