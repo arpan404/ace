@@ -108,17 +108,17 @@ function watch(
 }
 
 test("a run that finishes while watched is said once, by its title, opening its thread", async () => {
-  let finished = false;
-  const phone = watch((at) => [
-    finished
-      ? run("r1", { status: "failed", finishedAt: at, threadId: "t-9", result: "token=abc" })
-      : run("r1"),
+  let finishedAt: number | undefined;
+  const phone = watch(() => [
+    finishedAt === undefined
+      ? run("r1")
+      : run("r1", { status: "failed", finishedAt, threadId: "t-9", result: "token=abc" }),
   ]);
   phone.runs.start();
   await phone.settle();
   expect(phone.said).toEqual([]);
   // A run still going is checked on every few seconds, as on the web.
-  finished = true;
+  finishedAt = start + 4_000;
   expect(await phone.next()).toBe(5_000);
   expect(phone.said).toEqual([
     {
@@ -365,5 +365,34 @@ test("more runs than one read takes in are counted as at least so many, then nev
   const relaunched = watch(floodInbox, { kept, at: start + 9_000_000 });
   relaunched.runs.start();
   await relaunched.settle();
+  expect(relaunched.said).toEqual([]);
+});
+
+/** More runs than one read takes in, all settled before the cutoff, ahead of the long run. */
+const crowd = Array.from({ length: 1_050 }, (_, index) =>
+  run(`crowd${index}`, {
+    status: "succeeded",
+    startedAt: start - 90_000 + index,
+    finishedAt: start - 80_000 + index,
+  }),
+);
+const crowdInbox = () => [long, ...crowd];
+
+test("on a daemon that lists every run, a long run behind a thousand settled ones is reached on a later read", async () => {
+  const kept = memoryKept(0, { since: start });
+  const phone = watch(crowdInbox, { kept, at: start + 3_600_000, oldDaemon: true });
+  phone.runs.start();
+  await phone.settle();
+  // The first read stops at the cap with nothing new; the next carries on from where it stopped.
+  expect(phone.said).toEqual([]);
+  await phone.next();
+  expect(phone.said.map((alert) => alert.key)).toEqual(["long"]);
+  for (let i = 0; i < 4; i++) await phone.next();
+  expect(phone.said).toHaveLength(1);
+  // A relaunch carries on too, and still says it only once.
+  const relaunched = watch(crowdInbox, { kept, at: start + 7_200_000, oldDaemon: true });
+  relaunched.runs.start();
+  await relaunched.settle();
+  for (let i = 0; i < 3; i++) await relaunched.next();
   expect(relaunched.said).toEqual([]);
 });
