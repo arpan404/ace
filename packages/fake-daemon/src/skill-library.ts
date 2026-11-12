@@ -292,9 +292,13 @@ export class FakeSkillLibrary {
       return { kind: "deleted", id: operation.id };
     }
     if (!seed.source) return error("invalid", "This skill wasn't installed from a source.");
-    const commit = digest(`${seed.source.url}:${seed.source.folderHash}`, 40);
-    if (operation.op === "checkUpdate")
-      return { kind: "updateStatus", id: operation.id, status: "available", commit };
+    // The source's one newer version: a skill is current once it has been applied.
+    const upstream = digest(`${seed.source.url}:${seed.source.path}:next`, 40);
+    const commit = digest(`${seed.source.url}:${upstream}`, 40);
+    if (operation.op === "checkUpdate") {
+      const status = seed.source.folderHash === upstream ? "current" : "available";
+      return { kind: "updateStatus", id: operation.id, status, commit };
+    }
     if (operation.op === "prepareUpdate") {
       const id = `review-${++this.sequence}`;
       const after = `${frontmatter(seed)}\n## What's new\n\nA clearer checklist.\n`;
@@ -305,7 +309,7 @@ export class FakeSkillLibrary {
           id,
           skillId: operation.id,
           commit,
-          folderHash: digest(after, 40),
+          folderHash: upstream,
           baseHash: current.hash,
           files: [
             { path: "SKILL.md", change: "changed", flagged: false },
@@ -322,7 +326,7 @@ export class FakeSkillLibrary {
       return error("conflict", "This skill changed since the review. Check for updates again.");
     this.reviews.delete(review.id);
     seed.body = `${seed.body}\n## What's new\n\nA clearer checklist.\n`;
-    seed.source = { ...seed.source, folderHash: digest(review.after, 40) };
+    seed.source = { ...seed.source, folderHash: upstream };
     return this.changed(operation.id, seed);
   }
   private changed(id: string, seed: SkillSeed): SkillResult {
