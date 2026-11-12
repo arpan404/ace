@@ -22,7 +22,12 @@ const OpenAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("agents"), open: z.boolean() }),
   /** The next page of the open Agents sheet's agents or background tasks. */
   z.object({ kind: z.literal("agents.more"), list: z.enum(["agents", "tasks"]) }),
-  z.object({ kind: z.literal("changes"), open: z.boolean() }),
+  /** `scope`: the scope this open shows first (`changes.scope`'s), else the last turn. */
+  z.object({
+    kind: z.literal("changes"),
+    open: z.boolean(),
+    scope: z.string().min(1).max(128).optional(),
+  }),
   /** The thread's Logs: opened or closed, or its scope and filter changed while open. */
   z.object({ kind: z.literal("logs"), open: z.boolean(), query: LogsQuery.optional() }),
   z.object({ kind: z.literal("logs.earlier") }),
@@ -78,11 +83,6 @@ export class Sheets {
   #agents: AgentsFollow | undefined;
   #logs: LogsFollow | undefined;
   #changes: ChangesSession | undefined;
-  /**
-   * A scope asked for while Changes is closed, which it opens on next: the Summary's files
-   * changed count the whole thread, so its row opens This thread rather than the last turn.
-   */
-  #nextScope: string | undefined;
   #work: WorkSession | undefined;
   #summary: ThreadSummary | undefined;
   /** Since you looked, cleared by thread at the cursor it was read from, while the app runs. */
@@ -122,7 +122,6 @@ export class Sheets {
     this.#logs = undefined;
     this.#changes?.close();
     this.#changes = undefined;
-    this.#nextScope = undefined;
     this.#work?.close();
     this.#work = undefined;
     this.#summary?.close();
@@ -193,8 +192,7 @@ export class Sheets {
               this.#deps,
             )
           : undefined;
-        if (this.#changes && this.#nextScope) this.#changes.scope(this.#nextScope);
-        this.#nextScope = undefined;
+        if (action.scope) this.#changes?.scope(action.scope);
         return true;
       case "changes.refresh":
         void this.#changes?.refresh();
@@ -301,10 +299,6 @@ export class Sheets {
         this.#review?.clear();
         return this.#review !== undefined;
       default:
-        if (!this.#changes && action.kind === "changes.scope") {
-          this.#nextScope = action.scope;
-          return true;
-        }
         return this.#changes
           ? changesAction(this.#changes, action, this.#sink, this.#preview)
           : false;

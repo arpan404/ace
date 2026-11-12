@@ -27,6 +27,16 @@ const changed = (sink: RecordingSink, path: string) =>
     .filter((row) => row.kind === "add" || row.kind === "del")
     .map((row) => `${row.kind} ${row.text}`);
 
+/** Sheets over the fixture's thread, as the phone's thread screen drives them. */
+async function threadSheets() {
+  const { client, owner } = await opened();
+  const sink = new RecordingSink();
+  const sheets = new Sheets(sink, plainPreview);
+  closers.push(async () => sheets.close());
+  const thread = { owner, store: client.thread("changes").store, threadId: "changes", epoch: 1 };
+  return { sink, sheets, thread };
+}
+
 describe("Changes sheet scopes", () => {
   test("a thread whose turns edited files opens on its last turn and offers every turn", async () => {
     const { sink } = await opened();
@@ -128,20 +138,32 @@ describe("Changes sheet scopes", () => {
     ]);
   });
 
-  test("a scope asked for while Changes is closed is the one it opens on, once", async () => {
-    const { client, owner } = await opened();
-    const sink = new RecordingSink();
-    const sheets = new Sheets(sink, plainPreview);
-    const thread = { owner, store: client.thread("changes").store, threadId: "changes", epoch: 1 };
-    // The Summary's files changed count the whole thread, so its row asks for This thread.
-    expect(sheets.action(thread, { kind: "changes.scope", scope: "all" })).toBe(true);
-    expect(sheets.action(thread, { kind: "changes", open: true })).toBe(true);
+  test("Changes opened with a scope opens on it, and the next plain open is on the last turn", async () => {
+    const { sink, sheets, thread } = await threadSheets();
+    // The Summary's files changed count the whole thread, so its row opens This thread.
+    expect(sheets.action(thread, { kind: "changes", open: true, scope: "all" })).toBe(true);
     await until(() => scopeId(sink) === "all", "This thread");
     expect(summary(sink)?.scope).toMatchObject({ label: "This thread" });
-    // Opened again without asking, Changes is back on its last turn.
     sheets.action(thread, { kind: "changes", open: false });
     sheets.action(thread, { kind: "changes", open: true });
     await until(() => scopeId(sink) === "last", "Last turn");
+  });
+
+  test("a scope asked for while Changes is closed never reaches another thread's Changes", async () => {
+    const { sink, sheets, thread } = await threadSheets();
+    expect(sheets.action(thread, { kind: "changes.scope", scope: "all" })).toBe(false);
+    // The person moves to another thread, and that thread's Changes opens on its last turn.
     sheets.close();
+    const other = { ...thread, epoch: 2 };
+    sheets.follow(other);
+    expect(sheets.action(other, { kind: "changes", open: true })).toBe(true);
+    await until(() => scopeId(sink) === "last", "Last turn");
+  });
+
+  test("Changes the person opens themselves is on the last turn, whatever was asked while closed", async () => {
+    const { sink, sheets, thread } = await threadSheets();
+    sheets.action(thread, { kind: "changes.scope", scope: "all" });
+    expect(sheets.action(thread, { kind: "changes", open: true })).toBe(true);
+    await until(() => scopeId(sink) === "last", "Last turn");
   });
 });
