@@ -88,8 +88,23 @@ export async function moveThread(
     }
     return result;
   } catch (error) {
-    return { ok: false, error: error instanceof ProjectError ? error.code : "thread_move_failed" };
+    return { ok: false, error: moveErrorCode(error) };
   }
+}
+
+/**
+ * The workspace fence refuses a tree with live work (a command left running after the reply
+ * reads done, ADR 0116, yet still runs in the checkout) or a terminal the thread owns: to the
+ * person that is a busy thread, as the status check before it says.
+ */
+function moveErrorCode(error: unknown): string {
+  if (error instanceof ProjectError) return error.code;
+  if (
+    error instanceof Error &&
+    (error.message === "thread_tree_is_live" || error.message === "terminal_owned")
+  )
+    return "thread_busy";
+  return "thread_move_failed";
 }
 
 /**
