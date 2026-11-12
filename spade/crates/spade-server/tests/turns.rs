@@ -794,3 +794,58 @@ async fn model_calls_identify_themselves_as_this_spade_version() -> Result {
     );
     Ok(())
 }
+
+/// A tool with a bug: every call panics.
+struct Panicking;
+
+impl Tool for Panicking {
+    fn def(&self) -> spade_core::tools::ToolDef {
+        spade_core::tools::ToolDef {
+            spec: spade_models::ToolSpec {
+                name: "broken".to_owned(),
+                description: "Always panics.".to_owned(),
+                schema: json!({ "type": "object" }),
+            },
+            risk: Risk::Read,
+            untrusted_output: false,
+            deferred: false,
+            background: false,
+        }
+    }
+
+    fn run(&self, _key: &str, _arguments: serde_json::Value) -> spade_server::tools::ToolFuture {
+        Box::pin(async { panic!("a bug in a tool") })
+    }
+}
+
+#[tokio::test]
+async fn a_turn_that_panics_closes_as_failed_and_the_next_message_is_answered() -> Result {
+    let spade = Spade::start(
+        vec![
+            Script::reply("").call("b1", "broken", json!({})),
+            Script::reply("").plain(r#"{"title":"Broken"}"#),
+            Script::reply("Still here."),
+        ],
+        vec![Arc::new(Panicking)],
+    )
+    .await?;
+    let id = spade.ask("Use the broken tool").await?;
+    let events = spade.wait_for(&id, "reply_failed").await?;
+    let failed = events
+        .iter()
+        .find(|e| e["type"] == "reply_failed")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(failed["error"], "Spade ran into an internal error");
+    spade.wait_for(&id, "renamed").await?;
+    spade.say(&id, "Are you there?").await?;
+    let events = spade.wait_for(&id, "reply_finished").await?;
+    assert!(
+        events
+            .iter()
+            .any(|e| e["type"] == "reply_finished" && e["text"] == "Still here."),
+        "{:?}",
+        types(&events)
+    );
+    Ok(())
+}

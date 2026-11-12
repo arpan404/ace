@@ -46,6 +46,12 @@ export const SpadeStatus = z.object({
   /** Why Spade is off or failed, in words a person can read. */
   reason: z.string().max(1024).optional(),
   /**
+   * While Spade is ready but still setting up: why, in Spade's few words (`waiting for the
+   * keychain`), and the platform it runs on (`darwin`, `linux`, `win32`), so clients can say
+   * what the person should look for.
+   */
+  setup: z.object({ reason: z.string().max(256), platform: z.string().max(32) }).optional(),
+  /**
    * Spade's host thread, once the daemon has made it: the parent of every thread Spade's tools
    * delegate. `busy` while any thread under it is still working or waiting on a person.
    */

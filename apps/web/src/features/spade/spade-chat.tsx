@@ -9,8 +9,9 @@ import {
   type SpadeRememberedNote,
   type SpadeView,
 } from "@ace/ui-core/spade-chat";
+import { Link } from "@tanstack/react-router";
 import { memo, useEffect, useId, useState } from "react";
-import { Button } from "@/components/ui/button.tsx";
+import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
 import { SpadeFace } from "./spade-face.tsx";
@@ -37,7 +38,8 @@ const faceRoom = "w-7 shrink-0";
  * bots sent here under their name and face. Nothing of how the bot works shows: no tool calls,
  * jobs or compaction. An approval arrives as the bot's bubble with Allow and Deny, a question as
  * the bot's bubble, a note it saved as one quiet "Remembered" line that opens the note for
- * editing (ADR 0128), and a skill the bot offers as a bubble with Save and Discard (ADR 0130),
+ * editing (ADR 0128), a search with nothing set up as one quiet line that opens Settings › Spade ›
+ * Web search, and a skill the bot offers as a bubble with Save and Discard (ADR 0130),
  * after the reply that made it. While the bot
  * works, one line under its last bubble: its face with moving eyes, its few words, and Stop.
  */
@@ -243,6 +245,20 @@ const Bubble = memo(function Bubble(props: {
           >
             {`Remembered: ${item.note.text}`}
           </button>
+        </div>
+      );
+    case "search-setup":
+      // Web search had nothing to search with: one quiet line and the way to set it up.
+      return (
+        <div className="flex items-center gap-1 pl-9.5 text-xs text-muted-foreground">
+          <span>Web search isn't set up.</span>
+          <Link
+            to="/settings/spade"
+            hash="web-search"
+            className={buttonVariants({ size: "xs", variant: "ghost" })}
+          >
+            Set up web search
+          </Link>
         </div>
       );
     case "ask":

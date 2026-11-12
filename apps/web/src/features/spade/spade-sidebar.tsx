@@ -1,5 +1,10 @@
 import { formatAge } from "@ace/ui-core";
-import { spadeCappedLine, spadeGroupLine, spadeStateLine } from "@ace/ui-core/spade-chat";
+import {
+  spadeCappedLine,
+  spadeGroupLine,
+  spadeSetupSentence,
+  spadeStateLine,
+} from "@ace/ui-core/spade-chat";
 import { Link, useParams } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -48,13 +53,16 @@ export function rosterLine(bot: RosterBot): { text: string; tone?: "working" | "
  * this window reaches by latest activity. A row is the bot's face, its name and when it was last
  * active, then what it does now in its state's colour, or its latest message. A bot on an
  * offline machine reads as away, one whose Spade stopped as unavailable. "New bot" opens the
- * form. While Spade isn't running, its state in one sentence (with Turn on while it is off). The
+ * form. While Spade isn't running, its state in one sentence (with Turn on while it is off), and
+ * while it runs but waits on the person (a keychain prompt), what to look for. The
  * panel sees every machine, so it keeps Spade, the main bot, on one (`useOneSpade`).
  */
 export function SpadeSidebar() {
   const status = useSpadeStatus();
   const [enabled] = useSpadeEnabled();
   const line = spadeStateLine(status, enabled);
+  // Running but waiting on the person (a keychain prompt): said in the same quiet line.
+  const setup = spadeSetupSentence(status);
   const roster = useSpadeRoster(line.ready);
   useOneSpade(roster.hosting);
   useTellZone(useMemo(() => roster.hosts.map((host) => host.machine.client), [roster.hosts]));
@@ -81,7 +89,13 @@ export function SpadeSidebar() {
           </>
         )
       }
-      toolbar={line.ready ? undefined : <SpadeStateStrip line={line} />}
+      toolbar={
+        !line.ready ? (
+          <SpadeStateStrip line={line} />
+        ) : setup ? (
+          <SpadeStateStrip line={{ ...line, sentence: setup }} />
+        ) : undefined
+      }
     >
       <nav aria-label="Bots">
         {/* The last list stays while Spade restarts or a read fails; it reads again on its own. */}

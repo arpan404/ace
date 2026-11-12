@@ -20,12 +20,15 @@ pub(crate) fn http_reason(status: reqwest::StatusCode, service: &str) -> String 
     }
 }
 
+/// The reason given when nothing listens at a backend's address.
+pub(crate) const NO_CONNECTION: &str = "could not connect";
+
 /// A request error in a few words, without the URL (which can carry the query).
 pub(crate) fn transport_reason(error: &reqwest::Error) -> String {
     if error.is_timeout() {
         "timed out".to_owned()
     } else if error.is_connect() {
-        "could not connect".to_owned()
+        NO_CONNECTION.to_owned()
     } else if error.is_decode() {
         "answered with something that is not the expected JSON".to_owned()
     } else {

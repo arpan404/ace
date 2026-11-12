@@ -73,6 +73,8 @@ export function spadeStatusWith(
     state: "ready",
     ...(version === undefined ? {} : { version }),
     ...(daemon?.thread ? { thread: daemon.thread } : {}),
+    // What Spade is still waiting on is only known from the daemon's look.
+    ...(daemon?.state === "ready" && daemon.setup ? { setup: daemon.setup } : {}),
   };
 }
 

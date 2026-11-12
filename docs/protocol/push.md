@@ -2330,11 +2330,11 @@ Example:
   "requestId": "example",
   "status": {
     "reason": "example",
-    "state": "off",
-    "thread": {
-      "busy": false,
-      "id": "example"
-    }
+    "setup": {
+      "platform": "example",
+      "reason": "example"
+    },
+    "state": "off"
   },
   "type": "spade.status.result"
 }

@@ -168,6 +168,10 @@ pub struct Options {
     pub ids: Option<Arc<dyn Ids>>,
     /// Where bots on subscriptions reach ace (ADR 0133), set before work opens.
     pub brains: Option<spade_server::engine::BrainSource>,
+    /// Sending a model step again; quick waits when absent, so a failing endpoint is not slow.
+    pub model_retry: Option<spade_server::engine::Retry>,
+    /// The real `web_search` over these backends, with Brave's key from the mock keychain.
+    pub search: Option<spade_search::SearchConfig>,
 }
 
 /// A clock a test sets by hand.
@@ -250,6 +254,8 @@ impl Default for Options {
             clock: None,
             ids: None,
             brains: None,
+            model_retry: None,
+            search: None,
         }
     }
 }
@@ -274,7 +280,17 @@ fn catalog(root: &str) -> Result<Catalog> {
                         "models": [{ "id": "paint-1", "name": "Paint", "capabilities": ["image-generation"],
                                      "price": { "input": 0, "output": 0, "per_call": 1.5 } },
                                    { "id": "ears-1", "name": "Ears", "capabilities": ["transcription"],
-                                     "price": { "input": 0, "output": 0, "per_call": 1.5 } }] }]
+                                     "price": { "input": 0, "output": 0, "per_call": 1.5 } }] },
+                      // Models whose endpoints search the web themselves, billed per search, for
+                      // the web search tests to point at the fake.
+                      { "id": "seeker", "name": "Seeker", "format": "anthropic",
+                        "base_url": "https://seeker.example/v1/", "key": {},
+                        "models": [{ "id": "seek-1", "name": "Seek", "capabilities": ["tools", "web-search"],
+                                     "price": { "input": 0, "output": 0, "per_search": 0.5 } }] },
+                      { "id": "looker", "name": "Looker", "format": "openai-responses",
+                        "base_url": "https://looker.example/v1/", "key": {},
+                        "models": [{ "id": "look-1", "name": "Look", "capabilities": ["tools", "web-search"],
+                                     "price": { "input": 0, "output": 0, "per_search": 0.5 } }] }]
     });
     Ok(Catalog::from_json(&json.to_string())?)
 }
@@ -419,6 +435,27 @@ impl Spade {
         } else {
             None
         };
+        let bots = spade_server::tools::EngineHandle::default();
+        let search = match options.search.clone() {
+            Some(config) => {
+                let lookup = keys.clone();
+                let search = Arc::new(spade_search::Search::new(
+                    config,
+                    Keys::keychain_then_env(
+                        move |backend| lookup.search_key(backend).ok().flatten(),
+                        |_| None,
+                    ),
+                    Duration::from_secs(5),
+                )?);
+                tools = tools.with_tool(Arc::new(spade_server::tools::WebSearch {
+                    search: search.clone(),
+                    ace_fallback: false,
+                    bots: bots.clone(),
+                }));
+                Some(search)
+            }
+            None => None,
+        };
         let engine = Engine::open(Setup {
             store,
             models,
@@ -433,7 +470,14 @@ impl Spade {
                 .unwrap_or_else(|| Arc::new(CountingIds::default())),
             daily_cap_micros: spade_core::spending::usd_to_micros(options.cap_usd),
             utc_offset_seconds: 0,
-            limits: options.limits,
+            limits: Limits {
+                retry: options.model_retry.unwrap_or(spade_server::engine::Retry {
+                    tries: 3,
+                    first_wait: Duration::from_millis(10),
+                    longest: Duration::from_secs(1),
+                }),
+                ..options.limits
+            },
             skills: options.skills,
             images: spade_server::images::ImageStore::open(&dir.path().join("images"))?,
             adopt: options.adopt.clone(),
@@ -441,6 +485,10 @@ impl Spade {
         })?;
         if let Some(brains) = options.brains.clone() {
             engine.set_brains(brains);
+        }
+        bots.set(&engine);
+        if let (Some(search), Ok(url)) = (&search, engine.searxng_url()) {
+            search.set_searxng(url.as_deref())?;
         }
         let state = AppState {
             engine: engine.clone(),
@@ -450,6 +498,7 @@ impl Spade {
             workspaces: options.workspaces.clone(),
             learning: options.learning.clone(),
             connectors: connectors.clone(),
+            search,
         };
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let base = format!("http://{}", listener.local_addr()?);

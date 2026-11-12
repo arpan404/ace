@@ -30,6 +30,13 @@ pub fn call_cost_micros(price: Option<Price>, usage: &Usage) -> u64 {
     cost_micros(price, usage).saturating_add(per_call)
 }
 
+/// What a call with the endpoint's own web search cost: its tokens at the token prices, plus the
+/// model's price per search for each search the endpoint billed.
+pub fn search_cost_micros(price: Option<Price>, usage: &Usage, searches: u32) -> u64 {
+    let per_search = price.and_then(|p| p.per_search).map_or(0, usd_to_micros);
+    cost_micros(price, usage).saturating_add(per_search.saturating_mul(u64::from(searches)))
+}
+
 /// Dollars as millionths of a dollar.
 pub fn usd_to_micros(usd: f64) -> u64 {
     if usd.is_finite() && usd > 0.0 {
@@ -85,13 +92,32 @@ mod tests {
             cache_read: Some(0.1),
             cache_write: Some(2.5),
             per_call: None,
+            per_search: None,
         }
+    }
+
+    #[test]
+    fn a_search_costs_its_tokens_and_its_price_for_each_search_billed() {
+        let price = Price {
+            per_search: Some(0.01),
+            ..sonnet()
+        };
+        let usage = Usage {
+            input_tokens: Some(1_000),
+            output_tokens: Some(100),
+            ..Usage::default()
+        };
+        let tokens = cost_micros(Some(price), &usage);
+        assert_eq!(search_cost_micros(Some(price), &usage, 2), tokens + 20_000);
+        assert_eq!(search_cost_micros(Some(sonnet()), &usage, 2), tokens);
+        assert_eq!(search_cost_micros(None, &usage, 2), 0);
     }
 
     #[test]
     fn an_image_call_costs_its_tokens_and_its_price_per_call() {
         let price = Price {
             per_call: Some(0.04),
+            per_search: None,
             ..sonnet()
         };
         let usage = Usage {
@@ -125,6 +151,7 @@ mod tests {
             cache_read: None,
             cache_write: None,
             per_call: None,
+            per_search: None,
         };
         let usage = Usage {
             input_tokens: Some(1_000),

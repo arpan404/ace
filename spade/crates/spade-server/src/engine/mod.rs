@@ -22,9 +22,11 @@ mod media;
 mod memory;
 mod outbox;
 mod oversight;
+mod retry;
 mod review;
 pub mod roster;
 mod routines;
+mod search;
 mod turn;
 mod types;
 
@@ -41,7 +43,9 @@ pub use oversight::{
     ActivityPage, ActivityQuery, AgentOversight, Global, GlobalChange, OversightChange,
     OversightError,
 };
+pub use retry::Retry;
 pub use roster::{LastMessage, State};
+pub(crate) use search::Native;
 pub use types::{
     Activity, AgentChange, AgentError, AgentInput, AgentView, AnswerError, AvatarInput,
     CompactError, Frame, Limits, SendError, Setup, Snapshot, Subscription,
@@ -652,12 +656,17 @@ impl Engine {
     /// Records what a model call cost, failed or not.
     pub(super) fn pay(&self, id: &str, model: &str, usage: &spade_models::Usage) -> u64 {
         let cost = spending::cost_micros(self.models.price(model), usage);
+        self.record_cost(id, model, cost);
+        cost
+    }
+
+    /// Records `cost` micros spent on `model` in conversation `id`.
+    pub(super) fn record_cost(&self, id: &str, model: &str, cost: u64) {
         if cost > 0
             && let Err(error) = self.store.record_spend(id, model, cost, self.now_ms())
         {
             tracing::error!(%error, "could not record a model call's cost");
         }
-        cost
     }
 
     /// Starts what the conversation is owed: a reply for anything stored while turns could not

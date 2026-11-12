@@ -110,6 +110,32 @@ impl KeyStore {
         Self::remove(&self.connector_entry(id, kind)?)
     }
 
+    /// A web search backend's key (Brave Search), if stored. Account `search:<id>`, apart from
+    /// model endpoints' keys so neither can stand in for the other.
+    pub fn search_key(&self, backend: &str) -> Result<Option<String>, KeyError> {
+        self.read(&self.search_entry(backend)?)
+    }
+
+    /// Stores a web search backend's key, replacing any earlier one.
+    pub fn set_search_key(&self, backend: &str, key: &str) -> Result<(), KeyError> {
+        let key = checked(key)?;
+        self.search_entry(backend)?
+            .set_password(key)
+            .map_err(|error| classify(&error))
+    }
+
+    /// Forgets a web search backend's key. Returns whether there was one.
+    pub fn delete_search_key(&self, backend: &str) -> Result<bool, KeyError> {
+        Self::remove(&self.search_entry(backend)?)
+    }
+
+    fn search_entry(&self, backend: &str) -> Result<Entry, KeyError> {
+        if backend.trim().is_empty() {
+            return Err(KeyError::Invalid("the search backend id is empty"));
+        }
+        self.account(&format!("search:{backend}"))
+    }
+
     fn connector_entry(&self, id: &str, kind: &str) -> Result<Entry, KeyError> {
         if id.trim().is_empty() || kind.trim().is_empty() {
             return Err(KeyError::Invalid("the connector id is empty"));

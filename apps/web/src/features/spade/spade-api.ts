@@ -4,6 +4,7 @@ import {
   parseSpadeEndpoint,
   parseSpadeLiveModels,
   parseSpadeModels,
+  parseSpadeSearchSettings,
   parseSpadeSubscriptions,
   parseSpadeTranscription,
   type SpadeAgent,
@@ -191,4 +192,25 @@ export async function transcribe(
     body: { data: recording.data, media_type: recording.mediaType },
   });
   return sure(parseSpadeTranscription(body), "transcription");
+}
+
+/** Web search's settings: the person's SearXNG address and whether a Brave key is stored. */
+export async function readSearchSettings(target: SpadeTarget, options: Signal = {}) {
+  const body = await spadeHttp(target, "GET", "/v1/search", options);
+  return sure(parseSpadeSearchSettings(body), "web search settings");
+}
+
+/** The person's own SearXNG; null forgets it. Answers the settings as they now are. */
+export async function setSearxngUrl(target: SpadeTarget, url: string | null) {
+  const body = await spadeHttp(target, "PUT", "/v1/search", { body: { searxng_url: url } });
+  return sure(parseSpadeSearchSettings(body), "web search settings");
+}
+
+/** The Brave Search key, kept in the OS keychain by Spade (ADR 0119). */
+export async function setBraveKey(target: SpadeTarget, key: string): Promise<void> {
+  await spadeHttp(target, "PUT", "/v1/search/brave-key", { body: { key } });
+}
+
+export async function removeBraveKey(target: SpadeTarget): Promise<void> {
+  await spadeHttp(target, "DELETE", "/v1/search/brave-key");
 }

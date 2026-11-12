@@ -163,14 +163,23 @@ async fn run() -> Result<(), Failure> {
         override_path.as_deref().map(std::path::Path::new),
     )
     .map_err(other)?;
-    let models =
-        Models::new(startup.presets, keys.clone(), spade_server::home::VERSION).map_err(other)?;
+    let models = Models::new(startup.presets, keys, spade_server::home::VERSION).map_err(other)?;
     let search_path = home
         .file_or_default("search.json", DEFAULT_SEARCH)
         .map_err(other)?;
+    // Search keys have their own keychain accounts (`search:<id>`), apart from endpoints'.
+    let search_lookup = keychain.clone();
+    let search_keys = Keys::keychain_then_env(
+        move |backend| {
+            search_lookup
+                .as_ref()
+                .and_then(|k| k.search_key(backend).ok().flatten())
+        },
+        |var| std::env::var(var).ok(),
+    );
     let search = Search::new(
         SearchConfig::load(&search_path).map_err(other)?,
-        keys,
+        search_keys,
         Duration::from_secs(10),
     )
     .map_err(other)?;
@@ -196,20 +205,24 @@ async fn run() -> Result<(), Failure> {
         Fetcher::new(Policy::default(), Duration::from_secs(30)).with_documents(reader.clone()),
     );
     let search = Arc::new(search);
+    // Tools that find the calling bot through the engine, set once it exists (ADR 0130).
+    let bots = EngineHandle::default();
     let mut core: Vec<Arc<dyn Tool>> = vec![
         Arc::new(WebSearch {
             search: search.clone(),
             ace_fallback: ace.is_some(),
+            bots: bots.clone(),
         }),
         Arc::new(WebFetch(fetcher.clone())),
         Arc::new(Todo),
     ];
-    // Tools that find the calling bot through the engine, set once it exists (ADR 0130).
-    let bots = EngineHandle::default();
     let workspaces = Workspaces::new(home.dir.join("workspace"));
     // Deep research (ADR 0135), reading through the same backends and fetcher.
     core.push(Arc::new(ResearchTool::new(
-        Arc::new(LiveWeb { search, fetcher }),
+        Arc::new(LiveWeb {
+            search: search.clone(),
+            fetcher,
+        }),
         workspaces.clone(),
         bots.clone(),
     )));
@@ -284,6 +297,15 @@ async fn run() -> Result<(), Failure> {
     })
     .map_err(other)?;
     bots.set(&engine);
+    // The person's own SearXNG, as they set it in Spade's settings.
+    match engine.searxng_url() {
+        Ok(url) => {
+            if let Err(error) = search.set_searxng(url.as_deref()) {
+                tracing::warn!(%error, "the saved SearXNG address is not used");
+            }
+        }
+        Err(error) => tracing::warn!(%error, "could not read the SearXNG address"),
+    }
     engine.media().read_with(reader);
     if let Some(link) = &ace {
         engine.set_remote(link.clone());
@@ -326,6 +348,7 @@ async fn run() -> Result<(), Failure> {
         workspaces: Some(workspaces),
         learning,
         connectors: Some(connectors),
+        search: Some(search),
     };
     let stopping = async move {
         shutdown_signal().await;
