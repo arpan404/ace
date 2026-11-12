@@ -34,8 +34,11 @@ export interface CaptureEvents {
   audio?(chunk: EncodedAudio): void;
   /** No encoder configuration worked for this encode. */
   failed(encode: string): void;
-  /** The capture stopped on its own (the tab closed, the extension went away). */
-  ended(): void;
+  /**
+   * The capture stopped on its own (the tab closed, the extension went away, or it never got a
+   * picture); `reason` says why, when the encoder said.
+   */
+  ended(reason?: string): void;
 }
 /** One tab capture feeding the encodes it is told to run. */
 export interface VideoCaptureHandle {

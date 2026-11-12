@@ -8031,6 +8031,7 @@ Example:
 | annotation | no | object | {"properties":{"owner":{"type":"string","minLength":1,"maxLength":256}},"required":["owner"]} |
 | recording | no | object | {"properties":{"by":{"$ref":"https://ace.local/protocol/v1/BrowserTabActor.json"}},"required":["by"]} |
 | features | no | array | {"maxItems":32,"items":{"type":"string","maxLength":64}} |
+| video | no | [BrowserVideoStatus.json](schema/BrowserVideoStatus.json) |  |
 
 Example:
 
@@ -8265,6 +8266,26 @@ Example:
   "codecs": [
     "VydG6T"
   ]
+}
+```
+
+## BrowserVideoStatus
+
+[JSON Schema](schema/BrowserVideoStatus.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| status | yes | ["retrying"] |  |
+| reason | yes | string | {"maxLength":2048} |
+| attempts | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "attempts": 4,
+  "reason": "example",
+  "status": "retrying"
 }
 ```
 
