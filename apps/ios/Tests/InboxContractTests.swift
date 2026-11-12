@@ -27,14 +27,14 @@ import Testing
         let (model, root) = try await connected()
         defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
         try await until("done row arrives") { section(model, of: "ios-done")?.key == "done" }
-        #expect(await model.snooze("ios-done", preset: "hour"))
+        #expect(try await SpikeFixture.within("snooze admitted") { await model.snooze("ios-done", preset: "hour") })
         try await until("row moves to Snoozed") { section(model, of: "ios-done")?.key == "snoozed" }
         #expect((model.inbox["ios-done"]?.snoozedUntil ?? 0) > Date().timeIntervalSince1970 * 1000)
-        #expect(await model.wake("ios-done"))
+        #expect(try await SpikeFixture.within("wake admitted") { await model.wake("ios-done") })
         try await until("row wakes into Done") { section(model, of: "ios-done")?.key == "done" }
-        #expect(await model.archive("ios-done"))
+        #expect(try await SpikeFixture.within("archive admitted") { await model.archive("ios-done") })
         try await until("archived row leaves the inbox") { section(model, of: "ios-done") == nil && model.inbox["ios-done"] == nil }
-        #expect(await model.unarchive("ios-done"))
+        #expect(try await SpikeFixture.within("unarchive admitted") { await model.unarchive("ios-done") })
         try await until("undo restores the row") { section(model, of: "ios-done")?.key == "done" }
         #expect(model.error == nil)
     }
