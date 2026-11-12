@@ -24,12 +24,14 @@ pub(crate) fn read(model: &str, error: &genai::Error, answered: bool) -> ModelEr
             message,
             transient: transient_status(status),
             retry_after: headers.and_then(retry_after),
+            status: Some(status.as_u16()),
         },
         Some(Unanswered::Network) => ModelError::Unanswered {
             model: model.to_owned(),
             message,
             transient: true,
             retry_after: None,
+            status: None,
         },
         None => ModelError::Provider {
             model: model.to_owned(),

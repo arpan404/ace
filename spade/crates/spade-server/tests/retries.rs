@@ -260,3 +260,42 @@ async fn a_reply_cut_after_the_endpoint_answered_is_not_sent_again_and_is_paid_f
     assert!(spent > 92, "{spent}");
     Ok(())
 }
+
+#[tokio::test]
+async fn a_failed_reply_says_what_kind_of_failure_it_was_and_names_the_endpoint() -> Result {
+    for (status, kind) in [
+        (401, "key"),
+        (403, "key"),
+        (429, "rate_limited"),
+        (400, "model"),
+    ] {
+        // A rate limit is sent again; every try is refused, so the reply fails.
+        let spade = Spade::start_with(
+            vec![
+                Script::failing(status),
+                Script::failing(status),
+                Script::failing(status),
+                title(),
+            ],
+            Vec::new(),
+            retry(Duration::from_millis(10)),
+        )
+        .await?;
+        let id = spade.ask("Hello").await?;
+        let events = spade.wait_for(&id, "reply_failed").await?;
+        let failed = events
+            .iter()
+            .find(|e| e["type"] == "reply_failed")
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(failed["kind"], kind, "{status}: {failed}");
+        assert_eq!(failed["endpoint"], "fake", "{status}: {failed}");
+        assert!(
+            failed["error"]
+                .as_str()
+                .is_some_and(|e| e.contains(&status.to_string())),
+            "the endpoint's own words stay for the activity log: {failed}"
+        );
+    }
+    Ok(())
+}

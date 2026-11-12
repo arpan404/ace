@@ -214,7 +214,15 @@ pub enum Known {
     ReplyFailed {
         reply: String,
         text: String,
+        /// What went wrong, as the endpoint or Spade said it: for the activity log.
         error: String,
+        /// The kind of failure, for the one plain sentence a client shows. `other` on events
+        /// from before it was stored, and for any kind this build doesn't know.
+        #[serde(default)]
+        kind: FailureKind,
+        /// The endpoint the failed call went to (its id), when the failure was the endpoint's.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        endpoint: Option<String>,
     },
     ReplyInterrupted {
         reply: String,
@@ -281,6 +289,58 @@ pub enum Known {
 }
 
 /// Which of a bot's caps (ADR 0135).
+/// Why a reply failed, in the few kinds a person can act on (`reply_failed`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FailureKind {
+    /// The endpoint couldn't be reached: the request never got an answer.
+    Unreachable,
+    /// The endpoint refused the key (`401`, `403`), or there is none.
+    Key,
+    /// The endpoint is rate limiting (`429`).
+    RateLimited,
+    /// The model or the endpoint failed while answering, or refused the request.
+    Model,
+    /// A spending cap or a turn's own limit stopped it.
+    Cap,
+    /// Anything else, and any kind a later build adds.
+    #[default]
+    #[serde(other)]
+    Other,
+}
+
+impl FailureKind {
+    /// The kind of a failed model call.
+    pub fn of(error: &spade_models::ModelError) -> Self {
+        use spade_models::ModelError;
+        match error {
+            ModelError::MissingKey { .. } => Self::Key,
+            ModelError::Unanswered { status: None, .. } => Self::Unreachable,
+            ModelError::Unanswered {
+                status: Some(401 | 403),
+                ..
+            } => Self::Key,
+            ModelError::Unanswered {
+                status: Some(429), ..
+            } => Self::RateLimited,
+            ModelError::Unanswered { .. }
+            | ModelError::Provider { .. }
+            | ModelError::Empty { .. }
+            | ModelError::Shape { .. }
+            | ModelError::UnknownModel(_) => Self::Model,
+            ModelError::Listing { .. } | ModelError::Setup(_) => Self::Other,
+        }
+    }
+
+    /// Whether the failure was the endpoint's, so it is worth naming.
+    pub fn names_endpoint(self) -> bool {
+        matches!(
+            self,
+            Self::Unreachable | Self::Key | Self::RateLimited | Self::Model
+        )
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CapScope {
@@ -521,5 +581,48 @@ mod tests {
         let raw = json!({ "type": "tool_called", "tool": "web_search" });
         assert_eq!(Event::from_json(raw.clone()), Event::Unknown(raw.clone()));
         assert_eq!(Event::from_json(raw.clone()).to_json(), raw);
+    }
+
+    fn failed_kind(raw: Value) -> Option<FailureKind> {
+        match Event::from_json(raw) {
+            Event::Known(Known::ReplyFailed { kind, .. }) => Some(kind),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn a_failed_reply_stored_before_kinds_existed_or_with_a_newer_kind_reads_as_other() {
+        let old = json!({ "type": "reply_failed", "reply": "r1", "text": "", "error": "boom" });
+        assert_eq!(failed_kind(old), Some(FailureKind::Other));
+        let newer = json!({ "type": "reply_failed", "reply": "r1", "text": "", "error": "boom",
+                            "kind": "solar_flare" });
+        assert_eq!(failed_kind(newer), Some(FailureKind::Other));
+        let known = json!({ "type": "reply_failed", "reply": "r1", "text": "", "error": "boom",
+                            "kind": "rate_limited", "endpoint": "fake" });
+        assert_eq!(failed_kind(known), Some(FailureKind::RateLimited));
+    }
+
+    #[test]
+    fn a_call_that_never_got_an_answer_is_unreachable_and_a_refused_key_is_the_keys() {
+        use spade_models::ModelError;
+        let refused = |status: Option<u16>| ModelError::Unanswered {
+            model: "fake/m".into(),
+            message: String::new(),
+            transient: false,
+            retry_after: None,
+            status,
+        };
+        assert_eq!(FailureKind::of(&refused(None)), FailureKind::Unreachable);
+        assert_eq!(FailureKind::of(&refused(Some(401))), FailureKind::Key);
+        assert_eq!(
+            FailureKind::of(&refused(Some(429))),
+            FailureKind::RateLimited
+        );
+        assert_eq!(FailureKind::of(&refused(Some(500))), FailureKind::Model);
+        let missing = ModelError::MissingKey {
+            endpoint: "fake".into(),
+            var: None,
+        };
+        assert_eq!(FailureKind::of(&missing), FailureKind::Key);
     }
 }
