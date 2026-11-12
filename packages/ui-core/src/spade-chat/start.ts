@@ -4,9 +4,10 @@ import { parseSpadeConversations, parseSpadeCreated, parseSpadeEvents } from "./
 /*
  * Starting a conversation, safely when its answer is lost. Spade's start takes no key a client
  * could look it up by later (`POST /v1/conversations {text}`), so a start whose answer never
- * came is settled by what Spade lists: a conversation that wasn't there before and opens with
- * this message is the one it made. Only a start Spade clearly doesn't have goes back to the
- * composer, so trying again never makes a second conversation.
+ * came is settled by what Spade lists: the one conversation that wasn't there before and opens
+ * with this message is the one it made. When that can't be told for sure (two match, images
+ * can't be compared, Spade is out of reach) the start is `unknown`: its words stay with the person
+ * with a note, never sent again on their own, and never cleared.
  */
 
 /** The way to Spade for a start: reads, the start itself, and waiting for the way back. */
@@ -29,10 +30,16 @@ export type SpadeStartResult = { kind: "started"; id: string } | { kind: "unknow
 /** New conversations looked into for this start's message, newest first. */
 const lookAt = 5;
 
+/** What the person sent, to know Spade's copy by: its words, and how many images came with them. */
+export interface SpadeStartMessage {
+  text: string;
+  images: number;
+}
+
 export async function spadeStart(
   link: SpadeStartLink,
   body: unknown,
-  text: string,
+  message: SpadeStartMessage,
 ): Promise<SpadeStartResult> {
   // Read before the start goes, so nothing has been sent if this fails.
   const before = new Set((await list(link)).map((row) => row.id));
@@ -41,7 +48,7 @@ export async function spadeStart(
     answer = await link.post("/v1/conversations", body);
   } catch (error) {
     if (!spadeUnanswered(error)) throw error;
-    return settle(link, before, text);
+    return settle(link, before, message);
   }
   const id = parseSpadeCreated(answer);
   if (!id)
@@ -53,17 +60,26 @@ export async function spadeStart(
 async function settle(
   link: SpadeStartLink,
   before: ReadonlySet<string>,
-  text: string,
+  message: SpadeStartMessage,
 ): Promise<SpadeStartResult> {
   if (!(await link.back())) return { kind: "unknown" };
+  const matches: string[] = [];
   try {
     const fresh = (await list(link)).filter((row) => !before.has(row.id)).slice(0, lookAt);
-    for (const row of fresh)
-      if ((await opening(link, row.id)) === text.trim()) return { kind: "started", id: row.id };
+    for (const row of fresh) {
+      const first = await opening(link, row.id);
+      if (first?.text === message.text.trim() && first.images === message.images)
+        matches.push(row.id);
+    }
   } catch {
     return { kind: "unknown" };
   }
-  throw new SpadeRequestError("The connection dropped before Spade got the message.");
+  const [only, ...others] = matches;
+  if (only === undefined)
+    throw new SpadeRequestError("The connection dropped before Spade got the message.");
+  // Two alike, or images Spade stores by hash and this side holds as bytes: not for sure ours.
+  if (others.length || message.images > 0) return { kind: "unknown" };
+  return { kind: "started", id: only };
 }
 
 async function list(link: SpadeStartLink) {
@@ -72,11 +88,32 @@ async function list(link: SpadeStartLink) {
   return rows;
 }
 
-/** A conversation's first message, as the person wrote it. */
-async function opening(link: SpadeStartLink, id: string): Promise<string | undefined> {
+/** A conversation's first message: its words and how many images it carried. */
+async function opening(
+  link: SpadeStartLink,
+  id: string,
+): Promise<{ text: string; images: number } | undefined> {
   const events = parseSpadeEvents(
     await link.read(`/v1/conversations/${encodeURIComponent(id)}/events?after=0&limit=${lookAt}`),
   );
   const first = events?.find((stored) => stored.event.type === "user_message")?.event;
-  return first?.type === "user_message" ? first.text.trim() : undefined;
+  return first?.type === "user_message"
+    ? { text: first.text.trim(), images: first.images.length }
+    : undefined;
+}
+
+/** The note a start's words keep while Spade may have them. */
+export const spadeUnconfirmedNote =
+  "Couldn't confirm Spade got this. Check Spade's list before sending it again.";
+
+/**
+ * What the composer does with a start's words once it ends: cleared only once it started; kept
+ * when refused, to send again; kept with the note when unknown, for the person to decide.
+ */
+export function spadeStartWords(outcome: "started" | "refused" | "unknown"): {
+  keep: boolean;
+  note: string | undefined;
+} {
+  if (outcome === "started") return { keep: false, note: undefined };
+  return { keep: true, note: outcome === "unknown" ? spadeUnconfirmedNote : undefined };
 }

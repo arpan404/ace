@@ -72,11 +72,10 @@ export function SpadeNewScreen() {
   const panelShown = useViewFrame().sidebarShown;
   const toast = useToast();
   const start = async (message: SpadeMessage) => {
-    const started = await spadeStart(
-      startLink(spadeTransport(client)),
-      spadeBody(message),
-      message.text,
-    );
+    const started = await spadeStart(startLink(spadeTransport(client)), spadeBody(message), {
+      text: message.text,
+      images: message.images.length,
+    });
     void cache.invalidateQueries({ queryKey: conversationsKey });
     if (started.kind === "unknown") {
       // Spade may have it: the draft clears, so sending it again can't start it twice.

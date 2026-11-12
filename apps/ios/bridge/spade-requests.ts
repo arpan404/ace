@@ -72,7 +72,12 @@ export async function answerSpade(
           post: (route: string, body: unknown) => ask("POST", route, body),
           back: () => spade.reachable(),
         };
-        const started = await spadeStart(link, { text: request.text }, request.text);
+        // The phone sends words only.
+        const started = await spadeStart(
+          link,
+          { text: request.text },
+          { text: request.text, images: 0 },
+        );
         spade.refresh();
         if (started.kind === "started") return { ok: true, id: started.id };
         // Spade may have it: the words stay out of the composer, so a retry can't start it twice.
