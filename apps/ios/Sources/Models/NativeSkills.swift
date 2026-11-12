@@ -51,6 +51,8 @@ struct SkillPage: Decodable, Equatable {
     let deleteMessage: String
     /// Where Open on computer opens the skill; null until the host can open it.
     let open: SkillHostTarget?
+    /// Where a skill installed from a repository came from and when; null for one written here.
+    let source: String?
 }
 struct SkillHostTarget: Decodable, Equatable { let workspaceId: String; let path: String }
 struct SkillDraftChoices: Decodable {
@@ -61,6 +63,24 @@ struct SkillNameCheck: Decodable { let problem: String?; let path: String }
 struct SkillCreated: Decodable { let id: String }
 struct SkillSaved: Decodable { let hash: String }
 struct SkillAgentsSaved: Decodable { let hash: String; let note: String? }
+
+/// A skill's update as `bridge/skill-update.ts` sends it: a check's answer, the review of the
+/// newer version, and what applying it said.
+struct SkillUpdateCheck: Decodable, Equatable { let available: Bool; let status: String }
+struct SkillUpdateReview: Decodable, Equatable {
+    struct File: Decodable, Equatable { let path: String; let change: String; let runnable: String? }
+    struct Line: Decodable, Equatable { let kind: String; let number: Int?; let text: String }
+    struct Diff: Decodable, Equatable { let additions: Int; let deletions: Int; let rows: [Line] }
+    let id: String
+    let title: String
+    let summary: String
+    let baseHash: String
+    let folderHash: String
+    let files: [File]
+    let diff: Diff
+}
+struct SkillUpdatePrepared: Decodable { let review: SkillUpdateReview }
+struct SkillUpdateApplied: Decodable { let hash: String; let notice: String }
 
 /// A refusal from the skill library. `unreachable` means the change may or may not have reached
 /// the machine: the next send of it says `retry`, and the bridge recognises its own change.
