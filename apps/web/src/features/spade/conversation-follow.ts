@@ -1,10 +1,16 @@
 import {
   emptySpadeConversation,
+  emptySpadeGroup,
   foldSpade,
+  foldSpadeGroup,
   parseSpadeEvents,
   parseSpadeLiveFrame,
+  spadeGroupView,
   spadeView,
+  type SpadeConversationState,
   type SpadeFoldInput,
+  type SpadeGroupState,
+  type SpadeGroupView,
   type SpadeView,
 } from "@ace/ui-core/spade-chat";
 import { segment, spadeHttp, SpadeRequestError } from "./spade-requests.ts";
@@ -17,8 +23,8 @@ export interface FollowDeps {
   later(delay: number, callback: () => void): () => void;
 }
 
-export interface FollowSnapshot {
-  view: SpadeView;
+export interface FollowSnapshot<V = SpadeView> {
+  view: V;
   /** Why the conversation can't be followed live, in words; undefined while it can. */
   problem: string | undefined;
 }
@@ -29,6 +35,32 @@ const pageSize = 200;
 /** Ends after which a new stream picks up where the last left off, after a pause. */
 const resumable = new Set<LiveEnd>(["restarted", "closed", "unavailable", "limit"]);
 
+/** How a conversation's inputs fold into what the person sees: a bot's chat, or a group's. */
+export interface Folder<S, V> {
+  empty(): S;
+  fold(state: S, input: SpadeFoldInput): boolean;
+  view(state: S): V;
+  lastSeq(state: S): number;
+  /** Messages sent from here that Spade hasn't stored yet. */
+  pending(state: S): readonly { key: string }[];
+}
+
+const botFolder: Folder<SpadeConversationState, SpadeView> = {
+  empty: emptySpadeConversation,
+  fold: foldSpade,
+  view: spadeView,
+  lastSeq: (state) => state.lastSeq,
+  pending: (state) => state.pending,
+};
+
+const groupFolder: Folder<SpadeGroupState, SpadeGroupView> = {
+  empty: emptySpadeGroup,
+  fold: foldSpadeGroup,
+  view: spadeGroupView,
+  lastSeq: (state) => state.lastSeq,
+  pending: (state) => state.pending,
+};
+
 /**
  * One conversation followed live, straight from Spade or through the daemon (`SpadeTransport`).
  * Every stream asks for events after the last `seq` already folded, and the fold drops any it
@@ -36,9 +68,9 @@ const resumable = new Set<LiveEnd>(["restarted", "closed", "unavailable", "limit
  * never repeats or loses a message. A new stream opens when the transport can open one and
  * Spade is ready (`setReady`).
  */
-export class ConversationFollow {
-  private state = emptySpadeConversation();
-  private snapshot: FollowSnapshot;
+export class LiveConversation<S, V> {
+  private state: S;
+  private snapshot: FollowSnapshot<V>;
   private listeners = new Set<() => void>();
   private stops: (() => void)[] = [];
   /** The open stream; ended or closed streams are never this. */
@@ -56,15 +88,18 @@ export class ConversationFollow {
   private readonly link: SpadeTransport;
   private readonly conversation: string;
   private readonly deps: FollowDeps;
+  private readonly folder: Folder<S, V>;
 
-  constructor(link: SpadeTransport, conversation: string, deps: FollowDeps) {
+  constructor(link: SpadeTransport, conversation: string, deps: FollowDeps, folder: Folder<S, V>) {
     this.link = link;
     this.conversation = conversation;
     this.deps = deps;
-    this.snapshot = { view: spadeView(this.state), problem: undefined };
+    this.folder = folder;
+    this.state = folder.empty();
+    this.snapshot = { view: folder.view(this.state), problem: undefined };
   }
 
-  get = (): FollowSnapshot => this.snapshot;
+  get = (): FollowSnapshot<V> => this.snapshot;
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -73,7 +108,7 @@ export class ConversationFollow {
 
   /** The highest `seq` folded, for sends that need to know what the person saw. */
   get lastSeq(): number {
-    return this.state.lastSeq;
+    return this.folder.lastSeq(this.state);
   }
 
   start(): void {
@@ -105,7 +140,7 @@ export class ConversationFollow {
 
   /** Fold an input from this side (a message sent or refused). */
   apply(input: SpadeFoldInput): void {
-    if (foldSpade(this.state, input)) this.publish();
+    if (this.folder.fold(this.state, input)) this.publish();
     this.settleSends(false);
   }
 
@@ -126,7 +161,7 @@ export class ConversationFollow {
   private settleSends(final: boolean, only?: string) {
     this.sends = this.sends.filter((send) => {
       if (only !== undefined && send.key !== only) return true;
-      const stored = !this.state.pending.some((message) => message.key === send.key);
+      const stored = !this.folder.pending(this.state).some((message) => message.key === send.key);
       if (!stored && !final) return true;
       send.cancel();
       send.resolve(stored);
@@ -147,7 +182,7 @@ export class ConversationFollow {
       });
       return;
     }
-    const path = `/v1/conversations/${segment(this.conversation)}/live?after=${this.state.lastSeq}`;
+    const path = `/v1/conversations/${segment(this.conversation)}/live?after=${this.lastSeq}`;
     const stream = { close: () => {} };
     this.stream = stream;
     stream.close = this.link.open(path, {
@@ -168,7 +203,7 @@ export class ConversationFollow {
    */
   private async page() {
     for (;;) {
-      const after = this.state.lastSeq;
+      const after = this.lastSeq;
       let body: string;
       try {
         body = await spadeHttp(
@@ -185,9 +220,9 @@ export class ConversationFollow {
       if (this.stopped) return;
       const page = parseSpadeEvents(body);
       if (!page) return;
-      for (const stored of page) foldSpade(this.state, { kind: "stored", stored });
+      for (const stored of page) this.folder.fold(this.state, { kind: "stored", stored });
       this.publish();
-      if (page.length < pageSize || this.state.lastSeq === after) return;
+      if (page.length < pageSize || this.lastSeq === after) return;
     }
   }
 
@@ -199,7 +234,7 @@ export class ConversationFollow {
 
   private frame(event: string, data: string) {
     const input = parseSpadeLiveFrame(event, data);
-    if (input && foldSpade(this.state, input)) {
+    if (input && this.folder.fold(this.state, input)) {
       this.retries = 0;
       this.schedule();
     }
@@ -237,11 +272,25 @@ export class ConversationFollow {
   }
 
   private publish() {
-    this.snapshot = { view: spadeView(this.state), problem: this.snapshot.problem };
+    this.snapshot = { view: this.folder.view(this.state), problem: this.snapshot.problem };
     this.notify();
   }
 
   private notify() {
     for (const listener of this.listeners) listener();
+  }
+}
+
+/** A bot's conversation, followed live. */
+export class ConversationFollow extends LiveConversation<SpadeConversationState, SpadeView> {
+  constructor(link: SpadeTransport, conversation: string, deps: FollowDeps) {
+    super(link, conversation, deps, botFolder);
+  }
+}
+
+/** A group's conversation (ADR 0132), followed live the same way. */
+export class GroupFollow extends LiveConversation<SpadeGroupState, SpadeGroupView> {
+  constructor(link: SpadeTransport, conversation: string, deps: FollowDeps) {
+    super(link, conversation, deps, groupFolder);
   }
 }

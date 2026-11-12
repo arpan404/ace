@@ -1,4 +1,4 @@
-import { spadeAgentNameMax, spadeAgentTaskMax } from "@ace/ui-core/spade-chat";
+import { spadeAgentNameMax, spadeAgentTaskMax, type SpadeAgent } from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useId, useState, type ReactNode } from "react";
@@ -18,6 +18,7 @@ import { ConnectorChoice, useConnectorChoice } from "./spade-bot-connectors.tsx"
 import { AvatarChoice, type AvatarDraft } from "./spade-avatar-choice.tsx";
 import { SpadeMachineScope, spadeMachineKey, useSpadeClient } from "./spade-machine.tsx";
 import { SpadeModelPicker } from "./spade-model-picker.tsx";
+import { browserTimeZone, ImportBot, TemplateChoice } from "./spade-bot-start.tsx";
 import { agentsKey, type RosterBot, type SpadeHost } from "./use-spade-roster.ts";
 import { connectorsKey } from "./spade-connector-api.ts";
 
@@ -53,37 +54,74 @@ export function NewBotDialog(props: { hosts: readonly SpadeHost[]; onClose(): vo
   const [task, setTask] = useState("");
   const [avatar, setAvatar] = useState<AvatarDraft>({ kind: "generated", color: "teal" });
   const [model, setModel] = useState("");
+  const [template, setTemplate] = useState<string>();
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string>();
-  const ready = name.trim() !== "" && /\/./.test(model) && host?.machine.client !== undefined;
+  /** A bot just imported, with what its machine left out, shown before it opens. */
+  const [imported, setImported] = useState<{ agent: SpadeAgent; leftOut: readonly string[] }>();
+  const chosenModel = /\/./.test(model);
+  // A template picks the model when none is chosen.
+  const ready =
+    name.trim() !== "" &&
+    (chosenModel || template !== undefined) &&
+    host?.machine.client !== undefined;
+  const openBot = async (agent: SpadeAgent) => {
+    await cache.invalidateQueries({ queryKey: agentsKey });
+    props.onClose();
+    void navigate({
+      to: "/spade/$agentId",
+      params: { agentId: agent.id },
+      search: host?.spade.primary !== false ? {} : { on: host.spade.key },
+    });
+  };
   const create = async () => {
     const client = host?.machine.client;
     if (!ready || !client || !host) return;
     setSaving(true);
     setProblem(undefined);
     try {
+      const zone = template === undefined ? undefined : browserTimeZone();
       const agent = await createAgent(client, {
         name: name.trim(),
         task: task.trim(),
-        model,
+        ...(chosenModel ? { model } : {}),
+        ...(template === undefined ? {} : { template }),
+        ...(zone === undefined ? {} : { time_zone: zone }),
         avatar:
           avatar.kind === "image"
             ? avatar
             : { kind: "generated", color: avatar.kind === "generated" ? avatar.color : "slate" },
       });
-      await cache.invalidateQueries({ queryKey: agentsKey });
-      props.onClose();
-      void navigate({
-        to: "/spade/$agentId",
-        params: { agentId: agent.id },
-        search: host.spade.primary ? {} : { on: host.spade.key },
-      });
+      await openBot(agent);
     } catch (error) {
       setProblem(fault(error));
     } finally {
       setSaving(false);
     }
   };
+  if (imported)
+    return (
+      <Dialog open onOpenChange={(open) => !open && void openBot(imported.agent)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{`${imported.agent.name} is here`}</DialogTitle>
+          </DialogHeader>
+          <DialogBody>
+            <p className="text-ui">This machine left out:</p>
+            <ul aria-label="Left out" className="flex flex-col gap-1 text-ui text-muted-foreground">
+              {imported.leftOut.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="primary" onClick={() => void openBot(imported.agent)}>
+              {`Open ${imported.agent.name}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
   return (
     <Dialog open onOpenChange={(open) => !open && props.onClose()}>
       <DialogContent size="lg">
@@ -91,6 +129,20 @@ export function NewBotDialog(props: { hosts: readonly SpadeHost[]; onClose(): vo
           <DialogTitle>New bot</DialogTitle>
         </DialogHeader>
         <DialogBody>
+          <Field label="Start from a template">
+            <TemplateChoice
+              client={host?.machine.client}
+              machineKey={chosen.key}
+              value={template}
+              onChange={(picked) => {
+                setTemplate(picked?.id);
+                if (!picked) return;
+                setName(picked.name);
+                setTask(picked.task);
+                setAvatar({ kind: "generated", color: picked.color });
+              }}
+            />
+          </Field>
           <Field label="Name" htmlFor={ids.name}>
             <Input
               id={ids.name}
@@ -136,8 +188,9 @@ export function NewBotDialog(props: { hosts: readonly SpadeHost[]; onClose(): vo
                 const picked = props.hosts.find((each) => each.spade.key === next);
                 if (!picked) return;
                 setChosen({ key: next, name: picked.machine.name });
-                // Another machine has its own endpoints.
+                // Another machine has its own endpoints and templates.
                 setModel("");
+                setTemplate(undefined);
               }}
               className="w-72"
             />
@@ -154,6 +207,13 @@ export function NewBotDialog(props: { hosts: readonly SpadeHost[]; onClose(): vo
           )}
         </DialogBody>
         <DialogFooter>
+          <ImportBot
+            client={host?.machine.client}
+            onProblem={setProblem}
+            onImported={(agent, leftOut) =>
+              leftOut.length ? setImported({ agent, leftOut }) : void openBot(agent)
+            }
+          />
           <Button variant="ghost" onClick={props.onClose}>
             Cancel
           </Button>

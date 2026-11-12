@@ -20,6 +20,8 @@ export function SpadeComposer(props: {
   blocked: string | undefined;
   placeholder: string;
   attached?: ReactNode;
+  /** Names `@` offers (a group's members), inserted as plain text. */
+  mentionNames?: readonly string[] | undefined;
   send(message: SpadeMessage): Promise<void>;
 }) {
   const toast = useToast();
@@ -61,6 +63,7 @@ export function SpadeComposer(props: {
         // Spade reads the files from this window; with no thread they never upload to the daemon.
         sendsWhileUploading
         filesOnly
+        mentionNames={props.mentionNames}
         autoFocus
         typeToFocus
         label={`Message ${props.name}`}
