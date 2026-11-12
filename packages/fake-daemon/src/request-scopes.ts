@@ -21,6 +21,8 @@ function adminSetting(key: string): boolean {
     key === "providers.configuration" ||
     key === "computer.blockedApps" ||
     key === "computer.lockedUse" ||
+    key === "providers.codex.toolSource" ||
+    key === "providers.claude.chrome" ||
     key.startsWith("storage.") ||
     key.startsWith("browser.download") ||
     key.startsWith("host.") ||
