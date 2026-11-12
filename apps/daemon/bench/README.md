@@ -117,6 +117,14 @@ bun apps/daemon/bench/allocation-compare.ts --runs=3 --events=5000 \
   .ace-dev/alloc-before/ace.mjs .ace-dev/alloc-after/ace.mjs
 ```
 
+Measured on 2026-11-11 (this Mac, shared, load average about 46), main before the allocation
+work against after it, 5,000 deltas, one subscriber, medians of three interleaved runs: main
+isolate 34.6 -> 27.1 MB per 1,000 deltas, workers 5.8 -> 0.2 MB, CPU 322 -> 196 ms, about 49
+commits per 1,000 deltas on both. With four subscribers (3,000 deltas) the main isolate went
+46.8 -> 39.8 MB; each subscriber adds about 3.6 KB per delta, most of it Bun's native frame send.
+Peak `heapUsed` stays near 66 MB in both: a window this short is bounded by the eden size, not
+by the allocation rate.
+
 `--cpu-prof=<dir>` on `allocation-rate.ts` writes the daemon's CPU profile. To see which code
 allocates, V8's sampling heap profiler can keep collected objects
 (`HeapProfiler.startSampling` with `includeObjectsCollectedByMajorGC` and `…MinorGC`); the source
