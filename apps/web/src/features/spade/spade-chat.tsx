@@ -9,14 +9,14 @@ import {
   type SpadeRememberedNote,
   type SpadeView,
 } from "@ace/ui-core/spade-chat";
-import { memo, useState } from "react";
+import { memo, useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
 import { SpadeFace } from "./spade-face.tsx";
 import { SkillProposal } from "./spade-skill-bubble.tsx";
 import { DocumentChips, Pictures, VoicePlay } from "./spade-media.tsx";
-import { canReadAloud, readAloud, stopReading, useReading } from "./spade-speech.ts";
+import { canReadAloud, readAloud, stopReading, stopReadingOf, useReading } from "./spade-speech.ts";
 
 /** The bot whose conversation this is, and the faces of other bots that write into it. */
 export interface ChatBot {
@@ -198,7 +198,7 @@ const Bubble = memo(function Bubble(props: {
             {/* What its tools showed the person, after its words (ADR 0134). */}
             {item.images.length > 0 && <Pictures images={item.images} side="bot" />}
             {item.documents.length > 0 && <DocumentChips documents={item.documents} side="bot" />}
-            {item.text && !item.live && <ReadAloud replyKey={item.key} text={item.text} />}
+            {item.text && !item.live && <ReadAloud text={item.text} />}
           </div>
         </BotRow>
       );
@@ -358,9 +358,12 @@ export function callDetails(value: unknown): string | undefined {
 /**
  * Under a bot's bubble, shown on hover or focus: Read aloud, which reads the reply in the
  * system's voice and becomes Stop reading while it speaks. Nothing where the system can't speak.
+ * Leaving the chat (or moving to another bot's) stops it: the reading belongs to this bubble.
  */
-function ReadAloud(props: { replyKey: string; text: string }) {
-  const reading = useReading(props.replyKey);
+function ReadAloud(props: { text: string }) {
+  const key = useId();
+  const reading = useReading(key);
+  useEffect(() => () => stopReadingOf(key), [key]);
   if (!canReadAloud()) return null;
   return (
     <div
@@ -373,7 +376,7 @@ function ReadAloud(props: { replyKey: string; text: string }) {
       <Button
         size="xs"
         variant="ghost"
-        onClick={() => (reading ? stopReading() : readAloud(props.replyKey, props.text))}
+        onClick={() => (reading ? stopReading() : readAloud(key, props.text))}
       >
         {reading ? "Stop reading" : "Read aloud"}
       </Button>

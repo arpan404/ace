@@ -37,10 +37,20 @@ export function useSpadeVoice(props: {
   // On-device recognition failed here once (Electron's usually does): don't try it again.
   const [speechBroken, setSpeechBroken] = useState(false);
   const session = useRef<VoiceSession | undefined>(undefined);
+  /** The start waiting on the microphone, if any; aborting it means nothing records. */
+  const starting = useRef<AbortController | undefined>(undefined);
   const pressedAt = useRef(0);
+  /** A pointer is down on the mic (and captured by it). */
+  const held = useRef(false);
   const speech = hasSpeechRecognition() && !speechBroken;
   const available = canRecordVoice() && (speech || props.transcriptionModel !== undefined);
-  useEffect(() => () => session.current?.cancel(), []);
+  useEffect(
+    () => () => {
+      starting.current?.abort();
+      session.current?.cancel();
+    },
+    [],
+  );
 
   const fail = (title: string, error?: unknown) =>
     toast.error({
@@ -49,15 +59,37 @@ export function useSpadeVoice(props: {
     });
 
   const start = async () => {
+    const controller = new AbortController();
+    starting.current = controller;
     setState("starting");
     try {
-      session.current = await startVoice(speech);
+      const started = await startVoice(speech, controller.signal);
+      // Left, or let go, while the microphone was being asked for: nothing records.
+      if (controller.signal.aborted) return started.cancel();
+      session.current = started;
       setState("recording");
     } catch (error) {
-      session.current = undefined;
+      if (controller.signal.aborted) return;
       setState("idle");
       fail("Couldn't use the microphone", error);
+    } finally {
+      if (starting.current === controller) starting.current = undefined;
     }
+  };
+
+  /** A start still waiting on the microphone ends there, with nothing recorded. */
+  const abandonStart = () => {
+    const controller = starting.current;
+    if (!controller) return;
+    starting.current = undefined;
+    controller.abort();
+    setState("idle");
+  };
+
+  /** The press ended as a hold (or the pointer was taken away): stop whatever it began. */
+  const endHold = () => {
+    if (state === "starting") abandonStart();
+    else if (state === "recording") void finish();
   };
 
   const finish = async () => {
@@ -98,12 +130,28 @@ export function useSpadeVoice(props: {
     press(event: PointerEvent<HTMLButtonElement>) {
       if (event.button !== 0) return;
       event.preventDefault();
+      // The release comes here even if the pointer leaves the mic while held.
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } catch {
+        // No pointer to capture (a synthetic event): the release still lands on the mic.
+      }
+      held.current = true;
       pressedAt.current = event.timeStamp;
       if (state === "recording") void finish();
       else if (state === "idle") void start();
     },
     lift(event: PointerEvent<HTMLButtonElement>) {
-      if (state === "recording" && event.timeStamp - pressedAt.current >= holdMs) void finish();
+      if (!held.current) return;
+      held.current = false;
+      // A tap leaves it starting or recording until the next press; a hold ends with the release.
+      if (event.timeStamp - pressedAt.current >= holdMs) endHold();
+    },
+    /** The press was taken away (`pointercancel`, or capture lost while held): a stop. */
+    lose() {
+      if (!held.current) return;
+      held.current = false;
+      endHold();
     },
     key(event: KeyboardEvent<HTMLButtonElement>) {
       if ((event.key !== " " && event.key !== "Enter") || event.repeat) return;
@@ -127,9 +175,12 @@ export function MicButton(props: { voice: SpadeVoiceInput }) {
       label={recording ? "Stop recording" : "Record a voice message"}
       tip={recording ? "Stop recording" : "Hold to record"}
       pressed={recording}
-      disabled={voice.state === "starting" || voice.state === "transcribing"}
+      // Not disabled while starting: the release that ends a hold must still arrive.
+      disabled={voice.state === "transcribing"}
       onPointerDown={voice.press}
       onPointerUp={voice.lift}
+      onPointerCancel={voice.lose}
+      onLostPointerCapture={voice.lose}
       onKeyDown={voice.key}
     />
   );
