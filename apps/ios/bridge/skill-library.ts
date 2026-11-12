@@ -27,12 +27,14 @@ import {
   skillAgents,
   skillBody,
   skillNameProblem,
+  sourceLine,
   timesText,
 } from "@ace/ui-core";
 import { z } from "zod";
 import { answerHostOpen, HostOpenRequest } from "./host-open.ts";
 import { hostOpenTarget } from "./skill-host-open.ts";
 import { expect, Refused, skills, type SkillOwner } from "./skill-requests.ts";
+import { answerSkillUpdate, isSkillUpdate, NativeSkillUpdateRequest } from "./skill-update.ts";
 
 /*
  * The skill library (ADR 0103) for the phone's Skills screens: the list grouped by where each
@@ -114,6 +116,7 @@ export const NativeSkillsRequest = z.discriminatedUnion("op", [
     ...scope,
     app: HostOpenRequest.options[1].shape.app,
   }),
+  ...NativeSkillUpdateRequest.options,
 ]);
 export type NativeSkillsRequest = z.infer<typeof NativeSkillsRequest>;
 
@@ -143,6 +146,7 @@ export class NativeSkillLibrary {
   }
 
   async answer(request: NativeSkillsRequest, signal: AbortSignal): Promise<unknown> {
+    if (isSkillUpdate(request)) return answerSkillUpdate(this.#owner, request, signal);
     try {
       return { ok: true, ...(await this.#answer(request, signal)) };
     } catch (error) {
@@ -158,7 +162,10 @@ export class NativeSkillLibrary {
     return listed;
   }
 
-  async #answer(request: NativeSkillsRequest, signal: AbortSignal): Promise<object> {
+  async #answer(
+    request: Exclude<NativeSkillsRequest, NativeSkillUpdateRequest>,
+    signal: AbortSignal,
+  ): Promise<object> {
     const at = request.workspaceId ? { workspaceId: request.workspaceId } : {};
     switch (request.op) {
       case "library": {
@@ -368,6 +375,8 @@ export class NativeSkillLibrary {
       body: skillBody(text),
       deleteMessage: `This deletes ${entry.path} and its files. Agents stop seeing it.`,
       open: hostOpenTarget(entry, workspaceId),
+      /** Where a skill installed from a repository came from; null for one written here. */
+      source: entry.source ? sourceLine(entry.source, this.#now()) : null,
     };
   }
 }
