@@ -1,7 +1,7 @@
 import { formatAge } from "@ace/ui-core";
-import { spadeStateLine } from "@ace/ui-core/spade-chat";
+import { spadeCappedLine, spadeStateLine } from "@ace/ui-core/spade-chat";
 import { Link, useParams } from "@tanstack/react-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { ViewSidebarError } from "@/components/ui/view-row.tsx";
@@ -14,8 +14,9 @@ import { SpadeStateStrip } from "./spade-state.tsx";
 import { useSpadeEnabled } from "./use-spade-enabled.ts";
 import { useOneSpade, useSpadeRoster, type RosterBot } from "./use-spade-roster.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
+import { useTellZone } from "./use-spade-zone.ts";
 
-/** The second line of a bot's row: what it does now, else its latest message. */
+/** The second line of a bot's row: what it does now, a cap it is at, else its latest message. */
 export function rosterLine(bot: RosterBot): { text: string; tone?: "working" | "needs-you" } {
   if (bot.away) return { text: `Away · ${bot.machine.name} is offline` };
   if (bot.unavailable) return { text: `Unavailable · Spade isn't running on ${bot.machine.name}` };
@@ -23,6 +24,8 @@ export function rosterLine(bot: RosterBot): { text: string; tone?: "working" | "
     return { text: "Asked you a question", tone: "needs-you" };
   if (bot.state === "waiting") return { text: bot.status ?? "Waiting for you", tone: "needs-you" };
   if (bot.state === "working") return { text: bot.status ?? "Working", tone: "working" };
+  // At a cap it makes no model call until the cap ends (ADR 0135).
+  if (bot.spending?.capped) return { text: spadeCappedLine(bot.spending.capped) };
   const last = bot.lastMessage;
   if (!last?.text) return { text: "No messages yet" };
   if (last.from === "agent") return { text: last.text };
@@ -43,6 +46,7 @@ export function SpadeSidebar() {
   const line = spadeStateLine(status, enabled);
   const roster = useSpadeRoster(line.ready);
   useOneSpade(roster.hosting);
+  useTellZone(useMemo(() => roster.hosts.map((host) => host.machine.client), [roster.hosts]));
   const open = useParams({ strict: false, select: (params) => params.agentId });
   const now = useNow();
   const [creating, setCreating] = useState(false);
