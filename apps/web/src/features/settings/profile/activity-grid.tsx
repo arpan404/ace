@@ -1,6 +1,8 @@
 import { formatTokens } from "@ace/ui-core";
 import { useState } from "react";
 import { cn } from "@/lib/cn.ts";
+import { useElementWidth } from "@/lib/use-element-width.ts";
+import { monthLabelGap, monthLabelWidth, visibleMonthLabels } from "./month-labels.ts";
 import type { ActivityCell, ProfileStats } from "./stats.ts";
 
 const longDay = new Intl.DateTimeFormat("en-US", {
@@ -26,8 +28,19 @@ const levelClass: Record<ActivityCell["level"], string> = {
 export function ActivityGrid(props: { stats: ProfileStats }) {
   const { weeks, months } = props.stats;
   const [hover, setHover] = useState<{ week: number; day: number }>();
+  const [measureLabels, labelWidth] = useElementWidth();
   const cell = hover && weeks[hover.week]?.[hover.day];
   const leftHalf = hover ? hover.week < weeks.length / 2 : true;
+  // Each month sits under the week its first day falls in. Where there is no room for one over
+  // every month, only the labels with space between them and the edge show.
+  const monthLabels = months.map((month) => ({
+    label: month.label,
+    week: month.week,
+    x: (month.week / weeks.length) * labelWidth,
+    width: monthLabelWidth(month.label),
+  }));
+  const shownMonths =
+    labelWidth > 0 ? visibleMonthLabels(monthLabels, labelWidth, monthLabelGap) : monthLabels;
   return (
     <div className="relative" onMouseLeave={() => setHover(undefined)}>
       <div
@@ -49,8 +62,12 @@ export function ActivityGrid(props: { stats: ProfileStats }) {
           )),
         )}
       </div>
-      <div aria-hidden className="relative mt-2 h-4 text-xs text-subtle-foreground">
-        {months.map((month) => (
+      <div
+        ref={measureLabels}
+        aria-hidden
+        className="relative mt-2 h-4 text-xs text-subtle-foreground"
+      >
+        {shownMonths.map((month) => (
           <span
             key={`${month.label}-${month.week}`}
             className="absolute"
