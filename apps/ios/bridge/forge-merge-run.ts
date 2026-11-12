@@ -13,6 +13,7 @@ import {
   mergePickWords,
   mergeRunMethods,
   mergeRunRefusal,
+  mergeSelection,
   runWords,
   shownMergeRun,
 } from "@ace/ui-core";
@@ -43,13 +44,20 @@ export const MergePick = z.object({
 });
 export type MergePick = z.infer<typeof MergePick>;
 
+/** A ready row on show, as the list reads it now. */
+const ReadyRow = z.object({
+  key: z.string().min(1).max(600),
+  base: z.string().max(256),
+  /** The head the list shows now: a pick made at another one leaves the selection. */
+  headSha: MergePick.shape.headSha.optional(),
+});
 export const ForgeMergeRunRequest = z.object({
   type: z.literal("forge.merge-run"),
   project: projectId,
   /** The rows picked, in list order. */
   picked: z.array(MergePick).max(verifyMergeLimit),
   /** Every ready row on show, for why one can't join the selection now. */
-  rows: z.array(z.object({ key: z.string().min(1).max(600), base: z.string().max(256) })).max(500),
+  rows: z.array(ReadyRow).max(500),
 });
 export type ForgeMergeRunRequest = z.infer<typeof ForgeMergeRunRequest>;
 
@@ -61,6 +69,8 @@ export const ForgeMergeRunWriteRequest = z.object({
       kind: z.literal("start"),
       method: z.enum(["squash", "merge", "rebase"]),
       prs: z.array(MergePick).min(1).max(verifyMergeLimit),
+      /** The ready rows on show at the press: a pick whose head moved since starts nothing. */
+      rows: z.array(ReadyRow).max(500).optional(),
     }),
     z.object({ kind: z.enum(["stop", "again", "dismiss"]), runId }),
     z.object({ kind: z.literal("without"), runId, pr: z.number().int().positive() }),
@@ -81,6 +91,10 @@ export interface MergeRunReply {
   type: "forge.merge-run";
   /** What the picked rows offer while no run shows; `start` false when there's no check command. */
   pick: { sentence: string; start: boolean } | null;
+  /** The picks still selected, in list order: each at the head it was picked at. */
+  picked: string[];
+  /** Picks whose head moved since, said once: they leave the selection. */
+  notice: string | null;
   /** Each ready row that can't join the selection now, and why. */
   blocked: { key: string; reason: string }[];
   /** The run the strip shows: its sentence, since when it has run while live, its actions. */
@@ -165,20 +179,25 @@ export async function readMergeRun(
 ): Promise<MergeRunReply> {
   const { runs, command } = await listed(owner, request.project);
   const state = { dismissed: memory.dismissed(request.project), own: memory.own(request.project) };
-  const base = request.picked[0]?.base;
-  const shown = shownMergeRun(runs, { ...state, picking: request.picked.length > 0 });
+  // Picks keep the head they were picked at; one whose row moved on leaves the selection.
+  const selection = mergeSelection(request.picked, request.rows);
+  const chosen = selection.kept;
+  const base = chosen[0]?.base;
+  const shown = shownMergeRun(runs, { ...state, picking: chosen.length > 0 });
   const latest = shownMergeRun(runs, { ...state, picking: false });
-  const picked = new Set(request.picked.map((pick) => pick.key));
+  const picked = new Set(chosen.map((pick) => pick.key));
   return {
     type: "forge.merge-run",
     pick:
       !shown && base !== undefined
-        ? { sentence: mergePickWords(request.picked.length, base), start: command !== null }
+        ? { sentence: mergePickWords(chosen.length, base), start: command !== null }
         : null,
+    picked: chosen.map((pick) => pick.key),
+    notice: selection.notice ?? null,
     blocked: request.rows.flatMap((row) => {
       const reason = mergePickBlocked({
         picked: picked.has(row.key),
-        count: request.picked.length,
+        count: chosen.length,
         base,
         rowBase: row.base,
       });
@@ -218,7 +237,9 @@ export async function writeMergeRun(
     return done(true);
   };
   try {
-    if (op.kind === "start")
+    if (op.kind === "start") {
+      const moved = op.rows ? mergeSelection(op.prs, op.rows).notice : undefined;
+      if (moved) return done(false, moved);
       return await start({
         kind: "merge",
         method: op.method,
@@ -228,6 +249,7 @@ export async function writeMergeRun(
           title: pick.title,
         })),
       });
+    }
     if (op.kind === "stop") {
       const reply = await verify(owner, { action: "cancel", runId: op.runId });
       return reply.ok ? done(true) : done(false, mergeRunRefusal(reply.error));
