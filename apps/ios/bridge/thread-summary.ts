@@ -4,6 +4,7 @@ import {
   agentForest,
   agentName,
   catchUpFacts,
+  forestBounds,
   forestLayers,
   latestPlanSteps,
   planProgress,
@@ -194,12 +195,16 @@ export class ThreadSummary {
     }
   }
 
-  /** The tree across threads, holding what it reaches; joined again once new threads are held. */
+  /**
+   * The tree across threads, holding what it reaches. A thread just held may already have its
+   * facts (another view reads it), and those may reach a thread further down, so it joins and
+   * holds again until nothing new is reached: at most once per level the forest follows.
+   */
   #join(): ReturnType<typeof agentForest> {
-    const forest = agentForest(this.#threadId, this.#works, undefined, this.#layers);
-    return this.#hold(forest.reach)
-      ? agentForest(this.#threadId, this.#works, undefined, this.#layers)
-      : forest;
+    let forest = agentForest(this.#threadId, this.#works, undefined, this.#layers);
+    for (let level = 0; level < forestBounds.depth && this.#hold(forest.reach); level++)
+      forest = agentForest(this.#threadId, this.#works, undefined, this.#layers);
+    return forest;
   }
 
   /**

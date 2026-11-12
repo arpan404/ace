@@ -287,6 +287,21 @@ describe("the phone's Summary", () => {
     expect(view(sink)?.catchUp).toEqual([]);
   });
 
+  test("a delegated thread's own delegate is followed too, while the thread between stays quiet", async () => {
+    const { client, sink, follow } = await opened("top", settledWith(...delegate("b", "b")), {
+      before: (fake) => {
+        child(fake, "b", "top", settledWith(...delegate("c", "c")));
+        child(fake, "c", "b", working);
+      },
+    });
+    // Another view on the phone already reads b, so its facts are there when the Summary holds it.
+    const b = client.thread("b");
+    closers.push(() => b.release());
+    await until(() => b.store.agent("c") !== undefined || b.store.agentIds().length > 1, "b read");
+    follow();
+    await until(() => view(sink)?.now.lead === "Working", "c, two delegations down, read");
+  });
+
   test("closing the page stops the summary and lets every delegated thread go", async () => {
     const { client, sink, follow } = await opened(
       "closing",
