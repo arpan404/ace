@@ -53,6 +53,45 @@ export function deviceUnavailableHint(
   return undefined;
 }
 
+/**
+ * Over a device's dark screen while it isn't streaming: what it is doing, in one sentence, and the
+ * one next step. Boot only for a device that can boot; an offline or unauthorized one is told how
+ * to come back and offered a refresh of the list instead.
+ */
+export interface DeviceIdle {
+  sentence: string;
+  action: "start" | "boot" | "refresh" | "retryCleanup" | "";
+}
+
+export function deviceIdle(
+  row: Pick<DeviceRow, "name" | "state" | "bootable">,
+  controls: Pick<DeviceControls, "busy" | "cleanupRequired" | "running" | "where">,
+): DeviceIdle {
+  if (controls.busy) return { sentence: controls.where, action: "" };
+  if (controls.cleanupRequired)
+    return { sentence: "The live view didn't stop cleanly.", action: "retryCleanup" };
+  if (controls.running)
+    return { sentence: `${row.name} is running. Its live view is stopped.`, action: "start" };
+  if (row.bootable) return { sentence: `${row.name} is shut down.`, action: "boot" };
+  return {
+    sentence: deviceUnavailableHint(row) ?? `${row.name} can't be started from here.`,
+    action: "refresh",
+  };
+}
+
+/**
+ * Devices are turned off for the whole machine (a setting in Settings › Simulators): the list's
+ * notice, or an open device's when `name` is given.
+ */
+export function devicesOff(name?: string): { title: string; description: string } {
+  return {
+    title: "Simulators and emulators are off",
+    description: name
+      ? `They're turned off for this machine. Turn them on in Settings › Simulators to see ${name} and let agents in this thread use it.`
+      : "They're turned off for this machine. Turn them on in Settings › Simulators to watch and drive them here and let this thread's agents use them.",
+  };
+}
+
 /** iOS first, then Android; running devices before the rest; then by name. */
 export function deviceRows(
   devices: readonly AppDevice[],

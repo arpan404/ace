@@ -1,7 +1,9 @@
 import { AppDevice, DeviceState } from "@ace/protocol";
 import { expect, test } from "vitest";
 import {
+  deviceIdle,
   deviceProblem,
+  devicesOff,
   deviceControls,
   deviceGesture,
   devicePoint,
@@ -196,4 +198,59 @@ test("a turned picture maps the pointer back into the device's own orientation",
     y: 843,
   });
   expect(shownFrameSize(frame)).toEqual({ width: 2532, height: 1170 });
+});
+
+const idleOf = (device: AppDevice, extra?: Partial<DeviceState>) => {
+  const session = extra && state({ device, ...extra });
+  const [row] = deviceRows([device], session ? [session] : []);
+  if (!row) throw new Error(`${device.name} isn't listed`);
+  return deviceIdle(row, deviceControls(device, session, 0));
+};
+
+test("a device that isn't streaming says what it is doing and offers the one next step", () => {
+  const offline = AppDevice.parse({ ...pixel, id: "android:emulator-5554", state: "offline" });
+  const unauthorized = AppDevice.parse({ ...pixel, id: "android:R58M", state: "unauthorized" });
+  const cases: [string, ReturnType<typeof idleOf>, ReturnType<typeof idleOf>][] = [
+    [
+      "running",
+      idleOf(iphone),
+      { sentence: "iPhone 16 Pro is running. Its live view is stopped.", action: "start" },
+    ],
+    ["shut down", idleOf(pixel), { sentence: "Pixel 9 is shut down.", action: "boot" }],
+    ["booting", idleOf(pixel, { booting: true }), { sentence: "Booting…", action: "" }],
+    [
+      "unclean stop",
+      idleOf(iphone, { cleanupRequired: true }),
+      { sentence: "The live view didn't stop cleanly.", action: "retryCleanup" },
+    ],
+    [
+      "offline",
+      idleOf(offline),
+      {
+        sentence: "Pixel 9 is offline. Reconnect it, or restart its emulator, then refresh.",
+        action: "refresh",
+      },
+    ],
+    [
+      "unauthorized",
+      idleOf(unauthorized),
+      {
+        sentence:
+          "Pixel 9 hasn't allowed this computer. Accept the USB debugging prompt on it, then refresh.",
+        action: "refresh",
+      },
+    ],
+  ];
+  for (const [label, actual, expected] of cases) expect(actual, label).toEqual(expected);
+});
+
+test("devices turned off for the machine say so, naming the device when one is open", () => {
+  expect(devicesOff()).toEqual({
+    title: "Simulators and emulators are off",
+    description:
+      "They're turned off for this machine. Turn them on in Settings › Simulators to watch and drive them here and let this thread's agents use them.",
+  });
+  expect(devicesOff("Pixel 9").description).toBe(
+    "They're turned off for this machine. Turn them on in Settings › Simulators to see Pixel 9 and let agents in this thread use it.",
+  );
 });

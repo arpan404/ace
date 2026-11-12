@@ -1,4 +1,4 @@
-import { deviceUnavailableHint } from "@ace/ui-core";
+import { deviceIdle, devicesOff } from "@ace/ui-core";
 import { useSampleTime, useWallClock } from "@/lib/time.ts";
 import { CaretLeftIcon } from "@phosphor-icons/react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -87,39 +87,28 @@ function SelectedDevice(props: { devices: Devices }) {
   const problems = [view.problem, controls.error].filter(
     (problem): problem is DeviceProblem => problem !== undefined && !needsPermission(problem),
   );
-  const idle = controls.busy ? (
+  const next = deviceIdle(selected, controls);
+  const nextAction = {
+    start: { label: "Start live view", run: devices.start },
+    boot: { label: "Boot", run: devices.boot },
+    refresh: { label: "Refresh", run: devices.refresh },
+    retryCleanup: { label: "Retry cleanup", run: devices.stop },
+    "": undefined,
+  }[next.action];
+  const idle = (
     <IdleCard>
-      <Spinner />
-      <p>{controls.where}</p>
-    </IdleCard>
-  ) : controls.cleanupRequired ? (
-    <IdleCard>
-      <p>The live view didn't stop cleanly.</p>
-      <Button size="sm" variant="secondary" disabled={view.pending} onClick={devices.stop}>
-        Retry cleanup
-      </Button>
-    </IdleCard>
-  ) : controls.running ? (
-    <IdleCard>
-      <p>{selected.name} is running. Its live view is stopped.</p>
-      <Button size="sm" variant="secondary" disabled={view.pending} onClick={devices.start}>
-        Start live view
-      </Button>
-    </IdleCard>
-  ) : selected.bootable ? (
-    <IdleCard>
-      <p>{selected.name} is shut down.</p>
-      <Button size="sm" variant="primary" disabled={view.pending} onClick={devices.boot}>
-        Boot
-      </Button>
-    </IdleCard>
-  ) : (
-    // Offline or not authorized: Boot can't help; say what will, and read the list again.
-    <IdleCard>
-      <p>{deviceUnavailableHint(selected) ?? `${selected.name} can't be started from here.`}</p>
-      <Button size="sm" variant="secondary" disabled={view.pending} onClick={devices.refresh}>
-        Refresh
-      </Button>
+      {controls.busy && <Spinner />}
+      <p>{next.sentence}</p>
+      {nextAction && (
+        <Button
+          size="sm"
+          variant={next.action === "boot" ? "primary" : "secondary"}
+          disabled={view.pending}
+          onClick={nextAction.run}
+        >
+          {nextAction.label}
+        </Button>
+      )}
     </IdleCard>
   );
   return (
@@ -279,8 +268,8 @@ export function DeviceTab(props: {
   if (!view.enabled)
     return (
       <EmptyState
-        title="Simulators and emulators are off"
-        description={`They're turned off for this machine. Turn them on in Settings › Simulators to see ${name} and let agents in this thread use it.`}
+        title={devicesOff(name).title}
+        description={devicesOff(name).description}
         action={
           <Link to="/settings/simulators" className={buttonVariants({ variant: "primary" })}>
             Open Settings

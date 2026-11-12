@@ -13,7 +13,7 @@ import { cn } from "@/lib/cn.ts";
 import { useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { CatalogMenu } from "./catalog-menu.tsx";
 import { controllerOf } from "./controller-label.tsx";
-import { deviceCatalog, type PlatformFilter } from "@ace/ui-core/devices";
+import { deviceCatalog, devicesOff, type PlatformFilter } from "@ace/ui-core/devices";
 import { DeviceGroups, RecentRows } from "./device-list-rows.tsx";
 import { noteDeviceUse, requestBoot, useRecentUses } from "./device-prefs.ts";
 import { Problem } from "./device-problem.tsx";
@@ -97,8 +97,8 @@ export function DevicesTab(props: { threadId: string }) {
   if (!view.enabled)
     return (
       <EmptyState
-        title="Simulators and emulators are off"
-        description="They're turned off for this machine. Turn them on in Settings › Simulators to watch and drive them here and let this thread's agents use them."
+        title={devicesOff().title}
+        description={devicesOff().description}
         action={
           <Link to="/settings/simulators" className={buttonVariants({ variant: "primary" })}>
             Open Settings
