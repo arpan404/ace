@@ -74,7 +74,6 @@ jobs:
           [ -n "$version" ] || version=$(node -p 'require("./apps/desktop/package.json").version')
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
-
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
@@ -155,7 +154,6 @@ jobs:
         with:
           bun-version-file: package.json
 
-
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
@@ -229,7 +227,6 @@ jobs:
         with:
           bun-version-file: package.json
 
-
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
@@ -298,7 +295,6 @@ jobs:
         uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: package.json
-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile

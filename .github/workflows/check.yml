@@ -57,7 +57,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-bun-${{ steps.bun.outputs.bun-version }}-
 
-
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
