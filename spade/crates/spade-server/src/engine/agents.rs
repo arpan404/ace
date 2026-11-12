@@ -18,6 +18,8 @@ pub const MAIN: &str = "main";
 pub const BOT: &str = "bot";
 const MAIN_NAME: &str = "Spade";
 const MAIN_ENABLED: &str = "main_enabled";
+/// Set while Spade's model is the placeholder it was created with before keys could be read.
+const MAIN_PLACEHOLDER: &str = "main_model_placeholder";
 /// How long deleting an agent waits for its stopped work to let go.
 const LET_GO: Duration = Duration::from_secs(5);
 
@@ -57,6 +59,11 @@ impl Engine {
             ));
         }
         let endpoint = model.split_once('/').map_or("", |(e, _)| e);
+        if self.retiring(endpoint) {
+            return Err(AgentError::Invalid(format!(
+                "the endpoint {endpoint} is being deleted"
+            )));
+        }
         if self.models.endpoint(endpoint).is_none() {
             return Err(AgentError::Invalid(format!(
                 "there is no endpoint {endpoint}; add it first"
@@ -126,6 +133,18 @@ impl Engine {
     pub fn update_agent(&self, id: &str, change: AgentChange) -> Result<AgentView, AgentError> {
         // Read, merge and write as one, so a concurrent change is never overwritten.
         let _settings = self.agent_lock.lock().unwrap_or_else(|p| p.into_inner());
+        let chooses_model = change.model.is_some();
+        let view = self.update_agent_locked(id, change)?;
+        if chooses_model && view.agent.kind == MAIN {
+            // The person chose Spade's model (the same one counts): setup never replaces it. Only
+            // once the change went through, so a refused one leaves the placeholder to correct.
+            self.store.set_setting(MAIN_PLACEHOLDER, None)?;
+        }
+        Ok(view)
+    }
+
+    /// [`Engine::update_agent`] with `agent_lock` held.
+    fn update_agent_locked(&self, id: &str, change: AgentChange) -> Result<AgentView, AgentError> {
         let agent = self.store.agent(id)?.ok_or(AgentError::NotFound)?;
         if agent.kind == MAIN && (change.name.is_some() || change.avatar.is_some()) {
             return Err(AgentError::Main(
@@ -273,12 +292,14 @@ impl Engine {
             && !self.main_enabled()?)
     }
 
-    /// Creates Spade, the main agent, if this service has none yet.
+    /// Creates Spade, the main agent, if this service has none yet. From the database alone (it
+    /// runs before Spade listens), so its model is a placeholder setup may correct later.
     pub(super) fn ensure_main(&self) -> Result<(), StoreError> {
         if self.store.agents()?.iter().any(|a| a.kind == MAIN) {
             return Ok(());
         }
-        let model = self.default_model();
+        let model = self.keyless_default_model();
+        self.store.set_setting(MAIN_PLACEHOLDER, Some("1"))?;
         let (id, conversation) = (self.ids.next("a"), self.ids.next("c"));
         self.store.create_agent(
             NewAgent {
@@ -295,11 +316,42 @@ impl Engine {
         )
     }
 
+    /// Gives Spade the person's first usable model (which needs keys to know) if its model is
+    /// still the placeholder it was created with and nobody has chosen one since.
+    pub(super) fn correct_main_model(&self) -> Result<(), AgentError> {
+        if self.store.setting(MAIN_PLACEHOLDER)?.is_none() {
+            return Ok(());
+        }
+        // Read without any lock: it may wait on the keychain.
+        let model = self.default_model();
+        let _settings = self.agent_lock.lock().unwrap_or_else(|p| p.into_inner());
+        if self.store.setting(MAIN_PLACEHOLDER)?.is_none() {
+            return Ok(());
+        }
+        let main = self.store.agents()?.into_iter().find(|a| a.kind == MAIN);
+        if let Some(main) = main
+            && main.model != model
+            && self.check_model(&model).is_ok()
+        {
+            self.update_agent_locked(
+                &main.id,
+                AgentChange {
+                    model: Some(model),
+                    ..AgentChange::default()
+                },
+            )?;
+        }
+        self.store.set_setting(MAIN_PLACEHOLDER, None)?;
+        Ok(())
+    }
+
     /// The model a new reply in `conversation` uses: its agent's model now.
     pub(super) fn reply_model(&self, conversation: &str) -> String {
         match self.store.agent_for_conversation(conversation) {
             Ok(Some(agent)) if !agent.model.is_empty() => agent.model,
-            _ => self.default_model(),
+            // Without reading keys: this runs while closing replies at start, before Spade
+            // listens.
+            _ => self.keyless_default_model(),
         }
     }
 }

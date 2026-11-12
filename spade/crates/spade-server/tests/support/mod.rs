@@ -7,6 +7,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+pub mod gated;
+
 use keyring_core::mock;
 use serde_json::{Value, json};
 use spade_core::tools::{Risk, ToolDef};
@@ -140,6 +142,42 @@ pub struct Options {
     pub ace_retry: Option<Retry>,
     /// An edited `models.json` from an earlier Spade, to adopt.
     pub adopt: Option<Catalog>,
+    /// Every keychain read takes this long, as one blocked on a prompt does.
+    pub keychain_delay: Option<Duration>,
+    /// Every keychain read waits until this opens, as on a prompt nobody has answered yet.
+    pub keychain_gate: Option<Gate>,
+    /// How long admission waits for setup.
+    pub settle_deadline: Duration,
+    /// Every keychain delete waits until this opens.
+    pub keychain_delete_gate: Option<Gate>,
+    /// Writes to the database before Spade first opens it.
+    pub seed: Option<fn(&Store) -> spade_store::Result<()>>,
+}
+
+/// A keychain prompt: reads wait until [`Gate::open`].
+#[derive(Clone, Default)]
+pub struct Gate(Arc<(Mutex<bool>, std::sync::Condvar)>);
+
+impl Gate {
+    pub fn open(&self) {
+        let (open, wake) = &*self.0;
+        if let Ok(mut open) = open.lock() {
+            *open = true;
+        }
+        wake.notify_all();
+    }
+
+    pub(crate) fn wait(&self) {
+        let (open, wake) = &*self.0;
+        if let Ok(mut guard) = open.lock() {
+            while !*guard {
+                guard = match wake.wait(guard) {
+                    Ok(guard) => guard,
+                    Err(_) => return,
+                };
+            }
+        }
+    }
 }
 
 impl Default for Options {
@@ -151,6 +189,11 @@ impl Default for Options {
             ace_home: None,
             ace_retry: None,
             adopt: None,
+            keychain_delay: None,
+            keychain_gate: None,
+            settle_deadline: spade_server::startup::SETTLE_DEADLINE,
+            seed: None,
+            keychain_delete_gate: None,
         }
     }
 }
@@ -220,7 +263,16 @@ impl Spade {
         options: Options,
     ) -> Result<Self> {
         let mock = mock::Store::new()?;
-        let keys = KeyStore::with_store(mock.clone(), spade_keys::SERVICE);
+        let keys = match &options.keychain_delete_gate {
+            Some(gate) => KeyStore::with_store(
+                Arc::new(gated::GatedStore {
+                    inner: mock.clone(),
+                    gate: gate.clone(),
+                }),
+                spade_keys::SERVICE,
+            ),
+            None => KeyStore::with_store(mock.clone(), spade_keys::SERVICE),
+        };
         let ace = options.ace_home.clone().map(|home| {
             AceLink::start(
                 AceTarget::Discover(home),
@@ -239,15 +291,28 @@ impl Spade {
         // As in Spade: the (mock) keychain first, then the endpoint's variable, which only the
         // shipped fake endpoint names.
         let keychain = keys.clone();
+        let delay = options.keychain_delay;
+        let gate = options.keychain_gate.clone();
         let models = Models::new(
             catalog(&fake.root)?,
             Keys::keychain_then_env(
-                move |endpoint| keychain.get(endpoint).ok().flatten(),
+                move |endpoint| {
+                    if let Some(delay) = delay {
+                        std::thread::sleep(delay);
+                    }
+                    if let Some(gate) = &gate {
+                        gate.wait();
+                    }
+                    keychain.get(endpoint).ok().flatten()
+                },
                 |var| (var == "FAKE_KEY").then(|| "fake-key".to_owned()),
             ),
             spade_server::home::VERSION,
         )?;
         let store = Store::open(&dir.path().join("spade.sqlite"))?;
+        if let Some(seed) = options.seed {
+            seed(&store)?;
+        }
         // The endpoint is the person's now, kept in the database, and a restarted fake listens
         // on a new port. Moved here as a person cannot (the API refuses a key's host change).
         for mut endpoint in store.endpoints()? {
@@ -270,7 +335,6 @@ impl Spade {
             adopt: options.adopt.clone(),
             keychain: Some(keys.clone()),
         })?;
-        engine.open_for_work();
         let state = AppState {
             engine: engine.clone(),
             token: TOKEN.into(),
@@ -283,6 +347,13 @@ impl Spade {
         let task = tokio::spawn(spade_server::serve(listener, state, async {
             let _ = stopped.await;
         }));
+        // As Spade starts: listening first, then the setup that reads keys. Tests wait for it
+        // unless they test a slow keychain.
+        let finishing =
+            spade_server::startup::finish(engine.clone(), None, None, options.settle_deadline);
+        if options.keychain_delay.is_none() && options.keychain_gate.is_none() {
+            finishing.await?;
+        }
         Ok(Self {
             base,
             fake,

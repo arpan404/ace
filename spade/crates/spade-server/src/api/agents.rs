@@ -8,7 +8,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::body::Body;
-use super::{AppState, problem};
+use super::{AppState, off_thread, problem};
 use crate::engine::{
     AgentChange, AgentError, AgentInput, AgentView, AvatarInput, State as AgentState, roster,
 };
@@ -130,12 +130,20 @@ pub(super) async fn create(State(state): State<AppState>, Body(body): Body<NewAg
         Ok(avatar) => avatar,
         Err(response) => return *response,
     };
-    let input = AgentInput {
-        name: body.name,
-        task: body.task,
-        model: body.model.unwrap_or_else(|| state.engine.default_model()),
-        avatar,
-    };
+    // The default model is the first one with a key, which reads the keychain.
+    off_thread(move || {
+        let input = AgentInput {
+            name: body.name,
+            task: body.task,
+            model: body.model.unwrap_or_else(|| state.engine.default_model()),
+            avatar,
+        };
+        create_now(&state, input)
+    })
+    .await
+}
+
+fn create_now(state: &AppState, input: AgentInput) -> Response {
     match state.engine.create_agent(input) {
         Ok(view) => (
             StatusCode::CREATED,

@@ -118,6 +118,9 @@ async fn health(State(state): State<AppState>, Query(challenge): Query<Challenge
         "ok": true,
         "version": crate::home::VERSION,
         "api": crate::home::API_VERSION,
+        // Setup that reads keys runs after Spade listens; until it is done, why not.
+        "starting": state.engine.starting().is_some(),
+        "starting_reason": state.engine.starting(),
     });
     if let Some(nonce) = challenge.nonce {
         match crate::proof::answer(&state.token, &nonce) {
@@ -151,6 +154,14 @@ async fn authorize(State(state): State<AppState>, request: Request, next: Next) 
     } else {
         problem(StatusCode::UNAUTHORIZED, "missing or wrong token")
     }
+}
+
+/// Runs `work` on the blocking pool. Anything that may read the keychain goes through here: a
+/// read can block for as long as a prompt waits, and must never hold up an async worker.
+pub(super) async fn off_thread(work: impl FnOnce() -> Response + Send + 'static) -> Response {
+    tokio::task::spawn_blocking(work)
+        .await
+        .unwrap_or_else(|_| problem(StatusCode::INTERNAL_SERVER_ERROR, "the request stopped"))
 }
 
 pub(super) fn problem(status: StatusCode, message: &str) -> Response {
@@ -443,11 +454,12 @@ async fn set_key(
             "this machine has no keychain; set the endpoint's environment variable",
         );
     };
-    match keys.set(&endpoint, &body.key) {
+    off_thread(move || match keys.set(&endpoint, &body.key) {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(spade_keys::KeyError::Invalid(why)) => problem(StatusCode::BAD_REQUEST, why),
         Err(error) => problem(StatusCode::SERVICE_UNAVAILABLE, &error.to_string()),
-    }
+    })
+    .await
 }
 
 async fn delete_key(State(state): State<AppState>, Path(endpoint): Path<String>) -> Response {
@@ -457,11 +469,12 @@ async fn delete_key(State(state): State<AppState>, Path(endpoint): Path<String>)
             "this machine has no keychain",
         );
     };
-    match keys.delete(&endpoint) {
+    off_thread(move || match keys.delete(&endpoint) {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => problem(StatusCode::NOT_FOUND, "no key stored for that endpoint"),
         Err(error) => problem(StatusCode::SERVICE_UNAVAILABLE, &error.to_string()),
-    }
+    })
+    .await
 }
 
 fn maintenance_json(state: MaintenanceState) -> Value {

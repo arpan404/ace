@@ -95,11 +95,27 @@ pub struct Engine {
     /// Held across reading, merging and writing an agent's settings, so concurrent changes
     /// never overwrite each other.
     agent_lock: Mutex<()>,
+    /// An old `models.json` waiting for [`Engine::settle`].
+    adopt: Mutex<Option<spade_models::Catalog>>,
+    /// True once [`Engine::settle`] has run.
+    settled: watch::Sender<bool>,
+    /// Why setup is not done yet, while it is not (see [`Engine::starting`]).
+    starting: Mutex<&'static str>,
+    /// Held while endpoints are written, by the person's changes and by setup alike. Never
+    /// held across keychain I/O, which can block on a prompt.
+    endpoint_lock: Mutex<()>,
+    /// Endpoints being deleted: no agent may be moved onto one meanwhile.
+    retiring: Mutex<std::collections::HashSet<String>>,
 }
 
+/// What `starting` says until setup has run long enough to say more.
+const STARTING: &str = "setting up endpoints";
+
 impl Engine {
-    /// Opens the engine: closes replies a restart cut off, resumes paused turns and turns waiting
-    /// for an approval, and answers messages stored while Spade was closing.
+    /// Opens the engine from the database alone: closes replies a restart cut off and reports
+    /// lost jobs. It never touches the keychain or the network, so Spade can listen at once; what
+    /// needs keys (adopting old settings, importing presets, creating Spade) is [`Engine::settle`],
+    /// run after the server is listening.
     pub fn open(setup: Setup) -> Result<Arc<Self>, StoreError> {
         let handle = EngineHandle::default();
         let adopt = setup.adopt;
@@ -130,15 +146,15 @@ impl Engine {
             keychain,
             deleting: Mutex::default(),
             agent_lock: Mutex::default(),
+            adopt: Mutex::new(adopt),
+            settled: watch::channel(false).0,
+            starting: Mutex::new(STARTING),
+            endpoint_lock: Mutex::default(),
+            retiring: Mutex::default(),
         });
         handle.set(&engine);
-        // The person's old edits first, so presets imported after never overwrite them.
-        if let Some(file) = &adopt {
-            engine.adopt_file(file)?;
-        }
-        engine.import_presets()?;
         engine.sync_endpoints()?;
-        engine.store.fill_missing_models(&engine.default_model())?;
+        // Spade exists from the first answer, whatever setup does later.
         engine.ensure_main()?;
         for conversation in engine.store.conversations()? {
             let events = engine.load(&conversation.id)?;
@@ -163,6 +179,44 @@ impl Engine {
     /// use one finds it.
     pub fn open_for_work(self: &Arc<Self>) {
         self.end_maintenance();
+    }
+
+    /// The setup that reads keys, which can block for a long time (a keychain prompt for a
+    /// re-signed binary): adopts an old `models.json`, imports presets that have a key, gives
+    /// migrated agents a model and creates Spade if there is none. Blocking; the server runs it
+    /// after it is listening, before [`Engine::open_for_work`]. Runs once.
+    pub fn settle(&self) -> Result<(), String> {
+        // Kept until it has worked, so a retry after a failure adopts it still.
+        let adopt = self.adopt.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        self.settle_endpoints(adopt.as_ref())
+            .map_err(|e| e.to_string())?;
+        *self.adopt.lock().unwrap_or_else(|p| p.into_inner()) = None;
+        self.store
+            .fill_missing_models(&self.default_model())
+            .map_err(|e| e.to_string())?;
+        self.correct_main_model().map_err(|e| e.to_string())?;
+        self.settled.send_replace(true);
+        Ok(())
+    }
+
+    /// While setup is not done: a few words on why (`waiting for the keychain`). `None` once it
+    /// is. Shown by `/health` and `/v1/models` so the app can say so.
+    pub fn starting(&self) -> Option<&'static str> {
+        if *self.settled.borrow() {
+            return None;
+        }
+        Some(*self.starting.lock().unwrap_or_else(|p| p.into_inner()))
+    }
+
+    /// Records why setup is not done yet.
+    pub fn set_starting(&self, why: &'static str) {
+        *self.starting.lock().unwrap_or_else(|p| p.into_inner()) = why;
+    }
+
+    /// Resolves once [`Engine::settle`] has run.
+    pub async fn settled(&self) {
+        let mut settled = self.settled.subscribe();
+        let _ = settled.wait_for(|done| *done).await;
     }
 
     pub fn now_ms(&self) -> i64 {

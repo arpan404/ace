@@ -4,6 +4,8 @@
 //! Only the person's own choices are stored. Everything a preset says (its models and their
 //! facts) is read from the binary each time, so shipped corrections reach existing installs.
 
+use std::collections::HashSet;
+
 use spade_models::{Catalog, Endpoint, Model};
 use spade_store::{StoreError, StoredEndpoint, StoredModel};
 
@@ -36,39 +38,68 @@ impl Engine {
         }
     }
 
-    /// Once: shipped presets that already have a key (keychain or environment) become the
-    /// person's endpoints, so a setup from before ADR 0126 keeps working.
-    pub(super) fn import_presets(&self) -> Result<(), StoreError> {
-        if self.store.setting(PRESETS_IMPORTED)?.is_some() {
-            return Ok(());
+    /// Imports shipped presets that have a key and adopts an old `models.json`, each once. Keys
+    /// are read first with no lock held (a keychain read can block for long); the writes then run
+    /// under the lock every endpoint change takes, against a fresh read of the database, so a
+    /// change the person made meanwhile is never lost or overwritten.
+    pub(super) fn settle_endpoints(&self, file: Option<&Catalog>) -> Result<(), StoreError> {
+        let adopting = match file {
+            Some(file) if self.store.setting(FILE_ADOPTED)?.is_none() => Some(file),
+            _ => None,
+        };
+        let importing = self.store.setting(PRESETS_IMPORTED)?.is_none();
+        let keyed = |endpoints: &[Endpoint]| -> HashSet<String> {
+            endpoints
+                .iter()
+                .filter(|e| e.needs_key && self.models.has_key(e))
+                .map(|e| e.id.clone())
+                .collect()
+        };
+        let file_keys = adopting.map(|f| keyed(f.endpoints())).unwrap_or_default();
+        let preset_keys = if importing {
+            keyed(self.models.catalog().endpoints())
+        } else {
+            HashSet::new()
+        };
+        let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
+        // The person's old edits first, so presets imported after never overwrite them.
+        if let Some(file) = adopting {
+            self.adopt_file(file, &file_keys)?;
         }
+        if importing {
+            self.import_presets(&preset_keys)?;
+        }
+        self.sync_endpoints()
+    }
+
+    /// Shipped presets that have a key (`keyed`) become the person's endpoints, so a setup from
+    /// before ADR 0126 keeps working. An id already taken is left as it is.
+    fn import_presets(&self, keyed: &HashSet<String>) -> Result<(), StoreError> {
         let have: Vec<String> = self.store.endpoints()?.into_iter().map(|e| e.id).collect();
         for preset in self.models.catalog().endpoints() {
-            if have.contains(&preset.id) || !preset.needs_key || !self.models.has_key(preset) {
+            if have.contains(&preset.id) || !keyed.contains(&preset.id) {
                 continue;
             }
             let stored = self.stored_preset(preset, preset.id.clone(), preset.name.clone());
-            match self.store.insert_endpoint(&stored) {
-                Ok(()) | Err(StoreError::Exists(_)) => {}
-                Err(error) => return Err(error),
-            }
+            insert_unless_taken(self, &stored)?;
         }
         self.store.set_setting(PRESETS_IMPORTED, Some("1"))
     }
 
-    /// Once, before presets are imported: what the person changed in an old `models.json`
-    /// becomes theirs. A value equal to what some Spade shipped for that endpoint or model is a
-    /// shipped default and is inherited from the current presets instead; any other value is the
-    /// person's edit and wins. An endpoint no Spade shipped is the person's whole. A shipped
-    /// endpoint nobody edited is taken only if it has a key, as with presets.
-    pub(super) fn adopt_file(&self, file: &Catalog) -> Result<(), StoreError> {
-        if self.store.setting(FILE_ADOPTED)?.is_some() {
-            return Ok(());
-        }
+    /// What the person changed in an old `models.json` becomes theirs. A value equal to what some
+    /// Spade shipped for that endpoint or model is a shipped default and is inherited from the
+    /// current presets instead; any other value is the person's edit and wins. An endpoint no
+    /// Spade shipped is the person's whole. A shipped endpoint nobody edited is taken only if it
+    /// has a key (`keyed`). An id the person already uses is theirs and left alone.
+    fn adopt_file(&self, file: &Catalog, keyed: &HashSet<String>) -> Result<(), StoreError> {
         let mut history = crate::presets::history();
         history.push(self.models.catalog().clone());
-        let stored = self.store.endpoints()?;
+        let have: Vec<String> = self.store.endpoints()?.into_iter().map(|e| e.id).collect();
         for endpoint in file.endpoints() {
+            if have.contains(&endpoint.id) {
+                tracing::info!(endpoint = %endpoint.id, "not adopting an endpoint whose id is already in use");
+                continue;
+            }
             let shipped: Vec<&Endpoint> = history
                 .iter()
                 .flat_map(|c| c.endpoints())
@@ -88,20 +119,24 @@ impl Engine {
                     continue;
                 }
             }
-            if !edited && endpoint.needs_key && !self.models.has_key(endpoint) {
+            if !edited && endpoint.needs_key && !keyed.contains(&endpoint.id) {
                 continue;
             }
-            match stored.iter().find(|e| e.id == endpoint.id) {
-                Some(_) => {
-                    self.store.update_endpoint(&wanted)?;
-                    for model in &wanted.models {
-                        self.store.put_model(&wanted.id, model)?;
-                    }
-                }
-                None => self.store.insert_endpoint(&wanted)?,
-            }
+            insert_unless_taken(self, &wanted)?;
         }
         self.store.set_setting(FILE_ADOPTED, Some("1"))
+    }
+}
+
+/// Inserts `endpoint`; an id taken meanwhile is skipped, never fatal to the rest.
+fn insert_unless_taken(engine: &Engine, endpoint: &StoredEndpoint) -> Result<(), StoreError> {
+    match engine.store.insert_endpoint(endpoint) {
+        Ok(()) => Ok(()),
+        Err(StoreError::Exists(id)) => {
+            tracing::info!(endpoint = %id, "skipped: the id is already in use");
+            Ok(())
+        }
+        Err(error) => Err(error),
     }
 }
 

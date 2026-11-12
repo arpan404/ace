@@ -177,29 +177,16 @@ async fn run() -> Result<(), Failure> {
         keychain: keychain.clone(),
     })
     .map_err(other)?;
-    if let Some(path) = startup.set_aside
-        && let Err(error) = presets::set_aside(&path)
-    {
-        tracing::warn!(%error, "could not move the old models.json aside; it is ignored");
-    }
-
     let token = new_token();
     home.write_token(&token).map_err(other)?;
     let listener = TcpListener::bind(config.listen).await.map_err(other)?;
     let address = listener.local_addr().map_err(other)?;
-    // Resume once ace's tools are back, so a paused turn about to use one finds it; never wait
-    // long, since Spade works without ace.
-    {
-        let (engine, ace) = (engine.clone(), ace.clone());
-        tokio::spawn(async move {
-            if let Some(link) = ace
-                && link.holds_grant(Duration::from_secs(3)).await
-            {
-                link.ready_within(Duration::from_secs(10)).await;
-            }
-            engine.open_for_work();
-        });
-    }
+    spade_server::startup::finish(
+        engine.clone(),
+        ace.clone(),
+        startup.set_aside,
+        spade_server::startup::SETTLE_DEADLINE,
+    );
     home.write_server_json(address, std::process::id())
         .map_err(other)?;
     tracing::info!(%address, "spade listening");
