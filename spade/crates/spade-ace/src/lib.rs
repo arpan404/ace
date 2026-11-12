@@ -24,7 +24,10 @@ pub use discovery::{
     DiscoveryError, FIRST_RETRY, LONGEST_RETRY, daemon_urls, discover, next_retry,
     next_retry_between,
 };
-pub use skills::{AceSkills, Skill, SkillErrorCode, SkillList, SkillScope, SkillText, SkillsError};
+pub use skills::{
+    ALL_AGENTS, AceSkills, NewSkill, Skill, SkillEdit, SkillErrorCode, SkillList, SkillScope,
+    SkillText, SkillsError,
+};
 pub use spade_mcp::Secret;
 pub use tools::{AceTool, AceToolResult, AceTools, Part, Risk, ToolsError};
 pub use url::{LoopbackUrl, UrlError, UrlKind};

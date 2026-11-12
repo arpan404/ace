@@ -17,7 +17,7 @@ use spade_core::{Event, Transcript};
 use tokio::sync::watch;
 
 use super::Engine;
-use crate::tools::ToolOutput;
+use crate::tools::{ToolOutput, TurnFacts};
 
 const DECLINED: &str = "The person declined this action.";
 
@@ -43,6 +43,12 @@ pub(super) async fn handle_calls(
     let registry = engine.tools.registry_for(id);
     let transcript = Transcript::fold(events);
     let untrusted = context::untrusted_turn(events, &registry);
+    // What a tool keeps (a trusted file, a note, a proposal's source) answers to everything the
+    // prompt shows, not just this turn: untrusted text from an earlier turn is still in view.
+    let in_view = context::untrusted_in_view(events, &registry);
+    let facts = TurnFacts {
+        untrusted: (!in_view.is_empty()).then(|| in_view.join(", ")),
+    };
     // A note outlives the turn: one written while a tainted summary is in view asks too.
     let untrusted_memory = untrusted || context::untrusted_summary(events);
     let mut runnable: Vec<(Call, String, Value)> = Vec::new();
@@ -84,7 +90,14 @@ pub(super) async fn handle_calls(
                     finish_tool(engine, id, reply, &pending.call, &name, missing).await;
                 }
                 Some(def) => {
-                    let always = transcript.always_allowed.iter().any(|t| t == &name);
+                    let always = match engine
+                        .tools
+                        .get_for(id, &name)
+                        .and_then(|tool| tool.always_scope(&arguments))
+                    {
+                        Some(scope) => allowed_always_for(engine, id, events, &name, &scope),
+                        None => transcript.always_allowed.iter().any(|t| t == &name),
+                    };
                     let tainted = if def.risk == Risk::Memory {
                         untrusted_memory
                     } else {
@@ -124,7 +137,7 @@ pub(super) async fn handle_calls(
         finish_tool(engine, id, reply, &call, &name, unknown).await;
     }
     if !runnable.is_empty() {
-        return run_tools(engine, id, reply, runnable, stop, pause).await;
+        return run_tools(engine, id, reply, runnable, &facts, stop, pause).await;
     }
     if waiting {
         let live = engine.live(id);
@@ -150,6 +163,33 @@ pub(super) async fn handle_calls(
     Handled::Continue
 }
 
+/// Whether the person answered "always" to an earlier call of `name` with the same scope (for
+/// the shell, the exact same command). Read from the conversation's own events, so it holds for
+/// the bot across restarts and compaction.
+fn allowed_always_for(
+    engine: &Engine,
+    id: &str,
+    events: &[Event],
+    name: &str,
+    scope: &str,
+) -> bool {
+    let Some(tool) = engine.tools.get_for(id, name) else {
+        return false;
+    };
+    events.iter().any(|event| match event {
+        Event::Known(Known::ApprovalAnswered {
+            call_id,
+            allowed: true,
+            always: true,
+            ..
+        }) => events.iter().any(|asked| {
+            matches!(asked, Event::Known(Known::ApprovalRequested { call_id: c, name: n, arguments, .. })
+                if c == call_id && n == name && tool.always_scope(arguments).as_deref() == Some(scope))
+        }),
+        _ => false,
+    })
+}
+
 /// A call's real tool and arguments: `call_tool` names its tool inside.
 fn resolve(call: &Call) -> (String, Value) {
     if call.name == CALL_TOOL
@@ -165,6 +205,7 @@ async fn run_tools(
     id: &str,
     reply: &str,
     calls: Vec<(Call, String, Value)>,
+    facts: &TurnFacts,
     stop: &mut watch::Receiver<bool>,
     pause: &mut watch::Receiver<Pause>,
 ) -> Handled {
@@ -232,9 +273,9 @@ async fn run_tools(
                 finished.push_back((call, name, started));
                 continue;
             }
-            let (engine, id) = (engine.clone(), id.to_owned());
+            let (engine, id, facts) = (engine.clone(), id.to_owned(), facts.clone());
             running.push(async move {
-                let output = run_one(&engine, &id, &call.id, &name, arguments).await;
+                let output = run_one(&engine, &id, &call.id, &name, arguments, &facts).await;
                 (call, name, output)
             });
         }
@@ -296,6 +337,7 @@ async fn run_one(
     call_id: &str,
     name: &str,
     arguments: Value,
+    facts: &TurnFacts,
 ) -> ToolOutput {
     if name == TOOL_SEARCH {
         let query = arguments.get("query").and_then(Value::as_str).unwrap_or("");
@@ -309,7 +351,12 @@ async fn run_one(
     // Unique across conversations, and the same on every retry of this call.
     let key = format!("{id}.{call_id}");
     let reads_only = tool.def().risk == Risk::Read;
-    match tokio::time::timeout(engine.limits.tool_timeout, tool.run(&key, arguments)).await {
+    match tokio::time::timeout(
+        engine.limits.tool_timeout,
+        tool.run_in(&key, arguments, facts),
+    )
+    .await
+    {
         Ok(output) => output,
         Err(_) => {
             let seconds = engine.limits.tool_timeout.as_secs();
@@ -354,6 +401,7 @@ async fn finish_tool(
         is_error: output.is_error,
         images,
         uncertain: output.uncertain,
+        untrusted: output.untrusted,
     });
     super::jobs::keep_trying(|| engine.record(id, &event).map(|_| ())).await;
 }

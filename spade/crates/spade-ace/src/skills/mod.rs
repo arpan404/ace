@@ -3,7 +3,7 @@
 //!
 //! One socket is kept open; answers are matched to requests by `requestId`. A socket the daemon
 //! dropped is opened again on the next request, and a list or read that hit a dropped socket is
-//! sent once more on a fresh one (both only read). Dropping `AceSkills` closes the socket, even
+//! sent once more on a fresh one (both only read); a create or edit never is. Dropping `AceSkills` closes the socket, even
 //! one stuck writing to a peer that stopped reading.
 
 mod socket;
@@ -80,6 +80,10 @@ pub enum SkillErrorCode {
     /// Listing-only, such as a plugin's skill.
     ReadOnly,
     Invalid,
+    /// The skill changed since the hash the edit was based on.
+    Conflict,
+    /// A skill with that name already exists.
+    Exists,
     Other(String),
 }
 
@@ -92,6 +96,8 @@ impl SkillErrorCode {
             "forbidden" => Self::Forbidden,
             "read_only" => Self::ReadOnly,
             "invalid" | "invalid_message" => Self::Invalid,
+            "conflict" => Self::Conflict,
+            "exists" => Self::Exists,
             other => Self::Other(other.to_owned()),
         }
     }
@@ -191,19 +197,38 @@ impl AceSkills {
         workspace_id: Option<&str>,
     ) -> Result<SkillText, SkillsError> {
         let result = self.request(Operation::Read { id, workspace_id }).await?;
-        let text = result
-            .get("text")
-            .and_then(Value::as_str)
-            .map(str::to_owned);
-        let entry = result.get("entry").cloned().map(skill);
-        match (kind(&result) == "skill", text, entry) {
-            (true, Some(text), Some(Ok(skill))) => Ok(SkillText {
-                skill,
-                text,
-                raw: result,
-            }),
-            _ => Err(unexpected(result)),
-        }
+        skill_text(result)
+    }
+
+    /// Creates a personal skill (`~/.agents/skills/<name>`) linked for `agents`, and answers it
+    /// with its text. A name already taken is `exists`.
+    pub async fn create(&self, new: NewSkill<'_>) -> Result<SkillText, SkillsError> {
+        let result = self
+            .request(Operation::Create {
+                name: new.name,
+                description: new.description,
+                body: new.body,
+                scope: wire::PERSONAL,
+                agents: new.agents,
+                manual: new.manual,
+            })
+            .await?;
+        skill_text(result)
+    }
+
+    /// Replaces a skill's description and body, if its SKILL.md still has `expected_hash`;
+    /// otherwise `conflict`.
+    pub async fn edit(&self, edit: SkillEdit<'_>) -> Result<SkillText, SkillsError> {
+        let result = self
+            .request(Operation::Edit {
+                id: edit.id,
+                expected_hash: edit.expected_hash,
+                description: edit.description,
+                body: edit.body,
+                manual: edit.manual,
+            })
+            .await?;
+        skill_text(result)
     }
 
     /// The raw `result` of a `skills.result`, or the daemon's typed refusal.
@@ -211,7 +236,7 @@ impl AceSkills {
         let (socket, fresh) = self.socket().await?;
         let first = self.send(&socket, &operation).await;
         let result = match first {
-            Err(SkillsError::Unreachable(_)) if !fresh => {
+            Err(SkillsError::Unreachable(_)) if !fresh && operation.reads_only() => {
                 let (socket, _) = self.socket().await?;
                 self.send(&socket, &operation).await
             }
@@ -258,6 +283,50 @@ impl AceSkills {
         if slot.as_ref().is_some_and(|current| current.same(socket)) {
             *slot = None;
         }
+    }
+}
+
+/// A new personal skill, for [`AceSkills::create`].
+#[derive(Debug, Clone, Copy)]
+pub struct NewSkill<'a> {
+    /// A slug: lowercase letters, digits and single hyphens, at most 64.
+    pub name: &'a str,
+    pub description: &'a str,
+    /// SKILL.md below its frontmatter; ace writes the frontmatter.
+    pub body: &'a str,
+    /// Provider kinds to link it for (`claude`, `codex`, `opencode`, `cursor`, `pi`).
+    pub agents: &'a [&'a str],
+    pub manual: bool,
+}
+
+/// An edit of an existing skill, for [`AceSkills::edit`].
+#[derive(Debug, Clone, Copy)]
+pub struct SkillEdit<'a> {
+    pub id: &'a str,
+    /// The SKILL.md hash the edit was made against.
+    pub expected_hash: &'a str,
+    pub description: &'a str,
+    pub body: &'a str,
+    pub manual: bool,
+}
+
+/// Every agent ace's library can link a skill for (`SkillAgent` in
+/// `packages/protocol/src/skill-library.ts`).
+pub const ALL_AGENTS: [&str; 5] = ["claude", "codex", "opencode", "cursor", "pi"];
+
+fn skill_text(result: Value) -> Result<SkillText, SkillsError> {
+    let text = result
+        .get("text")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let entry = result.get("entry").cloned().map(skill);
+    match (kind(&result) == "skill", text, entry) {
+        (true, Some(text), Some(Ok(skill))) => Ok(SkillText {
+            skill,
+            text,
+            raw: result,
+        }),
+        _ => Err(unexpected(result)),
     }
 }
 

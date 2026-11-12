@@ -26,6 +26,32 @@ const tools: Record<string, ToolWords> = {
     done: "Looked for a skill",
   },
   call_tool: { base: "use a tool", doing: "Using a tool", done: "Used a tool" },
+  skill_load: { base: "load a skill", doing: "Reading a skill", done: "Read a skill" },
+  skill_propose: {
+    base: "suggest a skill",
+    doing: "Writing a skill",
+    done: "Suggested a skill",
+  },
+  skill_feedback: {
+    base: "note how a skill worked",
+    doing: "Noting how a skill worked",
+    done: "Noted how a skill worked",
+  },
+  // Its workspace (ADR 0130).
+  shell: { base: "run a command", doing: "Running a command", done: "Ran a command" },
+  workspace_list: {
+    base: "look through its files",
+    doing: "Looking through its files",
+    done: "Looked through its files",
+  },
+  workspace_read: { base: "read a file", doing: "Reading a file", done: "Read a file" },
+  workspace_search: {
+    base: "search its files",
+    doing: "Searching its files",
+    done: "Searched its files",
+  },
+  workspace_write: { base: "write a file", doing: "Writing a file", done: "Wrote a file" },
+  workspace_edit: { base: "change a file", doing: "Changing a file", done: "Changed a file" },
   send_email: { base: "send an email", doing: "Sending an email", done: "Sent an email" },
   research: { base: "research", doing: "Researching", done: "Researched" },
   delegate: {

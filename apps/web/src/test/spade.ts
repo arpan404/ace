@@ -1,6 +1,7 @@
 import { FakeSpadeApi, type FakeDaemon } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import { expect } from "vitest";
+import type { RouterHistory } from "@tanstack/react-router";
 import { harness } from "./harness.tsx";
 
 /**
@@ -10,11 +11,16 @@ import { harness } from "./harness.tsx";
 export async function spadeApp(
   path: string,
   seed: (spade: FakeSpadeApi) => void,
-  options: { machines?: { hostId: string; name: string; seed(spade: FakeSpadeApi): void }[] } = {},
+  options: {
+    machines?: { hostId: string; name: string; seed(spade: FakeSpadeApi): void }[];
+    /** The router's history, for tests that move through it. */
+    history?: RouterHistory;
+  } = {},
 ) {
   const app = harness({
     clock: () => Date.now(),
     ...(options.machines ? { machines: options.machines } : {}),
+    ...(options.history ? { history: options.history } : {}),
   });
   const spade = runningSpade(app.daemon);
   seed(spade);

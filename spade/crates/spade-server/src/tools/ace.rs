@@ -126,6 +126,7 @@ pub fn output(result: Result<AceToolResult, ToolsError>) -> ToolOutput {
                 is_error: result.is_error,
                 uncertain: false,
                 images,
+                untrusted: false,
             }
         }
         Err(ToolsError::NotRun(why)) => {

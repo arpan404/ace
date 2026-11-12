@@ -23,7 +23,10 @@ pub use ace_link::{AceLink, AceTarget, GrantError, Retry, grant_slot};
 pub use bots::{BotMessage, BotsList, EngineHandle};
 pub use connectors::ConnectorSource;
 pub use memory::{AskUser, MemoryTool};
-pub use skills::{AceLibrary, LibraryFuture, SkillLibrary, SkillLoad, SkillSearch};
+pub use skills::{
+    AceLibrary, LibraryFuture, SkillLibrary, SkillLoad, SkillSearch, SkillSource, WriteError,
+    WriteFuture, body_of,
+};
 pub use todo::Todo;
 pub use web_fetch::WebFetch;
 pub use web_search::WebSearch;
@@ -38,6 +41,9 @@ pub struct ToolOutput {
     pub uncertain: bool,
     /// Images the tool returned, as bytes; Spade stores them and shows them to the model.
     pub images: Vec<Vec<u8>>,
+    /// This result carries untrusted content (a file written after reading the web), so the
+    /// rest of the turn is untrusted, whatever the tool's definition says.
+    pub untrusted: bool,
 }
 
 impl ToolOutput {
@@ -47,7 +53,15 @@ impl ToolOutput {
             is_error: false,
             uncertain: false,
             images: Vec::new(),
+            untrusted: false,
         }
+    }
+
+    /// The same result, marked as carrying untrusted content.
+    #[must_use]
+    pub fn untrusted(mut self) -> Self {
+        self.untrusted = true;
+        self
     }
 
     pub fn error(content: impl Into<String>) -> Self {
@@ -56,6 +70,7 @@ impl ToolOutput {
             is_error: true,
             uncertain: false,
             images: Vec::new(),
+            untrusted: false,
         }
     }
 
@@ -74,6 +89,25 @@ pub trait Tool: Send + Sync {
     /// retries and restarts: tools that change things pass it on as an idempotency key, so a
     /// repeated call cannot act twice.
     fn run(&self, key: &str, arguments: Value) -> ToolFuture;
+    /// Runs one call knowing what the turn has read. Tools that keep what they write (the
+    /// workspace, skill notes) override this to mark it untrusted when the turn is.
+    fn run_in(&self, key: &str, arguments: Value, _turn: &TurnFacts) -> ToolFuture {
+        self.run(key, arguments)
+    }
+    /// What "always" covers for this call: `None` means the whole tool (the default), `Some`
+    /// means only calls with the same scope (a shell command allows only that exact command).
+    fn always_scope(&self, _arguments: &Value) -> Option<String> {
+        None
+    }
+}
+
+/// What the engine knows about the turn a call runs in.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TurnFacts {
+    /// The prompt the call was made from shows untrusted content (this turn's, an earlier
+    /// turn's since the last compaction, or a tainted summary): what, in a few words
+    /// ("https://example.com"). `None` when it shows none.
+    pub untrusted: Option<String>,
 }
 
 /// Tools whose list changes while Spade runs, such as ace's. Every one is offered deferred, so

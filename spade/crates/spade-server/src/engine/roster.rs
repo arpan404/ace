@@ -189,6 +189,7 @@ mod tests {
                     is_error: false,
                     uncertain: false,
                     images: Vec::new(),
+                    untrusted: false,
                 }),
             ),
         ];

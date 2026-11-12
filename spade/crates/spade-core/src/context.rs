@@ -533,6 +533,12 @@ fn ends_with_spade_text(out: &[Message], text: &str) -> bool {
 /// Whether the open turn has read output from a tool whose output can carry instructions from
 /// strangers. The turn includes what started it: a background job's result can open a turn.
 pub fn untrusted_turn(events: &[Event], registry: &Registry) -> bool {
+    !untrusted_sources(events, registry).is_empty()
+}
+
+/// What made the open turn untrusted, in a few words each ("https://example.com/page", "a
+/// message from Research"), oldest first; empty when nothing did.
+pub fn untrusted_sources(events: &[Event], registry: &Registry) -> Vec<String> {
     let start = events
         .iter()
         .rposition(|e| matches!(e, Event::Known(Known::ReplyStarted { .. })))
@@ -543,7 +549,36 @@ pub fn untrusted_turn(events: &[Event], registry: &Registry) -> bool {
         .map_or(0, |at| at + 1);
     events[from..]
         .iter()
-        .any(|event| untrusted_event(event, registry))
+        .filter(|event| untrusted_event(event, registry))
+        .map(|event| describe_event(events, event))
+        .collect()
+}
+
+/// Untrusted content still in the model's view, in a few words each, oldest first: every
+/// untrusted event since the last compaction (the prompt shows them all, from earlier turns too),
+/// and the summary when it was drawn from untrusted content. What a bot keeps (a trusted file, a
+/// note) must not be made from a prompt that shows any of these (ADR 0130).
+pub fn untrusted_in_view(events: &[Event], registry: &Registry) -> Vec<String> {
+    let from = events
+        .iter()
+        .rev()
+        .find_map(|event| match event {
+            Event::Known(Known::ContextCompacted { keep_from, .. }) => Some(*keep_from),
+            _ => None,
+        })
+        .unwrap_or(0)
+        .min(events.len());
+    let mut sources: Vec<String> = Vec::new();
+    if untrusted_summary(events) {
+        sources.push("the summary of earlier turns".to_owned());
+    }
+    sources.extend(
+        events[from..]
+            .iter()
+            .filter(|event| untrusted_event(event, registry))
+            .map(|event| describe_event(events, event)),
+    );
+    sources
 }
 
 /// Whether the summary the prompt shows was drawn from untrusted content (ADR 0128). Its facts
@@ -557,7 +592,8 @@ pub fn untrusted_summary(events: &[Event]) -> bool {
 }
 
 /// Whether `event` carries text that may hold instructions from strangers: another bot's message,
-/// or output of a tool marked untrusted (or no longer listed, which cannot vouch for it).
+/// output of a tool marked untrusted (or no longer listed, which cannot vouch for it), or one
+/// result its tool marked untrusted itself (a workspace file Spade did not write, ADR 0130).
 pub fn untrusted_event(event: &Event, registry: &Registry) -> bool {
     match event {
         // Another bot's message can carry text it read anywhere: treated like untrusted output,
@@ -571,6 +607,9 @@ pub fn untrusted_event(event: &Event, registry: &Registry) -> bool {
             from_routine: Some(from),
             ..
         }) if from.event.is_some() => true,
+        Event::Known(Known::ToolFinished {
+            untrusted: true, ..
+        }) => true,
         // A search that found tools returns their names, descriptions and schemas, written by
         // whoever serves them (ace, a connector's app): text from outside Spade.
         Event::Known(Known::ToolFinished { name, content, .. }) if name == TOOL_SEARCH => {
@@ -585,6 +624,76 @@ pub fn untrusted_event(event: &Event, registry: &Registry) -> bool {
             }
         }
         _ => false,
+    }
+}
+
+/// An untrusted event as a source, in a few words.
+fn describe_event(events: &[Event], event: &Event) -> String {
+    match event {
+        Event::Known(Known::UserMessage {
+            from_agent: Some(agent),
+            ..
+        }) => format!("a message from {}", agent.name),
+        Event::Known(Known::UserMessage { .. }) => "an ace event".to_owned(),
+        Event::Known(Known::ToolFinished { name, call_id, .. }) => {
+            describe_source(events, name, call_id)
+        }
+        Event::Known(Known::JobFinished { name, .. }) if name == "bot_message" => {
+            "another bot's answer".to_owned()
+        }
+        Event::Known(Known::JobFinished { name, .. }) => format!("the result of {name}"),
+        _ => "untrusted content".to_owned(),
+    }
+}
+
+/// A tool result as a source, from its call's arguments: the page, the search, the file.
+fn describe_source(events: &[Event], name: &str, call_id: &str) -> String {
+    let arguments = events
+        .iter()
+        .rev()
+        .find_map(|event| match event {
+            Event::Known(Known::StepFinished { calls, .. }) => {
+                calls.iter().find(|call| call.id == call_id)
+            }
+            _ => None,
+        })
+        .map(|call| {
+            if call.name == CALL_TOOL {
+                crate::tools::unwrap_call_tool(&call.arguments)
+                    .map(|(_, inner)| inner)
+                    .unwrap_or_default()
+            } else {
+                call.arguments.clone()
+            }
+        })
+        .unwrap_or_default();
+    let field = |key: &str| {
+        arguments
+            .get(key)
+            .and_then(serde_json::Value::as_str)
+            .map(|v| v.chars().take(200).collect::<String>())
+    };
+    match name {
+        "web_fetch" => field("url").unwrap_or_else(|| "a web page".to_owned()),
+        "web_search" => field("query").map_or_else(
+            || "a web search".to_owned(),
+            |query| format!("a web search for \"{query}\""),
+        ),
+        "workspace_read" | "workspace_search" | "workspace_list" => {
+            field("path").filter(|path| !path.is_empty()).map_or_else(
+                || "a file in its workspace".to_owned(),
+                |path| format!("the file {path}"),
+            )
+        }
+        "shell" => field("command").map_or_else(
+            || "a command's output".to_owned(),
+            |command| format!("the output of `{command}`"),
+        ),
+        "skill_load" => field("name").map_or_else(
+            || "a skill's notes".to_owned(),
+            |skill| format!("its notes on {skill}"),
+        ),
+        _ => format!("the result of {name}"),
     }
 }
 

@@ -93,6 +93,15 @@ impl Engine {
         })
     }
 
+    /// The id of the agent whose conversation is `conversation`.
+    pub(crate) fn agent_of(&self, conversation: &str) -> Option<String> {
+        self.store
+            .agent_for_conversation(conversation)
+            .ok()
+            .flatten()
+            .map(|agent| agent.id)
+    }
+
     /// Creates a bot and its one conversation.
     pub fn create_agent(&self, input: AgentInput) -> Result<AgentView, AgentError> {
         let name = name(&input.name)?;

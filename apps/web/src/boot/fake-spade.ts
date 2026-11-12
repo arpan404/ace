@@ -81,7 +81,7 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     avatar: { kind: "generated", initials: "RN", color: "indigo" },
     last_activity: minutes(44),
   });
-  here.addAgent({
+  const garden = here.addAgent({
     id: "garden",
     name: "Garden",
     avatar: { kind: "generated", initials: "GA", color: "green" },
@@ -164,6 +164,61 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
   here.store(notes.conversation, { type: "user_message", text: "Draft the notes for v0.0.21." });
   here.store(notes.conversation, { type: "reply_started", reply: "r-notes" });
   here.status(notes, "working", "Reading the merged pull requests");
+
+  // Garden learned how the person waters, and keeps its log in its files (ADR 0130).
+  here.store(garden.conversation, {
+    type: "user_message",
+    text: "Water the tomatoes at 6 tonight",
+  });
+  here.store(garden.conversation, { type: "reply_started", reply: "r-garden" });
+  here.store(garden.conversation, {
+    type: "step_finished",
+    reply: "r-garden",
+    text: "",
+    calls: [{ id: "g-skill", name: "skill_propose" }],
+  });
+  here.store(garden.conversation, { type: "tool_started", reply: "r-garden", call_id: "g-skill" });
+  here.store(garden.conversation, {
+    type: "tool_finished",
+    reply: "r-garden",
+    call_id: "g-skill",
+    content: "Proposed.",
+  });
+  here.store(garden.conversation, {
+    type: "step_finished",
+    reply: "r-garden",
+    text: "Set for 6pm. I'll skip it if more than 5mm of rain falls first.",
+  });
+  here.store(garden.conversation, {
+    type: "reply_finished",
+    reply: "r-garden",
+    text: "Set for 6pm. I'll skip it if more than 5mm of rain falls first.",
+  });
+  here.proposals.set("garden", [
+    {
+      id: "sp_garden",
+      call_id: "g-skill",
+      name: "watering",
+      description: "Plan when to water the garden from the forecast",
+      body: "# Watering\n\n1. Read tomorrow's forecast.\n2. Skip watering after more than 5mm of rain.\n3. Water in the evening, never at midday.\n",
+      why: "You told me twice not to water after rain.",
+      base: {
+        id: "skl_watering",
+        hash: "a",
+        manual: false,
+        description: "Plan when to water the garden from the forecast",
+        body: "# Watering\n\n1. Read tomorrow's forecast.\n2. Water in the evening.\n",
+      },
+      state: "open",
+      created_at: minutes(60 * 20),
+    },
+  ]);
+  here.files.set("garden", {
+    "log/2026-11.md": "# November\n\n- 11th: watered 6pm, 4L\n- 12th: skipped, 7mm rain\n",
+    "log/2026-10.md": "# October\n\n- 30th: watered 6pm, 5L\n",
+    "beds.md": "# Beds\n\nTomatoes: south bed\nBasil: pots by the door\n",
+    "forecast.json": '{"tomorrow": {"rain_mm": 2}}',
+  });
 
   const remote = running(server);
   remote.addAgent({

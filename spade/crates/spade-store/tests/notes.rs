@@ -178,6 +178,7 @@ fn past_text_is_found_by_position_including_events_stored_after_an_earlier_searc
             is_error: false,
             uncertain: false,
             images: Vec::new(),
+            untrusted: false,
         }),
         2,
     )?;

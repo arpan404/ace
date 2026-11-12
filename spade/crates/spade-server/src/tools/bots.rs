@@ -22,6 +22,11 @@ impl EngineHandle {
     pub(crate) fn get(&self) -> Option<Arc<Engine>> {
         self.0.get().and_then(Weak::upgrade)
     }
+
+    /// The agent whose conversation made the call with `key`.
+    pub(crate) fn agent_for_key(&self, key: &str) -> Option<String> {
+        self.get()?.agent_of(caller(key))
+    }
 }
 
 /// The calling conversation, from the call's key (`<conversation>.<call>`).

@@ -374,6 +374,7 @@ mod tests {
 
         for id in ["c1", "c2"] {
             events.push(Event::Known(Known::ToolFinished {
+                untrusted: false,
                 reply: "r1".into(),
                 call_id: id.into(),
                 name: "send_email".into(),
