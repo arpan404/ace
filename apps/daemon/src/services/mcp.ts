@@ -162,6 +162,7 @@ export async function startMcp(context: ServiceContext): Promise<void> {
           return thread?.host === "spade-bot" ? thread.hostKey : undefined;
         },
         spade: () => services.spade?.ready()?.connection,
+        streamSeq: async (threadId) => services.spadeBrainSeq?.(threadId),
       }),
       // Commands on other paired machines; a local agent uses its own shell (ADR 0105).
       commandToolkit(async (caller, call, signal) => {

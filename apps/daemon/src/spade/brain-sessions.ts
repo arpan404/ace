@@ -30,6 +30,8 @@ export interface SpadeBrainsDeps {
         internalHandler: CommandHandler;
         /** The account a launch on `provider` uses when none is named: ace's default. */
         targetInstance(provider: ProviderKind): string;
+        /** Commits what providers reported so far. */
+        flush?(): Promise<void>;
       }
     | undefined;
   /** Spade's project, from its host thread; undefined while Spade is off. */
@@ -50,6 +52,19 @@ export class SpadeBrains {
   private readonly deps: SpadeBrainsDeps;
   constructor(deps: SpadeBrainsDeps) {
     this.deps = deps;
+  }
+
+  /** Each running turn's pump, by the bot's thread (see `streamSeq`). */
+  private readonly live = new Map<ThreadId, () => number>();
+
+  /**
+   * How many frames of the bot's running turn precede a call its CLI makes now: everything the
+   * session stored before the call is turned into frames first, so Spade can apply them (a web
+   * read that taints the turn) before it admits the call. Undefined with no turn running.
+   */
+  async streamSeq(threadId: ThreadId): Promise<number | undefined> {
+    await this.deps.engine()?.flush?.();
+    return this.live.get(threadId)?.();
   }
 
   /** What a bot can think with: installed, turned on and signed-in providers, per account. */
@@ -120,14 +135,14 @@ export class SpadeBrains {
         return;
       }
       const watch = new BrainWatch(root, request.provider);
-      emit({ type: "session", thread: threadId, fresh });
-      while (!watch.ended) {
-        if (signal.aborted) {
-          this.interrupt(engine.internalHandler, threadId);
-          return;
-        }
-        const event = queued.shift();
-        if (event) {
+      let sent = 0;
+      const send = (frame: SpadeBrainFrame) => {
+        sent++;
+        emit(frame);
+      };
+      // Turns every event stored so far into frames; returns how many frames went out.
+      const pump = () => {
+        for (let event = queued.shift(); event && !watch.ended; event = queued.shift()) {
           const frames = watch.next(event.payload);
           // A native prompt would wait in a thread nobody sees and hold every later turn: the
           // whole session tree stops before Spade hears why.
@@ -135,13 +150,27 @@ export class SpadeBrains {
             frames.some((frame) => frame.type === "failed" && frame.reason === "needs_permission")
           )
             this.interrupt(engine.internalHandler, threadId);
-          for (const frame of frames) emit(frame);
-          continue;
+          for (const frame of frames) send(frame);
         }
-        await new Promise<void>((resolve) => {
-          wake = resolve;
-        });
-        wake = undefined;
+        return sent;
+      };
+      send({ type: "session", thread: threadId, fresh });
+      this.live.set(threadId, pump);
+      try {
+        while (!watch.ended) {
+          if (signal.aborted) {
+            this.interrupt(engine.internalHandler, threadId);
+            return;
+          }
+          pump();
+          if (watch.ended) break;
+          await new Promise<void>((resolve) => {
+            wake = resolve;
+          });
+          wake = undefined;
+        }
+      } finally {
+        this.live.delete(threadId);
       }
     } finally {
       unsubscribe();

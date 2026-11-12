@@ -153,6 +153,14 @@ pub fn next_turn(events: &[Event]) -> Option<Turn> {
             _ => None,
         })
         .collect();
+    // A CLI turn is done only when its last step made no call (`step` stores calls as steps of
+    // their own while the turn goes on). One whose last step is a call was cut off mid-turn.
+    let mut parts = parts;
+    match cut_off(events) {
+        Some(Cut::StillOpen) => parts.insert(0, CUT_OFF.to_owned()),
+        Some(Cut::Ended) if !parts.is_empty() => parts.insert(0, ENDED_EARLY.to_owned()),
+        _ => {}
+    }
     if parts.is_empty() {
         return None;
     }
@@ -190,6 +198,44 @@ where
     on_cli.then_some(error.as_str())
 }
 
+/// What a resumed CLI turn is told when Spade paused or restarted in the middle of it.
+pub const CUT_OFF: &str = "[Your last turn was cut off before you finished (Spade paused or \
+restarted). A call you made may or may not have taken effect: check what is already done, then \
+carry on.]";
+
+/// What the next turn is told when the last one ended mid-turn (a stop, a crash).
+pub const ENDED_EARLY: &str = "[Your last turn ended before you finished (the person stopped it, \
+or Spade restarted). A call you made may or may not have taken effect.]";
+
+enum Cut {
+    /// The reply it belongs to is still open: it resumes.
+    StillOpen,
+    /// Its reply was closed (stopped, interrupted, failed).
+    Ended,
+}
+
+/// Whether the session's last turn stopped after a call instead of finishing.
+fn cut_off(events: &[Event]) -> Option<Cut> {
+    let at = events
+        .iter()
+        .rposition(|event| matches!(event, Event::Known(Known::StepFinished { .. })))?;
+    let Event::Known(Known::StepFinished { reply, calls, .. }) = &events[at] else {
+        return None;
+    };
+    if calls.is_empty() {
+        return None;
+    }
+    let closed = events[at..].iter().any(|event| {
+        matches!(event, Event::Known(
+            Known::ReplyFinished { reply: r, .. }
+            | Known::ReplyStopped { reply: r, .. }
+            | Known::ReplyFailed { reply: r, .. }
+            | Known::ReplyInterrupted { reply: r, .. }
+        ) if r == reply)
+    });
+    Some(if closed { Cut::Ended } else { Cut::StillOpen })
+}
+
 /// The standing instructions for a CLI bot: an endpoint bot's, plus how to reach its tools.
 pub fn instructions(events: &[Event]) -> String {
     context::instructions(&format!("{SYSTEM}\n\n{TOOLS_GUIDE}"), events)
@@ -198,7 +244,7 @@ pub fn instructions(events: &[Event]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::event::Tokens;
+    use crate::event::{Call, Tokens};
 
     #[test]
     fn subscription_models_name_a_known_provider_and_an_account_without_slashes() {
@@ -247,6 +293,47 @@ mod tests {
             task: task.into(),
             model: "cli:codex/m".into(),
         })
+    }
+
+    #[test]
+    fn a_turn_cut_off_after_a_call_resumes_with_a_note_and_is_never_taken_as_done() {
+        let call_step = Event::Known(Known::StepFinished {
+            reply: "r1".into(),
+            text: "Noting".into(),
+            calls: vec![Call {
+                id: "call_1".into(),
+                name: "note_down".into(),
+                arguments: serde_json::json!({}),
+            }],
+            thoughts: Vec::new(),
+            usage: Tokens::default(),
+            cost_micros: 0,
+            seen: Some(2),
+        });
+        let mut events = vec![
+            Event::user_message("Note milk"),
+            Event::reply_started("r1", "cli:codex/m"),
+            call_step,
+            Event::Known(Known::ToolFinished {
+                reply: "r1".into(),
+                call_id: "call_1".into(),
+                name: "note_down".into(),
+                content: "noted".into(),
+                is_error: false,
+                uncertain: false,
+                images: Vec::new(),
+                untrusted: false,
+            }),
+            Event::Known(Known::TurnPaused { reply: "r1".into() }),
+        ];
+        let resumed = next_turn(&events).map(|turn| turn.message);
+        assert_eq!(resumed.as_deref(), Some(CUT_OFF));
+        // Once its reply closed, the note goes with the next message only.
+        events.push(Event::reply_ended(crate::ReplyEnd::Stopped, "r1", ""));
+        assert_eq!(next_turn(&events), None);
+        events.push(Event::user_message("Again"));
+        let next = next_turn(&events).map(|turn| turn.message);
+        assert_eq!(next, Some(format!("{ENDED_EARLY}\n\nAgain")));
     }
 
     #[test]

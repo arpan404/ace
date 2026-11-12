@@ -85,22 +85,24 @@ export async function startSpade(context: ServiceContext): Promise<void> {
     stopAuth?.();
     auth.close();
   }, "spade grant");
+  const brains = new SpadeBrains({
+    store,
+    engine: () => services.engine,
+    project: () => host.current(),
+    roster: () => {
+      const thread = host.current();
+      const delegations = services.agentControl?.delegations;
+      if (!thread || !delegations) return undefined;
+      return delegations.models(
+        { sessionId: "spade:brains", threadId: thread.threadId, agentId: thread.agentId },
+        {},
+      );
+    },
+    id: context.id,
+  });
+  services.spadeBrainSeq = (threadId) => brains.streamSeq(threadId);
   services.spadeBrains = brainHttp({
-    brains: new SpadeBrains({
-      store,
-      engine: () => services.engine,
-      project: () => host.current(),
-      roster: () => {
-        const thread = host.current();
-        const delegations = services.agentControl?.delegations;
-        if (!thread || !delegations) return undefined;
-        return delegations.models(
-          { sessionId: "spade:brains", threadId: thread.threadId, agentId: thread.agentId },
-          {},
-        );
-      },
-      id: context.id,
-    }),
+    brains,
     verify: (bearer) => grants.verify(bearer) !== undefined,
   });
   if (!services.mcp) log.log("warn", "Spade's grant can't reach ace's tools: no MCP endpoint");

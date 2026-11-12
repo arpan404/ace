@@ -79,9 +79,14 @@ async fn mcp(State(state): State<AppState>, Path(agent): Path<String>, body: Str
                 .get("arguments")
                 .cloned()
                 .unwrap_or_else(|| json!({}));
+            // Which frame of the turn's answer the call follows (ace stamps it).
+            let after = rpc
+                .params
+                .pointer("/_meta/dev.acehq.spade~1seq")
+                .and_then(Value::as_u64);
             let Some(output) = state
                 .engine
-                .brain_call(&agent, name.to_owned(), arguments)
+                .brain_call(&agent, name.to_owned(), arguments, after)
                 .await
             else {
                 return problem(StatusCode::NOT_FOUND, "no such agent");

@@ -32,8 +32,45 @@ enum Act {
     Call(&'static str, Value),
     Finish,
     Fail(&'static str, &'static str),
+    /// Reads the web and, at the same moment, calls one of the bot's tools; the read's line
+    /// reaches Spade a little after the call does, as two connections may deliver.
+    ReadsTheWebAndCalls(&'static str, Value),
+    /// Writes back what the call `ReadsTheWebAndCalls` made returned.
+    Answer,
     /// Keeps the turn running until Spade lets go.
     Hang,
+}
+
+/// One of the bot's tools through Spade, as ace's `spade_call` forwards it: stamped with how many
+/// lines of the turn's answer came before it.
+async fn call_tool(spade: String, bot: String, name: &str, arguments: Value, after: u64) -> String {
+    let answer: Value = match reqwest::Client::new()
+        .post(format!("{spade}/v1/agents/{bot}/mcp"))
+        .bearer_auth(TOKEN)
+        .json(&json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                       "params": { "name": name, "arguments": arguments,
+                                   "_meta": { "dev.acehq.spade/seq": after } } }))
+        .send()
+        .await
+    {
+        Ok(response) => response.json().await.unwrap_or_default(),
+        Err(_) => Value::Null,
+    };
+    let text = answer["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or("?");
+    format!("[{name}: {text}]")
+}
+
+/// A turn's state while the fake streams it.
+struct Streaming {
+    acts: std::vec::IntoIter<Act>,
+    watch: Watch,
+    bot: String,
+    spade: String,
+    /// Lines sent so far.
+    sent: u64,
+    pending: Option<tokio::task::JoinHandle<String>>,
 }
 
 #[derive(Default)]
@@ -70,48 +107,58 @@ async fn turn(State(daemon): State<Arc<Daemon>>, body: String) -> Response {
         .unwrap_or_else(|| vec![Act::Finish]);
     let spade = daemon.spade.lock().map(|s| s.clone()).unwrap_or_default();
     let watch = Watch(daemon.clone(), false);
-    let lines = futures_util::stream::unfold(
-        (acts.into_iter(), watch, bot, spade),
-        |(mut acts, mut watch, bot, spade)| async move {
-            let line = match acts.next()? {
-                Act::Text(text) => json!({ "type": "text", "text": text }),
-                Act::ReadsTheWeb => json!({ "type": "read", "source": "the web" }),
-                Act::Call(name, arguments) => {
-                    let answer: Value = reqwest::Client::new()
-                        .post(format!("{spade}/v1/agents/{bot}/mcp"))
-                        .bearer_auth(TOKEN)
-                        .json(&json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                                       "params": { "name": name, "arguments": arguments } }))
-                        .send()
-                        .await
-                        .ok()?
-                        .json()
-                        .await
-                        .ok()?;
-                    let text = answer["result"]["content"][0]["text"]
-                        .as_str()
-                        .unwrap_or("?");
-                    json!({ "type": "text", "text": format!("[{name}: {text}]") })
-                }
-                Act::Finish => {
-                    watch.1 = true;
-                    json!({ "type": "finished", "usage": { "input": 12, "output": 3 } })
-                }
-                Act::Fail(reason, message) => {
-                    watch.1 = true;
-                    json!({ "type": "failed", "reason": reason, "message": message })
-                }
-                Act::Hang => {
-                    std::future::pending::<()>().await;
-                    return None;
-                }
-            };
-            Some((
-                Ok::<_, std::io::Error>(format!("{line}\n")),
-                (acts, watch, bot, spade),
-            ))
-        },
-    );
+    let state = Streaming {
+        acts: acts.into_iter(),
+        watch,
+        bot,
+        spade,
+        sent: 0,
+        pending: None,
+    };
+    let lines = futures_util::stream::unfold(state, |mut state| async move {
+        let line = match state.acts.next()? {
+            Act::Text(text) => json!({ "type": "text", "text": text }),
+            Act::ReadsTheWeb => json!({ "type": "read", "source": "the web" }),
+            Act::Call(name, arguments) => {
+                let text = call_tool(
+                    state.spade.clone(),
+                    state.bot.clone(),
+                    name,
+                    arguments,
+                    state.sent,
+                )
+                .await;
+                json!({ "type": "text", "text": text })
+            }
+            Act::ReadsTheWebAndCalls(name, arguments) => {
+                // The call follows the read line, which goes out only after the call is in.
+                let (spade, bot, after) = (state.spade.clone(), state.bot.clone(), state.sent + 1);
+                state.pending = Some(tokio::spawn(async move {
+                    call_tool(spade, bot, name, arguments, after).await
+                }));
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                json!({ "type": "read", "source": "the web" })
+            }
+            Act::Answer => {
+                let text = state.pending.take()?.await.ok()?;
+                json!({ "type": "text", "text": text })
+            }
+            Act::Finish => {
+                state.watch.1 = true;
+                json!({ "type": "finished", "usage": { "input": 12, "output": 3 } })
+            }
+            Act::Fail(reason, message) => {
+                state.watch.1 = true;
+                json!({ "type": "failed", "reason": reason, "message": message })
+            }
+            Act::Hang => {
+                std::future::pending::<()>().await;
+                return None;
+            }
+        };
+        state.sent += 1;
+        Some((Ok::<_, std::io::Error>(format!("{line}\n")), state))
+    });
     Response::new(Body::from_stream(lines))
 }
 
@@ -396,5 +443,77 @@ async fn ace_being_away_fails_the_turn_with_one_line() -> Result {
         failed.map(|e| e["error"].clone()),
         Some(json!("Spade has no grant for ace yet"))
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_call_made_right_after_a_web_read_waits_for_that_read_and_asks() -> Result {
+    let note = FakeTool::new("note_down", Risk::Memory, "noted");
+    let notes = note.calls();
+    let (spade, _daemon, _) = start(
+        vec![Arc::new(note)],
+        vec![vec![
+            Act::ReadsTheWebAndCalls("note_down", json!({ "text": "from a page" })),
+            Act::Answer,
+            Act::Finish,
+        ]],
+    )
+    .await?;
+    let (_, chat) = cli_bot(&spade, "").await?;
+    spade.say(&chat, "Note what that page says").await?;
+    // The note was made after the read, so it asks, though the read's line came in later.
+    let events = spade.wait_for(&chat, "approval_requested").await?;
+    let asked = events.iter().find(|e| e["type"] == "approval_requested");
+    assert_eq!(asked.map(|e| e["name"].clone()), Some(json!("note_down")));
+    assert_eq!(notes.lock().map(|n| n.len()).unwrap_or(0), 0);
+    let call = asked
+        .and_then(|e| e["call_id"].as_str())
+        .unwrap_or_default()
+        .to_owned();
+    spade
+        .post(
+            &format!("/v1/conversations/{chat}/approvals/{call}"),
+            json!({ "allowed": true }),
+        )
+        .await?;
+    let events = spade.wait_for(&chat, "reply_finished").await?;
+    assert_eq!(finished_text(&events), ["[note_down: noted]"]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_turn_paused_after_a_call_resumes_on_the_cli_and_is_never_recorded_as_done() -> Result {
+    let note = FakeTool::new("note_down", Risk::Memory, "noted");
+    let (spade, daemon, url) = start(
+        vec![Arc::new(note)],
+        vec![
+            vec![Act::Call("note_down", json!({ "text": "milk" })), Act::Hang],
+            vec![Act::Text("Done."), Act::Finish],
+        ],
+    )
+    .await?;
+    let (_, chat) = cli_bot(&spade, "").await?;
+    spade.say(&chat, "Note milk, then tidy up").await?;
+    spade.wait_for(&chat, "tool_finished").await?;
+    // Spade stops for an update in the middle of the CLI's turn, and starts again.
+    spade.engine.pause_for_stop(Duration::from_millis(50)).await;
+    let tools = ToolsConfig::new(
+        LoopbackUrl::parse(&url)?,
+        Secret::new("grant"),
+        Duration::from_secs(30),
+    )?;
+    let options = Options {
+        cap_usd: 0.0,
+        brains: Some(Arc::new(move || Ok(AceBrains::new(&tools)))),
+        ..Options::default()
+    };
+    let spade = spade.restart_with(Vec::new(), Vec::new(), options).await?;
+    *daemon.spade.lock().map_err(|e| e.to_string())? = spade.base.clone();
+    let events = spade.wait_for(&chat, "reply_finished").await?;
+    assert_eq!(finished_text(&events), ["Done."]);
+    let sent = requests(&daemon);
+    assert_eq!(sent.len(), 2, "the cut turn went back to the CLI");
+    let resumed = sent[1]["message"].as_str().unwrap_or_default();
+    assert!(resumed.contains("cut off"), "{resumed}");
     Ok(())
 }

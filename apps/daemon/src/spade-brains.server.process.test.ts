@@ -230,6 +230,9 @@ test("subscriptions list the providers this daemon has installed and signed in, 
       });
       expect(JSON.stringify(called.structuredContent)).toContain("b1 ran");
       expect(JSON.stringify(called.structuredContent)).toContain("milk");
+      // Stamped with how many frames of the running turn came before it, so Spade applies
+      // them (a web read) before admitting the call.
+      expect(JSON.stringify(called.structuredContent)).toMatch(/dev\.acehq\.spade\/seq\\?":\d+/);
     } finally {
       await client.close();
     }

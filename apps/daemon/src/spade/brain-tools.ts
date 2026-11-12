@@ -15,7 +15,12 @@ export interface BrainToolsOptions {
   botOf(threadId: ThreadId): string | undefined;
   /** Spade's API, while it answers. */
   spade(): SpadeConnection | undefined;
+  /** How many frames of the bot's running turn precede a call made now (see `SpadeBrains`). */
+  streamSeq(threadId: ThreadId): Promise<number | undefined>;
 }
+
+/** The `_meta` key telling Spade which frame of the turn's answer a call follows. */
+export const streamSeqKey = "dev.acehq.spade/seq";
 
 /**
  * `spade_tools` and `spade_call`, offered only in a Spade bot's hidden session (the MCP service
@@ -75,13 +80,19 @@ export function spadeBrainToolkit(options: BrainToolsOptions): Toolkit {
         input: SpadeToolCallInput,
         output: answer,
         failed: (result) => result.isError,
-        run: (input, { caller, signal }) =>
-          forward(
+        run: async (input, { caller, signal }) => {
+          const seq = await options.streamSeq(caller.threadId);
+          return forward(
             caller.threadId,
             "tools/call",
-            { name: input.tool, arguments: input.arguments },
+            {
+              name: input.tool,
+              arguments: input.arguments,
+              ...(seq === undefined ? {} : { _meta: { [streamSeqKey]: seq } }),
+            },
             signal,
-          ),
+          );
+        },
       });
     },
   };

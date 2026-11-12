@@ -32,6 +32,9 @@ pub type BrainSource = Arc<dyn Fn() -> Result<AceBrains, String> + Send + Sync>;
 pub(crate) struct BrainCall {
     name: String,
     arguments: Value,
+    /// How many frames of the turn's answer the daemon sent before the CLI made this call. It is
+    /// admitted only once Spade has applied them all, so a web read before it taints it.
+    after: u64,
     answer: oneshot::Sender<ToolOutput>,
 }
 
@@ -90,6 +93,7 @@ impl Engine {
         agent: &str,
         name: String,
         arguments: Value,
+        after: Option<u64>,
     ) -> Option<ToolOutput> {
         let conversation = self.store.agent(agent).ok()??.conversation;
         let sender = self
@@ -109,6 +113,7 @@ impl Engine {
             .send(BrainCall {
                 name,
                 arguments,
+                after: after.unwrap_or(0),
                 answer,
             })
             .await
@@ -212,7 +217,23 @@ pub(super) async fn step(
         Err(_) => return Step::Failed(String::new(), ACE_AWAY.to_owned()),
     };
     let mut text = String::new();
+    // Frames read so far, and calls waiting for the frames sent before them.
+    let mut read: u64 = 0;
+    let mut held: std::collections::VecDeque<BrainCall> = std::collections::VecDeque::new();
     loop {
+        // Every call whose preceding frames are all applied runs now, oldest first.
+        while held.front().is_some_and(|call| call.after <= read) {
+            let Some(call) = held.pop_front() else { break };
+            let shown = std::mem::take(&mut text);
+            match answer_call(engine, id, reply, call, shown, turn.seen, stop, pause).await {
+                Handled::Continue => {
+                    engine.set_status(id, Some(super::roster::THINKING.to_owned()));
+                }
+                Handled::Stopped => return Step::Stopped(String::new()),
+                Handled::Paused => return Step::Paused,
+                Handled::Failed(error) => return Step::Failed(String::new(), error),
+            }
+        }
         tokio::select! {
             changed = stop.changed() => {
                 if changed.is_err() || *stop.borrow() {
@@ -223,18 +244,15 @@ pub(super) async fn step(
             // sent again when the turn resumes.
             _ = pausing(pause, Point::Streaming) => return Step::Paused,
             call = calls.recv() => {
-                let Some(call) = call else { continue };
-                let shown = std::mem::take(&mut text);
-                match answer_call(engine, id, reply, call, shown, turn.seen, stop, pause).await {
-                    Handled::Continue => {
-                        engine.set_status(id, Some(super::roster::THINKING.to_owned()));
-                    }
-                    Handled::Stopped => return Step::Stopped(String::new()),
-                    Handled::Paused => return Step::Paused,
-                    Handled::Failed(error) => return Step::Failed(String::new(), error),
+                if let Some(call) = call {
+                    held.push_back(call);
                 }
             }
-            next = stream.next() => match next {
+            next = stream.next() => {
+                if matches!(next, Some(Ok(_))) {
+                    read += 1;
+                }
+                match next {
                 Some(Ok(Frame::Text { text: piece })) => {
                     text.push_str(&piece);
                     let mut current = live.current.lock().unwrap_or_else(|p| p.into_inner());
@@ -276,6 +294,7 @@ pub(super) async fn step(
                     return Step::Failed(text, "ace stopped answering before the turn ended.".to_owned());
                 }
                 Some(Err(error)) => return Step::Failed(text, error.to_string()),
+                }
             }
         }
     }

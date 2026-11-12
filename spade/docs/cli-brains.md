@@ -46,27 +46,40 @@ Spade's grant as the bearer:
 
 - **One session per bot.** The daemon keeps one hidden thread per bot (`host: "spade-bot"`) in
   Spade's project and resumes its provider session every turn, so the CLI keeps its own context.
-  A new provider or account starts a new thread; a new model switches the same thread. The thread
-  runs read-only in Spade's workspace folder and no client can send to it.
+  A new provider or account starts a new thread (a turn naming no account uses the account ace
+  launches on now, and reuses the session only if it is that one); a new model switches the same
+  thread. The thread runs read-only in Spade's workspace folder. Spade owns its lifecycle: the
+  socket refuses every client command naming it, no caller (its own agent included) can change
+  its access or mode, and ace's recovery never holds, resumes, replays or moves it to another
+  account (after a daemon restart its pending turn is dropped; Spade sends the next one).
 - **What is sent.** The message is everything since the last step's `seen` that the person,
   another bot, a routine or a finished job sent, framed as for an endpoint model (`<context>`,
   `<bot_message>`, `<job_result>`); an answer to `ask_user` is left out (the CLI got it as the
-  call's result). Images are described, not shown. The daemon puts the instructions before the
+  call's result). If the session's last turn stopped after a call instead of finishing (Spade
+  paused or restarted mid-turn), the turn resumes with a note saying it was cut off and that the
+  call may or may not have taken effect; such a turn is never recorded as done with nothing in it.
+  Images are described, not shown. The daemon puts the instructions before the
   message on a session's first turn and whenever `instructionsChanged` is true (they differ from
   the ones the last turn was built from: a new task, a new notes index).
 - **The answer** is JSON lines, ended by `finished` or `failed`:
 
-  | Line                                         | Meaning                                                             |
-  | -------------------------------------------- | ------------------------------------------------------------------- |
-  | `{"type":"session","thread","fresh"}`        | The bot's hidden thread; `fresh` when this turn started it          |
-  | `{"type":"text","text"}`                     | Reply text, streamed into the reply like a model's                  |
-  | `{"type":"status","status"}`                 | A few words for the bot's status line; `null` is "Thinking"         |
-  | `{"type":"read","source"}`                   | The CLI read outside text with its own tools ("the web"), once each |
-  | `{"type":"finished","usage":{input,output}}` | The turn ended; counts are stored on the step with no cost          |
-  | `{"type":"failed","reason","message"}`       | One line to show; `reason` as below                                 |
+  | Line                                         | Meaning                                                                             |
+  | -------------------------------------------- | ----------------------------------------------------------------------------------- |
+  | `{"type":"session","thread","fresh"}`        | The bot's hidden thread; `fresh` when this turn started it                          |
+  | `{"type":"text","text"}`                     | Reply text, streamed into the reply like a model's                                  |
+  | `{"type":"status","status"}`                 | A few words for the bot's status line; `null` is "Thinking"                         |
+  | `{"type":"read","source"}`                   | A tool of the session's (any agent's) may have let outside text in, once per source |
+  | `{"type":"finished","usage":{input,output}}` | The turn ended; counts are stored on the step with no cost                          |
+  | `{"type":"failed","reason","message"}`       | One line to show; `reason` as below                                                 |
 
   Unknown line types are skipped.
 
+- **Taint fails closed.** Every native tool call in the session counts as outside text unless it
+  is known to return none: the agent's to-do list or plan, ace's tools that return only ace's
+  state (`machines`, `models`, `projects_find`, `automations_list`) and the bridge below. File
+  reads, searches, shell output and custom tools all taint the turn.
+- **A native permission prompt** (which nobody would see) interrupts the whole session tree, then
+  the turn fails with `needs_permission`.
 - **Stop, pause and restart.** Spade closing the request interrupts the CLI's turn: Stop closes
   the reply as stopped; a pause for an update or a stop of Spade sends the same turn again when it
   resumes; a turn cut off by a crash closes as interrupted. Messages that arrive while the CLI
@@ -86,7 +99,12 @@ In a bot's session, ace's MCP endpoint offers two tools no other session gets:
 
 The daemon forwards both with Spade's token to the bot's MCP server in Spade,
 `POST /v1/agents/{id}/mcp`, which answers JSON-RPC `initialize`, `tools/list` (`params.query`
-optional) and `tools/call` (`params.name`, `params.arguments`), one JSON answer each.
+optional) and `tools/call` (`params.name`, `params.arguments`), one JSON answer each. ace stamps
+each `tools/call` with `params._meta["dev.acehq.spade/seq"]`: how many lines of the running turn's
+answer precede the call (ace first commits and turns into lines everything the session reported).
+Spade admits the call only once it has applied that many lines, so a `read` the CLI made just
+before the call taints it even when the call arrives first. Sessions whose native mode keeps only
+read-only tools (Pi) still offer the two bridge tools, which ace lists only in a bot's session.
 
 A call is stored as a step of the open reply (with the text the CLI wrote before it) and goes
 through the same gate as an endpoint model's call: reads run, notes run unless the turn is
