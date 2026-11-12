@@ -258,7 +258,26 @@ export function accountNode(machine: MapAccountInput, now: number): MapNode {
   };
 }
 
-export function deviceNode(device: MapDeviceInput, input: FleetMapInput, names: NameOf): MapNode {
+/** The machine a device is judged against, as its sentences name it. */
+export interface DevicePlace {
+  /** "this computer", or a machine's name. */
+  name: string;
+  /** "here", or "on studio". */
+  here: string;
+}
+
+const thisComputer: DevicePlace = { name: "this computer", here: "here" };
+
+/**
+ * A paired device, judged against `input.own`: the web's own computer, or for a client with no
+ * computer of its own (the phone) the machine it reaches the device through, named by `place`.
+ */
+export function deviceNode(
+  device: MapDeviceInput,
+  input: FleetMapInput,
+  names: NameOf,
+  place: DevicePlace = thisComputer,
+): MapNode {
   const ownId = input.own.id;
   const opens =
     device.on.length > 1 && device.on.length === input.machines.length + 1
@@ -320,8 +339,8 @@ export function deviceNode(device: MapDeviceInput, input: FleetMapInput, names: 
       wire: { from: "own", kind: "broken", relayed: false, label: "remote access off" },
       lines: [{ label: "Reached", value: "Nothing, remote access is off" }, ...lines],
       problem: {
-        what: `${device.name} can't reach this computer: remote access is off.`,
-        why: "With remote access off, only this computer can open it.",
+        what: `${device.name} can't reach ${place.name}: remote access is off.`,
+        why: `With remote access off, only ${place.name} can open it.`,
         fixes: ["turnOnRemote"],
       },
     };
@@ -366,8 +385,8 @@ export function deviceNode(device: MapDeviceInput, input: FleetMapInput, names: 
     wire: { from: "own", kind: "broken", relayed: false, label: "local network off" },
     lines: [{ label: "Reached", value: "Local network, Tailscale or a relay" }, ...lines],
     problem: {
-      what: `${device.name} was paired with a code, and the networks paired devices use are off here.`,
-      why: "Paired devices reach this computer over the local network, Tailscale or your relay. Signing in on it reaches every machine from anywhere.",
+      what: `${device.name} was paired with a code, and the networks paired devices use are off ${place.here}.`,
+      why: `Paired devices reach ${place.name} over the local network, Tailscale or your relay. Signing in on it reaches every machine from anywhere.`,
       fixes: ["turnOnLan", "askSignIn"],
     },
   };
