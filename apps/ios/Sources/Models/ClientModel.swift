@@ -534,6 +534,14 @@ import QuartzCore
                     added = []
                     continue
                 }
+                // A newer pass before the open's first fence: the bridge's ledger sends it only what
+                // changed since the rows already staged, so the staging carries on under its
+                // revision. Restaging empty would lose those rows and fail every fence after.
+                if let thread, thread.id == id, thread.epoch == epoch, thread.refresh != nil {
+                    thread.refreshRevision = revision
+                    thread.refreshBefore = before
+                    continue
+                }
                 guard let target = scoped(id, epoch) else { continue }
                 moving(target)
                 target.beginSnapshot(revision: revision, warm: true, before: before)
