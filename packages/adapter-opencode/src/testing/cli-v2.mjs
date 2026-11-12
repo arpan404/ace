@@ -410,7 +410,11 @@ const server = createServer(async (req, res) => {
   if (path === "/test/events") {
     for (const event of body) {
       if (event.raw) for (const stream of streams) stream.write(event.raw);
-      else publish(event.type, event.data, event.directory ?? "/one", event.extra ?? {});
+      else {
+        // A rebuilt location loses runtime MCP servers, as OpenCode 2.2.6 does on eviction.
+        if (event.type === "location.shutdown") nativeMcp.clear();
+        publish(event.type, event.data, event.directory ?? "/one", event.extra ?? {});
+      }
     }
     json(true);
     return;

@@ -352,7 +352,10 @@ user MCP servers are preserved; an `ace` name collision fails admission. Within 
 session, calls for the same location share one set-up, so ace's server is added once even
 when a send and an interaction answer arrive together, and pending set-ups count toward the
 128-location limit. Once ace added its own server, a failed connect or readiness check is
-retried on the next send by connecting again, never by adding it again.
+retried on the next send by connecting again, never by adding it again. OpenCode drops runtime
+MCP servers when it rebuilds a location (`location.shutdown`), so ace then forgets that
+location and adds its server again through the collision check; work begun before the
+rebuild records nothing.
 
 ACP HTTP headers travel in its native session RPC as an array of name/value pairs.
 For providers that advertise only stdio, ACP has no portable private-header

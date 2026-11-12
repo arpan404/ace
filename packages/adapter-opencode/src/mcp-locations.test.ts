@@ -15,7 +15,7 @@ function opencode(
   options: {
     own?: string[];
     connect?: () => void;
-    readiness?: () => unknown;
+    readiness?: () => unknown | Promise<unknown>;
   } = {},
 ) {
   const servers = new Map<string, Set<string>>();
@@ -46,14 +46,21 @@ function opencode(
     },
     rpc: () => ({
       async ready() {
-        const reply = options.readiness?.() ?? ready;
+        const reply = (await options.readiness?.()) ?? ready;
         if (typeof reply === "object" && reply && "type" in reply) throw reply;
         return reply;
       },
     }),
   };
   // Only the MCP and readiness RPC routes are reachable from AceMcpLocations.
-  return { client: client as unknown as OpenCodeClient, adds: () => adds };
+  return {
+    client: client as unknown as OpenCodeClient,
+    adds: () => adds,
+    /** OpenCode's location.shutdown: runtime MCP servers are gone (2.2.6 eviction). */
+    rebuild: (directory: string) => servers.delete(directory),
+    /** The person's own server named ace, from their configuration. */
+    own: (directory: string) => servers.set(directory, new Set(["ace"])),
+  };
 }
 /** Pauses run at once and advance the clock by their length. */
 function stepped() {
@@ -150,4 +157,63 @@ test("new locations set up together cannot pass the 128-location limit", async (
     { status: "rejected", reason: new Error("OpenCode MCP location limit exceeded") },
     { status: "rejected", reason: new Error("OpenCode MCP location limit exceeded") },
   ]);
+});
+
+test("after OpenCode rebuilds a location, the next send adds ace's server there again", async () => {
+  const fake = opencode();
+  const { subject } = locations(fake);
+  await subject.admit("/one");
+  fake.rebuild("/one");
+  subject.forget("/one");
+  await subject.admit("/one");
+  expect(fake.adds()).toBe(2);
+});
+
+test("a server ace added but never connected is added again after a rebuild, not connected blind", async () => {
+  let connects = 0;
+  const fake = opencode({
+    connect() {
+      if (++connects === 1) throw new Error("connect timed out");
+    },
+  });
+  const { subject } = locations(fake);
+  await expect(subject.ensure("/one")).rejects.toThrow("connect timed out");
+  fake.rebuild("/one");
+  subject.forget("/one");
+  await subject.admit("/one");
+  expect(fake.adds()).toBe(2);
+});
+
+test("a server the person named ace that appears after a rebuild is refused, not taken for ace's", async () => {
+  const fake = opencode({
+    connect() {
+      throw new Error("connect timed out");
+    },
+  });
+  const { subject } = locations(fake);
+  await expect(subject.ensure("/one")).rejects.toThrow("connect timed out");
+  fake.rebuild("/one");
+  fake.own("/one");
+  subject.forget("/one");
+  await expect(subject.admit("/one")).rejects.toThrow("OpenCode MCP server name collision: ace");
+});
+
+test("a set-up still running when the location is rebuilt records nothing, and the send sets ace up again", async () => {
+  const held = Promise.withResolvers<void>();
+  let checks = 0;
+  // The first readiness answer waits until the rebuild has happened.
+  const fake = opencode({
+    async readiness() {
+      if (++checks === 1) await held.promise;
+      return ready;
+    },
+  });
+  const { subject } = locations(fake);
+  const sending = subject.admit("/one");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  fake.rebuild("/one");
+  subject.forget("/one");
+  held.resolve();
+  await sending;
+  expect(fake.adds()).toBe(2);
 });

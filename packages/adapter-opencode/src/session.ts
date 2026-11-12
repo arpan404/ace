@@ -305,6 +305,8 @@ export class OpenCodeSession implements ProviderSession {
       p = e.data;
     this.catalog.changed(e.type);
     if (e.type === "location.shutdown" && e.location) {
+      // OpenCode's rebuilt location no longer has ace's runtime MCP server.
+      this.aceLocations?.forget(e.location.directory);
       const owners = this.ownership.atLocation(e.location.directory);
       for (const [key, pending] of this.pending)
         if (owners.has(pending.session)) this.pending.delete(key);
