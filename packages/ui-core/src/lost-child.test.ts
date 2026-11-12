@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import { Interaction } from "@ace/protocol";
-import { lostChildAsk, lostChildOf } from "./lost-child.ts";
+import { approvalCopy } from "./approval-copy.ts";
+import { lostChildAsk, lostChildCopy, lostChildOf } from "./lost-child.ts";
 
 const ask = (changes: Partial<Interaction>): Interaction =>
   Interaction.parse({
@@ -56,4 +57,17 @@ it.each([
   ],
 ])("a request %s offers no Stop tracking", (_, interaction) => {
   expect(lostChildAsk(interaction)).toBeUndefined();
+});
+
+it("the parent's approval answers a lost child with Stop tracking, never Deny", () => {
+  const interaction = ask({});
+  const lost = lostChildAsk(interaction);
+  if (!lost || interaction.request.kind !== "approval") throw new Error("a lost child's request");
+  const plain = approvalCopy(interaction.request);
+  expect(plain.decisions.map((decision) => decision.label)).toEqual(["Deny"]);
+  const copy = lostChildCopy(plain, lost);
+  expect(copy.decisions.map((decision) => [decision.label, decision.option.id])).toEqual([
+    ["Stop tracking", "stop-tracking"],
+  ]);
+  expect(copy.title).toBe(plain.title);
 });

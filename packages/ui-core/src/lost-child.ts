@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Interaction } from "@ace/protocol";
+import type { ApprovalCopy } from "./approval-copy.ts";
 
 const About = z.object({ threadId: z.string() });
 
@@ -47,5 +48,18 @@ export function lostChildAsk(interaction: Interaction): LostChildAsk | undefined
     action: "Stop tracking",
     label: option.label,
     optionId: option.id,
+  };
+}
+
+/**
+ * The parent's approval about a lost child, worded as its row: the verb that answers it reads
+ * Stop tracking, never Deny, since it stops tracking work that may still be running.
+ */
+export function lostChildCopy(copy: ApprovalCopy, ask: LostChildAsk): ApprovalCopy {
+  return {
+    ...copy,
+    decisions: copy.decisions.map((decision) =>
+      decision.option.id === ask.optionId ? { ...decision, label: ask.action } : decision,
+    ),
   };
 }
