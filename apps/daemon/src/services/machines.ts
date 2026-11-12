@@ -178,6 +178,7 @@ export function startMachines(context: ServiceContext): void {
     guests,
     grants,
     commandJobs: (session, jobIds) => commands.states(session, jobIds),
+    spade: () => services.spade?.ready()?.connection,
     hosts: {
       devices,
       screen,
