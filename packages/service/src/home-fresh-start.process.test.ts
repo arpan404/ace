@@ -202,3 +202,14 @@ test("a crashed old daemon's leftover lock does not block the fresh start", asyn
   expect(prepareDaemonHome(resolveDaemonHome(home), ports())).toMatchObject({ state: "fresh" });
   expect(await readFile(join(home, ".ace-v0", "daemon-lock"), "utf8")).toContain("old");
 });
+
+test("a home containing only features.json keeps its flags on first start", async () => {
+  const parent = await userHome();
+  const root = join(parent, ".ace");
+  await mkdir(root);
+  await writeFile(join(root, "features.json"), '{"spade":true}');
+  expect(prepareDaemonHome(root, ports())).toEqual({ state: "created", root });
+  expect(await readFile(join(root, "features.json"), "utf8")).toBe('{"spade":true}');
+  expect(await readdir(parent)).toEqual([".ace"]);
+  expect(await marker(root)).toEqual({ format: "ace-v1", createdAt: at.toISOString() });
+});
