@@ -58,6 +58,19 @@ export interface RecordedFrame {
   wire: string;
 }
 
+const wire = (frames: readonly Frame[]): RecordedFrame[] =>
+  frames.map((frame) => ({
+    t: frame.t,
+    dir: frame.dir,
+    channel: frame.channel,
+    wire: JSON.stringify(frame.data),
+  }));
+
+/**
+ * One replay session per recorded stream. A Cursor SDK capture can hold independent threads
+ * (portable-fork holds a source and its fork); each is its own session with its own translator,
+ * named `<fixture>#<thread>`, as a live daemon runs them.
+ */
 export async function recordedSessions(
   provider: ReplayProvider,
 ): Promise<{ name: string; frames: RecordedFrame[] }[]> {
@@ -67,15 +80,18 @@ export async function recordedSessions(
   const sessions = [];
   for (const name of names) {
     const fixture = await readFixture(`${provider.directory}${name}`);
-    sessions.push({
-      name,
-      frames: fixture.frames.map((frame) => ({
-        t: frame.t,
-        dir: frame.dir,
-        channel: frame.channel,
-        wire: JSON.stringify(frame.data),
-      })),
-    });
+    const threads = Object.entries(fixture.threads ?? {}).toSorted(([a], [b]) =>
+      a.localeCompare(b),
+    );
+    if (!threads.length) {
+      sessions.push({ name, frames: wire(fixture.frames) });
+      continue;
+    }
+    const split = threads.reduce((total, [, frames]) => total + frames.length, 0);
+    if (split !== fixture.frames.length)
+      throw new Error(`${name}: ${fixture.frames.length - split} frames belong to no thread`);
+    for (const [threadId, frames] of threads)
+      sessions.push({ name: `${name}#${threadId}`, frames: wire(frames) });
   }
   return sessions;
 }
