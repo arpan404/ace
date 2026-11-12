@@ -2,8 +2,10 @@ import { z } from "zod";
 import type { AutomationRun } from "@ace/protocol";
 import {
   batchRunAlerts,
+  batchRunAlertsBeyond,
   finishedSince,
   historyPollMs,
+  runAlertsShown,
   runAlertTitle,
   runStatusLine,
 } from "@ace/ui-core/automations";
@@ -28,7 +30,7 @@ export interface RunAlert {
   automationId: string | null;
 }
 
-/** At most this many inbox pages are read back to the cutoff in one go. */
+/** At most this many inbox pages (of 50) are read in one go; past them the rest are counted as "+". */
 const maxPages = 20;
 
 type Schedule = (delayMs: number, run: () => void) => () => void;
@@ -51,12 +53,12 @@ export interface InboxReply {
 /** What one go read: the runs back to the cutoff, and whether it got that far. */
 interface Reading {
   runs: AutomationRun[];
-  /** Every run that could have finished since the cutoff is in `runs`. */
-  complete: boolean;
+  /** The inbox had more than one read takes in: older runs it didn't read may have finished too. */
+  beyond: boolean;
 }
 
 export class RunWatch {
-  readonly #read: (before?: number) => Promise<InboxReply>;
+  readonly #read: (before?: number, finishedAfter?: number) => Promise<InboxReply>;
   readonly #schedule: Schedule;
   readonly #now: () => number;
   readonly #say: (alert: RunAlert) => void;
@@ -75,8 +77,11 @@ export class RunWatch {
   #run = 0;
 
   constructor(
-    /** Reads an inbox page; a refusal or a rejection is a failed read, which changes nothing. */
-    read: (before?: number) => Promise<InboxReply>,
+    /**
+     * Reads an inbox page from `before`, without runs that finished by `finishedAfter`; a refusal
+     * or a rejection is a failed read, which changes nothing.
+     */
+    read: (before?: number, finishedAfter?: number) => Promise<InboxReply>,
     schedule: Schedule,
     now: () => number,
     say: (alert: RunAlert) => void,
@@ -145,15 +150,17 @@ export class RunWatch {
 
   /**
    * One reading: each run that finished since the cutoff is said once, the newest few by name and
-   * the rest counted in one summary. The cutoff moves past them only when the reading reached it.
+   * the rest counted in one summary ("at least" so many when the reading couldn't take in every
+   * page). Every finish is then said or counted, so the cutoff moves past them.
    */
-  #see({ runs, complete }: Reading): void {
+  #see({ runs, beyond }: Reading): void {
     // Only runs still in the inbox can come back; forget the rest.
     const listed = new Set(runs.map((run) => run.id));
     for (const id of this.#said) if (!listed.has(id)) this.#said.delete(id);
     const news = finishedSince(runs, this.#since ?? this.#now(), this.#said);
     for (const run of news) this.#said.add(run.id);
-    const batch = batchRunAlerts(news);
+    const batch =
+      beyond && news.length > runAlertsShown ? batchRunAlertsBeyond(news) : batchRunAlerts(news);
     for (const run of batch.shown)
       this.#say({
         key: run.id,
@@ -175,7 +182,6 @@ export class RunWatch {
         automationId: null,
       });
     }
-    if (!complete) return;
     // Every finish since the cutoff is said or counted: carry on from the latest, on the machine's clock.
     const latest = Math.max(...runs.map((run) => run.finishedAt ?? Number.NEGATIVE_INFINITY));
     if (this.#since !== undefined && latest > this.#since) {
@@ -185,23 +191,24 @@ export class RunWatch {
   }
 
   /**
-   * The inbox back to the cutoff, a page at a time: it ends at a page holding a run started by
-   * then, or at the inbox's end. Undefined when any page reads nothing, so nothing changes.
+   * Every run that finished since the cutoff, or is still going, a page at a time to the inbox's
+   * end: the daemon leaves out runs that finished by the cutoff, so a long run that started early
+   * and finished late is found however old its start. A daemon without that filter lists every
+   * run, and is read to its end too. Undefined when any page reads nothing, so nothing changes.
    */
   async #collect(): Promise<Reading | undefined> {
     const runs: AutomationRun[] = [];
+    const since = this.#since ?? this.#now();
     let before: number | undefined;
     for (let page = 0; page < maxPages; page++) {
-      const reply = await this.#read(before).catch(() => undefined);
+      const reply = await this.#read(before, since).catch(() => undefined);
       if (!reply?.ok || !reply.inbox) return undefined;
       runs.push(...reply.inbox.runs);
-      const since = this.#since ?? this.#now();
       const next = reply.inbox.before ?? null;
-      if (next === null || reply.inbox.runs.some((run) => run.startedAt <= since))
-        return { runs, complete: true };
+      if (next === null) return { runs, beyond: false };
       before = next;
     }
-    return { runs, complete: false };
+    return { runs, beyond: true };
   }
 
   async #tick(run: number): Promise<void> {

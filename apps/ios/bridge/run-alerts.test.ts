@@ -20,8 +20,9 @@ function run(id: string, patch: Partial<AutomationRun> = {}): AutomationRun {
   };
 }
 
+/** Lets every queued read finish, a page at a time, up to twenty pages. */
 async function settle() {
-  for (let i = 0; i < 8; i++) await Promise.resolve();
+  for (let i = 0; i < 200; i++) await Promise.resolve();
 }
 
 /** This machine's kept value on the phone, as the host keeps it; its first `failLoads` reads fail. */
@@ -46,19 +47,30 @@ function memoryKept(failLoads = 0, initial?: unknown): KeptValue & { readonly va
 type Read = AutomationRun[] | "refused" | "lost";
 
 /** A watch on the phone; `kept` is what it keeps between launches, `at` when this launch began. */
-function watch(inbox: (at: number) => Read, options: { kept?: KeptValue; at?: number } = {}) {
+function watch(
+  inbox: (at: number) => Read,
+  options: { kept?: KeptValue; at?: number; oldDaemon?: boolean } = {},
+) {
   let now = options.at ?? start;
   const timers: { at: number; run: () => void }[] = [];
   const said: RunAlert[] = [];
   const runs = new RunWatch(
     // The machine's inbox, newest first, a page of 50 at a time back from `before`, as it pages.
-    async (before) => {
+    // `finishedAfter` leaves out runs that finished by then, as the daemon does; an old one ignores it.
+    async (before, finishedAfter) => {
       const read = inbox(now);
       if (read === "lost") throw new Error("socket closed");
       if (read === "refused") return { ok: false, error: "unavailable" };
       const rows = read
         .map((entry, index) => ({ entry, seq: index + 1 }))
         .filter((row) => before === undefined || row.seq < before)
+        .filter(
+          ({ entry }) =>
+            options.oldDaemon ||
+            finishedAfter === undefined ||
+            entry.finishedAt === undefined ||
+            entry.finishedAt > finishedAfter,
+        )
         .toReversed();
       const page = rows.slice(0, 50);
       return {
@@ -293,4 +305,65 @@ test("a page of the inbox that can't be read leaves everything for the next read
   expect(kept.value).toEqual({ since: start });
   await phone.next();
   expect(phone.said.map((alert) => alert.title).at(-1)).toBe("57 more automation runs finished");
+});
+
+/** A run that started long before the cutoff and finished while the phone was away. */
+const long = run("long", {
+  status: "succeeded",
+  startedAt: start - 100_000,
+  finishedAt: start + 5_000,
+});
+/** Fifty-five newer runs, all started and finished before the cutoff. */
+const settled = Array.from({ length: 55 }, (_, index) =>
+  run(`settled${index}`, {
+    status: "succeeded",
+    startedAt: start - 50_000 + index,
+    finishedAt: start - 40_000 + index,
+  }),
+);
+const longInbox = () => [long, ...settled];
+
+test.each([
+  { daemon: "a daemon that leaves out runs finished by the cutoff", oldDaemon: false },
+  { daemon: "an older daemon that lists every run", oldDaemon: true },
+])(
+  "an old long run that finishes while away is said behind newer settled runs: $daemon",
+  async ({ oldDaemon }) => {
+    const kept = memoryKept(0, { since: start });
+    const phone = watch(longInbox, { kept, at: start + 3_600_000, oldDaemon });
+    phone.runs.start();
+    await phone.settle();
+    expect(phone.said.map((alert) => alert.key)).toEqual(["long"]);
+    await phone.next();
+    expect(phone.said).toHaveLength(1);
+  },
+);
+
+/** More runs than a read takes in, all finished while the phone was away. */
+const flood = Array.from({ length: 1_100 }, (_, index) =>
+  run(`flood${index}`, {
+    status: "succeeded",
+    startedAt: start + 1_000 * index,
+    finishedAt: start + 1_000 * index + 500,
+  }),
+);
+const floodInbox = () => flood;
+
+test("more runs than one read takes in are counted as at least so many, then never again", async () => {
+  const kept = memoryKept(0, { since: start });
+  const phone = watch(floodInbox, { kept, at: start + 7_200_000 });
+  phone.runs.start();
+  await phone.settle();
+  expect(phone.said.map((alert) => alert.key).slice(0, 3)).toEqual([
+    "flood1099",
+    "flood1098",
+    "flood1097",
+  ]);
+  expect(phone.said.slice(3)).toMatchObject([{ title: "997+ more automation runs finished" }]);
+  await phone.next();
+  expect(phone.said).toHaveLength(4);
+  const relaunched = watch(floodInbox, { kept, at: start + 9_000_000 });
+  relaunched.runs.start();
+  await relaunched.settle();
+  expect(relaunched.said).toEqual([]);
 });
