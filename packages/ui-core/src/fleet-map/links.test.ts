@@ -5,6 +5,7 @@ import {
   linkDeviceIds,
   linkGaps,
   reach,
+  clientDependents,
   reachDependents,
   unlinkedWith,
 } from "./links.ts";
@@ -131,4 +132,20 @@ test("what reaches a machine is unknown while its devices or an answering machin
   expect(reachDependents("studio", joined, read, new Set())).toBe("unknown");
   // An offline machine's links say nothing about now, so they're not waited for.
   expect(reachDependents("studio", joined, read, new Set(["studio"]))).toEqual(["iPhone"]);
+});
+
+test("what reaches a machine as a client sees it puts the client first in place of its own device", () => {
+  const facts = [{ id: "studio", name: "Studio", online: true, links: [] }];
+  const joined = fleetDevices(
+    new Map([["studio", [{ ...device("p1", "iPhone"), self: true }, device("i1", "iPad")]]]),
+    new Set(),
+  );
+  const read = new Set(["studio"]);
+  const input = { machine: "studio", devices: joined, machines: facts, devicesRead: read };
+  expect(clientDependents({ ...input, viewer: "This iPhone" })).toEqual(["This iPhone", "iPad"]);
+  // On its own computer the client reaches it locally: only the others count.
+  expect(clientDependents({ ...input, viewer: undefined })).toEqual(["iPad"]);
+  expect(clientDependents({ ...input, devicesRead: new Set(), viewer: "This window" })).toBe(
+    "unknown",
+  );
 });

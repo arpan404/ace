@@ -179,3 +179,23 @@ export function reachDependents(
     ...linkersOf(machine, machines).map((linker) => linker.name),
   ];
 }
+
+/**
+ * What reaches `machine` as a client sees it: `viewer` first when the client reaches it from
+ * elsewhere ("This window", "This iPhone"; undefined on the client's own computer), then the
+ * other devices and the linked machines, the client's own device left out. Unknown while what
+ * reaches it couldn't be read, so turning a network off still asks.
+ */
+export function clientDependents(input: {
+  machine: string;
+  devices: readonly FleetDevice[];
+  machines: readonly FleetMachineFacts[];
+  devicesRead: ReadonlySet<string>;
+  viewer: string | undefined;
+}): Dependents {
+  const found = reachDependents(input.machine, input.devices, input.machines, input.devicesRead);
+  if (found === "unknown") return found;
+  const self = new Set(input.devices.filter((device) => device.self).map((device) => device.name));
+  const others = found.filter((name) => !self.has(name));
+  return input.viewer ? [input.viewer, ...others] : others;
+}

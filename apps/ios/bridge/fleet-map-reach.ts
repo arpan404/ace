@@ -2,9 +2,8 @@ import {
   accountReachLine,
   directLine,
   networkOffQuestion,
-  reachDependents,
+  clientDependents,
   remoteOffLine,
-  type Dependents,
   type FleetDevice,
   type FleetMachineFacts,
   type NetworkOffQuestion,
@@ -64,14 +63,6 @@ export interface MachineReachInput {
   viewer: string;
 }
 
-/** This phone first, then the others that reach the machine; unknown stays unknown. */
-function dependentsOf(input: MachineReachInput): Dependents {
-  const found = reachDependents(input.id, input.devices, input.machines, input.devicesRead);
-  if (found === "unknown") return found;
-  const self = new Set(input.devices.filter((device) => device.self).map((device) => device.name));
-  return [input.viewer, ...found.filter((name) => !self.has(name))];
-}
-
 export function machineReach(input: MachineReachInput): FleetMachineReach {
   const { id, name, part } = input;
   if (part.remote.enabled === false)
@@ -88,7 +79,13 @@ export function machineReach(input: MachineReachInput): FleetMachineReach {
         },
       ],
     };
-  const dependents = dependentsOf(input);
+  const dependents = clientDependents({
+    machine: id,
+    devices: input.devices,
+    machines: input.machines,
+    devicesRead: input.devicesRead,
+    viewer: input.viewer,
+  });
   const account = accountReachLine(part.networks?.account, name);
   return {
     id,
