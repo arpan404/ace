@@ -122,9 +122,13 @@ function routineOf(raw: z.infer<typeof routine>): SpadeRoutine {
   };
 }
 
+const routinesBody = z.object({ routines: z.array(z.unknown()) });
+const routineBody = z.object({ routine });
+const heartbeatBody = z.object({ heartbeat });
+
 /** `{"routines":[…]}`; a routine this client can't read is left out. Undefined if not a list. */
 export function parseSpadeRoutines(text: string): SpadeRoutine[] | undefined {
-  const body = z.object({ routines: z.array(z.unknown()) }).safeParse(spadeJson(text));
+  const body = routinesBody.safeParse(spadeJson(text));
   if (!body.success) return undefined;
   return body.data.routines.flatMap((each) => {
     const parsed = routine.safeParse(each);
@@ -134,13 +138,13 @@ export function parseSpadeRoutines(text: string): SpadeRoutine[] | undefined {
 
 /** `{"routine":…}`. */
 export function parseSpadeRoutine(text: string): SpadeRoutine | undefined {
-  const body = z.object({ routine }).safeParse(spadeJson(text));
+  const body = routineBody.safeParse(spadeJson(text));
   return body.success ? routineOf(body.data.routine) : undefined;
 }
 
 /** `{"heartbeat":…}`. */
 export function parseSpadeHeartbeat(text: string): SpadeHeartbeat | undefined {
-  const body = z.object({ heartbeat }).safeParse(spadeJson(text));
+  const body = heartbeatBody.safeParse(spadeJson(text));
   if (!body.success) return undefined;
   const raw = body.data.heartbeat;
   return {

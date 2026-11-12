@@ -26,6 +26,7 @@ export const spadeBotAceTools: readonly string[] = [
 ];
 
 const answer = z.object({ result: z.string(), isError: z.boolean() });
+const toolsQuery = z.strictObject({ query: z.string().max(200).optional() });
 
 export interface BrainToolsOptions {
   /** The bot a hidden thread thinks for; undefined for every other thread. */
@@ -79,7 +80,7 @@ export function spadeBrainToolkit(options: BrainToolsOptions): Toolkit {
         openWorld: false,
         capability: null,
         timeoutMs: 30_000,
-        input: z.strictObject({ query: z.string().max(200).optional() }),
+        input: toolsQuery,
         output: answer,
         failed: (result) => result.isError,
         run: (input, { caller, signal }) =>
