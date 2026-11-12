@@ -58,7 +58,7 @@ A bot is **at its cap** when its spend this day (or month) is at least that cap.
 - `cap_reached` is stored in its conversation once per day or month the cap is first hit; the
   chat shows it as one bubble of the bot's.
 - The person's messages answer `402 {"error": "Research is at its daily cap of $1.00 until
-  midnight."}`; `bot_message` to it answers the caller with that error; its routines and
+midnight."}`; `bot_message` to it answers the caller with that error; its routines and
   heartbeat are skipped with that detail.
 
 A model call already running finishes, so a cap can be passed by one call's cost.
@@ -122,11 +122,11 @@ toward its caps. The status line says `Checking a step` while it runs.
 
 ## Events
 
-| Type                             | Fields                                                                                       | Meaning                                       |
-| -------------------------------- | -------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| `cap_reached`                    | `scope: "daily"\|"monthly"`, `cap_micros`, `period_start`, `resets_at`                       | The bot reached a cap; once per period        |
-| `call_reviewed`                  | `reply`, `call_id`, `name`, `verdict: "allow"\|"escalate"`, `reason`, `model`, `cost_micros` | The model review judged a call                |
-| `tool_finished` / `job_finished` | `…, files?: [path]`                                                                          | Workspace files the tool kept, for file chips |
+| Type            | Fields                                                                                       | Meaning                                                                                                   |
+| --------------- | -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `cap_reached`   | `scope: "daily"\|"monthly"`, `cap_micros`, `period_start`, `resets_at`                       | The bot reached a cap; once per period                                                                    |
+| `call_reviewed` | `reply`, `call_id`, `name`, `verdict: "allow"\|"escalate"`, `reason`, `model`, `cost_micros` | The model review judged a call                                                                            |
+| `job_finished`  | `…, files?: [path]`                                                                          | Workspace files the job kept (a research report), for file chips; the app reads it on `tool_finished` too |
 
 The app shows an escalated call's `reason` in its approval bubble: "Asked you because: …".
 
