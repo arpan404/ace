@@ -23,9 +23,9 @@ reached.
   `GET /v1/conversations/{id}/live` like any conversation. Posting to it there answers `409`.
 - `state`: `idle`, `working` (an ask is open) or `waiting` (a member of this machine that is
   answering waits for the person). `status`: a few words while not idle (`Research is
-  answering`, `Research is waiting for you`, `Waiting for Studio to come online`), else null.
+answering`, `Research is waiting for you`, `Waiting for Studio to come online`), else null.
 - `last_message`: `{"from": "person"|"agent", "text", "at", "agent": {"id", "name",
-  "machine"}|null}` or null; plain text, at most 200 characters.
+"machine"}|null}` or null; plain text, at most 200 characters.
 
 | Method and path              | Body                                          | Answer                                   |
 | ---------------------------- | --------------------------------------------- | ---------------------------------------- |
@@ -132,7 +132,7 @@ The daemon passes these bodies through without reading them, except `op` for the
 
 - **Spade to its daemon** (the socket Spade already uses for `skills.request`):
   - `spade.machines {requestId}` → `spade.machines.result {requestId, machines: [{hostId, name,
-    status: "online"|"offline"}]}`: the linked machines this daemon can call.
+status: "online"|"offline"}]}`: the linked machines this daemon can call.
   - `spade.remote {requestId, machine: <host id>, request: <JSON object>}` →
     `spade.remote.result {requestId, result}` with `result` `{kind: "response", status, body}`
     (`body` is Spade's JSON answer there) or `{kind: "error", code, message}`, `code` one of
