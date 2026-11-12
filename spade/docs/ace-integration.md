@@ -46,7 +46,9 @@ characters>` it also answers `proof`: lowercase hex HMAC-SHA256 with the token f
   anyway and setup finishes by itself whenever the keychain answers. Until it has,
   `GET /health` and `GET /v1/models` answer `"starting": true` with `"starting_reason"` (`setting
 up endpoints`, `waiting for the keychain`, or `setting up endpoints failed; trying again`);
-  then `"starting": false` and `null`.
+  then `"starting": false` and `null`. The daemon passes the reason on in `spade.status` as
+  `setup: {reason, platform}` while Spade is ready but still setting up, and Spade's panel in
+  the app says what to look for (for the keychain on macOS: a prompt to answer with Always Allow).
 - **Stop.** SIGTERM: Spade closes admission, lets a running model step finish (up to 5 s for a
   plain stop), records open turns as paused (`turn_paused`), ends its live streams and exits. On
   start, each paused turn resumes from its stored events.
