@@ -114,7 +114,7 @@ struct SpadeConversationView: View {
             sending = false
             if outcome.ok, let id = outcome.id { started?(id); return }
             if !outcome.ok {
-                draft = SpadeDraft.restoring(text, into: draft)
+                if outcome.unknown != true { draft = SpadeDraft.restoring(text, into: draft) }
                 problem = words(outcome)
             }
         }
