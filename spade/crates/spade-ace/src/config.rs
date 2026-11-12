@@ -95,7 +95,8 @@ impl SkillsConfig {
         &self.url
     }
 
-    pub(crate) fn token(&self) -> &Secret {
+    /// The daemon's local token, which also signs its inbox requests for Spade (ADR 0132).
+    pub fn token(&self) -> &Secret {
         &self.token
     }
 

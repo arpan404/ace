@@ -16,6 +16,12 @@ use super::templates::templates;
 use crate::engine::{AgentError, AgentInput, AgentView, AvatarInput, Engine, NoteScope};
 use crate::routines::{self, By, HeartbeatInput, RoutineInput};
 
+/// What one file may bring; anything past it is left out and said so.
+const MOST_FILE_ROUTINES: usize = routines::MOST_ROUTINES + 1;
+const MOST_FILE_NOTES: usize = 200;
+const MOST_FILE_CONNECTORS: usize = 64;
+const MOST_LEFT_OUT: usize = 20;
+
 pub const FORMAT: &str = "spade-bot";
 pub const VERSION: u32 = 1;
 
@@ -186,30 +192,52 @@ pub fn import(
         model,
         avatar: avatar.clone(),
     };
-    let agent = match engine.create_agent(input(wanted.clone())) {
-        Ok(agent) => agent,
-        Err(AgentError::Invalid(why)) if wanted != default && why.contains("model") => {
-            left_out.push(format!(
-                "The model {wanted} isn't on this machine; the bot uses {default}."
-            ));
-            engine.create_agent(input(default))?
+    let model = if wanted == default || engine.model_usable(&wanted) {
+        wanted
+    } else {
+        let shown: String = wanted.chars().take(120).collect();
+        left_out.push(format!(
+            "The model {shown} isn't on this machine; the bot uses {default}."
+        ));
+        default
+    };
+    let agent = match engine.create_agent(input(model.clone())) {
+        Err(AgentError::Image(_)) => {
+            left_out.push(
+                "The picture isn't an image Spade takes; the bot has initials instead.".to_owned(),
+            );
+            engine.create_agent(AgentInput {
+                avatar: None,
+                ..input(model)
+            })?
         }
-        Err(error) => return Err(error.into()),
+        made => made?,
     };
     let id = agent.agent.id.clone();
-    for r in &file.routines {
+    for r in file.routines.iter().take(MOST_FILE_ROUTINES) {
         if let Err(why) = add_routine(engine, &id, r) {
-            left_out.push(format!("The routine {:?} wasn't added: {why}", r.name));
+            let name: String = r.name.chars().take(60).collect();
+            left_out.push(format!("The routine {name:?} wasn't added: {why}"));
         }
+    }
+    if file.routines.len() > MOST_FILE_ROUTINES {
+        left_out.push(format!(
+            "{} routines past the first {MOST_FILE_ROUTINES} were left out.",
+            file.routines.len() - MOST_FILE_ROUTINES
+        ));
     }
     if let (Some(hub), Some(choice)) = (connectors, &file.connectors) {
         let access = if choice.all {
             Access::All
         } else {
             let here: BTreeSet<String> = hub.list().into_iter().map(|v| v.id).collect();
-            let (kept, missing): (Vec<&String>, Vec<&String>) =
-                choice.connectors.iter().partition(|c| here.contains(*c));
+            let (kept, missing): (Vec<&String>, Vec<&String>) = choice
+                .connectors
+                .iter()
+                .take(MOST_FILE_CONNECTORS)
+                .partition(|c| here.contains(*c));
             for c in missing {
+                let c: String = c.chars().take(64).collect();
                 left_out.push(format!(
                     "The connector {c} isn't connected on this machine."
                 ));
@@ -222,10 +250,21 @@ pub fn import(
     } else if file.connectors.is_some() {
         left_out.push("Connectors aren't set up on this machine.".to_owned());
     }
-    for note in &file.notes {
+    for note in file.notes.iter().take(MOST_FILE_NOTES) {
         if let Err(why) = engine.add_note(&NoteScope::Agent(id.clone()), note) {
             left_out.push(format!("A note wasn't kept: {why}"));
         }
+    }
+    if file.notes.len() > MOST_FILE_NOTES {
+        left_out.push(format!(
+            "{} notes past the first {MOST_FILE_NOTES} were left out.",
+            file.notes.len() - MOST_FILE_NOTES
+        ));
+    }
+    if left_out.len() > MOST_LEFT_OUT {
+        let more = left_out.len() - MOST_LEFT_OUT + 1;
+        left_out.truncate(MOST_LEFT_OUT - 1);
+        left_out.push(format!("…and {more} more."));
     }
     let agent = engine
         .agent_view(&id)

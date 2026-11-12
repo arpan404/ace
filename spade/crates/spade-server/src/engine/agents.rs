@@ -46,6 +46,12 @@ fn task(raw: &str) -> Result<String, AgentError> {
 
 impl Engine {
     /// A model reference the person may pick: `endpoint/model` on one of their endpoints.
+    /// Whether a bot could be made or moved to `model` here: one of this machine's endpoints
+    /// serves it.
+    pub fn model_usable(&self, model: &str) -> bool {
+        self.check_model(model).is_ok()
+    }
+
     pub(super) fn check_model(&self, raw: &str) -> Result<String, AgentError> {
         let model = raw.trim();
         let valid = model.len() <= MODEL_CHARS

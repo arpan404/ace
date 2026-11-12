@@ -18,6 +18,8 @@ const FIRST_BACKOFF_MS: i64 = 2_000;
 const LONGEST_BACKOFF_MS: i64 = 5 * 60_000;
 /// How long an ask waits for its machine before it is given up.
 pub const GIVE_UP_MS: i64 = 7 * 24 * 60 * 60_000;
+/// Ended entries are kept this long, then forgotten.
+const KEEP_ENDED_MS: i64 = 30 * 24 * 60 * 60_000;
 /// One long poll for an answer there.
 const ANSWER_POLL_MS: u64 = 20_000;
 
@@ -95,20 +97,32 @@ impl Engine {
         machine: &str,
         machine_name: &str,
         request: Value,
-    ) -> Result<(), StoreError> {
+    ) -> Result<(), String> {
         let now = self.now_ms();
-        self.store.insert_outbox(&OutboxEntry {
-            key: key.to_owned(),
-            machine: machine.to_owned(),
-            machine_name: machine_name.to_owned(),
-            request: request.to_string(),
-            state: "queued".to_owned(),
-            answer: None,
-            attempts: 0,
-            next_ms: now,
-            stop: false,
-            created_ms: now,
-        })?;
+        let _ = self.store.prune_outbox(now - KEEP_ENDED_MS);
+        if self.store.outbox(key).map_err(|e| e.to_string())?.is_none()
+            && self.store.open_outbox_count().map_err(|e| e.to_string())?
+                >= self.limits.remote_asks_waiting
+        {
+            return Err(format!(
+                "{} asks to other machines are already waiting; try again once some are answered.",
+                self.limits.remote_asks_waiting
+            ));
+        }
+        self.store
+            .insert_outbox(&OutboxEntry {
+                key: key.to_owned(),
+                machine: machine.to_owned(),
+                machine_name: machine_name.to_owned(),
+                request: request.to_string(),
+                state: "queued".to_owned(),
+                answer: None,
+                attempts: 0,
+                next_ms: now,
+                stop: false,
+                created_ms: now,
+            })
+            .map_err(|e| e.to_string())?;
         self.run_outbox(key);
         Ok(())
     }
@@ -199,7 +213,7 @@ impl Engine {
             };
             match entry.state.as_str() {
                 "queued" => self.offer(&*remote, &entry).await,
-                _ => self.collect(&*remote, &entry).await,
+                _ => self.collect(&*remote, &entry, wake).await,
             }
             let _ = self.teams.outbox_changed.send(key.to_owned());
         }
@@ -232,7 +246,7 @@ impl Engine {
     }
 
     /// Reads a sent entry's answer there (a long poll); sends `stop` first when asked to.
-    async fn collect(&self, remote: &dyn Remote, entry: &OutboxEntry) {
+    async fn collect(&self, remote: &dyn Remote, entry: &OutboxEntry, wake: &Notify) {
         let now = self.now_ms();
         if entry.stop {
             let stop = json!({ "op": "stop", "key": entry.key });
@@ -245,7 +259,12 @@ impl Engine {
         }
         let wait_ms = if entry.stop { 0 } else { ANSWER_POLL_MS };
         let poll = json!({ "op": "answer", "key": entry.key, "wait_ms": wait_ms });
-        match remote.call(&entry.machine, poll).await {
+        // A Stop meanwhile ends the wait at once, so the stop reaches that machine now.
+        let polled = tokio::select! {
+            polled = remote.call(&entry.machine, poll) => polled,
+            () = wake.notified() => return,
+        };
+        match polled {
             Ok((200, body)) => {
                 let status = body["status"].as_str().unwrap_or("unknown");
                 let state = match status {

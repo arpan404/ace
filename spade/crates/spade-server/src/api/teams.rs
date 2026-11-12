@@ -286,25 +286,51 @@ async fn import(State(state): State<AppState>, Body(file): Body<Value>) -> Respo
     .await
 }
 
-/// `POST /v1/inbox`: only with the daemon's stamp of which machine sent it.
+/// `POST /v1/inbox`: only a request the local daemon signed with its own token, which binds the
+/// sender stamp; Spade's bearer token alone is refused.
 async fn inbox(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Body(body): Body<Value>,
+    body: axum::body::Bytes,
 ) -> Response {
+    let refused = || {
+        problem(
+            StatusCode::FORBIDDEN,
+            "only another machine, through ace, can deliver here",
+        )
+    };
     let stamp = |name: &str| {
         headers
             .get(name)
             .and_then(|v| v.to_str().ok())
             .map(str::trim)
-            .filter(|v| !v.is_empty() && v.len() <= 256)
+            .filter(|v| !v.is_empty() && v.len() <= 1024)
             .map(str::to_owned)
     };
-    let (Some(host), Some(name)) = (stamp("x-ace-from-host"), stamp("x-ace-from-name")) else {
+    let (Some(host), Some(raw_name), Some(time), Some(proof)) = (
+        stamp("x-ace-from-host"),
+        stamp("x-ace-from-name"),
+        stamp("x-ace-inbox-time").and_then(|t| t.parse::<i64>().ok()),
+        stamp("x-ace-inbox-proof"),
+    ) else {
+        return refused();
+    };
+    let Some(key) = state.ace.as_ref().and_then(|ace| ace.inbox_key()) else {
         return problem(
-            StatusCode::FORBIDDEN,
-            "only another machine, through ace, can deliver here",
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Spade doesn't know this machine's ace, so it can't check who is delivering",
         );
+    };
+    let now = state.engine.now_ms();
+    if !teams::proof::verify(&key, &proof, time, now, &host, &raw_name, &body) {
+        return refused();
+    }
+    let Some(name) = teams::proof::decode_name(&raw_name) else {
+        return refused();
+    };
+    let name: String = name.chars().take(256).collect();
+    let Ok(body) = serde_json::from_slice::<Value>(&body) else {
+        return problem(StatusCode::BAD_REQUEST, "the body is not JSON");
     };
     let (status, answer) = state.engine.inbox(&InboxSender { host, name }, &body).await;
     (
