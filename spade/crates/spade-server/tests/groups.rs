@@ -4,6 +4,7 @@
 
 mod support;
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -352,5 +353,57 @@ async fn a_group_transcript_takes_no_direct_messages_and_a_group_needs_two_bots(
         )
         .await?;
     assert_eq!(status, 404);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_group_names_the_member_that_waits_for_the_person_by_id_live_and_listed() -> Result {
+    use futures_util::StreamExt;
+    let mail = support::FakeTool::new("send_mail", spade_core::tools::Risk::Write, "sent");
+    let spade = Spade::start(vec![Script::reply("unused")], vec![Arc::new(mail)]).await?;
+    let _titles = quiet_titles(&spade).await?;
+    let (research, _r) = bot(
+        &spade,
+        "Research",
+        vec![
+            Script::reply("").call("m1", "send_mail", json!({ "to": "sam" })),
+            Script::reply("Sent."),
+        ],
+    )
+    .await?;
+    let (writer, _w) = bot(&spade, "Writer", vec![Script::reply("unused")]).await?;
+    let team = group(&spade, "Mail", &[&research, &writer]).await?;
+    let mut live = spade
+        .http
+        .get(format!(
+            "{}/v1/conversations/{}/live?after=0",
+            spade.base,
+            conversation(&team)
+        ))
+        .bearer_auth(support::TOKEN)
+        .send()
+        .await?
+        .bytes_stream();
+    post(&spade, &team, "@Research mail Sam").await?;
+
+    let mut seen = String::new();
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while !seen.contains("waiting_member") && std::time::Instant::now() < deadline {
+        if let Ok(Some(Ok(chunk))) = tokio::time::timeout(Duration::from_secs(1), live.next()).await
+        {
+            seen.push_str(&String::from_utf8_lossy(&chunk));
+        }
+    }
+    let frame = seen
+        .lines()
+        .filter_map(|line| line.strip_prefix("data: "))
+        .filter_map(|data| serde_json::from_str::<Value>(data).ok())
+        .find(|data| data.get("waiting_member").is_some())
+        .unwrap_or_default();
+    assert_eq!(frame["state"], "waiting", "{seen}");
+    assert_eq!(frame["waiting_member"]["id"], research["id"]);
+
+    let (_, listed) = spade.get("/v1/groups").await?;
+    assert_eq!(listed["groups"][0]["waiting_member"]["id"], research["id"]);
     Ok(())
 }

@@ -10,6 +10,9 @@ import { spadeRequest, type SpadeConnection } from "../spade/forward.ts";
 import type { Risk } from "./grant-rules.ts";
 import { TargetRefusal } from "./target-refusal.ts";
 
+/** Characters of the calling machine's name the inbox is told. */
+export const maxStampedName = 100;
+
 /** How long this machine's Spade has to answer: an `answer` long poll waits up to 25 s. */
 const inboxTimeoutMs = 30_000;
 
@@ -52,7 +55,8 @@ export function inboxStamps(
   key: string,
   time: number,
 ): Record<string, string> {
-  const name = encodeURIComponent(origin.hostName);
+  // Cut first, by characters: 100 of them stay within Spade's 1 KiB header cap once encoded.
+  const name = encodeURIComponent(Array.from(origin.hostName).slice(0, maxStampedName).join(""));
   return {
     "x-ace-from-host": device.id,
     "x-ace-from-name": name,

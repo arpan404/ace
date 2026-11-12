@@ -27,6 +27,8 @@ export interface FakeSpadeGroup {
   last_activity: number;
   state: "idle" | "working" | "waiting";
   status: string | null;
+  /** While the group waits on the person, the member that waits (ADR 0132). */
+  waiting_member: { id: string; name: string; machine: string | null } | null;
   last_message: {
     from: "person" | "agent";
     text: string;
@@ -42,7 +44,12 @@ export interface FakeTeamsHost {
   /** Opens an empty conversation for a group. */
   openConversation(id: string): void;
   store(conversation: string, event: Json): void;
-  emitStatus(conversation: string, state: string, status: string | null): void;
+  emitStatus(
+    conversation: string,
+    state: string,
+    status: string | null,
+    waiting: FakeSpadeGroup["waiting_member"],
+  ): void;
   now(): number;
 }
 
@@ -77,6 +84,7 @@ export class FakeSpadeTeams {
       last_activity: this.host.now(),
       state: "idle",
       status: null,
+      waiting_member: null,
       last_message: null,
       ...fields,
       id,
@@ -87,10 +95,16 @@ export class FakeSpadeTeams {
   }
 
   /** The group's state and few words, on its row and its live stream. */
-  status(group: FakeSpadeGroup, state: FakeSpadeGroup["state"], status: string | null): void {
+  status(
+    group: FakeSpadeGroup,
+    state: FakeSpadeGroup["state"],
+    status: string | null,
+    waiting: FakeSpadeGroup["waiting_member"] = null,
+  ): void {
     group.state = state;
     group.status = status;
-    this.host.emitStatus(group.conversation, state, status);
+    group.waiting_member = state === "waiting" ? waiting : null;
+    this.host.emitStatus(group.conversation, state, status, group.waiting_member);
   }
 
   /** The member of this machine with this agent id, as a group lists it. */
