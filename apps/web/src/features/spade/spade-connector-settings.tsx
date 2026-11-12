@@ -1,5 +1,6 @@
-import { spadeConnectorLine, type SpadeConnector } from "@ace/ui-core/spade-chat";
+import { spadeCloudLine, spadeConnectorLine, type SpadeConnector } from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { SettingAddRow, SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -69,6 +70,7 @@ function ConnectorRow(props: { connector: SpadeConnector }) {
   const client = useSpadeClient();
   const cache = useQueryClient();
   const toast = useToast();
+  const navigate = useNavigate();
   const field = useId();
   const [busy, setBusy] = useState(false);
   // A token connector reconnects with a new token, typed here.
@@ -106,7 +108,11 @@ function ConnectorRow(props: { connector: SpadeConnector }) {
   return (
     <SettingRow
       title={connector.name}
-      description={[spadeConnectorLine(connector), connector.local && "On your own network"]
+      description={[
+        spadeConnectorLine(connector),
+        spadeCloudLine(connector),
+        connector.local && "On your own network",
+      ]
         .filter(Boolean)
         .join(" · ")}
       htmlFor={token === undefined ? undefined : field}
@@ -169,6 +175,15 @@ function ConnectorRow(props: { connector: SpadeConnector }) {
               Reconnect
             </Button>
           )
+        )}
+        {connector.notice === "ace_signed_out" && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => void navigate({ to: "/settings/profile" })}
+          >
+            Sign in to ace
+          </Button>
         )}
         <Button
           size="sm"

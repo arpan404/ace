@@ -6,7 +6,8 @@
       "name": "Asana",
       "url": "https://mcp.asana.com/v2/mcp",
       "sign_in": ["oauth_client"],
-      "notes": "Asana requires a client secret, which Spade never ships, so you register your own MCP app in Asana and enter its client ID and secret. Admins can block or allow each app.",
+      "via": "cloud",
+      "notes": "Signs in through Spade Cloud with your ace account, because Asana requires a client secret Spade can't ship. You can instead register your own MCP app in Asana and enter its client ID and secret. Admins can block or allow each app.",
       "source": "https://developers.asana.com/docs/integrating-with-asanas-mcp-server"
     },
     {
@@ -22,7 +23,8 @@
       "name": "Box",
       "url": "https://mcp.box.com",
       "sign_in": ["oauth_client"],
-      "notes": "Box requires a client secret, which Spade never ships: a Box admin turns the server on and creates its client ID and secret in the Admin Console.",
+      "via": "cloud",
+      "notes": "Signs in through Spade Cloud with your ace account, because Box requires a client secret Spade can't ship. A Box admin turns the server on; you can instead use a client ID and secret from Box's Admin Console.",
       "source": "https://developer.box.com/guides/box-mcp/remote/"
     },
     {
@@ -30,7 +32,8 @@
       "name": "Canva",
       "url": "https://api.canva.com/connect/v1/mcp",
       "sign_in": ["oauth_client"],
-      "notes": "Canva requires a client secret, which Spade never ships, so you need a client ID and secret from Canva's Developer Portal with Canva MCP switched on. Some tools need Canva Pro.",
+      "via": "cloud",
+      "notes": "Signs in through Spade Cloud with your ace account, because Canva requires a client secret Spade can't ship. You can instead use a client ID and secret from Canva's Developer Portal with Canva MCP switched on. Some tools need Canva Pro.",
       "source": "https://www.canva.dev/docs/apps/mcp/access/"
     },
     {
@@ -54,7 +57,8 @@
       "name": "HubSpot",
       "url": "https://mcp.hubspot.com",
       "sign_in": ["oauth_client"],
-      "notes": "HubSpot requires a client secret, which Spade never ships, so you create an MCP connector in HubSpot (Development, then MCP Connectors) for the client ID and secret.",
+      "via": "cloud",
+      "notes": "Signs in through Spade Cloud with your ace account, because HubSpot requires a client secret Spade can't ship. You can instead create an MCP connector in HubSpot (Development, then MCP Connectors) for a client ID and secret.",
       "source": "https://developers.hubspot.com/docs/apps/developer-platform/build-apps/integrate-with-the-remote-hubspot-mcp-server"
     },
     {

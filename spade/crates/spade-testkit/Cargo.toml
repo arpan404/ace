@@ -14,12 +14,14 @@ rmcp = { version = "3.9.0", default-features = false, features = [
   "server",
   "transport-streamable-http-server",
 ] }
+ring = "0.17"
 sha2.workspace = true
+spade-cloud-wire = { path = "../spade-cloud-wire" }
 tokio-util = "0.7"
 tower = "0.5"
 futures-util.workspace = true
 serde_json.workspace = true
-tokio = { workspace = true, features = ["time"] }
+tokio = { workspace = true, features = ["time", "net", "rt"] }
 
 [lints]
 workspace = true

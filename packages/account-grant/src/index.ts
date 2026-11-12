@@ -34,6 +34,29 @@ export const GrantClaims = z.strictObject({
 export type GrantClaims = z.infer<typeof GrantClaims>;
 export type GrantKind = GrantClaims["kind"];
 
+/** Cloud credentials deliberately fail the relay's strict GrantClaims parser. */
+export const CloudGrantClaims = GrantClaims.extend({
+  kind: z.literal("machine"),
+  aud: z.literal("cloud.acehq.dev"),
+  purpose: z.literal("spade-cloud"),
+});
+const AnyGrantClaims = z.union([GrantClaims, CloudGrantClaims]);
+
+export function signCloudGrant(
+  claims: Omit<GrantClaims, "v" | "kid">,
+  key: GrantSigningKey,
+): string {
+  const full = CloudGrantClaims.parse({
+    ...claims,
+    v: 1,
+    kid: key.id,
+    aud: "cloud.acehq.dev",
+    purpose: "spade-cloud",
+  });
+  const body = new TextEncoder().encode(JSON.stringify(full));
+  return `${encodeBase64url(body)}.${encodeBase64url(ed25519.sign(body, key.privateKey))}`;
+}
+
 /** `GET /v1/keys` on the account backend. */
 export const GrantKeySet = z.object({
   keys: z
@@ -118,7 +141,9 @@ export function verifyGrant(
 export function grantLifetimeMs(token: string): number | undefined {
   try {
     const body = token.split(".")[0] ?? "";
-    const claims = GrantClaims.parse(JSON.parse(new TextDecoder().decode(decodeBase64url(body))));
+    const claims = AnyGrantClaims.parse(
+      JSON.parse(new TextDecoder().decode(decodeBase64url(body))),
+    );
     return claims.exp - claims.iat;
   } catch {
     return undefined;

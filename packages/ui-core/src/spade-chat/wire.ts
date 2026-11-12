@@ -276,3 +276,11 @@ export function spadeProblem(body: string): string | undefined {
   const parsed = problemShape.safeParse(json(body));
   return parsed.success ? parsed.data.error : undefined;
 }
+
+/** What a refusal says the request still needs (`client_id`, `ace_account`, …), if it says. */
+const needsShape = z.object({ needs: z.string() });
+
+export function spadeProblemNeeds(body: string): string | undefined {
+  const parsed = needsShape.safeParse(json(body));
+  return parsed.success ? parsed.data.needs : undefined;
+}

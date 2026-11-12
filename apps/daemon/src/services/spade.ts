@@ -123,10 +123,8 @@ export async function startSpade(context: ServiceContext): Promise<void> {
     },
   });
   services.spadeBrainSeq = (threadId) => brains.streamSeq(threadId);
-  services.spadeBrains = brainHttp({
-    brains,
-    verify: (bearer) => grants.verify(bearer) !== undefined,
-  });
+  services.spadeGrantVerify = (bearer) => grants.verify(bearer) !== undefined;
+  services.spadeBrains = brainHttp({ brains, verify: services.spadeGrantVerify });
   if (!services.mcp) log.log("warn", "Spade's grant can't reach ace's tools: no MCP endpoint");
 
   const delivery = new SpadeGrantDelivery({

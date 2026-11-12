@@ -42,6 +42,7 @@ fn spade_with(relist: Duration, client_metadata: Option<String>) -> Result<Spade
         client_metadata,
         Vec::new(),
         spade_connect::catalogue::shipped(),
+        None,
     )
 }
 
@@ -62,9 +63,53 @@ pub fn spade_shipping(url: &str, apps: Vec<spade_connect::App>) -> Result<Spade>
         sign_in: vec![spade_connect::SignIn::OauthClient],
         notes: String::new(),
         source: "https://example.com/docs".into(),
+        via: None,
         local: true,
     });
-    spade_with_apps(Duration::from_secs(600), None, apps, catalogue)
+    spade_with_apps(Duration::from_secs(600), None, apps, catalogue, None)
+}
+
+/// Spade with Spade Cloud at `cloud`, and a catalogue entry [`FAKE_ENTRY`] for the fake app at
+/// `url` marked `via: "cloud"`. `signed_in`: whether this machine is signed in to ace.
+pub fn spade_with_cloud(url: &str, cloud: &str, signed_in: bool) -> Result<Spade> {
+    let mut catalogue = spade_connect::catalogue::shipped();
+    catalogue.push(spade_connect::Entry {
+        id: FAKE_ENTRY.into(),
+        name: "Fake".into(),
+        url: url.to_owned(),
+        sign_in: vec![spade_connect::SignIn::OauthClient],
+        notes: String::new(),
+        source: "https://example.com/docs".into(),
+        via: Some(spade_connect::Via::Cloud),
+        local: true,
+    });
+    let cloud = spade_connect::Cloud {
+        url: cloud.to_owned(),
+        credential: Arc::new(FakeAccount(signed_in)),
+    };
+    spade_with_apps(
+        Duration::from_secs(600),
+        None,
+        Vec::new(),
+        catalogue,
+        Some(cloud),
+    )
+}
+
+/// The ace account credential: the fake cloud's grant, or signed out.
+struct FakeAccount(bool);
+
+impl spade_connect::AccountCredential for FakeAccount {
+    fn grant(&self) -> spade_connect::Credential<'_> {
+        let signed_in = self.0;
+        Box::pin(async move {
+            if signed_in {
+                Ok(spade_testkit::cloud::GRANT.to_owned())
+            } else {
+                Err(spade_connect::AccountProblem::SignedOut)
+            }
+        })
+    }
 }
 
 /// Connecting the fake app through its catalogue entry.
@@ -80,6 +125,7 @@ fn spade_with_apps(
     client_metadata: Option<String>,
     apps: Vec<spade_connect::App>,
     catalogue: Vec<spade_connect::Entry>,
+    cloud: Option<spade_connect::Cloud>,
 ) -> Result<Spade> {
     let dir = tempfile::tempdir()?;
     let database = dir.path().join("spade.sqlite");
@@ -97,6 +143,7 @@ fn spade_with_apps(
         client_metadata,
         apps,
         tick: TICK,
+        cloud,
     })?;
     connectors.set_listening("127.0.0.1:4555".parse()?);
     Ok(Spade {

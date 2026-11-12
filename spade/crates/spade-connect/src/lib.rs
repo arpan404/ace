@@ -8,6 +8,8 @@
 
 pub mod apps;
 pub mod catalogue;
+pub mod cloud;
+mod cloud_sign_in;
 mod device_sign_in;
 mod hub;
 mod live;
@@ -26,7 +28,8 @@ use spade_store::Store;
 use tokio::sync::Notify;
 
 pub use apps::{App, Grant};
-pub use catalogue::{Entry, SignIn};
+pub use catalogue::{Entry, SignIn, Via};
+pub use cloud::{AccountCredential, AccountProblem, CLOUD_URL, Cloud, Credential};
 pub use device_sign_in::DeviceView;
 pub use hub::{Callback, ConnectError, ConnectRequest, FinishError, Started};
 pub use live::{CallError, ConnectorTool, RELIST};
@@ -70,6 +73,9 @@ pub struct Setup {
     /// How long one second of a device sign-in's polling interval lasts: a second in Spade;
     /// tests shorten it so RFC 8628's five-second steps don't slow them.
     pub tick: Duration,
+    /// Spade Cloud, for catalogue entries marked `via: "cloud"` (ADR 0140). `None`: those entries
+    /// take the person's own client ID only.
+    pub cloud: Option<Cloud>,
 }
 
 /// What the app is shown about one connector. Never a secret.
@@ -92,6 +98,13 @@ pub struct View {
     /// A device sign-in (RFC 8628) in progress or just ended: the code to show and where.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub device: Option<DeviceView>,
+    /// `cloud` when it signs in through Spade Cloud.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub via: Option<&'static str>,
+    /// Why a connector signed in through Spade Cloud can't renew now: `cloud_unreachable`,
+    /// `ace_signed_out` or `ace_unreachable`. It keeps working until its token expires.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notice: Option<&'static str>,
 }
 
 /// One connector's live session.
@@ -121,6 +134,13 @@ pub struct Connectors {
     client_metadata: Option<String>,
     apps: Vec<App>,
     tick: Duration,
+    /// Spade Cloud's client, when Spade signs in through it.
+    cloud: Option<cloud::CloudClient>,
+    /// Sign-ins through the cloud waiting for the person, by connector.
+    cloud_sign_ins: Mutex<HashMap<String, cloud_sign_in::CloudSignIn>>,
+    cloud_serial: std::sync::atomic::AtomicU64,
+    /// Why a connector signed in through the cloud last failed to renew, and when.
+    cloud_notices: Mutex<HashMap<String, (cloud_sign_in::Notice, i64)>>,
     /// Device sign-ins in progress or recently ended, by connector.
     devices: Mutex<HashMap<String, device_sign_in::DeviceSignIn>>,
     /// Numbers each device sign-in, so a replaced one's poller can't touch its successor.
@@ -155,7 +175,17 @@ impl Connectors {
             addresses: setup.addresses,
             clock: setup.clock,
             random: setup.random,
-            catalogue: catalogue::with_apps(setup.catalogue, &setup.apps),
+            catalogue: catalogue::with_cloud(
+                catalogue::with_apps(setup.catalogue, &setup.apps),
+                setup.cloud.is_some(),
+            ),
+            cloud: setup
+                .cloud
+                .as_ref()
+                .map(|cloud| cloud::CloudClient::new(cloud, setup.timeout)),
+            cloud_sign_ins: Mutex::default(),
+            cloud_serial: std::sync::atomic::AtomicU64::new(0),
+            cloud_notices: Mutex::default(),
             timeout: setup.timeout,
             relist: setup.relist,
             client_metadata: setup.client_metadata,
@@ -222,10 +252,14 @@ impl Connectors {
                     tools: 0,
                     problem: None,
                     device: None,
+                    via: None,
+                    notice: None,
                 });
             }
         }
         views.extend(self.device_views_without_records(&views));
+        let cloud = self.cloud_views_without_records(&views);
+        views.extend(cloud);
         views.sort_by_key(|view| view.name.to_lowercase());
         views
     }
@@ -240,7 +274,9 @@ impl Connectors {
         let live = live.get(&record.id);
         let device = self.device_view(&record.id);
         let signing_in = lock(&self.pending).values().any(|p| p.id == record.id)
-            || device.as_ref().is_some_and(DeviceView::waiting);
+            || device.as_ref().is_some_and(DeviceView::waiting)
+            || self.cloud_signing_in(&record.id);
+        let cloud = matches!(&record.auth, records::Auth::Oauth(facts) if facts.cloud);
         let tools = live.map_or(0, |l| l.tools.len());
         let problem = live.and_then(|l| l.problem.clone());
         let state = if record.needs_reconnect {
@@ -272,6 +308,12 @@ impl Connectors {
             tools,
             problem,
             device,
+            via: cloud.then_some("cloud"),
+            notice: if cloud {
+                self.cloud_notice(&record.id)
+            } else {
+                None
+            },
         }
     }
 

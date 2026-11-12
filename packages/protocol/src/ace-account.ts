@@ -92,6 +92,7 @@ export const AceLoginStatus = z.discriminatedUnion("status", [
 
 /** `POST /v1/grants` (ADR 0111), authenticated by the ace session token. */
 export const AceGrantRequest = z.object({
+  purpose: z.literal("spade-cloud").optional(),
   kind: z.enum(["machine", "device"]),
   /** The machine's host id, or the requesting device's device id. */
   subject: z.string().min(1).max(128),

@@ -49,18 +49,20 @@ matter; the encrypted channel and grants matter when Spade reaches a daemon from
 
 ## Crates
 
-| Crate            | Job                                                                                                                                                                | State                 |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------- |
-| `spade-models`   | Endpoints and models, chat, typed output, streaming, cache counts                                                                                                  | built                 |
-| `spade-core`     | Pure logic, no I/O: conversation events, transcript, prompts, spending, checkpoints, titles; later the agent loop, approval gate, turn-taking and memory decisions | built (chat), growing |
-| `spade-store`    | SQLite: conversations, event log, spending ledger                                                                                                                  | built                 |
-| `spade-server`   | Local API and reply engine                                                                                                                                         | in progress           |
-| `spade-testkit`  | Test-only fake model endpoint                                                                                                                                      | built                 |
-| `spade-protocol` | Types generated from ace's schemas, plus Spade's own                                                                                                               | planned               |
-| `spade-ace`      | Talks to the ace daemon: locally first, through the relay for a hosted Spade                                                                                       | planned               |
-| `spade-mcp`      | MCP client over streamable HTTP (`rmcp`), shared by ace's tools and connectors                                                                                     | built                 |
-| `spade-connect`  | Connector catalogue, OAuth sign-in, sessions and per-bot access ([connectors.md](connectors.md))                                                                   | built                 |
-| `spade-memory`   | Memory storage and search: built in `spade-core` (`memory`) and `spade-store` (`notes`) instead, see [memory.md](memory.md)                                        | built                 |
+| Crate              | Job                                                                                                                                                                | State                 |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------- |
+| `spade-models`     | Endpoints and models, chat, typed output, streaming, cache counts                                                                                                  | built                 |
+| `spade-core`       | Pure logic, no I/O: conversation events, transcript, prompts, spending, checkpoints, titles; later the agent loop, approval gate, turn-taking and memory decisions | built (chat), growing |
+| `spade-store`      | SQLite: conversations, event log, spending ledger                                                                                                                  | built                 |
+| `spade-server`     | Local API and reply engine                                                                                                                                         | in progress           |
+| `spade-testkit`    | Test-only fake model endpoint                                                                                                                                      | built                 |
+| `spade-protocol`   | Types generated from ace's schemas, plus Spade's own                                                                                                               | planned               |
+| `spade-ace`        | Talks to the ace daemon: locally first, through the relay for a hosted Spade                                                                                       | planned               |
+| `spade-mcp`        | MCP client over streamable HTTP (`rmcp`), shared by ace's tools and connectors                                                                                     | built                 |
+| `spade-connect`    | Connector catalogue, OAuth sign-in, sessions and per-bot access ([connectors.md](connectors.md))                                                                   | built                 |
+| `spade-cloud`      | Spade Cloud, the hosted backend at cloud.acehq.dev: the OAuth broker for apps that need a client secret ([cloud.md](cloud.md))                                     | built                 |
+| `spade-cloud-wire` | What Spade and Spade Cloud say to each other, and the sealing of tokens to Spade's one-time key                                                                    | built                 |
+| `spade-memory`     | Memory storage and search: built in `spade-core` (`memory`) and `spade-store` (`notes`) instead, see [memory.md](memory.md)                                        | built                 |
 
 Rules carried over from ace: pure core with a thin I/O shell; clocks, ids, randomness and
 network endpoints are injected; outside data is parsed before use; tests assert behaviour
@@ -136,10 +138,9 @@ starts with "No web search is set up." and tells the bot to point the person at 
 Web search in one sentence; the app shows a quiet line under the reply with a text button that
 opens that setting. The settings API: `GET /v1/search` (`searxng_url`, `brave_key_set`,
 `keychain`; never the key), `PUT /v1/search {searxng_url}` (`http` or `https`, `null` forgets
-it), `PUT`/`DELETE /v1/search/brave-key {key}`.
-4. If all of those fail, an ace agent on the cheapest available provider CLI (for example Claude
-   Haiku through Claude Code) runs the search with that CLI's own web tool, on the person's
-   subscription, and returns results with sources. Needs CLI brains.
+it), `PUT`/`DELETE /v1/search/brave-key {key}`. 4. If all of those fail, an ace agent on the cheapest available provider CLI (for example Claude
+Haiku through Claude Code) runs the search with that CLI's own web tool, on the person's
+subscription, and returns results with sources. Needs CLI brains.
 
 Never by reading search engines' result pages directly: it breaks their terms, trips their bot
 detection and can get the person's address blocked. `web_fetch` of a known URL is a plain HTTP
@@ -243,6 +244,9 @@ first match wins:
    Its code is never copied into ours.
 4. **An optional catch-all service** for the long tail, off by default: it holds the person's app
    logins and bills per call.
+5. **[Spade Cloud](cloud.md)** (ADR 0140) signs in to apps whose OAuth needs a client secret,
+   with the person's ace account, and stores no tokens. It is Spade's hosted backend and may
+   later run Spade itself.
 
 The MCP client needs OAuth with automatic client registration, the streamable HTTP transport and
 the interactive app UI extension. Each catalogue entry records source, address, sign-in type,

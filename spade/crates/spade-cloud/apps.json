@@ -1,0 +1,75 @@
+{
+  "checked": "2026-11-12",
+  "about": "The apps Spade Cloud signs in to (ADR 0140). Endpoints are from each issuer's live authorization-server metadata and each MCP server's protected-resource metadata on the date above. Client IDs and secrets are never here: each app names the environment variables that hold them. See spade/docs/cloud.md.",
+  "apps": [
+    {
+      "id": "asana",
+      "name": "Asana",
+      "issuer": "https://app.asana.com",
+      "authorization_endpoint": "https://app.asana.com/-/oauth_authorize",
+      "token_endpoint": "https://app.asana.com/-/oauth_token",
+      "client_auth": "client_secret_post",
+      "scopes": ["default"],
+      "resource": "https://mcp.asana.com/v2/mcp",
+      "client_id_env": "SPADE_CLOUD_ASANA_CLIENT_ID",
+      "client_secret_env": "SPADE_CLOUD_ASANA_CLIENT_SECRET",
+      "authorization_response_iss_parameter_supported": false
+    },
+    {
+      "id": "box",
+      "name": "Box",
+      "issuer": "https://api.box.com",
+      "authorization_endpoint": "https://account.box.com/api/oauth2/authorize",
+      "token_endpoint": "https://api.box.com/oauth2/token",
+      "client_auth": "client_secret_basic",
+      "scopes": [],
+      "resource": "https://mcp.box.com/",
+      "client_id_env": "SPADE_CLOUD_BOX_CLIENT_ID",
+      "client_secret_env": "SPADE_CLOUD_BOX_CLIENT_SECRET",
+      "authorization_response_iss_parameter_supported": false
+    },
+    {
+      "id": "canva",
+      "name": "Canva",
+      "issuer": "https://www.canva.com",
+      "authorization_endpoint": "https://www.canva.com/api/oauth/authorize",
+      "token_endpoint": "https://api.canva.com/auth/v1/oauth/token",
+      "client_auth": "client_secret_basic",
+      "scopes": [
+        "profile:read",
+        "design:meta:read",
+        "design:content:read",
+        "design:content:write",
+        "folder:read",
+        "folder:write",
+        "brandtemplate:meta:read",
+        "brandtemplate:content:read",
+        "brandtemplate:content:write",
+        "comment:read",
+        "comment:write",
+        "asset:read",
+        "asset:write",
+        "brandkit:read",
+        "help:answers:read",
+        "help:answers:write"
+      ],
+      "resource": "https://api.canva.com/connect/v1/mcp",
+      "client_id_env": "SPADE_CLOUD_CANVA_CLIENT_ID",
+      "client_secret_env": "SPADE_CLOUD_CANVA_CLIENT_SECRET",
+      "authorization_response_iss_parameter_supported": false
+    },
+    {
+      "id": "hubspot",
+      "name": "HubSpot",
+      "issuer": "https://mcp.hubspot.com",
+      "authorization_endpoint": "https://mcp.hubspot.com/oauth/authorize/user",
+      "token_endpoint": "https://mcp.hubspot.com/oauth/v3/token",
+      "client_auth": "client_secret_post",
+      "scopes": [],
+      "resource": "https://mcp.hubspot.com",
+      "client_id_env": "SPADE_CLOUD_HUBSPOT_CLIENT_ID",
+      "client_secret_env": "SPADE_CLOUD_HUBSPOT_CLIENT_SECRET",
+      "authorization_response_iss_parameter_supported": false
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 import { AceGrantRequest } from "@ace/protocol/ace-account";
-import { GRANT_LIFETIME_MS, signGrant } from "@ace/account-grant";
+import { GRANT_LIFETIME_MS, signCloudGrant, signGrant } from "@ace/account-grant";
 import type { GrantKeySet, GrantSigningKey } from "@ace/account-grant";
 import { HostId } from "@ace/relay/wire";
 import type { machineStore } from "./machines.ts";
@@ -38,12 +38,16 @@ export function directoryRoutes(deps: {
       authenticated(request, async ({ account }) => {
         const parsed = AceGrantRequest.safeParse(await jsonBody(request, 4096));
         if (!parsed.success) return fail(400, "invalid_request");
-        const { kind, subject } = parsed.data;
+        const { kind, subject, purpose } = parsed.data;
         if (kind === "machine" && !HostId.safeParse(subject).success)
           return fail(400, "invalid_request");
+        if (purpose && kind !== "machine") return fail(400, "invalid_request");
         const iat = now();
         const exp = iat + GRANT_LIFETIME_MS;
-        const token = signGrant({ kind, account: account.id, subject, iat, exp }, signingKey);
+        const token = (purpose ? signCloudGrant : signGrant)(
+          { kind, account: account.id, subject, iat, exp },
+          signingKey,
+        );
         return json(200, { token, expiresAt: exp });
       }),
 

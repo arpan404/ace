@@ -1,5 +1,6 @@
 import type { SpadeCatalogueEntry } from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { useId, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import {
@@ -85,10 +86,17 @@ function ServerChoice(props: {
   const [secret, setSecret] = useState("");
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string>();
+  // Spade Cloud signs this app in with the machine's ace account, which it isn't signed in to.
+  const [needsAce, setNeedsAce] = useState(false);
+  const navigate = useNavigate();
   const finish = async (outcome: ConnectOutcome) => {
     setBusy(false);
     await cache.invalidateQueries({ queryKey: connectorsKey });
     if (outcome.kind === "done") return props.onDone();
+    if (outcome.kind === "needs_ace_account") {
+      setNeedsAce(true);
+      return setProblem(undefined);
+    }
     // The server takes no automatic registration: offer the person's own client ID.
     if (outcome.kind === "needs_client") setOpen("client");
     setProblem(outcome.message);
@@ -96,6 +104,7 @@ function ServerChoice(props: {
   const signIn = async (extra: SpadeConnectDraft = {}) => {
     setBusy(true);
     setProblem(undefined);
+    setNeedsAce(false);
     await finish(await connectInBrowser(() => connect(client, { ...props.draft, ...extra })));
   };
   const useToken = async () => {
@@ -200,6 +209,23 @@ function ServerChoice(props: {
             Sign in
           </Button>
         </form>
+      )}
+      {needsAce && (
+        <div role="alert" className="flex items-center justify-between gap-3">
+          <p className="text-xs text-muted-foreground">
+            {`Sign in to your ace account on this machine to connect ${props.name} through Spade Cloud.`}
+          </p>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              props.onDone();
+              void navigate({ to: "/settings/profile" });
+            }}
+          >
+            Sign in to ace
+          </Button>
+        </div>
       )}
       {problem && (
         <p role="alert" className="text-xs text-destructive">

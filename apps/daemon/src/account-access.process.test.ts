@@ -3,10 +3,11 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { GRANT_LIFETIME_MS, signGrant } from "@ace/account-grant";
+import { GRANT_LIFETIME_MS, signGrant, verifyGrant, grantPublicKey } from "@ace/account-grant";
 import { connectClientViaRelay, startRelay, type ClientChannel } from "@ace/relay";
 import { hostId, keyPair } from "@ace/secure-channel";
 import { DeviceId, type ServerMessage } from "@ace/protocol";
+import { machineGrantSource } from "./spade/account-grant-http.ts";
 import { Store } from "./store.ts";
 import { RemoteAuth } from "./remote-auth.ts";
 import { startFilesRelay } from "./files-relay.ts";
@@ -662,4 +663,21 @@ it("an account socket that never refreshes is closed at expiry and the client re
     reason: "Account grant expired",
   });
   expect(api.error).toBeUndefined();
+});
+
+it("Spade obtains a cloud-only credential instead of a replayable machine grant", async () => {
+  const daemon = await signedInDaemon();
+  const root = await mkdtemp(join(tmpdir(), "ace-cloud-credential-"));
+  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  const granted = await machineGrantSource(daemon.account, root)(AbortSignal.timeout(5000));
+  expect(granted?.account).toBe("user_a");
+  expect(daemon.backend.grantRequests.at(-1)).toMatchObject({ purpose: "spade-cloud" });
+  expect(() =>
+    verifyGrant(
+      granted?.token ?? "",
+      { keys: [grantPublicKey(daemon.backend.signingKey)] },
+      Date.now(),
+      "machine",
+    ),
+  ).toThrow();
 });
