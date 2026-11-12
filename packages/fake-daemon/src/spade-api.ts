@@ -2,6 +2,7 @@ import type { FakeSpade, FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } fr
 import { FakeSpadeConnectors } from "./spade-connectors-api.ts";
 import { FakeSpadeNotes } from "./spade-notes.ts";
 import { FakeSpadeRoutines } from "./spade-routines.ts";
+import { base64Bytes, sha256Hex } from "./sha256.ts";
 
 /*
  * A stateful stand-in for Spade's local API (ADR 0126, 0127), in Spade's own JSON: agents with
@@ -489,11 +490,10 @@ export class FakeSpadeApi implements FakeSpadeServer {
     }
     if (sub === "messages" && request.method === "POST") {
       const body = request.body ? (JSON.parse(request.body) as Json) : {};
-      this.store(id, {
-        type: "user_message",
-        text: body.text ?? "",
-        ...mediaOf(body),
-      });
+      const media = mediaOf(body);
+      for (const image of (media.images ?? []) as Json[])
+        this.images.set(String(image.sha256), String(image.media_type));
+      this.store(id, { type: "user_message", text: body.text ?? "", ...media });
       if (agent)
         agent.last_message = {
           from: "person",
@@ -528,39 +528,47 @@ export class FakeSpadeApi implements FakeSpadeServer {
   }
 }
 
-/** Fake hashes in Spade's shape, one per value sent. */
-const fakeHash = (value: string, salt: string) => {
-  let hash = 0;
-  for (const char of `${salt}:${value}`) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-  return hash.toString(16).padStart(8, "0").repeat(8);
-};
+/** What Spade names an upload by: the SHA-256 of its bytes, and their count. */
+function uploadIdentity(data: unknown) {
+  let bytes: Uint8Array;
+  try {
+    bytes = base64Bytes(String(data));
+  } catch {
+    bytes = new TextEncoder().encode(String(data));
+  }
+  return { sha256: sha256Hex(bytes), bytes: bytes.length };
+}
 
-/** A sent message's documents and recording, stored as Spade stores them (ADR 0134). */
+/** A sent message's images, documents and recording, stored as Spade stores them (ADR 0134). */
 function mediaOf(body: Json): Json {
+  const images = Array.isArray(body.images) ? (body.images as Json[]) : [];
   const files = Array.isArray(body.files) ? (body.files as Json[]) : [];
   const voice = body.voice as Json | undefined;
   return {
+    ...(images.length
+      ? {
+          images: images.map((image) => {
+            const { sha256, bytes } = uploadIdentity(image.data);
+            return { sha256, media_type: "image/png", bytes };
+          }),
+        }
+      : {}),
     ...(files.length
       ? {
-          documents: files.map((file) => ({
-            sha256: fakeHash(String(file.data), "doc"),
-            name: String(file.name),
-            media_type: String(file.name).endsWith(".pdf")
-              ? "application/pdf"
-              : "application/octet-stream",
-            bytes: String(file.data).length,
-            chars: 0,
-            cut: false,
-            view: "",
-          })),
+          documents: files.map((file) => {
+            const { sha256, bytes } = uploadIdentity(file.data);
+            const name = String(file.name);
+            const pdf = name.endsWith(".pdf");
+            const media_type = pdf ? "application/pdf" : "application/octet-stream";
+            return { sha256, name, media_type, bytes, chars: 0, cut: false, view: "" };
+          }),
         }
       : {}),
     ...(voice
       ? {
           voice: {
-            sha256: fakeHash(String(voice.data), "audio"),
+            ...uploadIdentity(voice.data),
             media_type: String(voice.media_type),
-            bytes: String(voice.data).length,
           },
         }
       : {}),
