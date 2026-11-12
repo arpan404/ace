@@ -417,6 +417,7 @@ async fn live(
     first.push(status_event(
         subscription.state,
         subscription.status.as_deref(),
+        subscription.waiting_member.as_ref(),
     ));
     let frames = BroadcastStream::new(subscription.frames)
         // A subscriber that falls behind is closed; it reconnects with its last seq.
@@ -436,7 +437,15 @@ async fn live(
                         .event("delta")
                         .data(json!({ "reply": reply, "text": text }).to_string()),
                 ),
-                Ok(Frame::Status { state, status }) => Some(status_event(state, status.as_deref())),
+                Ok(Frame::Status {
+                    state,
+                    status,
+                    waiting_member,
+                }) => Some(status_event(
+                    state,
+                    status.as_deref(),
+                    waiting_member.as_ref(),
+                )),
                 _ => None,
             };
             std::future::ready(Some(event))
@@ -476,10 +485,17 @@ async fn image(State(state): State<AppState>, Path(sha256): Path<String>) -> Res
 }
 
 /// What the agent is doing now: `{"state","status"}`. Older clients ignore the event.
-fn status_event(state: crate::engine::State, status: Option<&str>) -> SseEvent {
-    SseEvent::default()
-        .event("status")
-        .data(json!({ "state": state.name(), "status": status }).to_string())
+/// A `status` frame; in a group's stream it names the member that waits for the person.
+fn status_event(
+    state: crate::engine::State,
+    status: Option<&str>,
+    waiting: Option<&spade_core::event::GroupBot>,
+) -> SseEvent {
+    let mut data = json!({ "state": state.name(), "status": status });
+    if let Some(bot) = waiting {
+        data["waiting_member"] = json!({ "id": bot.id, "name": bot.name, "machine": bot.machine });
+    }
+    SseEvent::default().event("status").data(data.to_string())
 }
 
 #[derive(Deserialize)]

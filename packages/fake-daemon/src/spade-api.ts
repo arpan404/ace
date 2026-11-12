@@ -96,8 +96,12 @@ export class FakeSpadeApi implements FakeSpadeServer {
       addAgent: (fields) => this.addAgent(fields),
       openConversation: (id) => void this.events.set(id, this.events.get(id) ?? []),
       store: (conversation, event) => this.store(conversation, event),
-      emitStatus: (conversation, state, status) =>
-        this.spade.emit(`/v1/conversations/${conversation}/live`, "status", { state, status }),
+      emitStatus: (conversation, state, status, waiting) =>
+        this.spade.emit(
+          `/v1/conversations/${conversation}/live`,
+          "status",
+          waiting ? { state, status, waiting_member: waiting } : { state, status },
+        ),
       now,
     });
     spade.serve(this);

@@ -8,7 +8,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use spade_core::Event;
 use spade_core::event::{FromAgent, FromGroup, Known};
-use spade_store::InboxEntry;
+use spade_store::{Delivered, Delivery, InboxEntry};
 
 use super::Engine;
 use super::bots::MOST_HOPS;
@@ -105,16 +105,6 @@ impl Engine {
         }
         let now = self.now_ms();
         let _ = self.store.prune_inbox(now - KEEP_KEYS_MS);
-        match self.store.inbox_count_since(&sender.host, now - DAY_MS) {
-            Ok(count) if count >= self.limits.remote_asks_per_day => {
-                return refuse(
-                    429,
-                    "that machine sent too many asks today; try again tomorrow",
-                );
-            }
-            Ok(_) => {}
-            Err(error) => return refuse(500, &error.to_string()),
-        }
         // Words from another machine are never the person's own here: an ask names the bot that
         // sent it or the group it came through.
         if !body["from"].is_object() && !body["group"].is_object() {
@@ -178,9 +168,20 @@ impl Engine {
             conversation: agent.conversation.clone(),
             seq: 0,
         };
-        match self.deliver_as(&agent.conversation, &message, Some(&entry)) {
-            Ok(Some(_)) => (200, json!({ "status": "accepted" })),
-            Ok(None) => (200, json!({ "status": "duplicate" })),
+        // The day's count is checked in the transaction that stores the ask, so concurrent asks
+        // can't overshoot it.
+        let delivery = Delivery {
+            ask: &entry,
+            since_ms: now - DAY_MS,
+            most: self.limits.remote_asks_per_day,
+        };
+        match self.deliver_as(&agent.conversation, &message, Some(delivery)) {
+            Ok(Delivered::Stored(_)) => (200, json!({ "status": "accepted" })),
+            Ok(Delivered::Duplicate) => (200, json!({ "status": "duplicate" })),
+            Ok(Delivered::OverLimit) => refuse(
+                429,
+                "that machine sent too many asks today; try again tomorrow",
+            ),
             Err(error) => refuse(409, &format!("not delivered: {error}")),
         }
     }

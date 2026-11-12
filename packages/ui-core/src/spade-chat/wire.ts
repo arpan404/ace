@@ -166,9 +166,20 @@ export function parseSpadeStored(raw: unknown): SpadeStored | undefined {
 
 const replyText = z.object({ reply: z.string(), text: z.string() });
 const caughtUpShape = z.object({ seq: z.number().int().nonnegative() });
+/** A group's member as a status frame names it (ADR 0132). */
+const waitingMemberShape = z.object({
+  id: z.string(),
+  name: z.string(),
+  machine: z
+    .string()
+    .nullish()
+    .transform((machine) => machine ?? null),
+});
 const statusShape = z.object({
   state: z.enum(["idle", "working", "waiting"]),
   status: z.string().nullish().catch(undefined),
+  /** In a group's stream, the member that waits for the person; anything unreadable is none. */
+  waiting_member: waitingMemberShape.nullish().catch(undefined),
 });
 
 /** One frame of `GET /v1/conversations/{id}/live`, ready to fold. */
@@ -179,7 +190,13 @@ export type SpadeLiveInput =
   | { kind: "caught_up"; seq: number }
   | { kind: "delta"; reply: string; text: string }
   /** The agent's current state and its few words on what it does now (ADR 0127). */
-  | { kind: "status"; state: "idle" | "working" | "waiting"; status: string | undefined };
+  | {
+      kind: "status";
+      state: "idle" | "working" | "waiting";
+      status: string | undefined;
+      /** In a group's stream, the member that waits for the person (by id, never by words). */
+      waitingMember?: { id: string; name: string; machine: string | null } | undefined;
+    };
 
 /** A live frame by its `event:` name and `data:` text; undefined for names this client skips. */
 export function parseSpadeLiveFrame(event: string, data: string): SpadeLiveInput | undefined {
@@ -194,9 +211,14 @@ export function parseSpadeLiveFrame(event: string, data: string): SpadeLiveInput
   }
   if (event === "status") {
     const parsed = statusShape.safeParse(body);
-    return parsed.success
-      ? { kind: "status", state: parsed.data.state, status: parsed.data.status || undefined }
-      : undefined;
+    if (!parsed.success) return undefined;
+    const input: SpadeLiveInput = {
+      kind: "status",
+      state: parsed.data.state,
+      status: parsed.data.status || undefined,
+    };
+    if (parsed.data.waiting_member) input.waitingMember = parsed.data.waiting_member;
+    return input;
   }
   if (event === "snapshot" || event === "delta") {
     const parsed = replyText.safeParse(body);

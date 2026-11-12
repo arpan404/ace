@@ -317,7 +317,9 @@ impl Engine {
         let _ = self.live(id).frames.send(Frame::Status {
             state: activity.state,
             status,
+            waiting_member: None,
         });
+        self.announce_asking_groups(id);
     }
 
     /// The status words for `id` in `activity`'s state; `None` when idle.
@@ -417,14 +419,14 @@ impl Engine {
     }
 
     /// [`Engine::deliver`], recording `ask` (an ask from another machine) in the same write.
-    /// Returns the seq the event was stored at, or `None` when `ask` was already delivered.
+    /// What was stored, or why nothing was.
     fn deliver_as(
         self: &Arc<Self>,
         id: &str,
         event: &Event,
-        ask: Option<&spade_store::InboxEntry>,
-    ) -> Result<Option<i64>, StoreError> {
-        let (start, seq) = {
+        ask: Option<spade_store::Delivery<'_>>,
+    ) -> Result<spade_store::Delivered, StoreError> {
+        let (start, delivered) = {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
             if self.deleting(id) {
                 return Err(StoreError::NoConversation(id.to_owned()));
@@ -446,10 +448,10 @@ impl Engine {
                     let started = Event::reply_started(self.ids.next("r"), model);
                     (true, self.append_as(id, &[event.clone(), started], ask)?)
                 };
-            let Some(stored) = stored else {
-                return Ok(None);
-            };
-            (start, stored.first().map(|e| e.seq))
+            if !matches!(stored, spade_store::Delivered::Stored(_)) {
+                return Ok(stored);
+            }
+            (start, stored)
         };
         if start {
             self.spawn_turn(id);
@@ -457,7 +459,7 @@ impl Engine {
             // A turn waiting on the person (an `ask_user` question) reads the message now.
             memory::wake_on_message(self, id, event);
         }
-        Ok(seq)
+        Ok(delivered)
     }
 
     /// Live frames after `after`, with the stored backlog and the open reply's text so far.
@@ -476,9 +478,9 @@ impl Engine {
         };
         let backlog = self.store.events(id, after)?;
         let activity = self.activity(id)?;
-        let (state, status) = match self.group_status_of(id) {
-            Some(group) => group,
-            None => (activity.state, self.status_for(id, &activity)),
+        let (state, status, waiting_member) = match self.group_status_of(id) {
+            Some(group) => (group.state, group.status, group.waiting_member),
+            None => (activity.state, self.status_for(id, &activity), None),
         };
         Ok(Some(Subscription {
             frames,
@@ -486,6 +488,7 @@ impl Engine {
             snapshot,
             state,
             status,
+            waiting_member,
         }))
     }
 
@@ -606,28 +609,35 @@ impl Engine {
     /// Stores `events` together and sends them to subscribers, in order; the caller holds
     /// `record_lock`. The only way events are written, so the activity cache stays true.
     fn append_events(&self, id: &str, events: &[Event]) -> Result<Vec<StoredEvent>, StoreError> {
-        self.append_as(id, events, None)?
-            .ok_or_else(|| StoreError::NoConversation(id.to_owned()))
+        match self.append_as(id, events, None)? {
+            spade_store::Delivered::Stored(stored) => Ok(stored),
+            _ => Err(StoreError::NoConversation(id.to_owned())),
+        }
     }
 
-    /// [`Engine::append_events`], recording `ask` in the same transaction; `None` when that ask
-    /// was already delivered (nothing is stored).
+    /// [`Engine::append_events`], recording `ask` in the same transaction; nothing is stored when
+    /// that ask was already delivered or its sender is over its limit.
     fn append_as(
         &self,
         id: &str,
         events: &[Event],
-        ask: Option<&spade_store::InboxEntry>,
-    ) -> Result<Option<Vec<StoredEvent>>, StoreError> {
+        ask: Option<spade_store::Delivery<'_>>,
+    ) -> Result<spade_store::Delivered, StoreError> {
         let now = self.now_ms();
         let stored = match ask {
             Some(ask) => self.store.append_delivered(id, events, ask, now),
-            None => self.store.append_all(id, events, now).map(Some),
+            None => self
+                .store
+                .append_all(id, events, now)
+                .map(spade_store::Delivered::Stored),
         };
         // Dropped whether or not the write succeeded: a failed write may still have landed.
         self.forget_activity(id);
         let stored = stored?;
-        for event in stored.iter().flatten() {
-            let _ = self.live(id).frames.send(Frame::Stored(event.clone()));
+        if let spade_store::Delivered::Stored(events) = &stored {
+            for event in events {
+                let _ = self.live(id).frames.send(Frame::Stored(event.clone()));
+            }
         }
         Ok(stored)
     }

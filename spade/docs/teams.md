@@ -89,7 +89,11 @@ Stored in the group's conversation:
 `Bot` = `{"id", "name", "machine": "<host id>"|null}`. `outcome` is `answered`, `stopped`,
 `failed`, `refused` or `gave_up` (an offline machine never came back within 7 days).
 
-The live stream also sends `status` frames `{state, status}` for the group, as for a bot.
+The live stream also sends `status` frames `{state, status}` for the group, as for a bot. While
+the group waits, the frame also carries `waiting_member` (`Bot`): the member of this machine that
+waits for the person. Clients find that member by its id, never from the status words. `GET
+/groups` answers it as `waiting_member` too (null otherwise). A member starting or stopping to
+wait sends the frame at once.
 
 ## Bots on other machines
 

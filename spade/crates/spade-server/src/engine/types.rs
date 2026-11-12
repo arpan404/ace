@@ -83,6 +83,8 @@ pub enum Frame {
     Status {
         state: State,
         status: Option<String>,
+        /// In a group's stream, the member that waits for the person (ADR 0132).
+        waiting_member: Option<spade_core::event::GroupBot>,
     },
 }
 
@@ -100,6 +102,8 @@ pub struct Subscription {
     /// What the agent is doing as the subscription opened.
     pub state: State,
     pub status: Option<String>,
+    /// In a group's stream, the member that waits for the person.
+    pub waiting_member: Option<spade_core::event::GroupBot>,
 }
 
 /// An agent as the roster shows it.

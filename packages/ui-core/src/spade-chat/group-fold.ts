@@ -63,7 +63,12 @@ export interface SpadeGroupState {
   /** The group's state and few words, from the live stream's `status` frames. */
   state: "idle" | "working" | "waiting";
   status: string | undefined;
+  /** The member the server says waits for the person, while the group waits. */
+  waitingMember: SpadeGroupBot | undefined;
 }
+
+const sameBot = (a: SpadeGroupBot, b: SpadeGroupBot) =>
+  a.id === b.id && (a.machine ?? null) === (b.machine ?? null);
 
 export function emptySpadeGroup(): SpadeGroupState {
   return {
@@ -75,6 +80,7 @@ export function emptySpadeGroup(): SpadeGroupState {
     asks: new Map(),
     state: "idle",
     status: undefined,
+    waitingMember: undefined,
   };
 }
 
@@ -99,9 +105,16 @@ export function foldSpadeGroup(state: SpadeGroupState, input: SpadeFoldInput): b
     }
     case "status": {
       const status = input.state === "idle" ? undefined : input.status;
-      if (state.state === input.state && state.status === status) return false;
+      const waiting = input.state === "waiting" ? input.waitingMember : undefined;
+      const sameWaiting =
+        state.waitingMember === waiting ||
+        (state.waitingMember !== undefined &&
+          waiting !== undefined &&
+          sameBot(state.waitingMember, waiting));
+      if (state.state === input.state && state.status === status && sameWaiting) return false;
       state.state = input.state;
       state.status = status;
+      state.waitingMember = waiting;
       return true;
     }
     // A group has no streamed words: each answer arrives whole, as the member's message.
@@ -206,10 +219,9 @@ export interface SpadeGroupView {
   working: SpadeGroupBot | undefined;
   /** Who each open ask went to, oldest first. */
   asked: SpadeGroupBot[];
+  /** The member that waits for the person, as the server named it. */
+  waitingMember: SpadeGroupBot | undefined;
 }
-
-const sameBot = (a: SpadeGroupBot, b: SpadeGroupBot) =>
-  a.id === b.id && (a.machine ?? null) === (b.machine ?? null);
 
 export function spadeGroupView(state: SpadeGroupState): SpadeGroupView {
   const items: SpadeGroupItem[] = [...state.items];
@@ -244,23 +256,20 @@ export function spadeGroupView(state: SpadeGroupState): SpadeGroupView {
     status: state.status,
     working: asked.at(-1),
     asked,
+    waitingMember: state.waitingMember,
   };
 }
 
-const waitingWords = / is waiting for you$/;
-
 /**
- * The member that waits for the person, while the group waits: the one its status names
- * (`<Name> is waiting for you`), the latest open ask to it first, else the member of that name.
- * Undefined when the group doesn't wait or names no one this window can match.
+ * The member that waits for the person, while the group waits: the one the server names in its
+ * status (`waiting_member`), as this window knows it among the members (else as named). Never
+ * read from the status words.
  */
 export function spadeGroupWaiting(
-  view: Pick<SpadeGroupView, "state" | "status" | "asked">,
+  view: Pick<SpadeGroupView, "state" | "waitingMember">,
   members: readonly SpadeGroupBot[],
 ): SpadeGroupBot | undefined {
-  if (view.state !== "waiting" || !view.status || !waitingWords.test(view.status)) return undefined;
-  const name = view.status.replace(waitingWords, "");
-  return (
-    view.asked.findLast((bot) => bot.name === name) ?? members.find((bot) => bot.name === name)
-  );
+  const waiting = view.waitingMember;
+  if (view.state !== "waiting" || !waiting) return undefined;
+  return members.find((bot) => sameBot(bot, waiting)) ?? waiting;
 }
