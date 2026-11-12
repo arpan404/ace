@@ -12,6 +12,11 @@ use support::{Gate, Options, Result, Spade};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn with_a_keychain_that_blocks_spade_still_answers_health_at_once() -> Result {
+    // What starting takes on this machine with a keychain that answers at once, so the bound
+    // below is about the keychain, not about a slow machine.
+    let usual = Instant::now();
+    drop(Spade::start(vec![Script::reply("unused")], Vec::new()).await?);
+    let usual = usual.elapsed();
     let started = Instant::now();
     let spade = Spade::start_with(
         vec![
@@ -35,7 +40,7 @@ async fn with_a_keychain_that_blocks_spade_still_answers_health_at_once() -> Res
         .await?;
     assert_eq!(health.status().as_u16(), 200);
     assert!(
-        started.elapsed() < AT_ONCE,
+        started.elapsed() < usual + AT_ONCE,
         "listening took {:?}",
         started.elapsed()
     );
@@ -66,7 +71,7 @@ async fn with_a_keychain_that_blocks_spade_still_answers_health_at_once() -> Res
 
 /// One keychain read in the test where every read is slow.
 const KEYCHAIN_DELAY: Duration = Duration::from_millis(2_500);
-/// What "at once" allows: well short of [`KEYCHAIN_DELAY`].
+/// What "at once" allows, beyond what starting usually takes: short of [`KEYCHAIN_DELAY`].
 const AT_ONCE: Duration = Duration::from_secs(2);
 
 /// Opens the gate when dropped, so a failing test never leaves a keychain read waiting forever.
@@ -242,12 +247,24 @@ async fn a_keychain_that_never_answers_delays_work_only_until_the_deadline_then_
         (&now["starting"], &now["starting_reason"]),
         (&json!(false), &Value::Null)
     );
+    // The failed reply may have finished too; the next reply is the one after those.
+    let finished = |events: &[Value]| {
+        events
+            .iter()
+            .filter(|e| e["type"] == "reply_finished")
+            .count()
+    };
+    let before = finished(&spade.wait_for(&conversation, "reply_failed").await?);
     spade.say(&conversation, "Now?").await?;
-    let events = spade.wait_for(&conversation, "reply_finished").await?;
+    let events = spade
+        .wait_for_count(&conversation, "reply_finished", before + 1)
+        .await?;
     assert!(
         events
             .iter()
-            .any(|e| e["type"] == "reply_finished" && e["text"] == "Healed.")
+            .any(|e| e["type"] == "reply_finished" && e["text"] == "Healed."),
+        "{:?}",
+        support::types(&events)
     );
     Ok(())
 }
