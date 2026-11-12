@@ -2651,13 +2651,11 @@ name = "spade-ace"
 version = "0.1.0"
 dependencies = [
  "axum",
- "bytes",
  "futures-util",
- "reqwest",
  "rmcp",
  "serde",
  "serde_json",
- "sse-stream",
+ "spade-mcp",
  "tempfile",
  "thiserror",
  "tokio",
@@ -2707,6 +2705,20 @@ dependencies = [
  "tokio",
  "windows-native-keyring-store",
  "zbus-secret-service-keyring-store",
+]
+
+[[package]]
+name = "spade-mcp"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "futures-util",
+ "reqwest",
+ "rmcp",
+ "serde_json",
+ "sse-stream",
+ "thiserror",
+ "tokio",
 ]
 
 [[package]]

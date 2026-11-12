@@ -10,12 +10,13 @@ impl Secret {
         Self(value.into())
     }
 
-    pub(crate) fn expose(&self) -> &str {
+    /// The value itself, for the one place it is sent.
+    pub fn expose(&self) -> &str {
         &self.0
     }
 
     /// `text` with every copy of the secret replaced, for errors that quote a server or library.
-    pub(crate) fn scrub(&self, text: impl Into<String>) -> String {
+    pub fn scrub(&self, text: impl Into<String>) -> String {
         let text = text.into();
         if self.0.is_empty() {
             return text;

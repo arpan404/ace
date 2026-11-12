@@ -8,16 +8,9 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+spade-mcp = { path = "../spade-mcp" }
 futures-util = { workspace = true, features = ["sink"] }
-bytes = "1"
-reqwest = { workspace = true, features = ["stream"] }
-rmcp = { version = "3.9.0", default-features = false, features = [
-  "base64",
-  "client",
-  "transport-streamable-http-client-reqwest",
-] }
 serde.workspace = true
-sse-stream = "0.2.6"
 serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["sync", "time"] }
