@@ -2791,9 +2791,11 @@ dependencies = [
  "serde_json",
  "sha2",
  "spade-ace",
+ "spade-connect",
  "spade-core",
  "spade-fetch",
  "spade-keys",
+ "spade-mcp",
  "spade-models",
  "spade-search",
  "spade-store",
@@ -2806,6 +2808,7 @@ dependencies = [
  "tower",
  "tracing",
  "tracing-subscriber",
+ "url",
  "uuid",
 ]
 

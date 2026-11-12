@@ -114,7 +114,7 @@ impl Connectors {
             // Refused before it ran: renew the sign-in for the next try, never resend this one.
             Err(ToolsError::Refused) => match self.renew(&record, generation).await {
                 Ok(()) => Err(CallError::NotRun(format!(
-                    "the sign-in to {} had expired and is renewed; it is safe to try again",
+                    "the sign-in to {} had expired and is now renewed",
                     record.name
                 ))),
                 Err(Unready::NeedsReconnect) => {

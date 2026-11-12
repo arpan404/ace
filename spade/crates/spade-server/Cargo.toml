@@ -20,6 +20,8 @@ spade-core = { path = "../spade-core" }
 spade-keys = { path = "../spade-keys" }
 spade-models = { path = "../spade-models" }
 spade-ace = { path = "../spade-ace" }
+spade-connect = { path = "../spade-connect" }
+spade-mcp = { path = "../spade-mcp" }
 spade-fetch = { path = "../spade-fetch" }
 spade-search = { path = "../spade-search" }
 spade-store = { path = "../spade-store" }
@@ -41,6 +43,7 @@ rmcp = { version = "3.9.0", default-features = false, features = [
   "transport-streamable-http-server",
 ] }
 spade-testkit = { path = "../spade-testkit" }
+url = "2"
 tokio-util = "0.7"
 tower = "0.5"
 

@@ -266,7 +266,7 @@ async fn a_refused_call_is_not_resent_and_the_sign_in_is_renewed_for_the_next_tr
         .call(&view.id, "create_issue", serde_json::json!({}))
         .await;
     match refused {
-        Err(CallError::NotRun(why)) => assert!(why.contains("safe to try again"), "{why}"),
+        Err(CallError::NotRun(why)) => assert!(why.contains("renewed"), "{why}"),
         other => panic!("expected not run, got {other:?}"),
     }
     assert_eq!(app.tool_runs(), runs, "the refused call ran");

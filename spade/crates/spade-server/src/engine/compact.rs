@@ -89,7 +89,7 @@ async fn run(
         text: compaction::request(focus),
         images: Vec::new(),
     });
-    let carried = compaction::carried_out(events, plan.keep_from, &engine.tools.registry());
+    let carried = compaction::carried_out(events, plan.keep_from, &engine.tools.registry_for(id));
     let written = match engine.models.chat(model, &prompt).await {
         Ok(reply) => {
             engine.pay(id, model, &reply.usage);
