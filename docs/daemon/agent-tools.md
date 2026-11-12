@@ -338,7 +338,8 @@ location already answers requests, so its readiness RPC is briefly unregistered
 never registers, the session still opens, ace's tools stay unconfirmed, the
 daemon logs an `mcp-readiness-unconfirmed` warning, and each later send or model
 change makes one more readiness call (no retries) without registering ace again.
-Stop, task cancellation and interaction answers never wait on that check. The plugin carries no MCP authority, changes
+Stop, task cancellation and interaction answers never set up or check ace's tools, so
+MCP set-up can never delay or fail them, even in a location ace has not set up yet. The plugin carries no MCP authority, changes
 no user configuration files and is staged in standalone releases. See the
 [isolated CLI results](../research/providers/opencode-ace-tools.md).
 

@@ -319,7 +319,7 @@ test("a readiness plugin OpenCode never registers still opens the session, warns
   }
 });
 
-test("after OpenCode rebuilds the session's location, the next send registers ace's server there again", async () => {
+test("after OpenCode rebuilds the session's location, Stop goes through without ace's tools and the next send registers them again", async () => {
   const credentials = new CredentialRegistry(() => "e".repeat(64));
   const registry = new ToolRegistry({ scheduler: nodeScheduler });
   const mcp = await startMcpServer({ registry, credentials });
@@ -357,6 +357,9 @@ test("after OpenCode rebuilds the session's location, the next send registers ac
       { type: "location.shutdown", directory: "/sandbox", data: {} },
     ]);
     await resynced.promise;
+    expect(await h.control("/test/mcp")).toMatchObject({ missing: true });
+    // Stop needs none of ace's tools, so it goes through without setting them up again.
+    await session.interrupt({ cascade: true });
     expect(await h.control("/test/mcp")).toMatchObject({ missing: true });
     await session.configure?.({
       provider: "opencode",
