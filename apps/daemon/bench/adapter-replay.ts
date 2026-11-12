@@ -54,19 +54,38 @@ const Message = z.discriminatedUnion("type", [
 ]);
 type Message = z.infer<typeof Message>;
 
-/** One socket subscribed to every replay thread, tracking the newest event seq delivered. */
-async function subscribe(url: string, token: string, threads: string[]) {
+/** The daemon serves at most 64 subscriptions per socket (socket-reads.ts); stay under it. */
+const perSocket = 48;
+const readyMs = 30_000;
+
+/**
+ * One socket per `perSocket` replay threads, tracking the newest event seq each delivered.
+ * Readiness rejects on an error reply, a closed socket or a timeout, so a refused subscription
+ * fails the bench instead of hanging it; any later error fails the next delivery wait.
+ */
+async function socketSubscriber(url: string, token: string, threads: string[], index: number) {
   const socket = new WebSocket(url.replace("http:", "ws:"));
   await once(socket, "open");
   let delivered = 0;
   let snapshots = 0;
+  let lastMessage = performance.now();
+  let failure: Error | undefined;
   const ready = Promise.withResolvers<void>();
+  const fail = (error: Error) => {
+    failure ??= error;
+    ready.reject(failure);
+  };
+  socket.on("error", (error) => fail(error));
+  socket.on("close", () => fail(new Error(`Subscriber socket ${index} closed`)));
   socket.on("message", (bytes: Buffer) => {
+    lastMessage = performance.now();
     const message: unknown = JSON.parse(bytes.toString());
     const parsed = z
       .looseObject({ type: z.string(), throughSeq: z.number().optional() })
       .safeParse(message);
     if (!parsed.success) return;
+    if (parsed.data.type === "error")
+      return fail(new Error(`Subscriber ${index} refused: ${JSON.stringify(message)}`));
     if (parsed.data.type === "welcome")
       for (const threadId of threads)
         socket.send(
@@ -79,21 +98,54 @@ async function subscribe(url: string, token: string, threads: string[]) {
     if (parsed.data.type === "snapshot" && ++snapshots === threads.length) ready.resolve();
     if (parsed.data.type === "events") delivered = Math.max(delivered, parsed.data.throughSeq ?? 0);
   });
-  socket.send(JSON.stringify({ type: "hello", protocolVersion: 1, deviceId: "replay", token }));
-  await ready.promise;
+  socket.send(
+    JSON.stringify({ type: "hello", protocolVersion: 1, deviceId: `replay-${index}`, token }),
+  );
+  const timer = setTimeout(
+    () => fail(new Error(`Subscriber ${index}: ${snapshots} of ${threads.length} snapshots`)),
+    readyMs,
+  );
+  try {
+    await ready.promise;
+  } finally {
+    clearTimeout(timer);
+  }
   return {
+    delivered: () => delivered,
+    quietFor: () => performance.now() - lastMessage,
+    check() {
+      if (failure) throw failure;
+    },
+    async close() {
+      socket.removeAllListeners("close");
+      socket.close();
+      await once(socket, "close");
+    },
+  };
+}
+
+/** Every replay thread subscribed, spread over as many sockets as the per-socket limit needs. */
+async function subscribe(url: string, token: string, threads: string[]) {
+  const sockets: Awaited<ReturnType<typeof socketSubscriber>>[] = [];
+  for (let start = 0; start < threads.length; start += perSocket)
+    sockets.push(
+      await socketSubscriber(url, token, threads.slice(start, start + perSocket), sockets.length),
+    );
+  return {
+    /** Until the store's newest event has arrived, then until every socket has gone quiet. */
     async reach(head: number) {
       const deadline = performance.now() + 5_000;
       for (;;) {
-        if (delivered >= head) return;
+        for (const socket of sockets) socket.check();
+        const delivered = Math.max(...sockets.map((socket) => socket.delivered()));
+        if (delivered >= head && sockets.every((socket) => socket.quietFor() >= 50)) return;
         if (performance.now() > deadline)
-          throw new Error(`Subscriber stopped at ${delivered} of ${head}`);
+          throw new Error(`Subscribers stopped at ${delivered} of ${head}`);
         await delay(5);
       }
     },
     async close() {
-      socket.close();
-      await once(socket, "close");
+      for (const socket of sockets) await socket.close();
     },
   };
 }
