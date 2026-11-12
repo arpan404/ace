@@ -78,3 +78,25 @@ export function opencodePolicy(mode: PermissionMode): OpenCodePolicy {
       return { agent: z.enum(["build", "plan"]).parse(mode) };
   }
 }
+
+/**
+ * A Spade bot's hidden session (ADR 0133): its read-only mode still lets these ace tools (Spade's
+ * gated bridge, ace's reads, bare names) run without asking, since nobody would see a question.
+ * OpenCode checks an ace tool under `ace_<tool>`.
+ */
+export function withSpadeBot(
+  policy: OpenCodePolicy,
+  allowAceTools: readonly string[],
+): OpenCodePolicy {
+  return {
+    ...policy,
+    rules: [
+      ...(policy.rules ?? []),
+      ...allowAceTools.map((tool): OpenCodeRule => ({
+        action: `ace_${tool}`,
+        resource: "*",
+        effect: "allow",
+      })),
+    ],
+  };
+}

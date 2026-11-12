@@ -1,4 +1,5 @@
 import { ClaudePermissionMode } from "@ace/provider-kit/permission-modes";
+import { spadeBotPermission } from "./spade-bot.ts";
 import { claudeInjection, claudeToolListing, redactMcpCredential } from "@ace/mcp-server";
 import { ClaudeSelectionOptions, claudeSelectionFlags } from "./selection.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
@@ -254,8 +255,14 @@ export async function openSession(
             );
           },
         }),
-      canUseTool: (toolName, toolInput, toolOptions) =>
-        pending.permission(toolName, toolInput, toolOptions),
+      canUseTool: (toolName, toolInput, toolOptions) => {
+        const answered = ctx.spadeBot
+          ? spadeBotPermission(ctx.spadeBot.allowAceTools, toolName, toolInput)
+          : undefined;
+        return answered
+          ? Promise.resolve(answered)
+          : pending.permission(toolName, toolInput, toolOptions);
+      },
       onElicitation: (request, meta) => pending.elicitation(request, meta),
       // No product renderer currently answers a native user-dialog kind.
       onUserDialog: async (request) => {
