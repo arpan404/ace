@@ -499,6 +499,9 @@ export class ThreadSession {
       case "quote.add":
         this.#quotes.add(action.message, action.start, action.end);
         break;
+      case "quote.restore":
+        this.#quotes.restore(action.quotes);
+        break;
       case "quote.remove":
         this.#quotes.remove(action.id);
         break;

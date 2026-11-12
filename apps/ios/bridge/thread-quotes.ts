@@ -1,5 +1,11 @@
 import type { ContentPart } from "@ace/protocol";
-import { formatMessageQuotes, messageQuoteLimit, quoteIn, type MessageQuote } from "@ace/ui-core";
+import {
+  formatMessageQuotes,
+  mergeQuotes,
+  messageQuoteLimit,
+  quoteIn,
+  type MessageQuote,
+} from "@ace/ui-core";
 import type { Preview } from "./agents.ts";
 
 /*
@@ -7,7 +13,9 @@ import type { Preview } from "./agents.ts";
  * passages of the agent's messages the open thread's next message replies to, each picked from a
  * selection in the message's words (`quoteIn` in `@ace/ui-core`). Swift draws them as a chip
  * over the composer; on send they become the `<replying_to>` block before the person's words.
- * As the web's draft keeps them, a thread's quotes outlast a visit to it (`QuoteShelf`).
+ * As the web's draft keeps them, a thread's quotes outlast a visit to it (`QuoteShelf`), and the
+ * phone keeps each one whole with the thread's draft words (`kept`), handing them back when the
+ * thread opens after a relaunch (`restore`).
  */
 
 /** Each thread's quotes, for the bridge's life; past `limit` threads the oldest is let go. */
@@ -69,6 +77,11 @@ export class ThreadQuotes {
     if (!quote) return;
     this.#set([...this.#quotes, { ...quote, id: this.#id() }]);
   }
+  /** Quotes the phone kept with the thread's draft; one already here is not added again. */
+  restore(quotes: readonly MessageQuote[]): void {
+    const merged = mergeQuotes(this.#quotes, quotes);
+    if (merged && merged.length !== this.#quotes.length) this.#set(merged);
+  }
   remove(id: string): void {
     this.#set(this.#quotes.filter((quote) => quote.id !== id));
   }
@@ -104,6 +117,8 @@ export class ThreadQuotes {
       type: "thread.quotes",
       items: quotes.map((quote) => ({ id: quote.id, text: this.#preview(quote.text, 512) })),
       full: quotes.length >= messageQuoteLimit,
+      /** Each quote whole, for the phone to keep with the draft's words. */
+      kept: quotes.map(({ id, text, before, after }) => ({ id, text, before, after })),
     });
   }
 }

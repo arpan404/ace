@@ -107,3 +107,31 @@ test("the oldest thread's quotes are let go past the shelf's limit", () => {
   shelf.set("c", [quote]);
   expect([shelf.get("a").length, shelf.get("b").length, shelf.get("c").length]).toEqual([1, 0, 1]);
 });
+
+test("each quote reaches the phone whole, for its draft to keep", async () => {
+  const session = await thread();
+  session.handle({ type: "quote.add", message: answer, ...at("double as the guard") });
+  await shown(1);
+  expect(latest("thread.quotes")?.kept).toEqual([
+    {
+      id: expect.any(String),
+      text: "double as the guard",
+      before: "Run the finder first. It can ",
+      after: ". Then the scripts.",
+    },
+  ]);
+});
+
+test("quotes the phone kept with its draft rejoin the composer, never twice", async () => {
+  const session = await thread();
+  session.handle({ type: "quote.add", message: answer, ...at("the finder") });
+  await shown(1);
+  const [own] = (latest("thread.quotes")?.kept ?? []) as { id: string }[];
+  const saved = { id: "saved-1", text: "the scripts", before: "Then ", after: "." };
+  session.handle({ type: "quote.restore", quotes: [own, saved] });
+  expect(await shown(2)).toEqual(["the finder", "the scripts"]);
+  session.handle({ type: "send", text: "Both", opposite: false, requestId: "both" });
+  await until(() => commands("thread.send").length === 1, "the message");
+  const input = commands("thread.send")[0]?.input as { text: string }[];
+  expect(input[0]?.text).toContain('[2] Passage: "the scripts"');
+});
