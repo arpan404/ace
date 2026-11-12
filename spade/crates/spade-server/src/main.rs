@@ -26,6 +26,11 @@ use tracing_subscriber::filter::filter_fn;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
+/// Every allocation is counted, so a document reader child can be held to a memory cap on every
+/// platform (ADR 0134). The server itself runs without a cap.
+#[global_allocator]
+static ALLOCATOR: cap::Cap<std::alloc::System> = cap::Cap::new(std::alloc::System, usize::MAX);
+
 /// Exit code when another Spade holds the data folder (docs/ace-integration.md).
 const BUSY: u8 = 3;
 
@@ -42,6 +47,11 @@ async fn main() -> std::process::ExitCode {
         && flag == spade_docs::CHILD_ARG
     {
         let name = args.get(1).and_then(|n| n.to_str()).unwrap_or("file");
+        let memory = spade_docs::child_memory(args.get(2).and_then(|n| n.to_str()));
+        // Past the cap an allocation fails and the child aborts; the server reports the file
+        // as unreadable.
+        let _ = ALLOCATOR.set_limit(ALLOCATOR.allocated().saturating_add(memory));
+        spade_docs::limit_memory(memory);
         let code = spade_docs::serve_child(
             name,
             &mut std::io::stdin().lock(),

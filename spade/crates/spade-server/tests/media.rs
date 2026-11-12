@@ -429,3 +429,21 @@ async fn the_server_binary_reads_documents_in_a_child_process() -> Result {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn a_reader_child_past_its_memory_cap_fails_instead_of_growing() -> Result {
+    let program: std::path::PathBuf = env!("CARGO_BIN_EXE_spade-server").into();
+    let big = "word ".repeat(4 * 1024 * 1024).into_bytes();
+    let capped =
+        spade_docs::Extractor::child(program.clone(), Vec::new()).with_memory(8 * 1024 * 1024);
+    assert!(matches!(
+        capped.read(big.clone(), "big.txt").await,
+        Err(spade_docs::DocError::Failed(_))
+    ));
+    // The same file with the default cap reads.
+    let read = spade_docs::Extractor::child(program, Vec::new())
+        .read(big, "big.txt")
+        .await?;
+    assert!(read.text.starts_with("word word"));
+    Ok(())
+}

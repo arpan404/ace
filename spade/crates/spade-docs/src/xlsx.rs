@@ -172,7 +172,14 @@ fn sheet(
     let mut row: Vec<String> = Vec::new();
     let mut cell: Option<Cell> = None;
     let mut in_value = false;
+    // Bytes the row holds so far: every value is charged before it is copied in, so neither a
+    // shared string repeated in many cells nor a long inline value can build a row past the cap.
+    let mut row_bytes = 0usize;
     loop {
+        let room = limits
+            .text_bytes
+            .saturating_sub(out.len())
+            .saturating_sub(row_bytes);
         let event = reader.read_event().map_err(|e| damaged(&e))?;
         match &event {
             Event::Eof => break,
@@ -198,14 +205,20 @@ fn sheet(
                         if *cells > limits.cells {
                             return Err(DocError::TooManyCells(limits.cells));
                         }
-                        place(&mut row, done, shared);
+                        let (added, full) = place(&mut row, done, shared, room);
+                        row_bytes += added;
+                        if full {
+                            out.push_str(row.join("\t").trim_end());
+                            return Ok(true);
+                        }
                     }
                 }
                 "row" => {
                     out.push_str(row.join("\t").trim_end());
                     out.push('\n');
                     row.clear();
-                    if out.len() > limits.text_bytes {
+                    row_bytes = 0;
+                    if out.len() >= limits.text_bytes {
                         return Ok(true);
                     }
                 }
@@ -213,7 +226,9 @@ fn sheet(
             },
             _ if in_value => {
                 if let (Some(cell), Some(words)) = (cell.as_mut(), text(&event)) {
-                    cell.value.push_str(&words);
+                    // An inline value never grows past what the text still has room for.
+                    let left = room.saturating_sub(cell.value.len());
+                    cell.value.push_str(prefix(&words, left));
                 }
             }
             _ => {}
@@ -222,31 +237,47 @@ fn sheet(
     Ok(false)
 }
 
-/// Puts a finished cell's shown value in its column.
-fn place(row: &mut Vec<String>, cell: Cell, shared: &[String]) {
-    if cell.column >= MOST_COLUMNS {
-        return;
+/// The longest start of `text` that fits in `room` bytes, on a character boundary.
+fn prefix(text: &str, room: usize) -> &str {
+    if text.len() <= room {
+        return text;
     }
-    let value = match cell.kind.as_str() {
+    let mut end = room;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
+}
+
+/// Puts a finished cell's shown value in its column, copying at most `room` bytes of it. Answers
+/// the bytes the row grew by (the value and the tabs before it) and whether the text is full.
+fn place(row: &mut Vec<String>, cell: Cell, shared: &[String], room: usize) -> (usize, bool) {
+    if cell.column >= MOST_COLUMNS {
+        return (0, false);
+    }
+    let value: &str = match cell.kind.as_str() {
         "s" => cell
             .value
             .trim()
             .parse::<usize>()
             .ok()
-            .and_then(|i| shared.get(i).cloned())
-            .unwrap_or_default(),
-        "b" => if cell.value.trim() == "1" {
-            "TRUE"
-        } else {
-            "FALSE"
-        }
-        .to_owned(),
-        _ => cell.value,
+            .and_then(|i| shared.get(i))
+            .map_or("", String::as_str),
+        "b" if cell.value.trim() == "1" => "TRUE",
+        "b" => "FALSE",
+        _ => cell.value.as_str(),
     };
+    // The tabs that pad the row out to this column count too.
+    let padding = cell.column.saturating_sub(row.len()) + 1;
+    let room = room.saturating_sub(padding);
+    let kept = prefix(value, room);
+    let full = kept.len() < value.len() || room == 0;
     // Tabs and line breaks inside a cell would break the row apart.
-    let value = value.replace(['\t', '\n', '\r'], " ");
+    let kept = kept.replace(['\t', '\n', '\r'], " ");
+    let added = kept.len() + padding;
     if row.len() <= cell.column {
         row.resize(cell.column + 1, String::new());
     }
-    row[cell.column] = value;
+    row[cell.column] = kept;
+    (added, full)
 }

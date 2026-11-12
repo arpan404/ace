@@ -183,6 +183,68 @@ fn a_pdf_stream_that_inflates_too_far_is_refused_before_parsing() -> Result {
     Ok(())
 }
 
+/// A PDF whose one page's contents stream is `contents`, with `dict` as its dictionary.
+fn pdf_with_contents(dict: pdf_extract::Dictionary, contents: Vec<u8>) -> Result<Vec<u8>> {
+    let mut doc = Document::with_version("1.5");
+    let pages_id = doc.new_object_id();
+    let contents = doc.add_object(Stream::new(dict, contents));
+    let page = doc.add_object(dictionary! {
+        "Type" => "Page", "Parent" => pages_id, "Contents" => contents,
+    });
+    doc.objects.insert(
+        pages_id,
+        Object::Dictionary(dictionary! {
+            "Type" => "Pages", "Kids" => vec![page.into()], "Count" => 1,
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+        }),
+    );
+    let catalog = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+    doc.trailer.set("Root", catalog);
+    let mut out = Vec::new();
+    doc.save_to(&mut out)?;
+    Ok(out)
+}
+
+#[test]
+fn a_page_stream_bomb_is_refused_whatever_its_dictionary_says() -> Result {
+    // The word "Image" anywhere in a page's own contents dictionary changes nothing.
+    let dict = dictionary! {
+        "Filter" => "FlateDecode",
+        "Note" => Object::Name(b"Image".to_vec()),
+        "Kind" => Object::string_literal("/Subtype /Image"),
+    };
+    let bytes = pdf_with_contents(dict, zlib(&vec![b' '; 8 * 1024 * 1024])?)?;
+    assert_eq!(read(&bytes, "page.pdf"), Err(DocError::Expands));
+    Ok(())
+}
+
+#[test]
+fn an_image_is_never_inflated_so_a_huge_one_costs_nothing() -> Result {
+    // A real image XObject that would inflate past every cap: text extraction never reads it.
+    let image = Stream::new(
+        dictionary! { "Type" => "XObject", "Subtype" => "Image", "Filter" => "FlateDecode",
+        "Width" => 8000, "Height" => 8000 },
+        zlib(&vec![0u8; 80 * 1024 * 1024])?,
+    );
+    let doc = read(&pdf(&["Scanned page"], vec![image])?, "scan.pdf")?;
+    assert!(doc.text.contains("Scanned page"), "{}", doc.text);
+    Ok(())
+}
+
+#[test]
+fn a_cross_reference_stream_bomb_is_refused_before_the_parser_reads_it() -> Result {
+    let mut bytes = pdf(&["hello"], vec![])?;
+    let offset = bytes.len() + 1;
+    bytes.extend_from_slice(
+        b"\n99 0 obj\n<< /Type /XRef /Size 100 /W [1 2 1] /Filter /FlateDecode >>\nstream\n",
+    );
+    bytes.extend_from_slice(&zlib(&vec![0u8; 8 * 1024 * 1024])?);
+    bytes
+        .extend_from_slice(format!("\nendstream\nendobj\nstartxref\n{offset}\n%%EOF\n").as_bytes());
+    assert_eq!(read(&bytes, "xref.pdf"), Err(DocError::Expands));
+    Ok(())
+}
+
 #[test]
 fn a_word_document_gives_its_paragraphs_tabs_and_tables() -> Result {
     let body = r#"<w:p><w:r><w:t>Terms &amp; conditions</w:t></w:r></w:p>

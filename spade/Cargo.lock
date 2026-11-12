@@ -393,6 +393,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
+name = "cap"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6f125eb85b84a24c36b02ed1d22c9dd8632f53b3cde6e4d23512f94021030003"
+
+[[package]]
 name = "cap-fs-ext"
 version = "4.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2494,6 +2500,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rlimit"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f35ee2729c56bb610f6dba436bf78135f728b7373bdffae2ec815b2d3eb98cc3"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "rmcp"
 version = "3.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3076,10 +3091,12 @@ dependencies = [
 name = "spade-docs"
 version = "0.1.0"
 dependencies = [
+ "cap",
  "csv",
  "flate2",
  "pdf-extract",
  "quick-xml",
+ "rlimit",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -3173,6 +3190,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "base64",
+ "cap",
  "cap-fs-ext",
  "cap-std",
  "chrono",

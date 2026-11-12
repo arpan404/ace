@@ -10,6 +10,7 @@ mod bounded;
 mod child;
 mod docx;
 mod pdf;
+mod pdf_streams;
 mod sniff;
 mod table;
 mod text;
@@ -19,7 +20,7 @@ mod zipped;
 
 use serde::{Deserialize, Serialize};
 
-pub use child::{CHILD_ARG, Extractor, serve_child};
+pub use child::{CHILD_ARG, CHILD_MEMORY, Extractor, child_memory, limit_memory, serve_child};
 pub use sniff::{Kind, sniff};
 
 /// What reading may cost. [`Limits::default`] is what Spade uses; tests may tighten it.

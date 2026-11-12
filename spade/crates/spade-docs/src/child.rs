@@ -20,6 +20,8 @@ pub const CHILD_ARG: &str = "extract-document";
 const MOST_ANSWER: usize = 20 * 1024 * 1024;
 /// Children running at once.
 const MOST_CHILDREN: usize = 2;
+/// The most memory a child may use unless told otherwise.
+pub const CHILD_MEMORY: usize = 1024 * 1024 * 1024;
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -40,6 +42,8 @@ pub struct Extractor {
     how: How,
     limits: Limits,
     deadline: Duration,
+    /// The memory cap each child is given.
+    memory: usize,
     running: Arc<Semaphore>,
 }
 
@@ -66,6 +70,7 @@ impl Extractor {
             how,
             limits: Limits::default(),
             deadline: Duration::from_secs(20),
+            memory: CHILD_MEMORY,
             running: Arc::new(Semaphore::new(MOST_CHILDREN)),
         }
     }
@@ -74,6 +79,13 @@ impl Extractor {
     #[must_use]
     pub fn with_limits(mut self, limits: Limits) -> Self {
         self.limits = limits;
+        self
+    }
+
+    /// Children get `bytes` of memory at most (see [`limit_memory`]).
+    #[must_use]
+    pub fn with_memory(mut self, bytes: usize) -> Self {
+        self.memory = bytes;
         self
     }
 
@@ -110,7 +122,7 @@ impl Extractor {
                 }
             }
             How::Child { program, args } => {
-                let run = run_child(program, args, &bytes, name);
+                let run = run_child(program, args, &bytes, name, self.memory);
                 match tokio::time::timeout(self.deadline, run).await {
                     Ok(result) => result,
                     // Dropping the run kills the child (`kill_on_drop`).
@@ -126,11 +138,13 @@ async fn run_child(
     args: &[String],
     bytes: &[u8],
     name: &str,
+    memory: usize,
 ) -> Result<Extracted, DocError> {
     let mut child = tokio::process::Command::new(program)
         .args(args)
         .arg(CHILD_ARG)
         .arg(name)
+        .arg(memory.to_string())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -169,6 +183,35 @@ async fn run_child(
             "the reader stopped without an answer".to_owned(),
         )),
     }
+}
+
+/// Holds this process to about `bytes` of memory where the operating system allows it: the data
+/// segment and, with room for thread stacks and the program itself, the address space (Unix
+/// `setrlimit`). The binary's own capped allocator is the bound everywhere, Windows included.
+/// Failures are ignored: the allocator's cap still holds.
+pub fn limit_memory(bytes: usize) {
+    #[cfg(unix)]
+    {
+        let bytes = bytes as u64;
+        let headroom = 2 * 1024 * 1024 * 1024u64;
+        let _ = rlimit::setrlimit(
+            rlimit::Resource::DATA,
+            bytes + headroom / 2,
+            bytes + headroom / 2,
+        );
+        #[cfg(target_os = "linux")]
+        let _ = rlimit::setrlimit(rlimit::Resource::AS, bytes + headroom, bytes + headroom);
+    }
+    #[cfg(not(unix))]
+    let _ = bytes;
+}
+
+/// The memory cap a child was given: the argument after its file's name.
+pub fn child_memory(argument: Option<&str>) -> usize {
+    argument
+        .and_then(|a| a.parse().ok())
+        .filter(|&n: &usize| n > 0)
+        .unwrap_or(CHILD_MEMORY)
 }
 
 /// The child's side: reads the file from `input`, answers on `output`. `name` is the argument
