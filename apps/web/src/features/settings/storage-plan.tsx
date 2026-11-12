@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { StorageApply, StorageCompaction, StoragePlan } from "@ace/protocol";
+import type { StorageApply, StoragePlan } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import {
   Dialog,
@@ -13,7 +13,6 @@ import {
   SettingFooter,
   SettingList,
   SettingNote,
-  SettingRow,
   SettingSection,
 } from "@/components/setting-row.tsx";
 import { itemCount, storageReasons } from "@ace/ui-core/host-care";
@@ -50,7 +49,7 @@ export function StoragePlanPreview(props: {
       ) : (
         // Nothing found: say so, with no summary of zeros and no action that can't run.
         <SettingNote role="status" className="py-5 text-center">
-          Nothing to clean up. No data was found in these storage categories.
+          Nothing to clean up.
         </SettingNote>
       )}
       {props.plan.items.length > 0 && (
@@ -165,54 +164,5 @@ export function StoragePlanPreview(props: {
         </DialogContent>
       </Dialog>
     </SettingSection>
-  );
-}
-
-/**
- * Incremental database compaction, as a row of the Usage card: its state reads under the title
- * and its actions sit where a row's control does. There is no full rebuild to confirm.
- */
-export function StorageCompactAction(props: {
-  result?: StorageCompaction | undefined;
-  busy: boolean;
-  disabled: boolean;
-  onCompact(): void;
-  onAbandon(id: string): void;
-}) {
-  const result = props.result;
-  const status = !result
-    ? undefined
-    : result.incrementalUnavailable
-      ? "This database was created before compaction was available and can't shrink in place."
-      : result.state === "complete"
-        ? `Compacted from ${formatBytes(result.databaseBytesBefore)} to ${formatBytes(result.databaseBytes)}.`
-        : result.state === "pending"
-          ? "Compaction paused. Resume to continue."
-          : "Compaction stopped.";
-  return (
-    <SettingRow
-      title="Compaction"
-      description={status && <span role="status">{status}</span>}
-      inline
-    >
-      {result?.state === "pending" && (
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={props.busy || props.disabled}
-          onClick={() => props.onAbandon(result.id)}
-        >
-          Stop compaction
-        </Button>
-      )}
-      <Button
-        size="sm"
-        variant="secondary"
-        disabled={props.busy || props.disabled}
-        onClick={props.onCompact}
-      >
-        {result?.state === "pending" ? "Resume compaction" : "Compact database"}
-      </Button>
-    </SettingRow>
   );
 }

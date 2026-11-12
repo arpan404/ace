@@ -3,22 +3,21 @@ import { useClient, useConnectionState } from "@ace/client-react";
 import { useStorageUsage } from "./use-storage-usage.ts";
 import { useNow } from "@/lib/time.ts";
 import { formatAgo } from "@ace/ui-core";
-import { Skeleton } from "@/components/ui/skeleton.tsx";
-import type { StorageApply, StorageCompaction, StoragePlan, StorageRequest } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
-import {
-  SettingFooter,
-  SettingNote,
-  SettingRow,
-  SettingSection,
-} from "@/components/setting-row.tsx";
+import { SettingFooter, SettingNote, SettingSection } from "@/components/setting-row.tsx";
 import { StorageRetentionControls } from "./storage-retention.tsx";
 import { DataRetentionSettings } from "./data-retention.tsx";
-import { StorageCompactAction, StoragePlanPreview } from "./storage-plan.tsx";
-import { itemCount, storageLabels } from "@ace/ui-core/host-care";
-import { formatBytes } from "@ace/ui-core/byte-size";
+import { StoragePlanPreview } from "./storage-plan.tsx";
+import { UsageRows } from "./storage-usage.tsx";
 import { FailedBackups, WorktreeStorageSettings } from "./worktree-storage.tsx";
-import { StorageKind, StorageRetention } from "@ace/protocol";
+import {
+  StorageKind,
+  StorageRetention,
+  type StorageApply,
+  type StorageCompaction,
+  type StoragePlan,
+  type StorageRequest,
+} from "@ace/protocol";
 
 /**
  * Settings › Storage for the machine Settings edits: what its data takes, a reviewed cleanup,
@@ -107,40 +106,35 @@ export function StorageSettings() {
   };
   return (
     <>
-      <SettingSection label="Usage" scope="daemon">
+      <SettingSection
+        label="Usage"
+        scope="daemon"
+        actions={
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-label="Refresh usage"
+            disabled={!ready || busy || usage.isFetching}
+            onClick={() => void refreshUsage().catch(() => {})}
+          >
+            Refresh
+          </Button>
+        }
+      >
+        <UsageRows
+          kinds={StorageKind.options}
+          usage={usage.data}
+          compaction={{
+            result: compaction,
+            busy,
+            disabled: !ready,
+            onCompact: () => void compact({ op: "cleanup.compact" }),
+            onAbandon: (compactionId) =>
+              void compact({ op: "cleanup.compactAbandon", compactionId }),
+          }}
+        />
         {usage.data ? (
           <>
-            {usage.data.categories.map((category) => (
-              <SettingRow
-                key={category.kind}
-                title={storageLabels[category.kind]}
-                description={itemCount(category.items)}
-                inline
-              >
-                <span className="text-sm tabular-nums text-muted-foreground">
-                  {formatBytes(category.bytes)}
-                </span>
-              </SettingRow>
-            ))}
-            <SettingRow
-              title="Transcript database"
-              description={`${formatBytes(usage.data.reclaimableDatabaseBytes)} can be reclaimed by compacting.`}
-              inline
-            >
-              <span className="text-sm tabular-nums text-muted-foreground">
-                {formatBytes(usage.data.databaseBytes)}
-              </span>
-            </SettingRow>
-            {/* Compaction gives those unused pages back; it sits beside the size it changes. */}
-            <StorageCompactAction
-              result={compaction}
-              busy={busy}
-              disabled={!ready}
-              onCompact={() => void compact({ op: "cleanup.compact" })}
-              onAbandon={(compactionId) =>
-                void compact({ op: "cleanup.compactAbandon", compactionId })
-              }
-            />
             {!usage.data.complete && (
               <SettingNote>Measurement incomplete. Refresh to try again.</SettingNote>
             )}
@@ -156,33 +150,15 @@ export function StorageSettings() {
             </SettingNote>
           </>
         ) : (
-          <>
-            {StorageKind.options.map((kind) => (
-              <SettingRow key={kind} title={storageLabels[kind]} inline>
-                <Skeleton className="h-3 w-16" />
-              </SettingRow>
-            ))}
-            <SettingRow title="Transcript database" inline>
-              <Skeleton className="h-3 w-16" />
-            </SettingRow>
-            <SettingNote role={usage.isError ? "alert" : "status"}>
-              {usage.isError
-                ? "Couldn't measure storage. Refresh to try again."
-                : ready
-                  ? "Measuring storage…"
-                  : "Reconnect to measure storage."}
-            </SettingNote>
-          </>
+          <SettingNote role={usage.isError ? "alert" : "status"}>
+            {usage.isError
+              ? "Couldn't measure storage. Refresh to try again."
+              : ready
+                ? "Measuring storage…"
+                : "Reconnect to measure storage."}
+          </SettingNote>
         )}
         <SettingFooter>
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={!ready || busy || usage.isFetching}
-            onClick={() => void refreshUsage().catch(() => {})}
-          >
-            Refresh usage
-          </Button>
           <Button size="sm" disabled={!ready || busy} onClick={() => void previewCleanup()}>
             {busy
               ? "Working…"

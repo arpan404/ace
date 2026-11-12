@@ -116,7 +116,7 @@ test("compacting the database reports the freed bytes and refreshes usage", asyn
   await userEvent.click(screen.getByRole("button", { name: "Compact database" }));
   expect(await screen.findByText("Compacted from 10 MB to 6.0 MB.")).toBeTruthy();
   expect(await screen.findByText("6.0 MB")).toBeTruthy();
-  expect(screen.getByText("0 B can be reclaimed by compacting.")).toBeTruthy();
+  expect(screen.getByText("0 B can be reclaimed.")).toBeTruthy();
 });
 
 test("worktree settings and storage usage belong to the selected daemon", async () => {
@@ -364,4 +364,44 @@ test("a failed worktree backup says why in words and what to do, never its raw c
   expect(box.getByText("The backup didn't finish: commit and push it yourself.")).toBeTruthy();
   expect(box.queryByText("/w/fine")).toBeNull();
   expect(document.body.textContent).not.toMatch(/output_too_large|backup_failed/);
+});
+
+test("usage lists the largest data first and compacts from the transcript database's own row", async () => {
+  const queries = createQueryClient();
+  queries.setQueryData(storageUsageKey, {
+    categories: [
+      { kind: "threads", bytes: 776_000, items: 41 },
+      { kind: "attachments", bytes: 579_000, items: 4583 },
+      { kind: "artifacts", bytes: 3_200_000, items: 1646 },
+      { kind: "worktrees", bytes: 0, items: 0 },
+    ],
+    databaseBytes: 26_000_000,
+    reclaimableDatabaseBytes: 0,
+    measuredAt: 60_000,
+    complete: true,
+    backups: [],
+  });
+  const app = harness({ queryClient: queries, uiClock: () => 120_000 });
+  app.daemon.seedServices({ storageDatabase: { bytes: 26_000_000, reclaimable: 0 } });
+  await app.open("/settings/storage");
+  const usage = (await screen.findByRole("heading", { name: "Usage" })).closest("section");
+  if (!(usage instanceof HTMLElement)) throw new Error("No Usage section");
+  const titles = [
+    "Transcript database",
+    "Browser artifacts and recordings",
+    "Threads and transcripts",
+    "Attachments",
+    "Worktrees",
+  ];
+  const order = titles.map((title) => within(usage).getByText(title));
+  for (const [index, title] of order.entries())
+    if (index > 0)
+      expect(order[index - 1]?.compareDocumentPosition(title)).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+  expect(within(usage).getByText("4,583 items")).toBeTruthy();
+  const database = within(usage).getByText("Transcript database").closest("[data-setting-slot]");
+  if (!(database instanceof HTMLElement)) throw new Error("No database row");
+  expect(within(database).getByRole("button", { name: "Compact database" })).toBeTruthy();
+  expect(within(usage).queryByText("Compaction")).toBeNull();
 });
