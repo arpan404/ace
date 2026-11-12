@@ -5,10 +5,12 @@
 
 mod agents;
 mod endpoints;
+mod routines;
 mod schema;
 
 pub use agents::{AVATAR_COLORS, Agent, NewAgent, generated_color};
 pub use endpoints::{StoredEndpoint, StoredModel};
+pub use routines::{HEARTBEAT, ROUTINE, StoredRoutine, StoredRun};
 
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
@@ -101,6 +103,8 @@ impl Store {
             "endpoints",
             "models",
             "settings",
+            "routines",
+            "routine_runs",
         ] {
             connection
                 .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
