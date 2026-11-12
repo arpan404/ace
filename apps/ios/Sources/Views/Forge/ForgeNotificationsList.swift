@@ -3,8 +3,8 @@ import SwiftUI
 /// The person's GitHub notifications (the web's Inbox): unread first by default, newest first,
 /// each with its subject's state, number and title, then its repository and why it arrived. A
 /// pull request or issue opens its page here and marks it read; anything else opens GitHub.
-/// Swipe to mark done or read; the menu also unsubscribes. A write GitHub didn't confirm says so,
-/// and Send again is the person's to press.
+/// Swipe to mark done or read; the menu also unsubscribes; Mark all read clears every row on
+/// show. A write GitHub didn't confirm says so, and Send again is the person's to press.
 struct ForgeNotificationsList: View {
     let client: ClientModel
     let machineId: String
@@ -16,7 +16,8 @@ struct ForgeNotificationsList: View {
     @State private var failure: String?
     @State private var screens = 1
     @State private var loading = false
-    @State private var unconfirmed: (action: String, id: String, message: String)?
+    /// A write GitHub didn't confirm: its words and how to send it again.
+    @State private var unconfirmed: (message: String, again: () -> Void)?
     @State private var message: String?
     @Environment(\.openURL) private var openURL
 
@@ -47,7 +48,7 @@ struct ForgeNotificationsList: View {
                 HStack {
                     Text(unconfirmed.message).meta().lineLimit(2)
                     Spacer(minLength: AceTheme.Spacing.sm)
-                    Button("Send again") { write(unconfirmed.action, unconfirmed.id) }
+                    Button("Send again") { unconfirmed.again() }
                         .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                         .accessibilityIdentifier("forge.inbox.again")
                 }
@@ -55,6 +56,16 @@ struct ForgeNotificationsList: View {
                 .forgeRowChrome()
             } else if let message {
                 Text(message).meta(AceTone.failed.text).padding(.horizontal, AceTheme.Spacing.rowInner).forgeRowChrome()
+            }
+            if client.canOperate, rows.contains(where: \.unread) {
+                HStack {
+                    Spacer(minLength: AceTheme.Spacing.sm)
+                    Button("Mark all read") { readAll() }
+                        .buttonStyle(.textAction())
+                        .accessibilityIdentifier("forge.inbox.readAll")
+                }
+                .padding(.horizontal, AceTheme.Spacing.rowInner)
+                .forgeRowChrome()
             }
             ForEach(rows) { row in
                 Button { tap(row) } label: { ForgeNotificationRow(row: row) }
@@ -91,10 +102,22 @@ struct ForgeNotificationsList: View {
 
     private func write(_ action: String, _ id: String) {
         Task {
-            let outcome = await client.forgeNotificationWrite(project: project, action: action, id: id)
-            unconfirmed = outcome.uncertain ? (action, id, outcome.message) : nil
-            message = outcome.ok || outcome.uncertain ? nil : outcome.message
+            show(await client.forgeNotificationWrite(project: project, action: action, id: id)) { write(action, id) }
         }
+    }
+
+    /// Every unread row on show, as the search and filters leave them.
+    private func readAll() {
+        let unread = rows.filter(\.unread).map(\.id)
+        let searched = !query.trimmingCharacters(in: .whitespaces).isEmpty
+        Task {
+            show(await client.forgeNotificationsReadAll(project: project, filter: filter, searched: searched, unread: unread)) { readAll() }
+        }
+    }
+
+    private func show(_ outcome: ForgeReviewOutcome, again: @escaping () -> Void) {
+        unconfirmed = outcome.uncertain ? (outcome.message, again) : nil
+        message = outcome.ok || outcome.uncertain ? nil : outcome.message
     }
 
     private func load() async {

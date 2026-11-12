@@ -1,5 +1,10 @@
 import type { ForgeIssueRow, ForgePrRow } from "@ace/protocol";
 
+/*
+ * What a new thread can start from, shared by the web's New thread page and the phone's: the
+ * project's open pull requests (failing checks first) and issues, each in one row. Pure.
+ */
+
 /** One piece of open work a new thread can start from. */
 export interface StartRow {
   url: string;

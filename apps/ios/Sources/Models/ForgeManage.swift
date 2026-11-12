@@ -49,6 +49,33 @@ struct ForgeNewPrContext: Decodable, Sendable, Equatable {
     let template: String
     /// "Opens on GitLab · acme/ace", only when the project uses more than one repository.
     var opensOn: String? = nil
+    /// What it may be given besides its text; nil when GitHub didn't say.
+    var details: Details? = nil
+
+    /// The repository's people, labels and open milestones, and how many of each GitHub takes.
+    struct Details: Decodable, Sendable, Equatable {
+        struct Label: Decodable, Sendable, Equatable, Hashable { let name: String; let color: String?; let description: String }
+        struct Milestone: Decodable, Sendable, Equatable, Hashable { let number: Int; let title: String; let due: String? }
+        struct Most: Decodable, Sendable, Equatable { let reviewers: Int; let assignees: Int; let labels: Int }
+        /// People GitHub lets be assigned; the same people can be asked to review.
+        let people: [String]
+        let labels: [Label]
+        let milestones: [Milestone]
+        let most: Most
+    }
+}
+
+/// What a new pull request is given besides its text, as the person picked it.
+struct ForgeNewPrDetailsDraft: Equatable {
+    var reviewers: [String] = []
+    var assignees: [String] = []
+    var labels: [String] = []
+    var milestone: Int?
+    var json: [String: Any] {
+        var json: [String: Any] = ["reviewers": reviewers, "assignees": assignees, "labels": labels]
+        if let milestone { json["milestone"] = milestone }
+        return json
+    }
 }
 
 /// What a pull request of two branches would hold (`forge.newpr.compare`).
@@ -62,10 +89,14 @@ struct ForgeNewPrCompare: Decodable, Sendable, Equatable {
 
 /// A create's outcome: the pull request opened (or the one the branches already had).
 struct ForgeNewPrCreated: Decodable, Sendable, Equatable {
+    /// What the person hears once it opened (`prCreateNotice`): the branches' existing pull
+    /// request, or a warning that GitHub didn't take all of its details.
+    struct Notice: Decodable, Sendable, Equatable { let title: String; let detail: String?; let warning: Bool }
     let ok: Bool
     let message: String
     let uncertain: Bool
     let number: Int?
+    var notice: Notice? = nil
 }
 
 extension ClientModel {
@@ -89,10 +120,11 @@ extension ClientModel {
     func forgeNewPrCompare(project: String, repository: ForgeRepository, base: String, head: [String: Any]) async throws -> ForgeNewPrCompare {
         try await read(["type": "forge.newpr.compare", "project": project, "repository": repository.json, "base": base, "head": head], as: ForgeNewPrCompare.self)
     }
-    func forgeNewPrCreate(project: String, repository: ForgeRepository, base: String, head: [String: Any], title: String, body: String, draft: Bool) async -> ForgeNewPrCreated {
+    func forgeNewPrCreate(project: String, repository: ForgeRepository, base: String, head: [String: Any], title: String, body: String, draft: Bool,
+                          details: ForgeNewPrDetailsDraft = ForgeNewPrDetailsDraft()) async -> ForgeNewPrCreated {
         guard canOperate else { return ForgeNewPrCreated(ok: false, message: "View only. Open pull requests on your computer, or pair this phone with View and act.", uncertain: false, number: nil) }
-        let request: [String: Any] = ["type": "forge.newpr.create", "project": project, "repository": repository.json, "base": base,
-                                      "head": head, "title": title, "body": body, "draft": draft]
+        let request = details.json.merging(["type": "forge.newpr.create", "project": project, "repository": repository.json, "base": base,
+                                            "head": head, "title": title, "body": body, "draft": draft]) { _, own in own }
         do { return try await service(request, as: ForgeNewPrCreated.self) }
         catch { return ForgeNewPrCreated(ok: false, message: error.localizedDescription, uncertain: false, number: nil) }
     }

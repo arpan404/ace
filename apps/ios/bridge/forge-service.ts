@@ -21,7 +21,26 @@ import {
 import type { ShownBodies } from "./forge-conversation.ts";
 import { ProjectListRefused, readProjects } from "./project-list.ts";
 import { ForgeReviewRequest, writeReview } from "./forge-review-write.ts";
-import { ForgeInboxRequest, ForgeInboxWriteRequest, readInbox, writeInbox } from "./forge-inbox.ts";
+import {
+  ForgeStartFromPickRequest,
+  ForgeStartFromRequest,
+  pickStartFrom,
+  readStartFrom,
+} from "./forge-start-from.ts";
+import {
+  ForgeMergeRunRequest,
+  ForgeMergeRunWriteRequest,
+  MergeRunMemory,
+  readMergeRun,
+  writeMergeRun,
+} from "./forge-merge-run.ts";
+import {
+  ForgeInboxRequest,
+  ForgeInboxWriteRequest,
+  readInbox,
+  writeInbox,
+  type ReadAllSent,
+} from "./forge-inbox.ts";
 import { ForgeTimelineRequest, readTimeline } from "./forge-timeline.ts";
 import { ForgeMediaRequest, readMedia, type Download } from "./forge-media-read.ts";
 import { ForgeTaskRequest, writeTask } from "./forge-task.ts";
@@ -99,6 +118,10 @@ export const ForgeRequest = z.intersection(
     ForgeWorktreeRequest,
     ForgeCommitsRequest,
     ForgeFileSidesRequest,
+    ForgeMergeRunRequest,
+    ForgeMergeRunWriteRequest,
+    ForgeStartFromRequest,
+    ForgeStartFromPickRequest,
   ]),
   z.object({ fresh: z.boolean().default(false) }),
 );
@@ -121,6 +144,10 @@ export class ForgeService {
   #shown: ShownBodies = new Map();
   /** Check logs split into lines, read by the page a page at a time. */
   #logs = new LogPages();
+  /** Each project's last Mark all read, which GitHub may still be applying. */
+  #readAll: ReadAllSent = new Map();
+  /** Each project's merge run started here and the ones dismissed from the strip. */
+  #mergeRuns = new MergeRunMemory();
 
   /**
    * `stamp` is the kept forge reads' stamp (`NativeReads.stamp`), so both memories agree;
@@ -209,9 +236,9 @@ export class ForgeService {
         case "forge.media":
           return await readMedia(reads, this.#download, request, signal);
         case "forge.inbox":
-          return await readInbox(reads, request, this.#preview);
+          return await readInbox(reads, request, this.#preview, this.#readAll, this.#now);
         case "forge.inbox.write":
-          return await writeInbox(this.#owner, reads, request);
+          return await writeInbox(this.#owner, reads, request, this.#readAll, this.#now);
         case "forge.review":
           return await writeReview(this.#owner, reads, request, this.#shown, this.#newId);
         case "forge.pull.checks":
@@ -238,6 +265,14 @@ export class ForgeService {
           return await readWork(this.#owner, reads, request, this.#preview);
         case "forge.worktree":
           return await writeWorktree(this.#owner, reads, request);
+        case "forge.merge-run":
+          return await readMergeRun(this.#owner, this.#mergeRuns, request);
+        case "forge.merge-run.write":
+          return await writeMergeRun(this.#owner, this.#mergeRuns, request);
+        case "forge.start-from":
+          return await readStartFrom(reads, request, this.#preview);
+        case "forge.start-from.pick":
+          return await pickStartFrom(reads, request, this.#preview);
       }
     } catch (error) {
       const code =
