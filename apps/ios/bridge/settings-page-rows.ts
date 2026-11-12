@@ -7,6 +7,8 @@ import {
   autoSettleChoices,
   childLimitChoices,
   childLimitNote,
+  devicesSwitch,
+  emulatorWindowSwitch,
   followUpChoices,
   limitPolicyChoices,
   sortByChoices,
@@ -28,8 +30,19 @@ export interface ChoiceSpec {
   value: unknown;
 }
 
+/** What a change asks before it is made. */
+export interface ControlAsk {
+  title: string;
+  message: string;
+  confirm: string;
+}
+
 export type StaticControl =
-  | { kind: "toggle" }
+  | {
+      kind: "toggle";
+      /** Asked before turning it off, when that stops work in progress. */
+      askOff?: ControlAsk;
+    }
   | { kind: "choice"; style: "menu" | "segmented"; choices: (current: unknown) => ChoiceSpec[] }
   | { kind: "text"; placeholder: string }
   | { kind: "number" }
@@ -304,7 +317,7 @@ export const settingsPages: Readonly<Record<string, PageSpec>> = {
   ),
   computer: one(
     "computer",
-    "App access and devices",
+    "App access",
     [
       {
         kind: "static",
@@ -312,10 +325,34 @@ export const settingsPages: Readonly<Record<string, PageSpec>> = {
         title: "Apps agents can't use",
         control: { kind: "list", placeholder: "App name or bundle ID", add: "Add app" },
       },
-      toggle("devices.emulatorWindow", "Show emulator window"),
     ],
     "Password managers, terminals and ace itself are always blocked.",
   ),
+  simulators: {
+    id: "simulators",
+    title: "Simulators",
+    sections: [
+      {
+        id: "simulators",
+        title: "Simulators and emulators",
+        footer: devicesSwitch.description,
+        rows: [
+          {
+            kind: "static",
+            key: "devices.enabled",
+            title: devicesSwitch.title,
+            control: { kind: "toggle", askOff: devicesSwitch.askOff },
+          },
+        ],
+      },
+      {
+        id: "emulator",
+        title: null,
+        footer: emulatorWindowSwitch.description,
+        rows: [toggle("devices.emulatorWindow", emulatorWindowSwitch.title)],
+      },
+    ],
+  },
   fleet: one(
     "fleet",
     "Fleet",

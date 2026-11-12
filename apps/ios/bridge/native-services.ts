@@ -1,5 +1,6 @@
 import { NativeTranscript, NativeTranscriptRequest } from "./native-transcript.ts";
 import { openPastSession, PastSessionOpenRequest } from "./past-sessions.ts";
+import { readSimulatorTools, SimulatorToolsRequest } from "./simulator-tools.ts";
 import {
   FleetRunRequest,
   FleetUpdatesRequest,
@@ -522,6 +523,10 @@ export class NativeServices {
           await openPastSession(this.owner, pastSession.data, controller.signal),
           "",
         );
+        return;
+      }
+      if (SimulatorToolsRequest.safeParse(raw).success) {
+        this.#reply(id, true, await readSimulatorTools(this.owner, controller.signal), "");
         return;
       }
       const request = Request.parse({
