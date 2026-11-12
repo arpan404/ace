@@ -76,6 +76,8 @@ struct SpadeConversationView: View {
                     if !outcome.ok { problem = words(outcome) }
                     return outcome.ok
                 }
+                // Each approval is its own strip: the next one queued starts with its buttons on.
+                .id(approval.callId)
             }
             if let problem {
                 Text(problem).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)

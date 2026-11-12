@@ -3,7 +3,7 @@ import SwiftUI
 /// The oldest approval Spade waits on, as the thread's request strip: its one sentence ("Spade
 /// wants to send an email."), how many more wait, then Decline, Allow always and Allow; Details
 /// shows the call's arguments. A taken answer keeps the buttons off until Spade stores it and
-/// the strip moves on.
+/// the strip moves on; the caller gives each approval its own identity, so the next starts fresh.
 struct SpadeApprovalStrip: View {
     let approval: SpadeModel.Approval
     /// Resolves whether Spade took the answer.
@@ -15,7 +15,6 @@ struct SpadeApprovalStrip: View {
         DockStrip(line: StripLineRow(lead: StripLeadRow(icon: "approve", tone: "needs-you"), sentence: approval.sentence,
                                      detail: approval.more > 0 ? "\(approval.more) more" : ""),
                   actions: actions, identifier: "spade.approval")
-            .id(approval.callId)
             .sensoryFeedback(AceDesign.Haptic.approve, trigger: sending) { _, now in now }
             .sheet(isPresented: $details) {
                 NavigationStack {
