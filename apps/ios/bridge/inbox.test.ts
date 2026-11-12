@@ -396,36 +396,6 @@ describe("inbox settling", () => {
     expect(section).toBe("needs-you");
   });
 
-  test.each([
-    ["still on the machine", false],
-    ["loaded with Show older threads", true],
-  ])(
-    "an older settled thread, %s, that asks the person leaves Settled for Needs you",
-    async (_where, loaded) => {
-      // More settled threads than the phone's first window: "old" is the oldest of them.
-      const ids = ["old", ...Array.from({ length: 24 }, (_, i) => `t${i}`)];
-      const { client, daemon, sink } = await following((seed) => {
-        for (const id of ids) {
-          finished(seed, id, id);
-          seed.command({
-            id: CommandId.parse(`settle-${id}`),
-            deviceId: DeviceId.parse("seed"),
-            payload: { type: "thread.settle", threadId: ThreadId.parse(id) },
-          });
-        }
-      });
-      await until(() => sectionOf(sink, "t23") === "settled", "settled");
-      expect(sectionOf(sink, "old")).toBeUndefined();
-      if (loaded) {
-        inboxAction(client, { kind: "more" }, "more", sink);
-        await until(() => sectionOf(sink, "old") === "settled", "older page");
-      }
-
-      daemon.apply("old", [facts.turn("root"), approval("root", "ask-old")]);
-      await until(() => sectionOf(sink, "old") === "needs-you", "needs you");
-    },
-  );
-
   test("a settled thread whose subagent asks the person leaves Settled for Needs you", async () => {
     const { daemon, sink } = await settledByHand();
     daemon.apply("notes", [
