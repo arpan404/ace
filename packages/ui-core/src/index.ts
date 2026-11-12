@@ -312,6 +312,7 @@ export {
 export { rowIndicator, type RowIndicator } from "./row-indicator.ts";
 export {
   rowStatusLook,
+  spokenRowStatus,
   waitingOnAgentsLabel,
   type RowStatusIconKind,
   type RowStatusLook,
