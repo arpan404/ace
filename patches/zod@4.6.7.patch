@@ -1,0 +1,1144 @@
+diff --git a/v4/classic/schemas.cjs b/v4/classic/schemas.cjs
+index d624a212b95515c07054dcdc5604e1db4d531396..d8d3b8cfd85ef819130b88ef3d1f8672fe882109 100644
+--- a/v4/classic/schemas.cjs
++++ b/v4/classic/schemas.cjs
+@@ -324,7 +324,7 @@ exports.ZodType = core.$constructor("ZodType", (inst, def) => {
+ exports._ZodString = core.$constructor("_ZodString", (inst, def) => {
+     core.$ZodString.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.stringProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.stringProcessor;
+ }, 
+ /*@__PURE__*/ index_js_1.util.derived({
+     format: (inst) => processors.aggregateChecks(inst).format ?? null,
+@@ -713,7 +713,7 @@ function hash(alg, params) {
+ exports.ZodNumber = core.$constructor("ZodNumber", (inst, def) => {
+     core.$ZodNumber.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.numberProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.numberProcessor;
+     inst.isFinite = true;
+ }, 
+ /*@__PURE__*/ index_js_1.util.derived({
+@@ -802,7 +802,7 @@ function uint32(params) {
+ exports.ZodBoolean = core.$constructor("ZodBoolean", (inst, def) => {
+     core.$ZodBoolean.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.booleanProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.booleanProcessor;
+ });
+ function boolean(params) {
+     return core._boolean(exports.ZodBoolean, params);
+@@ -810,7 +810,7 @@ function boolean(params) {
+ exports.ZodBigInt = core.$constructor("ZodBigInt", (inst, def) => {
+     core.$ZodBigInt.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.bigintProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.bigintProcessor;
+ }, 
+ /*@__PURE__*/ index_js_1.util.derived({
+     minValue: (inst) => processors.aggregateChecks(inst).minimum ?? null,
+@@ -867,7 +867,7 @@ function uint64(params) {
+ exports.ZodSymbol = core.$constructor("ZodSymbol", (inst, def) => {
+     core.$ZodSymbol.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.symbolProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.symbolProcessor;
+ });
+ function symbol(params) {
+     return core._symbol(exports.ZodSymbol, params);
+@@ -875,7 +875,7 @@ function symbol(params) {
+ exports.ZodUndefined = core.$constructor("ZodUndefined", (inst, def) => {
+     core.$ZodUndefined.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.undefinedProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.undefinedProcessor;
+ });
+ function _undefined(params) {
+     return core._undefined(exports.ZodUndefined, params);
+@@ -883,7 +883,7 @@ function _undefined(params) {
+ exports.ZodNull = core.$constructor("ZodNull", (inst, def) => {
+     core.$ZodNull.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.nullProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.nullProcessor;
+ });
+ function _null(params) {
+     return core._null(exports.ZodNull, params);
+@@ -891,7 +891,7 @@ function _null(params) {
+ exports.ZodAny = core.$constructor("ZodAny", (inst, def) => {
+     core.$ZodAny.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.anyProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.anyProcessor;
+ });
+ function any() {
+     return core._any(exports.ZodAny);
+@@ -899,7 +899,7 @@ function any() {
+ exports.ZodUnknown = core.$constructor("ZodUnknown", (inst, def) => {
+     core.$ZodUnknown.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.unknownProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.unknownProcessor;
+ });
+ function unknown() {
+     return core._unknown(exports.ZodUnknown);
+@@ -907,7 +907,7 @@ function unknown() {
+ exports.ZodNever = core.$constructor("ZodNever", (inst, def) => {
+     core.$ZodNever.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.neverProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.neverProcessor;
+ });
+ function never(params) {
+     return core._never(exports.ZodNever, params);
+@@ -915,7 +915,7 @@ function never(params) {
+ exports.ZodVoid = core.$constructor("ZodVoid", (inst, def) => {
+     core.$ZodVoid.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.voidProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.voidProcessor;
+ });
+ function _void(params) {
+     return core._void(exports.ZodVoid, params);
+@@ -923,7 +923,7 @@ function _void(params) {
+ exports.ZodDate = core.$constructor("ZodDate", (inst, def) => {
+     core.$ZodDate.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.dateProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.dateProcessor;
+     inst.min = (value, params) => inst.check(checks.gte(value, params));
+     inst.max = (value, params) => inst.check(checks.lte(value, params));
+ }, 
+@@ -944,7 +944,7 @@ exports.ZodArray = core.$constructor("ZodArray", (inst, def) => {
+     _ensureDefaultMemoizer();
+     core.$ZodArray.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.arrayProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.arrayProcessor;
+     inst.element = def.element;
+ }, {
+     min(n, params) {
+@@ -975,7 +975,7 @@ exports.ZodObject = core.$constructor("ZodObject", (inst, def) => {
+     _ensureDefaultMemoizer();
+     core.$ZodObjectJIT.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.objectProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.objectProcessor;
+     index_js_1.util.installLazyProp(inst, "shape", (self) => self._zod.def.shape, false);
+ }, {
+     keyof() {
+@@ -1051,7 +1051,7 @@ function looseObject(shape, params) {
+ exports.ZodUnion = core.$constructor("ZodUnion", (inst, def) => {
+     core.$ZodUnion.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.unionProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.unionProcessor;
+     inst.options = def.options;
+ });
+ function union(options, params) {
+@@ -1064,7 +1064,7 @@ function union(options, params) {
+ exports.ZodXor = core.$constructor("ZodXor", (inst, def) => {
+     exports.ZodUnion.init(inst, def);
+     core.$ZodXor.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.unionProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.unionProcessor;
+     inst.options = def.options;
+ });
+ /** Creates an exclusive union (XOR) where exactly one option must match.
+@@ -1094,7 +1094,7 @@ function discriminatedUnion(discriminator, options, params) {
+ exports.ZodIntersection = core.$constructor("ZodIntersection", (inst, def) => {
+     core.$ZodIntersection.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.intersectionProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.intersectionProcessor;
+ });
+ function intersection(left, right) {
+     return new exports.ZodIntersection({
+@@ -1107,7 +1107,7 @@ exports.ZodTuple = core.$constructor("ZodTuple", (inst, def) => {
+     _ensureDefaultMemoizer();
+     core.$ZodTuple.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.tupleProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.tupleProcessor;
+ }, {
+     rest(rest) {
+         return this.clone({
+@@ -1141,7 +1141,7 @@ exports.ZodRecord = core.$constructor("ZodRecord", (inst, def) => {
+     _ensureDefaultMemoizer();
+     core.$ZodRecord.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.recordProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.recordProcessor;
+     inst.keyType = def.keyType;
+     inst.valueType = def.valueType;
+ });
+@@ -1185,7 +1185,7 @@ exports.ZodMap = core.$constructor("ZodMap", (inst, def) => {
+     _ensureDefaultMemoizer();
+     core.$ZodMap.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.mapProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.mapProcessor;
+     inst.keyType = def.keyType;
+     inst.valueType = def.valueType;
+     inst.min = (...args) => inst.check(core._minSize(...args));
+@@ -1205,7 +1205,7 @@ exports.ZodSet = core.$constructor("ZodSet", (inst, def) => {
+     _ensureDefaultMemoizer();
+     core.$ZodSet.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.setProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.setProcessor;
+     inst.min = (...args) => inst.check(core._minSize(...args));
+     inst.nonempty = (params) => inst.check(core._minSize(1, params));
+     inst.max = (...args) => inst.check(core._maxSize(...args));
+@@ -1221,7 +1221,7 @@ function set(valueType, params) {
+ exports.ZodEnum = core.$constructor("ZodEnum", (inst, def) => {
+     core.$ZodEnum.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.enumProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.enumProcessor;
+     inst.enum = def.entries;
+     // reuse the parsed value set so a numeric TS enum's reverse-mapping keys stay out
+     inst.options = [...inst._zod.values];
+@@ -1284,7 +1284,7 @@ function nativeEnum(entries, params) {
+ exports.ZodLiteral = core.$constructor("ZodLiteral", (inst, def) => {
+     core.$ZodLiteral.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.literalProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.literalProcessor;
+     inst.values = new Set(def.values);
+     Object.defineProperty(inst, "value", {
+         get() {
+@@ -1305,7 +1305,7 @@ function literal(value, params) {
+ exports.ZodFile = core.$constructor("ZodFile", (inst, def) => {
+     core.$ZodFile.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.fileProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.fileProcessor;
+     inst.min = (size, params) => inst.check(core._minSize(size, params));
+     inst.max = (size, params) => inst.check(core._maxSize(size, params));
+     inst.mime = (types, params) => inst.check(core._mime(Array.isArray(types) ? types : [types], params));
+@@ -1317,7 +1317,7 @@ exports.ZodTransform = core.$constructor("ZodTransform", (inst, def) => {
+     _ensureDefaultMemoizer();
+     core.$ZodTransform.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.transformProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.transformProcessor;
+     inst._zod.parse = (payload, _ctx) => {
+         if (_ctx.direction === "backward") {
+             throw new core.$ZodEncodeError(inst.constructor.name);
+@@ -1359,7 +1359,7 @@ function transform(fn) {
+ exports.ZodOptional = core.$constructor("ZodOptional", (inst, def) => {
+     core.$ZodOptional.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.optionalProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.optionalProcessor;
+     inst.unwrap = () => inst._zod.def.innerType;
+ });
+ function optional(innerType) {
+@@ -1371,7 +1371,7 @@ function optional(innerType) {
+ exports.ZodExactOptional = core.$constructor("ZodExactOptional", (inst, def) => {
+     core.$ZodExactOptional.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.optionalProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.optionalProcessor;
+     inst.unwrap = () => inst._zod.def.innerType;
+ });
+ function exactOptional(innerType) {
+@@ -1383,7 +1383,7 @@ function exactOptional(innerType) {
+ exports.ZodNullable = core.$constructor("ZodNullable", (inst, def) => {
+     core.$ZodNullable.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.nullableProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.nullableProcessor;
+     inst.unwrap = () => inst._zod.def.innerType;
+ });
+ function nullable(innerType) {
+@@ -1399,7 +1399,7 @@ function nullish(innerType) {
+ exports.ZodDefault = core.$constructor("ZodDefault", (inst, def) => {
+     core.$ZodDefault.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.defaultProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.defaultProcessor;
+     inst.unwrap = () => inst._zod.def.innerType;
+     inst.removeDefault = inst.unwrap;
+ });
+@@ -1415,7 +1415,7 @@ function _default(innerType, defaultValue) {
+ exports.ZodPrefault = core.$constructor("ZodPrefault", (inst, def) => {
+     core.$ZodPrefault.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.prefaultProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.prefaultProcessor;
+     inst.unwrap = () => inst._zod.def.innerType;
+ });
+ function prefault(innerType, defaultValue) {
+@@ -1430,7 +1430,7 @@ function prefault(innerType, defaultValue) {
+ exports.ZodNonOptional = core.$constructor("ZodNonOptional", (inst, def) => {
+     core.$ZodNonOptional.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.nonoptionalProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.nonoptionalProcessor;
+     inst.unwrap = () => inst._zod.def.innerType;
+ });
+ function nonoptional(innerType, params) {
+@@ -1443,7 +1443,7 @@ function nonoptional(innerType, params) {
+ exports.ZodSuccess = core.$constructor("ZodSuccess", (inst, def) => {
+     core.$ZodSuccess.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.successProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.successProcessor;
+     inst.unwrap = () => inst._zod.def.innerType;
+ });
+ function success(innerType) {
+@@ -1455,7 +1455,7 @@ function success(innerType) {
+ exports.ZodCatch = core.$constructor("ZodCatch", (inst, def) => {
+     core.$ZodCatch.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.catchProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.catchProcessor;
+     inst.unwrap = () => inst._zod.def.innerType;
+     inst.removeCatch = inst.unwrap;
+ });
+@@ -1469,7 +1469,7 @@ function _catch(innerType, catchValue) {
+ exports.ZodNaN = core.$constructor("ZodNaN", (inst, def) => {
+     core.$ZodNaN.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.nanProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.nanProcessor;
+ });
+ function nan(params) {
+     return core._nan(exports.ZodNaN, params);
+@@ -1477,7 +1477,7 @@ function nan(params) {
+ exports.ZodPipe = core.$constructor("ZodPipe", (inst, def) => {
+     core.$ZodPipe.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.pipeProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.pipeProcessor;
+     inst.in = def.in;
+     inst.out = def.out;
+ });
+@@ -1519,7 +1519,7 @@ exports.ZodPreprocess = core.$constructor("ZodPreprocess", (inst, def) => {
+ exports.ZodReadonly = core.$constructor("ZodReadonly", (inst, def) => {
+     core.$ZodReadonly.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.readonlyProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.readonlyProcessor;
+     inst.unwrap = () => inst._zod.def.innerType;
+ });
+ function readonly(innerType) {
+@@ -1531,7 +1531,7 @@ function readonly(innerType) {
+ exports.ZodTemplateLiteral = core.$constructor("ZodTemplateLiteral", (inst, def) => {
+     core.$ZodTemplateLiteral.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.templateLiteralProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.templateLiteralProcessor;
+ });
+ function templateLiteral(parts, params) {
+     return new exports.ZodTemplateLiteral({
+@@ -1543,7 +1543,7 @@ function templateLiteral(parts, params) {
+ exports.ZodLazy = core.$constructor("ZodLazy", (inst, def) => {
+     core.$ZodLazy.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.lazyProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.lazyProcessor;
+     inst.unwrap = () => inst._zod.def.getter();
+ });
+ function lazy(getter) {
+@@ -1555,7 +1555,7 @@ function lazy(getter) {
+ exports.ZodPromise = core.$constructor("ZodPromise", (inst, def) => {
+     core.$ZodPromise.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.promiseProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.promiseProcessor;
+     inst.unwrap = () => inst._zod.def.innerType;
+ });
+ function promise(innerType) {
+@@ -1567,7 +1567,7 @@ function promise(innerType) {
+ exports.ZodFunction = core.$constructor("ZodFunction", (inst, def) => {
+     core.$ZodFunction.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.functionProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.functionProcessor;
+ });
+ function _function(params) {
+     return new exports.ZodFunction({
+@@ -1579,7 +1579,7 @@ function _function(params) {
+ exports.ZodCustom = core.$constructor("ZodCustom", (inst, def) => {
+     core.$ZodCustom.init(inst, def);
+     exports.ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.customProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.customProcessor;
+ });
+ // custom checks
+ function check(fn) {
+diff --git a/v4/classic/schemas.js b/v4/classic/schemas.js
+index db63ba8bac6cbf286de1d43c9d14c31724f742dd..6cf33134c570fe675e3dd98848c02a956892b8e0 100644
+--- a/v4/classic/schemas.js
++++ b/v4/classic/schemas.js
+@@ -196,7 +196,7 @@ export const ZodType = /*@__PURE__*/ core.$constructor("ZodType", (inst, def) =>
+ export const _ZodString = /*@__PURE__*/ core.$constructor("_ZodString", (inst, def) => {
+     core.$ZodString.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.stringProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.stringProcessor;
+ }, 
+ /*@__PURE__*/ util.derived({
+     format: (inst) => processors.aggregateChecks(inst).format ?? null,
+@@ -585,7 +585,7 @@ export function hash(alg, params) {
+ export const ZodNumber = /*@__PURE__*/ core.$constructor("ZodNumber", (inst, def) => {
+     core.$ZodNumber.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.numberProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.numberProcessor;
+     inst.isFinite = true;
+ }, 
+ /*@__PURE__*/ util.derived({
+@@ -674,7 +674,7 @@ export function uint32(params) {
+ export const ZodBoolean = /*@__PURE__*/ core.$constructor("ZodBoolean", (inst, def) => {
+     core.$ZodBoolean.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.booleanProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.booleanProcessor;
+ });
+ export function boolean(params) {
+     return core._boolean(ZodBoolean, params);
+@@ -682,7 +682,7 @@ export function boolean(params) {
+ export const ZodBigInt = /*@__PURE__*/ core.$constructor("ZodBigInt", (inst, def) => {
+     core.$ZodBigInt.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.bigintProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.bigintProcessor;
+ }, 
+ /*@__PURE__*/ util.derived({
+     minValue: (inst) => processors.aggregateChecks(inst).minimum ?? null,
+@@ -739,7 +739,7 @@ export function uint64(params) {
+ export const ZodSymbol = /*@__PURE__*/ core.$constructor("ZodSymbol", (inst, def) => {
+     core.$ZodSymbol.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.symbolProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.symbolProcessor;
+ });
+ export function symbol(params) {
+     return core._symbol(ZodSymbol, params);
+@@ -747,7 +747,7 @@ export function symbol(params) {
+ export const ZodUndefined = /*@__PURE__*/ core.$constructor("ZodUndefined", (inst, def) => {
+     core.$ZodUndefined.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.undefinedProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.undefinedProcessor;
+ });
+ function _undefined(params) {
+     return core._undefined(ZodUndefined, params);
+@@ -756,7 +756,7 @@ export { _undefined as undefined };
+ export const ZodNull = /*@__PURE__*/ core.$constructor("ZodNull", (inst, def) => {
+     core.$ZodNull.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.nullProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.nullProcessor;
+ });
+ function _null(params) {
+     return core._null(ZodNull, params);
+@@ -765,7 +765,7 @@ export { _null as null };
+ export const ZodAny = /*@__PURE__*/ core.$constructor("ZodAny", (inst, def) => {
+     core.$ZodAny.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.anyProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.anyProcessor;
+ });
+ export function any() {
+     return core._any(ZodAny);
+@@ -773,7 +773,7 @@ export function any() {
+ export const ZodUnknown = /*@__PURE__*/ core.$constructor("ZodUnknown", (inst, def) => {
+     core.$ZodUnknown.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.unknownProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.unknownProcessor;
+ });
+ export function unknown() {
+     return core._unknown(ZodUnknown);
+@@ -781,7 +781,7 @@ export function unknown() {
+ export const ZodNever = /*@__PURE__*/ core.$constructor("ZodNever", (inst, def) => {
+     core.$ZodNever.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.neverProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.neverProcessor;
+ });
+ export function never(params) {
+     return core._never(ZodNever, params);
+@@ -789,7 +789,7 @@ export function never(params) {
+ export const ZodVoid = /*@__PURE__*/ core.$constructor("ZodVoid", (inst, def) => {
+     core.$ZodVoid.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.voidProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.voidProcessor;
+ });
+ function _void(params) {
+     return core._void(ZodVoid, params);
+@@ -798,7 +798,7 @@ export { _void as void };
+ export const ZodDate = /*@__PURE__*/ core.$constructor("ZodDate", (inst, def) => {
+     core.$ZodDate.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.dateProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.dateProcessor;
+     inst.min = (value, params) => inst.check(checks.gte(value, params));
+     inst.max = (value, params) => inst.check(checks.lte(value, params));
+ }, 
+@@ -819,7 +819,7 @@ export const ZodArray = /*@__PURE__*/ core.$constructor("ZodArray", (inst, def)
+     _ensureDefaultMemoizer();
+     core.$ZodArray.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.arrayProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.arrayProcessor;
+     inst.element = def.element;
+ }, {
+     min(n, params) {
+@@ -850,7 +850,7 @@ export const ZodObject = /*@__PURE__*/ core.$constructor("ZodObject", (inst, def
+     _ensureDefaultMemoizer();
+     core.$ZodObjectJIT.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.objectProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.objectProcessor;
+     util.installLazyProp(inst, "shape", (self) => self._zod.def.shape, false);
+ }, {
+     keyof() {
+@@ -926,7 +926,7 @@ export function looseObject(shape, params) {
+ export const ZodUnion = /*@__PURE__*/ core.$constructor("ZodUnion", (inst, def) => {
+     core.$ZodUnion.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.unionProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.unionProcessor;
+     inst.options = def.options;
+ });
+ export function union(options, params) {
+@@ -939,7 +939,7 @@ export function union(options, params) {
+ export const ZodXor = /*@__PURE__*/ core.$constructor("ZodXor", (inst, def) => {
+     ZodUnion.init(inst, def);
+     core.$ZodXor.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.unionProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.unionProcessor;
+     inst.options = def.options;
+ });
+ /** Creates an exclusive union (XOR) where exactly one option must match.
+@@ -969,7 +969,7 @@ export function discriminatedUnion(discriminator, options, params) {
+ export const ZodIntersection = /*@__PURE__*/ core.$constructor("ZodIntersection", (inst, def) => {
+     core.$ZodIntersection.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.intersectionProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.intersectionProcessor;
+ });
+ export function intersection(left, right) {
+     return new ZodIntersection({
+@@ -982,7 +982,7 @@ export const ZodTuple = /*@__PURE__*/ core.$constructor("ZodTuple", (inst, def)
+     _ensureDefaultMemoizer();
+     core.$ZodTuple.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.tupleProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.tupleProcessor;
+ }, {
+     rest(rest) {
+         return this.clone({
+@@ -1016,7 +1016,7 @@ export const ZodRecord = /*@__PURE__*/ core.$constructor("ZodRecord", (inst, def
+     _ensureDefaultMemoizer();
+     core.$ZodRecord.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.recordProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.recordProcessor;
+     inst.keyType = def.keyType;
+     inst.valueType = def.valueType;
+ });
+@@ -1060,7 +1060,7 @@ export const ZodMap = /*@__PURE__*/ core.$constructor("ZodMap", (inst, def) => {
+     _ensureDefaultMemoizer();
+     core.$ZodMap.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.mapProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.mapProcessor;
+     inst.keyType = def.keyType;
+     inst.valueType = def.valueType;
+     inst.min = (...args) => inst.check(core._minSize(...args));
+@@ -1080,7 +1080,7 @@ export const ZodSet = /*@__PURE__*/ core.$constructor("ZodSet", (inst, def) => {
+     _ensureDefaultMemoizer();
+     core.$ZodSet.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.setProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.setProcessor;
+     inst.min = (...args) => inst.check(core._minSize(...args));
+     inst.nonempty = (params) => inst.check(core._minSize(1, params));
+     inst.max = (...args) => inst.check(core._maxSize(...args));
+@@ -1096,7 +1096,7 @@ export function set(valueType, params) {
+ export const ZodEnum = /*@__PURE__*/ core.$constructor("ZodEnum", (inst, def) => {
+     core.$ZodEnum.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.enumProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.enumProcessor;
+     inst.enum = def.entries;
+     // reuse the parsed value set so a numeric TS enum's reverse-mapping keys stay out
+     inst.options = [...inst._zod.values];
+@@ -1160,7 +1160,7 @@ export function nativeEnum(entries, params) {
+ export const ZodLiteral = /*@__PURE__*/ core.$constructor("ZodLiteral", (inst, def) => {
+     core.$ZodLiteral.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.literalProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.literalProcessor;
+     inst.values = new Set(def.values);
+     Object.defineProperty(inst, "value", {
+         get() {
+@@ -1181,7 +1181,7 @@ export function literal(value, params) {
+ export const ZodFile = /*@__PURE__*/ core.$constructor("ZodFile", (inst, def) => {
+     core.$ZodFile.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.fileProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.fileProcessor;
+     inst.min = (size, params) => inst.check(core._minSize(size, params));
+     inst.max = (size, params) => inst.check(core._maxSize(size, params));
+     inst.mime = (types, params) => inst.check(core._mime(Array.isArray(types) ? types : [types], params));
+@@ -1193,7 +1193,7 @@ export const ZodTransform = /*@__PURE__*/ core.$constructor("ZodTransform", (ins
+     _ensureDefaultMemoizer();
+     core.$ZodTransform.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.transformProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.transformProcessor;
+     inst._zod.parse = (payload, _ctx) => {
+         if (_ctx.direction === "backward") {
+             throw new core.$ZodEncodeError(inst.constructor.name);
+@@ -1235,7 +1235,7 @@ export function transform(fn) {
+ export const ZodOptional = /*@__PURE__*/ core.$constructor("ZodOptional", (inst, def) => {
+     core.$ZodOptional.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.optionalProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.optionalProcessor;
+     inst.unwrap = () => inst._zod.def.innerType;
+ });
+ export function optional(innerType) {
+@@ -1247,7 +1247,7 @@ export function optional(innerType) {
+ export const ZodExactOptional = /*@__PURE__*/ core.$constructor("ZodExactOptional", (inst, def) => {
+     core.$ZodExactOptional.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.optionalProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.optionalProcessor;
+     inst.unwrap = () => inst._zod.def.innerType;
+ });
+ export function exactOptional(innerType) {
+@@ -1259,7 +1259,7 @@ export function exactOptional(innerType) {
+ export const ZodNullable = /*@__PURE__*/ core.$constructor("ZodNullable", (inst, def) => {
+     core.$ZodNullable.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.nullableProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.nullableProcessor;
+     inst.unwrap = () => inst._zod.def.innerType;
+ });
+ export function nullable(innerType) {
+@@ -1275,7 +1275,7 @@ export function nullish(innerType) {
+ export const ZodDefault = /*@__PURE__*/ core.$constructor("ZodDefault", (inst, def) => {
+     core.$ZodDefault.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.defaultProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.defaultProcessor;
+     inst.unwrap = () => inst._zod.def.innerType;
+     inst.removeDefault = inst.unwrap;
+ });
+@@ -1291,7 +1291,7 @@ export function _default(innerType, defaultValue) {
+ export const ZodPrefault = /*@__PURE__*/ core.$constructor("ZodPrefault", (inst, def) => {
+     core.$ZodPrefault.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.prefaultProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.prefaultProcessor;
+     inst.unwrap = () => inst._zod.def.innerType;
+ });
+ export function prefault(innerType, defaultValue) {
+@@ -1306,7 +1306,7 @@ export function prefault(innerType, defaultValue) {
+ export const ZodNonOptional = /*@__PURE__*/ core.$constructor("ZodNonOptional", (inst, def) => {
+     core.$ZodNonOptional.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.nonoptionalProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.nonoptionalProcessor;
+     inst.unwrap = () => inst._zod.def.innerType;
+ });
+ export function nonoptional(innerType, params) {
+@@ -1319,7 +1319,7 @@ export function nonoptional(innerType, params) {
+ export const ZodSuccess = /*@__PURE__*/ core.$constructor("ZodSuccess", (inst, def) => {
+     core.$ZodSuccess.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.successProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.successProcessor;
+     inst.unwrap = () => inst._zod.def.innerType;
+ });
+ export function success(innerType) {
+@@ -1331,7 +1331,7 @@ export function success(innerType) {
+ export const ZodCatch = /*@__PURE__*/ core.$constructor("ZodCatch", (inst, def) => {
+     core.$ZodCatch.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.catchProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.catchProcessor;
+     inst.unwrap = () => inst._zod.def.innerType;
+     inst.removeCatch = inst.unwrap;
+ });
+@@ -1346,7 +1346,7 @@ export { _catch as catch };
+ export const ZodNaN = /*@__PURE__*/ core.$constructor("ZodNaN", (inst, def) => {
+     core.$ZodNaN.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.nanProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.nanProcessor;
+ });
+ export function nan(params) {
+     return core._nan(ZodNaN, params);
+@@ -1354,7 +1354,7 @@ export function nan(params) {
+ export const ZodPipe = /*@__PURE__*/ core.$constructor("ZodPipe", (inst, def) => {
+     core.$ZodPipe.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.pipeProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.pipeProcessor;
+     inst.in = def.in;
+     inst.out = def.out;
+ });
+@@ -1396,7 +1396,7 @@ export const ZodPreprocess = /*@__PURE__*/ core.$constructor("ZodPreprocess", (i
+ export const ZodReadonly = /*@__PURE__*/ core.$constructor("ZodReadonly", (inst, def) => {
+     core.$ZodReadonly.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.readonlyProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.readonlyProcessor;
+     inst.unwrap = () => inst._zod.def.innerType;
+ });
+ export function readonly(innerType) {
+@@ -1408,7 +1408,7 @@ export function readonly(innerType) {
+ export const ZodTemplateLiteral = /*@__PURE__*/ core.$constructor("ZodTemplateLiteral", (inst, def) => {
+     core.$ZodTemplateLiteral.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.templateLiteralProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.templateLiteralProcessor;
+ });
+ export function templateLiteral(parts, params) {
+     return new ZodTemplateLiteral({
+@@ -1420,7 +1420,7 @@ export function templateLiteral(parts, params) {
+ export const ZodLazy = /*@__PURE__*/ core.$constructor("ZodLazy", (inst, def) => {
+     core.$ZodLazy.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.lazyProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.lazyProcessor;
+     inst.unwrap = () => inst._zod.def.getter();
+ });
+ export function lazy(getter) {
+@@ -1432,7 +1432,7 @@ export function lazy(getter) {
+ export const ZodPromise = /*@__PURE__*/ core.$constructor("ZodPromise", (inst, def) => {
+     core.$ZodPromise.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.promiseProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.promiseProcessor;
+     inst.unwrap = () => inst._zod.def.innerType;
+ });
+ export function promise(innerType) {
+@@ -1444,7 +1444,7 @@ export function promise(innerType) {
+ export const ZodFunction = /*@__PURE__*/ core.$constructor("ZodFunction", (inst, def) => {
+     core.$ZodFunction.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.functionProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.functionProcessor;
+ });
+ export function _function(params) {
+     return new ZodFunction({
+@@ -1457,7 +1457,7 @@ export { _function as function };
+ export const ZodCustom = /*@__PURE__*/ core.$constructor("ZodCustom", (inst, def) => {
+     core.$ZodCustom.init(inst, def);
+     ZodType.init(inst, def);
+-    inst._zod.processJSONSchema = (ctx, json, params) => processors.customProcessor(inst, ctx, json, params);
++    inst._zod.jsonProcessor = processors.customProcessor;
+ });
+ // custom checks
+ export function check(fn) {
+diff --git a/v4/core/core.cjs b/v4/core/core.cjs
+index 41266475c7a4125a9df8aee2553f2610a4c77f1d..07f2b56becc1252dbf6c560858154551cf97f200 100644
+--- a/v4/core/core.cjs
++++ b/v4/core/core.cjs
+@@ -37,6 +37,14 @@ function newError(Definition) {
+     }
+     return new Definition();
+ }
++// ace patch: one traits set per distinct trait list, and lazy schemas (see $constructor).
++const sharedTraits = new Map();
++const lazyDef = Symbol.for("ace.zod.lazyDef");
++const lazyParent = Symbol.for("ace.zod.lazyParent");
++// Types whose setup rejects an invalid definition; they are built at once so it still throws there.
++const eagerConstructors = new Set(["UUID", "NanoID", "TemplateLiteral", "DiscriminatedUnion"]);
++// Properties Zod's initializers put directly on instances; reading one builds a shell.
++const lazyInstanceKeys = ["def", "type", "shape", "options", "element", "unwrap", "min", "max", "valueType", "keyType", "size", "nonempty", "values", "value", "enum", "removeDefault", "removeCatch", "in", "out", "mime", "isFinite", "extract", "exclude", "implement", "implementAsync", "input", "output"];
+ function $constructor(name, initializer, 
+ /** This trait's members, installed once on every prototype that composes it. They cannot be declared in the initializer above: that runs per instance, and the prototype is shared. */
+ proto, params) {
+@@ -66,6 +74,9 @@ proto, params) {
+         else if (inst._zod.traits.has(name)) {
+             return;
+         }
++        // ace patch: a shared traits set is copied before it changes.
++        if (inst._zod.traits.__shared)
++            inst._zod.traits = new Set(inst._zod.traits);
+         inst._zod.traits.add(name);
+         initializer(inst, def);
+         if (initialized) {
+@@ -96,8 +107,7 @@ proto, params) {
+     class Definition extends Parent {
+     }
+     Object.defineProperty(Definition, "name", { value: name });
+-    function _(def) {
+-        const inst = params?.Parent ? newError(Definition) : this;
++    function build(inst, def) {
+         init(inst, def);
+         const deferred = inst._zod.deferred;
+         if (deferred) {
+@@ -107,12 +117,103 @@ proto, params) {
+             // Released: initializers run once, and the list would otherwise be retained for the schema's lifetime.
+             inst._zod.deferred = undefined;
+         }
++        // ace patch: instances whose traits match share one set, instead of one set per schema.
++        {
++            const traits = inst._zod.traits;
++            let key = "";
++            for (const trait of traits)
++                key += trait + "\0";
++            const shared = sharedTraits.get(key);
++            if (shared === undefined) {
++                traits.__shared = true;
++                sharedTraits.set(key, traits);
++            }
++            else if (shared !== traits)
++                inst._zod.traits = shared;
++        }
+         // Global post-processor hook. Internal: installed by `import "zod/compile"` to enable AOT compilation for every constructed schema. Runs last, once the instance is fully built, because it hands the instance to compile(). The post-processor is expected to be reentrancy-guarded by its own implementation.
+         const pp = globalThis.__zod_globalConfig?.postProcessor;
+         if (pp)
+             pp(inst);
+         return inst;
+     }
++    // ace patch: lazy schemas. The first instance of each constructor is built at once, which
++    // installs the constructor's members on its prototype. Later instances only keep their def
++    // until something reads `_zod` or one of the properties initializers put on instances; then
++    // the instance is built exactly as it would have been. Schemas nothing touches stay a shell.
++    let armed = false;
++    const eager = eagerConstructors.has(name.replace("$", "").replace("Zod", ""));
++    function arm() {
++        armed = true;
++        const proto = _.prototype;
++        Object.defineProperty(proto, "_zod", {
++            configurable: true,
++            enumerable: false,
++            get() {
++                const pending = this[lazyDef];
++                if (pending === undefined)
++                    return undefined;
++                this[lazyDef] = undefined;
++                build(this, pending);
++                const parent = this[lazyParent];
++                if (parent !== undefined) {
++                    this[lazyParent] = undefined;
++                    this._zod.parent = parent;
++                }
++                return this._zod;
++            },
++        });
++        // JSON.stringify of a schema writes its own enumerable properties, which a shell has none
++        // of yet; build it first so the output is the same as for an eagerly built schema.
++        if (!Object.prototype.hasOwnProperty.call(proto, "toJSON")) {
++            Object.defineProperty(proto, "toJSON", {
++                configurable: true,
++                enumerable: false,
++                writable: true,
++                value() {
++                    void this._zod;
++                    return { ...this };
++                },
++            });
++        }
++        for (const key of lazyInstanceKeys) {
++            if (Object.prototype.hasOwnProperty.call(proto, key))
++                continue;
++            // The def a shell keeps is the one its build assigns to `def`, so reading it (or its
++            // type) needs no build.
++            const fromDef = key === "def" ? (d) => d : key === "type" ? (d) => d.type : undefined;
++            Object.defineProperty(proto, key, {
++                configurable: true,
++                enumerable: false,
++                get() {
++                    const pending = this[lazyDef];
++                    if (pending !== undefined) {
++                        if (fromDef)
++                            return fromDef(pending);
++                        void this._zod;
++                    }
++                    return Object.prototype.hasOwnProperty.call(this, key) ? this[key] : undefined;
++                },
++                set(value) {
++                    Object.defineProperty(this, key, { value, writable: true, enumerable: true, configurable: true });
++                },
++            });
++        }
++    }
++    function _(def) {
++        if (params?.Parent)
++            return build(newError(Definition), def);
++        const inst = this;
++        // Subclass instances are always built: a shell's prototype must name its constructor.
++        if (!armed || eager || globalThis.__zod_globalConfig?.eagerSchemas || Object.getPrototypeOf(inst) !== _.prototype) {
++            build(inst, def);
++            if (!armed)
++                arm();
++            return inst;
++        }
++        Object.defineProperty(inst, lazyDef, { value: def, writable: true, enumerable: false, configurable: true });
++        return inst;
++    }
+     Object.defineProperty(_, "init", { value: init });
+     Object.defineProperty(_, Symbol.hasInstance, {
+         value: (inst) => {
+diff --git a/v4/core/core.js b/v4/core/core.js
+index c8a0e5fc6d2680de8f07fa35b8c196f677c8a950..9df342f6d530cf6c2defb2b02cd538031472c9f4 100644
+--- a/v4/core/core.js
++++ b/v4/core/core.js
+@@ -32,6 +32,14 @@ function newError(Definition) {
+     }
+     return new Definition();
+ }
++// ace patch: one traits set per distinct trait list, and lazy schemas (see $constructor).
++const sharedTraits = new Map();
++const lazyDef = Symbol.for("ace.zod.lazyDef");
++const lazyParent = Symbol.for("ace.zod.lazyParent");
++// Types whose setup rejects an invalid definition; they are built at once so it still throws there.
++const eagerConstructors = new Set(["UUID", "NanoID", "TemplateLiteral", "DiscriminatedUnion"]);
++// Properties Zod's initializers put directly on instances; reading one builds a shell.
++const lazyInstanceKeys = ["def", "type", "shape", "options", "element", "unwrap", "min", "max", "valueType", "keyType", "size", "nonempty", "values", "value", "enum", "removeDefault", "removeCatch", "in", "out", "mime", "isFinite", "extract", "exclude", "implement", "implementAsync", "input", "output"];
+ export /*@__NO_SIDE_EFFECTS__*/ function $constructor(name, initializer, 
+ /** This trait's members, installed once on every prototype that composes it. They cannot be declared in the initializer above: that runs per instance, and the prototype is shared. */
+ proto, params) {
+@@ -61,6 +69,9 @@ proto, params) {
+         else if (inst._zod.traits.has(name)) {
+             return;
+         }
++        // ace patch: a shared traits set is copied before it changes.
++        if (inst._zod.traits.__shared)
++            inst._zod.traits = new Set(inst._zod.traits);
+         inst._zod.traits.add(name);
+         initializer(inst, def);
+         if (initialized) {
+@@ -91,8 +102,7 @@ proto, params) {
+     class Definition extends Parent {
+     }
+     Object.defineProperty(Definition, "name", { value: name });
+-    function _(def) {
+-        const inst = params?.Parent ? newError(Definition) : this;
++    function build(inst, def) {
+         init(inst, def);
+         const deferred = inst._zod.deferred;
+         if (deferred) {
+@@ -102,12 +112,103 @@ proto, params) {
+             // Released: initializers run once, and the list would otherwise be retained for the schema's lifetime.
+             inst._zod.deferred = undefined;
+         }
++        // ace patch: instances whose traits match share one set, instead of one set per schema.
++        {
++            const traits = inst._zod.traits;
++            let key = "";
++            for (const trait of traits)
++                key += trait + "\0";
++            const shared = sharedTraits.get(key);
++            if (shared === undefined) {
++                traits.__shared = true;
++                sharedTraits.set(key, traits);
++            }
++            else if (shared !== traits)
++                inst._zod.traits = shared;
++        }
+         // Global post-processor hook. Internal: installed by `import "zod/compile"` to enable AOT compilation for every constructed schema. Runs last, once the instance is fully built, because it hands the instance to compile(). The post-processor is expected to be reentrancy-guarded by its own implementation.
+         const pp = globalThis.__zod_globalConfig?.postProcessor;
+         if (pp)
+             pp(inst);
+         return inst;
+     }
++    // ace patch: lazy schemas. The first instance of each constructor is built at once, which
++    // installs the constructor's members on its prototype. Later instances only keep their def
++    // until something reads `_zod` or one of the properties initializers put on instances; then
++    // the instance is built exactly as it would have been. Schemas nothing touches stay a shell.
++    let armed = false;
++    const eager = eagerConstructors.has(name.replace("$", "").replace("Zod", ""));
++    function arm() {
++        armed = true;
++        const proto = _.prototype;
++        Object.defineProperty(proto, "_zod", {
++            configurable: true,
++            enumerable: false,
++            get() {
++                const pending = this[lazyDef];
++                if (pending === undefined)
++                    return undefined;
++                this[lazyDef] = undefined;
++                build(this, pending);
++                const parent = this[lazyParent];
++                if (parent !== undefined) {
++                    this[lazyParent] = undefined;
++                    this._zod.parent = parent;
++                }
++                return this._zod;
++            },
++        });
++        // JSON.stringify of a schema writes its own enumerable properties, which a shell has none
++        // of yet; build it first so the output is the same as for an eagerly built schema.
++        if (!Object.prototype.hasOwnProperty.call(proto, "toJSON")) {
++            Object.defineProperty(proto, "toJSON", {
++                configurable: true,
++                enumerable: false,
++                writable: true,
++                value() {
++                    void this._zod;
++                    return { ...this };
++                },
++            });
++        }
++        for (const key of lazyInstanceKeys) {
++            if (Object.prototype.hasOwnProperty.call(proto, key))
++                continue;
++            // The def a shell keeps is the one its build assigns to `def`, so reading it (or its
++            // type) needs no build.
++            const fromDef = key === "def" ? (d) => d : key === "type" ? (d) => d.type : undefined;
++            Object.defineProperty(proto, key, {
++                configurable: true,
++                enumerable: false,
++                get() {
++                    const pending = this[lazyDef];
++                    if (pending !== undefined) {
++                        if (fromDef)
++                            return fromDef(pending);
++                        void this._zod;
++                    }
++                    return Object.prototype.hasOwnProperty.call(this, key) ? this[key] : undefined;
++                },
++                set(value) {
++                    Object.defineProperty(this, key, { value, writable: true, enumerable: true, configurable: true });
++                },
++            });
++        }
++    }
++    function _(def) {
++        if (params?.Parent)
++            return build(newError(Definition), def);
++        const inst = this;
++        // Subclass instances are always built: a shell's prototype must name its constructor.
++        if (!armed || eager || globalThis.__zod_globalConfig?.eagerSchemas || Object.getPrototypeOf(inst) !== _.prototype) {
++            build(inst, def);
++            if (!armed)
++                arm();
++            return inst;
++        }
++        Object.defineProperty(inst, lazyDef, { value: def, writable: true, enumerable: false, configurable: true });
++        return inst;
++    }
+     Object.defineProperty(_, "init", { value: init });
+     Object.defineProperty(_, Symbol.hasInstance, {
+         value: (inst) => {
+diff --git a/v4/core/schemas.cjs b/v4/core/schemas.cjs
+index 0d9f7203c375d0ceb49e52f72529c8e3c285245f..70e0f5de11dd45e72e04bf66cce9c7751f6cde23 100644
+--- a/v4/core/schemas.cjs
++++ b/v4/core/schemas.cjs
+@@ -1459,7 +1459,8 @@ core.$constructor("$ZodDiscriminatedUnion", (inst, def) => {
+     });
+     // Checked now rather than in the lookup map below, so an option that lacks the discriminator fails at the `discriminatedUnion` call instead of on the first object parsed. Options whose shape cannot be enumerated without resolving it — pipes and lazies — are left to the map.
+     def.options.forEach((option, i) => {
+-        const propShape = util.rawShape(option._zod.def);
++        // ace patch: read a lazy option's def without building it.
++        const propShape = util.rawShape(option[Symbol.for("ace.zod.lazyDef")] ?? option._zod.def);
+         if (propShape && !Object.prototype.hasOwnProperty.call(propShape, def.discriminator)) {
+             throw new Error(`Invalid discriminated union option at index "${i}"`);
+         }
+diff --git a/v4/core/schemas.js b/v4/core/schemas.js
+index c8c5de787d82e9c9db6df3fc21876d5924411f54..241f616289a056b5de9580dd0c7cda4be6c32d77 100644
+--- a/v4/core/schemas.js
++++ b/v4/core/schemas.js
+@@ -1415,7 +1415,8 @@ core.$constructor("$ZodDiscriminatedUnion", (inst, def) => {
+     });
+     // Checked now rather than in the lookup map below, so an option that lacks the discriminator fails at the `discriminatedUnion` call instead of on the first object parsed. Options whose shape cannot be enumerated without resolving it — pipes and lazies — are left to the map.
+     def.options.forEach((option, i) => {
+-        const propShape = util.rawShape(option._zod.def);
++        // ace patch: read a lazy option's def without building it.
++        const propShape = util.rawShape(option[Symbol.for("ace.zod.lazyDef")] ?? option._zod.def);
+         if (propShape && !Object.prototype.hasOwnProperty.call(propShape, def.discriminator)) {
+             throw new Error(`Invalid discriminated union option at index "${i}"`);
+         }
+diff --git a/v4/core/to-json-schema.cjs b/v4/core/to-json-schema.cjs
+index c2db7a55afd652408925c24bba4103d3b3351857..7f35935278a772a8fb1f3572f2a1d33dd1945798 100644
+--- a/v4/core/to-json-schema.cjs
++++ b/v4/core/to-json-schema.cjs
+@@ -104,6 +104,10 @@ function processSchema(schema, ctx, _params = { path: [], schemaPath: [] }) {
+         if (schema._zod.processJSONSchema) {
+             schema._zod.processJSONSchema(ctx, result.schema, params);
+         }
++        // ace patch: a processor shared by every schema of the type, instead of a closure per schema.
++        else if (schema._zod.jsonProcessor) {
++            schema._zod.jsonProcessor(schema, ctx, result.schema, params);
++        }
+         else {
+             const _json = result.schema;
+             const processor = ctx.processors[def.type];
+diff --git a/v4/core/to-json-schema.js b/v4/core/to-json-schema.js
+index c0ae14b7326566650a389c86c367c64341e7edcb..5b1b2bf1ea9cd26f2653c583261e194bd0883b5b 100644
+--- a/v4/core/to-json-schema.js
++++ b/v4/core/to-json-schema.js
+@@ -93,6 +93,10 @@ export function processSchema(schema, ctx, _params = { path: [], schemaPath: []
+         if (schema._zod.processJSONSchema) {
+             schema._zod.processJSONSchema(ctx, result.schema, params);
+         }
++        // ace patch: a processor shared by every schema of the type, instead of a closure per schema.
++        else if (schema._zod.jsonProcessor) {
++            schema._zod.jsonProcessor(schema, ctx, result.schema, params);
++        }
+         else {
+             const _json = result.schema;
+             const processor = ctx.processors[def.type];
+diff --git a/v4/core/util.cjs b/v4/core/util.cjs
+index 7db65e0cada986f911868d1c0464fe2adee1fb66..63b95fa44fd28ec912de88bf8455c85e073b880c 100644
+--- a/v4/core/util.cjs
++++ b/v4/core/util.cjs
+@@ -402,9 +402,19 @@ function escapeRegex(str) {
+ }
+ // zod-specific utils
+ function clone(inst, def, params) {
+-    const cl = new inst._zod.constr(def ?? inst._zod.def);
+-    if (!def || params?.parent)
+-        cl._zod.parent = inst;
++    // ace patch: clone a lazy schema without building it. A shell's prototype is its
++    // constructor's own (subclass instances are never shells), so it names the constructor.
++    const pending = inst[Symbol.for("ace.zod.lazyDef")];
++    const cl = pending !== undefined
++        ? new (Object.getPrototypeOf(inst).constructor)(def ?? pending)
++        : new inst._zod.constr(def ?? inst._zod.def);
++    if (!def || params?.parent) {
++        // A lazy clone keeps its parent until it is built.
++        if (cl[Symbol.for("ace.zod.lazyDef")] !== undefined)
++            cl[Symbol.for("ace.zod.lazyParent")] = inst;
++        else
++            cl._zod.parent = inst;
++    }
+     return cl;
+ }
+ function normalizeParams(_params) {
+diff --git a/v4/core/util.js b/v4/core/util.js
+index b53c7a0ae51b9ad0e49f7262f282b01c67671681..c2bd7d1c98a0e5b7f56e6f157a3fa68fcbf830dc 100644
+--- a/v4/core/util.js
++++ b/v4/core/util.js
+@@ -331,9 +331,19 @@ export function escapeRegex(str) {
+ }
+ // zod-specific utils
+ export function clone(inst, def, params) {
+-    const cl = new inst._zod.constr(def ?? inst._zod.def);
+-    if (!def || params?.parent)
+-        cl._zod.parent = inst;
++    // ace patch: clone a lazy schema without building it. A shell's prototype is its
++    // constructor's own (subclass instances are never shells), so it names the constructor.
++    const pending = inst[Symbol.for("ace.zod.lazyDef")];
++    const cl = pending !== undefined
++        ? new (Object.getPrototypeOf(inst).constructor)(def ?? pending)
++        : new inst._zod.constr(def ?? inst._zod.def);
++    if (!def || params?.parent) {
++        // A lazy clone keeps its parent until it is built.
++        if (cl[Symbol.for("ace.zod.lazyDef")] !== undefined)
++            cl[Symbol.for("ace.zod.lazyParent")] = inst;
++        else
++            cl._zod.parent = inst;
++    }
+     return cl;
+ }
+ export function normalizeParams(_params) {

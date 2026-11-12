@@ -91,13 +91,12 @@ export function brewName(spec: Installer, path: string | undefined): string | un
   );
 }
 
+const ClaudeChannelSettings = z.object({ autoUpdatesChannel: z.enum(["stable", "latest"]) });
 /** Claude Code's `autoUpdatesChannel` in one settings file; undefined when it isn't set. */
 export function claudeChannel(settings: string | undefined): "stable" | "latest" | undefined {
   if (!settings) return undefined;
   try {
-    const parsed = z
-      .object({ autoUpdatesChannel: z.enum(["stable", "latest"]) })
-      .safeParse(JSON.parse(settings));
+    const parsed = ClaudeChannelSettings.safeParse(JSON.parse(settings));
     return parsed.success ? parsed.data.autoUpdatesChannel : undefined;
   } catch {
     return undefined;

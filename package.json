@@ -80,5 +80,8 @@
   "trustedDependencies": [
     "node-pty",
     "electron"
-  ]
+  ],
+  "patchedDependencies": {
+    "zod@4.6.7": "patches/zod@4.6.7.patch"
+  }
 }
