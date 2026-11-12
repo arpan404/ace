@@ -47,3 +47,43 @@ pub trait Remote: Send + Sync {
     /// One inbox request to `machine` (a host id): Spade's status there and its JSON answer.
     fn call(&self, machine: &str, request: Value) -> BoxFuture<'_, Result<(u16, Value), RemoteError>>;
 }
+
+/// The machines in a `spade.machines.result`.
+pub fn machines_from(answer: &Value) -> Vec<Machine> {
+    answer["machines"]
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .filter_map(|m| {
+                    Some(Machine {
+                        host_id: m["hostId"].as_str()?.to_owned(),
+                        name: m["name"].as_str().unwrap_or("another machine").to_owned(),
+                        online: m["status"] == "online",
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// A `spade.remote.result`'s `result`: Spade's status and answer there, or why there is none.
+/// A refusal because Spade there is off or away is worth retrying, like an offline machine.
+pub fn answer_from(result: &Value) -> Result<(u16, Value), RemoteError> {
+    match result["kind"].as_str() {
+        Some("response") => Ok((
+            result["status"].as_u64().unwrap_or(502) as u16,
+            result["body"].clone(),
+        )),
+        Some("error") => {
+            let message = result["message"].as_str().unwrap_or("").to_owned();
+            match result["code"].as_str() {
+                Some("unknown_machine") => Err(RemoteError::UnknownMachine(message)),
+                Some("offline") => Err(RemoteError::Offline),
+                Some("disconnected") => Err(RemoteError::Disconnected),
+                Some("refused") if message.starts_with("unavailable") => Err(RemoteError::Offline),
+                _ => Err(RemoteError::Refused(message)),
+            }
+        }
+        _ => Err(RemoteError::Offline),
+    }
+}

@@ -407,6 +407,14 @@ impl AceLink {
             .map(|c| c.skills.config().clone())
     }
 
+    fn skills(&self) -> Option<Arc<AceSkills>> {
+        self.current
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_ref()
+            .map(|c| c.skills.clone())
+    }
+
     fn library(&self) -> Option<AceLibrary> {
         self.current
             .read()
@@ -428,6 +436,42 @@ impl ToolSource for AceLink {
 }
 
 const AWAY: &str = "ace is not running, or Spade is not connected to it yet";
+
+/// Other machines through the daemon (ADR 0132, docs/teams.md "What ace adds").
+impl crate::teams::Remote for AceLink {
+    fn machines(
+        &self,
+    ) -> crate::teams::BoxFuture<'_, Result<Vec<crate::teams::Machine>, crate::teams::RemoteError>>
+    {
+        let skills = self.skills();
+        Box::pin(async move {
+            let skills = skills.ok_or(crate::teams::RemoteError::Offline)?;
+            let answer = skills
+                .spade_machines()
+                .await
+                .map_err(|_| crate::teams::RemoteError::Offline)?;
+            Ok(crate::teams::machines_from(&answer))
+        })
+    }
+
+    fn call(
+        &self,
+        machine: &str,
+        request: serde_json::Value,
+    ) -> crate::teams::BoxFuture<'_, Result<(u16, serde_json::Value), crate::teams::RemoteError>>
+    {
+        let skills = self.skills();
+        let machine = machine.to_owned();
+        Box::pin(async move {
+            let skills = skills.ok_or(crate::teams::RemoteError::Offline)?;
+            let result = skills
+                .spade_remote(&machine, &request)
+                .await
+                .map_err(|_| crate::teams::RemoteError::Offline)?;
+            crate::teams::answer_from(&result)
+        })
+    }
+}
 
 impl SkillLibrary for AceLink {
     fn list(&self) -> LibraryFuture<Vec<SkillEntry>> {

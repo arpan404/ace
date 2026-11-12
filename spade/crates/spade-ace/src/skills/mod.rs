@@ -253,6 +253,45 @@ impl AceSkills {
         Ok(result)
     }
 
+    /// The linked machines the daemon can call for Spade (ADR 0132): `spade.machines`. The
+    /// answer's fields beside `requestId` (`machines`).
+    pub async fn spade_machines(&self) -> Result<Value, SkillsError> {
+        self.spade_frame(|id| serde_json::json!({ "type": "spade.machines", "requestId": id }))
+            .await
+    }
+
+    /// One inbox request for another machine's Spade, by host id: `spade.remote`. The answer's
+    /// `result`. Never sent twice: the sender's outbox retries.
+    pub async fn spade_remote(&self, machine: &str, request: &Value) -> Result<Value, SkillsError> {
+        let answer = self
+            .spade_frame(|id| {
+                serde_json::json!({
+                    "type": "spade.remote",
+                    "requestId": id,
+                    "machine": machine,
+                    "request": request,
+                })
+            })
+            .await?;
+        Ok(answer.get("result").cloned().unwrap_or(Value::Null))
+    }
+
+    async fn spade_frame(&self, frame: impl FnOnce(&str) -> Value) -> Result<Value, SkillsError> {
+        let (socket, _) = self.socket().await?;
+        let id = format!("spade-{}", self.next_id.fetch_add(1, Ordering::Relaxed) + 1);
+        let text = frame(&id).to_string();
+        // Long enough for the daemon's own 40 s wait on the other machine.
+        let timeout = self.config.timeout().max(std::time::Duration::from_secs(45));
+        let result = socket.request_frame(&id, text, timeout).await;
+        if matches!(
+            result,
+            Err(SkillsError::Unreachable(_) | SkillsError::Refused)
+        ) {
+            self.drop_socket(&socket).await;
+        }
+        result
+    }
+
     async fn send(&self, socket: &Socket, operation: &Operation<'_>) -> Result<Value, SkillsError> {
         let id = format!("spade-{}", self.next_id.fetch_add(1, Ordering::Relaxed) + 1);
         let result = socket.request(&id, operation, self.config.timeout()).await;

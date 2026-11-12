@@ -135,6 +135,16 @@ impl Socket {
             operation: *operation,
         })
         .map_err(|error| SkillsError::Unreachable(error.to_string()))?;
+        self.request_frame(request_id, frame, timeout).await
+    }
+
+    /// Sends `frame`, a request carrying `request_id`, and waits for its answer.
+    pub(super) async fn request_frame(
+        &self,
+        request_id: &str,
+        frame: String,
+        timeout: Duration,
+    ) -> Result<Value, SkillsError> {
         let (tx, rx) = oneshot::channel();
         {
             let mut pending = lock(&self.waiters);
@@ -253,6 +263,7 @@ async fn run<S>(
 fn route(text: &str, waiters: &Waiters, token: &Secret) {
     let (request_id, answer) = match serde_json::from_str::<Incoming>(text) {
         Ok(Incoming::SkillsResult(result)) => (result.request_id, Ok(result.result)),
+        Ok(Incoming::SpadeResult(result)) => (result.request_id, Ok(Value::Object(result.fields))),
         // The daemon rejects a malformed request with a plain `error` naming its request.
         Ok(Incoming::Error(error)) => match error.request_id {
             Some(id) => (
