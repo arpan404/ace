@@ -80,8 +80,9 @@ that wakes its bots has to live in Spade.
    its WebSocket already serves the threads subscription the app uses, whose entries carry the
    whole-tree status (`done`, `failed`, `needs_you`) the daemon computes. Spade subscribes to it
    with the local daemon token it already holds for skills, keeps the last status it saw per
-   thread, and fires on a change into one of those states. The first list after connecting is
-   the baseline, so a reconnect never replays history. Threads an agent delegated (with
+   thread, and fires on a change into one of those states. The first list after Spade starts is
+   the baseline, so nothing old fires; after a reconnect, a thread that changed meanwhile fires
+   once. Threads an agent delegated (with
    `delegatedBy`) are left out: a bot's own delegations finishing would otherwise wake it in a
    loop, and the person cares about the threads they started. No daemon change is needed. Pull
    request and automation events have no such feed yet; they need a daemon addition and are
