@@ -7,7 +7,7 @@ import { fakeClient } from "./fake-client.ts";
 export { fakeClient } from "./fake-client.ts";
 import { createMemoryHistory, type RouterHistory } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
-import { render } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
 import { afterEach } from "vitest";
 import { App, AppFrame, createQueryClient } from "@/app.tsx";
 import { memoryStorage } from "@/boot/client.ts";
@@ -36,7 +36,11 @@ await threadWorkspace.load();
 await Promise.all(threadWorkspace.kinds().map((kind) => kind.load()));
 
 const running: { close(): Promise<void> }[] = [];
+// The app unmounts before its clients close, as a window does. (This hook runs before the
+// setup file's cleanup: Vitest runs after-hooks last registered first.) A client closed under a
+// mounted app has every live view subscribe again to a client that refuses them.
 afterEach(async () => {
+  cleanup();
   await Promise.all(running.splice(0).map((client) => client.close()));
 });
 

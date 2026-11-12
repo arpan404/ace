@@ -12,6 +12,7 @@ import { removeStaleOverlays } from "./annotation-install.ts";
 import { consoleEntry } from "./console-entry.ts";
 import { certificateErrors } from "./certificate-errors.ts";
 import { navigateCdp } from "./cdp-navigation.ts";
+import { BrowserActionError } from "./action-error.ts";
 
 const TabEvent = z.object({ tabId: z.string(), method: z.string(), params: z.unknown() });
 const Crashed = z.object({ crashes: z.number().int().optional(), reason: z.string().optional() });
@@ -34,6 +35,11 @@ interface Tab {
   guard?: Guard;
   release(): void;
   ready: Promise<void>;
+  /**
+   * Settles once the tab is set up (its origin guard installed) and the session was told of it:
+   * a command may reach it from then on. Rejects if the tab goes first or its setup fails.
+   */
+  announced: PromiseWithResolvers<void>;
   viewport: { width: number; height: number };
   dialog?: BrowserDialog;
   status: ReturnType<typeof pageStatus>;
@@ -212,6 +218,7 @@ export class EmbeddedTabs {
     for (const [id, tab] of this.entries)
       if (!tab.discarded && !state.tabs.some((entry) => entry.tabId === id)) {
         this.unbind(tab);
+        tab.announced.reject(new BrowserActionError("tab_not_found"));
         this.entries.delete(id);
       }
     for (const item of state.tabs) {
@@ -242,6 +249,7 @@ export class EmbeddedTabs {
         events,
         release: this.takeReservation(),
         ready: Promise.resolve(),
+        announced: pending(),
         status: pageStatus(cdp, () => this.request.changed?.()),
         certificates: certificateErrors(cdp, () => this.request.changed?.()),
         viewport: item.viewport ?? { width: 1280, height: 720 },
@@ -265,8 +273,21 @@ export class EmbeddedTabs {
       })();
     }
     this.activeId = state.activeTabId;
-    await Promise.all([...this.entries.values()].map((tab) => tab.ready));
+    try {
+      await Promise.all([...this.entries.values()].map((tab) => tab.ready));
+    } catch (error) {
+      for (const tab of this.entries.values())
+        tab.announced.reject(new BrowserActionError("backend_changed"));
+      throw error;
+    }
     this.request.changed?.();
+    // Every listed tab is set up and the session has its runtime: commands waiting may go.
+    for (const tab of this.entries.values()) tab.announced.resolve();
+  }
+  /** Waits until a command may reach this tab: see `Tab.announced`. */
+  ready(tabId: string): Promise<void> {
+    const tab = this.entries.get(tabId);
+    return tab ? tab.announced.promise : Promise.reject(new BrowserActionError("tab_not_found"));
   }
   /** Ends a tab's guards and listeners and gives back its place in the daemon's tab budget. */
   private unbind(tab: Tab): void {
@@ -297,6 +318,7 @@ export class EmbeddedTabs {
         events,
         release: () => {},
         ready: Promise.resolve(),
+        announced: settled(),
         status: pageStatus(cdp, () => {}),
         certificates: certificateErrors(cdp, () => {}),
         viewport: { width: 1280, height: 720 },
@@ -520,7 +542,23 @@ export class EmbeddedTabs {
     this.root.off("Page.screencastFrame", this.frame);
     this.root.off("ace.popupRequested", this.popup);
     this.root.off("ace.permissionDenied", this.permission);
-    for (const tab of this.entries.values()) this.unbind(tab);
+    for (const tab of this.entries.values()) {
+      this.unbind(tab);
+      tab.announced.reject(new BrowserActionError("browser_closed"));
+    }
     this.inspection.clear();
   }
+}
+
+/** A tab's announcement still to come; a rejection nobody waits for is not an error. */
+function pending(): PromiseWithResolvers<void> {
+  const announced = Promise.withResolvers<void>();
+  announced.promise.catch(() => {});
+  return announced;
+}
+/** A listed tab with nothing left to set up (one held while discarded). */
+function settled(): PromiseWithResolvers<void> {
+  const announced = pending();
+  announced.resolve();
+  return announced;
 }

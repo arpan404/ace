@@ -1,15 +1,22 @@
 //! Spade's server: the local API ([`api`]) over the engine ([`engine`]) that runs turns.
 
 pub mod api;
+mod atomic;
 pub mod clock;
 pub mod config;
 pub mod engine;
 pub mod home;
 pub mod images;
+pub mod learning;
+pub mod media;
 pub mod presets;
 pub mod proof;
+pub mod research;
+pub mod routines;
 pub mod startup;
+pub mod teams;
 pub mod tools;
+pub mod workspace;
 
 use std::future::Future;
 

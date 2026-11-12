@@ -241,7 +241,7 @@ for await (const line of createInterface({ input: process.stdin })) {
     if (p["model"] === "finish-shell")
       for (const turn of threads.get(thread) ?? [])
         for (const value of list(turn["items"])) {
-          const item = obj(value);
+          const item = { ...obj(value) };
           if (item["status"] !== "inProgress") continue;
           item["status"] = "completed";
           delete item["aggregatedOutput"];
@@ -263,7 +263,7 @@ for await (const line of createInterface({ input: process.stdin })) {
       if (turn["status"] === "inProgress") {
         turn["status"] = "interrupted";
         for (const value of list(turn["items"])) {
-          const item = obj(value);
+          const item = { ...obj(value) };
           item["status"] = "completed";
           notify("item/completed", { threadId: thread, turnId: turn["id"], item });
         }

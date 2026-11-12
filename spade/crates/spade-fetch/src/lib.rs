@@ -5,7 +5,8 @@
 //! their IPv6 forms by default) or that belongs to this machine's own networks, and connects
 //! only to the addresses it checked, so DNS cannot swap them between the check and the
 //! connection. Every redirect is checked the same way, at most [`MOST_REDIRECTS`] of them, and
-//! no more than [`MOST_BYTES`] are read.
+//! no more than [`MOST_BYTES`] are read ([`MOST_PDF_BYTES`] of a PDF, read through
+//! `spade-docs` when [`Fetcher::with_documents`] gave it a reader).
 //!
 //! # Known limits
 //!
@@ -59,6 +60,8 @@ pub fn is_parser_log(target: &str) -> bool {
 pub const MOST_REDIRECTS: usize = 5;
 /// The most bytes of a body Spade reads.
 pub const MOST_BYTES: usize = 5 * 1024 * 1024;
+/// The most bytes of a PDF Spade reads.
+pub const MOST_PDF_BYTES: usize = 20 * 1024 * 1024;
 
 /// One window of a fetched page.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,6 +109,10 @@ pub enum FetchError {
     Unsupported(String),
     #[error("the page is larger than {} MB", MOST_BYTES / (1024 * 1024))]
     TooLarge,
+    #[error("the PDF is larger than {} MB", MOST_PDF_BYTES / (1024 * 1024))]
+    PdfTooLarge,
+    #[error("the PDF could not be read: {0}")]
+    Document(String),
     #[error("the page did not load within {0} seconds")]
     TimedOut(u64),
     #[error("the HTTP client could not be built: {0}")]
@@ -119,6 +126,8 @@ pub struct Fetcher {
     timeout: Duration,
     resolver: Arc<dyn Resolve>,
     local: Arc<dyn LocalNetworks>,
+    /// Reads PDFs; without one they are refused like other binary types.
+    documents: Option<spade_docs::Extractor>,
 }
 
 /// A body read in full, with where it came from.
@@ -141,7 +150,15 @@ impl Fetcher {
             timeout,
             resolver: Arc::new(SystemResolver),
             local: Arc::new(SystemNetworks),
+            documents: None,
         }
+    }
+
+    /// Reads PDFs with `reader` (ADR 0134).
+    #[must_use]
+    pub fn with_documents(mut self, reader: spade_docs::Extractor) -> Self {
+        self.documents = Some(reader);
+        self
     }
 
     /// Looks hosts up with `resolver` instead of the system's.
@@ -160,13 +177,46 @@ impl Fetcher {
 
     /// Fetches `url` and returns the window `page` of its readable text.
     pub async fn fetch(&self, url: &str, page: Page) -> Result<Fetched, FetchError> {
-        let body = tokio::time::timeout(self.timeout, self.body(url))
+        let mut body = tokio::time::timeout(self.timeout, self.body(url))
             .await
             .map_err(|_| FetchError::TimedOut(self.timeout.as_secs().max(1)))??;
+        if body.reading == page::Reading::Pdf {
+            return self.pdf(&mut body, page).await;
+        }
         // Reading is bounded but CPU-bound, so it runs off the async threads.
         tokio::task::spawn_blocking(move || readable(body, page))
             .await
             .map_err(|_| FetchError::Unreadable)
+    }
+
+    /// A PDF's text, read by the document reader in its own process, a window at a time.
+    async fn pdf(&self, body: &mut Body, page: Page) -> Result<Fetched, FetchError> {
+        let reader = match &self.documents {
+            Some(reader) if body.bytes.starts_with(b"%PDF-") => reader,
+            _ => return Err(FetchError::Unsupported(body.media_type.clone())),
+        };
+        let name = body
+            .url
+            .path_segments()
+            .and_then(|mut parts| parts.next_back())
+            .filter(|name| !name.is_empty())
+            .unwrap_or("page.pdf")
+            .to_owned();
+        let bytes = std::mem::take(&mut body.bytes);
+        let read = reader
+            .read(bytes, &name)
+            .await
+            .map_err(|error| FetchError::Document(error.to_string()))?;
+        let window = page::window(&read.text, page);
+        Ok(Fetched {
+            url: body.url.to_string(),
+            title: Some(name),
+            content_type: "application/pdf".to_owned(),
+            text: window.text,
+            total_chars: window.total_chars,
+            next_offset: window.next_offset,
+            truncated: read.cut,
+        })
     }
 
     async fn body(&self, url: &str) -> Result<Body, FetchError> {
@@ -223,7 +273,7 @@ impl Fetcher {
             .get(url.clone())
             .header(
                 ACCEPT,
-                "text/html,application/xhtml+xml,text/plain;q=0.9,application/json;q=0.9,*/*;q=0.1",
+                "text/html,application/xhtml+xml,text/plain;q=0.9,application/json;q=0.9,application/pdf;q=0.8,*/*;q=0.1",
             )
             .send()
             .await
@@ -310,7 +360,7 @@ fn readable(body: Body, page: Page) -> Fetched {
             let readable = extract::html(&source, &body.url);
             (readable.title, readable.text, readable.truncated)
         }
-        page::Reading::Text => (None, source.trim().to_owned(), false),
+        page::Reading::Text | page::Reading::Pdf => (None, source.trim().to_owned(), false),
     };
     let window = page::window(&text, page);
     Fetched {
@@ -344,14 +394,19 @@ async fn read(url: Url, mut response: Response) -> Result<Body, FetchError> {
         .get(CONTENT_LENGTH)
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.parse::<u64>().ok());
-    if declared.is_some_and(|n| n > MOST_BYTES as u64) {
-        return Err(FetchError::TooLarge);
+    let (most, too_large) = if reading == page::Reading::Pdf {
+        (MOST_PDF_BYTES, FetchError::PdfTooLarge)
+    } else {
+        (MOST_BYTES, FetchError::TooLarge)
+    };
+    if declared.is_some_and(|n| n > most as u64) {
+        return Err(too_large);
     }
     let host = url.host_str().unwrap_or_default().to_owned();
     let mut bytes = Vec::new();
     while let Some(chunk) = response.chunk().await.map_err(|e| network(&host, &e))? {
-        if bytes.len() + chunk.len() > MOST_BYTES {
-            return Err(FetchError::TooLarge);
+        if bytes.len() + chunk.len() > most {
+            return Err(too_large);
         }
         bytes.extend_from_slice(&chunk);
     }

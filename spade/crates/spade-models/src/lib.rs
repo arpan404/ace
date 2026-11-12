@@ -9,11 +9,14 @@ pub mod catalog;
 mod client;
 pub mod config;
 mod error;
+mod failure;
 mod format;
 pub mod listing;
+mod media;
 mod prompt;
 mod thoughts;
 mod typed;
+mod web_search;
 
 pub use catalog::{
     Capability, Catalog, CatalogError, DEFAULT_CONTEXT, Endpoint, Model, Price, Resolved, Role,
@@ -23,7 +26,9 @@ pub use config::ModelsConfig;
 pub use error::ModelError;
 pub use format::Format;
 pub use listing::{ListBounds, Listed};
+pub use media::{MOST_AUDIO_BYTES, MOST_MEDIA_ANSWER};
 pub use prompt::{
     Delta, Generated, Image, Message, Prompt, Reply, Thought, ToolCall, ToolSpec, Usage,
 };
 pub use spade_keys::{KeyRequest, Keys};
+pub use web_search::{WebFound, WebHit};

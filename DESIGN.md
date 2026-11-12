@@ -87,7 +87,7 @@ Phosphor only, `regular` weight. 16px beside 13–14px text, 14px beside 12px, 1
 
 ### Motion
 
-`--motion-fast` hover, colour, press · `--motion-base` popovers, menus, tooltips, new rows · `--motion-slow` panels, sheets, list moves, theme cross-fade · `--motion-exit` anything leaving. Curves `--ease-out` (default), `--ease-spring` (arrivals, segmented thumbs), `--ease-sheet` (sheets), `--ease-exit`. Animate only `transform` and `opacity`. Nothing loops forever: live state (working, streaming, an agent driving a tab) is a still glyph or ink, never motion. The only `infinite` animations are the startup mark's breath, an indeterminate progress bar and a live agent's provider mark in the Summary tree, each only while what it stands for lasts (`visual-language.md`).
+`--motion-fast` hover, colour, press · `--motion-base` popovers, menus, tooltips, new rows · `--motion-slow` panels, sheets, list moves, theme cross-fade · `--motion-exit` anything leaving. Curves `--ease-out` (default), `--ease-spring` (arrivals, segmented thumbs), `--ease-sheet` (sheets), `--ease-exit`. Animate only `transform` and `opacity`. Nothing loops forever: live state (working, streaming, an agent driving a tab) is a still glyph or ink, never motion. The only `infinite` animations are the startup mark's breath, an indeterminate progress bar, a live agent's provider mark in the Summary tree and a Spade bot's eyes while it works (its face is its status, ADR 0127), each only while what it stands for lasts (`visual-language.md`).
 
 ### Glass
 

@@ -38,16 +38,22 @@ const config = JSON.parse(readFileSync(process.argv.at(-1), "utf8"));
 const protectedRun = config.mode === "protected";
 if (protectedRun) disableDnsPrefetching(app);
 const settle = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// Each step it reaches, so a run that stalls says where.
+const phase = (name) => process.stdout.write("phase " + name + "\\n");
 const finish = async (result) => {
   await settle(1500);
+  phase("stop netlog");
   await netLog.stopLogging();
   writeFileSync(config.out, JSON.stringify(result));
   app.exit(0);
 };
+phase("started");
 app.whenReady().then(async () => {
+  phase("ready");
   await netLog.startLogging(config.netlog, { captureMode: "everything" });
   if (!protectedRun) {
     const window = new BrowserWindow({ show: false });
+    phase("load control page");
     await window.loadURL(config.raw);
     return finish({ guests: 0 });
   }
@@ -66,7 +72,9 @@ app.whenReady().then(async () => {
     guardVisualizationContents(guest);
     guests.push(guest);
   });
+  phase("load host page");
   await window.loadURL(config.host);
+  phase("wait for guests");
   const deadline = Date.now() + 20000;
   const titles = () => guests.map((guest) => guest.getTitle());
   while (Date.now() < deadline && !(guests.length === 2 && titles().some((title) => title.startsWith("ace.html.height:"))))
@@ -81,6 +89,10 @@ app.whenReady().then(async () => {
   const blocked = page ? await page.executeJavaScript("document.getElementById('attempts').textContent") : null;
   await settle(300);
   return finish({ guests: guests.length, slider, blocked, title: visual?.getTitle() ?? null });
+}).catch((error) => {
+  // A rejected step would otherwise leave the app running until the test gives up on it.
+  process.stdout.write("failed " + (error?.stack ?? String(error)) + "\\n");
+  app.exit(1);
 });
 `;
 
@@ -206,19 +218,27 @@ async function run(mode: "protected" | "control") {
   delete env.ELECTRON_RUN_AS_NODE;
   const child = spawn(electron, [main, `--user-data-dir=${join(root, "profile")}`, config], {
     env,
-    stdio: "ignore",
+    stdio: ["ignore", "pipe", "ignore"],
   });
   onTestFinished(() => {
     if (child.exitCode === null) child.kill("SIGKILL");
   });
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("Electron did not finish")), 60_000);
-    child.once("exit", () => {
+  let output = "";
+  child.stdout.on("data", (chunk: Buffer) => {
+    output = (output + chunk.toString()).slice(-4096);
+  });
+  const code = await new Promise<number | null>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`Electron (${mode}) did not finish:\n${output}`)),
+      60_000,
+    );
+    child.once("exit", (exitCode) => {
       clearTimeout(timer);
-      resolve();
+      resolve(exitCode);
     });
     child.once("error", reject);
   });
+  if (code !== 0) throw new Error(`Electron (${mode}) exited with ${code}:\n${output}`);
   return {
     result: Result.parse(JSON.parse(await readFile(out, "utf8"))),
     connections,

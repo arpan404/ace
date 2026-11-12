@@ -693,6 +693,7 @@ function embeddedTabList(
   return {
     list: () => tabs.list(),
     active: () => tabs.active(),
+    ready: (id) => tabs.ready(id),
     open: (options) => tabs.open(options),
     switch: async (id) => {
       // A discarded tab gets its view back before it is shown.

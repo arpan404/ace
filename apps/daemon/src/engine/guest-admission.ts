@@ -34,14 +34,22 @@ export function guestRefusal(
 
 /**
  * The refusal for a command that would run an agent on a host thread (ADR 0121): the daemon holds
- * it for Spade, whose tools act as it, and no provider ever runs it.
+ * it for Spade, whose tools act as it, and no provider ever runs it. A bot's hidden session
+ * (`spade-bot`, ADR 0133) runs, but only the turns Spade asks for: `personRefusal` keeps every
+ * client off it, and the daemon's brain service sends to it in-process.
  */
 export function hostRefusal(
   commandId: CommandId,
   payload: CommandPayload,
-  host: "spade" | undefined,
+  host: ThreadDetailsHost,
+  fromBrain = false,
 ): CommandResult | undefined {
-  if (!host || (!startsAgent.has(payload.type) && payload.type !== "thread.fork")) return undefined;
+  // A bot's session takes commands only from the daemon's brain service, and never one that
+  // would change what it may do.
+  if (host === "spade-bot" && (!fromBrain || widensAccess.has(payload.type)))
+    return botRefusal(commandId);
+  if (host !== "spade" || (!startsAgent.has(payload.type) && payload.type !== "thread.fork"))
+    return undefined;
   return {
     commandId,
     ok: false,
@@ -49,4 +57,35 @@ export function hostRefusal(
     title: "Spade's own thread",
     detail: "Spade works through this thread; nothing runs in it.",
   };
+}
+
+type ThreadDetailsHost = import("@ace/protocol").Thread["host"];
+
+/**
+ * Commands that would change what a bot's session may do. Its access is read-only for good
+ * (ADR 0133): no caller, the session's own agent included, may change it.
+ */
+const widensAccess = new Set<CommandPayload["type"]>(["thread.permission.set", "thread.mode.set"]);
+
+function botRefusal(commandId: CommandId): CommandResult {
+  return {
+    commandId,
+    ok: false,
+    error: "host_thread",
+    title: "A Spade bot's own thread",
+    detail: "Spade runs this bot's turns here; talk to the bot in Spade.",
+  };
+}
+
+/**
+ * The refusal for a client's command on a host thread: one that would run an agent on Spade's
+ * host thread, and every command on a bot's session, which Spade alone drives.
+ */
+export function personRefusal(
+  commandId: CommandId,
+  payload: CommandPayload,
+  host: ThreadDetailsHost,
+): CommandResult | undefined {
+  if (host === "spade-bot") return botRefusal(commandId);
+  return hostRefusal(commandId, payload, host);
 }

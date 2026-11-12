@@ -37,8 +37,12 @@ export interface SpadeEndpoint {
   /** Names of the extra headers it sends; their values stay with Spade. */
   headerNames: string[];
   needsKey: boolean;
-  keySet: boolean;
-  /** Where the key in use comes from: only a keychain key can be removed from here. */
+  /** Undefined while the keychain hasn't answered (a prompt is open): not known yet. */
+  keySet: boolean | undefined;
+  /**
+   * Where the key in use comes from: only a keychain key can be removed from here. Undefined
+   * with no key, or while the keychain hasn't answered.
+   */
   keySource: "keychain" | "environment" | undefined;
   /** The models the person saved or the preset knows. */
   models: SpadeModelInfo[];
@@ -62,8 +66,12 @@ export interface SpadeModels {
   presets: SpadePreset[];
   /** `endpoint/model` for titles and other small jobs; undefined: each agent's own. */
   fastModel: string | undefined;
+  /** `endpoint/model` that turns recordings into words (ADR 0134); undefined: none set. */
+  transcriptionModel: string | undefined;
   /** False only when Spade says this machine has no keychain to keep keys in. */
   keychain: boolean;
+  /** Some keys aren't known yet: the keychain hasn't answered. Asked again, they may be. */
+  keysPending: boolean;
 }
 
 const optionalText = z.string().nullish().catch(undefined);
@@ -114,7 +122,8 @@ const endpointShape = z.object({
   session_header: optionalText,
   header_names: z.array(z.string()).catch([]).default([]),
   needs_key: z.boolean().catch(false).default(false),
-  key_set: z.boolean().catch(false).default(false),
+  // Null while the keychain hasn't answered; missing (an older Spade) reads as no key.
+  key_set: z.boolean().nullable().catch(false).default(false),
   key_source: optionalText,
   models: z.unknown().optional(),
 });
@@ -133,7 +142,7 @@ export function parseSpadeEndpointValue(raw: unknown): SpadeEndpoint | undefined
     sessionHeader: endpoint.session_header || undefined,
     headerNames: endpoint.header_names,
     needsKey: endpoint.needs_key,
-    keySet: endpoint.key_set,
+    keySet: endpoint.key_set ?? undefined,
     keySource:
       endpoint.key_source === "keychain" || endpoint.key_source === "environment"
         ? endpoint.key_source
@@ -183,7 +192,12 @@ export function parseSpadeModels(body: string): SpadeModels | undefined {
     presets: listOf(record.presets, presetOf),
     fastModel:
       typeof record.fast_model === "string" && record.fast_model ? record.fast_model : undefined,
+    transcriptionModel:
+      typeof record.transcription_model === "string" && record.transcription_model
+        ? record.transcription_model
+        : undefined,
     keychain: record.keychain !== false,
+    keysPending: record.keys_pending === true,
   };
 }
 

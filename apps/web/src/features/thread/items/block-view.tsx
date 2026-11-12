@@ -42,7 +42,9 @@ const BlockContent = memo(function BlockContent(props: {
     case "live":
       return <LiveHead threadId={threadId} />;
     case "subagents":
-      return <Subagents threadId={threadId} itemIds={block.itemIds} />;
+      return (
+        <Subagents threadId={threadId} itemIds={block.itemIds} receiptIds={block.receiptIds} />
+      );
     case "files":
       return <ChangedFiles threadId={threadId} itemIds={block.itemIds} />;
     case "question":

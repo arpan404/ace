@@ -105,12 +105,14 @@ test("every animation the production stylesheet plays has its keyframes", () => 
  * Nothing loops forever: an infinite animation keeps the compositor drawing frames for as long as
  * its element shows, which is idle CPU on the GPU and renderer. Live state is a still mark. Only
  * the startup mark's breath (while ace starts), an indeterminate progress bar (during a transfer
- * it can't measure) and a live agent's mark in the open Summary tree (ADR 0108) may repeat, and
- * each goes away when what it stands for ends.
+ * it can't measure), a live agent's mark in the open Summary tree (ADR 0108) and a working Spade
+ * bot's eyes, its face being its status (ADR 0127), may repeat, and each goes away when what it
+ * stands for ends.
  */
-const mayLoop = /^(?::root\[data-reduce-motion\] )?\.(?:fx-breathe|fx-indeterminate|fx-alive)$/;
+const mayLoop =
+  /^(?::root\[data-reduce-motion\] )?\.(?:fx-breathe|fx-indeterminate|fx-alive|fx-spade-look|fx-spade-blink)$/;
 
-test("the production stylesheet loops no animation but the startup breath, indeterminate progress and live Summary marks", () => {
+test("the production stylesheet loops no animation but the startup breath, indeterminate progress, live Summary marks and a working Spade bot's eyes", () => {
   const theme = themeAnimations();
   const resolved = (value: string) =>
     value.replace(/var\((--animate-[\w-]+)\)/g, (call, name: string) => theme.get(name) ?? call);

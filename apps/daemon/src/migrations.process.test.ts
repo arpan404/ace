@@ -8,6 +8,13 @@ import { pairingLinkProof } from "@ace/client/link-proof";
 import { Agent, DeviceId, InstallId, Item, type EventPayload } from "@ace/protocol";
 import { Store, createDevThread } from "@ace/daemon";
 import { schemaVersion } from "./migrations.ts";
+import {
+  beforeInstalls,
+  beforeOutsideClients,
+  undoInstalls,
+  undoMachineCode,
+  undoOutsideClients,
+} from "./upgrade-test-support.ts";
 
 test.each([1, 9, 13])(
   "a daemon database at older schema %s is refused untouched instead of upgraded",
@@ -40,18 +47,6 @@ test.each([1, 9, 13])(
     }
   },
 );
-
-/**
- * What the ADR 0115 steps (the last two) added: the devices' install and fold columns, and the
- * account link column. Taken out so a fixture is the older schema it says it is.
- */
-const undoInstalls =
-  "DROP INDEX devices_install; ALTER TABLE devices DROP COLUMN account_link; ALTER TABLE devices DROP COLUMN merged_into; ALTER TABLE devices DROP COLUMN install_id;";
-/** The schema just before the ADR 0115 steps. */
-const beforeInstalls = schemaVersion - 2;
-/** The machine code tables (ADR 0111, the step before those) and everything after them. */
-const undoMachineCodeAndInstalls =
-  "DROP TABLE machine_code; DROP TABLE machine_code_passes; " + undoInstalls;
 
 const agent = (threadId: string, id: string, parentId: string | null) =>
   Agent.parse({
@@ -100,7 +95,7 @@ test("a schema 14 database upgrades in place and its threads keep the root's mes
     const db = new DatabaseSync(path);
     db.exec(
       // Newest steps first: dropping a column rechecks triggers on tables already gone.
-      undoMachineCodeAndInstalls +
+      undoMachineCode +
         " DROP INDEX item_heads_thread_agent; ALTER TABLE item_heads DROP COLUMN agent_id; ALTER TABLE devices DROP COLUMN expires_at; DROP TABLE thread_cold; DROP TRIGGER machine_message_rejections_revoked; DROP TABLE machine_message_rejections; DROP TABLE machine_child_messages; DROP TABLE machine_child_launches; DROP TABLE machine_children; DROP TABLE machine_threads; UPDATE schema_version SET version=14 WHERE id=1",
     );
     db.close();
@@ -145,11 +140,10 @@ test("a thread an agent opened before startedBy existed names its starter after 
       "request-1",
       "{}",
     );
-    // The remote-child liveness step came after, so its columns go too.
+    // The remote-child liveness step and every step after it came later, so they go too.
     db.exec(
-      "DROP INDEX machine_children_seen; DROP INDEX machine_children_stopping; ALTER TABLE machine_children DROP COLUMN seen_at; ALTER TABLE machine_children DROP COLUMN silent_since; ALTER TABLE machine_children DROP COLUMN stop_started_at; ALTER TABLE machine_children DROP COLUMN stop_attempts; ALTER TABLE machine_children DROP COLUMN stop_last_at; ALTER TABLE machine_children DROP COLUMN stopped_unconfirmed; " +
-        undoMachineCodeAndInstalls +
-        " UPDATE schema_version SET version=23 WHERE id=1",
+      undoMachineCode +
+        "DROP INDEX machine_children_seen; DROP INDEX machine_children_stopping; ALTER TABLE machine_children DROP COLUMN seen_at; ALTER TABLE machine_children DROP COLUMN silent_since; ALTER TABLE machine_children DROP COLUMN stop_started_at; ALTER TABLE machine_children DROP COLUMN stop_attempts; ALTER TABLE machine_children DROP COLUMN stop_last_at; ALTER TABLE machine_children DROP COLUMN stopped_unconfirmed; UPDATE schema_version SET version=23 WHERE id=1",
     );
     db.close();
     const upgraded = new Store(path);
@@ -241,7 +235,7 @@ test("a populated schema 28 database keeps credentials, install ids and folded r
     // The release before account links: schema 28, with installs and folds but no link column.
     const db = new DatabaseSync(path);
     db.exec(
-      `ALTER TABLE devices DROP COLUMN account_link; UPDATE schema_version SET version=${schemaVersion - 1} WHERE id=1`,
+      `${undoOutsideClients}ALTER TABLE devices DROP COLUMN account_link; UPDATE schema_version SET version=${beforeOutsideClients - 1} WHERE id=1`,
     );
     db.close();
 

@@ -49,7 +49,8 @@ report after the build ends), and ace can't tell the two apart from provider dat
 
 5. **Cleanup**, unchanged from ADR 0109 decision 5: a done thread with commands still running
    keeps its provider warm; settling or archiving it releases the provider at once, which ends
-   them.
+   them. Because the thread reads Done, archiving it asks first, naming how many commands it
+   stops (Archive or Cancel); one without them archives at once.
 
 ## Consequences
 
@@ -61,7 +62,8 @@ report after the build ends), and ace can't tell the two apart from provider dat
 - Lost Codex output (`unseenStart`, omitted history, hydration) no longer keeps a replied thread
   waiting: the shell stays listed as running until Codex confirms its end.
 - Archiving a replied thread now ends builds and tests it left running, as it already ended dev
-  servers.
+  servers. The app asks before such an archive, one thread or many, since Undo brings the
+  thread back but not the commands.
 
 Tests: core `background-release` (released after the reply, kept while the main agent works,
 subagents, bookkeeping and `blocksPrompts` still hold, restore), `acp-lifecycle` (an ACP shell

@@ -12,19 +12,24 @@
 //! override that ([`AceConfig::from_env`]). Credentials are kept in [`Secret`] and never appear in
 //! errors or debug output.
 
+pub mod brains;
 mod config;
 mod discovery;
-mod secret;
+pub mod events;
 pub mod skills;
 pub mod tools;
 mod url;
 
+pub use brains::{AceBrains, BrainError};
 pub use config::{AceConfig, ConfigError, DEFAULT_TIMEOUT, SkillsConfig, ToolsConfig};
 pub use discovery::{
     DiscoveryError, FIRST_RETRY, LONGEST_RETRY, daemon_urls, discover, next_retry,
     next_retry_between,
 };
-pub use secret::Secret;
-pub use skills::{AceSkills, Skill, SkillErrorCode, SkillList, SkillScope, SkillText, SkillsError};
+pub use skills::{
+    ALL_AGENTS, AceSkills, NewSkill, Skill, SkillEdit, SkillErrorCode, SkillList, SkillScope,
+    SkillText, SkillsError,
+};
+pub use spade_mcp::Secret;
 pub use tools::{AceTool, AceToolResult, AceTools, Part, Risk, ToolsError};
 pub use url::{LoopbackUrl, UrlError, UrlKind};

@@ -1,5 +1,6 @@
-//! `web_search`: the person's SearXNG, then Brave (spade-search). Results are untrusted: a page
-//! can carry instructions written to trick Spade, so the gate tightens after one.
+//! `web_search`: the bot's own endpoint's search where its model has one, then the person's
+//! SearXNG, then Brave (spade-search). Results are untrusted: a page can carry instructions
+//! written to trick Spade, so the gate tightens after one.
 
 use std::sync::Arc;
 
@@ -7,14 +8,17 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use spade_core::tools::{Risk, ToolDef};
 use spade_models::ToolSpec;
-use spade_search::Search;
+use spade_search::{Search, SearchError};
 
-use super::{Tool, ToolFuture, ToolOutput, parse};
+use super::{EngineHandle, Tool, ToolFuture, ToolOutput, parse};
+use crate::engine::Native;
 
 pub struct WebSearch {
     pub search: Arc<Search>,
     /// ace's tools are there, so when every backend fails an ace agent can search instead.
     pub ace_fallback: bool,
+    /// The engine, for the calling bot's model and its endpoint's own search.
+    pub bots: EngineHandle,
 }
 
 /// What the model is told when every backend failed and ace can help.
@@ -22,6 +26,14 @@ pub const ACE_FALLBACK: &str = "Every search backend failed. Search through an a
 find ace's delegate tool with tool_search and start one on the cheapest model the person has \
 (a small fast model is enough), asking it to search the web for this and report the links it \
 finds with a line on each.";
+
+/// The first words of the result when no web search is set up. The app knows them and shows a
+/// quiet line under the reply that opens Settings › Spade › Web search (docs/design.md).
+pub const NOT_SET_UP: &str = "No web search is set up.";
+
+/// What the model is told to say when no web search is set up.
+const POINT_TO_SETTINGS: &str = "Tell the person, in one short sentence, that they can add a \
+Brave Search key or their own SearXNG address in Settings › Spade › Web search.";
 
 #[derive(Deserialize)]
 struct Args {
@@ -51,15 +63,34 @@ impl Tool for WebSearch {
         }
     }
 
-    fn run(&self, _call_id: &str, arguments: Value) -> ToolFuture {
+    fn run(&self, key: &str, arguments: Value) -> ToolFuture {
         let (search, ace_fallback) = (self.search.clone(), self.ace_fallback);
+        let conversation = key.split_once('.').map_or(key, |(c, _)| c).to_owned();
+        let engine = self.bots.get();
         Box::pin(async move {
             let args: Args = match parse(arguments) {
                 Ok(args) => args,
                 Err(output) => return output,
             };
-            match search.search(&args.query, args.count.unwrap_or(8)).await {
-                Ok(found) if found.results.is_empty() => ToolOutput::ok("No results."),
+            let count = args.count.unwrap_or(8).clamp(1, spade_search::MOST_RESULTS);
+            let native = match &engine {
+                Some(engine) if !args.query.trim().is_empty() => {
+                    engine
+                        .native_search(&conversation, args.query.trim(), count)
+                        .await
+                }
+                _ => Native::Unavailable,
+            };
+            let native_failed = match native {
+                Native::Found(found) if !found.hits.is_empty() || !found.answer.is_empty() => {
+                    return ToolOutput::ok(native_text(&found));
+                }
+                Native::Found(_) => Some("it found nothing".to_owned()),
+                Native::Failed(why) => Some(why),
+                Native::Unavailable => None,
+            };
+            let failed = match search.search(&args.query, count).await {
+                Ok(found) if found.results.is_empty() => return ToolOutput::ok("No results."),
                 Ok(found) => {
                     let lines: Vec<String> = found
                         .results
@@ -67,15 +98,50 @@ impl Tool for WebSearch {
                         .enumerate()
                         .map(|(i, r)| format!("{}. {}\n{}\n{}", i + 1, r.title, r.url, r.snippet))
                         .collect();
-                    ToolOutput::ok(lines.join("\n\n"))
+                    return ToolOutput::ok(lines.join("\n\n"));
                 }
-                Err(error) if ace_fallback => {
-                    ToolOutput::error(format!("{error}\n\n{ACE_FALLBACK}"))
+                Err(error) => error,
+            };
+            let mut text = match (&failed, &native_failed) {
+                // The endpoint's own search was tried: setting up another is not the answer.
+                (SearchError::NotSetUp, None) => format!("{NOT_SET_UP} {POINT_TO_SETTINGS}"),
+                (error, None) => error.to_string(),
+                (error, Some(why)) => {
+                    format!("The model's own web search failed ({why}); then {error}")
                 }
-                Err(error) => ToolOutput::error(error.to_string()),
+            };
+            if ace_fallback {
+                text.push_str("\n\n");
+                text.push_str(ACE_FALLBACK);
             }
+            ToolOutput::error(text)
         })
     }
+}
+
+/// The endpoint's answer, then its sources numbered like the backends' results.
+fn native_text(found: &spade_models::WebFound) -> String {
+    let mut text = found.answer.clone();
+    if !found.hits.is_empty() {
+        if !text.is_empty() {
+            text.push_str("\n\nSources:\n");
+        }
+        let lines: Vec<String> = found
+            .hits
+            .iter()
+            .enumerate()
+            .map(|(i, hit)| {
+                let mut line = format!("{}. {}\n{}", i + 1, hit.title, hit.url);
+                if !hit.snippet.is_empty() {
+                    line.push('\n');
+                    line.push_str(&hit.snippet);
+                }
+                line
+            })
+            .collect();
+        text.push_str(&lines.join("\n\n"));
+    }
+    text
 }
 
 #[cfg(test)]
@@ -108,6 +174,7 @@ mod tests {
         let with_ace = WebSearch {
             search: broken(),
             ace_fallback: true,
+            bots: EngineHandle::default(),
         }
         .run("c1", query.clone())
         .await;
@@ -121,6 +188,7 @@ mod tests {
         let alone = WebSearch {
             search: broken(),
             ace_fallback: false,
+            bots: EngineHandle::default(),
         }
         .run("c1", query)
         .await;

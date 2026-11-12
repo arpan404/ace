@@ -163,6 +163,7 @@ function ComposerBody({
     caret,
     () => recentFiles(storage, props.thread.workspaceId),
     !!props.filesOnly,
+    props.mentionNames,
   );
   const { trigger, suggestions, items, active, adding, setAdding, setDismissed } = list;
   const empty = !text.trim() && !attachments.items.length && !annotations.count && !quotes.count;
@@ -295,6 +296,11 @@ function ComposerBody({
   useImperativeHandle(ref, () => ({
     openAdd: () => addMenu.current?.open(),
     focus: () => input.current?.focus(),
+    insertText: (words) => {
+      const gap = text && !/\s$/.test(text) ? " " : "";
+      const next = `${text}${gap}${words}`;
+      message.edit({ text: next, caret: next.length });
+    },
     takeFiles: intake,
     submit: (opposite = false) => submit(opposite),
     preserveDraft: (key) => writeDraft(storage, key, current),

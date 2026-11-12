@@ -16,6 +16,8 @@ export interface ComposerHandle {
   openAdd(): void;
   /** Put the caret in the message. */
   focus(): void;
+  /** Add words at the end of the message (a voice transcript), the caret after them. */
+  insertText(words: string): void;
   /** Attach what a drop or paste elsewhere on the screen carries; call it during the event. */
   takeFiles(data: DataTransfer): void;
   /**
@@ -99,6 +101,8 @@ export interface ComposerProps {
    * and `@` or `/` open no list.
    */
   filesOnly?: boolean | undefined;
+  /** With `filesOnly`: names `@` offers, inserted as plain text (a Spade group's members). */
+  mentionNames?: readonly string[] | undefined;
   /** The placeholder on a narrow composer, where `placeholder` would be cut short. */
   shortPlaceholder?: string | undefined;
   autoFocus?: boolean | undefined;

@@ -1,6 +1,6 @@
 import { oldestTitleInput } from "../engine/title-input.ts";
 import { hostCaller } from "./host-delegation.ts";
-import { provisionalTitle } from "../engine/thread-title.ts";
+import { provisionalTitle } from "@ace/ui-core/thread-title";
 import {
   AgentControlOperation,
   DelegationRequest,

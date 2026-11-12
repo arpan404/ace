@@ -1,15 +1,14 @@
 import { z } from "zod";
+import { nativeRecord, type NativeRecord } from "@ace/provider-kit/record";
 export const ObjectValue = z.record(z.string(), z.unknown());
-const UnknownList = z.array(z.unknown());
-export function obj(value: unknown): Record<string, unknown> {
-  const p = ObjectValue.safeParse(value);
-  return p.success ? p.data : {};
+export function obj(value: unknown): NativeRecord {
+  return nativeRecord(value);
 }
 export function str(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
-export function list(value: unknown): unknown[] {
-  return Array.isArray(value) ? UnknownList.parse(value) : [];
+export function list(value: unknown): readonly unknown[] {
+  return Array.isArray(value) ? value : [];
 }
 export const Envelope = z.looseObject({ type: z.string() });
 export const Response = z.looseObject({

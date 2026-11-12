@@ -34,8 +34,11 @@ export interface CaptureEvents {
   audio?(chunk: EncodedAudio): void;
   /** No encoder configuration worked for this encode. */
   failed(encode: string): void;
-  /** The capture stopped on its own (the tab closed, the extension went away). */
-  ended(): void;
+  /**
+   * The capture stopped on its own (the tab closed, the extension went away, or it never got a
+   * picture); `reason` says why, when the encoder said.
+   */
+  ended(reason?: string): void;
 }
 /** One tab capture feeding the encodes it is told to run. */
 export interface VideoCaptureHandle {
@@ -229,6 +232,13 @@ export interface BrowserBackendTabs {
   /** The person turns a tab's sound off or on (its `muted`). */
   mute?(tabId: string, muted: boolean): Promise<void>;
   page?(tabId: string): BrowserBackendPage;
+  /**
+   * Settles once a listed tab may take commands: the backend set it up (its origin guard is
+   * installed) and reported it to the session. Rejects with `tab_not_found` if the tab goes
+   * first, or `backend_changed` if its setup fails. A backend that lists tabs only once they are
+   * set up has none.
+   */
+  ready?(tabId: string): Promise<void>;
   /**
    * Drops an idle tab's page (ace's Chrome closes its target, the desktop its view), keeping the
    * tab listed at its address.

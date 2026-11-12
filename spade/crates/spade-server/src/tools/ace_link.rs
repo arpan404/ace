@@ -14,7 +14,9 @@ use spade_core::skills::SkillEntry;
 use spade_keys::{KeyError, KeyStore};
 use tokio::sync::Notify;
 
-use super::{AceLibrary, LibraryFuture, SkillLibrary, Tool, ToolSource};
+use super::{
+    AceLibrary, LibraryFuture, SkillLibrary, SkillSource, Tool, ToolSource, WriteError, WriteFuture,
+};
 
 /// ace's `wait` can block for up to ten minutes; the engine's own limits still apply.
 const CALL_TIMEOUT: Duration = Duration::from_secs(11 * 60);
@@ -396,6 +398,41 @@ impl AceLink {
         *self.current.write().unwrap_or_else(|p| p.into_inner()) = None;
     }
 
+    /// The daemon's WebSocket while connected, for routines' thread events (ADR 0129).
+    /// The daemon's brain service with Spade's grant (ADR 0133), found from ace's files now.
+    pub fn brains(&self) -> Result<spade_ace::AceBrains, String> {
+        self.attempt()
+            .map(|attempt| spade_ace::AceBrains::new(&attempt.config.tools))
+    }
+
+    pub fn daemon_socket(&self) -> Option<spade_ace::SkillsConfig> {
+        self.current
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_ref()
+            .map(|c| c.skills.config().clone())
+    }
+
+    /// The daemon's local token, read now from ace's home: the key its signature on inbox
+    /// requests is checked with (ADR 0132).
+    pub fn inbox_key(&self) -> Option<String> {
+        match &self.target {
+            AceTarget::Discover(home) => std::fs::read_to_string(home.join("daemon-token"))
+                .ok()
+                .map(|token| token.trim().to_owned())
+                .filter(|token| !token.is_empty()),
+            AceTarget::Fixed(config) => Some(config.skills.token().expose().to_owned()),
+        }
+    }
+
+    fn skills(&self) -> Option<Arc<AceSkills>> {
+        self.current
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_ref()
+            .map(|c| c.skills.clone())
+    }
+
     fn library(&self) -> Option<AceLibrary> {
         self.current
             .read()
@@ -418,6 +455,42 @@ impl ToolSource for AceLink {
 
 const AWAY: &str = "ace is not running, or Spade is not connected to it yet";
 
+/// Other machines through the daemon (ADR 0132, docs/teams.md "What ace adds").
+impl crate::teams::Remote for AceLink {
+    fn machines(
+        &self,
+    ) -> crate::teams::BoxFuture<'_, Result<Vec<crate::teams::Machine>, crate::teams::RemoteError>>
+    {
+        let skills = self.skills();
+        Box::pin(async move {
+            let skills = skills.ok_or(crate::teams::RemoteError::Offline)?;
+            let answer = skills
+                .spade_machines()
+                .await
+                .map_err(|_| crate::teams::RemoteError::Offline)?;
+            Ok(crate::teams::machines_from(&answer))
+        })
+    }
+
+    fn call(
+        &self,
+        machine: &str,
+        request: serde_json::Value,
+    ) -> crate::teams::BoxFuture<'_, Result<(u16, serde_json::Value), crate::teams::RemoteError>>
+    {
+        let skills = self.skills();
+        let machine = machine.to_owned();
+        Box::pin(async move {
+            let skills = skills.ok_or(crate::teams::RemoteError::Offline)?;
+            let result = skills
+                .spade_remote(&machine, &request)
+                .await
+                .map_err(|_| crate::teams::RemoteError::Offline)?;
+            crate::teams::answer_from(&result)
+        })
+    }
+}
+
 impl SkillLibrary for AceLink {
     fn list(&self) -> LibraryFuture<Vec<SkillEntry>> {
         match self.library() {
@@ -430,6 +503,27 @@ impl SkillLibrary for AceLink {
         match self.library() {
             Some(library) => library.read(id),
             None => Box::pin(async { Err(AWAY.to_owned()) }),
+        }
+    }
+
+    fn source(&self, name: &str) -> LibraryFuture<Option<SkillSource>> {
+        match self.library() {
+            Some(library) => library.source(name),
+            None => Box::pin(async { Err(AWAY.to_owned()) }),
+        }
+    }
+
+    fn create(&self, name: &str, description: &str, body: &str) -> WriteFuture {
+        match self.library() {
+            Some(library) => library.create(name, description, body),
+            None => Box::pin(async { Err(WriteError::Unavailable(AWAY.to_owned())) }),
+        }
+    }
+
+    fn edit(&self, base: &SkillSource, description: &str, body: &str) -> WriteFuture {
+        match self.library() {
+            Some(library) => library.edit(base, description, body),
+            None => Box::pin(async { Err(WriteError::Unavailable(AWAY.to_owned())) }),
         }
     }
 }

@@ -149,3 +149,48 @@ fn each_ace_home_keeps_its_own_grant() -> Result {
     assert_eq!(keys.ace_grant("real")?.as_deref(), Some("grant-real"));
     Ok(())
 }
+
+#[test]
+fn connector_secrets_are_kept_apart_from_endpoint_keys_and_each_other() -> Result {
+    let (keys, _) = mock_store()?;
+    keys.set("linear", "endpoint-key")?;
+    keys.set_connector_secret("linear", "access", "at-1")?;
+    keys.set_connector_secret("linear", "refresh", "rt-1")?;
+    keys.set_connector_secret("notion", "access", "at-2")?;
+    assert_eq!(keys.get("linear")?, Some("endpoint-key".to_owned()));
+    assert_eq!(
+        keys.connector_secret("linear", "access")?,
+        Some("at-1".to_owned())
+    );
+    assert_eq!(
+        keys.connector_secret("linear", "refresh")?,
+        Some("rt-1".to_owned())
+    );
+    assert!(keys.delete_connector_secret("linear", "access")?);
+    assert!(!keys.delete_connector_secret("linear", "access")?);
+    assert_eq!(keys.connector_secret("linear", "access")?, None);
+    assert_eq!(
+        keys.connector_secret("notion", "access")?,
+        Some("at-2".to_owned())
+    );
+    assert!(matches!(
+        keys.set_connector_secret(" ", "access", "x"),
+        Err(KeyError::Invalid(_))
+    ));
+    Ok(())
+}
+
+#[test]
+fn a_search_key_is_filed_apart_from_a_model_endpoint_of_the_same_name() -> Result {
+    let (keys, store) = mock_store()?;
+    keys.set("brave", "endpoint-key")?;
+    keys.set_search_key("brave", " BSA-123 ")?;
+    assert_eq!(keys.search_key("brave")?, Some("BSA-123".to_owned()));
+    assert_eq!(keys.get("brave")?, Some("endpoint-key".to_owned()));
+    let entry = store.build(SERVICE, "search:brave", None)?;
+    assert_eq!(entry.get_password()?, "BSA-123");
+    assert!(keys.delete_search_key("brave")?);
+    assert_eq!(keys.search_key("brave")?, None);
+    assert_eq!(keys.get("brave")?, Some("endpoint-key".to_owned()));
+    Ok(())
+}

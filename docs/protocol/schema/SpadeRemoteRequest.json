@@ -1,0 +1,28 @@
+{
+  "$id": "https://ace.local/protocol/v1/SpadeRemoteRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "machine": {
+      "$ref": "https://ace.local/protocol/v1/HostId.json"
+    },
+    "request": {
+      "$ref": "https://ace.local/protocol/v1/SpadeInboxRequest.json"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "spade.remote",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "machine",
+    "request"
+  ],
+  "type": "object"
+}

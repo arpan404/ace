@@ -26,6 +26,12 @@ pub struct Limits {
     pub context_budget: u32,
     /// Longest a background job may run.
     pub job_timeout: Duration,
+    /// Asks one other machine may deliver here in a day (ADR 0132).
+    pub remote_asks_per_day: usize,
+    /// Asks to other machines that may wait in the outbox at once.
+    pub remote_asks_waiting: usize,
+    /// Sending a model step again when it failed before anything streamed.
+    pub retry: super::retry::Retry,
 }
 
 impl Default for Limits {
@@ -39,6 +45,9 @@ impl Default for Limits {
             longest_message: 100_000,
             context_budget: 200_000,
             job_timeout: Duration::from_secs(30 * 60),
+            remote_asks_per_day: 500,
+            remote_asks_waiting: 500,
+            retry: super::retry::Retry::default(),
         }
     }
 }
@@ -50,6 +59,7 @@ pub struct Setup {
     pub clock: Arc<dyn Clock>,
     pub ids: Arc<dyn Ids>,
     pub daily_cap_micros: u64,
+    /// No longer read: days are the person's, in the time zone the app sends (ADR 0135).
     pub utc_offset_seconds: i32,
     pub limits: Limits,
     /// The person's skill library, when ace provides one.
@@ -77,6 +87,8 @@ pub enum Frame {
     Status {
         state: State,
         status: Option<String>,
+        /// In a group's stream, the member that waits for the person (ADR 0132).
+        waiting_member: Option<spade_core::event::GroupBot>,
     },
 }
 
@@ -94,6 +106,8 @@ pub struct Subscription {
     /// What the agent is doing as the subscription opened.
     pub state: State,
     pub status: Option<String>,
+    /// In a group's stream, the member that waits for the person.
+    pub waiting_member: Option<spade_core::event::GroupBot>,
 }
 
 /// An agent as the roster shows it.
@@ -103,6 +117,12 @@ pub struct AgentView {
     pub state: State,
     pub status: Option<String>,
     pub last_message: Option<LastMessage>,
+    /// What the agent waits on the person for: `approval` or `question` (ADR 0128).
+    pub waiting_for: Option<&'static str>,
+    /// `{"spending", "review"}` (ADR 0135).
+    pub oversight: serde_json::Value,
+    /// Why its latest reply on a subscription failed, until a later one works (ADR 0133).
+    pub problem: Option<String>,
 }
 
 /// Why an agent could not be created, changed or deleted.
@@ -154,14 +174,24 @@ pub enum SendError {
     NotFound,
     #[error("Spade is switched off on this machine; it runs on another one")]
     Disabled,
+    #[error("this is a group's transcript; post with /v1/groups/{{id}}/messages")]
+    Group,
     #[error("the message is empty")]
     Empty,
     #[error("the message is too long")]
     TooLong,
     #[error("today's spending cap is used up")]
     OverCap,
+    /// The bot is at one of its own caps (ADR 0135); the words say which and until when.
+    #[error("{0}")]
+    BotCapped(String),
     #[error("a message can carry at most {} images", crate::images::MOST_IMAGES)]
     TooManyImages,
+    #[error(
+        "a message can carry at most {} documents",
+        crate::media::MOST_DOCUMENTS
+    )]
+    TooManyDocuments,
     #[error(transparent)]
     Image(#[from] ImageError),
     #[error(transparent)]
@@ -178,6 +208,9 @@ pub enum CompactError {
     Nothing,
     #[error("today's spending cap is used up")]
     OverCap,
+    /// The bot is at one of its own caps (ADR 0135).
+    #[error("{0}")]
+    BotCapped(String),
     #[error("{0}")]
     Failed(String),
 }
@@ -201,4 +234,8 @@ pub struct Activity {
     pub waiting_on_you: bool,
     pub state: State,
     pub last_message: Option<LastMessage>,
+    /// `question` while an `ask_user` waits, else `approval` while one waits.
+    pub waiting_for: Option<&'static str>,
+    /// Why the latest reply on a subscription failed, until a later one works (ADR 0133).
+    pub problem: Option<String>,
 }

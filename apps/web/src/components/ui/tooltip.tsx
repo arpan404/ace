@@ -1,46 +1,72 @@
 import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip";
-import { cn } from "@/lib/cn.ts";
-import { createContext, useContext, type ReactElement, type ReactNode } from "react";
-
-export const TooltipSide = createContext<TooltipPrimitive.Positioner.Props["side"]>("bottom");
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  type ComponentProps,
+  type ReactElement,
+  type ReactNode,
+} from "react";
+import { deferredComponent } from "@/lib/deferred-component.tsx";
+import { deferredPart, usePart } from "@/lib/deferred-part.ts";
 import type { KeymapId } from "@/lib/keymap.ts";
 import { Kbd } from "./kbd.tsx";
-import { layers } from "./menu-styles.ts";
+import { useOpenGate } from "./open-gate.ts";
+import { QuietBoundary } from "./quiet-boundary.tsx";
+
+export const TooltipSide = createContext<TooltipPrimitive.Positioner.Props["side"]>("bottom");
+
+/**
+ * The popup's code (its Floating UI placement) is out of the first paint: it loads once the
+ * browser is idle, or when a tooltip first asks to open, and the tooltip opens once it is in.
+ */
+// Pure: a call the bundler must keep would hold the popup's loader in every chunk that imports this.
+const Popup = /* @__PURE__ */ deferredComponent(() =>
+  import("./tooltip-popup.tsx").then((module) => module.TooltipPopup),
+);
+const popup = /* @__PURE__ */ deferredPart(Popup.preload);
 
 function TooltipProvider({ delay = 500, ...props }: TooltipPrimitive.Provider.Props) {
+  useEffect(() => popup.warm(), []);
   return <TooltipPrimitive.Provider data-slot="tooltip-provider" delay={delay} {...props} />;
 }
 
-function TooltipContent({
-  className,
-  side = "bottom",
-  sideOffset = 6,
-  children,
-  ...props
-}: TooltipPrimitive.Popup.Props & Pick<TooltipPrimitive.Positioner.Props, "side" | "sideOffset">) {
+/** Whether the tooltip around a popup is open, so a popup that failed to draw tries again. */
+const TooltipOpen = createContext(false);
+
+/** Opens its tooltip through Base UI's own open, as a request held by `useOpenGate` asked. */
+class ReplayHandle extends TooltipPrimitive.Handle<unknown> {
+  replay(details: TooltipPrimitive.Root.ChangeEventDetails) {
+    this.attachedStore?.setOpen(true, details);
+  }
+}
+
+/** A tooltip's root; it opens only once its popup's code has arrived (`useOpenGate`). */
+function Tooltip(props: TooltipPrimitive.Root.Props) {
+  const [handle] = useState(() => new ReplayHandle());
+  const gate = useOpenGate(popup, { ...props, replay: (details) => handle.replay(details) });
   return (
-    <TooltipPrimitive.Portal>
-      <TooltipPrimitive.Positioner
-        side={side}
-        collisionAvoidance={side === "top" ? { side: "none" } : undefined}
-        sideOffset={sideOffset}
-        className={cn(layers.tooltip, "isolate [-webkit-app-region:no-drag]")}
-      >
-        <TooltipPrimitive.Popup
-          data-slot="tooltip-content"
-          role="tooltip"
-          style={{ maxWidth: "min(20rem, calc(100vw - 24px))" }}
-          className={cn(
-            "ace-floating-solid flex items-center gap-2 rounded-sm px-2 py-1 text-xs leading-4 font-normal break-words text-popover-foreground",
-            "origin-(--transform-origin) transition-[opacity,transform] duration-(--motion-fast) ease-smooth data-ending-style:opacity-0 data-ending-style:duration-100 data-instant:duration-0 data-starting-style:opacity-0 data-[side=bottom]:data-starting-style:-translate-y-[calc(var(--rise)/2)] data-[side=top]:data-starting-style:translate-y-[calc(var(--rise)/2)]",
-            className,
-          )}
-          {...props}
-        >
-          {children}
-        </TooltipPrimitive.Popup>
-      </TooltipPrimitive.Positioner>
-    </TooltipPrimitive.Portal>
+    <TooltipOpen value={gate.open}>
+      <TooltipPrimitive.Root
+        {...props}
+        handle={handle}
+        open={gate.open}
+        onOpenChange={gate.onOpenChange}
+      />
+    </TooltipOpen>
+  );
+}
+
+function TooltipContent(props: ComponentProps<typeof Popup.Component>) {
+  const ready = usePart(popup) !== undefined;
+  const open = useContext(TooltipOpen);
+  // Mounted once the code is in, so it renders at once, never suspending under an open tooltip.
+  if (!ready) return null;
+  return (
+    <QuietBoundary retryWhen={open}>
+      <Popup.Component {...props} />
+    </QuietBoundary>
   );
 }
 
@@ -62,7 +88,7 @@ function Tip(props: {
 }) {
   const side = useContext(TooltipSide);
   return (
-    <TooltipPrimitive.Root
+    <Tooltip
       disabled={props.disabled}
       onOpenChange={(open, details) => {
         // A tooltip is only a description. Escape must still reach the dialog or
@@ -81,7 +107,7 @@ function Tip(props: {
           props.keys && <Kbd keys={props.keys} resolve={props.resolve ?? true} />
         )}
       </TooltipContent>
-    </TooltipPrimitive.Root>
+    </Tooltip>
   );
 }
 
@@ -107,7 +133,6 @@ function behindOpenPopup(trigger: Element | undefined): boolean {
   return open !== null && open !== trigger && !open.contains(trigger);
 }
 
-const Tooltip = TooltipPrimitive.Root;
 const TooltipTrigger = TooltipPrimitive.Trigger;
 
 export { Tip, Tooltip, TooltipTrigger, TooltipContent, TooltipProvider };

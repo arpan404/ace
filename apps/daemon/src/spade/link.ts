@@ -30,6 +30,8 @@ export interface SpadeLinkRuntime {
   /** Calls `changed` when files in `directory` change; returns a stop. */
   watch(directory: string, changed: () => void): () => void;
   now(): number;
+  /** This machine's platform (`process.platform`), for how Spade's setup waits are worded. */
+  platform?: string;
   /** Runs `run` after `ms`; returns a cancel. */
   after(ms: number, run: () => void): () => void;
 }
@@ -211,6 +213,8 @@ export class SpadeLink {
       healthy,
       proof,
       silentForMs: 0,
+      setup: answer?.setup,
+      platform: runtime.platform,
     };
     if (spadeAnswering(facts) || service !== "running") this.silentSince = undefined;
     else this.silentSince ??= now;

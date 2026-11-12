@@ -254,7 +254,7 @@ export function setup(
     unsubscribe();
     await engine.close();
     await catalog.close();
-    store.close();
+    await store.close();
   }
   scope().cleanup.push(close);
   function caller(threadId: ThreadId): McpAttribution {

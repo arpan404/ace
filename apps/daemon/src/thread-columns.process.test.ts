@@ -18,6 +18,7 @@ import {
 import { updateThread } from "@ace/projection";
 import { Store } from "./store.ts";
 import { schemaVersionBefore } from "./migrations.ts";
+import { undoMachineCode } from "./upgrade-test-support.ts";
 import { threadColdTable } from "./thread-cold.ts";
 
 const cleanups: (() => Promise<void> | void)[] = [];
@@ -400,6 +401,7 @@ function runSeed(seed: number) {
   // provider_metadata. Upgrading it moves them out and reads every thread the same.
   const old = new DatabaseSync(path);
   old.exec(`
+    ${undoMachineCode}
     UPDATE threads SET client = json_set(COALESCE(client, '{}'), '$.details', json(cold.details))
       FROM thread_cold AS cold WHERE cold.thread_id = threads.id AND cold.details IS NOT NULL;
     UPDATE threads SET provider_metadata = json_set(COALESCE(provider_metadata, '{}'), '$.capabilities', json(cold.capabilities))

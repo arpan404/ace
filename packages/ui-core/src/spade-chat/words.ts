@@ -1,5 +1,6 @@
 import type { SpadeStatus } from "@ace/protocol";
 import type { SpadeCallState } from "./fold.ts";
+import type { SpadeFailureKind } from "./wire.ts";
 
 /*
  * Spade's states and tools in words. Tool names are Spade's own (`web_search`) or an ace tool
@@ -26,6 +27,32 @@ const tools: Record<string, ToolWords> = {
     done: "Looked for a skill",
   },
   call_tool: { base: "use a tool", doing: "Using a tool", done: "Used a tool" },
+  skill_load: { base: "load a skill", doing: "Reading a skill", done: "Read a skill" },
+  skill_propose: {
+    base: "suggest a skill",
+    doing: "Writing a skill",
+    done: "Suggested a skill",
+  },
+  skill_feedback: {
+    base: "note how a skill worked",
+    doing: "Noting how a skill worked",
+    done: "Noted how a skill worked",
+  },
+  // Its workspace (ADR 0130).
+  shell: { base: "run a command", doing: "Running a command", done: "Ran a command" },
+  workspace_list: {
+    base: "look through its files",
+    doing: "Looking through its files",
+    done: "Looked through its files",
+  },
+  workspace_read: { base: "read a file", doing: "Reading a file", done: "Read a file" },
+  workspace_search: {
+    base: "search its files",
+    doing: "Searching its files",
+    done: "Searched its files",
+  },
+  workspace_write: { base: "write a file", doing: "Writing a file", done: "Wrote a file" },
+  workspace_edit: { base: "change a file", doing: "Changing a file", done: "Changed a file" },
   send_email: { base: "send an email", doing: "Sending an email", done: "Sent an email" },
   research: { base: "research", doing: "Researching", done: "Researched" },
   delegate: {
@@ -132,6 +159,29 @@ export function spadeStateLine(
   }
 }
 
+/** Spade's reason while its keychain read waits on the person (`spade/src/startup.rs`). */
+const keychainWait = "waiting for the keychain";
+
+/**
+ * While Spade runs but still waits on its setup, one sentence on what the person should do, in
+ * the words of the platform it runs on. Undefined once it is set up, or while it isn't running.
+ */
+export function spadeSetupSentence(status: SpadeStatus | undefined): string | undefined {
+  if (status?.state !== "ready" || !status.setup) return undefined;
+  const { reason, platform } = status.setup;
+  if (reason !== keychainWait) return `Spade is still starting: ${reason}.`;
+  switch (platform) {
+    case "darwin":
+      return "Spade is waiting for the keychain. Look for a macOS prompt and choose Always Allow.";
+    case "win32":
+      return "Spade is waiting for Windows Credential Manager. Look for a Windows prompt and allow it.";
+    case "linux":
+      return "Spade is waiting for the keyring. Look for a prompt to unlock it and enter your password.";
+    default:
+      return "Spade is waiting for the keychain. Look for a prompt asking to allow it.";
+  }
+}
+
 /** Background jobs that wait on ace's agents: a delegation, or a wait for agents already out. */
 const agentJobs = new Set(["delegate", "wait"]);
 
@@ -174,4 +224,31 @@ export function spadeJobEndLine(name: string, outcome: "done" | "failed" | "stop
   if (name === "wait") return failed ? "Couldn't wait for the agents" : "Done waiting for agents";
   const words = spadeToolWords(name);
   return failed ? `Couldn't ${words.base} in the background` : `${words.done} in the background`;
+}
+
+/**
+ * A failed reply in one plain sentence, by its kind (`reply_failed`), naming the endpoint by the
+ * name the person gave it; "the endpoint" when it isn't known. The endpoint's own words stay
+ * with Details and the activity log.
+ */
+export function spadeFailureSentence(kind: SpadeFailureKind, endpoint: string | undefined): string {
+  // A name stays as the person wrote it; only the stand-in starts a sentence capitalised.
+  const name = endpoint ?? "the endpoint";
+  const subject = endpoint ?? "The endpoint";
+  switch (kind) {
+    case "unreachable":
+      return `Couldn't reach ${name}.`;
+    case "key":
+      return `${subject} refused the key.`;
+    case "rate_limited":
+      return `${subject} is limiting requests right now.`;
+    case "model":
+      return endpoint
+        ? `The model on ${endpoint} failed to answer.`
+        : "The model failed to answer.";
+    case "cap":
+      return "It reached a spending limit.";
+    case "other":
+      return "Couldn't finish this reply.";
+  }
 }

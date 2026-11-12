@@ -1,5 +1,20 @@
 import { z } from "zod";
 import { spadeJson as json } from "./json.ts";
+import { spadeDocumentList, spadeImageList, spadeVoiceField } from "./media.ts";
+
+/**
+ * Why a reply failed (`reply_failed`'s `kind`): the endpoint couldn't be reached, refused the key,
+ * is rate limiting, the model failed, a spending cap stopped it, or anything else.
+ */
+export const spadeFailureKinds = [
+  "unreachable",
+  "key",
+  "rate_limited",
+  "model",
+  "cap",
+  "other",
+] as const;
+export type SpadeFailureKind = (typeof spadeFailureKinds)[number];
 
 /*
  * Spade's own bodies, as its local API writes them (spade/docs/chat-core.md, harness.md). The
@@ -9,18 +24,16 @@ import { spadeJson as json } from "./json.ts";
 
 const text = z.string();
 const reply = z.string();
+/** Workspace files a tool kept, for file chips; a path this client can't read is left out. */
+const files = z
+  .array(z.unknown())
+  .nullish()
+  .catch(undefined)
+  .transform((list) =>
+    (list ?? []).filter((path): path is string => typeof path === "string" && path !== ""),
+  );
 
-/** An image the person attached, stored by Spade under its hash. */
-const imageRef = z.object({
-  sha256: z.string().regex(/^[0-9a-f]{64}$/),
-  media_type: z.string().default("image/png"),
-  bytes: z.number().int().nonnegative().default(0),
-});
-export interface SpadeImageRef {
-  sha256: string;
-  mediaType: string;
-  bytes: number;
-}
+export type { SpadeImageRef } from "./media.ts";
 
 /** The stored event types the person's view reads. Anything else is kept as `unknown`. */
 const known = z.discriminatedUnion("type", [
@@ -32,25 +45,26 @@ const known = z.discriminatedUnion("type", [
       .object({ id: z.string(), name: z.string().catch("") })
       .nullish()
       .catch(undefined),
-    // An image this client can't read is left out; the message still shows.
-    images: z
-      .array(z.unknown())
-      .optional()
-      .default([])
-      .transform((images) =>
-        images.flatMap((image): SpadeImageRef[] => {
-          const parsed = imageRef.safeParse(image);
-          return parsed.success
-            ? [
-                {
-                  sha256: parsed.data.sha256,
-                  mediaType: parsed.data.media_type,
-                  bytes: parsed.data.bytes,
-                },
-              ]
-            : [];
-        }),
-      ),
+    /** One of the bot's routines or its heartbeat fired it (ADR 0129). */
+    from_routine: z
+      .object({
+        id: z.string(),
+        name: z.string().catch(""),
+        label: z.string().catch(""),
+        heartbeat: z.boolean().catch(false).default(false),
+      })
+      .nullish()
+      .catch(undefined),
+    /** A group sent it to this bot (ADR 0132): a person's or another member's words there. */
+    from_group: z
+      .object({ id: z.string(), name: z.string().catch("") })
+      .nullish()
+      .catch(undefined),
+    // An image, document or recording this client can't read is left out; the message shows.
+    images: spadeImageList,
+    documents: spadeDocumentList,
+    /** A voice message's recording; `text` is its transcript (ADR 0134). */
+    voice: spadeVoiceField,
   }),
   z.object({ type: z.literal("reply_started"), reply, model: z.string().optional() }),
   z.object({ type: z.literal("reply_progress"), reply, text }),
@@ -70,6 +84,9 @@ const known = z.discriminatedUnion("type", [
     reply,
     text: text.default(""),
     error: z.string().default(""),
+    // Missing on events from before kinds, or one this client doesn't know: `other`.
+    kind: z.enum(spadeFailureKinds).catch("other").default("other"),
+    endpoint: z.string().nullish().catch(undefined),
   }),
   z.object({ type: z.literal("reply_interrupted"), reply, text: text.default("") }),
   z.object({
@@ -92,7 +109,28 @@ const known = z.discriminatedUnion("type", [
     reply,
     call_id: z.string(),
     name: z.string(),
+    /** The result: JSON text from the memory tools, which the view reads (ADR 0128). */
+    content: z.unknown().optional(),
     is_error: z.boolean().optional(),
+    files,
+  }),
+  /**
+   * Images and documents a tool showed the person, stored right after its `tool_finished`
+   * (ADR 0134): they show in the reply's bubble, after its words.
+   */
+  z.object({
+    type: z.literal("shared"),
+    reply,
+    call_id: z.string().optional(),
+    images: spadeImageList,
+    documents: spadeDocumentList,
+  }),
+  /** The bot asked the person and waits for their next message (ADR 0128). */
+  z.object({
+    type: z.literal("question_asked"),
+    reply,
+    call_id: z.string(),
+    question: z.string(),
   }),
   z.object({ type: z.literal("job_started"), reply, job: z.string(), name: z.string() }),
   z.object({
@@ -100,6 +138,24 @@ const known = z.discriminatedUnion("type", [
     job: z.string(),
     name: z.string(),
     is_error: z.boolean().optional(),
+    files,
+  }),
+  /** The bot reached a spending cap; stored once per day or month (ADR 0135). */
+  z.object({
+    type: z.literal("cap_reached"),
+    scope: z.enum(["daily", "monthly"]),
+    cap_micros: z.number().nonnegative().catch(0).default(0),
+    period_start: z.unknown().optional(),
+    resets_at: z.number().nullish().catch(undefined),
+  }),
+  /** The model review judged a call before it ran (ADR 0135). */
+  z.object({
+    type: z.literal("call_reviewed"),
+    reply: z.string().nullish().catch(undefined),
+    call_id: z.string(),
+    name: z.string().catch(""),
+    verdict: z.string(),
+    reason: z.string().catch("").default(""),
   }),
   z.object({ type: z.literal("context_compacted") }),
   z.object({
@@ -142,9 +198,20 @@ export function parseSpadeStored(raw: unknown): SpadeStored | undefined {
 
 const replyText = z.object({ reply: z.string(), text: z.string() });
 const caughtUpShape = z.object({ seq: z.number().int().nonnegative() });
+/** A group's member as a status frame names it (ADR 0132). */
+const waitingMemberShape = z.object({
+  id: z.string(),
+  name: z.string(),
+  machine: z
+    .string()
+    .nullish()
+    .transform((machine) => machine ?? null),
+});
 const statusShape = z.object({
   state: z.enum(["idle", "working", "waiting"]),
   status: z.string().nullish().catch(undefined),
+  /** In a group's stream, the member that waits for the person; anything unreadable is none. */
+  waiting_member: waitingMemberShape.nullish().catch(undefined),
 });
 
 /** One frame of `GET /v1/conversations/{id}/live`, ready to fold. */
@@ -155,7 +222,13 @@ export type SpadeLiveInput =
   | { kind: "caught_up"; seq: number }
   | { kind: "delta"; reply: string; text: string }
   /** The agent's current state and its few words on what it does now (ADR 0127). */
-  | { kind: "status"; state: "idle" | "working" | "waiting"; status: string | undefined };
+  | {
+      kind: "status";
+      state: "idle" | "working" | "waiting";
+      status: string | undefined;
+      /** In a group's stream, the member that waits for the person (by id, never by words). */
+      waitingMember?: { id: string; name: string; machine: string | null } | undefined;
+    };
 
 /** A live frame by its `event:` name and `data:` text; undefined for names this client skips. */
 export function parseSpadeLiveFrame(event: string, data: string): SpadeLiveInput | undefined {
@@ -170,9 +243,14 @@ export function parseSpadeLiveFrame(event: string, data: string): SpadeLiveInput
   }
   if (event === "status") {
     const parsed = statusShape.safeParse(body);
-    return parsed.success
-      ? { kind: "status", state: parsed.data.state, status: parsed.data.status || undefined }
-      : undefined;
+    if (!parsed.success) return undefined;
+    const input: SpadeLiveInput = {
+      kind: "status",
+      state: parsed.data.state,
+      status: parsed.data.status || undefined,
+    };
+    if (parsed.data.waiting_member) input.waitingMember = parsed.data.waiting_member;
+    return input;
   }
   if (event === "snapshot" || event === "delta") {
     const parsed = replyText.safeParse(body);

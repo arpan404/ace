@@ -454,3 +454,87 @@ async fn a_tool_result_goes_back_answering_its_call() -> Result {
     );
     Ok(())
 }
+
+/// The first item of a stream, or the error that opened it.
+async fn first_error(models: &Models, reference: &str) -> Option<ModelError> {
+    match models.stream(reference, &Prompt::ask("hi")).await {
+        Err(error) => Some(error),
+        Ok(stream) => Box::pin(stream).next().await.and_then(|first| first.err()),
+    }
+}
+
+#[tokio::test]
+async fn a_request_that_never_reached_the_endpoint_or_was_refused_for_now_may_be_sent_again()
+-> Result {
+    // A port nobody listens on: the request cannot be sent at all.
+    let closed = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let root = format!("http://{}/v1/", closed.local_addr()?);
+    drop(closed);
+    let unreachable = Catalog::from_json(
+        &json!({ "endpoints": [{ "id": "away", "name": "Away", "format": "openai-chat",
+                                 "base_url": root, "models": [{ "id": "m", "name": "M" }] }] })
+        .to_string(),
+    )?;
+    let away = Models::new(
+        unreachable,
+        Keys::keychain_then_env(|_| None, |_| None),
+        "test",
+    )?;
+    let error = first_error(&away, "away/m").await.ok_or("it answered")?;
+    assert!(error.transient(), "{error:?}");
+
+    let busy = FakeProvider::start_with(Script::failing(503).retry_after("2")).await?;
+    let refused = FakeProvider::start_with(Script::failing(400)).await?;
+    for reference in ["chat/kimi", "resp/sol", "msgs/haiku"] {
+        let error = first_error(&models(&busy)?, reference)
+            .await
+            .ok_or("it answered")?;
+        assert!(error.transient(), "{reference}: {error:?}");
+        assert_eq!(
+            error.retry_after(),
+            Some(std::time::Duration::from_secs(2)),
+            "{reference}"
+        );
+        let error = first_error(&models(&refused)?, reference)
+            .await
+            .ok_or("it answered")?;
+        assert!(!error.transient(), "{reference}: {error:?}");
+    }
+    Ok(())
+}
+
+/// An endpoint that answers every request `200` with a streaming body, then drops the connection
+/// before sending any of it: the call was answered, and may have been billed.
+async fn answers_then_drops() -> Result<FakeProvider> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let root = format!("http://{}/v1/", listener.local_addr()?);
+    tokio::spawn(async move {
+        while let Ok((mut socket, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                let mut request = [0u8; 16 * 1024];
+                let _ = socket.read(&mut request).await;
+                let head = "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\n\
+                            transfer-encoding: chunked\r\n\r\n5\r\nda";
+                let _ = socket.write_all(head.as_bytes()).await;
+                let _ = socket.shutdown().await;
+            });
+        }
+    });
+    // Only its address is used: the catalog points every format at it.
+    let mut fake = FakeProvider::start_with(Script::reply("")).await?;
+    fake.root = root;
+    Ok(fake)
+}
+
+#[tokio::test]
+async fn a_stream_cut_after_the_endpoint_answered_is_never_sent_again() -> Result {
+    let dropping = answers_then_drops().await?;
+    for reference in ["chat/kimi", "resp/sol", "msgs/haiku"] {
+        let error = first_error(&models(&dropping)?, reference)
+            .await
+            .ok_or("it answered")?;
+        assert!(!error.transient(), "{reference}: {error:?}");
+    }
+    Ok(())
+}

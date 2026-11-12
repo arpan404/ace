@@ -1,4 +1,10 @@
-import type { BrowserState, BrowserOriginBlock, BrowserTab, BrowserTabActor } from "@ace/protocol";
+import type {
+  BrowserState,
+  BrowserOriginBlock,
+  BrowserTab,
+  BrowserTabActor,
+  BrowserVideoStatus,
+} from "@ace/protocol";
 import type { SessionOptions } from "./session-options.ts";
 
 /**
@@ -18,6 +24,7 @@ export function browserState(
     blocked?: BrowserOriginBlock | undefined;
     annotation?: string | undefined;
     recording?: BrowserTabActor | undefined;
+    video?: BrowserVideoStatus | undefined;
   },
 ): BrowserState {
   const tabs = options.backend.tabs;
@@ -39,6 +46,7 @@ export function browserState(
     ],
     ...(lifecycle.annotation ? { annotation: { owner: lifecycle.annotation } } : {}),
     ...(lifecycle.recording ? { recording: { by: lifecycle.recording } } : {}),
+    ...(lifecycle.video ? { video: lifecycle.video } : {}),
     ...(tabs
       ? {
           ...(lifecycle.activeTabId ? { activeTabId: lifecycle.activeTabId } : {}),

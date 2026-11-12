@@ -4,6 +4,7 @@ import { configure, cleanup, screen, waitFor, within } from "@testing-library/re
 
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test, vi } from "vitest";
+import { archiveAnyway } from "@/test/archive-question.ts";
 import { fakeClient, harness } from "@/test/harness.tsx";
 import { memoryStorage } from "@/boot/client.ts";
 
@@ -13,9 +14,6 @@ beforeEach(() => localStorage.clear());
 
 const threads = () => screen.getByRole("navigation", { name: "Threads" });
 const card = (title: RegExp) => within(threads()).queryByRole("link", { name: title });
-/** The question archiving a thread that still works asks first. */
-const keep = () => screen.queryByRole("button", { name: "Archive, keep running" });
-
 async function openHome(options: Parameters<typeof harness>[0] = {}) {
   const app = harness(options);
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
@@ -37,10 +35,10 @@ async function choose(title: RegExp, item: string | RegExp) {
       within(dialog).getByRole("button", { name: /^(Delete|Stop and delete)$/ }),
     );
   }
-  // A thread still working asks before it is archived; these tests keep it running.
+  // A thread still working, or one that left a command running, asks first; these tests archive.
   if (item !== "Archive") return;
-  await waitFor(() => expect(screen.queryByText(/^Archived ·/) ?? keep()).toBeTruthy());
-  const ask = keep();
+  await waitFor(() => expect(screen.queryByText(/^Archived ·/) ?? archiveAnyway()).toBeTruthy());
+  const ask = archiveAnyway();
   if (ask) await userEvent.click(ask);
 }
 

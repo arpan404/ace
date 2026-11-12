@@ -61,40 +61,71 @@ test("⌘-click picks rows without opening them, Shift-click takes the rows betw
   const app = await openHome();
   const opened = window.location.pathname;
   await pick(/^Dedupe thread events/, "{Meta>}");
-  await pick(/^Invoice PDF/, "{Shift>}");
+  await pick(/^Backpressure on broadcast/, "{Shift>}");
   expect(window.location.pathname).toBe(opened);
-  // In the Inbox's order: the dedupe, then the install page, then the invoice fallback.
+  // In the Inbox's order: the dedupe and the install page run, then the fan-out, done with its
+  // soak test left running (ADR 0116), then the invoice fallback.
   expect(await screen.findByText("3 selected")).toBeTruthy();
   expect(card(/^Rewrite the install page.*, selected/)).toBeTruthy();
   expect(
-    within(threads()).queryByRole("link", { name: /^Backpressure on broadcast.*, selected/ }),
+    within(threads()).queryByRole("link", { name: /^Invoice PDF locale fallback.*, selected/ }),
   ).toBeNull();
 
   // Pin pins them all, keeping the order they were listed in.
   await userEvent.click(within(bar()).getByRole("button", { name: "Pin 3 threads" }));
   await waitFor(() =>
     expect(
-      ["thread-dedupe", "thread-install-page", "thread-pdf-locale"].map(
+      ["thread-dedupe", "thread-install-page", "thread-fan-out"].map(
         (id) => listed(app, id)?.pinned,
       ),
     ).toEqual([true, true, true]),
   );
-  expect(listed(app, "thread-fan-out")?.pinned).toBeUndefined();
+  expect(listed(app, "thread-pdf-locale")?.pinned).toBeUndefined();
   expect(screen.queryByRole("toolbar", { name: "Selected threads" })).toBeNull();
 });
 
 test("bulk Archive archives every picked thread without asking, and one Undo restores them", async () => {
   const app = await openHome();
-  await pick(/^Backpressure/, "{Meta>}");
+  // The install page's agent still works: one archive of many never stops to ask about it.
+  await pick(/^Rewrite the install page/, "{Meta>}");
   await pick(/^Invoice PDF/, "{Meta>}");
   await userEvent.click(within(bar()).getByRole("button", { name: "Archive 2 threads" }));
-  expect(screen.queryByRole("dialog")).toBeNull();
 
-  await waitFor(() => expect(gone(/^Backpressure/) && gone(/^Invoice PDF/)).toBe(true));
-  await waitFor(() => expect(listed(app, "thread-fan-out")?.archivedAt).toBeDefined());
+  await waitFor(() => expect(gone(/^Rewrite the install page/) && gone(/^Invoice PDF/)).toBe(true));
+  expect(screen.queryByRole("dialog", { name: "Archive a running thread?" })).toBeNull();
+  await waitFor(() => expect(listed(app, "thread-install-page")?.archivedAt).toBeDefined());
   await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
-  await waitFor(() => expect(listed(app, "thread-fan-out")?.archivedAt).toBeUndefined());
+  await waitFor(() => expect(listed(app, "thread-install-page")?.archivedAt).toBeUndefined());
   await waitFor(() => expect(listed(app, "thread-pdf-locale")?.archivedAt).toBeUndefined());
+});
+
+test("bulk Archive with a thread that left a command running asks first, and Archive archives them all", async () => {
+  const app = await openHome();
+  // The fan-out replied with its soak test still running (ADR 0116): archiving stops it.
+  await pick(/^Backpressure on broadcast/, "{Meta>}");
+  await pick(/^Invoice PDF/, "{Meta>}");
+  await userEvent.click(within(bar()).getByRole("button", { name: "Archive 2 threads" }));
+
+  const ask = await screen.findByRole("dialog", { name: "Archive 2 threads?" });
+  expect(within(ask).getByText("Archiving stops 1 command they left running.")).toBeTruthy();
+  expect(listed(app, "thread-fan-out")?.archivedAt).toBeUndefined();
+  expect(listed(app, "thread-pdf-locale")?.archivedAt).toBeUndefined();
+
+  await userEvent.click(within(ask).getByRole("button", { name: "Archive" }));
+  await waitFor(() => expect(listed(app, "thread-fan-out")?.archivedAt).toBeDefined());
+  await waitFor(() => expect(listed(app, "thread-pdf-locale")?.archivedAt).toBeDefined());
+});
+
+test("cancelling a bulk Archive that would stop a command keeps every thread", async () => {
+  const app = await openHome();
+  await pick(/^Backpressure on broadcast/, "{Meta>}");
+  await pick(/^Invoice PDF/, "{Meta>}");
+  await userEvent.click(within(bar()).getByRole("button", { name: "Archive 2 threads" }));
+  const ask = await screen.findByRole("dialog", { name: "Archive 2 threads?" });
+  await userEvent.click(within(ask).getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(listed(app, "thread-fan-out")?.archivedAt).toBeUndefined();
+  expect(listed(app, "thread-pdf-locale")?.archivedAt).toBeUndefined();
 });
 
 test("cancelling a bulk Delete keeps every thread", async () => {

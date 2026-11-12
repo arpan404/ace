@@ -1,72 +1,31 @@
 import { spadeStateLine } from "@ace/ui-core/spade-chat";
-import { Link, Navigate, useNavigate } from "@tanstack/react-router";
-import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
-import { Button } from "@/components/ui/button.tsx";
-import { MenuItem } from "@/components/ui/menu.tsx";
-import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
+import { Link, Navigate } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { readingColumn } from "@/features/thread/index.ts";
 import { useMachines } from "@/lib/machines.ts";
-import { EditBotDialog } from "./spade-bot-dialog.tsx";
+import { SpadeActivity } from "./spade-activity.tsx";
+import { BotScreen, useOpenBot, type BotView } from "./spade-bot-screen.tsx";
 import { SpadeChat, type ChatBot } from "./spade-chat.tsx";
 import { SpadeComposer } from "./spade-composer.tsx";
-import { SpadeFace } from "./spade-face.tsx";
+import { SpadeFiles } from "./spade-files.tsx";
 import { SpadeKeySetup } from "./spade-key-setup.tsx";
 import { SpadeMachineScope, spadeMachineKey } from "./spade-machine.tsx";
+import { SpadeRoutines } from "./spade-routines.tsx";
 import { SpadeStateStrip } from "./spade-state.tsx";
-import { useDeleteBot } from "./use-bot-actions.ts";
 import { useSpadeConversation } from "./use-spade-conversation.ts";
-import { useSpadeEnabled } from "./use-spade-enabled.ts";
+import { useSpadeModels } from "./use-spade-models.ts";
 import { useSpadeRoster, type RosterBot } from "./use-spade-roster.ts";
+import { useSkillProposals } from "./use-skill-proposals.ts";
+import {
+  ConversationSkeleton,
+  message,
+  Problem,
+  Scroller,
+  useSpadeLine,
+} from "./spade-screen-parts.tsx";
 import { useSpadeStatus } from "./use-spade-status.ts";
-
-/** Spade's state line on this window's machine. */
-function useSpadeLine() {
-  const [enabled] = useSpadeEnabled();
-  return spadeStateLine(useSpadeStatus(), enabled);
-}
-
-function pinToEnd(element: HTMLElement | null, atEnd: boolean) {
-  if (element && atEnd) element.scrollTop = element.scrollHeight;
-}
-
-/**
- * A scroller that stays at its end while the person is there, as the conversation grows: on
- * every render and whenever the content's height changes after it.
- */
-function Scroller(props: { children: ReactNode }) {
-  const scroller = useRef<HTMLDivElement>(null);
-  const content = useRef<HTMLDivElement>(null);
-  const atEnd = useRef(true);
-  useLayoutEffect(() => pinToEnd(scroller.current, atEnd.current));
-  useLayoutEffect(() => {
-    const inner = content.current;
-    if (!inner || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => pinToEnd(scroller.current, atEnd.current));
-    observer.observe(inner);
-    return () => observer.disconnect();
-  }, []);
-  return (
-    <div
-      ref={scroller}
-      onScroll={(event) => {
-        const element = event.currentTarget;
-        atEnd.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48;
-      }}
-      className="col-start-1 row-start-1 flex min-h-0 flex-col overflow-y-auto [scrollbar-gutter:stable_both-edges]"
-    >
-      {/* Room under the last line for the composer floating over the conversation. */}
-      <div
-        ref={content}
-        className={`${readingColumn} mt-auto w-full pt-6 pb-[calc(var(--composer-clearance,0px)+1rem)]`}
-      >
-        {props.children}
-      </div>
-    </div>
-  );
-}
 
 /** `/spade`: Spade's own conversation, once the roster says where Spade is. */
 export function SpadeHomeScreen() {
@@ -99,8 +58,18 @@ export function SpadeHomeScreen() {
   );
 }
 
-/** `/spade/<agent id>` (with `on` when the bot runs on another machine): its conversation. */
-export function SpadeAgentScreen(props: { agentId: string; machine: string | undefined }) {
+/**
+ * `/spade/<agent id>` (with `on` when the bot runs on another machine): its conversation, or with
+ * `files` its files (and `file` open), or with `view` its routines or its activity.
+ */
+export function SpadeAgentScreen(props: {
+  agentId: string;
+  machine: string | undefined;
+  files?: string | undefined;
+  /** With `files`, a file in it opened. */
+  file?: string | undefined;
+  view?: BotView | undefined;
+}) {
   const line = useSpadeLine();
   const roster = useSpadeRoster(line.ready);
   const machines = useMachines();
@@ -154,53 +123,38 @@ export function SpadeAgentScreen(props: { agentId: string; machine: string | und
         </BotScreen>
       }
     >
-      <Conversation key={`${bot.machine.key}/${bot.id}`} bot={bot} roster={roster.bots} />
+      {props.files !== undefined ? (
+        <BotScreen bot={bot} files>
+          <FilesOf bot={bot} folder={props.files === "." ? "" : props.files} file={props.file} />
+        </BotScreen>
+      ) : props.view === "routines" ? (
+        <BotScreen bot={bot} view="routines">
+          <SpadeRoutines key={`${bot.machine.key}/${bot.id}`} bot={bot} />
+        </BotScreen>
+      ) : props.view === "activity" ? (
+        <BotScreen bot={bot} view="activity">
+          <SpadeActivity key={`${bot.machine.key}/${bot.id}`} bot={bot} />
+        </BotScreen>
+      ) : (
+        <Conversation key={`${bot.machine.key}/${bot.id}`} bot={bot} roster={roster.bots} />
+      )}
     </SpadeMachineScope>
   );
 }
 
-/** The screen's frame for one bot: its face and name in the top bar, Edit and Delete in ⋯. */
-function BotScreen(props: { bot: RosterBot; children: ReactNode }) {
-  const { bot } = props;
-  const [editing, setEditing] = useState(false);
-  const [confirming, setConfirming] = useState<Confirming>();
-  const remove = useDeleteBot();
-  const navigate = useNavigate();
-  const main = bot.kind === "main";
+function FilesOf(props: { bot: RosterBot; folder: string; file: string | undefined }) {
+  const openBot = useOpenBot(props.bot);
   return (
-    <Screen
-      title={bot.name}
-      mark={<SpadeFace avatar={bot.avatar} size={20} />}
-      menu={
-        bot.away || bot.unavailable ? undefined : (
-          <>
-            <MenuItem onClick={() => setEditing(true)}>{main ? "Edit Spade" : "Edit bot"}</MenuItem>
-            {!main && (
-              <MenuItem
-                danger
-                onClick={() =>
-                  setConfirming({
-                    title: `Delete ${bot.name}?`,
-                    body: `This deletes ${bot.name} and its whole conversation.`,
-                    confirm: "Delete bot",
-                    run: () =>
-                      void remove(bot).then((done) => {
-                        if (done) void navigate({ to: "/spade", replace: true });
-                      }),
-                  })
-                }
-              >
-                Delete bot
-              </MenuItem>
-            )}
-          </>
-        )
-      }
-    >
-      {props.children}
-      {editing && <EditBotDialog bot={bot} onClose={() => setEditing(false)} />}
-      <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />
-    </Screen>
+    <div className="h-full min-h-0 overflow-y-auto [scrollbar-gutter:stable_both-edges]">
+      {/* A new bot, machine or folder starts fresh: no file left open, no question left asked. */}
+      <SpadeFiles
+        key={`${props.bot.machine.key}/${props.bot.id}/${props.folder}/${props.file ?? ""}`}
+        bot={props.bot}
+        folder={props.folder}
+        file={props.file}
+        onFolder={(files) => openBot({ files })}
+      />
+    </div>
   );
 }
 
@@ -210,6 +164,10 @@ function Conversation(props: { bot: RosterBot; roster: readonly RosterBot[] }) {
   const { view, problem } = conversation;
   const line = spadeStateLine(useSpadeStatus(), true);
   const toast = useToast();
+  const skills = useSkillProposals(bot.id, view);
+  const openBot = useOpenBot(bot);
+  const endpoints = useSpadeModels(true).data?.endpoints;
+  const endpointName = (id: string) => endpoints?.find((endpoint) => endpoint.id === id)?.name;
   const [stopping, setStopping] = useState(false);
   // Stopping lasts until nothing is open: the reply and its background jobs.
   if (stopping && !view.busy) setStopping(false);
@@ -234,69 +192,79 @@ function Conversation(props: { bot: RosterBot; roster: readonly RosterBot[] }) {
   );
   return (
     <BotScreen bot={bot}>
-      <div data-thread-column="" className="grid h-full min-h-0 grid-cols-1 grid-rows-1">
-        <Scroller>
-          {bot.kind === "main" && <SpadeKeySetup main={bot} />}
-          {problem ? (
-            <Problem text={problem} onRetry={conversation.retry} />
-          ) : !view.loaded ? (
-            line.ready ? (
-              <ConversationSkeleton />
+      {(openMemory) => (
+        <div data-thread-column="" className="grid h-full min-h-0 grid-cols-1 grid-rows-1">
+          <Scroller>
+            {bot.kind === "main" && <SpadeKeySetup main={bot} />}
+            {problem ? (
+              <Problem text={problem} onRetry={conversation.retry} />
+            ) : !view.loaded ? (
+              line.ready ? (
+                <ConversationSkeleton />
+              ) : (
+                <SpadeStateStrip line={line} className="flex items-center gap-2 text-ui" />
+              )
             ) : (
-              <SpadeStateStrip line={line} className="flex items-center gap-2 text-ui" />
-            )
-          ) : (
-            <SpadeChat
-              bot={chatBot}
-              view={view}
-              stopping={stopping}
-              onStop={stop}
-              onAnswer={(callId, allowed) =>
-                conversation.answer(callId, allowed, false).then(
-                  () => true,
-                  (error: unknown) => {
-                    toast.error({
-                      title: `Couldn't answer ${bot.name}`,
-                      description: message(error),
-                    });
-                    return false;
-                  },
-                )
-              }
-            />
-          )}
-        </Scroller>
-        <SpadeComposer
-          name={bot.name}
-          draftKey={`spade:${bot.machine.key}:${bot.id}`}
-          answering={view.answering}
-          blocked={line.ready ? undefined : line.sentence}
-          placeholder={`Message ${bot.name}`}
-          send={conversation.send}
-        />
-      </div>
+              <SpadeChat
+                bot={chatBot}
+                view={view}
+                stopping={stopping}
+                onStop={stop}
+                onRemembered={(note) => openMemory({ shared: note.shared, note: note.id })}
+                onOpenFile={(path) =>
+                  openBot({ files: path.split("/").slice(0, -1).join("/"), file: path })
+                }
+                endpointName={endpointName}
+                onRetry={(text) =>
+                  conversation.send({ text, images: [] }).then(
+                    () => true,
+                    (error: unknown) => {
+                      toast.error({
+                        title: `Couldn't send to ${bot.name}`,
+                        description: message(error),
+                      });
+                      return false;
+                    },
+                  )
+                }
+                proposals={skills.proposals}
+                onProposal={(id, save) =>
+                  skills.answer(id, save).then(
+                    () => true,
+                    (error: unknown) => {
+                      toast.error({
+                        title: save ? "Couldn't save the skill" : "Couldn't discard the skill",
+                        description: message(error),
+                      });
+                      return false;
+                    },
+                  )
+                }
+                onAnswer={(callId, allowed, always) =>
+                  conversation.answer(callId, allowed, always).then(
+                    () => true,
+                    (error: unknown) => {
+                      toast.error({
+                        title: `Couldn't answer ${bot.name}`,
+                        description: message(error),
+                      });
+                      return false;
+                    },
+                  )
+                }
+              />
+            )}
+          </Scroller>
+          <SpadeComposer
+            name={bot.name}
+            draftKey={`spade:${bot.machine.key}:${bot.id}`}
+            answering={view.answering}
+            blocked={line.ready ? undefined : line.sentence}
+            placeholder={`Message ${bot.name}`}
+            send={conversation.send}
+          />
+        </div>
+      )}
     </BotScreen>
   );
 }
-
-function ConversationSkeleton() {
-  return (
-    <LoadingRegion label="Conversation" className="flex flex-col gap-3">
-      <Skeleton className="ml-auto h-9 w-48 rounded-lg" />
-      <Skeleton className="h-14 w-3/4 rounded-lg" />
-    </LoadingRegion>
-  );
-}
-
-function Problem(props: { text: string; onRetry(): void }) {
-  return (
-    <div role="alert" className="flex items-center gap-2 text-ui text-muted-foreground">
-      <span className="min-w-0 flex-1">{props.text}</span>
-      <Button size="xs" variant="ghost" onClick={props.onRetry}>
-        Try again
-      </Button>
-    </div>
-  );
-}
-
-const message = (error: unknown) => (error instanceof Error ? error.message : "Try again.");

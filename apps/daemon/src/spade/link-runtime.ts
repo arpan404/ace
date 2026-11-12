@@ -44,6 +44,7 @@ export function nodeSpadeLinkRuntime(input: {
       }
     },
     now: input.now,
+    platform: process.platform,
     after(ms, run) {
       const timer = setTimeout(run, ms);
       timer.unref();

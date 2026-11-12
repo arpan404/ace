@@ -20,6 +20,9 @@ export const forbiddenInitialModules = [
   "/src/components/setting-row.tsx",
   "/packages/protocol/src/workspace-actions.ts",
   "/packages/protocol/src/settings.ts",
+  // A tooltip's popup and Floating UI's placement: nothing draws them before a hover rests.
+  "/src/components/ui/tooltip-popup.tsx",
+  "/@base-ui/react/internals/useAnchorPositioning.mjs",
 ];
 
 /** Inspect the page's actual static closure, independently of chunk names. */

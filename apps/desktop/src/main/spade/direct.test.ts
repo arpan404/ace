@@ -186,7 +186,7 @@ test("paths outside Spade's API are refused before anything is sent", async () =
   const { dir, publish } = dataDir();
   publish(port, tokenA);
   const spade = direct(dir);
-  for (const path of ["/health", "/v1/../maintenance", "/v1/a%2fb"])
+  for (const path of ["/health", "/v1/../maintenance", "/v1/a%2fb", "/v1/inbox"])
     expect(await spade.request({ method: "GET", path })).toMatchObject({
       kind: "error",
       code: "invalid_path",

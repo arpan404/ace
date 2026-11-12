@@ -124,6 +124,15 @@ export function liveStatusText(status: LiveStatus): string {
 }
 
 /**
+ * How many named background commands are running, by the exact count (`watchingCount`) rather
+ * than the names list, which keeps only the newest 8. A thread stored before the count existed
+ * has only the list to go by.
+ */
+export function leftRunningCount(live: ThreadRunMetadata | undefined): number {
+  return Math.max(live?.watchingCount ?? 0, live?.watching?.length ?? 0);
+}
+
+/**
  * What a listed thread is doing, from its status and the daemon's live hints, when they say
  * more than the status alone. Undefined for a thread that is simply working, done or new.
  */
@@ -165,11 +174,12 @@ export function threadLiveFact(thread: {
     case "done": {
       // Commands it left running are a quiet fact beside Done, never hidden (ADR 0109).
       const watching = live?.watching ?? [];
-      if (!watching.length) return undefined;
+      const count = leftRunningCount(live);
+      if (!count) return undefined;
       return {
         kind: "left-running",
-        count: watching.length,
-        title: watching.length === 1 ? watching[0]?.title : undefined,
+        count,
+        title: count === 1 && watching.length === 1 ? watching[0]?.title : undefined,
       };
     }
     default:

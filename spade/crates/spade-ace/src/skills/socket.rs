@@ -15,7 +15,7 @@ use tokio_tungstenite::tungstenite::Message;
 
 use super::wire::{self, Incoming, Operation};
 use super::{SkillErrorCode, SkillsConfig, SkillsError};
-use crate::secret::Secret;
+use spade_mcp::Secret;
 
 /// The daemon closes a socket whose credential it refused with these (`apps/daemon/src/server.ts`).
 const REFUSED_CLOSE_CODES: [u16; 2] = [4001, 4003];
@@ -135,6 +135,16 @@ impl Socket {
             operation: *operation,
         })
         .map_err(|error| SkillsError::Unreachable(error.to_string()))?;
+        self.request_frame(request_id, frame, timeout).await
+    }
+
+    /// Sends `frame`, a request carrying `request_id`, and waits for its answer.
+    pub(super) async fn request_frame(
+        &self,
+        request_id: &str,
+        frame: String,
+        timeout: Duration,
+    ) -> Result<Value, SkillsError> {
         let (tx, rx) = oneshot::channel();
         {
             let mut pending = lock(&self.waiters);
@@ -189,16 +199,21 @@ struct Task {
     timeout: Duration,
 }
 
+type Stream =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+/// A write that never finished: unsent bytes are still queued in the kernel. Plain closing would
+/// leave the connection lingering, and on Windows it stays open (the daemon never hears Spade
+/// let go) while the kernel keeps trying to send them; a reset drops them and ends it at once.
+fn reset(stream: &Stream) {
+    if let tokio_tungstenite::MaybeTlsStream::Plain(tcp) = stream.get_ref() {
+        let _ = tcp.set_zero_linger();
+    }
+}
+
 /// Owns the socket until the daemon closes it, a write misses its deadline, or Spade drops the
 /// last handle; then answers every waiter left.
-async fn run<S>(
-    mut stream: tokio_tungstenite::WebSocketStream<S>,
-    mut rx: mpsc::Receiver<Message>,
-    waiters: Waiters,
-    task: Task,
-) where
-    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
-{
+async fn run(mut stream: Stream, mut rx: mpsc::Receiver<Message>, waiters: Waiters, task: Task) {
     let Task {
         token,
         stop,
@@ -216,11 +231,15 @@ async fn run<S>(
                                 break SkillsError::Unreachable(token.scrub(error.to_string()));
                             }
                             Err(_) => {
+                                reset(&stream);
                                 break SkillsError::Unreachable("the daemon stopped reading".into());
                             }
                         },
                         // Dropped mid-write: the socket can't be closed cleanly, only let go.
-                        () = stop.notified() => break SkillsError::Unreachable("closed".into()),
+                        () = stop.notified() => {
+                            reset(&stream);
+                            break SkillsError::Unreachable("closed".into());
+                        }
                     }
                 }
                 None => {
@@ -253,6 +272,7 @@ async fn run<S>(
 fn route(text: &str, waiters: &Waiters, token: &Secret) {
     let (request_id, answer) = match serde_json::from_str::<Incoming>(text) {
         Ok(Incoming::SkillsResult(result)) => (result.request_id, Ok(result.result)),
+        Ok(Incoming::SpadeResult(result)) => (result.request_id, Ok(Value::Object(result.fields))),
         // The daemon rejects a malformed request with a plain `error` naming its request.
         Ok(Incoming::Error(error)) => match error.request_id {
             Some(id) => (

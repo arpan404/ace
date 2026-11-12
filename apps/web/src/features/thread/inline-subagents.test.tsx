@@ -584,3 +584,63 @@ test("hovering an agent row opens a card with its status and the machine it runs
   expect(card.textContent).toMatch(/This machine|Fake machine/);
   await userEvent.unhover(row);
 });
+
+const read = (id: string): Fact[] => [
+  facts.tool("root", id, {
+    kind: "file.read",
+    title: `Read ${id}`,
+    detail: { kind: "file.read", path: `${id}.ts` },
+  }),
+  facts.toolDone("root", id),
+];
+
+// Mutations: leaving a finished turn's launches and receipts as separate rows, or dropping the
+// receipt's child (launched before the turn) from the merged row.
+test("a finished turn's launches and the receipts it was handed read as one subagents row", async () => {
+  const app = harness();
+  const receipt: Fact = {
+    type: "item.upsert",
+    agent: "root",
+    item: "builder-back",
+    draft: {
+      type: "delegation.settled",
+      origin: "ace",
+      delivery: "tool",
+      complete: true,
+      results: [
+        {
+          threadId: ThreadId.parse("thread-builder"),
+          outcome: "completed",
+          result: "Built the agents server",
+          truncated: false,
+          before: null,
+        },
+      ],
+    },
+  };
+  const output = [
+    ...read("plan"),
+    receipt,
+    ...spawn("first"),
+    facts.endTurn("first"),
+    ...read("between"),
+    ...spawn("second"),
+    facts.endTurn("second"),
+    facts.message("root", "answer", "assistant", "Both reviews are in."),
+    facts.endTurn("root"),
+  ];
+  app.play(scenario(output)).runUntilBlocked();
+  await app.open("/t/inline-subagents");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  await within(feed).findByText("Both reviews are in.");
+  const crew = await group(feed, "3 subagents ran");
+  expect(within(feed).getAllByRole("region", { name: /subagents? ran$/ })).toEqual([crew]);
+  await userEvent.click(within(crew).getByRole("button", { name: "3 subagents ran" }));
+  const rows = within(crew).getAllByRole("link", { name: /^Open .+, Done$/ });
+  expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual([
+    "Open Review first, Done",
+    "Open Review second, Done",
+    "Open Delegated thread's thread, Done",
+  ]);
+  expect(rows[2]?.textContent).toContain("Built the agents server");
+});

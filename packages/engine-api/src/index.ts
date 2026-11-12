@@ -135,6 +135,13 @@ export interface SessionContext {
   /** Native transcript exists and may now be resumed after this process closes. */
   onSessionConfirmed?(nativeSessionId: string): void;
   onInputMessage?(identity: { commandId: string; nativeId: string }): void;
+  /**
+   * Daemon-owned, never from wire data: this session is a Spade bot's hidden session (ADR 0133),
+   * read-only, with nobody to answer a prompt. The adapter lets these ace tools (Spade's gated
+   * bridge and ace's read-only tools, bare names) run without asking, and refuses with a message
+   * anything that would leave read-only (Claude's ExitPlanMode).
+   */
+  spadeBot?: { allowAceTools: readonly string[] };
   /** Ephemeral ace capability, revoked with this session. Never persisted. */
   aceMcp?: {
     url: string;

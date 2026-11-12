@@ -1,4 +1,4 @@
-import type { SidebarSource, ThreadSource } from "@ace/client";
+import { ClientError, type SidebarSource, type ThreadSource } from "@ace/client";
 import {
   createContext,
   createElement,
@@ -17,12 +17,25 @@ interface Lease<T> {
 /**
  * A reference-counted SDK lease held for exactly as long as React keeps a subscription. Before
  * the first commit it reads `cached`, a store the client kept, so a warm view paints at once.
+ * A client that has closed under the view (a machine switch, sign-out) refuses the lease as
+ * offline: the view then reads nothing, rather than throwing from its effect and remounting
+ * into the same refusal.
  */
 function lease<T>(acquire: () => { store: T; release(): void }, cached?: T): Lease<T> {
   let store: T | undefined = cached;
   return {
     subscribe(changed) {
-      const held = acquire();
+      let held: { store: T; release(): void };
+      try {
+        held = acquire();
+      } catch (error) {
+        if (!(error instanceof ClientError && error.code === "offline")) throw error;
+        if (store !== undefined) {
+          store = undefined;
+          changed();
+        }
+        return noRelease;
+      }
       store = held.store;
       changed();
       return () => {
@@ -81,6 +94,7 @@ export function useSidebarStore(): SidebarSource | undefined {
   const held = useMemo(() => lease(() => client.threads(), client.cachedThreads?.()), [client]);
   return useSyncExternalStore(held.subscribe, held.get, noStore);
 }
+const noRelease = () => {};
 const noSubscribe = () => () => {};
 const noStore = () => undefined;
 const noRoom = () => 0;

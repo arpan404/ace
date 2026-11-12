@@ -1,4 +1,4 @@
-import { longHistory, replayCursor } from "@ace/fake-daemon";
+import { longHistory, replayCursor, watchingRelay } from "@ace/fake-daemon";
 import type { CommandPayload } from "@ace/protocol";
 import { createMemoryHistory } from "@tanstack/react-router";
 import { screen, waitFor, within } from "@testing-library/react";
@@ -87,5 +87,37 @@ test("a thread with nothing running archives at once, with no question", async (
   );
   await archiveKey();
   expect(screen.queryByRole("dialog", { name: "Archive a running thread?" })).toBeNull();
+  expect(screen.queryByRole("dialog", { name: "Archive thread?" })).toBeNull();
   await waitFor(() => expect(of("thread.archive")).toHaveLength(1));
+});
+
+const leftRunning = (made: ReturnType<typeof harness>) =>
+  void made.play(watchingRelay()).runUntilBlocked();
+
+test("archiving a done thread that left a command running asks first, since archiving stops it", async () => {
+  const { history, of } = await open("/t/thread-watching-relay", leftRunning);
+  await archiveKey();
+  const ask = screen.getByRole("dialog", { name: "Archive thread?" });
+  expect(within(ask).getByText("Archiving stops 1 command it left running.")).toBeTruthy();
+  // Only Archive or Cancel: there is no way to archive it and keep the command.
+  const choices = within(ask)
+    .getAllByRole("button")
+    .flatMap((button) => (button.textContent ? [button.textContent] : []));
+  expect(choices).toEqual(["Cancel", "Archive"]);
+  expect(of("thread.archive")).toEqual([]);
+
+  await userEvent.click(within(ask).getByRole("button", { name: "Archive" }));
+  await waitFor(() => expect(of("thread.archive")).toHaveLength(1));
+  await waitFor(() => expect(history.location.pathname).not.toBe("/t/thread-watching-relay"));
+});
+
+test("Cancel on the question keeps a done thread and the command it left running", async () => {
+  const { history, of } = await open("/t/thread-watching-relay", leftRunning);
+  await archiveKey();
+  const ask = screen.getByRole("dialog", { name: "Archive thread?" });
+  await userEvent.click(within(ask).getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(of("thread.archive")).toEqual([]);
+  expect(of("background_task.stop")).toEqual([]);
+  expect(history.location.pathname).toBe("/t/thread-watching-relay");
 });

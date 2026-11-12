@@ -40,3 +40,28 @@ test("an email address in the prose is kept, a leading mention is not", () => {
     "Reply to ops@example.com about the outage",
   );
 });
+
+test.each([
+  ["a bold mention", "**@alex** fix the login redirect", "fix the login redirect"],
+  ["a mention inside bold words", "**ask @alex to** fix it", "ask to fix it"],
+  ["an italic mention", "_@src/app.tsx_ crashes on start", "crashes on start"],
+  [
+    "a mention chip as a link inside bold",
+    "**[@alex](ace://agent/alex)** review this",
+    "review this",
+  ],
+  ["a code mention", "`@docs` explain the outbox", "explain the outbox"],
+  [
+    "a file marker before the words",
+    `${String.fromCharCode(0xfffc)}Summarise this`,
+    "Summarise this",
+  ],
+  ["bold and strikethrough words", "**Ship** the ~~old~~ new build", "Ship the old new build"],
+  ["a bulleted bold first line", "- **Fix** the flaky test", "Fix the flaky test"],
+])("%s titles the thread with plain words", (_, line, title) => {
+  expect(provisionalTitle(text(line))).toBe(title);
+});
+
+test("a message whose only words are formatted mentions takes the given fallback", () => {
+  expect(provisionalTitle(text("**@alex** _@docs_"), "New preparation")).toBe("New preparation");
+});

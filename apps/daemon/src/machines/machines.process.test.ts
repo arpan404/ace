@@ -83,7 +83,8 @@ it("a task delegated to another machine runs there, and wait here returns its re
     mode: "all",
     timeoutSeconds: 120,
   });
-  await pair.finish(threadId, "Two pull requests are ready to merge.");
+  // End the turn running the task, never a session still opening (a later turn would hang).
+  await pair.finishTask(threadId, delegation.task, "Two pull requests are ready to merge.");
   const waited = await waiting;
   expect(WaitResult.parse(waited.data)).toMatchObject({
     status: "ready",

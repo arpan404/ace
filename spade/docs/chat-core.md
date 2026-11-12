@@ -26,7 +26,7 @@ Each conversation is an append-only log of numbered events (`seq` from 1). Store
 | `reply_progress`    | `reply`, `text`                                                   | Checkpoint of the reply so far (at most every 500 ms)    |
 | `reply_finished`    | `reply`, `text`, `input_tokens?`, `output_tokens?`, `cost_micros` | Complete                                                 |
 | `reply_stopped`     | `reply`, `text`                                                   | The person pressed Stop; `text` is what arrived          |
-| `reply_failed`      | `reply`, `text`, `error`                                          | The model call failed; `text` is what arrived            |
+| `reply_failed`      | `reply`, `text`, `error`, `kind`, `endpoint`?                     | The model call failed; `text` is what arrived; `kind` is `unreachable`, `key`, `rate_limited`, `model`, `cap` or `other` (missing or unknown reads as `other`); `endpoint` names the endpoint when it was to blame |
 | `reply_interrupted` | `reply`, `text`                                                   | Spade restarted mid-reply; `text` is the last checkpoint |
 | `renamed`           | `title`                                                           | New title                                                |
 | `agent_configured`  | `task`, `model`                                                   | The agent's task or model changed, from the next turn    |

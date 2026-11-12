@@ -41,7 +41,15 @@ impl AvatarBody {
 
 #[derive(Deserialize)]
 pub(super) struct NewAgent {
-    name: String,
+    /// The template's name when a template is given.
+    #[serde(default)]
+    name: Option<String>,
+    /// A shipped template to start from (docs/teams.md).
+    #[serde(default)]
+    template: Option<String>,
+    /// The IANA time zone a template's routines run in.
+    #[serde(default)]
+    time_zone: Option<String>,
     #[serde(default)]
     task: String,
     /// The engine's default (the person's first usable model) when absent.
@@ -87,7 +95,7 @@ pub(super) fn agent_json(view: &AgentView) -> Value {
             "from_agent": m.from_agent.as_ref().map(|f| json!({ "id": f.id, "name": f.name })),
         })
     });
-    json!({
+    let mut shown = json!({
         "id": agent.id,
         "kind": agent.kind,
         "name": agent.name,
@@ -100,11 +108,18 @@ pub(super) fn agent_json(view: &AgentView) -> Value {
         "last_activity": agent.last_activity_ms,
         "state": view.state.name(),
         "working": view.state != AgentState::Idle,
-        // Only approvals wait on the person today; "question" is kept for an ask-the-person tool.
-        "waiting_for": if view.state == AgentState::Waiting { json!("approval") } else { Value::Null },
+        "waiting_for": view.waiting_for,
         "status": view.status,
+        "problem": view.problem,
         "last_message": last_message,
-    })
+    });
+    // `spending` and `review` (ADR 0135).
+    if let (Some(shown), Some(extra)) = (shown.as_object_mut(), view.oversight.as_object()) {
+        for (key, value) in extra {
+            shown.insert(key.clone(), value.clone());
+        }
+    }
+    shown
 }
 
 fn agent_problem(error: &AgentError) -> Response {
@@ -132,8 +147,40 @@ pub(super) async fn create(State(state): State<AppState>, Body(body): Body<NewAg
     };
     // The default model is the first one with a key, which reads the keychain.
     off_thread(move || {
+        if let Some(template) = &body.template {
+            let model = body
+                .model
+                .clone()
+                .or_else(|| crate::teams::template_model(&state.engine, template))
+                .unwrap_or_else(|| state.engine.default_model());
+            let named = body.name.as_deref().is_some_and(|n| !n.trim().is_empty());
+            let input = AgentInput {
+                name: body.name.unwrap_or_default(),
+                task: body.task,
+                model,
+                avatar,
+            };
+            return match crate::teams::from_template(
+                &state.engine,
+                template,
+                input,
+                named,
+                body.time_zone,
+            ) {
+                Ok(made) => (
+                    StatusCode::CREATED,
+                    Json(json!({ "agent": agent_json(&made.agent), "left_out": made.left_out })),
+                )
+                    .into_response(),
+                Err(crate::teams::PortableError::NotFound) => {
+                    problem(StatusCode::NOT_FOUND, "no such template")
+                }
+                Err(crate::teams::PortableError::Agent(error)) => agent_problem(&error),
+                Err(error) => problem(StatusCode::BAD_REQUEST, &error.to_string()),
+            };
+        }
         let input = AgentInput {
-            name: body.name,
+            name: body.name.unwrap_or_default(),
             task: body.task,
             model: body.model.unwrap_or_else(|| state.engine.default_model()),
             avatar,
@@ -177,7 +224,21 @@ pub(super) async fn update(
 
 pub(super) async fn delete(State(state): State<AppState>, Path(id): Path<String>) -> Response {
     match state.engine.delete_agent(&id).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Ok(()) => {
+            // Its workspace and proposals go with it (ADR 0130).
+            let (workspaces, learning) = (state.workspaces.clone(), state.learning.clone());
+            let forgotten = tokio::task::spawn_blocking(move || {
+                if let Some(learning) = learning {
+                    learning.forget(&id);
+                }
+                workspaces.map(|all| all.remove(&id))
+            })
+            .await;
+            if let Ok(Some(Err(error))) = forgotten {
+                tracing::warn!(%error, "a deleted bot's workspace was not removed");
+            }
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(error) => agent_problem(&error),
     }
 }

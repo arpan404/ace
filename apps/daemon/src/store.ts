@@ -23,6 +23,7 @@ import {
 import { purgeTranscript } from "./storage/transcript.ts";
 import { SearchReplay } from "./search-replay.ts";
 import { migrateSidebarRevisions } from "./sidebar-revisions.ts";
+import { openSidebarColumns } from "./sidebar-columns.ts";
 import { seedSentMessages } from "./draft-migration.ts";
 import { mapRecordedPermissionModes } from "./permission-mode-migration.ts";
 import { indexEngineRecords } from "./engine-record-indexes.ts";
@@ -244,8 +245,10 @@ export class Store {
     this.status = new StatusStore(this.db, (sql) => this.statement(sql), this.entityTrust);
     try {
       this.db.exec(
-        // auto_vacuum only takes effect before a new file's first page or through VACUUM.
-        "PRAGMA auto_vacuum=INCREMENTAL; PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA cache_size=-2048; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA wal_autocheckpoint=0; PRAGMA journal_size_limit=16777216;",
+        // The busy wait comes first: on an existing file auto_vacuum writes the header, so it
+        // waits for another connection's write like every later statement. auto_vacuum only
+        // takes effect before a new file's first page or through VACUUM.
+        "PRAGMA busy_timeout=5000; PRAGMA auto_vacuum=INCREMENTAL; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA cache_size=-2048; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA wal_autocheckpoint=0; PRAGMA journal_size_limit=16777216;",
       );
       // Checkpoints run on their own connection; an in-memory or rollback-journal file has none.
       this.wal = new WalMaintenance({
@@ -272,6 +275,8 @@ export class Store {
       this.workspaceReservations = new WorkspaceReservations(this.db, (sql) => this.statement(sql));
       this.atomic(migrateThreadClient);
       this.atomic(migrateThreadCold);
+      // Needs every threads column the sidebar reads; its triggers cover the passes below.
+      this.atomic((db) => openSidebarColumns(db));
       this.atomic(mapRecordedPermissionModes);
       this.atomic(indexEngineRecords);
       this.usageReplay = new UsageReplay(this.db);
@@ -305,6 +310,7 @@ export class Store {
         flush: () => this.flushLiveWrites(),
         headSeq: () => this.headSeq(),
         getThread: (id) => this.getThread(id),
+        readThread: (id) => this.readThread(id),
         inTransaction: () => this.transactionEvents !== undefined,
         report: (error) => this.onError(error),
       });
@@ -899,7 +905,7 @@ export class Store {
     return binding;
   }
   completeWorkspacePreparation(id: ThreadId, expectedPath: string, path: string): boolean {
-    const thread = this.getThread(id);
+    const thread = this.readThread(id);
     if (!thread || thread.deletedAt !== undefined) return false;
     this.workspaceReservations.assertAvailable(expectedPath);
     this.workspaceReservations.assertAvailable(path);
@@ -1317,7 +1323,7 @@ export class Store {
   }
   deleteThread(id: ThreadId): void {
     this.transaction(() => {
-      if (!this.getThread(id)) return;
+      if (!this.readThread(id)) return;
       this.recordDataDeletion(id);
       this.statement("DELETE FROM events WHERE thread_id = ?").run(id);
       this.statement("DELETE FROM threads WHERE id = ?").run(id);

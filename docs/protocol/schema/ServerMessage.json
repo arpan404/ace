@@ -521,6 +521,12 @@
       "$ref": "https://ace.local/protocol/v1/SpadeGrantRevokeResult.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/SpadeMachinesResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeRemoteResult.json"
+    },
+    {
       "properties": {
         "outcome": {
           "$ref": "https://ace.local/protocol/v1/AccountResetOutcome.json"

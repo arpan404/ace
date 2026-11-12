@@ -15,7 +15,7 @@ use spade_core::tools::{Risk, ToolDef};
 use spade_keys::{KeyStore, Keys};
 use spade_models::{Catalog, Models, ToolSpec};
 use spade_server::api::AppState;
-use spade_server::clock::{CountingIds, SystemClock};
+use spade_server::clock::{Clock, CountingIds, Ids, SystemClock};
 use spade_server::engine::{Engine, Limits, Setup};
 use spade_server::tools::{
     AceLink, AceTarget, Retry, SkillLibrary, Tool, ToolFuture, ToolOutput, ToolSource, Toolbox,
@@ -128,6 +128,8 @@ pub struct Spade {
     pub mock: Arc<mock::Store>,
     /// The connection to ace, when started with `ace_home`.
     pub ace: Option<Arc<AceLink>>,
+    /// The person's connected apps, when started with `connectors`.
+    pub connectors: Option<Arc<spade_connect::Connectors>>,
     stop: Option<oneshot::Sender<()>>,
     task: tokio::task::JoinHandle<std::io::Result<()>>,
 }
@@ -152,8 +154,52 @@ pub struct Options {
     pub keychain_gate_for: Option<&'static str>,
     /// Every keychain delete waits until this opens.
     pub keychain_delete_gate: Option<Gate>,
+    /// Every read of the (mock) keychain itself waits until this opens, as on a prompt.
+    pub keychain_read_gate: Option<Gate>,
     /// Writes to the database before Spade first opens it.
     pub seed: Option<fn(&Store) -> spade_store::Result<()>>,
+    /// Bots' workspaces, for the API (ADR 0130).
+    pub workspaces: Option<spade_server::workspace::Workspaces>,
+    /// Skill proposals, for the API (ADR 0130).
+    pub learning: Option<Arc<spade_server::learning::Learning>>,
+    /// Sets up connectors (ADR 0131), with the mock keychain.
+    pub connectors: bool,
+    /// With `connectors`: the client ID metadata document Spade signs in as.
+    pub client_metadata: Option<String>,
+    /// With `connectors`: Spade's own registered apps (ADR 0137).
+    pub apps: Vec<spade_connect::App>,
+    /// With `connectors`: catalogue entries added to the shipped ones.
+    pub catalogue: Vec<spade_connect::Entry>,
+    /// The engine's clock; the machine's when absent.
+    pub clock: Option<Arc<dyn Clock>>,
+    /// The engine's ids; counting from 1 when absent.
+    pub ids: Option<Arc<dyn Ids>>,
+    /// Where bots on subscriptions reach ace (ADR 0133), set before work opens.
+    pub brains: Option<spade_server::engine::BrainSource>,
+    /// Sending a model step again; quick waits when absent, so a failing endpoint is not slow.
+    pub model_retry: Option<spade_server::engine::Retry>,
+    /// The real `web_search` over these backends, with Brave's key from the mock keychain.
+    pub search: Option<spade_search::SearchConfig>,
+}
+
+/// A clock a test sets by hand.
+#[derive(Default)]
+pub struct ManualClock(std::sync::atomic::AtomicI64);
+
+impl ManualClock {
+    pub fn at(ms: i64) -> Arc<Self> {
+        Arc::new(Self(std::sync::atomic::AtomicI64::new(ms)))
+    }
+
+    pub fn set(&self, ms: i64) {
+        self.0.store(ms, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl Clock for ManualClock {
+    fn now_ms(&self) -> i64 {
+        self.0.load(std::sync::atomic::Ordering::SeqCst)
+    }
 }
 
 /// A keychain prompt: reads wait until [`Gate::open`]. A gated delete can also be made to panic
@@ -172,6 +218,14 @@ impl Gate {
 
     pub(crate) fn take_panic(&self) -> bool {
         self.1.swap(false, std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Closes it again: waits from now on hold until it opens.
+    pub fn close(&self) {
+        let (open, _) = &*self.0;
+        if let Ok(mut open) = open.lock() {
+            *open = false;
+        }
     }
 
     pub fn open(&self) {
@@ -209,7 +263,19 @@ impl Default for Options {
             settle_deadline: spade_server::startup::SETTLE_DEADLINE,
             seed: None,
             keychain_delete_gate: None,
+            keychain_read_gate: None,
             keychain_gate_for: None,
+            workspaces: None,
+            learning: None,
+            connectors: false,
+            client_metadata: None,
+            apps: Vec::new(),
+            catalogue: Vec::new(),
+            clock: None,
+            ids: None,
+            brains: None,
+            model_retry: None,
+            search: None,
         }
     }
 }
@@ -226,7 +292,25 @@ fn catalog(root: &str) -> Result<Catalog> {
                         "base_url": "https://spare.example/v1/", "key": {},
                         "models": [{ "id": "m", "name": "Spare M", "context": 1000, "capabilities": ["tools"],
                                      "price": { "input": 100, "output": 100 } },
-                                   { "id": "s", "name": "S", "context": 1000, "capabilities": ["tools"] }] }]
+                                   { "id": "s", "name": "S", "context": 1000, "capabilities": ["tools"] }] },
+                      // Image and transcription models billed per call (ADR 0134), for the media
+                      // tests to point at their own fake.
+                      { "id": "media", "name": "Media", "format": "openai-chat",
+                        "base_url": "https://media.example/v1/", "key": {},
+                        "models": [{ "id": "paint-1", "name": "Paint", "capabilities": ["image-generation"],
+                                     "price": { "input": 0, "output": 0, "per_call": 1.5 } },
+                                   { "id": "ears-1", "name": "Ears", "capabilities": ["transcription"],
+                                     "price": { "input": 0, "output": 0, "per_call": 1.5 } }] },
+                      // Models whose endpoints search the web themselves, billed per search, for
+                      // the web search tests to point at the fake.
+                      { "id": "seeker", "name": "Seeker", "format": "anthropic",
+                        "base_url": "https://seeker.example/v1/", "key": {},
+                        "models": [{ "id": "seek-1", "name": "Seek", "capabilities": ["tools", "web-search"],
+                                     "price": { "input": 0, "output": 0, "per_search": 0.5 } }] },
+                      { "id": "looker", "name": "Looker", "format": "openai-responses",
+                        "base_url": "https://looker.example/v1/", "key": {},
+                        "models": [{ "id": "look-1", "name": "Look", "capabilities": ["tools", "web-search"],
+                                     "price": { "input": 0, "output": 0, "per_search": 0.5 } }] }]
     });
     Ok(Catalog::from_json(&json.to_string())?)
 }
@@ -263,6 +347,17 @@ impl Spade {
         .await
     }
 
+    /// Like `start_with`, with a whole toolbox (tools and live sources).
+    pub async fn start_toolbox(
+        scripts: Vec<Script>,
+        tools: Toolbox,
+        options: Options,
+    ) -> Result<Self> {
+        let fake = FakeProvider::start_sequence(scripts).await?;
+        let dir = Arc::new(tempfile::tempdir()?);
+        Self::serve_toolbox(fake, dir, tools, options).await
+    }
+
     async fn serve(
         fake: FakeProvider,
         dir: Arc<tempfile::TempDir>,
@@ -279,15 +374,16 @@ impl Spade {
         options: Options,
     ) -> Result<Self> {
         let mock = mock::Store::new()?;
-        let keys = match &options.keychain_delete_gate {
-            Some(gate) => KeyStore::with_store(
+        let keys = match (&options.keychain_delete_gate, &options.keychain_read_gate) {
+            (None, None) => KeyStore::with_store(mock.clone(), spade_keys::SERVICE),
+            (deletes, reads) => KeyStore::with_store(
                 Arc::new(gated::GatedStore {
                     inner: mock.clone(),
-                    gate: gate.clone(),
+                    gate: deletes.clone(),
+                    reads: reads.clone(),
                 }),
                 spade_keys::SERVICE,
             ),
-            None => KeyStore::with_store(mock.clone(), spade_keys::SERVICE),
         };
         let ace = options.ace_home.clone().map(|home| {
             AceLink::start(
@@ -340,28 +436,104 @@ impl Spade {
                 store.update_endpoint(&endpoint)?;
             }
         }
+        let connectors = if options.connectors {
+            let hub = spade_connect::Connectors::open(spade_connect::Setup {
+                store: Store::open(&dir.path().join("spade.sqlite"))?,
+                keys: Some(keys.clone()),
+                clock: spade_connect::system_clock(),
+                random: Arc::new(spade_connect::OsRandom),
+                catalogue: spade_connect::catalogue::shipped()
+                    .into_iter()
+                    .chain(options.catalogue.iter().cloned())
+                    .collect(),
+                timeout: Duration::from_secs(5),
+                relist: Duration::from_secs(600),
+                addresses: spade_connect::Addresses::system(),
+                client_metadata: options.client_metadata.clone(),
+                apps: options.apps.clone(),
+                // A device sign-in's seconds pass in milliseconds here.
+                tick: Duration::from_millis(1),
+            })?;
+            let source = spade_server::tools::ConnectorSource::new(
+                hub.clone(),
+                Store::open(&dir.path().join("spade.sqlite"))?,
+            );
+            tools = tools.with_source(Arc::new(source));
+            Some(hub)
+        } else {
+            None
+        };
+        let bots = spade_server::tools::EngineHandle::default();
+        let search = match options.search.clone() {
+            Some(config) => {
+                let lookup = keys.clone();
+                let search = Arc::new(spade_search::Search::new(
+                    config,
+                    Keys::keychain_then_env(
+                        move |backend| lookup.search_key(backend).ok().flatten(),
+                        |_| None,
+                    ),
+                    Duration::from_secs(5),
+                )?);
+                tools = tools.with_tool(Arc::new(spade_server::tools::WebSearch {
+                    search: search.clone(),
+                    ace_fallback: false,
+                    bots: bots.clone(),
+                }));
+                Some(search)
+            }
+            None => None,
+        };
         let engine = Engine::open(Setup {
             store,
             models,
             tools,
-            clock: Arc::new(SystemClock),
-            ids: Arc::new(CountingIds::default()),
+            clock: options
+                .clock
+                .clone()
+                .unwrap_or_else(|| Arc::new(SystemClock)),
+            ids: options
+                .ids
+                .clone()
+                .unwrap_or_else(|| Arc::new(CountingIds::default())),
             daily_cap_micros: spade_core::spending::usd_to_micros(options.cap_usd),
             utc_offset_seconds: 0,
-            limits: options.limits,
+            limits: Limits {
+                retry: options.model_retry.unwrap_or(spade_server::engine::Retry {
+                    tries: 3,
+                    first_wait: Duration::from_millis(10),
+                    longest: Duration::from_secs(1),
+                }),
+                ..options.limits
+            },
             skills: options.skills,
             images: spade_server::images::ImageStore::open(&dir.path().join("images"))?,
             adopt: options.adopt.clone(),
             keychain: Some(keys.clone()),
         })?;
+        if let Some(brains) = options.brains.clone() {
+            engine.set_brains(brains);
+        }
+        bots.set(&engine);
+        if let (Some(search), Ok(url)) = (&search, engine.searxng_url()) {
+            search.set_searxng(url.as_deref())?;
+        }
         let state = AppState {
             engine: engine.clone(),
             token: TOKEN.into(),
             keys: Some(keys.clone()),
             ace: ace.clone(),
+            workspaces: options.workspaces.clone(),
+            learning: options.learning.clone(),
+            connectors: connectors.clone(),
+            search,
         };
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let base = format!("http://{}", listener.local_addr()?);
+        if let Some(hub) = &connectors {
+            hub.set_listening(listener.local_addr()?);
+            hub.start();
+        }
         let (stop, stopped) = oneshot::channel::<()>();
         let task = tokio::spawn(spade_server::serve(listener, state, async {
             let _ = stopped.await;
@@ -382,6 +554,7 @@ impl Spade {
             keys,
             mock,
             ace,
+            connectors,
             stop: Some(stop),
             task,
         })
@@ -399,6 +572,21 @@ impl Spade {
         let _ = (&mut self.task).await;
         let fake = FakeProvider::start_sequence(scripts).await?;
         Self::serve(fake, self.dir.clone(), tools, Options::default()).await
+    }
+
+    /// Like `restart`, with `options` for the new server.
+    pub async fn restart_with(
+        mut self,
+        tools: Vec<Arc<dyn Tool>>,
+        scripts: Vec<Script>,
+        options: Options,
+    ) -> Result<Self> {
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
+        let _ = (&mut self.task).await;
+        let fake = FakeProvider::start_sequence(scripts).await?;
+        Self::serve(fake, self.dir.clone(), tools, options).await
     }
 
     /// Stops this server as SIGTERM does (open turns pause, a running model step gets
@@ -434,6 +622,16 @@ impl Spade {
             .await?;
         let status = response.status().as_u16();
         Ok((status, response.json().await.unwrap_or(Value::Null)))
+    }
+
+    /// Stores `key` for `endpoint` in the mock keychain behind Spade's back, as another app
+    /// would: Spade learns of it only by reading.
+    pub fn store_key_directly(&self, endpoint: &str, key: &str) -> Result {
+        use keyring_core::api::CredentialStoreApi;
+        self.mock
+            .build(spade_keys::SERVICE, &format!("endpoint:{endpoint}"), None)?
+            .set_password(key)?;
+        Ok(())
     }
 
     /// Makes the keychain's next read or change of `endpoint`'s key fail, once.

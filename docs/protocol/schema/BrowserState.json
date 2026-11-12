@@ -111,6 +111,9 @@
     "url": {
       "maxLength": 8192,
       "type": "string"
+    },
+    "video": {
+      "$ref": "https://ace.local/protocol/v1/BrowserVideoStatus.json"
     }
   },
   "required": [

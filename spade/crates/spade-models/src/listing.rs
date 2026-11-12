@@ -111,7 +111,7 @@ pub(crate) async fn fetch(
     parse(&body, bounds.max_models)
 }
 
-fn reason(error: &reqwest::Error) -> &'static str {
+pub(crate) fn reason(error: &reqwest::Error) -> &'static str {
     if error.is_timeout() {
         "it took too long"
     } else if error.is_connect() {
@@ -122,7 +122,7 @@ fn reason(error: &reqwest::Error) -> &'static str {
 }
 
 /// The error message an endpoint put in its answer, if any.
-fn message_in(body: &[u8]) -> Option<String> {
+pub(crate) fn message_in(body: &[u8]) -> Option<String> {
     let value: Value = serde_json::from_slice(body).ok()?;
     let message = value
         .pointer("/error/message")
@@ -132,7 +132,7 @@ fn message_in(body: &[u8]) -> Option<String> {
 }
 
 /// One short line, with every secret (the key, header values) cut out wherever it appears.
-fn one_line(text: &str, secrets: &[&str]) -> String {
+pub(crate) fn one_line(text: &str, secrets: &[&str]) -> String {
     let mut text = text.replace(['\n', '\r'], " ");
     for secret in secrets.iter().filter(|s| s.len() >= 4) {
         text = text.replace(secret, "[hidden]");

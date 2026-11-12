@@ -1,26 +1,47 @@
 import { formatAge } from "@ace/ui-core";
-import { spadeStateLine } from "@ace/ui-core/spade-chat";
+import {
+  spadeCappedLine,
+  spadeGroupLine,
+  spadeSetupSentence,
+  spadeStateLine,
+} from "@ace/ui-core/spade-chat";
 import { Link, useParams } from "@tanstack/react-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { ViewSidebarError } from "@/components/ui/view-row.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
 import { cn } from "@/lib/cn.ts";
+import { useMachines } from "@/lib/machines.ts";
 import { useNow } from "@/lib/time.ts";
 import { NewBotDialog } from "./spade-bot-dialog.tsx";
+import { GroupFaces } from "./spade-group-faces.tsx";
+import { NewGroupDialog } from "./spade-group-dialog.tsx";
 import { SpadeFace } from "./spade-face.tsx";
 import { SpadeStateStrip } from "./spade-state.tsx";
 import { useSpadeEnabled } from "./use-spade-enabled.ts";
 import { useOneSpade, useSpadeRoster, type RosterBot } from "./use-spade-roster.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
+import { useTellZone } from "./use-spade-zone.ts";
+import {
+  rosterEntries,
+  shownMembers,
+  useSpadeGroups,
+  type RosterGroup,
+} from "./use-spade-groups.ts";
 
-/** The second line of a bot's row: what it does now, else its latest message. */
+/** The second line of a bot's row: what it does now, a cap it is at, else its latest message. */
 export function rosterLine(bot: RosterBot): { text: string; tone?: "working" | "needs-you" } {
   if (bot.away) return { text: `Away · ${bot.machine.name} is offline` };
   if (bot.unavailable) return { text: `Unavailable · Spade isn't running on ${bot.machine.name}` };
+  if (bot.state === "waiting" && bot.waitingFor === "question")
+    return { text: "Asked you a question", tone: "needs-you" };
   if (bot.state === "waiting") return { text: bot.status ?? "Waiting for you", tone: "needs-you" };
   if (bot.state === "working") return { text: bot.status ?? "Working", tone: "working" };
+  // A subscription that couldn't run (signed out, out of quota) until a later reply works.
+  if (bot.problem) return { text: bot.problem, tone: "needs-you" };
+  // At a cap it makes no model call until the cap ends (ADR 0135).
+  if (bot.spending?.capped) return { text: spadeCappedLine(bot.spending.capped) };
   const last = bot.lastMessage;
   if (!last?.text) return { text: "No messages yet" };
   if (last.from === "agent") return { text: last.text };
@@ -32,29 +53,49 @@ export function rosterLine(bot: RosterBot): { text: string; tone?: "working" | "
  * this window reaches by latest activity. A row is the bot's face, its name and when it was last
  * active, then what it does now in its state's colour, or its latest message. A bot on an
  * offline machine reads as away, one whose Spade stopped as unavailable. "New bot" opens the
- * form. While Spade isn't running, its state in one sentence (with Turn on while it is off). The
+ * form. While Spade isn't running, its state in one sentence (with Turn on while it is off), and
+ * while it runs but waits on the person (a keychain prompt), what to look for. The
  * panel sees every machine, so it keeps Spade, the main bot, on one (`useOneSpade`).
  */
 export function SpadeSidebar() {
   const status = useSpadeStatus();
   const [enabled] = useSpadeEnabled();
   const line = spadeStateLine(status, enabled);
+  // Running but waiting on the person (a keychain prompt): said in the same quiet line.
+  const setup = spadeSetupSentence(status);
   const roster = useSpadeRoster(line.ready);
   useOneSpade(roster.hosting);
-  const open = useParams({ strict: false, select: (params) => params.agentId });
+  useTellZone(useMemo(() => roster.hosts.map((host) => host.machine.client), [roster.hosts]));
+  const { groups } = useSpadeGroups(roster);
+  const entries = rosterEntries(roster.bots, groups);
+  const open = useParams({
+    strict: false,
+    select: (params) => params.agentId ?? params.groupId,
+  });
   const now = useNow();
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState<"bot" | "group">();
   return (
     <ViewSidebar
       title="Spade"
       actions={
         roster.hosts.length > 0 && (
-          <Button size="xs" variant="ghost" onClick={() => setCreating(true)}>
-            New bot
-          </Button>
+          <>
+            <Button size="xs" variant="ghost" onClick={() => setCreating("group")}>
+              New group
+            </Button>
+            <Button size="xs" variant="ghost" onClick={() => setCreating("bot")}>
+              New bot
+            </Button>
+          </>
         )
       }
-      toolbar={line.ready ? undefined : <SpadeStateStrip line={line} />}
+      toolbar={
+        !line.ready ? (
+          <SpadeStateStrip line={line} />
+        ) : setup ? (
+          <SpadeStateStrip line={{ ...line, sentence: setup }} />
+        ) : undefined
+      }
     >
       <nav aria-label="Bots">
         {/* The last list stays while Spade restarts or a read fails; it reads again on its own. */}
@@ -64,15 +105,35 @@ export function SpadeSidebar() {
           <ListSkeleton label="bots" shape="thread" />
         ) : (
           <ul className="flex flex-col gap-0.5">
-            {roster.bots.map((bot) => (
-              <li key={`${bot.machine.key}/${bot.id}`}>
-                <Row bot={bot} current={open === bot.id} now={now} />
-              </li>
-            ))}
+            {entries.map((entry) =>
+              entry.kind === "bot" ? (
+                <li key={`${entry.bot.machine.key}/${entry.bot.id}`}>
+                  <Row bot={entry.bot} current={open === entry.bot.id} now={now} />
+                </li>
+              ) : (
+                <li key={`group:${entry.group.machine.key}/${entry.group.id}`}>
+                  <GroupRow
+                    group={entry.group}
+                    bots={roster.bots}
+                    current={open === entry.group.id}
+                    now={now}
+                  />
+                </li>
+              ),
+            )}
           </ul>
         )}
       </nav>
-      {creating && <NewBotDialog hosts={roster.hosts} onClose={() => setCreating(false)} />}
+      {creating === "bot" && (
+        <NewBotDialog hosts={roster.hosts} onClose={() => setCreating(undefined)} />
+      )}
+      {creating === "group" && (
+        <NewGroupDialog
+          hosts={roster.hosts}
+          bots={roster.bots}
+          onClose={() => setCreating(undefined)}
+        />
+      )}
     </ViewSidebar>
   );
 }
@@ -109,6 +170,63 @@ function Row(props: { bot: RosterBot; current: boolean; now: number }) {
           </span>
           <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">
             {formatAge(bot.lastActivity, props.now)}
+          </span>
+        </span>
+        <span
+          data-tone={line.tone}
+          className={cn(
+            "truncate text-xs",
+            line.tone ? "text-(--tone-text)" : "text-subtle-foreground",
+          )}
+        >
+          {line.text}
+        </span>
+      </span>
+    </Link>
+  );
+}
+
+/** The second line of a group's row: like a bot's, away or unavailable with its machine. */
+function groupLine(group: RosterGroup): { text: string; tone?: "working" | "needs-you" } {
+  if (group.away) return { text: `Away · ${group.machine.name} is offline` };
+  if (group.unavailable)
+    return { text: `Unavailable · Spade isn't running on ${group.machine.name}` };
+  return spadeGroupLine(group);
+}
+
+/**
+ * A group's row: up to three members' faces stacked, its name and when it was last active, then
+ * what it does now in its state's colour, or its latest message with who said it.
+ */
+function GroupRow(props: {
+  group: RosterGroup;
+  bots: readonly RosterBot[];
+  current: boolean;
+  now: number;
+}) {
+  const { group } = props;
+  const machines = useMachines();
+  const members = shownMembers(machines, group, props.bots);
+  const line = groupLine(group);
+  return (
+    <Link
+      to="/spade/groups/$groupId"
+      params={{ groupId: group.id }}
+      search={group.machine.primary ? {} : { on: group.machine.key }}
+      aria-current={props.current ? "page" : undefined}
+      data-panel-row=""
+      className="flex h-14 w-full min-w-0 items-center gap-2.5 rounded-md px-2.5 text-left transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-hover aria-[current=page]:bg-active"
+    >
+      <span className={cn("flex shrink-0", (group.away || group.unavailable) && "opacity-45")}>
+        <GroupFaces members={members} size={32} />
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="flex min-w-0 items-baseline gap-2">
+          <span data-view-row-title="" className="min-w-0 flex-1 truncate text-md text-foreground">
+            {group.name}
+          </span>
+          <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">
+            {formatAge(group.lastActivity, props.now)}
           </span>
         </span>
         <span

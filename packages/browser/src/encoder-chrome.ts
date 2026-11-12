@@ -56,8 +56,8 @@ export class EncoderChrome {
         handle = await this.encoder(lease.instance).openPictures(page, width, height, {
           chunk: (chunk) => events.chunk(chunk),
           failed: (encode) => events.failed(encode),
-          ended: () => {
-            if (release()) events.ended();
+          ended: (reason) => {
+            if (release()) events.ended(reason);
           },
         });
       } catch (error) {

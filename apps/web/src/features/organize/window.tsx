@@ -95,7 +95,7 @@ export function useWindowThreads(): WindowThreads {
       if (!row) return { actions: mine, threadId: rowId };
       const other = others.get(row.hostId);
       return other && { actions: other.actions, threadId: row.threadId };
-    });
+    }, archiving);
     const entry = (rowId: string): ThreadListEntry | undefined => {
       const row = machineRow(rowId);
       if (!row) {

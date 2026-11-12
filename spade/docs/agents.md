@@ -50,8 +50,7 @@ Every agent has two tools:
 
 ## Endpoints and models
 
-The person's endpoints and saved models are in Spade's database; keys stay in the OS keychain (ADR
-0119) or the endpoint's environment variable. `config/models.json`, built into the binary and read
+The person's endpoints and saved models are in Spade's database; keys stay in the OS keychain (ADR 0119) or the endpoint's environment variable. `config/models.json`, built into the binary and read
 from there on every start, holds presets: endpoint templates and known facts about model ids
 (context, capabilities, prices). On the first start with schema 2, every preset whose key is already
 present becomes one of the person's endpoints with the same id, so existing keys keep working.
@@ -92,7 +91,9 @@ inherited. Endpoints no Spade shipped are taken whole; a shipped endpoint nobody
 only when it has a key. Either way it is moved to
 `models.json.old` and never read again.
 
-A model is `endpoint/model`, split at the first `/` (endpoint ids have none; model ids may). Any
+A model is `endpoint/model`, split at the first `/` (endpoint ids have none; model ids may), or
+one of the person's subscriptions, `cli:<provider>[@<account>]/<model>`
+([cli-brains.md](cli-brains.md)). Any
 model id on one of the person's endpoints works, saved or not. Its facts come from what the person
 saved, else the endpoint's own listing when saved from it, else the presets' facts for that id,
 else defaults: context 128,000, capabilities `["tools"]`.
@@ -111,20 +112,21 @@ fields in a body are ignored. Times are integer milliseconds since the epoch.
 
 **Agent** = `{"id", "kind": "main"|"bot", "name", "task", "avatar", "model", "conversation",
 "created_at", "updated_at", "last_activity", "state", "working", "waiting_for", "status",
-"last_message"}`
+"problem", "last_message"}`
 
 - `avatar`: `{"kind":"image","sha256"}` (served by `GET /v1/images/{sha256}`),
   `{"kind":"generated","initials","color"}` with colour one of slate, red, orange, amber, green,
   teal, blue, indigo, violet, pink, or `{"kind":"spade"}`.
 - `state`: `idle`, `working` (a reply is open or a background job runs) or `waiting` (an approval
-  waits for the person). `working` is `state != "idle"`, kept for clients built on the first
+  or a question waits for the person). `working` is `state != "idle"`, kept for clients built on the first
   draft of this contract.
-- `waiting_for`: `"approval"` while `state` is `waiting`, else `null`. `"question"` is reserved
-  for when Spade has a tool that asks the person a question; none exists yet, so only approvals
-  wait today.
+- `waiting_for`: while `state` is `waiting`, `"question"` when the agent asked the person with
+  `ask_user` (see [memory.md](memory.md)), else `"approval"`; `null` otherwise.
 - `status`: a few plain words while not idle (`Thinking`, `Searching the web`, `Reading a page`,
   `Asking Research`, `Waiting for you`, `Working in the background`, `Using <tool>`); never
   arguments; `null` when idle.
+- `problem`: why the agent's latest reply on a subscription failed (signed out, out of quota),
+  until a later reply finishes; `null` otherwise ([cli-brains.md](cli-brains.md)).
 - `last_message`: `{"from": "person"|"agent", "text", "at", "from_agent": {"id","name"}|null}` or
   `null`. The latest message in the conversation: a message to the agent (`person`; with
   `from_agent` set when another bot sent it) or the agent's reply text (`agent`), never tool
@@ -152,11 +154,14 @@ fields in a body are ignored. Times are integer milliseconds since the epoch.
   3.75 MB at most, stored like attached images) or `{"kind":"generated","color"?}` (a colour is
   picked from the agent's id when absent). An absent avatar is a generated one.
 - **Endpoint** = `{"id", "name", "format", "base_url", "session_header", "header_names",
-  "needs_key", "key_set", "key_source": "keychain"|"environment"|null, "models": [{"id", "name",
-  "context", "capabilities", "source": "listed"|"typed"|"preset"}]}`. Header values and keys are
+"needs_key", "key_set", "key_source": "keychain"|"environment"|null, "models": [{"id", "name",
+"context", "capabilities", "source": "listed"|"typed"|"preset"}]}`. Header values and keys are
   never answered. The id is a slug of the name, unique (`-2`, `-3`, …). `format` is `openai-chat`,
   `openai-responses` or `anthropic`; `needs_key` defaults to true (false for a local server).
   With `preset`, missing fields come from that preset, its key variable and models included.
+  A keychain read never holds the answer up: one still waiting (a prompt nobody answered) leaves
+  `key_set` and `key_source` null, and `GET /models` then says `"keys_pending": true`; asked
+  again, the keychain's answer shows once it comes.
 - **Preset** = `{"id", "name", "format", "base_url", "key_env", "session_header"}`.
 - Errors: `400` for a body that does not fit (or `413`/`415`/`422` from the JSON reader), `404`
   for an unknown id, `409` as above, `502` when the endpoint's own listing fails, `400` when it

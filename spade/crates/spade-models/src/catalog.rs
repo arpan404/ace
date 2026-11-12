@@ -41,6 +41,22 @@ pub enum Capability {
     /// The endpoint withholds deferred tools and reveals them itself (Anthropic `defer_loading`).
     #[serde(rename = "native-tool-search")]
     NativeToolSearch,
+    /// Reads a PDF sent as a file (ADR 0134).
+    #[serde(rename = "pdf-input")]
+    PdfInput,
+    /// Serves the OpenAI-format `POST /images/generations` route.
+    #[serde(rename = "image-generation")]
+    ImageGeneration,
+    /// A chat model that answers with images when asked for them.
+    #[serde(rename = "image-output")]
+    ImageOutput,
+    /// Serves the OpenAI-format `POST /audio/transcriptions` route.
+    #[serde(rename = "transcription")]
+    Transcription,
+    /// Searches the web with its endpoint's own tool (Anthropic Messages' server web search,
+    /// OpenAI Responses' web search), which `web_search` uses first.
+    #[serde(rename = "web-search")]
+    WebSearch,
 }
 
 /// US dollars per million tokens. Cache prices default to the input price when absent.
@@ -53,6 +69,13 @@ pub struct Price {
     pub cache_read: Option<f64>,
     #[serde(default)]
     pub cache_write: Option<f64>,
+    /// US dollars per call, for calls billed per image or per recording (ADR 0134), on top of any
+    /// tokens the endpoint reports.
+    #[serde(default)]
+    pub per_call: Option<f64>,
+    /// US dollars per web search the endpoint's own search tool makes, on top of its tokens.
+    #[serde(default)]
+    pub per_search: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -68,11 +91,16 @@ pub struct Model {
 }
 
 impl Capability {
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 9] = [
         Self::Tools,
         Self::Images,
         Self::Reasoning,
         Self::NativeToolSearch,
+        Self::PdfInput,
+        Self::ImageGeneration,
+        Self::ImageOutput,
+        Self::Transcription,
+        Self::WebSearch,
     ];
 
     /// The name used in files and the API.
@@ -82,6 +110,11 @@ impl Capability {
             Self::Images => "images",
             Self::Reasoning => "reasoning",
             Self::NativeToolSearch => "native-tool-search",
+            Self::PdfInput => "pdf-input",
+            Self::ImageGeneration => "image-generation",
+            Self::ImageOutput => "image-output",
+            Self::Transcription => "transcription",
+            Self::WebSearch => "web-search",
         }
     }
 
@@ -393,6 +426,8 @@ fn check_endpoint(endpoint: FileEndpoint, problems: &mut Vec<String>) -> Endpoin
                     Some(price.output),
                     price.cache_read,
                     price.cache_write,
+                    price.per_call,
+                    price.per_search,
                 ];
                 if !all.into_iter().flatten().all(valid) {
                     problems.push(format!(

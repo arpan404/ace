@@ -142,7 +142,8 @@ async fn a_socket_the_daemon_dropped_is_opened_again() {
 #[tokio::test]
 async fn a_request_the_daemon_never_answers_times_out() {
     let daemon = FakeDaemon::start().await;
-    let skills = client(&daemon, LOCAL_TOKEN, Duration::from_millis(300));
+    // SILENT never answers; 2 s leaves a slow machine room for the request after it.
+    let skills = client(&daemon, LOCAL_TOKEN, Duration::from_secs(2));
     assert_eq!(
         skills.read(SILENT, None).await.err(),
         Some(SkillsError::Timeout)
@@ -175,19 +176,25 @@ async fn a_daemon_that_stops_reading_fails_requests_in_time_and_is_let_go() {
     let timeout = Duration::from_millis(300);
     let skills = client(&daemon, LOCAL_TOKEN, timeout);
     let huge = huge();
-    // Building a 32 MiB frame takes a while in a debug build; the bound is loose for it.
-    let request = Instant::now();
-    assert!(skills.read(REVIEW, Some(&huge)).await.is_err());
-    assert!(
-        request.elapsed() < Duration::from_secs(20),
-        "{:?}",
-        request.elapsed()
-    );
-
-    // The stuck write misses its deadline and the socket is let go, client still alive.
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while !daemon.saw_close() && Instant::now() < deadline {
-        tokio::time::sleep(Duration::from_millis(25)).await;
+    // The kernel may take a whole frame into its buffers (Windows grows them on loopback), so
+    // frames go until one write sticks. The stuck write misses its deadline and the socket is
+    // let go, client still alive.
+    for _ in 0..4 {
+        // Building a 32 MiB frame takes a while in a debug build; the bound is loose for it.
+        let request = Instant::now();
+        assert!(skills.read(REVIEW, Some(&huge)).await.is_err());
+        assert!(
+            request.elapsed() < Duration::from_secs(20),
+            "{:?}",
+            request.elapsed()
+        );
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while !daemon.saw_close() && Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        if daemon.saw_close() {
+            break;
+        }
     }
     assert!(daemon.saw_close(), "a stuck write held the socket");
 
@@ -250,5 +257,92 @@ async fn a_non_loopback_url_never_becomes_a_skills_config() {
             Duration::from_secs(1)
         )
         .is_err()
+    );
+}
+
+#[tokio::test]
+async fn a_new_skill_is_created_as_a_personal_skill_for_every_agent() {
+    let daemon = FakeDaemon::start().await;
+    let skills = client(&daemon, LOCAL_TOKEN, Duration::from_secs(5));
+    let created = skills
+        .create(spade_ace::NewSkill {
+            name: "release-notes",
+            description: "Write release notes from merged PRs",
+            body: "# Release notes\n\nList the merged PRs first.\n",
+            agents: &spade_ace::ALL_AGENTS,
+            manual: false,
+        })
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(created.skill.name, "release-notes");
+    assert!(created.text.contains("List the merged PRs first."));
+    let writes = daemon.writes();
+    assert_eq!(writes.len(), 1);
+    assert_eq!(writes[0]["op"], json!("create"));
+    assert_eq!(writes[0]["scope"], json!({ "kind": "personal" }));
+    assert_eq!(
+        writes[0]["agents"],
+        json!(["claude", "codex", "opencode", "cursor", "pi"])
+    );
+    assert_eq!(writes[0]["manual"], json!(false));
+}
+
+#[tokio::test]
+async fn an_edit_names_the_hash_it_was_made_against_and_a_stale_one_is_a_conflict() {
+    let daemon = FakeDaemon::start().await;
+    let skills = client(&daemon, LOCAL_TOKEN, Duration::from_secs(5));
+    let edit = |hash: &'static str| spade_ace::SkillEdit {
+        id: REVIEW,
+        expected_hash: hash,
+        description: "Review code, tests first",
+        body: "Read the tests first.\n",
+        manual: false,
+    };
+    let current = "a".repeat(64);
+    let edited = skills
+        .edit(spade_ace::SkillEdit {
+            expected_hash: &current,
+            ..edit("")
+        })
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(edited.skill.description, "Review code, tests first");
+    assert_eq!(daemon.writes()[0]["expectedHash"], json!(current));
+
+    let stale = skills.edit(edit("0000")).await;
+    assert!(
+        matches!(
+            stale,
+            Err(SkillsError::Daemon {
+                code: SkillErrorCode::Conflict,
+                ..
+            })
+        ),
+        "{stale:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_name_already_taken_is_refused_as_existing() {
+    let daemon = FakeDaemon::start().await;
+    let skills = client(&daemon, LOCAL_TOKEN, Duration::from_secs(5));
+    let taken = skills
+        .create(spade_ace::NewSkill {
+            name: "review-code",
+            description: "Again",
+            body: "Again.\n",
+            agents: &spade_ace::ALL_AGENTS,
+            manual: false,
+        })
+        .await;
+    assert!(
+        matches!(
+            taken,
+            Err(SkillsError::Daemon {
+                code: SkillErrorCode::Exists,
+                ..
+            })
+        ),
+        "{taken:?}"
     );
 }

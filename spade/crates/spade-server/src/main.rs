@@ -11,11 +11,15 @@ use spade_server::config::Config;
 use spade_server::engine::{Engine, Limits, Setup};
 use spade_server::home::{DEFAULT_SEARCH, Home, HomeError, new_token};
 use spade_server::images::ImageStore;
+use spade_server::learning::{Learning, SkillFeedback, SkillPropose};
 use spade_server::presets;
+use spade_server::research::{LiveWeb, ResearchTool};
 use spade_server::tools::{
-    AceLink, AceTarget, Retry, SkillLibrary, SkillLoad, SkillSearch, Todo, Tool, ToolSource,
-    Toolbox, WebFetch, WebSearch,
+    AceLink, AceTarget, ConnectorSource, EngineHandle, Retry, SkillLibrary, SkillLoad, SkillSearch,
+    Todo, Tool, ToolSource, Toolbox, WebFetch, WebSearch,
 };
+use spade_server::workspace::shell::Shell;
+use spade_server::workspace::{Workspaces, workspace_tools};
 use spade_store::Store;
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
@@ -23,21 +27,59 @@ use tracing_subscriber::filter::filter_fn;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
+/// Every allocation is counted, so a document reader child can be held to a memory cap on every
+/// platform (ADR 0134). The server itself runs without a cap.
+#[global_allocator]
+static ALLOCATOR: cap::Cap<std::alloc::System> = cap::Cap::new(std::alloc::System, usize::MAX);
+
 /// Exit code when another Spade holds the data folder (docs/ace-integration.md).
 const BUSY: u8 = 3;
 
-#[tokio::main]
-async fn main() -> std::process::ExitCode {
+/// Plain and synchronous, so the document reader (and the other one-shot modes) run before any
+/// async runtime or its threads exist; the server builds its runtime only after them.
+fn main() -> std::process::ExitCode {
     let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
     if args.first().is_some_and(|flag| flag == "--version") {
         println!("{}", spade_server::home::VERSION);
         return std::process::ExitCode::SUCCESS;
+    }
+    // The document reader (ADR 0134): one file on stdin, its text on stdout, then exit. Runs
+    // before logging starts, so nothing else ever writes to stdout.
+    if let Some(flag) = args.first()
+        && flag == spade_docs::CHILD_ARG
+    {
+        let name = args.get(1).and_then(|n| n.to_str()).unwrap_or("file");
+        let memory = spade_docs::child_memory(args.get(2).and_then(|n| n.to_str()));
+        // Past the cap an allocation fails and the child aborts; the server reports the file
+        // as unreadable.
+        let _ = ALLOCATOR.set_limit(ALLOCATOR.allocated().saturating_add(memory));
+        spade_docs::limit_memory(memory);
+        let code = spade_docs::serve_child(
+            name,
+            &mut std::io::stdin().lock(),
+            &mut std::io::stdout().lock(),
+        );
+        return std::process::ExitCode::from(u8::try_from(code).unwrap_or(1));
     }
     if let Some(flag) = args.first()
         && flag == "--check-migrations"
     {
         return check_migrations(args.get(1));
     }
+    match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime.block_on(serve_main()),
+        Err(error) => {
+            eprintln!("spade could not start its runtime: {error}");
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+/// The server: logging, then `run` on the runtime `main` built.
+async fn serve_main() -> std::process::ExitCode {
     // The HTML parser's own logs carry page text, so they are dropped by a separate layer that no
     // RUST_LOG setting can turn back on.
     tracing_subscriber::registry()
@@ -121,14 +163,23 @@ async fn run() -> Result<(), Failure> {
         override_path.as_deref().map(std::path::Path::new),
     )
     .map_err(other)?;
-    let models =
-        Models::new(startup.presets, keys.clone(), spade_server::home::VERSION).map_err(other)?;
+    let models = Models::new(startup.presets, keys, spade_server::home::VERSION).map_err(other)?;
     let search_path = home
         .file_or_default("search.json", DEFAULT_SEARCH)
         .map_err(other)?;
+    // Search keys have their own keychain accounts (`search:<id>`), apart from endpoints'.
+    let search_lookup = keychain.clone();
+    let search_keys = Keys::keychain_then_env(
+        move |backend| {
+            search_lookup
+                .as_ref()
+                .and_then(|k| k.search_key(backend).ok().flatten())
+        },
+        |var| std::env::var(var).ok(),
+    );
     let search = Search::new(
         SearchConfig::load(&search_path).map_err(other)?,
-        keys,
+        search_keys,
         Duration::from_secs(10),
     )
     .map_err(other)?;
@@ -141,26 +192,103 @@ async fn run() -> Result<(), Failure> {
             None
         }
     };
-    let fetcher = Fetcher::new(Policy::default(), Duration::from_secs(30));
+    // Documents are read by this same binary in a child process it kills at the deadline
+    // (ADR 0134); without a path to it, in process.
+    let reader = match std::env::current_exe() {
+        Ok(program) => spade_docs::Extractor::child(program, Vec::new()),
+        Err(error) => {
+            tracing::warn!(%error, "reading documents in process: this binary's path is unknown");
+            spade_docs::Extractor::in_process()
+        }
+    };
+    let fetcher = Arc::new(
+        Fetcher::new(Policy::default(), Duration::from_secs(30)).with_documents(reader.clone()),
+    );
+    let search = Arc::new(search);
+    // Tools that find the calling bot through the engine, set once it exists (ADR 0130).
+    let bots = EngineHandle::default();
     let mut core: Vec<Arc<dyn Tool>> = vec![
         Arc::new(WebSearch {
-            search: Arc::new(search),
+            search: search.clone(),
             ace_fallback: ace.is_some(),
+            bots: bots.clone(),
         }),
-        Arc::new(WebFetch(Arc::new(fetcher))),
+        Arc::new(WebFetch(fetcher.clone())),
         Arc::new(Todo),
     ];
+    let workspaces = Workspaces::new(home.dir.join("workspace"));
+    // Deep research (ADR 0135), reading through the same backends and fetcher.
+    core.push(Arc::new(ResearchTool::new(
+        Arc::new(LiveWeb {
+            search: search.clone(),
+            fetcher,
+        }),
+        workspaces.clone(),
+        bots.clone(),
+    )));
+    core.extend(workspace_tools(
+        workspaces.clone(),
+        bots.clone(),
+        Shell::system(),
+    ));
+    core.extend(spade_server::media::tools::all(
+        workspaces.clone(),
+        bots.clone(),
+    ));
     let mut skills: Option<Arc<dyn SkillLibrary>> = None;
+    let mut learning: Option<Arc<Learning>> = None;
     if let Some(link) = &ace {
         let library: Arc<dyn SkillLibrary> = link.clone();
+        let learned = Arc::new(Learning::new(
+            home.dir.join("skills"),
+            Arc::new(SystemClock),
+            library.clone(),
+        ));
         core.push(Arc::new(SkillSearch(library.clone())));
-        core.push(Arc::new(SkillLoad(library.clone())));
+        core.push(Arc::new(
+            SkillLoad::new(library.clone()).with_notes(learned.clone(), bots.clone()),
+        ));
+        core.push(Arc::new(SkillPropose {
+            learning: learned.clone(),
+            bots: bots.clone(),
+        }));
+        core.push(Arc::new(SkillFeedback {
+            learning: learned.clone(),
+            bots: bots.clone(),
+        }));
         skills = Some(library);
+        learning = Some(learned);
     }
-    let mut tools = Toolbox::new(core);
+    let mut tools = Toolbox::new(core).with_source(spade_server::media::tools::images(&bots));
     if let Some(link) = &ace {
         tools = tools.with_source(link.clone() as Arc<dyn ToolSource>);
     }
+    // The person's apps (ADR 0131). Sessions open once Spade listens, so the sign-in callback
+    // has an address and nothing reaches the network or keychain before bind.
+    let connectors = spade_connect::Connectors::open(spade_connect::Setup {
+        store: Store::open(&home.database()).map_err(other)?,
+        keys: keychain.clone(),
+        clock: spade_connect::system_clock(),
+        random: Arc::new(spade_connect::OsRandom),
+        catalogue: spade_connect::catalogue::shipped(),
+        timeout: Duration::from_secs(60),
+        relist: spade_connect::RELIST,
+        addresses: spade_connect::Addresses::system(),
+        // Spade's client ID metadata document on acehq.dev (ADR 0136); another for development.
+        client_metadata: Some(
+            env("SPADE_CLIENT_METADATA_URL")
+                .filter(|v| !v.trim().is_empty())
+                .unwrap_or_else(|| spade_connect::CLIENT_METADATA_URL.to_owned()),
+        ),
+        // Spade's own registered apps: public client IDs, never a secret (ADR 0137).
+        apps: spade_connect::apps::shipped(),
+        tick: Duration::from_secs(1),
+    })
+    .map_err(other)?;
+    tools = tools.with_source(Arc::new(ConnectorSource::new(
+        connectors.clone(),
+        Store::open(&home.database()).map_err(other)?,
+    )));
 
     let engine = Engine::open(Setup {
         store: Store::open(&home.database()).map_err(other)?,
@@ -177,16 +305,46 @@ async fn run() -> Result<(), Failure> {
         keychain: keychain.clone(),
     })
     .map_err(other)?;
+    bots.set(&engine);
+    // The person's own SearXNG, as they set it in Spade's settings.
+    match engine.searxng_url() {
+        Ok(url) => {
+            if let Err(error) = search.set_searxng(url.as_deref()) {
+                tracing::warn!(%error, "the saved SearXNG address is not used");
+            }
+        }
+        Err(error) => tracing::warn!(%error, "could not read the SearXNG address"),
+    }
+    engine.media().read_with(reader);
+    if let Some(link) = &ace {
+        engine.set_remote(link.clone());
+    }
     let token = new_token();
     home.write_token(&token).map_err(other)?;
     let listener = TcpListener::bind(config.listen).await.map_err(other)?;
     let address = listener.local_addr().map_err(other)?;
+    connectors.set_listening(address);
+    connectors.start();
+    // Bots on the person's subscriptions run their turns through ace (ADR 0133). Set before
+    // work opens, so a turn resumed at start finds ace.
+    if let Some(link) = ace.clone() {
+        engine.set_brains(Arc::new(move || link.brains()));
+    }
     spade_server::startup::finish(
         engine.clone(),
         ace.clone(),
         startup.set_aside,
         spade_server::startup::SETTLE_DEADLINE,
     );
+    // Routines (ADR 0129): new ones default to the machine's zone; slots and ace's thread
+    // events wake bots from here on.
+    if let Some(zone) = jiff::tz::TimeZone::system().iana_name() {
+        spade_server::routines::set_default_zone(&engine, zone);
+    }
+    spade_server::routines::start(&engine);
+    if let Some(link) = ace.clone() {
+        spade_server::routines::watch_ace(&engine, move || link.daemon_socket());
+    }
     home.write_server_json(address, std::process::id())
         .map_err(other)?;
     tracing::info!(%address, "spade listening");
@@ -196,6 +354,10 @@ async fn run() -> Result<(), Failure> {
         token: token.into(),
         keys: keychain,
         ace,
+        workspaces: Some(workspaces),
+        learning,
+        connectors: Some(connectors),
+        search: Some(search),
     };
     let stopping = async move {
         shutdown_signal().await;

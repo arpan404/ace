@@ -4,6 +4,7 @@ import { configure, cleanup, screen, waitFor, within } from "@testing-library/re
 
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
+import { archiveStoppingCommands } from "@/test/archive-question.ts";
 import { harness } from "@/test/harness.tsx";
 
 configure({ asyncUtilTimeout: 10000 });
@@ -131,8 +132,8 @@ test("Archive takes effect on the daemon at once and Undo unarchives it", async 
   };
   const menu = await rightClick(/Backpressure/);
   await userEvent.click(within(menu).getByRole("menuitem", { name: "Archive" }));
-  // It is still working, so it asks first.
-  await userEvent.click(await screen.findByRole("button", { name: "Archive, keep running" }));
+  // It replied with its soak test left running (ADR 0116): archiving stops that, so it asks.
+  await archiveStoppingCommands();
   await waitFor(() => expect(card(/Backpressure/)).toBeNull());
   expect(await screen.findByText("Archived · Backpressure on broadcast fan-out")).toBeTruthy();
   await waitFor(() => expect(archivedAt()).toBeDefined());

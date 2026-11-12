@@ -45,9 +45,29 @@ fn task(raw: &str) -> Result<String, AgentError> {
 }
 
 impl Engine {
-    /// A model reference the person may pick: `endpoint/model` on one of their endpoints.
+    /// Whether a bot could be made or moved to `model` here: one of this machine's endpoints
+    /// serves it, or it is a well-formed subscription (ace says at its first turn whether the
+    /// CLI is there).
+    pub fn model_usable(&self, model: &str) -> bool {
+        self.check_model(model).is_ok()
+    }
+
+    /// A model reference the person may pick: `endpoint/model` on one of their endpoints, or a
+    /// subscription, `cli:<provider>[@<account>]/<model>` (ADR 0133), which ace checks when a turn
+    /// runs on it.
     pub(super) fn check_model(&self, raw: &str) -> Result<String, AgentError> {
         let model = raw.trim();
+        if spade_core::brain::CliModel::is(model) {
+            return spade_core::brain::CliModel::parse(model)
+                .map(|_| model.to_owned())
+                .ok_or_else(|| {
+                    AgentError::Invalid(
+                        "a subscription model is cli:<provider>/<model>, for example \
+                         cli:codex/gpt-6.1-sol"
+                            .to_owned(),
+                    )
+                });
+        }
         let valid = model.len() <= MODEL_CHARS
             && !model.chars().any(char::is_control)
             && model
@@ -91,6 +111,15 @@ impl Engine {
                 json!({ "kind": "generated", "color": generated_color(id) }).to_string()
             }
         })
+    }
+
+    /// The id of the agent whose conversation is `conversation`.
+    pub(crate) fn agent_of(&self, conversation: &str) -> Option<String> {
+        self.store
+            .agent_for_conversation(conversation)
+            .ok()
+            .flatten()
+            .map(|agent| agent.id)
     }
 
     /// Creates a bot and its one conversation.
@@ -237,6 +266,7 @@ impl Engine {
             .unwrap_or_else(|p| p.into_inner())
             .remove(&conversation);
         deleted?;
+        self.bot_left(id)?;
         Ok(())
     }
 
@@ -265,10 +295,14 @@ impl Engine {
     fn view_of(&self, agent: Agent) -> Result<AgentView, StoreError> {
         let activity = self.activity(&agent.conversation)?;
         let status = self.status_for(&agent.conversation, &activity);
+        let oversight = self.oversight_json(&agent)?;
         Ok(AgentView {
+            oversight,
             state: activity.state,
             status,
             last_message: activity.last_message,
+            waiting_for: activity.waiting_for,
+            problem: activity.problem,
             agent,
         })
     }
@@ -346,7 +380,7 @@ impl Engine {
     }
 
     /// The model a new reply in `conversation` uses: its agent's model now.
-    pub(super) fn reply_model(&self, conversation: &str) -> String {
+    pub(crate) fn reply_model(&self, conversation: &str) -> String {
         match self.store.agent_for_conversation(conversation) {
             Ok(Some(agent)) if !agent.model.is_empty() => agent.model,
             // Without reading keys: this runs while closing replies at start, before Spade

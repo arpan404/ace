@@ -199,7 +199,7 @@ export class StatusStore {
     return row ? storedEntity("interactions", String(row.value), this.trust) : undefined;
   }
   page(
-    thread: Thread,
+    thread: Pick<Thread, "id">,
     collection: import("@ace/protocol").EntityCollection,
     before: number,
     limit: number,

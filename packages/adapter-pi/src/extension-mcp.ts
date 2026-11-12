@@ -7,7 +7,12 @@ import {
   type AceMcpConnection,
   type SessionGuidance,
 } from "@ace/mcp-server";
-import { aceToolSearch, bareToolName, dispatchedAceCall } from "@ace/provider-kit/ace-tool-names";
+import {
+  aceToolSearch,
+  bareToolName,
+  dispatchedAceCall,
+  spadeBridgeTools,
+} from "@ace/provider-kit/ace-tool-names";
 import { obj, str } from "./native.ts";
 import type { PiExtensionApi, PiToolAnnotations } from "./extension-api.ts";
 
@@ -75,8 +80,13 @@ function piAnnotations(tool: ListedTool): PiToolAnnotations | undefined {
 /** Which listed ace tools this session offers Pi. */
 export type AceToolFilter = (tool: ListedTool) => boolean;
 export const anyAceTool: AceToolFilter = () => true;
-/** Read-only Pi: only the tools ace's server marks read-only (its risk class), never a write. */
-export const readOnlyAceTool: AceToolFilter = (tool) => tool.annotations?.readOnlyHint === true;
+/**
+ * Read-only Pi: only the tools ace's server marks read-only (its risk class), never a write,
+ * plus the bridge to a Spade bot's tools, which Spade gates itself and ace lists only in a bot's
+ * own session.
+ */
+export const readOnlyAceTool: AceToolFilter = (tool) =>
+  tool.annotations?.readOnlyHint === true || spadeBridgeTools.includes(bareToolName(tool.name));
 const SessionResource = z.object({
   brief: z.string().max(4096).optional(),
   roles: z.string().max(1024).nullable().optional(),

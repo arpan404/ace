@@ -3,7 +3,9 @@ import {
   parseSpadeEvents,
   spadeApprovalSentence,
   spadeCallLine,
+  spadeFailureSentence,
   spadeJobEndLine,
+  spadeSetupSentence,
   spadeStateLine,
 } from "./index.ts";
 
@@ -31,6 +33,24 @@ describe("what the Spade place says about Spade", () => {
       spadeStateLine({ state: "failed", reason: "It exited with code 1." }, true).sentence,
     ).toBe("Spade stopped. It exited with code 1.");
   });
+});
+
+const waiting = (platform: string) =>
+  spadeSetupSentence({
+    state: "ready",
+    version: "0.1.0",
+    setup: { reason: "waiting for the keychain", platform },
+  });
+
+test("while Spade waits for the keychain, the person is told what to look for on its platform", () => {
+  expect(waiting("darwin")).toBe(
+    "Spade is waiting for the keychain. Look for a macOS prompt and choose Always Allow.",
+  );
+  expect(waiting("linux")).toContain("keyring");
+  expect(waiting("win32")).toContain("Windows");
+  expect(waiting("freebsd")).toContain("waiting for the keychain");
+  expect(spadeSetupSentence({ state: "ready", version: "0.1.0" })).toBeUndefined();
+  expect(spadeSetupSentence({ state: "starting" })).toBeUndefined();
 });
 
 test("a call reads as what it did, or why it didn't run", () => {
@@ -63,4 +83,23 @@ test("a background job's end reads in words, agents' work as the agents'", () =>
   expect(spadeJobEndLine("research", "failed")).toBe("Couldn't research in the background");
   expect(spadeJobEndLine("delegate", "stopped")).toBe("Stopped the agents");
   expect(spadeJobEndLine("research", "stopped")).toBe("Stopped researching");
+});
+
+describe("a failed reply's sentence", () => {
+  test("names the endpoint as the person named it, in plain words by kind", () => {
+    expect(spadeFailureSentence("unreachable", "OpenCode Go")).toBe("Couldn't reach OpenCode Go.");
+    expect(spadeFailureSentence("key", "OpenCode Go")).toBe("OpenCode Go refused the key.");
+    expect(spadeFailureSentence("rate_limited", "OpenCode Go")).toBe(
+      "OpenCode Go is limiting requests right now.",
+    );
+    expect(spadeFailureSentence("model", "OpenCode Go")).toBe(
+      "The model on OpenCode Go failed to answer.",
+    );
+    expect(spadeFailureSentence("cap", undefined)).toBe("It reached a spending limit.");
+  });
+
+  test("an endpoint this app doesn't know reads as the endpoint", () => {
+    expect(spadeFailureSentence("key", undefined)).toBe("The endpoint refused the key.");
+    expect(spadeFailureSentence("unreachable", undefined)).toBe("Couldn't reach the endpoint.");
+  });
 });

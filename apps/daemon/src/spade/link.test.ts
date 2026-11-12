@@ -20,6 +20,8 @@ function machine() {
     files,
     watched: undefined as (() => void) | undefined,
     nonces: 1,
+    /** What `/health` says Spade is still setting up, if anything. */
+    setup: undefined as string | undefined,
   };
   const link = new SpadeLink({
     dataDir: "/ace/spade",
@@ -32,6 +34,7 @@ function machine() {
           version: "0.4.0",
           api: 1,
           proof: key === null ? undefined : spadeProof(key, nonce),
+          setup: world.setup,
         };
       },
       alive: (pid) => world.alive.has(pid),
@@ -44,6 +47,7 @@ function machine() {
         };
       },
       now: () => world.now,
+      platform: "darwin",
       after: () => () => {},
     },
   });
@@ -155,6 +159,24 @@ test("each Spade that answers is a new instance: streams to the last one end and
     state: "failed",
     reason: expect.stringContaining("no binary"),
   });
+});
+
+test("a Spade still waiting for the keychain is ready and says so until it is done", async () => {
+  const { link, world, seen, spadeStarts } = machine();
+  world.service = "running";
+  link.setEnabled(true);
+  spadeStarts(41, 4100);
+  world.setup = "waiting for the keychain";
+  await link.refresh();
+  expect(link.status()).toEqual({
+    state: "ready",
+    version: "0.4.0",
+    setup: { reason: "waiting for the keychain", platform: "darwin" },
+  });
+  world.setup = undefined;
+  await link.refresh();
+  expect(link.status()).toEqual({ state: "ready", version: "0.4.0" });
+  expect(seen.at(-1)).toEqual({ state: "ready", version: "0.4.0" });
 });
 
 test("the host thread rides along with every status, on or off", async () => {

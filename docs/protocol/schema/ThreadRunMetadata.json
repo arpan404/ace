@@ -161,6 +161,11 @@
       "maxItems": 8,
       "type": "array"
     },
+    "watchingCount": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
     "workingSince": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     }

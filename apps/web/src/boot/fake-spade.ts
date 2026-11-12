@@ -30,6 +30,27 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     ],
   };
   here.endpoints.push(endpoint);
+  // The person's subscriptions, as ace lists them (ADR 0133).
+  here.subscriptions = [
+    {
+      provider: "codex",
+      name: "Codex",
+      accounts: [
+        { id: "work", label: "Work" },
+        { id: "personal", label: "Personal" },
+      ],
+      models: [
+        { id: "gpt-6.1-sol", name: "GPT-6.1 Sol" },
+        { id: "gpt-6.1-luna", name: "GPT-6.1 Luna" },
+      ],
+    },
+    {
+      provider: "claude",
+      name: "Claude Code",
+      accounts: [{ id: "claude-cli-default", label: null }],
+      models: [{ id: "opus-5.5", name: "Opus 5.5" }],
+    },
+  ];
   here.liveModels.set("openrouter", [
     {
       id: "anthropic/claude-sonnet-5.5",
@@ -59,6 +80,7 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     key_env: "OPENCODE_API_KEY",
     session_header: "x-opencode-session",
   });
+  seedConnectors(here);
   const spade = here.addAgent({
     id: "spade",
     kind: "main",
@@ -80,9 +102,11 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     avatar: { kind: "generated", initials: "RN", color: "indigo" },
     last_activity: minutes(44),
   });
-  here.addAgent({
+  const garden = here.addAgent({
     id: "garden",
     name: "Garden",
+    model: "cli:codex@work/gpt-6.1-sol",
+    problem: "Codex is signed out. Sign in to it in ace, then send again.",
     avatar: { kind: "generated", initials: "GA", color: "green" },
     last_activity: minutes(60 * 20),
     last_message: {
@@ -118,6 +142,38 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     from_agent: null,
   };
 
+  // Inbox's routines (ADR 0129): its morning sweep fired today, then the person wrote.
+  here.store(inbox.conversation, {
+    type: "user_message",
+    text: "Sweep the inbox and tell me what needs me today.",
+    from_routine: { id: "rt-sweep", name: "Morning sweep", run: "run-1", label: "8:30" },
+  });
+  here.reply(
+    inbox,
+    "Two things need you: the landlord asked about the plumber, and the dentist moved you to Friday.",
+  );
+  for (const routine of [
+    {
+      name: "Morning sweep",
+      instruction: "Sweep the inbox and tell me what needs me today.",
+      trigger: { kind: "schedule", schedule: "weekdays at 8:30" },
+    },
+    {
+      name: "Follow up on finished work",
+      instruction: "Tell me what the thread changed.",
+      trigger: { kind: "event", event: "thread_done" },
+    },
+  ])
+    here.routines.agentRoute("POST", "inbox", "routines", routine);
+  here.routines.heartbeats.set("inbox", {
+    enabled: true,
+    every_minutes: 30,
+    checklist: "Anything from the bank or the landlord?",
+    quiet: { start: "22:00", end: "07:00" },
+    time_zone: "Europe/Lisbon",
+    next_run: now + 12 * 60_000,
+    last_run: null,
+  });
   here.store(inbox.conversation, {
     type: "user_message",
     text: "Reply to the landlord that Thursday works for the plumber, any time after 2.",
@@ -131,6 +187,86 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
   here.store(notes.conversation, { type: "user_message", text: "Draft the notes for v0.0.21." });
   here.store(notes.conversation, { type: "reply_started", reply: "r-notes" });
   here.status(notes, "working", "Reading the merged pull requests");
+
+  // Flights watches fares: two replies in a run, then a reply that couldn't reach the endpoint.
+  const flights = here.addAgent({
+    id: "flights",
+    name: "Flights",
+    avatar: { kind: "generated", initials: "FL", color: "amber" },
+    last_activity: minutes(3),
+  });
+  here.store(flights.conversation, {
+    type: "user_message",
+    text: "Watch fares to Lisbon for the 14th.",
+  });
+  here.reply(flights, "Watching TAP and easyJet from the 14th.");
+  here.reply(flights, "Cheapest so far: €212 return on TAP, leaving 07:40.");
+  here.store(flights.conversation, { type: "user_message", text: "Check again now." });
+  here.store(flights.conversation, { type: "reply_started", reply: "r-flights" });
+  here.store(flights.conversation, {
+    type: "reply_failed",
+    reply: "r-flights",
+    text: "",
+    error:
+      "openrouter/anthropic/claude-sonnet-5.5: Web stream error for model 'anthropic/claude-sonnet-5.5'. Cause: error sending request for url (https://openrouter.ai/api/v1/chat/completions)",
+    kind: "unreachable",
+    endpoint: "openrouter",
+  });
+
+  // Garden learned how the person waters, and keeps its log in its files (ADR 0130).
+  here.store(garden.conversation, {
+    type: "user_message",
+    text: "Water the tomatoes at 6 tonight",
+  });
+  here.store(garden.conversation, { type: "reply_started", reply: "r-garden" });
+  here.store(garden.conversation, {
+    type: "step_finished",
+    reply: "r-garden",
+    text: "",
+    calls: [{ id: "g-skill", name: "skill_propose" }],
+  });
+  here.store(garden.conversation, { type: "tool_started", reply: "r-garden", call_id: "g-skill" });
+  here.store(garden.conversation, {
+    type: "tool_finished",
+    reply: "r-garden",
+    call_id: "g-skill",
+    content: "Proposed.",
+  });
+  here.store(garden.conversation, {
+    type: "step_finished",
+    reply: "r-garden",
+    text: "Set for 6pm. I'll skip it if more than 5mm of rain falls first.",
+  });
+  here.store(garden.conversation, {
+    type: "reply_finished",
+    reply: "r-garden",
+    text: "Set for 6pm. I'll skip it if more than 5mm of rain falls first.",
+  });
+  here.proposals.set("garden", [
+    {
+      id: "sp_garden",
+      call_id: "g-skill",
+      name: "watering",
+      description: "Plan when to water the garden from the forecast",
+      body: "# Watering\n\n1. Read tomorrow's forecast.\n2. Skip watering after more than 5mm of rain.\n3. Water in the evening, never at midday.\n",
+      why: "You told me twice not to water after rain.",
+      base: {
+        id: "skl_watering",
+        hash: "a",
+        manual: false,
+        description: "Plan when to water the garden from the forecast",
+        body: "# Watering\n\n1. Read tomorrow's forecast.\n2. Water in the evening.\n",
+      },
+      state: "open",
+      created_at: minutes(60 * 20),
+    },
+  ]);
+  here.files.set("garden", {
+    "log/2026-11.md": "# November\n\n- 11th: watered 6pm, 4L\n- 12th: skipped, 7mm rain\n",
+    "log/2026-10.md": "# October\n\n- 30th: watered 6pm, 5L\n",
+    "beds.md": "# Beds\n\nTomatoes: south bed\nBasil: pots by the door\n",
+    "forecast.json": '{"tomorrow": {"rain_mm": 2}}',
+  });
 
   const remote = running(server);
   remote.addAgent({
@@ -152,4 +288,69 @@ function running(daemon: FakeDaemon) {
   daemon.spade.status = { state: "ready", version: "0.6.0" };
   daemon.services.settings.write("spade.enabled", true);
   return new FakeSpadeApi(daemon.spade, () => Date.now());
+}
+
+/** A few apps from the catalogue, two of them connected and one signed out (ADR 0131). */
+function seedConnectors(spade: FakeSpadeApi) {
+  spade.connectors.catalogue.push(
+    {
+      id: "asana",
+      name: "Asana",
+      url: "https://mcp.asana.com/v2/mcp",
+      sign_in: ["oauth_client"],
+      notes:
+        "Asana does not register clients by itself: create an MCP app in Asana and enter its client ID and secret.",
+    },
+    {
+      id: "github",
+      name: "GitHub",
+      url: "https://api.githubcopilot.com/mcp/",
+      sign_in: ["token", "oauth_client"],
+      notes:
+        "A personal access token is simplest. Signing in needs a GitHub OAuth app you register.",
+    },
+    {
+      id: "linear",
+      name: "Linear",
+      url: "https://mcp.linear.app/mcp",
+      sign_in: ["oauth", "token"],
+      notes: "An API key also works.",
+    },
+    {
+      id: "notion",
+      name: "Notion",
+      url: "https://mcp.notion.com/mcp",
+      sign_in: ["oauth", "token"],
+      notes: "Workspace tokens are for Business and Enterprise plans.",
+    },
+    {
+      id: "sentry",
+      name: "Sentry",
+      url: "https://mcp.sentry.dev/mcp",
+      sign_in: ["oauth"],
+      notes: "",
+    },
+  );
+  spade.connectors.connectors.push(
+    {
+      id: "github",
+      name: "GitHub",
+      url: "https://api.githubcopilot.com/mcp/",
+      catalogue: "github",
+      sign_in: "token",
+      state: "connected",
+      tools: 41,
+    },
+    {
+      id: "notion",
+      name: "Notion",
+      url: "https://mcp.notion.com/mcp",
+      catalogue: "notion",
+      sign_in: "oauth",
+      state: "needs_reconnect",
+      account: "sam@example.com",
+      tools: 12,
+    },
+  );
+  spade.connectors.access.set("inbox", { all: false, connectors: ["notion"] });
 }

@@ -31,6 +31,10 @@ pub enum Status {
     Declined,
     /// Started and not finished.
     Running,
+    /// An `ask_user` question waiting for the person's next message.
+    Asked,
+    /// The person's message answering an `ask_user` question has arrived.
+    Answered,
 }
 
 /// The open turn's progress so far.
@@ -75,6 +79,26 @@ pub fn next_step(events: &[Event]) -> Next {
                 turn,
                 |k| matches!(k, Known::ApprovalRequested { call_id, .. } if call_id == &call.id),
             );
+            let question = turn.iter().position(|event| {
+                matches!(event, Event::Known(Known::QuestionAsked { call_id, .. }) if call_id == &call.id)
+            });
+            if let Some(at) = question {
+                let answered = turn[at..].iter().any(|event| {
+                    matches!(
+                        event,
+                        Event::Known(Known::UserMessage {
+                            from_agent: None,
+                            ..
+                        })
+                    )
+                });
+                let status = if answered {
+                    Status::Answered
+                } else {
+                    Status::Asked
+                };
+                return Pending { call, status };
+            }
             let status = match (started, answer, asked) {
                 (true, _, _) => Status::Running,
                 (false, Some(true), _) => Status::Allowed,
@@ -350,6 +374,7 @@ mod tests {
 
         for id in ["c1", "c2"] {
             events.push(Event::Known(Known::ToolFinished {
+                untrusted: false,
                 reply: "r1".into(),
                 call_id: id.into(),
                 name: "send_email".into(),
@@ -539,6 +564,7 @@ mod tests {
                 content: "late".into(),
                 is_error: false,
                 uncertain: false,
+                files: Vec::new(),
             }),
         ];
         assert!(!needs_reply(&events));

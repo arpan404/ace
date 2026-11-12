@@ -88,8 +88,8 @@ function bulkActions(
       icon: ArchiveIcon,
       danger: false,
       run: () => {
-        actions.archiveMany(entries);
-        selection.clear();
+        // Cancel on the question keeps the selection, as it does for Delete.
+        actions.archiveMany(entries, () => selection.clear());
       },
     },
     {

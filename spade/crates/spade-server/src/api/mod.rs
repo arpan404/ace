@@ -3,7 +3,16 @@
 
 mod agents;
 mod body;
+mod brains;
+mod connectors;
 mod endpoints;
+mod media;
+mod memory;
+mod oversight;
+mod routines;
+mod search;
+mod teams;
+mod workspace;
 
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -32,10 +41,6 @@ use crate::tools::{AceLink, GrantError};
 #[derive(Clone)]
 pub struct Closing(pub watch::Receiver<bool>);
 
-/// The largest message body: eight 3.75 MB images as base64, plus the text. Other routes keep the
-/// default limit.
-const MESSAGE_BODY: usize = 60 * 1024 * 1024;
-
 #[derive(Clone)]
 pub struct AppState {
     pub engine: Arc<Engine>,
@@ -44,6 +49,14 @@ pub struct AppState {
     pub keys: Option<KeyStore>,
     /// The connection to ace, when Spade knows where ace lives.
     pub ace: Option<Arc<AceLink>>,
+    /// Each bot's workspace folder (ADR 0130).
+    pub workspaces: Option<crate::workspace::Workspaces>,
+    /// Skill proposals and notes, when Spade has a skill library.
+    pub learning: Option<Arc<crate::learning::Learning>>,
+    /// The person's connected apps (ADR 0131).
+    pub connectors: Option<Arc<spade_connect::Connectors>>,
+    /// Web search's backends, whose settings the person changes (docs/design.md, Web search).
+    pub search: Option<Arc<spade_search::Search>>,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -74,11 +87,22 @@ pub fn router(state: AppState) -> Router {
                 .delete(endpoints::delete_model),
         )
         .route("/settings", put(endpoints::settings))
-        .route("/conversations/{id}/events", get(events))
         .route(
-            "/conversations/{id}/messages",
-            post(message).layer(DefaultBodyLimit::max(MESSAGE_BODY)),
+            "/agents/{id}/routines",
+            get(routines::list).post(routines::create),
         )
+        .route(
+            "/agents/{id}/heartbeat",
+            get(routines::heartbeat).put(routines::set_heartbeat),
+        )
+        .route(
+            "/routines/{id}",
+            get(routines::get)
+                .patch(routines::update)
+                .delete(routines::delete),
+        )
+        .route("/routines/{id}/run", post(routines::run))
+        .route("/conversations/{id}/events", get(events))
         .route("/conversations/{id}/stop", post(stop))
         .route("/conversations/{id}/approvals/{call_id}", post(approve))
         .route("/conversations/{id}/live", get(live))
@@ -86,6 +110,11 @@ pub fn router(state: AppState) -> Router {
         .route("/models", get(endpoints::models))
         .route("/images/{sha256}", get(image))
         .route("/keys/{endpoint}", put(set_key).delete(delete_key))
+        .route("/search", get(search::read).put(search::change))
+        .route(
+            "/search/brave-key",
+            put(search::set_brave_key).delete(search::delete_brave_key),
+        )
         .route("/ace", get(ace_state).put(set_grant).delete(forget_grant))
         .route(
             "/maintenance",
@@ -93,10 +122,18 @@ pub fn router(state: AppState) -> Router {
                 .post(begin_maintenance)
                 .delete(end_maintenance),
         )
+        .merge(connectors::routes())
+        .merge(brains::routes())
+        .merge(memory::routes())
+        .merge(oversight::routes())
+        .merge(workspace::routes())
+        .merge(media::routes())
+        .merge(teams::routes())
         .route_layer(middleware::from_fn_with_state(state.clone(), authorize))
         .with_state(state.clone());
     let open = Router::new()
         .route("/health", get(health))
+        .merge(connectors::callback_route())
         .with_state(state);
     Router::new()
         .merge(open)
@@ -136,20 +173,31 @@ async fn health(State(state): State<AppState>, Query(challenge): Query<Challenge
     Json(body).into_response()
 }
 
-async fn authorize(State(state): State<AppState>, request: Request, next: Next) -> Response {
+async fn authorize(State(state): State<AppState>, mut request: Request, next: Next) -> Response {
     let expected = format!("Bearer {}", state.token);
     let given = request
         .headers()
         .get("authorization")
         .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    if given.len() == expected.len()
+        .unwrap_or("")
+        .to_owned();
+    let token = given.len() == expected.len()
         && given
             .bytes()
             .zip(expected.bytes())
             .fold(0u8, |acc, (a, b)| acc | (a ^ b))
-            == 0
+            == 0;
+    // A routine's webhook carries the routine's own secret, which its route checks.
+    if !token
+        && request.method() == axum::http::Method::POST
+        && routines::is_run_route(request.uri().path())
+        && let Some(secret) = given.strip_prefix("Bearer ")
     {
+        let secret = routines::WebhookBearer(secret.to_owned());
+        request.extensions_mut().insert(secret);
+        return next.run(request).await;
+    }
+    if token {
         next.run(request).await
     } else {
         problem(StatusCode::UNAUTHORIZED, "missing or wrong token")
@@ -172,14 +220,16 @@ fn stored(event: &StoredEvent) -> Value {
     json!({ "seq": event.seq, "at": event.at_ms, "event": event.event.to_json() })
 }
 
-fn send_problem(error: &SendError) -> Response {
+pub(super) fn send_problem(error: &SendError) -> Response {
     let status = match error {
         SendError::NotFound => StatusCode::NOT_FOUND,
-        SendError::Disabled => StatusCode::CONFLICT,
-        SendError::Empty | SendError::TooLong | SendError::TooManyImages | SendError::Image(_) => {
-            StatusCode::BAD_REQUEST
-        }
-        SendError::OverCap => StatusCode::PAYMENT_REQUIRED,
+        SendError::Disabled | SendError::Group => StatusCode::CONFLICT,
+        SendError::Empty
+        | SendError::TooLong
+        | SendError::TooManyImages
+        | SendError::TooManyDocuments
+        | SendError::Image(_) => StatusCode::BAD_REQUEST,
+        SendError::OverCap | SendError::BotCapped(_) => StatusCode::PAYMENT_REQUIRED,
         SendError::Store(_) => StatusCode::INTERNAL_SERVER_ERROR,
     };
     problem(status, &error.to_string())
@@ -198,30 +248,6 @@ async fn list(State(state): State<AppState>) -> Response {
         )
         .into_response(),
         Err(error) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
-    }
-}
-
-#[derive(Deserialize)]
-struct Text {
-    #[serde(default)]
-    text: String,
-    /// Attached images, each as base64 (a `data:` URL is fine). The type is read from the bytes.
-    #[serde(default)]
-    images: Vec<Upload>,
-}
-
-#[derive(Deserialize)]
-struct Upload {
-    data: String,
-}
-
-impl Text {
-    fn images(&self) -> Result<Vec<Vec<u8>>, Box<Response>> {
-        self.images
-            .iter()
-            .map(|upload| crate::images::decode(&upload.data))
-            .collect::<Result<_, _>>()
-            .map_err(|error| Box::new(problem(StatusCode::BAD_REQUEST, &error.to_string())))
     }
 }
 
@@ -257,21 +283,6 @@ async fn events(
     }
 }
 
-async fn message(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-    Json(body): Json<Text>,
-) -> Response {
-    let images = match body.images() {
-        Ok(images) => images,
-        Err(response) => return *response,
-    };
-    match state.engine.send(&id, &body.text, &images) {
-        Ok(()) => StatusCode::ACCEPTED.into_response(),
-        Err(error) => send_problem(&error),
-    }
-}
-
 async fn stop(State(state): State<AppState>, Path(id): Path<String>) -> Response {
     match state.engine.stop(&id) {
         Ok(true) => StatusCode::ACCEPTED.into_response(),
@@ -301,7 +312,7 @@ async fn compact(
         Err(error @ (CompactError::Busy | CompactError::Nothing)) => {
             problem(StatusCode::CONFLICT, &error.to_string())
         }
-        Err(error @ CompactError::OverCap) => {
+        Err(error @ (CompactError::OverCap | CompactError::BotCapped(_))) => {
             problem(StatusCode::PAYMENT_REQUIRED, &error.to_string())
         }
         Err(CompactError::Failed(error)) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error),
@@ -373,6 +384,7 @@ async fn live(
     first.push(status_event(
         subscription.state,
         subscription.status.as_deref(),
+        subscription.waiting_member.as_ref(),
     ));
     let frames = BroadcastStream::new(subscription.frames)
         // A subscriber that falls behind is closed; it reconnects with its last seq.
@@ -392,7 +404,15 @@ async fn live(
                         .event("delta")
                         .data(json!({ "reply": reply, "text": text }).to_string()),
                 ),
-                Ok(Frame::Status { state, status }) => Some(status_event(state, status.as_deref())),
+                Ok(Frame::Status {
+                    state,
+                    status,
+                    waiting_member,
+                }) => Some(status_event(
+                    state,
+                    status.as_deref(),
+                    waiting_member.as_ref(),
+                )),
                 _ => None,
             };
             std::future::ready(Some(event))
@@ -432,10 +452,17 @@ async fn image(State(state): State<AppState>, Path(sha256): Path<String>) -> Res
 }
 
 /// What the agent is doing now: `{"state","status"}`. Older clients ignore the event.
-fn status_event(state: crate::engine::State, status: Option<&str>) -> SseEvent {
-    SseEvent::default()
-        .event("status")
-        .data(json!({ "state": state.name(), "status": status }).to_string())
+/// A `status` frame; in a group's stream it names the member that waits for the person.
+fn status_event(
+    state: crate::engine::State,
+    status: Option<&str>,
+    waiting: Option<&spade_core::event::GroupBot>,
+) -> SseEvent {
+    let mut data = json!({ "state": state.name(), "status": status });
+    if let Some(bot) = waiting {
+        data["waiting_member"] = json!({ "id": bot.id, "name": bot.name, "machine": bot.machine });
+    }
+    SseEvent::default().event("status").data(data.to_string())
 }
 
 #[derive(Deserialize)]

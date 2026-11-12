@@ -47,6 +47,8 @@ export class TurnTree {
   private readonly stretches = new TurnStretches();
   private rootId: string | undefined;
   private readonly latestEnd = new Map<string, number>();
+  /** Working children with no spawn item (ace's delegated threads), held by the current turn. */
+  private readonly unlinked = new Set<string>();
   private observed = false;
   version = 0;
 
@@ -61,6 +63,13 @@ export class TurnTree {
         if (keys === "all" || this.rootId !== reader.thread?.rootAgentId) return this.reset();
         const affected = new Set<string>();
         if (keys.has("thread") && this.rootId) affected.add(`agent:${this.rootId}`);
+        // A new root turn takes over the unlinked children it now waits on.
+        if (this.unlinked.size)
+          for (const key of keys)
+            if (key === "thread" || key.startsWith("run:")) {
+              for (const child of this.unlinked) affected.add(child);
+              break;
+            }
         const ancestryKeys = new Set(keys);
         for (const key of keys) {
           if (!key.startsWith("run:")) continue;
@@ -101,6 +110,7 @@ export class TurnTree {
     this.endOf.clear();
     this.ends.clear();
     this.latestEnd.clear();
+    this.unlinked.clear();
     this.unknown = this.agents = this.attention = 0;
     const runs = this.reader.runIds?.() ?? [];
     for (const id of runs) {
@@ -187,6 +197,17 @@ export class TurnTree {
       const spawn = owner?.spawnedBy ? ancestry.item(owner.spawnedBy) : undefined;
       return canonical(rootRunOf(ancestry, spawn?.runId)?.id);
     };
+    /**
+     * The root's current turn. A child ace delegated has no spawn item, and the parent can hand
+     * it more work in any later turn: while it works, the root's current turn waits on it. Held
+     * by no turn, it would hold every turn open and unfold every settled "Worked for" in view.
+     */
+    const currentTurn = () => {
+      const runId = reader.thread?.live?.rootRunId ?? this.stretches.latest();
+      if (runId) watch.add(`run:${runId}`);
+      return canonical(runId);
+    };
+    let unlinked = false;
     const id = key.slice(key.indexOf(":") + 1);
     let present = false;
     let next: Contribution | undefined;
@@ -229,12 +250,14 @@ export class TurnTree {
         };
       }
       // A child queued for its parent's run slot keeps the turn open, but isn't working yet.
-      if (agent && !root && isRunning(agent))
+      if (agent && !root && isRunning(agent)) {
+        unlinked = !agent.spawnedBy;
         next = {
-          turn: ownerTurn(id),
+          turn: unlinked ? currentTurn() : ownerTurn(id),
           agent: !(agent.status.state === "blocked" && agent.status.on === "queue"),
           needsYou: agent.status.state === "blocked" && agent.status.on === "human",
         };
+      }
     } else if (key.startsWith("task:")) {
       const task = reader.task(id);
       present = !!task;
@@ -279,6 +302,8 @@ export class TurnTree {
         entries.add(key);
       }
     } else this.watched.delete(key);
+    if (unlinked) this.unlinked.add(key);
+    else this.unlinked.delete(key);
     this.updateEnd(key, ended);
     const previous = this.entries.get(key);
     if (

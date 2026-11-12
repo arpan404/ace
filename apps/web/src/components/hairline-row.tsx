@@ -140,7 +140,7 @@ export function HairlineRow(props: {
         flashing && "bg-accent",
       )}
     >
-      <div className="border-b border-border-soft group-last/row:border-b-0 group-hover/row:border-transparent group-focus-within/row:border-transparent">
+      <div className="border-b border-border-soft last-row:border-b-0 group-hover/row:border-transparent group-focus-within/row:border-transparent">
         <div
           className={cn(
             "flex min-h-13 items-center gap-3 py-2.5",

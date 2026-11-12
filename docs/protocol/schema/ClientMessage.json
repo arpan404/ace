@@ -1059,6 +1059,12 @@
       "$ref": "https://ace.local/protocol/v1/SpadeGrantRevoke.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/SpadeMachinesRequest.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeRemoteRequest.json"
+    },
+    {
       "properties": {
         "label": {
           "maxLength": 128,
@@ -2479,6 +2485,14 @@
           "$ref": "https://ace.local/protocol/v1/DeviceId.json"
         },
         "flowControl": {
+          "items": {
+            "maxLength": 32,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "type": "array"
+        },
+        "framing": {
           "items": {
             "maxLength": 32,
             "type": "string"

@@ -6,6 +6,7 @@ import { createDevThread } from "../src/commands.ts";
 import { Store } from "../src/store.ts";
 import { sidebarPageStorage } from "../src/sidebar-page-storage.ts";
 import { confirmThreadRows } from "../src/thread-row-trust.ts";
+import { openSidebarColumns } from "../src/sidebar-columns.ts";
 import {
   confirmThreadRow,
   decodeThreadRow,
@@ -59,6 +60,8 @@ const perOpenMs = median(
   }),
 );
 confirmThreadRows(db, -1);
+// The sidebar's facts table, in the temp schema too (sidebar-columns.ts).
+openSidebarColumns(db, "temp");
 const confirmed = Number(
   db.prepare("SELECT COUNT(*) AS n FROM thread_row_trust WHERE canonical = 1").get()?.n,
 );

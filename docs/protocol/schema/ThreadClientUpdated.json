@@ -43,7 +43,15 @@
           "type": "boolean"
         },
         "host": {
-          "const": "spade",
+          "enum": [
+            "spade",
+            "spade-bot"
+          ],
+          "type": "string"
+        },
+        "hostKey": {
+          "maxLength": 128,
+          "minLength": 1,
           "type": "string"
         },
         "listOrder": {

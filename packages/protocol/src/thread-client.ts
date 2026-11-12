@@ -264,6 +264,12 @@ export const ThreadRunMetadata = z.object({
     .max(8)
     .optional(),
   /**
+   * How many background shells `watching` would list without its limit of 8: the exact count of
+   * named shells still running, kept as each starts and ends. Archiving a done thread stops them
+   * (ADR 0109), so the question asked first counts these, not the shortened list.
+   */
+  watchingCount: z.number().int().nonnegative().optional(),
+  /**
    * Requests still waiting on the person, oldest first, at most the newest 8, with what each
    * asks for: "Waiting for your answer" rather than "Needs you".
    */
@@ -321,9 +327,12 @@ export const ThreadClientFields = ThreadOrganization.extend({
   /**
    * Set on a thread the daemon holds for one of its own processes (ADR 0121): Spade's host
    * thread, which Spade's ace tools act as. No provider ever runs it, and no list shows it; the
-   * threads it delegates are ordinary threads with it as their parent.
+   * threads it delegates are ordinary threads with it as their parent. `spade-bot` is one Spade
+   * bot's hidden provider session (ADR 0133): it runs, but only Spade's turns, never a client's.
    */
-  host: z.literal("spade").optional(),
+  host: z.enum(["spade", "spade-bot"]).optional(),
+  /** The Spade bot a `spade-bot` thread thinks for. */
+  hostKey: z.string().min(1).max(128).optional(),
 });
 export type ThreadClientFields = z.infer<typeof ThreadClientFields>;
 export const ThreadClientUpdated = z.object({

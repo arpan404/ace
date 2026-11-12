@@ -26,6 +26,8 @@ export interface SpadeView {
   status: string | undefined;
   /** Approvals waiting on the person, oldest first, each with its sentence. */
   approvals: readonly (SpadeApproval & { sentence: string })[];
+  /** The bot asked the person a question and waits for their next message. */
+  asking: boolean;
 }
 
 export function spadeView(state: SpadeConversationState): SpadeView {
@@ -40,6 +42,8 @@ export function spadeView(state: SpadeConversationState): SpadeView {
     key: message.key,
     text: message.text,
     images: message.images,
+    ...(message.documents ? { documents: message.documents } : {}),
+    ...(message.voice ? { voice: message.voice } : {}),
     pending: true,
   }));
   return {
@@ -51,10 +55,11 @@ export function spadeView(state: SpadeConversationState): SpadeView {
     answering: reply !== undefined,
     busy:
       reply !== undefined || approvals.length > 0 || state.running.size > 0 || state.jobs.size > 0,
-    working: working(state, reply?.startedAt, approvals.length > 0),
+    working: working(state, reply?.startedAt, approvals.length > 0 || state.question !== undefined),
     // Its words only while anything is open: the line goes when the reply ends.
     status: reply !== undefined || state.jobs.size > 0 ? state.status : undefined,
     approvals,
+    asking: state.question !== undefined,
   };
 }
 

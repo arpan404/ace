@@ -4,7 +4,11 @@ import type { EngineClock } from "./actor.ts";
 import type { Recovery } from "./recovery.ts";
 import type { ThreadId } from "@ace/protocol";
 import { lostWork } from "./lost-work.ts";
-import { settleSessionBoundTasks, threadsWithOpenTasks } from "./session-bound-tasks.ts";
+import {
+  settleOrphanedTasks,
+  settleSessionBoundTasks,
+  threadsWithOpenTasks,
+} from "./session-bound-tasks.ts";
 import { skippableAtStartup } from "./startup-skip.ts";
 import { restartDecision, restartNoticeText, type RestartFacts } from "./restart-resume.ts";
 /** Startup is a cold pass over stored thread headers and outstanding sends. */
@@ -210,14 +214,18 @@ export function recoverEngine(
     );
   }
   // No provider process survives a restart: work that lived inside one has stopped, in any
-  // thread, settled or not.
+  // thread, settled or not. Work still marked running is lost: a done thread that left
+  // commands running (ADR 0109), which the pass above never visits, must not read them as
+  // running forever. Cursor SDK work is reconciled by its checkpoints instead.
   for (const id of threadsWithOpenTasks(repo))
     isolated(id, skip, () =>
       repo.store.atomic(() => {
         if (repo.cleaning(id)) return;
-        const state = repo.requireState(id);
-        const stale = settleSessionBoundTasks(repo, state);
-        if (stale.length) repo.apply(id, stale, clock.now());
+        const bound = settleSessionBoundTasks(repo, repo.requireState(id));
+        if (bound.length) repo.apply(id, bound, clock.now());
+        if (repo.backend(id) === "cursor-sdk") return;
+        const lost = settleOrphanedTasks(repo.requireState(id));
+        if (lost.length) repo.apply(id, lost, clock.now());
       }),
     );
   for (const intent of repo.pending.headers()) {
@@ -225,6 +233,12 @@ export function recoverEngine(
       repo.store.atomic(() => {
         if (repo.cleaning(intent.threadId)) {
           fail(intent, "Retired for thread deletion");
+          return;
+        }
+        // A Spade bot's session (ADR 0133): Spade's turn ended with the restart and Spade sends
+        // the next one itself; nothing here carries on or replays.
+        if (repo.store.getThread(intent.threadId)?.host === "spade-bot") {
+          fail(intent, "Spade sends this bot's turns again itself.");
           return;
         }
         if (repo.store.getThread(intent.threadId)?.continuation) {
@@ -287,6 +301,11 @@ export function recoverEngine(
     isolated(state.threadId, skip, () =>
       repo.store.atomic(() => {
         if (repo.cleaning(state.threadId)) return;
+        if (repo.store.getThread(state.threadId)?.host === "spade-bot") {
+          recovery.captures.take(state.threadId);
+          recovery.discard(state.threadId);
+          return;
+        }
         // Each capture informs this one decision; taking it in the same transaction means a
         // crash before here leaves it for the next start.
         const capture = recovery.captures.take(state.threadId);

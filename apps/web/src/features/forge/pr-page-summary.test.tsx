@@ -252,7 +252,8 @@ test("Merge offers only the methods the repository allows, beside the button", a
   // Squash isn't allowed here, so the merge doesn't offer it.
   expect(await page.findByRole("button", { name: "Merge" }, { timeout: 10_000 })).toBeTruthy();
   await userEvent.click(page.getByRole("button", { name: /^Merge method:/ }));
-  const choices = screen.getAllByRole("menuitemradio").map((item) => item.textContent);
+  // Base UI opens a menu a moment after the press, so wait for its choices.
+  const choices = (await screen.findAllByRole("menuitemradio")).map((item) => item.textContent);
   expect(choices).toEqual(["Create a merge commit", "Rebase and merge"]);
   await userEvent.click(screen.getByRole("menuitemradio", { name: "Rebase and merge" }));
   expect(await page.findByRole("button", { name: "Rebase and merge" })).toBeTruthy();

@@ -49,8 +49,13 @@ it("lists devices within a linear SQLite row-read budget", () => {
     });
     // Meter the real SQLite edge. Repeated point lookups through this view
     // must revisit rows, even if every lookup statement was prepared earlier.
+    // The view carries every column of the real table, so it keeps up as the table grows.
+    const columns = db
+      .prepare("SELECT name FROM pragma_table_info('devices') WHERE name != 'id'")
+      .all()
+      .map((row) => String(row.name));
     db.exec(
-      "ALTER TABLE devices RENAME TO metered_devices; CREATE VIEW devices AS SELECT read_device_id(id) AS id, name, token_hash, scopes, created_at, last_seen_at, revoked_at FROM metered_devices",
+      `ALTER TABLE devices RENAME TO metered_devices; CREATE VIEW devices AS SELECT read_device_id(id) AS id, ${columns.join(", ")} FROM metered_devices`,
     );
     expect(store.devices.list()).toEqual(devices);
   } finally {

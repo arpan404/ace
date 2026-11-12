@@ -14,12 +14,20 @@ export const maxSpadeResponseBytes = 1024 * 1024;
 export const maxSpadeImageBytes = 5 * 1024 * 1024;
 /**
  * Largest request body for `POST /v1/conversations` and `POST /v1/conversations/{id}/messages`,
- * sent in parts: room for 8 images of 5 MiB as base64 in JSON. Every other route keeps
- * `maxSpadeRequestBytes`.
+ * sent in parts: 8 documents of 32 MB and 8 images as base64 in JSON, and a recording, as Spade
+ * takes it (`spade/docs/media.md`). Every other route keeps `maxSpadeRequestBytes`.
  */
-export const maxSpadeUploadBytes = 56 * 1024 * 1024;
+export const maxSpadeUploadBytes = 400 * 1024 * 1024;
+/** Largest request body for `POST /v1/transcriptions`: a 25 MB recording as base64 in JSON. */
+export const maxSpadeTranscriptionBytes = 36 * 1024 * 1024;
+/** Largest answer from `GET /v1/documents/{sha256}`: one stored document. */
+export const maxSpadeDocumentBytes = 32 * 1024 * 1024;
+/** Largest answer from `GET /v1/audio/{sha256}`: one stored recording. */
+export const maxSpadeAudioBytes = 25 * 1024 * 1024;
 /** Characters in one `spade.http.part`, so each fits every transport's message limit. */
 export const maxSpadePartChars = 192 * 1024;
+/** Most parts in one upload: room for `maxSpadeUploadBytes` at `maxSpadePartChars` each. */
+export const maxSpadeParts = 4096;
 /**
  * Characters of an answer's body in one message: a longer answer comes in pieces of this size,
  * the first in `spade.http.result` and the rest read with `spade.http.read`.
@@ -37,6 +45,12 @@ export const SpadeStatus = z.object({
   version: z.string().max(64).optional(),
   /** Why Spade is off or failed, in words a person can read. */
   reason: z.string().max(1024).optional(),
+  /**
+   * While Spade is ready but still setting up: why, in Spade's few words (`waiting for the
+   * keychain`), and the platform it runs on (`darwin`, `linux`, `win32`), so clients can say
+   * what the person should look for.
+   */
+  setup: z.object({ reason: z.string().max(256), platform: z.string().max(32) }).optional(),
   /**
    * Spade's host thread, once the daemon has made it: the parent of every thread Spade's tools
    * delegate. `busy` while any thread under it is still working or waiting on a person.
@@ -103,7 +117,7 @@ export const SpadeHttpRequest = z.object({
   /** Sent to Spade as `content-type`; `application/json` by default. */
   contentType: z.string().min(1).max(256).optional(),
   /** The body follows in this many parts instead of `body`. */
-  parts: z.number().int().min(1).max(1024).optional(),
+  parts: z.number().int().min(1).max(maxSpadeParts).optional(),
 });
 export type SpadeHttpRequest = z.infer<typeof SpadeHttpRequest>;
 
@@ -114,7 +128,11 @@ export type SpadeHttpRequest = z.infer<typeof SpadeHttpRequest>;
 export const SpadeHttpPart = z.object({
   type: z.literal("spade.http.part"),
   requestId,
-  index: z.number().int().min(0).max(1023),
+  index: z
+    .number()
+    .int()
+    .min(0)
+    .max(maxSpadeParts - 1),
   body: z.string().max(maxSpadePartChars),
 });
 export type SpadeHttpPart = z.infer<typeof SpadeHttpPart>;

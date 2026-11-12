@@ -9,6 +9,8 @@ Date: 2026-11-11. How a turn runs, as built in `spade-core` (decisions, no I/O) 
 | -------------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `user_message`                   | `text`, `context?`                                                       | `context` (time, memories) is fixed when stored, so the prompt rebuilds to the same bytes                                                                                           |
 | `skills_indexed`                 | `text`                                                                   | The skill index, fixed at the first turn                                                                                                                                            |
+| `memory_indexed`                 | `text`                                                                   | The notes index for the cached top, fixed before the first model call and after each compaction (memory.md)                                                                         |
+| `question_asked`                 | `reply`, `call_id`, `question`                                           | `ask_user` is waiting for the person's next message (memory.md)                                                                                                                     |
 | `step_finished`                  | `reply`, `text`, `calls[]`, `thoughts[]`, `usage`, `cost_micros`, `seen` | One model call ended. `thoughts` are kept whole (signed and redacted thinking, `reasoning_content`) and sent back as they came; `seen` is how many events its prompt was built from |
 | `approval_requested`             | `reply`, `call_id`, `name`, `arguments`                                  | The gate is waiting on the person                                                                                                                                                   |
 | `approval_answered`              | `reply`, `call_id`, `allowed`, `always`                                  | `always` allows that tool for the rest of the conversation                                                                                                                          |
@@ -46,10 +48,23 @@ turn's total.
   new one. Stop cancels jobs and records them stopped without starting a turn; after a restart each
   lost job is delivered as "unknown outcome". The conversation list shows `jobs` running, so a
   conversation never reads as idle while one is out.
+- **Sending a step again:** a model step that fails before anything streamed, because the
+  request could not be sent or the endpoint answered `408`, `429` or `5xx`, is sent again: three
+  tries in all, waiting 2 s and then 6 s, or the endpoint's `retry-after` when it gives one, and
+  never more than 20 s of waiting in all (an endpoint asking for longer waits only what is left
+  of that). The
+  status line reads "Retrying" meanwhile; Stop and a pause end the wait. A refused request was
+  never billed, so it costs nothing; only the call that answered is paid for. Once anything has
+  streamed, or the endpoint answered at all (a `200` whose body was then cut or unreadable), the
+  step is never sent again: it may have been billed, so it is paid for as an estimate and fails
+  or is interrupted as below. Other
+  refusals (`400`, `401`, a missing model) fail at once.
 - **Stop** cancels the model stream and running tools; calls left without a result are answered
   "not run" in later prompts.
 - **Limits:** 30 steps, $2 per turn, the daily cap; each ends the turn with `reply_failed` and a
-  reason.
+  reason. A bot at its own daily or monthly cap starts no model call: the turn closes and the bot
+  says so once ([oversight.md](oversight.md)). With the model review on, a write the gate would run
+  is judged by a second model first, which can only make it ask.
 - **Restart:** a turn cut off mid-stream or mid-tool by a crash closes as `reply_interrupted`; a
   turn only waiting for an approval resumes, and so does a paused one (below).
 - **Pausing** (docs/ace-integration.md, "Updates" and "Stop"): while admission is closed, messages
@@ -64,7 +79,9 @@ turn's total.
 
 Spade's own tools are always offered in full, in name order: `web_search` (SearXNG, then Brave),
 `web_fetch` (one page as text, a window at a time, refusing local and private addresses),
-`todo`, and, when Spade knows where ace is (`SPADE_ACE_HOME`), `skill_search` and `skill_load`
+`todo`, `research` (a background job that reads many sources and writes a cited report,
+[oversight.md](oversight.md)), the workspace tools and `shell` ([workspace.md](workspace.md)), and, when Spade knows where
+ace is (`SPADE_ACE_HOME`), `skill_search`, `skill_load`, `skill_propose` and `skill_feedback`
 (they say ace is away while it is). Output from `web_search`,
 `web_fetch` and most of ace's tools is untrusted, so a write later in that turn asks.
 
@@ -74,6 +91,10 @@ and can change while Spade runs. All of them are deferred: the model finds them 
 prompt top stays valid. Their risk comes from their annotations (unlabelled means write); ace's
 `wait` runs as a background job. When every search backend fails and ace is there, `web_search`
 tells the model to have an ace agent search on the cheapest model the person has.
+
+Connectors (the person's apps through their own remote MCP servers, [connectors.md](connectors.md))
+are offered the same way: deferred, named `<connector>__<tool>`, risk from their annotations,
+output untrusted, and only to bots the person allowed them.
 
 Each conversation gets a skill index (up to 40 skills by name, manual ones left out) frozen into
 its instructions before its first model call; skills added later are found with `skill_search`.

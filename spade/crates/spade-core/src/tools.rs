@@ -15,6 +15,10 @@ pub enum Risk {
     Read,
     /// Changes something the person may want to check first.
     Write,
+    /// Changes only the bot's own notes (ADR 0128): runs, except while the prompt shows an
+    /// untrusted event since the last compaction, from any turn, since a note outlives the turn.
+    /// With only a tainted summary in view, saves and rewrites become suggestions (memory.md).
+    Memory,
     /// Deletes, sends money or cannot be undone.
     Destructive,
 }
@@ -34,6 +38,9 @@ pub struct ToolDef {
 }
 
 pub const TOOL_SEARCH: &str = "tool_search";
+/// What `tool_search` answers when it found nothing: the only search result that carries no
+/// text from a tool source.
+pub const NO_TOOLS_MATCHED: &str = "No tools matched. Try other words.";
 pub const CALL_TOOL: &str = "call_tool";
 
 /// Every tool Spade can run, by name.
@@ -125,7 +132,7 @@ impl Registry {
 /// The text a `tool_search` result carries: each tool's name, description and input schema.
 pub fn describe(found: &[&ToolDef]) -> String {
     if found.is_empty() {
-        return "No tools matched. Try other words.".to_owned();
+        return NO_TOOLS_MATCHED.to_owned();
     }
     let mut out = String::from("Call these with call_tool, giving the name and the arguments.\n");
     for tool in found {

@@ -1,0 +1,149 @@
+{
+  "checked": "2026-11-12",
+  "connectors": [
+    {
+      "id": "asana",
+      "name": "Asana",
+      "url": "https://mcp.asana.com/v2/mcp",
+      "sign_in": ["oauth_client"],
+      "notes": "Asana requires a client secret, which Spade never ships, so you register your own MCP app in Asana and enter its client ID and secret. Admins can block or allow each app.",
+      "source": "https://developers.asana.com/docs/integrating-with-asanas-mcp-server"
+    },
+    {
+      "id": "atlassian",
+      "name": "Atlassian",
+      "url": "https://mcp.atlassian.com/v2/mcp",
+      "sign_in": ["oauth", "token"],
+      "notes": "Jira and Confluence. An admin decides whether API tokens may be used.",
+      "source": "https://support.atlassian.com/atlassian-rovo-mcp-server/docs/getting-started-with-the-atlassian-remote-mcp-server/"
+    },
+    {
+      "id": "box",
+      "name": "Box",
+      "url": "https://mcp.box.com",
+      "sign_in": ["oauth_client"],
+      "notes": "Box requires a client secret, which Spade never ships: a Box admin turns the server on and creates its client ID and secret in the Admin Console.",
+      "source": "https://developer.box.com/guides/box-mcp/remote/"
+    },
+    {
+      "id": "canva",
+      "name": "Canva",
+      "url": "https://api.canva.com/connect/v1/mcp",
+      "sign_in": ["oauth_client"],
+      "notes": "Canva requires a client secret, which Spade never ships, so you need a client ID and secret from Canva's Developer Portal with Canva MCP switched on. Some tools need Canva Pro.",
+      "source": "https://www.canva.dev/docs/apps/mcp/access/"
+    },
+    {
+      "id": "cloudflare",
+      "name": "Cloudflare",
+      "url": "https://mcp.cloudflare.com/mcp",
+      "sign_in": ["oauth", "token"],
+      "notes": "Your Cloudflare account through one server. A user or account API token also works.",
+      "source": "https://github.com/cloudflare/mcp-server-cloudflare"
+    },
+    {
+      "id": "github",
+      "name": "GitHub",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "sign_in": ["token", "oauth_client"],
+      "notes": "A personal access token always works. Sign in shows a code to enter on GitHub once Spade's own GitHub app is registered. Organisations may need to approve the app, and those on Copilot Business or Enterprise must allow MCP servers.",
+      "source": "https://github.com/github/github-mcp-server"
+    },
+    {
+      "id": "hubspot",
+      "name": "HubSpot",
+      "url": "https://mcp.hubspot.com",
+      "sign_in": ["oauth_client"],
+      "notes": "HubSpot requires a client secret, which Spade never ships, so you create an MCP connector in HubSpot (Development, then MCP Connectors) for the client ID and secret.",
+      "source": "https://developers.hubspot.com/docs/apps/developer-platform/build-apps/integrate-with-the-remote-hubspot-mcp-server"
+    },
+    {
+      "id": "huggingface",
+      "name": "Hugging Face",
+      "url": "https://huggingface.co/mcp",
+      "sign_in": ["token"],
+      "notes": "Uses a Hugging Face access token.",
+      "source": "https://github.com/huggingface/hf-mcp-server"
+    },
+    {
+      "id": "intercom",
+      "name": "Intercom",
+      "url": "https://mcp.intercom.com/mcp",
+      "sign_in": ["oauth", "token"],
+      "notes": "US workspaces. EU workspaces add the server by URL: https://mcp.eu.intercom.com/mcp",
+      "source": "https://developers.intercom.com/docs/guides/mcp"
+    },
+    {
+      "id": "linear",
+      "name": "Linear",
+      "url": "https://mcp.linear.app/mcp",
+      "sign_in": ["oauth", "token"],
+      "notes": "An API key also works.",
+      "source": "https://linear.app/docs/mcp"
+    },
+    {
+      "id": "neon",
+      "name": "Neon",
+      "url": "https://mcp.neon.tech/mcp",
+      "sign_in": ["oauth", "token"],
+      "notes": "An API key also works.",
+      "source": "https://neon.com/docs/ai/neon-mcp-server"
+    },
+    {
+      "id": "notion",
+      "name": "Notion",
+      "url": "https://mcp.notion.com/mcp",
+      "sign_in": ["oauth", "token"],
+      "notes": "Workspace tokens are for Business and Enterprise plans; a workspace owner creates them.",
+      "source": "https://developers.notion.com/docs/get-started-with-mcp"
+    },
+    {
+      "id": "paypal",
+      "name": "PayPal",
+      "url": "https://mcp.paypal.com/http",
+      "sign_in": ["oauth"],
+      "notes": "Live accounts. The sandbox server is https://mcp.sandbox.paypal.com/http",
+      "source": "https://developer.paypal.com/tools/mcp-server/"
+    },
+    {
+      "id": "sentry",
+      "name": "Sentry",
+      "url": "https://mcp.sentry.dev/mcp",
+      "sign_in": ["oauth"],
+      "notes": "",
+      "source": "https://mcp.sentry.dev"
+    },
+    {
+      "id": "square",
+      "name": "Square",
+      "url": "https://mcp.squareup.com/mcp",
+      "sign_in": ["oauth"],
+      "notes": "Production data only.",
+      "source": "https://developer.squareup.com/docs/mcp"
+    },
+    {
+      "id": "stripe",
+      "name": "Stripe",
+      "url": "https://mcp.stripe.com",
+      "sign_in": ["oauth", "token"],
+      "notes": "For a key, use an agent API key: from December 2026 Stripe refuses plain secret keys here.",
+      "source": "https://docs.stripe.com/mcp"
+    },
+    {
+      "id": "supabase",
+      "name": "Supabase",
+      "url": "https://mcp.supabase.com/mcp",
+      "sign_in": ["oauth", "token"],
+      "notes": "A personal access token also works.",
+      "source": "https://supabase.com/docs/guides/getting-started/mcp"
+    },
+    {
+      "id": "webflow",
+      "name": "Webflow",
+      "url": "https://mcp.webflow.com/mcp",
+      "sign_in": ["oauth"],
+      "notes": "One workspace per sign-in; sign in again to switch.",
+      "source": "https://developers.webflow.com/mcp/reference/getting-started"
+    }
+  ]
+}

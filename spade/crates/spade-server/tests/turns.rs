@@ -33,16 +33,17 @@ async fn a_message_gets_a_reply_that_is_stored_costed_and_titled() -> Result {
         vec![
             "user_message",
             "reply_started",
+            "memory_indexed",
             "step_finished",
             "reply_finished",
             "renamed"
         ]
     );
-    let finished = &events[3];
+    let finished = &events[4];
     assert_eq!(finished["text"], "Hello there!");
     // 11 input × $2/M + 7 output × $10/M = 22 + 70 = 92 micros.
     assert_eq!(finished["cost_micros"], 92);
-    assert_eq!(events[4]["title"], "Saying hello");
+    assert_eq!(events[5]["title"], "Saying hello");
     Ok(())
 }
 
@@ -62,10 +63,11 @@ async fn a_read_tool_runs_and_its_result_reaches_the_next_model_call() -> Result
     let events = spade.wait_for(&id, "reply_finished").await?;
 
     assert_eq!(
-        types(&events)[..7],
+        types(&events)[..8],
         [
             "user_message",
             "reply_started",
+            "memory_indexed",
             "step_finished",
             "tool_started",
             "tool_finished",
@@ -372,7 +374,23 @@ async fn a_deferred_tool_is_found_with_tool_search_and_run_through_call_tool() -
         .unwrap_or_default();
     assert_eq!(
         offered,
-        vec!["bot_message", "bots_list", "tool_search", "call_tool"],
+        vec![
+            "ask_user",
+            "bot_message",
+            "bots_list",
+            "group_ask",
+            "history_read",
+            "history_search",
+            "memory_forget",
+            "memory_save",
+            "memory_search",
+            "memory_update",
+            "routine_delete",
+            "routine_save",
+            "routines_list",
+            "tool_search",
+            "call_tool"
+        ],
         "deferred tools are not sent"
     );
     let later: Vec<String> = spade.fake.seen()[2].body["tools"]
@@ -773,6 +791,61 @@ async fn model_calls_identify_themselves_as_this_spade_version() -> Result {
     assert_eq!(
         agent,
         Some(format!("spade/{}", spade_server::home::VERSION))
+    );
+    Ok(())
+}
+
+/// A tool with a bug: every call panics.
+struct Panicking;
+
+impl Tool for Panicking {
+    fn def(&self) -> spade_core::tools::ToolDef {
+        spade_core::tools::ToolDef {
+            spec: spade_models::ToolSpec {
+                name: "broken".to_owned(),
+                description: "Always panics.".to_owned(),
+                schema: json!({ "type": "object" }),
+            },
+            risk: Risk::Read,
+            untrusted_output: false,
+            deferred: false,
+            background: false,
+        }
+    }
+
+    fn run(&self, _key: &str, _arguments: serde_json::Value) -> spade_server::tools::ToolFuture {
+        Box::pin(async { panic!("a bug in a tool") })
+    }
+}
+
+#[tokio::test]
+async fn a_turn_that_panics_closes_as_failed_and_the_next_message_is_answered() -> Result {
+    let spade = Spade::start(
+        vec![
+            Script::reply("").call("b1", "broken", json!({})),
+            Script::reply("").plain(r#"{"title":"Broken"}"#),
+            Script::reply("Still here."),
+        ],
+        vec![Arc::new(Panicking)],
+    )
+    .await?;
+    let id = spade.ask("Use the broken tool").await?;
+    let events = spade.wait_for(&id, "reply_failed").await?;
+    let failed = events
+        .iter()
+        .find(|e| e["type"] == "reply_failed")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(failed["error"], "Spade ran into an internal error");
+    spade.wait_for(&id, "renamed").await?;
+    spade.say(&id, "Are you there?").await?;
+    let events = spade.wait_for(&id, "reply_finished").await?;
+    assert!(
+        events
+            .iter()
+            .any(|e| e["type"] == "reply_finished" && e["text"] == "Still here."),
+        "{:?}",
+        types(&events)
     );
     Ok(())
 }

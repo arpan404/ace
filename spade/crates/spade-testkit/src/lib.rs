@@ -1,8 +1,12 @@
 //! Test-only helpers. `FakeProvider` stands in for a model endpoint: it answers OpenAI Chat
 //! Completions, OpenAI Responses and Anthropic Messages, plain or streamed, following a
 //! [`Script`] (or a sequence of them, one per request), and records every request it receives.
+//! [`FakeConnector`] stands in for an app's remote MCP server and its OAuth server.
 
 mod anthropic;
+pub mod client_document;
+pub mod connector;
+pub mod media;
 mod models;
 mod openai;
 mod responses;
@@ -22,6 +26,9 @@ use futures_util::stream;
 use serde_json::{Value, json};
 use tokio::net::TcpListener;
 
+pub use client_document::ClientDocument;
+pub use connector::FakeConnector;
+pub use media::FakeMedia;
 pub use models::FakeModelList;
 
 /// A tool call the fake makes.
@@ -54,6 +61,10 @@ pub struct Script {
     pub delay: Duration,
     /// Answer with this HTTP status instead.
     pub fail: Option<u16>,
+    /// With `fail`, the `retry-after` header sent with it.
+    pub retry_after: Option<String>,
+    /// A plain (non-streamed) call is answered with exactly this JSON body.
+    pub raw: Option<Value>,
     /// Input tokens reported as read from the cache, and as written to it.
     pub cache_read: u32,
     pub cache_write: u32,
@@ -71,6 +82,8 @@ impl Script {
             chunks: 2,
             delay: Duration::ZERO,
             fail: None,
+            retry_after: None,
+            raw: None,
             cache_read: 0,
             cache_write: 0,
             calls: Vec::new(),
@@ -98,6 +111,21 @@ impl Script {
             fail: Some(status),
             ..Self::reply("")
         }
+    }
+
+    /// Answers a plain call with `body` as it is, for answers no other script builds (an
+    /// endpoint's own web search).
+    pub fn raw(body: Value) -> Self {
+        Self {
+            raw: Some(body),
+            ..Self::reply("")
+        }
+    }
+
+    /// With `failing`, asks the caller to wait this long (`retry-after`, in seconds).
+    pub fn retry_after(mut self, seconds: &str) -> Self {
+        self.retry_after = Some(seconds.to_owned());
+        self
     }
 
     /// Reports `read` input tokens served from the cache and `write` written to it.
@@ -250,12 +278,23 @@ async fn answer(
     if let Some(status) = script.fail {
         let status = StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
         let error = json!({ "error": { "message": "fake endpoint failure", "type": "fake" } });
-        return (
+        let mut response = (
             status,
             [("content-type", "application/json")],
             error.to_string(),
         )
             .into_response();
+        if let Some(wait) = script
+            .retry_after
+            .as_deref()
+            .and_then(|wait| axum::http::HeaderValue::from_str(wait).ok())
+        {
+            response.headers_mut().insert("retry-after", wait);
+        }
+        return response;
+    }
+    if let (Some(body), false) = (&script.raw, streamed) {
+        return json_response(body.clone());
     }
     let tokens = Tokens {
         read: script.cache_read,

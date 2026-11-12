@@ -21,7 +21,11 @@ function keyVariables(presets: readonly { keyEnv: string | undefined }[]): strin
 }
 
 const usable = (endpoint: SpadeEndpoint | undefined) =>
-  endpoint !== undefined && (!endpoint.needsKey || endpoint.keySet);
+  endpoint !== undefined && (!endpoint.needsKey || endpoint.keySet === true);
+
+/** Its key isn't known yet: the keychain hasn't answered. */
+const checking = (endpoint: SpadeEndpoint | undefined) =>
+  endpoint !== undefined && endpoint.needsKey && endpoint.keySet === undefined;
 
 /**
  * While Spade's own model is on an endpoint it can't use (none, or one without its key), Spade
@@ -42,8 +46,9 @@ export function SpadeKeySetup(props: { main: { id: string; model: string } }) {
   const [error, setError] = useState<string>();
   const data = models.data;
   const current = splitSpadeModel(props.main.model);
-  if (!data || usable(data.endpoints.find((endpoint) => endpoint.id === current.endpoint)))
-    return null;
+  const main = data?.endpoints.find((endpoint) => endpoint.id === current.endpoint);
+  // Never asks for a key the keychain may still hold.
+  if (!data || usable(main) || checking(main)) return null;
   const taken = new Set(data.endpoints.map((endpoint) => endpoint.id));
   const options = [
     ...data.endpoints.map((endpoint) => ({
