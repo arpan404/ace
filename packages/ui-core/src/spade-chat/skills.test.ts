@@ -81,8 +81,8 @@ describe("an edit's changed lines", () => {
   test("kept, removed and added lines in order", () => {
     expect(spadeLineChanges("one\ntwo\nthree", "one\n2\nthree\nfour")).toEqual([
       { kind: "same", text: "one" },
-      { kind: "added", text: "2" },
       { kind: "removed", text: "two" },
+      { kind: "added", text: "2" },
       { kind: "same", text: "three" },
       { kind: "added", text: "four" },
     ]);

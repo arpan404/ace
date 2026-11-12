@@ -71,14 +71,17 @@ export function SpadeFiles(props: {
 
   return (
     <div className={`${readingColumn} flex flex-col gap-4 pt-6 pb-8`}>
-      <Trail
-        folder={folder}
-        file={opened}
-        onFolder={(path) => {
-          setOpened(undefined);
-          props.onFolder(path);
-        }}
-      />
+      {/* At the top the bar's "Files" already says where this is. */}
+      {(folder || opened) && (
+        <Trail
+          folder={folder}
+          file={opened}
+          onFolder={(path) => {
+            setOpened(undefined);
+            props.onFolder(path);
+          }}
+        />
+      )}
       {opened ? (
         <OpenFile
           bot={bot.id}
@@ -207,7 +210,7 @@ function OpenFile(props: { bot: string; path: string; onDownload(): void; onDele
   });
   return (
     <div className="flex min-w-0 flex-col gap-2">
-      <div className="-mx-2 flex items-center gap-1">
+      <div className="-ml-2 flex items-center gap-1">
         <Button size="xs" variant="ghost" onClick={props.onDownload}>
           Download
         </Button>

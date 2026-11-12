@@ -137,7 +137,7 @@ export function spadeLineChanges(before: string, after: string): SpadeLineChange
       j++;
     } else if (
       j < b.length &&
-      (i === a.length || (common[i * width + j + 1] ?? 0) >= (common[(i + 1) * width + j] ?? 0))
+      (i === a.length || (common[i * width + j + 1] ?? 0) > (common[(i + 1) * width + j] ?? 0))
     ) {
       changes.push({ kind: "added", text: b[j] ?? "" });
       j++;

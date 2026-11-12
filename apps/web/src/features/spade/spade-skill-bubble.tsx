@@ -61,7 +61,7 @@ export function SkillProposal(props: {
           </span>
         )}
         <Button size="xs" variant="ghost" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-          {open ? "Hide skill" : editing ? "Show changes" : "Show skill"}
+          {editing ? (open ? "Hide changes" : "Show changes") : open ? "Hide skill" : "Show skill"}
         </Button>
       </div>
     </div>
