@@ -95,25 +95,39 @@ const trustedAceTools = new Set([
   "automations_list",
 ]);
 
-/** What a tool call of the CLI's own read from outside, if anything. */
+/**
+ * What a tool call of the CLI's own (any agent in the session, any adapter) let into the turn,
+ * or undefined only for a call known to return nothing from outside: the agent's own to-do list
+ * or plan, and ace's tools that return only ace's own state. Fails closed: a kind this list
+ * doesn't name (file reads, searches, shell output, custom tools) counts as outside text.
+ */
 function readSource(item: Extract<Item, { type: "tool_call" }>): string | undefined {
+  const detail = item.call.detail;
   switch (item.call.kind) {
-    case "web.search":
-    case "web.fetch":
-      return "the web";
-    case "mcp": {
-      // The bot's own tools go through Spade, which judges their output itself; these of ace's
-      // return only ace's own state (as Spade's own list of trusted ace tools says).
-      const detail = item.call.detail;
+    case "todo":
+    case "plan":
+      return undefined;
+    case "mcp":
+      // The bot's own tools go through Spade, which judges their output itself.
       if (detail.kind === "mcp" && detail.server === "ace" && trustedAceTools.has(detail.tool))
         return undefined;
       return "another tool's output";
-    }
+    case "web.search":
+    case "web.fetch":
+    case "browser":
+      return "the web";
+    case "file.read":
+    case "search":
+    case "notebook":
+    case "image":
+      return "files";
+    case "shell":
+      return "a command's output";
     case "agent.spawn":
     case "agent.message":
       return "another agent's output";
     default:
-      return undefined;
+      return "a tool's output";
   }
 }
 
@@ -188,16 +202,17 @@ export class BrainWatch {
   }
 
   private item(item: Item): SpadeBrainFrame[] {
-    // Only the root agent's, and only what came after the turn was sent (the service feeds no
-    // earlier event); providers may report a reply before the run that holds it.
-    if (item.agentId !== this.root) return [];
     if (item.type === "tool_call") {
       const source = readSource(item);
       const read: SpadeBrainFrame[] =
         source && !this.read.has(source) ? [{ type: "read", source }] : [];
       if (source) this.read.add(source);
-      return [...this.setStatus(toolStatus(item)), ...read];
+      // Any agent's call can bring outside text in; only the root's sets the status line.
+      return item.agentId === this.root ? [...this.setStatus(toolStatus(item)), ...read] : read;
     }
+    // Only the root agent's, and only what came after the turn was sent (the service feeds no
+    // earlier event); providers may report a reply before the run that holds it.
+    if (item.agentId !== this.root) return [];
     if (item.type !== "message" || item.role !== "assistant") return [];
     const full = messageText(item);
     const sent = this.sent.get(item.id) ?? 0;

@@ -86,33 +86,55 @@ test("a reply sent whole after it streamed adds only what is new, and a provider
   expect(watch.ended).toBe(true);
 });
 
-test("the CLI reading the web taints the turn once; its calls to the bot's own tools never do", () => {
+const toolCall = (root: AgentId, id: string, detail: ToolCall["detail"], agent = root) => ({
+  type: "item.created" as const,
+  item: {
+    id: ItemId.parse(id),
+    agentId: agent,
+    createdAt: 1,
+    complete: true,
+    type: "tool_call" as const,
+    call: ToolCall.parse({
+      id,
+      agentId: agent,
+      kind: detail.kind,
+      title: "a call",
+      status: "running",
+      detail,
+      startedAt: 1,
+      raw: [],
+    }),
+  },
+});
+
+test("every native tool the watcher doesn't know to be trusted taints the turn, from any agent", () => {
   const root = AgentId.parse("01a1ceeb-4c59-77b0-b615-357c46c0000f");
-  const watch = new BrainWatch(root, "claude");
-  const call = (id: string, detail: ToolCall["detail"]) => ({
-    type: "item.created" as const,
-    item: {
-      id: ItemId.parse(id),
-      agentId: root,
-      createdAt: 1,
-      complete: true,
-      type: "tool_call" as const,
-      call: ToolCall.parse({
-        id,
-        agentId: root,
-        kind: detail.kind,
-        title: "a call",
-        status: "running",
-        detail,
-        startedAt: 1,
-        raw: [],
-      }),
-    },
-  });
-  const reads = [
-    call("a", { kind: "mcp", server: "ace", tool: "spade_call" }),
-    call("b", { kind: "web.fetch", url: "https://example.com" }),
-    call("c", { kind: "web.search", query: "news" }),
-  ].flatMap((event) => watch.next(event).filter((frame) => frame.type === "read"));
-  expect(reads).toEqual([{ type: "read", source: "the web" }]);
+  const child = AgentId.parse("01a1ceeb-4c59-77b0-b615-357c46c0ffff");
+  const tainting: ToolCall["detail"][] = [
+    { kind: "file.read", path: "notes.md" },
+    { kind: "search", query: "todo" },
+    { kind: "shell", command: "cat notes.md" },
+    { kind: "web.fetch", url: "https://example.com" },
+    { kind: "mcp", server: "ace", tool: "agents_status" },
+    { kind: "mcp", server: "github", tool: "issue_read" },
+    { kind: "custom" },
+  ];
+  for (const detail of tainting) {
+    const parsed = ToolCall.shape.detail.safeParse(detail);
+    if (!parsed.success) throw new Error(`fixture ${detail.kind} doesn't parse`);
+    for (const agent of [root, child]) {
+      const watch = new BrainWatch(root, "opencode");
+      const frames = watch.next(toolCall(root, "a", parsed.data, agent));
+      expect(
+        frames.some((frame) => frame.type === "read"),
+        `${detail.kind}`,
+      ).toBe(true);
+    }
+  }
+  const trusted = new BrainWatch(root, "opencode");
+  const quiet = [
+    toolCall(root, "t", { kind: "todo", todos: [] }),
+    toolCall(root, "s", { kind: "mcp", server: "ace", tool: "spade_call" }),
+  ].flatMap((event) => trusted.next(event).filter((frame) => frame.type === "read"));
+  expect(quiet).toEqual([]);
 });
