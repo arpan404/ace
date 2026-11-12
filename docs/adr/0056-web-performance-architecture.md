@@ -235,3 +235,17 @@ The bundle budgets had not been met for weeks: main measured 485 KB of initial J
 What remains is growth from features added since 2026-10-06, with no single accidental import left: shell features of a few KB each (notifications, sign-in, organizer, updates, transfers), transcript specs and icon tables in the thread routes, a composer that now carries browser annotations, attachments and preparations, wire schemas that the workers must parse eagerly, and about 570 new CSS selectors. The owner chose to reset each budget to today's size plus a little headroom, so the check is green again and catches further growth: initial 335 KB, first screen 680 KB, route 345 KB, CSS 30 KB, worker 85 KB, worker with lazy chunks 102 KB. ADR 0045's 200 KB first-screen target stands; getting nearer needs a lazy composer and transcript specs split by tool.
 
 The DOM budgets now count the nodes under `<body>` (and open shadow trees) only. `<head>` held about 430 module preload links, one per lazy chunk the shell may load, which say nothing about how well the transcript is virtualized and grew with every route split. With them left out the long-thread journey peaks near 1,340 attached nodes; #1420 added about 270 of those by drawing a screen of rows past each edge of the transcript so a fast flick never shows a gap.
+
+## Amendment (2026-11-12): popup placement and unused icon weights out of the first paint
+
+A tooltip's popup (Base UI's positioner with Floating UI) was in the startup bundle, though nothing draws it until a hover or focus rests on a trigger. It now loads while the browser is idle, or on the first request to open (`tooltip-popup.tsx`, behind `deferredPart`). Until it arrives the root holds the open (`useOpenGate` in `components/ui/open-gate.ts`): the popup then opens whole, with its usual animation; leaving the trigger, moving focus, Escape or a press cancels the held open, a press keeps it from reopening under a resting pointer, and a failed load leaves the control working and loads again on the next hover. The transcript's agent hover card uses the same gate, so the thread route doesn't take over the placement code. `forbiddenInitialModules` keeps both the popup and `useAnchorPositioning` out of startup.
+
+Phosphor icons now keep only the weights they are drawn in. `iconWeights` (regular, fill, bold) is every icon's; glyph tables (`glyphTables` in `apps/web/icon-weights.ts`) pin the weight they draw (`pinnedGlyph`), and an icon that only tables import keeps only theirs: the file-type marks one, the project glyphs two. Duotone stays only in the empty-state glyphs (`empty-glyphs.ts`). The build reads which modules import each icon, so an icon any other module imports stays whole, and it fails when a module outside the tables names a weight it drops.
+
+| Budget, gzip | Before   | After    | Limit    |
+| ------------ | -------- | -------- | -------- |
+| Initial JS   | 377.7 KB | 363.1 KB | ≤ 335 KB |
+| First screen | 715.7 KB | 691.6 KB | ≤ 680 KB |
+| Thread route | 338.0 KB | 328.5 KB | ≤ 345 KB |
+
+Both initial and first screen remain over. Coverage of the startup chunk on an open thread (`--mode perf`) puts the rest in a long tail: about 85 KB minified, roughly 25 KB gzip, across 77 shell modules each under 10 % run, beside React DOM, the router, Zod and Base UI's tooltip roots. The thread route's unrun code is transcript content (steps, subagents, attachments, ace tool specs) that a thread holding such items draws on its first paint, so deferring it would make content appear late.
