@@ -26,6 +26,7 @@ import { OfflineRetries } from "./offline-retry.ts";
 import { printPdf } from "./page-capture.ts";
 import { carriedCookies, type CarriedCookie } from "./cookie-carry.ts";
 import { ViewerSizes } from "./viewer-sizes.ts";
+import { untilTabReady } from "./tab-setup-wait.ts";
 
 import type { Actor, SessionOptions } from "./session-options.ts";
 import type { BrowserTabActor } from "@ace/protocol";
@@ -670,10 +671,21 @@ export class BrowserSession {
     actor: Actor,
     tabId: string | undefined,
     work: (runtime: TabRuntime) => Promise<T>,
+    signal?: AbortSignal,
   ): Promise<T> {
-    try {
+    const routed = () => {
       const runtime = this.route(actor, tabId);
       return runtime instanceof TabRuntime ? work(runtime) : runtime.then(work);
+    };
+    try {
+      // A tab the backend lists but is still setting up takes commands only once its origin
+      // guard is in and the session has its runtime; until then the command waits for it.
+      const setup = this.tabs.setup(actor, tabId);
+      if (!setup) return routed();
+      return untilTabReady(setup, this.options.navigationClock, signal).then(() => {
+        this.ready();
+        return routed();
+      });
     } catch (error) {
       return Promise.reject(error);
     }
@@ -696,10 +708,20 @@ export class BrowserSession {
       case "tabs":
         return executeTabs(this.structure(), command, actor, signal);
       case "downloads":
-        return this.onTab(actor, command.tabId, async (runtime) => {
-          runtime.readCheck(actor);
-          return executeDownloads(this.structure(), command, this.options.navigationClock, signal);
-        });
+        return this.onTab(
+          actor,
+          command.tabId,
+          async (runtime) => {
+            runtime.readCheck(actor);
+            return executeDownloads(
+              this.structure(),
+              command,
+              this.options.navigationClock,
+              signal,
+            );
+          },
+          signal,
+        );
       case "extensions":
         return (async () => ({ extensions: (await this.options.backend.extensions?.()) ?? [] }))();
       case "dialog": {
@@ -707,8 +729,11 @@ export class BrowserSession {
         const owner = this.options.backend.tabs
           ?.list()
           .find((tab) => tab.pending_dialog?.dialogId === command.dialogId)?.tabId;
-        return this.onTab(actor, owner ?? command.tabId, (runtime) =>
-          runtime.submit(command, actor, signal),
+        return this.onTab(
+          actor,
+          owner ?? command.tabId,
+          (runtime) => runtime.submit(command, actor, signal),
+          signal,
         );
       }
       case "annotate":
@@ -722,13 +747,19 @@ export class BrowserSession {
             ? this.tabs.all().find((tab) => tab.annotation.owner === actor.connectionId)
             : undefined;
         if (owned) return owned.submit(command, actor, signal);
-        return this.onTab(actor, command.tabId, (runtime) =>
-          runtime.submit(command, actor, signal),
+        return this.onTab(
+          actor,
+          command.tabId,
+          (runtime) => runtime.submit(command, actor, signal),
+          signal,
         );
       }
       default:
-        return this.onTab(actor, command.tabId, (runtime) =>
-          runtime.submit(command, actor, signal),
+        return this.onTab(
+          actor,
+          command.tabId,
+          (runtime) => runtime.submit(command, actor, signal),
+          signal,
         );
     }
   }
@@ -739,7 +770,12 @@ export class BrowserSession {
     actor: Actor = { kind: "agent" },
   ): Promise<AgentScreenshot> {
     this.lastActivity = this.options.now();
-    return this.onTab(actor, tabId, (runtime) => runtime.screenshot(actor, signal, options));
+    return this.onTab(
+      actor,
+      tabId,
+      (runtime) => runtime.screenshot(actor, signal, options),
+      signal,
+    );
   }
   closeBy(actor: Actor, signal?: AbortSignal): Promise<void> {
     signal?.throwIfAborted();

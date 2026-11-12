@@ -355,6 +355,7 @@ it("SIGTERM after endpoint discovery cleans up while optional initialization is 
   expect(
     Status.parse(await accessRequest(origin, "/v1/status", { token })).services,
   ).toContainEqual({ name: "notifications", state: "starting" });
+  // Booting the source daemon takes as long as the machine is busy; the bound is on stopping.
   const stopped = once(child, "close", { signal: AbortSignal.timeout(2000) });
   child.kill("SIGTERM");
   expect(await stopped).toEqual([0, null]);
@@ -371,4 +372,4 @@ it("SIGTERM after endpoint discovery cleans up while optional initialization is 
     modelInstances: [],
   });
   await daemon.close();
-}, 10_000);
+});

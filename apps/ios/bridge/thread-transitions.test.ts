@@ -241,6 +241,9 @@ test("a fork brings its newest answer back to its parent as the summary", async 
     summary: "Cache halves load.",
     citations: [{ threadId: "t" }],
   });
+  // The daemon's answer arrives later; it must land in this test, not in the next one's frames.
+  await until(() => admission("m"), "the merge accepted");
+  expect(admission("m")).toEqual({ type: "admission", id: "m", ok: true, message: "" });
 });
 
 test("a fork whose tree still works can't be brought back, and is refused before its changes are read", async () => {
