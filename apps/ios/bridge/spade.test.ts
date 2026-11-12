@@ -5,6 +5,7 @@ import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
 import { DeviceId, HostId } from "@ace/protocol";
 import { NativeSpade } from "./spade.ts";
 import { answerSpade, type NativeSpadeRequest } from "./spade-requests.ts";
+import { spadeUnconfirmedNote } from "@ace/ui-core/spade-chat";
 
 /*
  * Spade on the phone over the real SDK and the in-process fake daemon's Spade: what the Spade
@@ -349,6 +350,20 @@ test("a start whose answer was lost opens the conversation Spade made, and makes
   spade.handle({ type: "spade.open", conversationId: id });
   await until(() => rows(patches.flush()).length === 1);
   expect(rows(patches.flush()).map((row) => row.text)).toEqual(["What's on today?"]);
+});
+
+test("a lost start that can't be checked keeps its words for the person, with the note", async () => {
+  const { daemon, timers, ask } = await phone();
+  daemon.spade.holding = (request) => request.method === "POST";
+  const started = ask({ type: "spade.start", text: "What's on today?" });
+  await until(() => daemon.spade.waiting === 1);
+  daemon.spade.letThrough(false);
+  // The machine stays away for as long as the phone waits for it.
+  daemon.refuseConnections(true);
+  await until(() => timers.waiting.some((timer) => timer.delay === 30_000));
+  timers.fire(30_000);
+  expect(await started).toEqual({ ok: false, unknown: true, note: spadeUnconfirmedNote });
+  daemon.refuseConnections(false);
 });
 
 test("a key goes to the machine's keychain through Spade, and the phone only learns it is set", async () => {

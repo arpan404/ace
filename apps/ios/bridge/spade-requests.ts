@@ -4,6 +4,7 @@ import {
   spadeKeyLine,
   spadeModelRoles,
   spadeStart,
+  spadeStartWords,
   spadeStopAnswered,
 } from "@ace/ui-core/spade-chat";
 import { z } from "zod";
@@ -44,7 +45,9 @@ export const NativeSpadeRequest = z.discriminatedUnion("type", [
 export type NativeSpadeRequest = z.infer<typeof NativeSpadeRequest>;
 
 type Outcome = { ok: true } & Record<string, unknown>;
-type Refusal = { ok: false; title: string; message: string; unknown?: true };
+type Refusal = { ok: false; title: string; message: string };
+/** Spade may have it; the composer keeps the words with `note` (`spadeStartWords`). */
+type Unknown = { ok: false; unknown: true; note: string | undefined };
 
 /** A conversation's path in Spade's API. */
 const path = (id: string) => `/v1/conversations/${segment(id)}`;
@@ -61,7 +64,7 @@ export async function answerSpade(
   request: NativeSpadeRequest,
   deps: { id(): string },
   signal: AbortSignal,
-): Promise<Outcome | Refusal> {
+): Promise<Outcome | Refusal | Unknown> {
   const ask = (method: "GET" | "POST" | "PUT" | "DELETE", route: string, body?: unknown) =>
     spadeText(owner, deps.id, method, route, body, signal);
   switch (request.type) {
@@ -80,13 +83,8 @@ export async function answerSpade(
         );
         spade.refresh();
         if (started.kind === "started") return { ok: true, id: started.id };
-        // Spade may have it: the words stay out of the composer, so a retry can't start it twice.
-        return {
-          ok: false,
-          unknown: true,
-          title: "Couldn't tell whether Spade started the conversation",
-          message: "If it did, it shows in Spade's conversations once this machine is back.",
-        };
+        // Spade may have it: the words stay with the person, with the note, and nothing resends.
+        return { ok: false, unknown: true, note: spadeStartWords("unknown").note };
       } catch (error) {
         return refused("Couldn't start the conversation", error);
       }
