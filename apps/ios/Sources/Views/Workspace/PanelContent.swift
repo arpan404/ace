@@ -21,16 +21,12 @@ struct PanelContent: View {
         case .changes: ChangesSheet(model: model, title: title, scope: changesScope, scopeShown: { changesScope = nil })
         case .agents: AgentsSheet(model: model, thread: thread, openThread: openThread)
         case .summary:
-            NavigationStack {
-                ThreadSummaryPage(model: model, thread: thread, openThread: openThread,
-                                  openAgents: { model.panel(thread.id, ["op": "open", "kind": PanelTool.agents.rawValue]) },
-                                  openChanges: {
-                                      changesScope = "all"
-                                      model.panel(thread.id, ["op": "open", "kind": PanelTool.changes.rawValue])
-                                  })
-                    .navigationTitle("Summary")
-                    .navigationBarTitleDisplayMode(.inline)
-            }
+            PanelSummary(model: model, thread: thread, openThread: openThread,
+                         openAgents: { model.panel(thread.id, ["op": "open", "kind": PanelTool.agents.rawValue]) },
+                         openChanges: {
+                             changesScope = "all"
+                             model.panel(thread.id, ["op": "open", "kind": PanelTool.changes.rawValue])
+                         })
         case .files:
             NavigationStack { FilesScreen(model: model, scope: .thread(thread.id), subtitle: subtitle, mention: mention) }
         case .terminal:
@@ -48,6 +44,30 @@ struct PanelContent: View {
                 let help = thread.approvals.first { $0.kind == "browser_help" }
                 BrowserScreen(model: model, help: help) { answer in if let help { model.resolve(help, answer: answer) } }
             }
+        }
+    }
+}
+
+/// The Summary tab. An asking agent that lives in this thread opens its transcript on the tab's
+/// own stack, as the phone pushes it over the thread.
+private struct PanelSummary: View {
+    @Bindable var model: ClientModel
+    @Bindable var thread: ThreadModel
+    let openThread: (String) -> Void
+    let openAgents: () -> Void
+    let openChanges: () -> Void
+    @State private var path: [SubagentRoute] = []
+
+    var body: some View {
+        NavigationStack(path: $path) {
+            ThreadSummaryPage(model: model, thread: thread, openThread: openThread, openAgents: openAgents,
+                              openChanges: openChanges, openAgent: { path.append($0) })
+                .navigationTitle("Summary")
+                .navigationBarTitleDisplayMode(.inline)
+                .navigationDestination(for: SubagentRoute.self) { route in
+                    SubagentView(route: route, model: model, thread: thread, push: { path.append($0) },
+                                 openThread: openThread)
+                }
         }
     }
 }
