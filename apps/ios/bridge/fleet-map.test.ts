@@ -302,3 +302,34 @@ test("turning a network off always asks, and says so when what reaches the machi
     "This iPhone may disconnect until they can reach studio another way.",
   );
 });
+
+test("the desktop app's and Use my Chrome's own credentials aren't paired devices, so they're never offered for removal", async () => {
+  const studio = machine("studio", { "remote.enabled": true, "remote.tailscale": true });
+  studio.access.completePairing("iPad Pro");
+  const read = await part(studio);
+  const local = (id: string, name: string, scope: "desktop" | "user-browser") => ({
+    id: DeviceId.parse(id),
+    name,
+    scopes: [scope],
+    createdAt: now,
+    lastSeenAt: now,
+    revokedAt: null,
+    expiresAt: null,
+  });
+  const devices = [
+    ...(read.devices ?? []),
+    local("desktop-app", "ace desktop", "desktop"),
+    local("chrome", "My Chrome", "user-browser"),
+  ];
+  const view = combineFleetMap(
+    FleetMapCombineRequest.parse({
+      type: "fleetMap.combine",
+      machines: [ready("studio", "wss://studio.tail1a2b.ts.net:4243", { ...read, devices })],
+    }),
+    now,
+  );
+  const names = view.rows.map((entry) => entry.name);
+  expect(names).toContain("iPad Pro");
+  expect(names).not.toContain("ace desktop");
+  expect(names).not.toContain("My Chrome");
+});
