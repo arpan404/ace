@@ -2,12 +2,14 @@ import type { RemoteNetworks } from "@ace/protocol";
 import { expect, test } from "vitest";
 import {
   accountLine,
+  accountReachLine,
   directLine,
   fleetWarning,
   grantSummary,
   machineState,
   pathWordsFor,
   reachedThrough,
+  remoteOffLine,
   transferLine,
 } from "./words.ts";
 
@@ -164,4 +166,18 @@ test("an online machine's row says which way it is reached right now", () => {
   expect(pathWordsFor("account")).toBe("through your ace account");
   // A machine with a single way in says nothing more.
   expect(pathWordsFor(undefined)).toBeUndefined();
+});
+
+test("another machine's account row says whether it's on ace's relay, or why not", () => {
+  expect(accountReachLine({ state: "on", address: "wss://relay.acehq.dev" }, "studio")).toEqual({
+    tone: "on",
+    words: "From anywhere, for your signed-in devices.",
+  });
+  expect(accountReachLine({ state: "waiting", error: "Sign in first." }, "studio")).toEqual({
+    tone: "warn",
+    words: "Sign in first.",
+  });
+  expect(accountReachLine(off, "studio").words).toBe("Not signed in on studio.");
+  expect(accountReachLine(undefined, undefined).words).toBe("Not signed in.");
+  expect(remoteOffLine("studio").words).toBe("Off. Nothing outside studio can reach it.");
 });

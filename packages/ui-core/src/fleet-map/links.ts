@@ -154,3 +154,20 @@ export function fleetDevices(
     }
   return [...joined.values()].toSorted((a, b) => b.lastSeenAt - a.lastSeenAt);
 }
+
+/**
+ * What reaches `machine` now, by name: the devices paired with it and the machines linked to it.
+ * Turning off a network it's reached over asks first while there are any.
+ */
+export function reachDependents(
+  machine: string,
+  devices: readonly FleetDevice[],
+  machines: readonly FleetMachineFacts[],
+): string[] {
+  return [
+    ...devices
+      .filter((device) => device.on.some((entry) => entry.machine === machine))
+      .map((device) => device.name),
+    ...linkersOf(machine, machines).map((linker) => linker.name),
+  ];
+}

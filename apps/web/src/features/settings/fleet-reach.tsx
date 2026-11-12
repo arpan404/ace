@@ -13,8 +13,10 @@ import {
 import type { Machine } from "@/lib/machines.ts";
 import {
   accountLine,
+  accountReachLine,
   directLine,
   networkOffQuestion,
+  remoteOffLine,
   type DirectNetwork,
 } from "@ace/ui-core/fleet-map";
 import { settingKeys } from "./data/setting-keys.ts";
@@ -49,7 +51,7 @@ export function ReachRows(props: {
     <RowGroup label={props.label} anchor="remote-networks">
       {enabled.loaded && !enabled.value ? (
         <HairlineRow
-          sub={<StateWords tone="off">Off. Nothing outside {where} can reach it.</StateWords>}
+          sub={<StateWords tone="off">{remoteOffLine(where).words}</StateWords>}
           title="Remote access"
           actions={
             <DaemonSlot control={enabled}>
@@ -136,18 +138,14 @@ function AccountReach(props: {
   signIn: boolean;
 }) {
   if (!props.machine.primary || !props.signIn) {
-    const on = props.live?.state === "on";
+    const line = accountReachLine(
+      props.live,
+      props.machine.primary ? undefined : props.machine.name,
+    );
     return (
       <HairlineRow
         title="ace account"
-        sub={
-          <StateWords tone={on ? "on" : props.live?.error ? "warn" : "off"}>
-            {on
-              ? "From anywhere, for your signed-in devices."
-              : (props.live?.error ??
-                `Not signed in${props.machine.primary ? "" : ` on ${props.machine.name}`}.`)}
-          </StateWords>
-        }
+        sub={<StateWords tone={line.tone}>{line.words}</StateWords>}
       />
     );
   }

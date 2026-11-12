@@ -1,6 +1,13 @@
 import { DeviceId, HostId, type Device, type FleetLink } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { fleetDevices, linkDeviceIds, linkGaps, reach, unlinkedWith } from "./links.ts";
+import {
+  fleetDevices,
+  linkDeviceIds,
+  linkGaps,
+  reach,
+  reachDependents,
+  unlinkedWith,
+} from "./links.ts";
 
 function link(to: string, extra: Partial<FleetLink> = {}): FleetLink {
   return {
@@ -92,4 +99,21 @@ test("the same phone on two machines is one device, and machine links are not de
   // It loses access on the first machine that expires it.
   expect(joined[0]?.expiresAt).toBe(400);
   expect(joined[1]?.expiresAt).toBeNull();
+});
+
+test("what reaches a machine is its paired devices and the machines linked to it", () => {
+  const facts = [
+    { id: "mac", name: "Mac", online: true, links: [link("studio")] },
+    { id: "studio", name: "Studio", online: true, links: [] },
+    { id: "mini", name: "Mini", online: false, links: undefined },
+  ];
+  const joined = fleetDevices(
+    new Map([
+      ["studio", [device("p1", "iPhone")]],
+      ["mac", [device("i1", "iPad")]],
+    ]),
+    linkDeviceIds(facts),
+  );
+  expect(reachDependents("studio", joined, facts)).toEqual(["iPhone", "Mac"]);
+  expect(reachDependents("mini", joined, facts)).toEqual([]);
 });
