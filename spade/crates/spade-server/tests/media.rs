@@ -598,3 +598,20 @@ async fn the_same_bytes_read_as_another_kind_keep_their_own_text() -> Result {
     );
     Ok(())
 }
+
+/// The reader child runs before any async runtime is built: a child that could not build one
+/// (here `TOKIO_WORKER_THREADS=0`, which makes building it panic) still reads.
+#[cfg(unix)]
+#[tokio::test]
+async fn the_reader_child_reads_without_ever_building_a_runtime() -> Result {
+    let reader = spade_docs::Extractor::child(
+        "/usr/bin/env".into(),
+        vec![
+            "TOKIO_WORKER_THREADS=0".into(),
+            env!("CARGO_BIN_EXE_spade-server").into(),
+        ],
+    );
+    let read = reader.read(b"plain words".to_vec(), "a.txt").await?;
+    assert_eq!(read.text, "plain words");
+    Ok(())
+}

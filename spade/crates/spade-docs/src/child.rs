@@ -185,22 +185,15 @@ async fn run_child(
     }
 }
 
-/// Holds this process to about `bytes` of memory where the operating system allows it: the data
-/// segment and, with room for thread stacks and the program itself, the address space (Unix
-/// `setrlimit`). The binary's own capped allocator is the bound everywhere, Windows included.
-/// Failures are ignored: the allocator's cap still holds.
+/// Holds this process's data segment to about `bytes` (Unix `setrlimit`), with room for the
+/// program itself. The address space is left alone: it counts every thread's malloc arena and
+/// reserved stack, not what the reader uses. The binary's own capped allocator is the bound
+/// everywhere, Windows included; a failure here is ignored, since that cap still holds.
 pub fn limit_memory(bytes: usize) {
     #[cfg(unix)]
     {
-        let bytes = bytes as u64;
-        let headroom = 2 * 1024 * 1024 * 1024u64;
-        let _ = rlimit::setrlimit(
-            rlimit::Resource::DATA,
-            bytes + headroom / 2,
-            bytes + headroom / 2,
-        );
-        #[cfg(target_os = "linux")]
-        let _ = rlimit::setrlimit(rlimit::Resource::AS, bytes + headroom, bytes + headroom);
+        let limit = bytes as u64 + 1024 * 1024 * 1024;
+        let _ = rlimit::setrlimit(rlimit::Resource::DATA, limit, limit);
     }
     #[cfg(not(unix))]
     let _ = bytes;

@@ -34,8 +34,9 @@ static ALLOCATOR: cap::Cap<std::alloc::System> = cap::Cap::new(std::alloc::Syste
 /// Exit code when another Spade holds the data folder (docs/ace-integration.md).
 const BUSY: u8 = 3;
 
-#[tokio::main]
-async fn main() -> std::process::ExitCode {
+/// Plain and synchronous, so the document reader (and the other one-shot modes) run before any
+/// async runtime or its threads exist; the server builds its runtime only after them.
+fn main() -> std::process::ExitCode {
     let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
     if args.first().is_some_and(|flag| flag == "--version") {
         println!("{}", spade_server::home::VERSION);
@@ -64,6 +65,20 @@ async fn main() -> std::process::ExitCode {
     {
         return check_migrations(args.get(1));
     }
+    match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime.block_on(serve_main()),
+        Err(error) => {
+            eprintln!("spade could not start its runtime: {error}");
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+/// The server: logging, then `run` on the runtime `main` built.
+async fn serve_main() -> std::process::ExitCode {
     // The HTML parser's own logs carry page text, so they are dropped by a separate layer that no
     // RUST_LOG setting can turn back on.
     tracing_subscriber::registry()
