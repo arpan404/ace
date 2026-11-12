@@ -58,20 +58,25 @@ export function NewBotDialog(props: { hosts: readonly SpadeHost[]; onClose(): vo
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string>();
   /** A bot just imported, with what its machine left out, shown before it opens. */
-  const [imported, setImported] = useState<{ agent: SpadeAgent; leftOut: readonly string[] }>();
+  const [imported, setImported] = useState<{
+    agent: SpadeAgent;
+    leftOut: readonly string[];
+    host: SpadeHost;
+  }>();
   const chosenModel = /\/./.test(model);
   // A template picks the model when none is chosen.
   const ready =
     name.trim() !== "" &&
     (chosenModel || template !== undefined) &&
     host?.machine.client !== undefined;
-  const openBot = async (agent: SpadeAgent) => {
+  /** Opens a new bot on the machine it was made on. */
+  const openBot = async (agent: SpadeAgent, on: SpadeHost) => {
     await cache.invalidateQueries({ queryKey: agentsKey });
     props.onClose();
     void navigate({
       to: "/spade/$agentId",
       params: { agentId: agent.id },
-      search: host?.spade.primary !== false ? {} : { on: host.spade.key },
+      search: on.spade.primary ? {} : { on: on.spade.key },
     });
   };
   const create = async () => {
@@ -92,7 +97,7 @@ export function NewBotDialog(props: { hosts: readonly SpadeHost[]; onClose(): vo
             ? avatar
             : { kind: "generated", color: avatar.kind === "generated" ? avatar.color : "slate" },
       });
-      await openBot(agent);
+      await openBot(agent, host);
     } catch (error) {
       setProblem(fault(error));
     } finally {
@@ -101,7 +106,7 @@ export function NewBotDialog(props: { hosts: readonly SpadeHost[]; onClose(): vo
   };
   if (imported)
     return (
-      <Dialog open onOpenChange={(open) => !open && void openBot(imported.agent)}>
+      <Dialog open onOpenChange={(open) => !open && void openBot(imported.agent, imported.host)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{`${imported.agent.name} is here`}</DialogTitle>
@@ -115,7 +120,7 @@ export function NewBotDialog(props: { hosts: readonly SpadeHost[]; onClose(): vo
             </ul>
           </DialogBody>
           <DialogFooter>
-            <Button variant="primary" onClick={() => void openBot(imported.agent)}>
+            <Button variant="primary" onClick={() => void openBot(imported.agent, imported.host)}>
               {`Open ${imported.agent.name}`}
             </Button>
           </DialogFooter>
@@ -208,10 +213,10 @@ export function NewBotDialog(props: { hosts: readonly SpadeHost[]; onClose(): vo
         </DialogBody>
         <DialogFooter>
           <ImportBot
-            client={host?.machine.client}
+            host={host}
             onProblem={setProblem}
-            onImported={(agent, leftOut) =>
-              leftOut.length ? setImported({ agent, leftOut }) : void openBot(agent)
+            onImported={(agent, leftOut, at) =>
+              leftOut.length ? setImported({ agent, leftOut, host: at }) : void openBot(agent, at)
             }
           />
           <Button variant="ghost" onClick={props.onClose}>

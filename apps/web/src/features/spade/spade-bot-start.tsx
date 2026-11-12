@@ -5,6 +5,7 @@ import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { importAgent, readTemplates } from "./spade-teams-api.ts";
+import type { SpadeHost } from "./use-spade-roster.ts";
 
 /*
  * Two ways to start a bot besides a blank form (ADR 0132): from one of the templates Spade ships,
@@ -70,25 +71,36 @@ export function browserTimeZone(): string | undefined {
   }
 }
 
+/** The largest bot file Import reads: 6 MiB, room for a face image and the bot's settings. */
+export const botFileMax = 6 * 1024 * 1024;
+
 /**
  * Import bot: picks a `.json` bot file and sends it to the chosen machine's Spade. What that
- * machine left out comes back as lines the dialog shows before opening the new bot.
+ * machine left out comes back as lines the dialog shows before opening the new bot, on the
+ * machine it was sent to. A file over `botFileMax` isn't read.
  */
 export function ImportBot(props: {
-  client: ClientApi | undefined;
-  onImported(agent: SpadeAgent, leftOut: readonly string[]): void;
+  host: SpadeHost | undefined;
+  onImported(agent: SpadeAgent, leftOut: readonly string[], host: SpadeHost): void;
   onProblem(problem: string | undefined): void;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const take = async (file: File | undefined) => {
-    const client = props.client;
-    if (!file || !client) return;
+    // The machine it goes to, as chosen now: the bot opens there even if the choice moves.
+    const host = props.host;
+    const client = host?.machine.client;
+    if (!file || !host || !client) return;
+    if (file.size > botFileMax) {
+      props.onProblem("That file is too big for a bot file (6 MB at most).");
+      if (input.current) input.current.value = "";
+      return;
+    }
     setImporting(true);
     props.onProblem(undefined);
     try {
       const answer = await importAgent(client, await file.text());
-      props.onImported(answer.agent, answer.leftOut);
+      props.onImported(answer.agent, answer.leftOut, host);
     } catch (error) {
       props.onProblem(error instanceof Error ? error.message : "Try again.");
     } finally {
@@ -109,7 +121,7 @@ export function ImportBot(props: {
       />
       <Button
         variant="ghost"
-        disabled={importing || !props.client}
+        disabled={importing || !props.host?.machine.client}
         onClick={() => input.current?.click()}
         className="mr-auto"
       >
