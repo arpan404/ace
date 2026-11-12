@@ -140,6 +140,28 @@ export class FakeSkillLibrary {
   private readonly reviews = new Map<string, { id: string; after: string }>();
   private sequence = 0;
   private readonly listeners = new Set<() => void>();
+  /** Update preparations held back, as a slow fetch would; undefined while none are held. */
+  private preparing: (() => void)[] | undefined;
+  /**
+   * Hold every `prepareUpdate` until released, as a slow git fetch would: each is staged and
+   * answered on `release`, which also stops holding. Other skill requests answer meanwhile.
+   */
+  holdUpdatePreparations(): { waiting(): number; release(): void } {
+    const held: (() => void)[] = [];
+    this.preparing = held;
+    return {
+      waiting: () => held.length,
+      release: () => {
+        if (this.preparing === held) this.preparing = undefined;
+        for (const answer of held.splice(0)) answer();
+      },
+    };
+  }
+  /** Runs `answer` now, or on release while preparations are held. */
+  prepareLater(answer: () => void): void {
+    if (this.preparing) this.preparing.push(answer);
+    else answer();
+  }
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);

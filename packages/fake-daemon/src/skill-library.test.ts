@@ -193,3 +193,29 @@ test("the fake holds eight update reviews at once, as the daemon does, until one
     await client.close();
   }
 });
+
+test("a held fake update preparation answers once released, other skill requests meanwhile", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1000 });
+  const client = await connect(daemon);
+  const ask = async (operation: z.input<typeof SkillOperation>) =>
+    (await client.request({ type: "skills.request", operation })).result;
+  try {
+    const listed = await ask({ op: "list" });
+    if (listed.kind !== "list") throw new Error(listed.kind);
+    const entry = listed.entries.find((each) => each.source);
+    if (!entry) throw new Error("No skill from a source");
+    const hold = daemon.skills.holdUpdatePreparations();
+    let answered = false;
+    const prepared = ask({ op: "prepareUpdate", id: entry.id }).then((result) => {
+      answered = true;
+      return result;
+    });
+    while (hold.waiting() === 0) await new Promise((resolve) => setTimeout(resolve, 1));
+    expect(await ask({ op: "read", id: entry.id })).toMatchObject({ kind: "skill" });
+    expect(answered).toBe(false);
+    hold.release();
+    expect(await prepared).toMatchObject({ kind: "updateReview" });
+  } finally {
+    await client.close();
+  }
+});
