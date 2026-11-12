@@ -37,7 +37,10 @@ export function ActivitySection(props: { activity: ProfileActivity }) {
   );
 }
 
-/** The five headline numbers on one wrapping line: muted words, values in foreground figures. */
+/**
+ * The five headline numbers in even columns, no boxes: each value in foreground figures over its
+ * muted label (the label stays first in the markup, so it names the value for assistive tech).
+ */
 function Highlights(props: { activity: ProfileActivity }) {
   const { stats, loading } = props.activity;
   const value = (shown: string) => (loading ? "–" : shown);
@@ -56,12 +59,12 @@ function Highlights(props: { activity: ProfileActivity }) {
   return (
     <dl
       data-setting-slot=""
-      className="flex flex-wrap gap-x-5 gap-y-1 py-3 text-ui text-muted-foreground"
+      className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,7rem),1fr))] gap-x-4 gap-y-3 py-3"
     >
       {items.map((item) => (
-        <div key={item.label} className="flex items-baseline gap-1.5">
-          <dt>{item.label}</dt>
-          <dd className="text-foreground tabular-nums">{item.value}</dd>
+        <div key={item.label} className="flex min-w-0 flex-col-reverse gap-0.5">
+          <dt className="truncate text-xs text-muted-foreground">{item.label}</dt>
+          <dd className="text-md font-medium text-foreground tabular-nums">{item.value}</dd>
         </div>
       ))}
     </dl>
