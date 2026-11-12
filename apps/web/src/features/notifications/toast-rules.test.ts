@@ -20,3 +20,8 @@ test("with automation alerts off, a run that just finished raises nothing", () =
     runToasts([run("quick", 1_500)], { ...prefs, automations: false }, 1_000, new Set()),
   ).toEqual([]);
 });
+
+test("a queued run dropped as skipped raises no toast saying it finished", () => {
+  const skipped = { ...run("dropped", 1_500), status: "skipped" as const };
+  expect(runToasts([skipped], prefs, 1_000, new Set())).toEqual([]);
+});

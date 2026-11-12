@@ -31,6 +31,16 @@ test("runs that finished before watching began, or are still going, are not news
   expect(finishedSince([run("old", 900), run("going", undefined)], 1_000, new Set())).toEqual([]);
 });
 
+test.each([
+  ["succeeded", true],
+  ["failed", true],
+  // Pausing or deleting an automation drops its queued runs as skipped: they never ran.
+  ["skipped", false],
+] as const)("a %s run is news: %s", (status, news) => {
+  const runs = [{ ...run("r", 1_500), status }];
+  expect(finishedSince(runs, 1_000, new Set())).toHaveLength(news ? 1 : 0);
+});
+
 test("an alert names the automation and whether its run failed or finished", () => {
   expect(runAlertTitle({ ...run("a", 1_500), status: "failed" })).toBe("Nightly audit failed");
   expect(runAlertTitle(run("a", 1_500))).toBe("Nightly audit finished");

@@ -8,7 +8,8 @@ import type { AutomationRun } from "@ace/protocol";
 /**
  * Runs that finished after `since` and haven't been said yet, whether or not they were ever seen
  * running: a run can start and end between two reads of the inbox. Runs that finished before
- * `since` are history.
+ * `since` are history. A skipped run is never news: it didn't run (pausing or deleting an
+ * automation drops its queued runs as skipped), so no alert says it finished.
  */
 export function finishedSince(
   runs: readonly AutomationRun[],
@@ -17,7 +18,7 @@ export function finishedSince(
 ): AutomationRun[] {
   return runs.filter(
     (run) =>
-      run.status !== "running" &&
+      (run.status === "succeeded" || run.status === "failed") &&
       run.finishedAt !== undefined &&
       run.finishedAt > since &&
       !said.has(run.id),
