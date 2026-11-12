@@ -32,7 +32,8 @@ const PreviousModel = z.object({
 });
 const InterruptResult = z.object({ interrupted: z.boolean() });
 export class OpenCodeSession implements ProviderSession {
-  private mcpDirectories = new Set<string>();
+  /** Locations where ace's MCP server is registered, and whether its tools were confirmed. */
+  private mcpDirectories = new Map<string, "ready" | "unconfirmed">();
   private ctx: SessionContext;
   private server: OpenCodeServer;
   private client: OpenCodeClient;
@@ -91,7 +92,7 @@ export class OpenCodeSession implements ProviderSession {
       directory: () => this.ownership.sessions.get(this.nativeSessionId)?.directory ?? ctx.cwd,
       frame: this.emit,
       correlate: ctx.onInputMessage,
-      barrier: () => this.barrier(),
+      barrier: () => this.admissionBarrier(),
       uncertain: () => {
         if (this.closed) return;
         this.recovering = true;
@@ -343,14 +344,29 @@ export class OpenCodeSession implements ProviderSession {
       await new Promise<void>((resolve, reject) => this.waiters.add({ resolve, reject }));
     }
     this.controller.signal.throwIfAborted();
-    await this.ensureMcp(
-      this.ownership.sessions.get(this.nativeSessionId)?.directory ?? this.ctx.cwd,
-    );
+    await this.ensureMcp(this.directory());
+  }
+  /**
+   * Before new input or a model change, an unconfirmed location looks once more for ace's
+   * tools. Stop, task cancellation and interaction answers use `barrier` alone, so a readiness
+   * check can never delay or fail them.
+   */
+  private async admissionBarrier(): Promise<void> {
+    await this.barrier();
+    const directory = this.directory();
+    if (this.ctx.aceMcp && this.mcpDirectories.get(directory) === "unconfirmed")
+      this.mcpDirectories.set(
+        directory,
+        await waitForAceTools(this.client, directory, this.server.runtime, 0),
+      );
+  }
+  private directory(): string {
+    return this.ownership.sessions.get(this.nativeSessionId)?.directory ?? this.ctx.cwd;
   }
   async configure(selection: ExecutionSelection): Promise<void> {
     if (selection.provider !== "opencode" || !selection.model)
       throw new Error("Invalid OpenCode selection");
-    await this.barrier();
+    await this.admissionBarrier();
     const model = selectedModel(selection.model, selection.options);
     if (!model) throw new Error("Missing OpenCode model");
     await this.client.session.switchModel({ sessionID: this.nativeSessionId, model });
@@ -418,8 +434,10 @@ export class OpenCodeSession implements ProviderSession {
     if (!this.ctx.aceMcp || this.mcpDirectories.has(directory)) return;
     if (this.mcpDirectories.size >= 128) throw new Error("OpenCode MCP location limit exceeded");
     await registerAceMcp(this.client, directory, this.ctx.aceMcp);
-    await waitForAceTools(this.client, directory, this.server.runtime);
-    this.mcpDirectories.add(directory);
+    const readiness = await waitForAceTools(this.client, directory, this.server.runtime);
+    // Registered either way: an unconfirmed location is never registered again, only re-checked.
+    this.mcpDirectories.set(directory, readiness);
+    if (readiness === "unconfirmed") this.emit("note", "mcp.readiness", { type: "unconfirmed" });
   }
   private async readSnapshots(): Promise<void> {
     if (this.closed || this.opening) return;

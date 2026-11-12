@@ -55,6 +55,17 @@ export class OpenCodeTranslator implements Translator {
       return [];
     }
     if (frame.channel === "transport.activity") return [{ type: "signal" }];
+    if (frame.channel === "mcp.readiness") {
+      this.diagnostics.push({
+        type: adapterWarning,
+        data: {
+          event: "mcp-readiness-unconfirmed",
+          detail:
+            "OpenCode never registered ace's readiness plugin; the session opened without confirming ace's tools.",
+        },
+      });
+      return [];
+    }
     if (frame.channel === "lifecycle") {
       if (data.type === "ancestry.pending")
         return state.background(string(data.id), state.rootNative, "other");
