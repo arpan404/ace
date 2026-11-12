@@ -4,12 +4,11 @@ import SwiftUI
 enum InboxTab: Hashable { case threads, chats, spade, search, compose }
 
 /// The home tabs in their order (Threads · Chats · Spade · Search, then compose) and what each
-/// is called. Spade, ace's cloud agent, is hidden until it launches: turning `showsSpade` on puts
-/// its tab back in its slot between Chats and Search, and its glyph in the iPad sidebar, with
-/// nothing else to lay out again.
+/// is called. Spade, ace's assistant, has its tab between Chats and Search and its glyph in the
+/// iPad sidebar; turning `showsSpade` off takes both away with nothing else to lay out again.
 enum HomeTabs {
-    /// Spade's tab, off until Spade launches.
-    static let showsSpade = false
+    /// Spade's tab (`Views/Spade`), as the web shows Spade's place.
+    static let showsSpade = true
 
     /// The places the tab bar (and the iPad sidebar's foot) switches between, in order.
     static var switchable: [InboxTab] { [.threads, .chats] + (showsSpade ? [.spade] : []) + [.search] }

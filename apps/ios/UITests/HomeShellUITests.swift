@@ -1,6 +1,6 @@
 import XCTest
 
-/// The home shell: Threads, Chats and Search in the tab bar (Spade hidden until it launches),
+/// The home shell: Threads, Chats, Spade and Search in the tab bar,
 /// compose on the lists, and Search holding the places a More tab used to. Run against the
 /// fixture (`ACE_IOS_SPIKE_PORT`, `TEST_RUNNER_ACE_IOS_SPIKE_PORT` for another port). With
 /// `TEST_RUNNER_ACE_SHOT_DIR` set, each step's screenshot is written there too.
@@ -8,13 +8,17 @@ import XCTest
     private let port = ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"
     override func setUp() { continueAfterFailure = false }
 
-    func testTheTabBarHoldsThreadsChatsAndSearchAndNoSpade() {
+    func testTheTabBarHoldsThreadsChatsSpadeAndSearch() {
         let app = launch()
         let bar = app.tabBars.firstMatch
         XCTAssertTrue(bar.buttons["Threads"].waitForExistence(timeout: 30))
         XCTAssertTrue(bar.buttons["Chats"].exists)
         XCTAssertTrue(app.buttons["Search"].exists)
-        XCTAssertFalse(app.buttons["Spade"].exists)
+        // Spade sits between Chats and Search, as the web's rail places it.
+        let spade = bar.buttons["Spade"]
+        XCTAssertTrue(spade.exists)
+        XCTAssertLessThan(bar.buttons["Chats"].frame.midX, spade.frame.midX)
+        XCTAssertLessThan(spade.frame.midX, app.buttons["Search"].frame.midX)
         XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'coming soon'")).firstMatch.exists)
         // Inbox, Snoozed and Settled under the title; Chats is its own tab, not one of them.
         XCTAssertTrue(app.buttons["threads.tab.inbox"].exists)
@@ -115,13 +119,12 @@ import XCTest
         let row = app.buttons["thread.ios-form"]
         XCTAssertTrue(row.waitForExistence(timeout: 30))
         row.tap()
-        let places = ["sidebar.threads", "sidebar.chats", "sidebar.search", "sidebar.place.pulls", "sidebar.place.automations",
+        let places = ["sidebar.threads", "sidebar.chats", "sidebar.spade", "sidebar.search", "sidebar.place.pulls", "sidebar.place.automations",
                       "sidebar.place.skills", "sidebar.place.settings"].map { app.buttons[$0] }
         XCTAssertTrue(places[0].waitForExistence(timeout: 10))
-        // Left to right in the rail's order, with no Spade and no tab bar beside the list.
+        // Left to right in the rail's order, with no tab bar beside the list.
         let xs = places.map(\.frame.midX)
         XCTAssertEqual(xs, xs.sorted())
-        XCTAssertFalse(app.buttons["sidebar.spade"].exists)
         XCTAssertFalse(app.tabBars.firstMatch.buttons["Threads"].isHittable)
         capture("ipad-sidebar")
         app.buttons["sidebar.place.settings"].tap()

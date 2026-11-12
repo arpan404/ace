@@ -3,7 +3,7 @@ import SwiftUI
 /// The single inbox (issue #560) across every paired machine, in a system tab bar: Threads (Inbox,
 /// Snoozed and Settled), Chats (plain chats with no project, ADR 0099), Search (the places outside
 /// the lists and search everything) and compose: the tab bar's prominent button on iOS 27, a round
-/// header button on Threads and Chats before it (`HomeTabs.composeTab`). Spade's tab waits behind
+/// header button on Threads and Chats before it (`HomeTabs.composeTab`). Spade's tab is
 /// `HomeTabs.showsSpade`. Grouping and wording come from each machine's runtime. A row and its
 /// thread belong to their machine.
 struct InboxView: View {
@@ -129,11 +129,10 @@ struct InboxView: View {
                 stack(.chats, path: $chatsPath, drawer: $chatsDrawer)
             } label: { Label { Text(HomeTabs.title(.chats)) } icon: { HomeTabs.tabImage(.chats) } }
             .accessibilityIdentifier("tab.chats")
-            // Spade, ace's cloud agent, keeps its slot between Chats and Search until it launches.
+            // Spade, ace's assistant, between Chats and Search.
             if HomeTabs.showsSpade {
-                Tab(HomeTabs.title(.spade), systemImage: HomeTabs.symbol(.spade), value: InboxTab.spade) {
-                    SpadeSoonScreen().modifier(HomeTabBar(shown: sizeClass != .regular))
-                }
+                Tab(HomeTabs.title(.spade), systemImage: HomeTabs.symbol(.spade), value: InboxTab.spade) { spade }
+                    .accessibilityIdentifier("tab.spade")
             }
             if HomeTabs.composeTab {
                 Tab(HomeTabs.title(.search), systemImage: HomeTabs.symbol(.search), value: InboxTab.search) { search }
@@ -183,6 +182,14 @@ struct InboxView: View {
     /// at its foot so the person can go back to the lists.
     private var search: some View {
         SearchHome(inbox: inbox, openTitle: openTitle, actions: searchActions, query: $searchQuery)
+            .inboxFootBar {
+                if sizeClass == .regular { SidebarPlaces(tab: $tab, open: open, needsYou: needsYou) }
+            }
+            .modifier(HomeTabBar(shown: sizeClass != .regular))
+    }
+
+    private var spade: some View {
+        SpadeHome(inbox: inbox)
             .inboxFootBar {
                 if sizeClass == .regular { SidebarPlaces(tab: $tab, open: open, needsYou: needsYou) }
             }
