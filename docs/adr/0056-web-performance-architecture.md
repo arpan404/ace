@@ -261,3 +261,23 @@ Initial JS (335 KB), first screen (680 KB), routes (345 KB) and CSS (30 KB) stay
 ## Amendment (2026-11-12): round budgets
 
 The owner asked for round bundle budgets, and whole kilobytes in the report: initial JS 350 KB, first screen 700 KB, route 350 KB, CSS 30 KB, a worker's eager script 90 KB, a worker with its later chunks 140 KB. They replace the numbers above (335, 680, 345, 30, 87 and 135). The check still compares exact sizes. The first screen (693 KB) now passes; initial JS (364 KB) stays over until startup code comes out.
+
+## Amendment (2026-11-12): account and organize code out of startup; Zod stays
+
+Two pieces of startup code now load after the first paint, each kept out by `forbiddenInitialModules`:
+
+- **The ace account client.** The account's store, its restore and its state stay eager. The HTTP client and the schemas that check the backend's replies (`@ace/client/ace-account`) load on the first call or once the browser is idle (`lazy-client.ts`). A failed load fails that call as an unreachable backend would, and the next call loads again. `AceAccountError` has its own module, so a 401 is recognised without the client. A provider sign-in's `LoginController` loads with its dialog. A click made while it loads replaces the one before it, so only one login starts.
+- **The organize actions.** What settle, snooze, pin, rename, move, archive and delete do is in `thread-actions-impl.ts`, loaded once idle or on the first action. The list's state, the overlay and the hooks stay eager. Once the code is in, an action runs synchronously. One made before then waits, actions run in the order they were made, and a failed load says so and loads again on the next action.
+
+| Budget, gzip | Before (main) | After  | Limit    |
+| ------------ | ------------- | ------ | -------- |
+| Initial JS   | 364 KB        | 361 KB | ≤ 350 KB |
+| First screen | 693 KB        | 690 KB | ≤ 700 KB |
+| Thread route | 328 KB        | 328 KB | ≤ 350 KB |
+
+Initial JS is still 11 KB over. Two findings limit what can come out next:
+
+- **Zod and the protocol schemas can't leave the first screen.** The thread route parses with Zod itself (the draft store, `@ace/core`'s validators) and uses most protocol modules startup does. Taking a schema root out of startup moves its module into the thread route. Moving `@ace/accounts`'s module-level `AcpIdentity.parse` out of startup, for example, took 1 KB off initial JS but added 3 KB to the thread route and 1 KB to the first screen. While Zod stays loaded, a hand-written check is no smaller than the schema it replaces: one for `RemoteClient`'s worker envelope added 0.1 KB. Zod leaves the first screen only if the thread route stops parsing too.
+- **The initial chunk is the entry's static module graph.** Rolldown tags everything statically reachable from `main.tsx` as `$initial`, including modules reached through barrel re-exports (`@ace/protocol`, `@ace/projection`, `@ace/ui-core`) that only a route uses. Marking `projection`, `handoff`, `forge`, `models`, `accounts` and `core` `sideEffects: false`, together with the `AcpIdentity` change, took 1 KB off initial JS and added 2 KB to the thread route; the first screen didn't shrink.
+
+The tooltip and hover card machinery (Base UI's roots and triggers with Floating UI's hover, focus, dismiss and safe-polygon hooks) is the largest piece left. Taking it out of the shell's wrappers entirely measured about −17 KB initial JS and −15 KB first screen. Tooltips alone measured only −5 KB, since the Home rows' hover cards share the same hooks. Getting it out needs either triggers that switch to Base UI's after it loads, which remounts every trigger (Home rows, workspace tabs) and so risks focus, presses and drags, or a smaller tooltip and hover card implementation of our own. Neither is done here. The other path is the long tail of rarely run shell modules described in the first amendment of this date.
