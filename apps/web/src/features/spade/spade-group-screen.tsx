@@ -201,6 +201,11 @@ function Conversation(props: { group: RosterGroup; bots: readonly RosterBot[] })
             <SpadeGroupChat
               name={group.name}
               view={view}
+              members={group.members.map((member, index) => ({
+                id: member.agent,
+                name: members[index]?.name ?? member.name,
+                machine: member.machine,
+              }))}
               faceOf={faceOf}
               stopping={stopping}
               onStop={stop}

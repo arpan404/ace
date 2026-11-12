@@ -204,34 +204,61 @@ export interface SpadeGroupView {
   status: string | undefined;
   /** The member answering now: the latest open ask's. */
   working: SpadeGroupBot | undefined;
+  /** Who each open ask went to, oldest first. */
+  asked: SpadeGroupBot[];
 }
 
 const sameBot = (a: SpadeGroupBot, b: SpadeGroupBot) =>
   a.id === b.id && (a.machine ?? null) === (b.machine ?? null);
 
 export function spadeGroupView(state: SpadeGroupState): SpadeGroupView {
-  const items: SpadeGroupItem[] = [
-    ...state.items,
-    ...state.pending.map((message) => ({ kind: "person" as const, ...message })),
-  ];
+  const items: SpadeGroupItem[] = [...state.items];
+  for (const message of state.pending)
+    items.push({ kind: "person", key: message.key, text: message.text });
   const rows = items.map((item, index): SpadeGroupRow => {
-    if (item.kind === "person") return { ...item, sending: index >= state.items.length };
+    if (item.kind === "person")
+      return {
+        kind: "person",
+        key: item.key,
+        text: item.text,
+        sending: index >= state.items.length,
+      };
     if (item.kind === "line") return item;
     const before = items[index - 1];
     const after = items[index + 1];
     return {
-      ...item,
+      kind: "member",
+      key: item.key,
+      bot: item.bot,
+      text: item.text,
       first: before?.kind !== "member" || !sameBot(before.bot, item.bot),
       last: after?.kind !== "member" || !sameBot(after.bot, item.bot),
     };
   });
-  const open = [...state.asks.values()].at(-1);
+  const asked = Array.from(state.asks.values(), (open) => open.to);
   return {
     loaded: state.loaded,
     rows,
     busy: state.state !== "idle" || state.asks.size > 0,
     state: state.state,
     status: state.status,
-    working: open?.to,
+    working: asked.at(-1),
+    asked,
   };
+}
+
+const waitingWords = / is waiting for you$/;
+
+/**
+ * The member that waits for the person, while the group waits: the one its status names
+ * (`<Name> is waiting for you`), the latest open ask to it first, else the member of that name.
+ * Undefined when the group doesn't wait or names no one this window can match.
+ */
+export function spadeGroupWaiting(
+  view: Pick<SpadeGroupView, "state" | "status" | "asked">,
+  members: readonly SpadeGroupBot[],
+): SpadeGroupBot | undefined {
+  if (view.state !== "waiting" || !view.status || !waitingWords.test(view.status)) return undefined;
+  const name = view.status.replace(waitingWords, "");
+  return view.asked.findLast((bot) => bot.name === name) ?? members.find((bot) => bot.name === name);
 }

@@ -1,5 +1,10 @@
 import { initials } from "@ace/ui-core";
-import type { SpadeAvatar, SpadeGroupBot, SpadeGroupView } from "@ace/ui-core/spade-chat";
+import {
+  spadeGroupWaiting,
+  type SpadeAvatar,
+  type SpadeGroupBot,
+  type SpadeGroupView,
+} from "@ace/ui-core/spade-chat";
 import { memo } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -30,18 +35,22 @@ export const unknownFace = (bot: SpadeGroupBot): GroupFace => ({
  * (`Spade asked Research`) and a queued, failed or stopped ask as one short muted line. Never a
  * tool call. While the group works, one line under the last bubble: the answering member's face
  * with moving eyes, the group's few words, `Open <bot>` when that bot waits for the person in
- * its own chat, and Stop.
+ * its own chat (the member the status names, `spadeGroupWaiting`), and Stop.
  */
 export function SpadeGroupChat(props: {
   name: string;
   view: SpadeGroupView;
+  /** The group's members, to find the one that waits for the person. */
+  members: readonly SpadeGroupBot[];
   faceOf(bot: SpadeGroupBot): GroupFace;
   stopping: boolean;
   onStop(): void;
 }) {
   const { view } = props;
-  const working = view.working ? props.faceOf(view.working) : undefined;
   const waiting = view.state === "waiting";
+  const waiter = spadeGroupWaiting(view, props.members);
+  const shown = waiter ?? view.working;
+  const working = shown ? props.faceOf(shown) : undefined;
   return (
     <div
       role="feed"
@@ -67,7 +76,7 @@ export function SpadeGroupChat(props: {
                   : `${working.name} is answering`
                 : "Working")}
           </span>
-          {waiting && working?.open && (
+          {waiter && working?.open && (
             <Button size="xs" variant="ghost" onClick={working.open}>
               {`Open ${working.name}`}
             </Button>

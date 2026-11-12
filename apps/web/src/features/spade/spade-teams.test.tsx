@@ -114,17 +114,18 @@ test("the group's status shows under the last bubble, with the waiting member's 
   await chat.findByText("Stopped");
 });
 
-test("Open <bot> on a group's status opens the member that waits for the person", async () => {
+test("Open <bot> on a group's status opens the member that waits for the person, not the one asked last", async () => {
   const { spade } = await spadeApp("/spade", withGroup, { machines: [studio] });
   const chat = await openTrips();
   const [trips] = spade.teams.groups;
   if (!trips) throw new Error("no group");
+  // Writer was asked last, but Research is the one waiting.
   spade.store(trips.conversation, {
     type: "group_asked",
     run: "u1",
     ask: "a3",
     by: spadeBot,
-    to: researchBot,
+    to: { id: "writer", name: "Writer", machine: "studio" },
     depth: 2,
   });
   spade.teams.status(trips, "waiting", "Research is waiting for you");

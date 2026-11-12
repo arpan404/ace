@@ -12,6 +12,7 @@ import {
   spadeBubbles,
   spadeGroupLine,
   spadeGroupView,
+  spadeGroupWaiting,
   spadeView,
   type SpadeGroupRow,
 } from "./index.ts";
@@ -116,6 +117,27 @@ describe("a group's chat", () => {
     g.stored({ type: "group_answered", run: "u1", ask: "a1", to: research, outcome: "answered" });
     g.frame("status", { state: "idle", status: null });
     expect(g.view()).toMatchObject({ busy: false, status: undefined, working: undefined });
+  });
+
+  test("the member waiting for the person is the one the status names, not the latest open ask", () => {
+    const g = group();
+    g.stored({ type: "group_asked", run: "u1", ask: "a1", by: null, to: spade, depth: 1 });
+    g.stored({ type: "group_asked", run: "u1", ask: "a2", by: spade, to: research, depth: 2 });
+    g.stored({ type: "group_asked", run: "u1", ask: "a3", by: spade, to: studio, depth: 2 });
+    g.frame("status", { state: "working", status: "Research is waiting for you" });
+    expect(spadeGroupWaiting(g.view(), [])).toBeUndefined();
+    g.frame("status", { state: "waiting", status: "Research is waiting for you" });
+    expect(g.view().working).toEqual(studio);
+    expect(spadeGroupWaiting(g.view(), [])).toEqual(research);
+  });
+
+  test("a waiting member with no open ask is found among the group's members by name", () => {
+    const g = group();
+    g.stored({ type: "group_asked", run: "u1", ask: "a1", by: null, to: spade, depth: 1 });
+    g.frame("status", { state: "waiting", status: "Writer is waiting for you" });
+    expect(spadeGroupWaiting(g.view(), [spade, research, studio])).toEqual(studio);
+    g.frame("status", { state: "waiting", status: "Nobody is waiting for you" });
+    expect(spadeGroupWaiting(g.view(), [spade, research, studio])).toBeUndefined();
   });
 
   test("an event seen twice after a reconnect shows once", () => {
