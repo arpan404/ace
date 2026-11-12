@@ -53,8 +53,11 @@ export class FakeSpade {
   private readonly conversations = new Map<string, Conversation>();
   private readonly watchers = new Set<Push>();
   private readonly streams = new Map<string, { push: Push; conversation: string }>();
-  /** While set, `spade.http` requests wait in `held` until the test lets them through. */
-  holding = false;
+  /**
+   * While set, `spade.http` requests wait in `held` until the test lets them through: every one,
+   * or only those the function picks.
+   */
+  holding: boolean | ((request: { method: string; path: string }) => boolean) = false;
   private readonly held: { message: HttpRequest; push: Push }[] = [];
   private next = 1;
   private clock = 1_800_000_000_000;
@@ -68,7 +71,8 @@ export class FakeSpade {
         return true;
       case "spade.http":
         this.asked.push({ method: message.method, path: message.path });
-        if (this.holding) this.held.push({ message, push });
+        if (this.holding === true || (this.holding && this.holding(message)))
+          this.held.push({ message, push });
         else this.answerHttp(message, push);
         return true;
       case "spade.live.subscribe":
