@@ -63,6 +63,8 @@ interface Capture {
   reader: FrameReader | undefined;
   /** A tab capture's watch for its first picture; absent for pushed pictures. */
   first: FirstPicture | undefined;
+  /** Ends the extra sink asking for a picture (`refreshPicture`) while one is open. */
+  probe: (() => void) | undefined;
   /** Pushed pictures: one decodes at a time, and only the newest waiting one is kept. */
   decoding: boolean;
   waiting: Uint8Array<ArrayBuffer> | undefined;
@@ -296,6 +298,9 @@ function stop(id: string): void {
     if (entry.encoder?.state !== "closed") entry.encoder?.close();
   }
   capture.encoders.clear();
+  // The probe's clone holds the tab as much as the track does: a capture opened next on the
+  // same tab would be refused while it lives.
+  capture.probe?.();
   void capture.reader?.cancel().catch(() => {});
   capture.track?.stop();
   capture.waiting = undefined;
@@ -308,26 +313,38 @@ function stop(id: string): void {
  * Asks a tab capture for a picture now. Chrome sends a fresh picture to every sink of a capture
  * when a sink is added, so a short-lived extra sink on a clone of the track brings one to the
  * capture's own reader. The extra sink's pictures are closed unread: the encoders only ever
- * take the reader's, in the order they come.
+ * take the reader's, in the order they come. The capture owns the probe: it ends with the
+ * first picture it sees, after `refreshPictureMs`, before the next one, or when the capture
+ * stops, whichever is first.
  */
-function refreshPicture(track: MediaStreamTrack): void {
-  const probe = track.clone();
-  const reader = new MediaStreamTrackProcessor({ track: probe }).readable.getReader();
-  let open = true;
+function refreshPicture(capture: Capture, track: MediaStreamTrack): void {
+  capture.probe?.();
+  const clone = track.clone();
+  let reader: FrameReader | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const close = () => {
-    if (!open) return;
-    open = false;
-    void reader.cancel().catch(() => {});
-    probe.stop();
+    if (capture.probe === close) capture.probe = undefined;
+    clearTimeout(timer);
+    void reader?.cancel().catch(() => {});
+    clone.stop();
   };
+  try {
+    reader = new MediaStreamTrackProcessor({ track: clone }).readable.getReader();
+  } catch {
+    clone.stop();
+    return;
+  }
+  capture.probe = close;
+  timer = setTimeout(close, refreshPictureMs);
   void reader
     .read()
     .then(
       ({ value }) => value?.close(),
       () => {},
     )
-    .finally(close);
-  setTimeout(close, refreshPictureMs);
+    .finally(() => {
+      if (capture.probe === close) close();
+    });
 }
 
 /** Decodes a pushed-picture capture's newest waiting picture until none waits. */
@@ -359,7 +376,7 @@ setInterval(() => {
   const at = now();
   for (const capture of captures.values()) {
     const step = capture.first?.step(at);
-    if (step === "refresh" && capture.track) refreshPicture(capture.track);
+    if (step === "refresh" && capture.track) refreshPicture(capture, capture.track);
     if (step === "failed") {
       // Not a picture in all that time: the daemon opens another capture.
       stop(capture.id);
@@ -451,6 +468,7 @@ Object.assign(globalThis, {
         track,
         reader: new MediaStreamTrackProcessor({ track }).readable.getReader(),
         first: new FirstPicture(now()),
+        probe: undefined,
         decoding: false,
         waiting: undefined,
         last: undefined,
@@ -479,6 +497,7 @@ Object.assign(globalThis, {
         track: undefined,
         reader: undefined,
         first: undefined,
+        probe: undefined,
         decoding: false,
         waiting: undefined,
         last: undefined,
