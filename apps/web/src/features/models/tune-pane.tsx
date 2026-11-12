@@ -1,3 +1,4 @@
+import "@/styles/model-control.css";
 import { effortLabel, speedLabel, type Speed } from "@ace/ui-core";
 import { ArrowCounterClockwiseIcon, CaretRightIcon } from "@phosphor-icons/react";
 import { useEffect, useId, useRef, type KeyboardEvent } from "react";

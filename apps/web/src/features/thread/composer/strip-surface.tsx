@@ -1,3 +1,4 @@
+import "@/styles/composer-strip.css";
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 import {

@@ -5,10 +5,17 @@ import { beforeAll, expect, test } from "vitest";
 import { cssWithoutLegacyPolyfills } from "./css-polyfills.ts";
 
 /*
- * The production stylesheet, built the way `vite build` builds it (Tailwind scanning the app's
- * source, the polyfill strip, minification), checked for the animations it actually ships and
- * for the backdrop filters it can apply.
+ * The production stylesheets, built the way `vite build` builds them (Tailwind scanning the app's
+ * source, the polyfill strip, minification), checked for the animations they actually ship and
+ * for the backdrop filters they can apply: the global sheet and the ones lazy components import.
  */
+const sheets = [
+  "index.css",
+  "model-control.css",
+  "composer-strip.css",
+  "composer-pill.css",
+  "composer-markdown.css",
+];
 
 const root = import.meta.dirname;
 let css = "";
@@ -21,7 +28,7 @@ beforeAll(async () => {
     plugins: [tailwindcss(), cssWithoutLegacyPolyfills()],
     build: {
       write: false,
-      rolldownOptions: { input: join(root, "src/styles/index.css") },
+      rolldownOptions: { input: sheets.map((sheet) => join(root, "src/styles", sheet)) },
     },
   });
   const outputs = (Array.isArray(result) ? result : [result]).flatMap((built) =>
