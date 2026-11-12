@@ -38,7 +38,7 @@ import {
   type TrayRow,
 } from "./thread-attachments.ts";
 import { ThreadAnnotations, withAnnotations } from "./thread-annotations.ts";
-import { QuoteShelf, ThreadQuotes, withQuotes } from "./thread-quotes.ts";
+import { QuoteShelf, quoteText, ThreadQuotes, withQuotes } from "./thread-quotes.ts";
 import { followBlocks } from "./thread-blocks.ts";
 import { followLaneInfo } from "./lane-info.ts";
 import { endingOf, SubagentRetries } from "./subagent-retries.ts";
@@ -636,6 +636,8 @@ export class ThreadSession {
       return;
     }
     const files = this.#tray.context();
+    // What the message replies to goes with it: the new thread carries this one's context.
+    const quoted = this.#quotes.handOff();
     const built =
       "refused" in files
         ? files
@@ -643,7 +645,7 @@ export class ThreadSession {
             reader: this.#store,
             threadId: this.#threadId,
             choice,
-            text,
+            text: quoted ? `${quoteText(quoted)}${text}` : text,
             files: this.#tray.files(),
             modalities: this.#sheet.modalities(choice),
             context: files.context,
@@ -668,6 +670,7 @@ export class ThreadSession {
         if (!("refused" in files) && result.ok) tray.sent(files.ids);
         tray.unlock();
         if (!result.ok) return;
+        if (quoted) this.#quotes.sent(quoted);
         const threadId = result.forkThreadId;
         if (threadId)
           this.#put("continued", () => ({ type: "thread.continued", id, opened: threadId }));

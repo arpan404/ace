@@ -108,6 +108,11 @@ export class ThreadQuotes {
   }
 }
 
+/** The block as words, for a message that takes one string (a continuation's first). */
+export function quoteText(handOff: QuoteHandOff): string {
+  return handOff.part.type === "text" ? handOff.part.text : "";
+}
+
 /** What the message replies to reads first, then the person's words. */
 export function withQuotes(input: ContentPart[], handOff: QuoteHandOff | undefined): ContentPart[] {
   return handOff ? [handOff.part, ...input] : input;
