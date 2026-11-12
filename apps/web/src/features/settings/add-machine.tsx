@@ -97,7 +97,7 @@ function SignInThere(props: { email: string | undefined; onDone(): void; onBack(
       {props.email ? (
         <p className="text-ui text-muted-foreground">
           On the other computer, open ace and sign in with {props.email}. It appears under Machines
-          here once it's signed in, and opens from anywhere through ace's relay.
+          here once it's signed in, and opens from anywhere through ace cloud.
         </p>
       ) : (
         <p className="text-ui text-muted-foreground">

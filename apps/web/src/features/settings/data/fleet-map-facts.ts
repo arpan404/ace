@@ -86,7 +86,7 @@ export function fleetMapFacts(input: FleetMapInput): FleetMap {
   return {
     nodes,
     zones: zonesOf(nodes, input),
-    relay: relayed ? { label: "ace relay", host: host ?? "" } : undefined,
+    relay: relayed ? { label: "ace cloud", host: host ?? "" } : undefined,
     agentLinks: [...pairs.values()],
     problems,
     summary: summaryLine(nodes.length, problems),

@@ -45,7 +45,7 @@ it("a refused or closed account machine reads as failed with why", () => {
 const relayKey = "A".repeat(52);
 function routesFor(paths: MachinePath[], directRoute?: AccountMachineOptions["directRoute"]) {
   const account: AccountMachineOptions = {
-    relayUrl: "wss://relay.acehq.dev",
+    relayUrl: "wss://cloud.acehq.dev",
     deviceId: "phone",
     grant: async () => "grant",
     socket: () => {
@@ -69,12 +69,12 @@ function routesFor(paths: MachinePath[], directRoute?: AccountMachineOptions["di
 it("an account machine is reached through ace's relay, and through relays pinned to its own key", () => {
   expect(
     routesFor([
-      { kind: "account", url: "wss://relay.acehq.dev", relayHostId: relayKey },
+      { kind: "account", url: "wss://cloud.acehq.dev", relayHostId: relayKey },
       { kind: "relay", url: "wss://relay.example", relayHostId: relayKey },
       // A relay naming another host key is not this machine's.
       { kind: "relay", url: "wss://elsewhere.example", relayHostId: "B".repeat(52) },
     ]),
-  ).toEqual(["account wss://relay.acehq.dev", "relay wss://relay.example"]);
+  ).toEqual(["account wss://cloud.acehq.dev", "relay wss://relay.example"]);
 });
 
 it("an account machine's direct paths are used only where the app can check the certificate", () => {
@@ -88,7 +88,7 @@ it("an account machine's direct paths are used only where the app can check the 
     url: "https://box.tail1.ts.net:7443",
     fingerprint: "c".repeat(64),
   } as const;
-  expect(routesFor([lan, tailnet])).toEqual(["account wss://relay.acehq.dev"]);
+  expect(routesFor([lan, tailnet])).toEqual(["account wss://cloud.acehq.dev"]);
   const checked: PathRoute = {
     transport: () => {
       throw new Error("Not dialed");
@@ -97,5 +97,14 @@ it("an account machine's direct paths are used only where the app can check the 
   };
   expect(
     routesFor([lan, tailnet], (path) => (path.kind === "tailscale" ? checked : undefined)),
-  ).toEqual(["account wss://relay.acehq.dev", "tailscale https://box.tail1.ts.net:7443"]);
+  ).toEqual(["account wss://cloud.acehq.dev", "tailscale https://box.tail1.ts.net:7443"]);
+});
+
+it("a relay path saved on ace's former address is ace's relay, not a second route to it", () => {
+  expect(
+    routesFor([
+      { kind: "account", url: "wss://relay.acehq.dev", relayHostId: relayKey },
+      { kind: "relay", url: "wss://relay.example", relayHostId: relayKey },
+    ]),
+  ).toEqual(["account wss://cloud.acehq.dev", "relay wss://relay.example"]);
 });

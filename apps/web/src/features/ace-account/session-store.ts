@@ -1,7 +1,7 @@
 import { AceAccountError, type aceAccountClient } from "@ace/client/ace-account";
 import { AceAccountGrant, type AceLogin } from "@ace/protocol/ace-account";
-import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
-import { accountSessionKey } from "@/boot/account-config.ts";
+import { writeJson, type KeyValueStorage } from "@ace/ui-core";
+import { accountSessionKey, windowAccountSession } from "@/boot/account-config.ts";
 import { browserSignIn } from "./sign-in.ts";
 
 export type AceAccountClient = ReturnType<typeof aceAccountClient>;
@@ -55,7 +55,7 @@ export interface AceAccountState {
 export function aceAccountStore(backend: AceAccountBackend) {
   const { origin, client, storage, secure } = backend;
   const key = accountSessionKey(origin);
-  const stored = readJson(storage, key, AceAccountGrant.nullable(), null);
+  const stored = windowAccountSession(storage, origin);
   let state: AceAccountState = { session: stored, restoring: true, error: "", signIn: null };
   const listeners = new Set<() => void>();
   const update = (patch: Partial<AceAccountState>) => {

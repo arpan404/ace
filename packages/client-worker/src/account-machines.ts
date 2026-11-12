@@ -12,6 +12,7 @@ import {
 } from "@ace/client";
 import { MachineEntry, pinnedFingerprint } from "@ace/client/machines";
 import type { MachineCodeRefusal, MachinePath } from "@ace/protocol";
+import { HostedAddress } from "@ace/protocol/ace-account";
 
 /** A machine the ace account backend lists (`GET /v1/machines`). */
 export interface AccountMachine {
@@ -187,7 +188,10 @@ export function accountRoutes(input: {
     const paths = paired
       ? [paired, ...input.paths().filter((path) => `${path.kind} ${path.url}` !== pairedKey)]
       : input.paths();
-    for (const path of paths) {
+    for (const said of paths) {
+      // A relay the machine named on a former address of ace's backend is the same relay at the
+      // current one, so a path saved before the move is ace's relay, not a second route to it.
+      const path = "relayHostId" in said ? { ...said, url: HostedAddress.parse(said.url) } : said;
       const key = `${path.kind} ${path.url}`;
       let route = built.get(key);
       if (!route) {
