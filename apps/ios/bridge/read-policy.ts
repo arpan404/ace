@@ -84,6 +84,7 @@ export function readFamily(request: unknown): ReadFamily | undefined {
     case "usage.accounts":
     case "usage.part":
     case "usage.summary":
+    case "profile.part":
       return "usage";
     case "pluginRequest":
       return pluginReads.has(pluginType(value) ?? "") ? "plugins" : undefined;

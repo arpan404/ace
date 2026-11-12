@@ -1,4 +1,10 @@
 import { NativeTranscript, NativeTranscriptRequest } from "./native-transcript.ts";
+import {
+  combineProfile,
+  ProfileCombineRequest,
+  ProfilePartRequest,
+  readProfilePart,
+} from "./profile-report.ts";
 import type { ClientCore } from "@ace/client";
 import {
   AutomationRequest,
@@ -363,6 +369,15 @@ export class NativeServices {
       const part = UsagePartRequest.safeParse(raw);
       if (part.success) {
         this.#answer(id, raw, await readUsagePart(this.owner, part.data, controller.signal), read);
+        return;
+      }
+      if (ProfilePartRequest.safeParse(raw).success) {
+        this.#answer(id, raw, await readProfilePart(this.owner, controller.signal), read);
+        return;
+      }
+      const profile = ProfileCombineRequest.safeParse(raw);
+      if (profile.success) {
+        this.#reply(id, true, combineProfile(profile.data), "");
         return;
       }
       // Sums other machines' parts in shared code; nothing here reaches this machine.
