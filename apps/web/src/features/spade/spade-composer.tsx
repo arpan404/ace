@@ -3,6 +3,17 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { Composer, ComposerDock, type Draft } from "@/features/thread/index.ts";
 import { prepareSpadeImages, type SpadeMessage } from "./spade-images.ts";
 
+/**
+ * Thrown by `send` when the words should stay in the composer and the page itself says why
+ * (`spadeStartWords`): no toast, and the draft is kept.
+ */
+export class SpadeWordsKept extends Error {
+  constructor() {
+    super("The words stay in the composer.");
+    this.name = "SpadeWordsKept";
+  }
+}
+
 /** Spade's composer has no project or commands of its own: the person's words and images. */
 const spadeThread = { id: "", workspaceId: "", title: "", draft: true } as const;
 
@@ -35,6 +46,7 @@ export function SpadeComposer(props: {
       draft.files.release();
       return true;
     } catch (error) {
+      if (error instanceof SpadeWordsKept) return false;
       toast.error({
         title: "Couldn't send to Spade",
         description: error instanceof Error ? error.message : undefined,
