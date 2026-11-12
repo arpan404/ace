@@ -243,10 +243,18 @@ impl Store {
                 run.detail
             ],
         )?;
+        // Old runs go, but never one that may still be open: a pending run, or the latest
+        // delivered one, which is what tells a firing that the routine is still running. Skips
+        // piling up behind an open run would otherwise push it out.
         tx.execute(
-            "DELETE FROM routine_runs WHERE routine_id = ?1 AND id NOT IN (
+            "DELETE FROM routine_runs WHERE routine_id = ?1 AND outcome != 'pending'
+             AND id NOT IN (
                  SELECT id FROM routine_runs WHERE routine_id = ?1
-                 ORDER BY at_ms DESC, id DESC LIMIT ?2)",
+                 ORDER BY at_ms DESC, id DESC LIMIT ?2)
+             AND id NOT IN (
+                 SELECT id FROM routine_runs WHERE routine_id = ?1
+                 AND outcome IN ('delivered', 'pending')
+                 ORDER BY at_ms DESC, id DESC LIMIT 1)",
             params![run.routine_id, KEPT_RUNS],
         )?;
         tx.commit()?;
@@ -392,6 +400,34 @@ mod tests {
         store.run_delivered("run_1", 7)?;
         assert!(store.pending_runs()?.is_empty());
         assert_eq!(store.runs("rt_1", 10)?[0].seq, Some(7));
+        Ok(())
+    }
+
+    #[test]
+    fn a_run_that_may_still_be_open_outlives_the_skips_recorded_behind_it() -> Result<()> {
+        let (_dir, store) = store();
+        store.insert_routine(&briefing(None))?;
+        let open = StoredRun {
+            outcome: "delivered".into(),
+            seq: Some(3),
+            ..run("run_open")
+        };
+        store.claim_run(&open, None, None)?;
+        for n in 0..(KEPT_RUNS + 20) {
+            let skipped = StoredRun {
+                id: format!("run_skip_{n:04}"),
+                at_ms: 200 + n,
+                outcome: "skipped_running".into(),
+                ..run("x")
+            };
+            store.claim_run(&skipped, None, None)?;
+        }
+        assert_eq!(
+            store.last_delivered_run("rt_1")?.map(|r| r.id),
+            Some("run_open".to_owned())
+        );
+        // Old skips still go.
+        assert!(store.runs("rt_1", 1_000)?.len() <= usize::try_from(KEPT_RUNS + 1).unwrap_or(0));
         Ok(())
     }
 
