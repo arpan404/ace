@@ -131,18 +131,20 @@ test("rows picked on both machines archive each on its own machine; Move waits f
   await waitFor(() => expect(thread(made.daemon, "thread-cache")?.archivedAt).toBeDefined());
 });
 
+/** A thread on `daemon` done with one command left running, named `title`. */
+function relay(daemon: FakeDaemon, id: string, title: string) {
+  const scenario = watchingRelay(id);
+  new ScenarioPlayer(daemon, {
+    ...scenario,
+    thread: { ...scenario.thread, title },
+  }).runUntilBlocked();
+}
+
 /** On each machine, a thread done with one command left running (ADR 0116), picked together. */
 async function pickRelaysOnBothMachines() {
   const made = harness({ machines: [{ hostId: "build", name: "Build server" }] });
   const build = made.machines.get("build");
   if (!build) throw new Error("no build server");
-  const relay = (daemon: FakeDaemon, id: string, title: string) => {
-    const scenario = watchingRelay(id);
-    new ScenarioPlayer(daemon, {
-      ...scenario,
-      thread: { ...scenario.thread, title },
-    }).runUntilBlocked();
-  };
   relay(made.daemon, "thread-relay-here", "Relay here");
   relay(build, "thread-relay-build", "Relay on build");
   await made.open("/");
