@@ -157,6 +157,24 @@ const Bubble = memo(function Bubble(props: {
           </span>
         </div>
       );
+    case "group":
+      // A group the bot is in sent it (ADR 0132): a small label, then what was asked, quietly.
+      return (
+        <div
+          role="note"
+          aria-label={`In ${item.group}`}
+          className="flex flex-col items-center gap-1"
+        >
+          <span className="rounded-full bg-bubble px-2.5 py-0.5 text-xs text-muted-foreground">
+            {item.agent ? `In ${item.group} · ${item.agent.name}` : `In ${item.group}`}
+          </span>
+          {item.text && (
+            <p className="max-w-[80%] text-center text-xs text-muted-foreground wrap-anywhere line-clamp-3">
+              {item.text}
+            </p>
+          )}
+        </div>
+      );
     case "other": {
       const avatar = bot.others.get(item.agent.id) ?? {
         kind: "generated" as const,

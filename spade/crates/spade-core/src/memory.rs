@@ -380,6 +380,7 @@ mod tests {
                 voice: None,
                 from_agent: None,
                 from_routine: None,
+                from_group: None,
             })
         };
         let events = vec![

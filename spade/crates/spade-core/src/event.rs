@@ -22,15 +22,19 @@ pub enum Known {
         /// document store, by hash; each carries the view the prompt shows.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         documents: Vec<DocumentRef>,
-        /// The recording, when the message was spoken; `text` is its transcript.
+        /// The recording, when the message was spoken; `text` is its transcript. Boxed to keep
+        /// every event small.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        voice: Option<VoiceRef>,
+        voice: Option<Box<VoiceRef>>,
         /// Another agent on this machine sent it (`bot_message`), not the person.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         from_agent: Option<FromAgent>,
         /// One of the agent's routines sent it (ADR 0129), not the person.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         from_routine: Option<Box<FromRoutine>>,
+        /// It came through a group (ADR 0132): the bot's reply is posted there.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from_group: Option<Box<FromGroup>>,
     },
     /// The agent's task or model changed (ADR 0126). Used from the next turn on: a turn's prompt
     /// takes the task in effect when its reply started, and `reply_started` names its model.
@@ -214,6 +218,44 @@ pub enum Known {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         untrusted: bool,
     },
+    /// A message in a group's transcript (ADR 0132): the person's (`from` is `None`) or a bot's
+    /// answer to an ask.
+    GroupMessage {
+        run: String,
+        text: String,
+        #[serde(default)]
+        from: Option<GroupBot>,
+    },
+    /// A group message was handed to a bot: by the person's post (`by` is `None`) or by a bot's
+    /// `group_ask`.
+    GroupAsked {
+        run: String,
+        ask: String,
+        #[serde(default)]
+        by: Option<GroupBot>,
+        to: GroupBot,
+        depth: u32,
+    },
+    /// An ask ended: `answered`, `stopped`, `failed`, `refused` or `gave_up`.
+    GroupAnswered {
+        run: String,
+        ask: String,
+        to: GroupBot,
+        outcome: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<String>,
+    },
+    /// An ask to a bot of another machine waits for that machine to come online.
+    GroupQueued {
+        run: String,
+        ask: String,
+        to: GroupBot,
+        machine_name: String,
+    },
+    /// The person pressed Stop in the group: the run ended.
+    GroupStopped {
+        run: String,
+    },
 }
 
 /// The agent that sent a message, and how many bot-to-bot hops led to it (1 when the sender was
@@ -223,6 +265,33 @@ pub struct FromAgent {
     pub id: String,
     pub name: String,
     pub depth: u32,
+    /// The machine it runs on, by name, when that is another machine (ADR 0132).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine: Option<String>,
+}
+
+/// The group a message came through (ADR 0132), and whether the group's earlier messages that
+/// came with it carry other bots' words.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FromGroup {
+    pub id: String,
+    pub name: String,
+    pub run: String,
+    pub ask: String,
+    /// The group lives on another machine, by name; `group_ask` works only on the group's own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub untrusted: bool,
+}
+
+/// A bot as a group names it: its id, name and machine (host id; `None` for this machine).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GroupBot {
+    pub id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub machine: Option<String>,
 }
 
 /// The routine whose firing a message is (ADR 0129): its id and name, the run, and a short label
@@ -358,6 +427,7 @@ impl Event {
             voice: None,
             from_agent: None,
             from_routine: None,
+            from_group: None,
         })
     }
 

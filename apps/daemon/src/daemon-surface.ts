@@ -85,6 +85,7 @@ export function bindLiveServices(serverOptions: ServerOptions, services: Service
     "devices",
     "userBrowser",
     "spade",
+    "spadeRemote",
   ] as const)
     Object.defineProperty(serverOptions, key, {
       enumerable: true,
@@ -200,6 +201,9 @@ export function daemonHandle({
     },
     get spade() {
       return services.spade;
+    },
+    get spadeRemote() {
+      return services.spadeRemote;
     },
     get commands() {
       return services.commands;

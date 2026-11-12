@@ -198,6 +198,9 @@ export function capabilityOf(
       return call.op;
     case "command.jobs":
       return "commands";
+    // Spade's inbox: its bots are agents (ADR 0132).
+    case "spade":
+      return "agents";
     default:
       return "agents";
   }

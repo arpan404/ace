@@ -21,7 +21,7 @@ fn document(chars: u64, view: &str) -> DocumentRef {
     }
 }
 
-fn message(text: &str, documents: Vec<DocumentRef>, voice: Option<VoiceRef>) -> Event {
+fn message(text: &str, documents: Vec<DocumentRef>, voice: Option<Box<VoiceRef>>) -> Event {
     Event::Known(Known::UserMessage {
         text: text.into(),
         context: None,
@@ -30,6 +30,7 @@ fn message(text: &str, documents: Vec<DocumentRef>, voice: Option<VoiceRef>) -> 
         voice,
         from_agent: None,
         from_routine: None,
+        from_group: None,
     })
 }
 
@@ -100,7 +101,11 @@ fn a_spoken_message_reads_as_its_transcript_marked_as_spoken() {
         media_type: "audio/webm".into(),
         bytes: 900,
     };
-    let messages = messages(&[message("turn the lights off", Vec::new(), Some(voice))]);
+    let messages = messages(&[message(
+        "turn the lights off",
+        Vec::new(),
+        Some(Box::new(voice)),
+    )]);
     let (text, _) = person_text(&messages);
     assert_eq!(text, "[Spoken; transcribed] turn the lights off");
 }

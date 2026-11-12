@@ -204,7 +204,12 @@ impl Transcript {
             | Known::Shared { .. }
             | Known::MemoryIndexed { .. }
             | Known::ContextCompacted { .. }
-            | Known::AgentConfigured { .. } => {}
+            | Known::AgentConfigured { .. }
+            | Known::GroupMessage { .. }
+            | Known::GroupAsked { .. }
+            | Known::GroupAnswered { .. }
+            | Known::GroupQueued { .. }
+            | Known::GroupStopped { .. } => {}
         }
         if self.open_reply().is_none() {
             self.running.clear();

@@ -347,6 +347,7 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
                 voice,
                 from_agent,
                 from_routine,
+                from_group,
             } => {
                 let spoken = match voice {
                     Some(_) => format!("{SPOKEN} {text}"),
@@ -364,6 +365,9 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
                 }
                 if let Some(from) = from_routine {
                     text = crate::routine::framed(from, &text);
+                }
+                if let Some(from) = from_group {
+                    text = crate::group::framed(from, &text);
                 }
                 let mut shown = Vec::new();
                 for document in documents {
@@ -673,6 +677,11 @@ pub fn untrusted_event(event: &Event, registry: &Registry) -> bool {
             from_agent: Some(_),
             ..
         }) => true,
+        // A group message that came with other bots' earlier messages (ADR 0132).
+        Event::Known(Known::UserMessage {
+            from_group: Some(from),
+            ..
+        }) if from.untrusted => true,
         // A routine fired by an ace event carries that event's text (a thread's title).
         Event::Known(Known::UserMessage {
             from_routine: Some(from),
@@ -712,6 +721,11 @@ fn describe_event(events: &[Event], event: &Event) -> String {
                 .collect();
             format!("the attached file {}", names.join(", "))
         }
+        Event::Known(Known::UserMessage {
+            from_group: Some(group),
+            from_routine: None,
+            ..
+        }) => format!("other bots' messages in {}", group.name),
         Event::Known(Known::UserMessage { .. }) => "an ace event".to_owned(),
         Event::Known(Known::ToolFinished { name, call_id, .. }) => {
             describe_source(events, name, call_id)

@@ -9,6 +9,7 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { readingColumn } from "@/features/thread/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
+import { saveAs } from "./save-as.ts";
 import {
   deletePath,
   downloadFile,
@@ -249,16 +250,6 @@ function OpenFile(props: { bot: string; path: string; onDownload(): void; onDele
       )}
     </div>
   );
-}
-
-/** Hands `blob` to the browser as a download named `name`. */
-function saveAs(blob: Blob, name: string) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = name;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }
 
 const message = (error: unknown) => (error instanceof Error ? error.message : "Try again.");

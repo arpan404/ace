@@ -276,6 +276,9 @@ async fn run() -> Result<(), Failure> {
     .map_err(other)?;
     bots.set(&engine);
     engine.media().read_with(reader);
+    if let Some(link) = &ace {
+        engine.set_remote(link.clone());
+    }
     let token = new_token();
     home.write_token(&token).map_err(other)?;
     let listener = TcpListener::bind(config.listen).await.map_err(other)?;

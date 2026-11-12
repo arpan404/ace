@@ -113,6 +113,10 @@ pub(crate) enum Incoming {
     Error(ErrorFrame),
     #[serde(rename = "skills.result")]
     SkillsResult(SkillsResult),
+    /// `spade.machines.result` and `spade.remote.result` from
+    /// `packages/protocol/src/spade-remote.ts`, kept whole.
+    #[serde(rename = "spade.machines.result", alias = "spade.remote.result")]
+    SpadeResult(SpadeResult),
     #[serde(other)]
     Other,
 }
@@ -125,6 +129,15 @@ pub(crate) struct ErrorFrame {
     #[serde(default)]
     pub message: String,
     pub request_id: Option<String>,
+}
+
+/// The answer to a `spade.machines` or `spade.remote` request, its other fields kept raw.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SpadeResult {
+    pub request_id: String,
+    #[serde(flatten)]
+    pub fields: serde_json::Map<String, Value>,
 }
 
 /// Mirrors `SkillsResult` in `packages/protocol/src/skill-library.ts`. `result` stays raw, so a

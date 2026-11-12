@@ -91,6 +91,8 @@ export type SpadeEntry =
       fromAgent?: { id: string; name: string };
       /** Fired by one of the bot's routines or its heartbeat, not the person. */
       fromRoutine?: { id: string; name: string; label: string; heartbeat: boolean };
+      /** Sent here from a group the bot is in (ADR 0132). */
+      fromGroup?: { id: string; name: string };
     }
   | SpadeReplyEntry
   /** The model now reads a summary of what came before. */
@@ -243,10 +245,10 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
   switch (event.type) {
     case "user_message": {
       const mine = state.pending.findIndex((message) => sameMessage(message, event));
-      if (mine >= 0 && !event.from_agent && !event.from_routine)
-        state.pending = state.pending.filter((_, index) => index !== mine);
-      // The person's message answers the bot's question; another bot's doesn't.
-      if (!event.from_agent) state.question = undefined;
+      const relayed = event.from_agent || event.from_routine || event.from_group;
+      if (mine >= 0 && !relayed) state.pending = state.pending.filter((_, index) => index !== mine);
+      // The person's message here answers the bot's question; another bot's, or a group's, doesn't.
+      if (!event.from_agent && !event.from_group) state.question = undefined;
       steer(state, {
         kind: "user",
         key,
@@ -258,6 +260,9 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           ? { fromAgent: { id: event.from_agent.id, name: event.from_agent.name } }
           : {}),
         ...(event.from_routine ? { fromRoutine: event.from_routine } : {}),
+        ...(event.from_group
+          ? { fromGroup: { id: event.from_group.id, name: event.from_group.name } }
+          : {}),
       });
       return true;
     }

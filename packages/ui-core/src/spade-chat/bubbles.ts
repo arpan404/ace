@@ -23,6 +23,17 @@ export type SpadeBubble =
     }
   /** One of the bot's routines fired: a small label, `Daily briefing · 9:00`. */
   | { kind: "routine"; key: string; name: string; label: string }
+  /**
+   * A message a group the bot is in sent here (ADR 0132): a small `In <group>` label, never the
+   * person's bubble; `agent` when a member asked, not the person.
+   */
+  | {
+      kind: "group";
+      key: string;
+      group: string;
+      text: string;
+      agent: { id: string; name: string } | undefined;
+    }
   /** A message another bot sent into this conversation, labelled with the name it had. */
   | { kind: "other"; key: string; agent: { id: string; name: string }; text: string }
   | {
@@ -82,6 +93,16 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
             name: entry.fromRoutine.name,
             label: entry.fromRoutine.label,
           });
+        continue;
+      }
+      if (entry.fromGroup) {
+        bubbles.push({
+          kind: "group",
+          key: entry.key,
+          group: entry.fromGroup.name,
+          text: entry.text,
+          agent: entry.fromAgent,
+        });
         continue;
       }
       bubbles.push(

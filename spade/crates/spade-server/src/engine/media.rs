@@ -37,6 +37,10 @@ impl Engine {
         if self.disabled_main(id)? {
             return Err(SendError::Disabled);
         }
+        // A group's conversation is written to through the group (ADR 0132).
+        if self.store.group_for_conversation(id)?.is_some() {
+            return Err(SendError::Group);
+        }
         let images = outgoing
             .images
             .iter()
@@ -47,9 +51,10 @@ impl Engine {
             context: None,
             images,
             documents: outgoing.documents,
-            voice: outgoing.voice,
+            voice: outgoing.voice.map(Box::new),
             from_agent: None,
             from_routine: None,
+            from_group: None,
         });
         let message = memory::with_recall(self, id, message);
         self.deliver(id, &message)?;

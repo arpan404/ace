@@ -56,6 +56,7 @@ import { Route as SettingsProvidersProviderRouteImport } from "./routes/settings
 import { Route as SettingsRemoteIndexRouteImport } from "./routes/settings.remote.index"
 import { Route as SettingsRemoteMachineRouteImport } from "./routes/settings.remote.$machine"
 import { Route as SettingsRemoteMapRouteImport } from "./routes/settings.remote.map"
+import { Route as SpadeGroupsGroupIdRouteImport } from "./routes/spade.groups.$groupId"
 import { Route as HomeIssuesProjectNumberRouteImport } from "./routes/_home.issues_.$project.$number"
 import { Route as HomeIssuesProjectNewRouteImport } from "./routes/_home.issues_.$project.new"
 import { Route as HomePullsProjectNumberRouteImport } from "./routes/_home.pulls_.$project.$number"
@@ -300,6 +301,11 @@ const SettingsRemoteMapRoute = SettingsRemoteMapRouteImport.update({
   path: "/remote/map",
   getParentRoute: () => SettingsRoute,
 } as any)
+const SpadeGroupsGroupIdRoute = SpadeGroupsGroupIdRouteImport.update({
+  id: "/groups/$groupId",
+  path: "/groups/$groupId",
+  getParentRoute: () => SpadeRoute,
+} as any)
 const HomeIssuesProjectNumberRoute = HomeIssuesProjectNumberRouteImport.update({
   id: "/issues_/$project/$number",
   path: "/issues/$project/$number",
@@ -376,6 +382,7 @@ export interface FileRoutesByFullPath {
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
   "/settings/remote/$machine": typeof SettingsRemoteMachineRoute
   "/settings/remote/map": typeof SettingsRemoteMapRoute
+  "/spade/groups/$groupId": typeof SpadeGroupsGroupIdRoute
   "/automations/$automationId/": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers/": typeof SettingsProvidersIndexRoute
   "/settings/remote/": typeof SettingsRemoteIndexRoute
@@ -426,6 +433,7 @@ export interface FileRoutesByTo {
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
   "/settings/remote/$machine": typeof SettingsRemoteMachineRoute
   "/settings/remote/map": typeof SettingsRemoteMapRoute
+  "/spade/groups/$groupId": typeof SpadeGroupsGroupIdRoute
   "/automations/$automationId": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers": typeof SettingsProvidersIndexRoute
   "/settings/remote": typeof SettingsRemoteIndexRoute
@@ -482,6 +490,7 @@ export interface FileRoutesById {
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
   "/settings/remote/$machine": typeof SettingsRemoteMachineRoute
   "/settings/remote/map": typeof SettingsRemoteMapRoute
+  "/spade/groups/$groupId": typeof SpadeGroupsGroupIdRoute
   "/automations/$automationId/": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers/": typeof SettingsProvidersIndexRoute
   "/settings/remote/": typeof SettingsRemoteIndexRoute
@@ -538,6 +547,7 @@ export interface FileRouteTypes {
     | "/settings/providers/$provider"
     | "/settings/remote/$machine"
     | "/settings/remote/map"
+    | "/spade/groups/$groupId"
     | "/automations/$automationId/"
     | "/settings/providers/"
     | "/settings/remote/"
@@ -588,6 +598,7 @@ export interface FileRouteTypes {
     | "/settings/providers/$provider"
     | "/settings/remote/$machine"
     | "/settings/remote/map"
+    | "/spade/groups/$groupId"
     | "/automations/$automationId"
     | "/settings/providers"
     | "/settings/remote"
@@ -643,6 +654,7 @@ export interface FileRouteTypes {
     | "/settings/providers/$provider"
     | "/settings/remote/$machine"
     | "/settings/remote/map"
+    | "/spade/groups/$groupId"
     | "/automations/$automationId/"
     | "/settings/providers/"
     | "/settings/remote/"
@@ -996,6 +1008,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SettingsRemoteMapRouteImport
       parentRoute: typeof SettingsRoute
     }
+    "/spade/groups/$groupId": {
+      id: "/spade/groups/$groupId"
+      path: "/groups/$groupId"
+      fullPath: "/spade/groups/$groupId"
+      preLoaderRoute: typeof SpadeGroupsGroupIdRouteImport
+      parentRoute: typeof SpadeRoute
+    }
     "/_home/issues_/$project/$number": {
       id: "/_home/issues_/$project/$number"
       path: "/issues/$project/$number"
@@ -1167,11 +1186,13 @@ const SkillsRouteWithChildren =
 interface SpadeRouteChildren {
   SpadeAgentIdRoute: typeof SpadeAgentIdRoute
   SpadeIndexRoute: typeof SpadeIndexRoute
+  SpadeGroupsGroupIdRoute: typeof SpadeGroupsGroupIdRoute
 }
 
 const SpadeRouteChildren: SpadeRouteChildren = {
   SpadeAgentIdRoute: SpadeAgentIdRoute,
   SpadeIndexRoute: SpadeIndexRoute,
+  SpadeGroupsGroupIdRoute: SpadeGroupsGroupIdRoute,
 }
 
 const SpadeRouteWithChildren = SpadeRoute._addFileChildren(SpadeRouteChildren)

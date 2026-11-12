@@ -214,6 +214,7 @@ fn message(run: &str, heartbeat: bool) -> Event {
             heartbeat,
             event: None,
         })),
+        from_group: None,
     })
 }
 

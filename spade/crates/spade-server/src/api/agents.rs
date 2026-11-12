@@ -41,7 +41,15 @@ impl AvatarBody {
 
 #[derive(Deserialize)]
 pub(super) struct NewAgent {
-    name: String,
+    /// The template's name when a template is given.
+    #[serde(default)]
+    name: Option<String>,
+    /// A shipped template to start from (docs/teams.md).
+    #[serde(default)]
+    template: Option<String>,
+    /// The IANA time zone a template's routines run in.
+    #[serde(default)]
+    time_zone: Option<String>,
     #[serde(default)]
     task: String,
     /// The engine's default (the person's first usable model) when absent.
@@ -131,8 +139,40 @@ pub(super) async fn create(State(state): State<AppState>, Body(body): Body<NewAg
     };
     // The default model is the first one with a key, which reads the keychain.
     off_thread(move || {
+        if let Some(template) = &body.template {
+            let model = body
+                .model
+                .clone()
+                .or_else(|| crate::teams::template_model(&state.engine, template))
+                .unwrap_or_else(|| state.engine.default_model());
+            let named = body.name.as_deref().is_some_and(|n| !n.trim().is_empty());
+            let input = AgentInput {
+                name: body.name.unwrap_or_default(),
+                task: body.task,
+                model,
+                avatar,
+            };
+            return match crate::teams::from_template(
+                &state.engine,
+                template,
+                input,
+                named,
+                body.time_zone,
+            ) {
+                Ok(made) => (
+                    StatusCode::CREATED,
+                    Json(json!({ "agent": agent_json(&made.agent), "left_out": made.left_out })),
+                )
+                    .into_response(),
+                Err(crate::teams::PortableError::NotFound) => {
+                    problem(StatusCode::NOT_FOUND, "no such template")
+                }
+                Err(crate::teams::PortableError::Agent(error)) => agent_problem(&error),
+                Err(error) => problem(StatusCode::BAD_REQUEST, &error.to_string()),
+            };
+        }
         let input = AgentInput {
-            name: body.name,
+            name: body.name.unwrap_or_default(),
             task: body.task,
             model: body.model.unwrap_or_else(|| state.engine.default_model()),
             avatar,

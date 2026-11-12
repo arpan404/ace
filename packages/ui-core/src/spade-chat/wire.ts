@@ -33,6 +33,11 @@ const known = z.discriminatedUnion("type", [
       })
       .nullish()
       .catch(undefined),
+    /** A group sent it to this bot (ADR 0132): a person's or another member's words there. */
+    from_group: z
+      .object({ id: z.string(), name: z.string().catch("") })
+      .nullish()
+      .catch(undefined),
     // An image, document or recording this client can't read is left out; the message shows.
     images: spadeImageList,
     documents: spadeDocumentList,
