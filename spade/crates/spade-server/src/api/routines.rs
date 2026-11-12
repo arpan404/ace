@@ -3,10 +3,10 @@
 //! webhook secret instead of Spade's token.
 
 use axum::Extension;
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use spade_core::routine::{QuietHours, Trigger};
@@ -137,8 +137,10 @@ fn heartbeat_json(view: &HeartbeatView) -> Value {
 
 pub(super) async fn list(State(state): State<AppState>, Path(agent): Path<String>) -> Response {
     match routines::list(&state.engine, &agent) {
-        Ok(views) => Json(json!({ "routines": views.iter().map(routine_json).collect::<Vec<_>>() }))
-            .into_response(),
+        Ok(views) => {
+            Json(json!({ "routines": views.iter().map(routine_json).collect::<Vec<_>>() }))
+                .into_response()
+        }
         Err(error) => failure(&error),
     }
 }
@@ -215,10 +217,17 @@ pub(super) async fn run(
 
 /// Compares in time independent of where the strings differ.
 fn same(a: &str, b: &str) -> bool {
-    a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+    a.len() == b.len()
+        && a.bytes()
+            .zip(b.bytes())
+            .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+            == 0
 }
 
-pub(super) async fn heartbeat(State(state): State<AppState>, Path(agent): Path<String>) -> Response {
+pub(super) async fn heartbeat(
+    State(state): State<AppState>,
+    Path(agent): Path<String>,
+) -> Response {
     match routines::heartbeat(&state.engine, &agent) {
         Ok(view) => Json(json!({ "heartbeat": heartbeat_json(&view) })).into_response(),
         Err(error) => failure(&error),

@@ -223,7 +223,11 @@ mod tests {
     fn the_first_list_is_only_a_baseline_and_a_change_into_done_fires_once() {
         let mut watch = ThreadWatch::new();
         assert!(watch.saw(&json!({ "t1": entry("done") }), &[]).is_empty());
-        assert!(watch.saw(&json!({ "t2": entry("working") }), &[]).is_empty());
+        assert!(
+            watch
+                .saw(&json!({ "t2": entry("working") }), &[])
+                .is_empty()
+        );
         let changes = watch.saw(&json!({ "t2": entry("done") }), &[]);
         assert_eq!(
             changes,

@@ -130,10 +130,7 @@ fn invalid(why: impl Into<String>) -> RoutineError {
 }
 
 fn agent_of(engine: &Engine, agent_id: &str) -> Result<spade_store::Agent, RoutineError> {
-    engine
-        .store()
-        .agent(agent_id)?
-        .ok_or(RoutineError::NoAgent)
+    engine.store().agent(agent_id)?.ok_or(RoutineError::NoAgent)
 }
 
 fn zone(name: &str) -> Result<TimeZone, RoutineError> {
@@ -230,10 +227,14 @@ pub fn create(
     }
     let (Some(name), Some(text), Some(trigger)) = (input.name, input.instruction, input.trigger)
     else {
-        return Err(invalid("A routine needs a name, an instruction and a trigger."));
+        return Err(invalid(
+            "A routine needs a name, an instruction and a trigger.",
+        ));
     };
     if trigger.is_heartbeat() {
-        return Err(invalid("The heartbeat is set on its own, not as a routine."));
+        return Err(invalid(
+            "The heartbeat is set on its own, not as a routine.",
+        ));
     }
     trigger.schedule().map_err(invalid)?;
     let time_zone = input.time_zone.unwrap_or_else(|| default_zone(engine));
@@ -245,8 +246,7 @@ pub fn create(
         kind: ROUTINE.to_owned(),
         name: one_line(&name, routine::NAME_CHARS, "name")?,
         instruction: instruction(&text)?,
-        secret: matches!(trigger, Trigger::Webhook)
-            .then(|| (engine.routines_shared().secrets)()),
+        secret: matches!(trigger, Trigger::Webhook).then(|| (engine.routines_shared().secrets)()),
         trigger: serde_json::to_string(&trigger).map_err(|e| invalid(e.to_string()))?,
         time_zone,
         paused: input.paused.unwrap_or(false),
@@ -286,7 +286,9 @@ pub fn update(
     }
     if let Some(trigger) = change.trigger {
         if trigger.is_heartbeat() {
-            return Err(invalid("The heartbeat is set on its own, not as a routine."));
+            return Err(invalid(
+                "The heartbeat is set on its own, not as a routine.",
+            ));
         }
         trigger.schedule().map_err(invalid)?;
         let webhook = matches!(trigger, Trigger::Webhook);

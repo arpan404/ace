@@ -56,9 +56,7 @@ fn fire_due(engine: &Arc<Engine>, r: &StoredRoutine, now: i64) -> Result<(), Rou
     let trigger = trigger_of(r);
     let (Ok(Some(schedule)), Ok(zone)) = (trigger.schedule(), TimeZone::get(&r.time_zone)) else {
         // Unreadable now (a zone the system no longer knows): stop it rather than retry forever.
-        engine
-            .store()
-            .advance_routine(&r.id, r.next_due_ms, None)?;
+        engine.store().advance_routine(&r.id, r.next_due_ms, None)?;
         return Ok(());
     };
     let Some(next) = r.next_due_ms else {
@@ -214,7 +212,14 @@ fn fire(
         return Ok(None);
     }
     if skip.is_none() {
-        deliver(engine, r, &agent.conversation, &run.id, firing.label, firing.event)?;
+        deliver(
+            engine,
+            r,
+            &agent.conversation,
+            &run.id,
+            firing.label,
+            firing.event,
+        )?;
     }
     Ok(Some(run.id))
 }
@@ -275,7 +280,11 @@ fn recover(engine: &Arc<Engine>) -> Result<(), StoreError> {
 }
 
 /// Whether the routine's latest delivered run is still open: no reply has ended since.
-fn previous_open(engine: &Engine, r: &StoredRoutine, conversation: &str) -> Result<bool, StoreError> {
+fn previous_open(
+    engine: &Engine,
+    r: &StoredRoutine,
+    conversation: &str,
+) -> Result<bool, StoreError> {
     let Some(last) = engine.store().last_delivered_run(&r.id)? else {
         return Ok(false);
     };

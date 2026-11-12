@@ -56,8 +56,9 @@ fn shown(view: &RoutineView) -> Value {
 
 fn failed(error: &RoutineError) -> ToolOutput {
     ToolOutput::error(match error {
-        RoutineError::NotFound => "You have no routine with that id; routines_list shows them."
-            .to_owned(),
+        RoutineError::NotFound => {
+            "You have no routine with that id; routines_list shows them.".to_owned()
+        }
         error => error.to_string(),
     })
 }
@@ -159,7 +160,9 @@ impl Tool for RoutineSave {
                 Err(output) => return output,
             };
             let triggers = [
-                args.schedule.clone().map(|schedule| Trigger::Schedule { schedule }),
+                args.schedule
+                    .clone()
+                    .map(|schedule| Trigger::Schedule { schedule }),
                 args.event.map(|event| Trigger::Event { event }),
                 args.webhook.then_some(Trigger::Webhook),
             ];
