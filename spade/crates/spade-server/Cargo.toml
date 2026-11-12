@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 base64.workspace = true
 hmac.workspace = true
+jiff.workspace = true
 sha2.workspace = true
 tempfile.workspace = true
 axum.workspace = true
@@ -44,7 +45,8 @@ rmcp = { version = "3.9.0", default-features = false, features = [
 ] }
 spade-testkit = { path = "../spade-testkit" }
 tokio-util = "0.7"
-# For the fake daemon WebSocket shared with spade-ace's tests.
+# Fake daemon WebSockets: routines' ace events, and the skill library shared with spade-ace's
+# tests.
 tokio-tungstenite = "0.30.0"
 tower = "0.5"
 

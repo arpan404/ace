@@ -40,7 +40,7 @@ impl State {
     /// From the folded transcript: waiting beats working, and background jobs count as working,
     /// so an agent is never shown idle while any of its work runs.
     pub fn of(transcript: &Transcript) -> Self {
-        if !transcript.awaiting.is_empty() {
+        if !transcript.awaiting.is_empty() || transcript.asking() {
             Self::Waiting
         } else if transcript.open_reply().is_some() || !transcript.jobs.is_empty() {
             Self::Working
@@ -53,11 +53,19 @@ impl State {
 /// The latest message: the person's (or another bot's) or the agent's reply text, never tool
 /// output, cut to [`PREVIEW`] characters of plain text.
 pub fn last_message(events: &[StoredEvent]) -> Option<LastMessage> {
+    // A routine's message is its label, not something the person said; a heartbeat and its quiet
+    // answer are shown as nothing (ADR 0129).
+    let silent = spade_core::routine::silent_replies(events.iter().map(|e| &e.event));
     events.iter().rev().find_map(|stored| {
         let Event::Known(known) = &stored.event else {
             return None;
         };
         let (by_agent, text, from_agent) = match known {
+            Known::UserMessage {
+                from_routine: Some(_),
+                ..
+            } => return None,
+            Known::ReplyFinished { reply, .. } if silent.contains(reply) => return None,
             Known::UserMessage {
                 text,
                 images,

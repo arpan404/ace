@@ -278,6 +278,7 @@ impl Engine {
             state: activity.state,
             status,
             last_message: activity.last_message,
+            waiting_for: activity.waiting_for,
             agent,
         })
     }

@@ -398,6 +398,15 @@ impl AceLink {
         *self.current.write().unwrap_or_else(|p| p.into_inner()) = None;
     }
 
+    /// The daemon's WebSocket while connected, for routines' thread events (ADR 0129).
+    pub fn daemon_socket(&self) -> Option<spade_ace::SkillsConfig> {
+        self.current
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_ref()
+            .map(|c| c.skills.config().clone())
+    }
+
     fn library(&self) -> Option<AceLibrary> {
         self.current
             .read()

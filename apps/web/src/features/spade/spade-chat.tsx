@@ -7,6 +7,7 @@ import {
   type SpadeChatItem,
   type SpadeImageRef,
   type SpadeProposal,
+  type SpadeRememberedNote,
   type SpadeView,
 } from "@ace/ui-core/spade-chat";
 import { memo, useEffect, useState } from "react";
@@ -35,8 +36,10 @@ const faceRoom = "w-7 shrink-0";
  * A bot's conversation as a chat (ADR 0127): the person's bubbles on the right on the active
  * fill, the bot's on the left with its face beside the last bubble of each run, messages other
  * bots sent here under their name and face. Nothing of how the bot works shows: no tool calls,
- * jobs or compaction. An approval arrives as the bot's bubble with Allow and Deny, and a skill the
- * bot offers as one with Save and Discard (ADR 0130), after the reply that made it. While the bot
+ * jobs or compaction. An approval arrives as the bot's bubble with Allow and Deny, a question as
+ * the bot's bubble, a note it saved as one quiet "Remembered" line that opens the note for
+ * editing (ADR 0128), and a skill the bot offers as a bubble with Save and Discard (ADR 0130),
+ * after the reply that made it. While the bot
  * works, one line under its last bubble: its face with moving eyes, its few words, and Stop.
  */
 export function SpadeChat(props: {
@@ -45,6 +48,7 @@ export function SpadeChat(props: {
   stopping: boolean;
   onStop(): void;
   onAnswer(callId: string, allowed: boolean, always: boolean): Promise<boolean>;
+  onRemembered(note: SpadeRememberedNote): void;
   proposals?: readonly SpadeProposal[];
   onProposal?(id: string, save: boolean): Promise<boolean>;
 }) {
@@ -53,7 +57,7 @@ export function SpadeChat(props: {
   // Busy: anything open. Stop stays while it is, waiting on the person too; the face moves only
   // while the bot works itself.
   const busy = view.busy;
-  const waiting = view.approvals.length > 0;
+  const waiting = view.approvals.length > 0 || view.asking;
   return (
     <div
       role="feed"
@@ -74,6 +78,7 @@ export function SpadeChat(props: {
             face={lastOfRun}
             onAnswer={props.onAnswer}
             onProposal={props.onProposal}
+            onRemembered={props.onRemembered}
           />
         );
       })}
@@ -117,6 +122,7 @@ const Bubble = memo(function Bubble(props: {
   face: boolean;
   onAnswer(callId: string, allowed: boolean, always: boolean): Promise<boolean>;
   onProposal: ((id: string, save: boolean) => Promise<boolean>) | undefined;
+  onRemembered(note: SpadeRememberedNote): void;
 }) {
   const { item, bot } = props;
   switch (item.kind) {
@@ -134,6 +140,15 @@ const Bubble = memo(function Bubble(props: {
               <SpadeBubbleText text={item.text} />
             </div>
           )}
+        </div>
+      );
+    case "routine":
+      // A routine fired (ADR 0129): a small label in the middle, never the person's bubble.
+      return (
+        <div role="note" className="flex justify-center">
+          <span className="rounded-full bg-bubble px-2.5 py-0.5 text-xs text-muted-foreground">
+            {`${item.name} · ${item.label}`}
+          </span>
         </div>
       );
     case "other": {
@@ -172,6 +187,18 @@ const Bubble = memo(function Bubble(props: {
             )}
           </div>
         </BotRow>
+      );
+    case "remembered":
+      return (
+        <div className="pl-9.5">
+          <button
+            type="button"
+            onClick={() => props.onRemembered(item.note)}
+            className="max-w-[80%] rounded-sm text-left text-xs text-muted-foreground wrap-anywhere transition-colors duration-(--motion-fast) hover:text-foreground focus-ring"
+          >
+            {`Remembered: ${item.note.text}`}
+          </button>
+        </div>
       );
     case "ask":
       return (

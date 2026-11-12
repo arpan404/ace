@@ -21,6 +21,9 @@ pub enum Known {
         /// Another agent on this machine sent it (`bot_message`), not the person.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         from_agent: Option<FromAgent>,
+        /// One of the agent's routines sent it (ADR 0129), not the person.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from_routine: Option<Box<FromRoutine>>,
     },
     /// The agent's task or model changed (ADR 0126). Used from the next turn on: a turn's prompt
     /// takes the task in effect when its reply started, and `reply_started` names its model.
@@ -32,6 +35,18 @@ pub enum Known {
     /// cached; later skills are found with `skill_search`.
     SkillsIndexed {
         text: String,
+    },
+    /// The bot's notes for the cached top of the prompt (ADR 0128), stored before the first model
+    /// call and once after each compaction, so the top changes only when the conversation
+    /// compacts.
+    MemoryIndexed {
+        text: String,
+    },
+    /// `ask_user`: the bot asked the person and the turn waits for their next message.
+    QuestionAsked {
+        reply: String,
+        call_id: String,
+        question: String,
     },
     /// One model call in a turn finished: its text, tool calls and the model's thoughts, kept
     /// whole so they go back exactly as they came.
@@ -176,6 +191,10 @@ pub enum Known {
         /// at the end. Missing on events from before it was stored.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         images_left_out: Option<usize>,
+        /// What it summarised (with any earlier summary it folded in) held untrusted content, so
+        /// facts drawn from it are only suggested to the person (ADR 0128).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        untrusted: bool,
     },
 }
 
@@ -186,6 +205,23 @@ pub struct FromAgent {
     pub id: String,
     pub name: String,
     pub depth: u32,
+}
+
+/// The routine whose firing a message is (ADR 0129): its id and name, the run, and a short label
+/// fixed when it fired (`9:00`, `caught up from 9:00`, `thread finished: Fix login`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FromRoutine {
+    pub id: String,
+    pub name: String,
+    pub run: String,
+    pub label: String,
+    /// A heartbeat: shown as nothing, and its quiet answer too.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub heartbeat: bool,
+    /// What an event carried (a thread's title), which came from outside: a turn it starts or
+    /// steers counts as untrusted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event: Option<String>,
 }
 
 /// An attached image, as stored in an event: its SHA-256 (hex), media type and size.
@@ -252,6 +288,7 @@ impl Event {
             context: None,
             images: Vec::new(),
             from_agent: None,
+            from_routine: None,
         })
     }
 

@@ -133,6 +133,7 @@ impl Engine {
                 name: me.name.clone(),
                 depth,
             }),
+            from_routine: None,
         });
         // Subscribed first, so the reply cannot slip by between delivering and listening.
         let mut frames = self.live(&target.conversation).frames.subscribe();

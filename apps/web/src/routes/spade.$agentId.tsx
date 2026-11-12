@@ -11,10 +11,12 @@ export const Route = createFileRoute("/spade/$agentId")({
   validateSearch: z.object({
     on: z.string().optional().catch(undefined),
     files: z.string().optional().catch(undefined),
+    /** `routines`: the bot's routines and heartbeat instead of its conversation (ADR 0129). */
+    view: z.enum(["routines"]).optional().catch(undefined),
   }),
   component: function SpadeAgentRoute() {
     const { agentId } = Route.useParams();
-    const { on, files } = Route.useSearch();
-    return <SpadeAgentScreen agentId={agentId} machine={on} files={files} />;
+    const { on, files, view } = Route.useSearch();
+    return <SpadeAgentScreen agentId={agentId} machine={on} files={files} view={view} />;
   },
 });

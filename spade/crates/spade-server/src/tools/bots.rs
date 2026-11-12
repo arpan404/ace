@@ -19,7 +19,7 @@ impl EngineHandle {
         let _ = self.0.set(Arc::downgrade(engine));
     }
 
-    fn get(&self) -> Option<Arc<Engine>> {
+    pub(crate) fn get(&self) -> Option<Arc<Engine>> {
         self.0.get().and_then(Weak::upgrade)
     }
 

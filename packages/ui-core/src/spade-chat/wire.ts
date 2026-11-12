@@ -32,6 +32,16 @@ const known = z.discriminatedUnion("type", [
       .object({ id: z.string(), name: z.string().catch("") })
       .nullish()
       .catch(undefined),
+    /** One of the bot's routines or its heartbeat fired it (ADR 0129). */
+    from_routine: z
+      .object({
+        id: z.string(),
+        name: z.string().catch(""),
+        label: z.string().catch(""),
+        heartbeat: z.boolean().catch(false).default(false),
+      })
+      .nullish()
+      .catch(undefined),
     // An image this client can't read is left out; the message still shows.
     images: z
       .array(z.unknown())
@@ -92,7 +102,16 @@ const known = z.discriminatedUnion("type", [
     reply,
     call_id: z.string(),
     name: z.string(),
+    /** The result: JSON text from the memory tools, which the view reads (ADR 0128). */
+    content: z.unknown().optional(),
     is_error: z.boolean().optional(),
+  }),
+  /** The bot asked the person and waits for their next message (ADR 0128). */
+  z.object({
+    type: z.literal("question_asked"),
+    reply,
+    call_id: z.string(),
+    question: z.string(),
   }),
   z.object({ type: z.literal("job_started"), reply, job: z.string(), name: z.string() }),
   z.object({

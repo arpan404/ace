@@ -10,6 +10,7 @@ pub mod images;
 pub mod learning;
 pub mod presets;
 pub mod proof;
+pub mod routines;
 pub mod startup;
 pub mod tools;
 pub mod workspace;

@@ -100,8 +100,7 @@ pub(super) fn agent_json(view: &AgentView) -> Value {
         "last_activity": agent.last_activity_ms,
         "state": view.state.name(),
         "working": view.state != AgentState::Idle,
-        // Only approvals wait on the person today; "question" is kept for an ask-the-person tool.
-        "waiting_for": if view.state == AgentState::Waiting { json!("approval") } else { Value::Null },
+        "waiting_for": view.waiting_for,
         "status": view.status,
         "last_message": last_message,
     })

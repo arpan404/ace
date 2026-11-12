@@ -10,12 +10,14 @@ import { Screen } from "@/features/shell/index.ts";
 import { readingColumn } from "@/features/thread/index.ts";
 import { useMachines } from "@/lib/machines.ts";
 import { EditBotDialog } from "./spade-bot-dialog.tsx";
+import { MemoryDialog, type MemoryOpen } from "./spade-memory-dialog.tsx";
 import { SpadeChat, type ChatBot } from "./spade-chat.tsx";
 import { SpadeComposer } from "./spade-composer.tsx";
 import { SpadeFace } from "./spade-face.tsx";
 import { SpadeFiles } from "./spade-files.tsx";
 import { SpadeKeySetup } from "./spade-key-setup.tsx";
 import { SpadeMachineScope, spadeMachineKey } from "./spade-machine.tsx";
+import { SpadeRoutines } from "./spade-routines.tsx";
 import { SpadeStateStrip } from "./spade-state.tsx";
 import { useDeleteBot } from "./use-bot-actions.ts";
 import { useSpadeConversation } from "./use-spade-conversation.ts";
@@ -103,12 +105,13 @@ export function SpadeHomeScreen() {
 
 /**
  * `/spade/<agent id>` (with `on` when the bot runs on another machine): its conversation, or with
- * `files` its files.
+ * `files` its files, or with `view=routines` its routines and heartbeat.
  */
 export function SpadeAgentScreen(props: {
   agentId: string;
   machine: string | undefined;
   files?: string | undefined;
+  view?: "routines" | undefined;
 }) {
   const line = useSpadeLine();
   const roster = useSpadeRoster(line.ready);
@@ -163,12 +166,16 @@ export function SpadeAgentScreen(props: {
         </BotScreen>
       }
     >
-      {props.files === undefined ? (
-        <Conversation key={`${bot.machine.key}/${bot.id}`} bot={bot} roster={roster.bots} />
-      ) : (
+      {props.files !== undefined ? (
         <BotScreen bot={bot} files>
           <FilesOf bot={bot} folder={props.files === "." ? "" : props.files} />
         </BotScreen>
+      ) : props.view === "routines" ? (
+        <BotScreen bot={bot} view="routines">
+          <SpadeRoutines key={`${bot.machine.key}/${bot.id}`} bot={bot} />
+        </BotScreen>
+      ) : (
+        <Conversation key={`${bot.machine.key}/${bot.id}`} bot={bot} roster={roster.bots} />
       )}
     </SpadeMachineScope>
   );
@@ -204,12 +211,19 @@ function FilesOf(props: { bot: RosterBot; folder: string }) {
 }
 
 /**
- * The screen's frame for one bot: its face and name in the top bar; Files (or Conversation, on
- * its files), Edit and Delete in ⋯.
+ * The screen's frame for one bot: its face and name in the top bar; Files (or back to the
+ * conversation), Routines (likewise), Memory, Edit and Delete in ⋯. `children` may open the
+ * Memory dialog itself (a "Remembered" line).
  */
-function BotScreen(props: { bot: RosterBot; files?: boolean; children: ReactNode }) {
+function BotScreen(props: {
+  bot: RosterBot;
+  files?: boolean;
+  view?: "routines" | undefined;
+  children: ReactNode | ((openMemory: (open: MemoryOpen) => void) => ReactNode);
+}) {
   const { bot } = props;
   const [editing, setEditing] = useState(false);
+  const [memory, setMemory] = useState<MemoryOpen>();
   const [confirming, setConfirming] = useState<Confirming>();
   const remove = useDeleteBot();
   const navigate = useNavigate();
@@ -227,6 +241,21 @@ function BotScreen(props: { bot: RosterBot; files?: boolean; children: ReactNode
             ) : (
               <MenuItem onClick={() => openBot("")}>Files</MenuItem>
             )}
+            <MenuItem
+              onClick={() =>
+                void navigate({
+                  to: "/spade/$agentId",
+                  params: { agentId: bot.id },
+                  search: {
+                    ...(bot.machine.primary ? {} : { on: bot.machine.key }),
+                    ...(props.view === "routines" ? {} : { view: "routines" as const }),
+                  },
+                })
+              }
+            >
+              {props.view === "routines" ? "Conversation" : "Routines"}
+            </MenuItem>
+            <MenuItem onClick={() => setMemory({ shared: false })}>Memory</MenuItem>
             <MenuItem onClick={() => setEditing(true)}>{main ? "Edit Spade" : "Edit bot"}</MenuItem>
             {!main && (
               <MenuItem
@@ -250,8 +279,9 @@ function BotScreen(props: { bot: RosterBot; files?: boolean; children: ReactNode
         )
       }
     >
-      {props.children}
+      {typeof props.children === "function" ? props.children(setMemory) : props.children}
       {editing && <EditBotDialog bot={bot} onClose={() => setEditing(false)} />}
+      {memory && <MemoryDialog bot={bot} open={memory} onClose={() => setMemory(undefined)} />}
       <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />
     </Screen>
   );
@@ -288,60 +318,63 @@ function Conversation(props: { bot: RosterBot; roster: readonly RosterBot[] }) {
   );
   return (
     <BotScreen bot={bot}>
-      <div data-thread-column="" className="grid h-full min-h-0 grid-cols-1 grid-rows-1">
-        <Scroller>
-          {bot.kind === "main" && <SpadeKeySetup main={bot} />}
-          {problem ? (
-            <Problem text={problem} onRetry={conversation.retry} />
-          ) : !view.loaded ? (
-            line.ready ? (
-              <ConversationSkeleton />
+      {(openMemory) => (
+        <div data-thread-column="" className="grid h-full min-h-0 grid-cols-1 grid-rows-1">
+          <Scroller>
+            {bot.kind === "main" && <SpadeKeySetup main={bot} />}
+            {problem ? (
+              <Problem text={problem} onRetry={conversation.retry} />
+            ) : !view.loaded ? (
+              line.ready ? (
+                <ConversationSkeleton />
+              ) : (
+                <SpadeStateStrip line={line} className="flex items-center gap-2 text-ui" />
+              )
             ) : (
-              <SpadeStateStrip line={line} className="flex items-center gap-2 text-ui" />
-            )
-          ) : (
-            <SpadeChat
-              bot={chatBot}
-              view={view}
-              stopping={stopping}
-              onStop={stop}
-              proposals={skills.proposals}
-              onProposal={(id, save) =>
-                skills.answer(id, save).then(
-                  () => true,
-                  (error: unknown) => {
-                    toast.error({
-                      title: save ? "Couldn't save the skill" : "Couldn't discard the skill",
-                      description: message(error),
-                    });
-                    return false;
-                  },
-                )
-              }
-              onAnswer={(callId, allowed, always) =>
-                conversation.answer(callId, allowed, always).then(
-                  () => true,
-                  (error: unknown) => {
-                    toast.error({
-                      title: `Couldn't answer ${bot.name}`,
-                      description: message(error),
-                    });
-                    return false;
-                  },
-                )
-              }
-            />
-          )}
-        </Scroller>
-        <SpadeComposer
-          name={bot.name}
-          draftKey={`spade:${bot.machine.key}:${bot.id}`}
-          answering={view.answering}
-          blocked={line.ready ? undefined : line.sentence}
-          placeholder={`Message ${bot.name}`}
-          send={conversation.send}
-        />
-      </div>
+              <SpadeChat
+                bot={chatBot}
+                view={view}
+                stopping={stopping}
+                onStop={stop}
+                onRemembered={(note) => openMemory({ shared: note.shared, note: note.id })}
+                proposals={skills.proposals}
+                onProposal={(id, save) =>
+                  skills.answer(id, save).then(
+                    () => true,
+                    (error: unknown) => {
+                      toast.error({
+                        title: save ? "Couldn't save the skill" : "Couldn't discard the skill",
+                        description: message(error),
+                      });
+                      return false;
+                    },
+                  )
+                }
+                onAnswer={(callId, allowed, always) =>
+                  conversation.answer(callId, allowed, always).then(
+                    () => true,
+                    (error: unknown) => {
+                      toast.error({
+                        title: `Couldn't answer ${bot.name}`,
+                        description: message(error),
+                      });
+                      return false;
+                    },
+                  )
+                }
+              />
+            )}
+          </Scroller>
+          <SpadeComposer
+            name={bot.name}
+            draftKey={`spade:${bot.machine.key}:${bot.id}`}
+            answering={view.answering}
+            blocked={line.ready ? undefined : line.sentence}
+            placeholder={`Message ${bot.name}`}
+            send={conversation.send}
+          />
+        </div>
+      )}
     </BotScreen>
   );
 }
