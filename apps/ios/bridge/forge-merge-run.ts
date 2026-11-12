@@ -90,8 +90,12 @@ export interface MergeRunAction {
 }
 export interface MergeRunReply {
   type: "forge.merge-run";
-  /** What the picked rows offer while no run shows; `start` false when there's no check command. */
-  pick: { sentence: string; start: boolean } | null;
+  /**
+   * What the picked rows offer while no run shows. `start` is false when there's no check
+   * command, or when Verify refused the list; then `refusal` says why, in the web's words, and
+   * the strip offers no "Set a check command" that couldn't help.
+   */
+  pick: { sentence: string; start: boolean; refusal: string | null } | null;
   /** The picks still selected, in list order: each at the head it was picked at. */
   picked: string[];
   /** Picks whose head moved since, said once: they leave the selection. */
@@ -144,10 +148,19 @@ function verify(owner: ForgeOwner, op: VerifyOperation): Promise<VerifyResult> {
   return owner.request({ type: "verify.request", op }, { timeoutMs: 15_000 });
 }
 
-async function listed(owner: ForgeOwner, project: string) {
+/**
+ * The project's runs and check command; a refused list is kept as its refusal, never read as a
+ * project with no command.
+ */
+async function listed(
+  owner: ForgeOwner,
+  project: string,
+): Promise<
+  { ok: true; runs: VerifyRun[]; command: string | null } | { ok: false; refusal: string }
+> {
   const reply = await verify(owner, { action: "list", workspaceId: WorkspaceId.parse(project) });
-  if (!reply.ok) return { runs: [] as VerifyRun[], command: null };
-  return { runs: reply.runs ?? [], command: reply.command ?? null };
+  if (!reply.ok) return { ok: false, refusal: mergeRunRefusal(reply.error) };
+  return { ok: true, runs: reply.runs ?? [], command: reply.command ?? null };
 }
 
 function runView(run: VerifyRun, base: string): NonNullable<MergeRunReply["run"]> {
@@ -178,7 +191,8 @@ export async function readMergeRun(
   memory: MergeRunMemory,
   request: ForgeMergeRunRequest,
 ): Promise<MergeRunReply> {
-  const { runs, command } = await listed(owner, request.project);
+  const list = await listed(owner, request.project);
+  const runs = list.ok ? list.runs : [];
   const state = { dismissed: memory.dismissed(request.project), own: memory.own(request.project) };
   // Picks keep the head they were picked at; one whose row moved on leaves the selection.
   const selection = mergeSelection(request.picked, request.rows);
@@ -191,7 +205,11 @@ export async function readMergeRun(
     type: "forge.merge-run",
     pick:
       !shown && base !== undefined
-        ? { sentence: mergePickWords(chosen.length, base), start: command !== null }
+        ? {
+            sentence: mergePickWords(chosen.length, base),
+            start: list.ok && list.command !== null,
+            refusal: list.ok ? null : list.refusal,
+          }
         : null,
     picked: chosen.map((pick) => pick.key),
     notice: selection.notice ?? null,
@@ -256,7 +274,9 @@ export async function writeMergeRun(
       const reply = await verify(owner, { action: "cancel", runId: op.runId });
       return reply.ok ? done(true) : done(false, mergeRunRefusal(reply.error));
     }
-    const from = (await listed(owner, request.project)).runs.find((run) => run.id === op.runId);
+    const list = await listed(owner, request.project);
+    if (!list.ok) return done(false, list.refusal);
+    const from = list.runs.find((run) => run.id === op.runId);
     if (from?.target.kind !== "merge") return done(false, "That run is gone. Pick again.");
     memory.forget(request.project, from.id);
     const prs =

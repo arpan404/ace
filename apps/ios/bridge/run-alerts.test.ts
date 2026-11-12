@@ -142,6 +142,21 @@ test("runs that finished before the phone started watching are history", async (
   expect(phone.said).toEqual([]);
 });
 
+test("queued runs dropped as skipped when their automation is paused are never said, nor counted", async () => {
+  let paused = false;
+  const queued = (id: string) =>
+    paused
+      ? run(id, { status: "skipped", finishedAt: start + 1_000 })
+      : run(id, { status: "queued" });
+  const phone = watch(() => [run("r1"), ...["q1", "q2", "q3", "q4", "q5"].map(queued)]);
+  phone.runs.start();
+  await phone.settle();
+  paused = true;
+  await phone.next();
+  await phone.next();
+  expect(phone.said).toEqual([]);
+});
+
 test("a run that finished while the connection was down is said when it comes back", async () => {
   let done: number | undefined;
   const phone = watch(() => [

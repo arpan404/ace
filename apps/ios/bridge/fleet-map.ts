@@ -23,6 +23,7 @@ import {
   type MapNode,
   type MapTone,
 } from "@ace/ui-core/fleet-map";
+import { pairedDevices } from "@ace/ui-core";
 import { z } from "zod";
 import { FleetMapPart } from "./fleet-map-part.ts";
 import { machineReach, type FleetMachineReach } from "./fleet-map-reach.ts";
@@ -236,12 +237,13 @@ export function combineFleetMap(request: FleetMapCombineRequest, now: number): F
     online: input.status === "online",
     links: part?.links ?? undefined,
   }));
-  // Each machine's paired devices, this phone marked where it's one of them.
+  // Each machine's paired devices, this phone marked where it's one of them. The desktop app's
+  // and Use my Chrome's own credentials are local, never paired, so they're left out.
   const paired = new Map<string, (Device & { self: boolean })[]>();
   for (const { machine, part } of machines) {
     const list: (Device & { self: boolean })[] = [];
-    for (const device of part?.devices ?? [])
-      if (device.revokedAt === null) list.push({ ...device, self: device.id === part?.selfId });
+    for (const device of pairedDevices(part?.devices ?? []))
+      list.push({ ...device, self: device.id === part?.selfId });
     paired.set(machine.id, list);
   }
   const devices = fleetDevices(paired, linkDeviceIds(facts));

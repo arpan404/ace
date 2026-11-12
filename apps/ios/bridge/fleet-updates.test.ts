@@ -152,3 +152,12 @@ test("a machine whose ace predates remote updates, and a kept run that no longer
   expect(reply.headline).toBeNull();
   expect(reply.sends).toEqual([]);
 });
+
+test("a kept run past its seven days comes back as no run, so the phone stops watching it", async () => {
+  const { facts } = await fleet({ Studio: machine("studio", "0.0.19") });
+  const run = fleetRun({ type: "fleet.run", op: "start", mode: "idle", machines: facts, now }).run;
+  const later = now + 8 * 24 * 60 * 60 * 1000;
+  expect(fleetUpdates({ type: "fleet.updates", machines: facts, run, now }).run).not.toBeNull();
+  expect(fleetUpdates({ type: "fleet.updates", machines: facts, run, now: later }).run).toBeNull();
+  expect(fleetRun({ type: "fleet.run", op: "sent", run, id: "studio", now: later }).run).toBeNull();
+});
