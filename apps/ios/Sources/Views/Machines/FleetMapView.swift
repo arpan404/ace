@@ -15,6 +15,8 @@ struct FleetMapView: View {
     @State private var asking: (question: FleetMapReply.Question, action: FleetMapReply.Action)?
     @State private var busy = false
     @State private var done = 0
+    /// Each load's number: only the newest draws, so a slow older read never redraws over a change.
+    @State private var loads = 0
 
     private var reads: FleetMapReads { FleetMapReads(inbox: inbox, machines: machines) }
 
@@ -66,7 +68,7 @@ struct FleetMapView: View {
         .smoothChange(reply)
         .sensoryFeedback(.success, trigger: done)
         .navigationTitle("Fleet map").navigationBarTitleDisplayMode(.inline)
-        .task(id: inbox.sessions.map(\.hostId)) { await load() }
+        .task(id: inbox.sessions.map { "\($0.hostId):\($0.client.connection)" }) { await load() }
         .refreshable { await load() }
         .confirmationDialog(asking?.question.title ?? "", isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } }),
                             titleVisibility: .visible) {
@@ -122,7 +124,10 @@ struct FleetMapView: View {
     }
 
     private func load() async {
-        let failed = await reads.load { reply = $0 }
+        loads += 1
+        let mine = loads
+        let failed = await reads.load { if mine == loads { reply = $0 } }
+        guard mine == loads else { return }
         // A machine that couldn't be read is in the map already; say so only when nothing came back.
         problem = reply == nil ? failed ?? "No machines connected. Reconnect and retry." : nil
     }

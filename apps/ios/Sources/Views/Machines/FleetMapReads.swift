@@ -72,7 +72,10 @@ import Foundation
     }
 
     private func combine(_ parts: [String: ServiceValue]) async -> FleetMapReply? {
-        let payload: [String: Any] = ["type": "fleetMap.combine", "machines": hostIds.prefix(32).map { fact($0, part: parts[$0]) }]
+        // A part read before its machine dropped says nothing about now.
+        let ready = Set(live.map(\.hostId))
+        let payload: [String: Any] = ["type": "fleetMap.combine",
+                                      "machines": hostIds.prefix(32).map { fact($0, part: ready.contains($0) ? parts[$0] : nil) }]
         return try? await combiner?.service(payload, as: FleetMapReply.self)
     }
 
