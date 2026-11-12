@@ -1,4 +1,5 @@
 import type { StorageKind, StorageReason } from "@ace/protocol";
+import { pluralCount } from "./counts.ts";
 
 export const storageLabels: Record<StorageKind, string> = {
   threads: "Threads and transcripts",
@@ -40,7 +41,8 @@ export const storageReasons: Record<StorageReason, string> = {
   owner_unavailable: "Ownership could not be verified",
 };
 
-export const itemCount = (count: number) => `${count} ${count === 1 ? "item" : "items"}`;
+/** "1 item", "4,583 items". */
+export const itemCount = (count: number) => pluralCount(count, "item");
 
 /*
  * Why a worktree backup failed, by the code the daemon recorded, with what to do next. The
