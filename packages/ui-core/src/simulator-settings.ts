@@ -19,6 +19,12 @@ export const devicesSwitch = {
   },
 } as const;
 
+/** Show emulator window (`devices.emulatorWindow`): Android emulators ace boots open their own window too. */
+export const emulatorWindowSwitch = {
+  title: "Show emulator window",
+  description: "Shows its sensor and camera controls. Applies from the next boot.",
+} as const;
+
 /** Each tool's name as people know it. */
 export const toolchainNames: Record<Toolchain["id"], string> = {
   git: "Git",
