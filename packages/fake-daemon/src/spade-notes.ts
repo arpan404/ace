@@ -11,6 +11,8 @@ export interface FakeSpadeNote {
   scope: "agent" | "shared";
   agent: string | null;
   source: "person" | "bot" | "compaction";
+  /** Extracted at compaction from untrusted content; the bot doesn't see it until kept. */
+  suggested: boolean;
   created_at: number;
   updated_at: number;
   last_used_at: number | null;
@@ -38,6 +40,7 @@ export class FakeSpadeNotes {
       scope: fields.agent ? "agent" : "shared",
       agent: null,
       source: "person",
+      suggested: false,
       created_at: this.now(),
       updated_at: this.now(),
       last_used_at: null,
@@ -47,8 +50,27 @@ export class FakeSpadeNotes {
     return note;
   }
 
+  /** A note compaction suggested from untrusted content, waiting for the person to keep it. */
+  suggest(fields: Partial<FakeSpadeNote> & { text: string }): FakeSpadeNote {
+    return this.add({ source: "compaction", ...fields, suggested: true });
+  }
+
+  /** Rewrites a note as a bot's memory tool would, moving its `updated_at` on. */
+  rewrite(id: string, text: string): FakeSpadeNote {
+    const note = this.notes.find((candidate) => candidate.id === id);
+    if (!note) throw new Error(`No note ${id}.`);
+    note.text = text;
+    note.updated_at = this.later(note);
+    return note;
+  }
+
+  /** Now, or just after the note's last change when the clock hasn't moved. */
+  private later(note: FakeSpadeNote) {
+    return Math.max(this.now(), note.updated_at + 1);
+  }
+
   /** `/v1/agents/{agent}/notes` (agent set) or `/v1/notes[/{id}]`. */
-  route(method: string, agent: string | null, id: string | undefined, body: unknown) {
+  route(method: string, agent: string | null, id: string | undefined, body: unknown, sub?: string) {
     const text = clean(body);
     if (!id && method === "GET")
       return answer({
@@ -60,14 +82,23 @@ export class FakeSpadeNotes {
       if (!text) return problem(400, "A note needs 1 to 500 characters.");
       if (this.notes.filter((note) => note.agent === agent).length >= 1000)
         return problem(409, "This scope already holds 1,000 notes.");
+      const same = this.notes.find((note) => note.agent === agent && note.text === text);
+      if (same) return answer(same);
       return answer(this.add({ text, agent, scope: agent ? "agent" : "shared" }), 201);
     }
     const note = this.notes.find((candidate) => candidate.id === id);
     if (!note || agent) return problem(404, "No such note.");
     if (method === "PATCH") {
       if (!text) return problem(400, "A note needs 1 to 500 characters.");
+      const seen = seenAt(body);
+      if (seen !== undefined && seen !== note.updated_at)
+        return answer({ error: "The note changed since you read it.", note }, 409);
       note.text = text;
-      note.updated_at = this.now();
+      note.updated_at = this.later(note);
+      return answer(note);
+    }
+    if (method === "POST" && sub === "accept") {
+      note.suggested = false;
       return answer(note);
     }
     if (method === "DELETE") {
@@ -81,6 +112,15 @@ export class FakeSpadeNotes {
   forget(agent: string) {
     this.notes = this.notes.filter((note) => note.agent !== agent);
   }
+}
+
+function seenAt(body: unknown): number | undefined {
+  return typeof body === "object" &&
+    body !== null &&
+    "updated_at" in body &&
+    typeof body.updated_at === "number"
+    ? body.updated_at
+    : undefined;
 }
 
 function clean(body: unknown): string | undefined {

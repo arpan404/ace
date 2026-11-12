@@ -204,7 +204,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
     const parts = path.split("/").slice(2).map(decodeURIComponent);
     const body = request.body ? (JSON.parse(request.body) as Json) : {};
     const [root, id, sub, subId] = parts;
-    if (root === "notes") return this.notes.route(request.method, null, id, body);
+    if (root === "notes") return this.notes.route(request.method, null, id, body, sub);
     if (root === "agents" && id && sub === "notes")
       return this.agents.some((agent) => agent.id === id)
         ? this.notes.route(request.method, id, undefined, body)
