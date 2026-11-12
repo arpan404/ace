@@ -177,6 +177,8 @@ export interface SpadeHealth {
   api: number | undefined;
   /** Spade's proof for the nonce asked with, if one was. */
   proof: string | undefined;
+  /** While Spade serves but is still setting up: a few words why ("waiting for the keychain"). */
+  setup?: string | undefined;
 }
 
 /**
@@ -204,10 +206,15 @@ export async function spadeHealth(
     const version: unknown = Reflect.get(value, "version");
     const api: unknown = Reflect.get(value, "api");
     const proof: unknown = Reflect.get(value, "proof");
+    const reason: unknown = Reflect.get(value, "starting_reason");
     return {
       version: typeof version === "string" ? version.slice(0, 64) : undefined,
       api: typeof api === "number" && Number.isInteger(api) ? api : undefined,
       proof: typeof proof === "string" ? proof.slice(0, 128) : undefined,
+      setup:
+        Reflect.get(value, "starting") === true && typeof reason === "string" && reason
+          ? reason.slice(0, 200)
+          : undefined,
     };
   } catch {
     return undefined;
