@@ -45,7 +45,9 @@ Linear; a bot that writes a weekly digest does not need the person's payments ac
    dynamically when the server offers it, else uses a client ID the person registered with the
    maker, and runs the authorization code flow with PKCE (S256 only; a server that advertises no
    PKCE is refused), `state`, the `resource` indicator and the issuer check of RFC 9207. The
-   redirect is Spade's own loopback address, `http://127.0.0.1:<port>/v1/connectors/callback`;
+   redirect is Spade's own loopback address, one per connector,
+   `http://127.0.0.1:<port>/v1/connectors/callback/<connector>`, so a server that doesn't name
+   itself in its answer can't have its code taken to another server's token endpoint;
    the sign-in page opens in the person's own browser. Tokens are refreshed before they expire and
    when the server says they did. Servers that take a static bearer token or API key work too.
 

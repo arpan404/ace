@@ -72,6 +72,9 @@ pub struct Callback {
     pub iss: Option<String>,
     #[serde(default)]
     pub error: Option<String>,
+    /// The connector whose callback address it came back to (the path, never the query).
+    #[serde(skip)]
+    pub connector: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -133,11 +136,13 @@ impl Connectors {
             return self.connect_open(target).await;
         };
         let keys = self.keys.clone().ok_or(ConnectError::NoKeychain)?;
+        // The connector's own callback address: ids are lower-case letters, digits and dashes.
         let redirect = self
             .redirect
             .read()
             .unwrap_or_else(|p| p.into_inner())
             .clone()
+            .map(|base| format!("{base}/{}", target.id))
             .ok_or_else(|| ConnectError::Failed("Spade is not listening yet".into()))?;
         let resource = oauth::discover_resource(&self.http, &target.url, &challenge)
             .await
@@ -190,6 +195,10 @@ impl Connectors {
         let epoch = self.epoch(&pending.id);
         if self.now() - pending.started_ms >= SIGN_IN_WINDOW_MS {
             return Err(FinishError::Expired);
+        }
+        // Back at another connector's address: an answer mixed up between servers.
+        if callback.connector.as_deref() != Some(pending.id.as_str()) {
+            return Err(FinishError::WrongIssuer);
         }
         if !oauth::issuer_matches(&pending.attempt, callback.iss.as_deref()) {
             return Err(FinishError::WrongIssuer);

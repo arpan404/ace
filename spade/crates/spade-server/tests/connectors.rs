@@ -74,7 +74,7 @@ async fn signing_in_ends_at_spades_callback_and_no_answer_or_row_carries_a_token
         .approve(started["sign_in_url"].as_str().unwrap_or_default())
         .await;
     assert!(
-        back.starts_with(&format!("{}/v1/connectors/callback?", spade.base)),
+        back.starts_with(&format!("{}/v1/connectors/callback/{id}?", spade.base)),
         "{back}"
     );
 

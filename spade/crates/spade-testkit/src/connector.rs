@@ -59,6 +59,8 @@ struct State {
     tools: Mutex<Vec<Tool>>,
     peers: Mutex<Vec<Peer<RoleServer>>>,
     registration: AtomicBool,
+    /// Names itself in the redirect (`iss`, RFC 9207), as it says in its metadata.
+    names_itself: AtomicBool,
     endless_metadata: AtomicBool,
     /// Every token request waits this long before it is answered.
     token_delay: Mutex<std::time::Duration>,
@@ -92,6 +94,7 @@ impl FakeConnector {
             tools: Mutex::new(tools),
             peers: Mutex::default(),
             registration: AtomicBool::new(true),
+            names_itself: AtomicBool::new(true),
             endless_metadata: AtomicBool::new(false),
             refuse_codes: Mutex::new(None),
             token_delay: Mutex::new(std::time::Duration::ZERO),
@@ -153,6 +156,11 @@ impl FakeConnector {
     /// Accept `token` as a bearer as well (an API key).
     pub fn accept_token(&self, token: &str) {
         *lock(&self.state.static_token) = Some(token.to_owned());
+    }
+
+    /// Leave `iss` out of the redirect and out of the metadata, as many servers still do.
+    pub fn without_iss(&self) {
+        self.state.names_itself.store(false, Ordering::SeqCst);
     }
 
     /// Stop offering dynamic client registration.
@@ -341,7 +349,7 @@ async fn server_metadata(Shared(state): Shared<Arc<State>>) -> Response {
         "authorization_endpoint": format!("{base}/tenant/authorize"),
         "token_endpoint": format!("{base}/tenant/token"),
         "scopes_supported": ["read", "write", "offline_access"],
-        "authorization_response_iss_parameter_supported": true,
+        "authorization_response_iss_parameter_supported": state.names_itself.load(Ordering::SeqCst),
         "token_endpoint_auth_methods_supported": ["none"],
     });
     if state.registration.load(Ordering::SeqCst) {
@@ -416,11 +424,10 @@ async fn authorize(
             get("resource"),
         ),
     );
-    let location = format!(
-        "{redirect}?code={code}&state={}&iss={}",
-        encode(&get("state")),
-        encode(&format!("{base}/tenant"))
-    );
+    let mut location = format!("{redirect}?code={code}&state={}", encode(&get("state")));
+    if state.names_itself.load(Ordering::SeqCst) {
+        location.push_str(&format!("&iss={}", encode(&format!("{base}/tenant"))));
+    }
     (StatusCode::FOUND, [(header::LOCATION, location)]).into_response()
 }
 

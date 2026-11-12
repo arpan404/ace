@@ -27,7 +27,10 @@ pub(super) fn routes() -> Router<AppState> {
 
 /// The sign-in callback, open (the browser cannot carry Spade's token).
 pub(super) fn callback_route() -> Router<AppState> {
-    Router::new().route(spade_connect::CALLBACK_PATH, get(callback))
+    Router::new().route(
+        &format!("{}/{{connector}}", spade_connect::CALLBACK_PATH),
+        get(callback),
+    )
 }
 
 fn hub(state: &AppState) -> Result<Arc<Connectors>, Box<Response>> {
@@ -200,7 +203,15 @@ async fn set_allowed(
     }
 }
 
-async fn callback(State(state): State<AppState>, Query(query): Query<Callback>) -> Response {
+async fn callback(
+    State(state): State<AppState>,
+    Path(connector): Path<String>,
+    Query(query): Query<Callback>,
+) -> Response {
+    let query = Callback {
+        connector: Some(connector),
+        ..query
+    };
     let hub = match hub(&state) {
         Ok(hub) => hub,
         Err(response) => return *response,

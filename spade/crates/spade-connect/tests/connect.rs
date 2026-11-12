@@ -72,7 +72,14 @@ fn by_url(url: &str) -> ConnectRequest {
 /// Reads the redirect the browser would follow into the callback's query.
 fn callback(location: &str) -> Result<Callback> {
     let url = url::Url::parse(location)?;
-    let mut callback = Callback::default();
+    let mut callback = Callback {
+        // As Spade's route does: the connector is the path's last part.
+        connector: url
+            .path_segments()
+            .and_then(|mut s| s.next_back())
+            .map(str::to_owned),
+        ..Callback::default()
+    };
     for (key, value) in url.query_pairs() {
         match key.as_ref() {
             "code" => callback.code = Some(value.into_owned()),
@@ -134,7 +141,7 @@ async fn signing_in_discovers_the_server_registers_spade_and_uses_pkce_and_the_r
     assert_eq!(asked["code_challenge_method"], "S256");
     assert_eq!(
         asked["redirect_uri"],
-        "http://127.0.0.1:4555/v1/connectors/callback"
+        "http://127.0.0.1:4555/v1/connectors/callback/127-0-0-1"
     );
     assert_eq!(asked["resource"], app.url());
     // The challenge's scopes, plus offline_access because the server offers it.
@@ -234,6 +241,54 @@ async fn a_callback_with_an_unknown_state_or_the_wrong_issuer_is_refused_without
     );
     assert_eq!(app.token_requests(), 0);
     assert!(spade.connectors.list().is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_code_from_a_server_that_does_not_name_itself_only_finishes_its_own_sign_in() -> Result {
+    let (first, second) = (
+        FakeConnector::start(app_tools()).await,
+        FakeConnector::start(app_tools()).await,
+    );
+    first.without_iss();
+    second.without_iss();
+    let spade = spade()?;
+    let first_url = sign_in_url(
+        &spade,
+        ConnectRequest {
+            name: Some("First".into()),
+            ..by_url(&first.url())
+        },
+    )
+    .await?;
+    sign_in_url(
+        &spade,
+        ConnectRequest {
+            name: Some("Second".into()),
+            ..by_url(&second.url())
+        },
+    )
+    .await?;
+    let ids: Vec<String> = spade.connectors.list().into_iter().map(|v| v.id).collect();
+    assert_eq!(ids.len(), 2, "{ids:?}");
+    let back = first.approve(&first_url).await;
+    let mine = callback(&back)?.connector.unwrap_or_default();
+    assert!(ids.contains(&mine), "{back} came back to {mine}");
+    let other = ids
+        .iter()
+        .find(|id| **id != mine)
+        .cloned()
+        .unwrap_or_default();
+    // The first server's code, arriving at the second connector's address.
+    let mixed = Callback {
+        connector: Some(other),
+        ..callback(&back)?
+    };
+    assert_eq!(
+        spade.connectors.finish(mixed).await.err(),
+        Some(FinishError::WrongIssuer)
+    );
+    assert_eq!(first.token_requests() + second.token_requests(), 0);
     Ok(())
 }
 

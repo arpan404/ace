@@ -42,12 +42,15 @@ Spade follows the MCP authorization spec (2026-07-28):
 5. **Scopes.** The challenge's, else the resource metadata's `scopes_supported`, plus
    `offline_access` when the authorization server offers it.
 6. **Browser.** The app opens the returned `sign_in_url` (PKCE S256, a 32-byte random `state`,
-   `resource`, `scope`). The redirect is `http://127.0.0.1:<Spade's port>/v1/connectors/callback`.
+   `resource`, `scope`). The redirect is the connector's own,
+   `http://127.0.0.1:<Spade's port>/v1/connectors/callback/<connector id>`: an answer that comes
+   back to another connector's address is refused, which keeps a server that sends no `iss` from
+   mixing up sign-ins.
 7. **Callback.** The `state` must be one Spade started, unused, and under ten minutes old; it is
    spent on first use, whatever the answer. The `iss` parameter is checked by RFC 9207: compared
    as a plain string when present, and required when the server advertises
    `authorization_response_iss_parameter_supported`. Only then is the code exchanged with the
-   verifier. An `error` from the server is shown only as its code.
+   verifier. An `error` from the server, and any failed code exchange, is shown in Spade's own words only.
 
 Spade's port changes when the daemon starts it on `127.0.0.1:0`; a client Spade registered is
 registered again on the next sign-in when the redirect no longer matches. A client registered by
@@ -110,7 +113,7 @@ All under `/v1` with Spade's bearer token, except the callback.
 | `DELETE /v1/connectors/{id}`       |                                                                                | `204`; `404`. Deletes its secrets and its place in every allow list                                                                                            |
 | `GET /v1/agents/{id}/connectors`   |                                                                                | `{all: bool, connectors: [id]}`                                                                                                                                |
 | `PUT /v1/agents/{id}/connectors`   | `{all?: bool, connectors?: [id]}`                                              | The list as stored; `400` for an unknown connector, `404` for an unknown agent                                                                                 |
-| `GET /v1/connectors/callback`      | query `code`, `state`, `iss`, `error`                                          | An HTML page: "Connected to …" (`200`) or why not (`400`). Open, no token; `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, a CSP that loads nothing |
+| `GET /v1/connectors/callback/{id}` | query `code`, `state`, `iss`, `error`                                          | An HTML page: "Connected to …" (`200`) or why not (`400`). Open, no token; `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, a CSP that loads nothing |
 
 A connector: `{id, name, url, catalogue, sign_in: "oauth"|"token"|"none", state, account, tools,
 problem}`, where `state` is `connected`, `connecting`, `unreachable`, `needs_reconnect` or

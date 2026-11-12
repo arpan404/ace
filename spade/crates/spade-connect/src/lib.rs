@@ -30,7 +30,9 @@ pub use oauth::pkce::{OsRandom, Random};
 pub use records::Access;
 use records::Record;
 
-/// The path of Spade's sign-in callback, under its own address.
+/// The path of Spade's sign-in callbacks, under its own address. Each connector comes back to
+/// its own, `<CALLBACK_PATH>/<connector id>`, so an answer meant for one authorization server
+/// can't finish another's sign-in, even from a server that doesn't name itself (RFC 9207).
 pub const CALLBACK_PATH: &str = "/v1/connectors/callback";
 
 /// How long a sign-in may take from start to callback.
@@ -91,6 +93,7 @@ pub struct Connectors {
     catalogue: Vec<Entry>,
     timeout: Duration,
     relist: Duration,
+    /// Where callbacks come back to, without the connector's id.
     redirect: RwLock<Option<String>>,
     /// The connectors, as stored. Changed under this lock, then written.
     records: Mutex<Vec<Record>>,
@@ -146,8 +149,8 @@ impl Connectors {
                 std::net::IpAddr::V4(ip) => ip.to_string(),
             }
         };
-        let redirect = format!("http://{host}:{}{CALLBACK_PATH}", address.port());
-        *self.redirect.write().unwrap_or_else(|p| p.into_inner()) = Some(redirect);
+        let base = format!("http://{host}:{}{CALLBACK_PATH}", address.port());
+        *self.redirect.write().unwrap_or_else(|p| p.into_inner()) = Some(base);
     }
 
     /// Opens a session to every stored connector, in the background.
