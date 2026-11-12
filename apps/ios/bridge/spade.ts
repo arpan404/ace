@@ -40,6 +40,8 @@ export const NativeSpadeAction = z.discriminatedUnion("type", [
   }),
   /** Try following the open conversation again after a problem. */
   z.object({ type: z.literal("spade.retry") }),
+  /** Pull to refresh: read Spade's state, the setting and the list again now. */
+  z.object({ type: z.literal("spade.refresh") }),
 ]);
 export type NativeSpadeAction = z.infer<typeof NativeSpadeAction>;
 
@@ -118,6 +120,8 @@ export class NativeSpade {
         return this.openConversation(action.conversationId);
       case "spade.retry":
         return this.open?.follow.retry();
+      case "spade.refresh":
+        return this.refresh();
     }
   }
 

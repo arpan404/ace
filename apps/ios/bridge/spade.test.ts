@@ -171,6 +171,17 @@ test("the list says Approve before Working, else its age, and reads again on its
   });
 });
 
+test("pull to refresh reads the list again at once", async () => {
+  const { daemon, spade, patches } = await phone((fake) => {
+    fake.spade.seed("one", "First");
+  });
+  spade.handle({ type: "spade.watch", on: true });
+  await until(() => state(patches.flush())?.list.rows?.length === 1);
+  daemon.spade.seed("two", "Second");
+  spade.handle({ type: "spade.refresh" });
+  await until(() => state(patches.flush()).list.rows?.length === 2);
+});
+
 test("a conversation shows its history, then Spade's reply as it streams, sending only what changed", async () => {
   const { daemon, spade, patches } = await phone((fake) => {
     fake.spade.seed("c1", "Weather", [
