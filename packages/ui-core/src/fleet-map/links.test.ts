@@ -1,6 +1,14 @@
 import { DeviceId, HostId, type Device, type FleetLink } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { fleetDevices, linkDeviceIds, linkGaps, reach, unlinkedWith } from "./fleet-links.ts";
+import {
+  fleetDevices,
+  linkDeviceIds,
+  linkGaps,
+  reach,
+  clientDependents,
+  reachDependents,
+  unlinkedWith,
+} from "./links.ts";
 
 function link(to: string, extra: Partial<FleetLink> = {}): FleetLink {
   return {
@@ -92,4 +100,75 @@ test("the same phone on two machines is one device, and machine links are not de
   // It loses access on the first machine that expires it.
   expect(joined[0]?.expiresAt).toBe(400);
   expect(joined[1]?.expiresAt).toBeNull();
+});
+
+test("what reaches a machine is its paired devices and the machines linked to it", () => {
+  const facts = [
+    { id: "mac", name: "Mac", online: true, links: [link("studio")] },
+    { id: "studio", name: "Studio", online: true, links: [] },
+    { id: "mini", name: "Mini", online: false, links: undefined },
+  ];
+  const joined = fleetDevices(
+    new Map([
+      ["studio", [device("p1", "iPhone")]],
+      ["mac", [device("i1", "iPad")]],
+    ]),
+    linkDeviceIds(facts),
+  );
+  const all = new Set(["studio", "mac", "mini"]);
+  const read = { devices: all, links: all };
+  expect(reachDependents("studio", joined, facts, read)).toEqual(["iPhone", "Mac"]);
+  expect(reachDependents("mini", joined, facts, read)).toEqual([]);
+});
+
+test("what reaches a machine is unknown while its devices or an answering machine's links aren't read", () => {
+  const facts = [
+    { id: "mac", name: "Mac", online: true, links: undefined },
+    { id: "studio", name: "Studio", online: true, links: [] },
+    { id: "mini", name: "Mini", online: false, links: undefined },
+  ];
+  const joined = fleetDevices(new Map([["studio", [device("p1", "iPhone")]]]), new Set());
+  const studio = new Set(["studio"]);
+  // Mac answers but its links weren't read.
+  expect(reachDependents("studio", joined, facts, { devices: studio, links: studio })).toBe(
+    "unknown",
+  );
+  const both = new Set(["studio", "mac"]);
+  expect(reachDependents("studio", joined, facts, { devices: new Set(), links: both })).toBe(
+    "unknown",
+  );
+  // An offline machine's links say nothing about now, so they're not waited for.
+  expect(reachDependents("studio", joined, facts, { devices: studio, links: both })).toEqual([
+    "iPhone",
+  ]);
+  // Links kept from before a failed read don't count as read.
+  const kept = facts.map((fact) => Object.assign({}, fact, { links: [] }));
+  expect(reachDependents("studio", joined, kept, { devices: studio, links: studio })).toBe(
+    "unknown",
+  );
+});
+
+test("what reaches a machine as a client sees it puts the client first in place of its own device", () => {
+  const facts = [{ id: "studio", name: "Studio", online: true, links: [] }];
+  const joined = fleetDevices(
+    new Map([["studio", [{ ...device("p1", "iPhone"), self: true }, device("i1", "iPad")]]]),
+    new Set(),
+  );
+  const studio = new Set(["studio"]);
+  const input = {
+    machine: "studio",
+    devices: joined,
+    machines: facts,
+    read: { devices: studio, links: studio },
+  };
+  expect(clientDependents({ ...input, viewer: "This iPhone" })).toEqual(["This iPhone", "iPad"]);
+  // On its own computer the client reaches it locally: only the others count.
+  expect(clientDependents({ ...input, viewer: undefined })).toEqual(["iPad"]);
+  expect(
+    clientDependents({
+      ...input,
+      read: { devices: new Set(), links: studio },
+      viewer: "This window",
+    }),
+  ).toBe("unknown");
 });

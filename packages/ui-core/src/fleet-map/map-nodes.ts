@@ -1,6 +1,7 @@
-import { formatAgo } from "@ace/ui-core";
-import { deviceKind, machineKind } from "./device-kind.ts";
-import { directWayOf, hostOf, pairedWays, serving } from "./fleet-map-networks.ts";
+import { listNames } from "../list-names.ts";
+import { formatAgo } from "../time.ts";
+import { deviceKind, machineKind } from "./kinds.ts";
+import { directWayOf, hostOf, pairedWays, serving } from "./networks.ts";
 import {
   relayEnd,
   type FleetMapInput,
@@ -13,8 +14,7 @@ import {
   type MapWire,
   type WireKind,
   type ZoneId,
-} from "./fleet-map-types.ts";
-import { listNames } from "./list-names.ts";
+} from "./map-types.ts";
 
 /*
  * One node of the Fleet map per machine or device, from what it reports (`fleet-map-facts.ts`
@@ -53,13 +53,17 @@ const offline = (name: string): MapProblem => ({
   fixes: ["reconnect", "removeMachine"],
 });
 
-const needsCode = (name: string, fixes: readonly MapFix[]): MapProblem => ({
-  what: `${name} asks for its machine code before this window can open it.`,
+const needsCode = (name: string, fixes: readonly MapFix[], viewer = "this window"): MapProblem => ({
+  what: `${name} asks for its machine code before ${viewer} can open it.`,
   why: "A code keeps a machine closed to a stolen account login. Enter it once per device.",
   fixes,
 });
 
-export function machineNode(machine: MapMachineInput): MapNode {
+/**
+ * A machine as `viewer` reaches it: "this window" on the web, "this iPhone" on the phone, as its
+ * sentences name the client asking.
+ */
+export function machineNode(machine: MapMachineInput, viewer = "this window"): MapNode {
   const via = machine.via;
   const way = via?.kind === "direct" ? directWayOf(via.url) : undefined;
   const relayed = via !== undefined && via.kind !== "direct";
@@ -136,18 +140,18 @@ export function machineNode(machine: MapMachineInput): MapNode {
           { label: "Reached", value: reached },
           { label: "Machine code", value: "Set, not entered here" },
         ],
-        problem: needsCode(machine.name, ["enterCode"]),
+        problem: needsCode(machine.name, ["enterCode"], viewer),
       };
     case "auth_failed":
       return {
         ...base,
         tone: "bad",
-        status: "Refused this window",
+        status: `Refused ${viewer}`,
         wire: { from, kind: "broken", relayed, label: "refused" },
         lines: [{ label: "Reached", value: reached }],
         problem: {
-          what: `${machine.name} refused this window.`,
-          why: "Its pairing for this window ended there. Remove it, then add it again with a fresh pairing link.",
+          what: `${machine.name} refused ${viewer}.`,
+          why: `Its pairing for ${viewer} ended there. Remove it, then add it again with a fresh pairing link.`,
           fixes: ["removeMachine"],
         },
       };
@@ -258,7 +262,26 @@ export function accountNode(machine: MapAccountInput, now: number): MapNode {
   };
 }
 
-export function deviceNode(device: MapDeviceInput, input: FleetMapInput, names: NameOf): MapNode {
+/** The machine a device is judged against, as its sentences name it. */
+export interface DevicePlace {
+  /** "this computer", or a machine's name. */
+  name: string;
+  /** "here", or "on studio". */
+  here: string;
+}
+
+const thisComputer: DevicePlace = { name: "this computer", here: "here" };
+
+/**
+ * A paired device, judged against `input.own`: the web's own computer, or for a client with no
+ * computer of its own (the phone) the machine it reaches the device through, named by `place`.
+ */
+export function deviceNode(
+  device: MapDeviceInput,
+  input: FleetMapInput,
+  names: NameOf,
+  place: DevicePlace = thisComputer,
+): MapNode {
   const ownId = input.own.id;
   const opens =
     device.on.length > 1 && device.on.length === input.machines.length + 1
@@ -312,7 +335,9 @@ export function deviceNode(device: MapDeviceInput, input: FleetMapInput, names: 
       problem: undefined,
     };
   }
-  if (input.enabled === false)
+  // What a machine last said about its networks says nothing while it isn't answering.
+  const away = !input.own.online;
+  if (!away && input.enabled === false)
     return {
       ...base,
       tone: "bad",
@@ -320,13 +345,13 @@ export function deviceNode(device: MapDeviceInput, input: FleetMapInput, names: 
       wire: { from: "own", kind: "broken", relayed: false, label: "remote access off" },
       lines: [{ label: "Reached", value: "Nothing, remote access is off" }, ...lines],
       problem: {
-        what: `${device.name} can't reach this computer: remote access is off.`,
-        why: "With remote access off, only this computer can open it.",
+        what: `${device.name} can't reach ${place.name}: remote access is off.`,
+        why: `With remote access off, only ${place.name} can open it.`,
         fixes: ["turnOnRemote"],
       },
     };
   const networks = input.networks;
-  if (input.enabled === undefined || !networks)
+  if (away || input.enabled === undefined || !networks)
     return {
       ...base,
       tone: "unknown",
@@ -366,8 +391,8 @@ export function deviceNode(device: MapDeviceInput, input: FleetMapInput, names: 
     wire: { from: "own", kind: "broken", relayed: false, label: "local network off" },
     lines: [{ label: "Reached", value: "Local network, Tailscale or a relay" }, ...lines],
     problem: {
-      what: `${device.name} was paired with a code, and the networks paired devices use are off here.`,
-      why: "Paired devices reach this computer over the local network, Tailscale or your relay. Signing in on it reaches every machine from anywhere.",
+      what: `${device.name} was paired with a code, and the networks paired devices use are off ${place.here}.`,
+      why: `Paired devices reach ${place.name} over the local network, Tailscale or your relay. Signing in on it reaches every machine from anywhere.`,
       fixes: ["turnOnLan", "askSignIn"],
     },
   };

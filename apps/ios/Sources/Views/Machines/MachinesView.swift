@@ -21,6 +21,11 @@ struct MachinesView: View {
             if !inbox.sessions.isEmpty {
                 FleetUpdatesSection(inbox: inbox)
                 Section {
+                    NavigationLink { FleetMapView(inbox: inbox, machines: machines) } label: {
+                        InsetRow("Fleet map", systemImage: "network", subtitle: "How each machine and device is reached, and what needs you")
+                    }
+                    .accessibilityIdentifier("machines.fleetMap")
+                    .insetRowBackground()
                     NavigationLink { FleetRulesView(inbox: inbox) } label: {
                         InsetRow("Fleet rules", systemImage: "point.3.connected.trianglepath.dotted", subtitle: "Remote access and agents, on every machine")
                     }
@@ -62,7 +67,8 @@ struct MachinesView: View {
     }
     /// Connected machines in their runtimes' order, then the ones turned off here or needing
     /// pairing again: every machine stays listed, once.
-    private var listed: [String] {
+    private var listed: [String] { Self.listed(inbox: inbox, machines: machines) }
+    static func listed(inbox: MachineInbox, machines: MachinesModel?) -> [String] {
         let live = inbox.sessions.map(\.hostId)
         guard let machines else { return live }
         let rest = machines.machines.map(\.hostId).filter { hostId in

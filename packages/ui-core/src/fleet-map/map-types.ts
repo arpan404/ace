@@ -1,5 +1,5 @@
 import type { MachineIconKind, RemoteNetworks } from "@ace/protocol";
-import type { MachineStatus, MachineVia } from "@/lib/machines.ts";
+import type { MachineStatus, MachineVia } from "./machine.ts";
 
 /*
  * What the Fleet map draws, from what the fleet reports: each machine and device as a node with

@@ -154,3 +154,57 @@ export function fleetDevices(
     }
   return [...joined.values()].toSorted((a, b) => b.lastSeenAt - a.lastSeenAt);
 }
+
+/** What reaches a machine, by name; `unknown` when the client couldn't read enough to say. */
+export type Dependents = readonly string[] | "unknown";
+
+/**
+ * The machines whose paired devices and whose links the client's latest read of each returned.
+ * A list kept on screen from before a failed read isn't in them: it says nothing about now.
+ */
+export interface FleetReads {
+  devices: ReadonlySet<string>;
+  links: ReadonlySet<string>;
+}
+
+/**
+ * What reaches `machine` now, by name: the devices paired with it and the machines linked to it.
+ * Unknown until its paired devices and every answering machine's links have been read: an empty
+ * or stale list would turn a network off unasked.
+ */
+export function reachDependents(
+  machine: string,
+  devices: readonly FleetDevice[],
+  machines: readonly FleetMachineFacts[],
+  read: FleetReads,
+): Dependents {
+  if (!read.devices.has(machine)) return "unknown";
+  if (machines.some((other) => other.id !== machine && other.online && !read.links.has(other.id)))
+    return "unknown";
+  return [
+    ...devices
+      .filter((device) => device.on.some((entry) => entry.machine === machine))
+      .map((device) => device.name),
+    ...linkersOf(machine, machines).map((linker) => linker.name),
+  ];
+}
+
+/**
+ * What reaches `machine` as a client sees it: `viewer` first when the client reaches it from
+ * elsewhere ("This window", "This iPhone"; undefined on the client's own computer), then the
+ * other devices and the linked machines, the client's own device left out. Unknown while what
+ * reaches it couldn't be read, so turning a network off still asks.
+ */
+export function clientDependents(input: {
+  machine: string;
+  devices: readonly FleetDevice[];
+  machines: readonly FleetMachineFacts[];
+  read: FleetReads;
+  viewer: string | undefined;
+}): Dependents {
+  const found = reachDependents(input.machine, input.devices, input.machines, input.read);
+  if (found === "unknown") return found;
+  const self = new Set(input.devices.filter((device) => device.self).map((device) => device.name));
+  const others = found.filter((name) => !self.has(name));
+  return input.viewer ? [input.viewer, ...others] : others;
+}

@@ -4,8 +4,8 @@ import type {
   MachinePathKind,
   RemoteNetworks,
 } from "@ace/protocol";
-import type { MachineStatus } from "@/lib/machines.ts";
-import { listNames } from "./list-names.ts";
+import type { MachineStatus } from "./machine.ts";
+import { listNames } from "../list-names.ts";
 
 /*
  * The sentences Settings › Fleet says, from what the machines report. Pure: the page passes in
@@ -179,4 +179,24 @@ export function transferLine(input: { on: boolean; ignored: boolean; differs: bo
   return input.ignored
     ? "On. Uncommitted changes and ignored files like .env go with them."
     : "On. Uncommitted changes go with them; ignored files like .env stay.";
+}
+
+/** The remote access row while it's off on a machine: nothing outside it can reach it. */
+export function remoteOffLine(where: string): { tone: Tone; words: string } {
+  return { tone: "off", words: `Off. Nothing outside ${where} can reach it.` };
+}
+
+/**
+ * The ace account row for a machine that signs in on its own, from what it reports: on ace's
+ * relay, the reason it isn't, or not signed in. `machine` names another machine; undefined for
+ * this computer.
+ */
+export function accountReachLine(
+  live: RemoteNetworks["account"] | undefined,
+  machine: string | undefined,
+): { tone: Tone; words: string } {
+  if (live?.state === "on")
+    return { tone: "on", words: "From anywhere, for your signed-in devices." };
+  if (live?.error) return { tone: "warn", words: live.error };
+  return { tone: "off", words: `Not signed in${machine ? ` on ${machine}` : ""}.` };
 }

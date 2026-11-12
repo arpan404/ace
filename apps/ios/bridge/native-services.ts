@@ -84,6 +84,8 @@ import { ProviderServices } from "./provider-services.ts";
 import type { NativeReads, ReadKey, ReadTicket } from "./native-reads.ts";
 import { NativeProjectRequest, type ProjectManage } from "./project-manage.ts";
 import { answerFleet, NativeFleetRequest } from "./fleet-admin.ts";
+import { combineFleetMap, FleetMapCombineRequest } from "./fleet-map.ts";
+import { FleetMapPartRequest, readFleetMapPart } from "./fleet-map-part.ts";
 import { answerOutside, NativeOutsideRequest } from "./outside-clients.ts";
 import type { InboxRequests } from "./inbox-manage.ts";
 import { NativeSkillLibrary, NativeSkillsRequest } from "./skill-library.ts";
@@ -295,6 +297,16 @@ export class NativeServices {
       const fleet = NativeFleetRequest.safeParse(raw);
       if (fleet.success) {
         this.#reply(id, true, await answerFleet(this.owner, fleet.data), "");
+        return;
+      }
+      // The Fleet map: this machine's part, and every part put together in shared code.
+      if (FleetMapPartRequest.safeParse(raw).success) {
+        this.#answer(id, raw, await readFleetMapPart(this.owner, controller.signal), read);
+        return;
+      }
+      const fleetMap = FleetMapCombineRequest.safeParse(raw);
+      if (fleetMap.success) {
+        this.#reply(id, true, combineFleetMap(fleetMap.data, this.now()), "");
         return;
       }
       const outside = NativeOutsideRequest.safeParse(raw);

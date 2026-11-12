@@ -1,7 +1,7 @@
 import type { RemoteNetworks } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { fleetMapFacts } from "./fleet-map-facts.ts";
-import type { FleetMapInput, MapMachineInput, MapNode } from "./fleet-map-types.ts";
+import { fleetMapFacts } from "./map-facts.ts";
+import type { FleetMapInput, MapMachineInput, MapNode } from "./map-types.ts";
 
 const now = 10 * 86_400_000;
 const off = { state: "off" } as const;

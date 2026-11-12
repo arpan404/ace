@@ -40,6 +40,7 @@
     "./chat-list": "./src/chat-list.ts",
     "./host-care": "./src/host-care.ts",
     "./machine-update": "./src/machine-update.ts",
+    "./fleet-map": "./src/fleet-map/index.ts",
     "./thread-log": "./src/thread-log.ts",
     "./log-filter": "./src/log-filter.ts",
     "./source-highlight": "./src/source-highlight.ts",

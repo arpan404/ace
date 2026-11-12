@@ -98,6 +98,9 @@ export function readFamily(request: unknown): ReadFamily | undefined {
     case "usage.summary":
     case "profile.part":
       return "usage";
+    // The Fleet map's part: remote settings, networks, links and devices (`fleet-map-part.ts`).
+    case "fleetMap.part":
+      return "settings";
     case "pluginRequest":
       return pluginReads.has(pluginType(value) ?? "") ? "plugins" : undefined;
     case "prompts.request":

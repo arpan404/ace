@@ -208,6 +208,7 @@ export * from "./project-edit.ts";
 export * from "./device-pairing.ts";
 export * from "./outside-clients.ts";
 export * from "./fleet-rules.ts";
+export * from "./list-names.ts";
 export * from "./machine-update.ts";
 export { publicationProblem } from "./publication-copy.ts";
 export * from "./folder-search.ts";
