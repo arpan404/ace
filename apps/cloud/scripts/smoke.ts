@@ -3,7 +3,7 @@
  * the Worker answers, grant keys are published, a sign-in can start (and is cancelled), and
  * relay upgrades without a grant are refused.
  *
- *   node apps/relay-cloudflare/scripts/smoke.ts https://relay.example.com
+ *   node apps/cloud/scripts/smoke.ts https://relay.example.com
  */
 import { WebSocket } from "ws";
 import { GrantKeySet } from "@ace/account-grant";

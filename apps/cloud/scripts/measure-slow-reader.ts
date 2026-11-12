@@ -4,7 +4,7 @@
  * daemon while the device reads nothing for three seconds, then lets it read. Prints workerd's
  * resident memory before, while stalled and at peak, and whether every byte arrived.
  *
- *   node apps/relay-cloudflare/scripts/measure-slow-reader.ts [MB] [--flow] [--no-stall]
+ *   node apps/cloud/scripts/measure-slow-reader.ts [MB] [--flow] [--no-stall]
  *
  * `--flow` turns credit flow control on (as a device whose hello asks for it); `--no-stall`
  * reads from the start, for the cost of throughput alone. Local only: no Cloudflare calls.

@@ -1,7 +1,7 @@
 # ace accounts on the hosted relay
 
 ace's account backend runs in the same Cloudflare Worker as the hosted relay
-(`apps/relay-cloudflare`, [ADR 0110](../adr/0110-cloudflare-relay.md)). One domain
+(`apps/cloud`, [ADR 0110](../adr/0110-cloudflare-relay.md)). One domain
 serves the account API over HTTPS and the relay over WSS. WorkOS AuthKit handles
 sign-in ([ADR 0100](../adr/0100-ace-account-backend.md)); a signed-in device opens
 every machine on its account ([ADR 0111](../adr/0111-account-machine-access.md)).
@@ -11,16 +11,16 @@ on the person's machine.
 
 ## Deploy
 
-`apps/relay-cloudflare/scripts/deploy-wizard.sh` walks through the first deploy and
+`apps/cloud/scripts/deploy-wizard.sh` walks through the first deploy and
 can be re-run: it asks for the domain and allowed origins, signs in to Cloudflare,
 creates the D1 database, applies migrations, deploys, takes the WorkOS keys, sets
 the secrets and runs the smoke check. Public values it captures stay in the
-git-ignored `apps/relay-cloudflare/.deploy.env`; secrets go only to Cloudflare.
+git-ignored `apps/cloud/.deploy.env`; secrets go only to Cloudflare.
 
 The production settings live in `wrangler.jsonc` under `env.production`; the top
 level is for local development and tests. The wizard replaces its placeholders
 (`RELAY_DOMAIN`, `ALLOWED_ORIGINS`, `PRODUCTION_DATABASE_ID`); commit the result.
-By hand, from `apps/relay-cloudflare`:
+By hand, from `apps/cloud`:
 
 1. `bunx wrangler d1 create ace-accounts`, then put the printed id in
    `env.production.d1_databases[0].database_id`.

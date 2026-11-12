@@ -304,13 +304,13 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Apply D1 migrations
-        working-directory: apps/relay-cloudflare
+        working-directory: apps/cloud
         run: bunx wrangler d1 migrations apply ACCOUNTS --remote --env production
 
       - name: Deploy
-        working-directory: apps/relay-cloudflare
+        working-directory: apps/cloud
         run: bunx wrangler deploy --env production --message "Release ${GITHUB_REF_NAME}"
 
       - name: Smoke test
-        working-directory: apps/relay-cloudflare
+        working-directory: apps/cloud
         run: bun run smoke https://relay.acehq.dev

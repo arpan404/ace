@@ -17,7 +17,7 @@ import {
   relayUpgrade,
   startRelayWorker,
   type WorkosUser,
-} from "@ace/relay-cloudflare/testing";
+} from "@ace/cloud/testing";
 import { fixture, token as adminToken } from "./socket-test-support.ts";
 import { accessRequest } from "./client-access.ts";
 import { loadIdentity } from "./tls-identity.ts";

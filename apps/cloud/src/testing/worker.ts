@@ -4,7 +4,7 @@ import { WebSocket } from "ws";
 import { encodeBase64url } from "@ace/account-grant";
 
 // Kept free of Worker sources (and so of Cloudflare's global types): other workspaces' tests
-// import this through `@ace/relay-cloudflare/testing`.
+// import this through `@ace/cloud/testing`.
 
 /** The grant signing key the test Worker is configured with. */
 export const grantKey = { id: "test", privateKey: crypto.getRandomValues(new Uint8Array(32)) };

@@ -1,6 +1,6 @@
 /**
  * The relay's wire contract and routing policy, with no Node socket code. The Node relay and
- * the Cloudflare relay (`apps/relay-cloudflare`) share these.
+ * the Cloudflare relay (`apps/cloud`) share these.
  */
 export const CONTROL_PROLOGUE = new TextEncoder().encode("ace relay registration v1");
 export const STREAM_PROLOGUE = new TextEncoder().encode("ace daemon relay stream v1");

@@ -1,7 +1,7 @@
 # Self-hosted encrypted relay
 
 This Node relay is the self-hosted relay: anonymous registration, no accounts. ace's hosted
-relay runs on Cloudflare (`apps/relay-cloudflare`) with the same wire contract and adds
+relay runs on Cloudflare (`apps/cloud`) with the same wire contract and adds
 [ace account admission](accounts.md): there a daemon registers only with its account, and a
 device reaches only machines on its own account.
 

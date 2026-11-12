@@ -181,7 +181,7 @@ finish() {
 
 # ──────────────────────────────────────────────────────────────────────────
 # STAGES: first deploy of ace's hosted relay and account backend (docs/relay/accounts.md).
-# Public values are kept in apps/relay-cloudflare/.deploy.env (git-ignored). Secrets go
+# Public values are kept in apps/cloud/.deploy.env (git-ignored). Secrets go
 # straight to Cloudflare and are never written to disk.
 # ──────────────────────────────────────────────────────────────────────────
 TOTAL_STAGES=9

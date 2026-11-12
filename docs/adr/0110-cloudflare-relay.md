@@ -31,7 +31,7 @@ ace runs the relay at a public `wss://` address. It is a forwarder only:
 
 ### Shape
 
-- A Worker (`apps/relay-cloudflare`) validates the path and query and routes each upgrade to
+- A Worker (`apps/cloud`) validates the path and query and routes each upgrade to
   a Durable Object named by the host id. Everything for one daemon (its control socket,
   waiting clients and paired streams) lives in that one object, so forwarding never crosses
   objects.
