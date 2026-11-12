@@ -28,6 +28,9 @@ export const forbiddenInitialModules = [
   "/packages/client/src/ace-account.ts",
   // A provider sign-in's login runs only once someone signs in (`sign-in-host.tsx`).
   "/src/features/sign-in/login-controller.ts",
+  // What the organize actions do: their hooks and the list's overlay stay eager, the actions
+  // load once idle or on the first one (`use-thread-actions.ts`).
+  "/src/features/organize/thread-actions-impl.ts",
 ];
 
 /** Inspect the page's actual static closure, independently of chunk names. */
