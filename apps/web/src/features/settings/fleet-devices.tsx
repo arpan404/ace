@@ -11,7 +11,7 @@ import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx"
 import { HairlineRow, RowAction, RowGroup, RowTile } from "@/components/hairline-row.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useNow } from "@/lib/time.ts";
-import { deviceKind, type FleetDevice } from "@ace/ui-core/fleet-map";
+import { deviceKind, removeDeviceQuestion, type FleetDevice } from "@ace/ui-core/fleet-map";
 import { cancelPairing, deviceLifetimes, revokeDevice } from "./data/fleet.ts";
 import type { Fleet } from "./data/use-fleet.ts";
 import { deviceScopeLabels } from "./device-scopes.ts";
@@ -66,11 +66,7 @@ export function useRemoveDevice(fleet: Fleet) {
     pending: revoke.isPending,
     ask: (device: FleetDevice) =>
       setConfirming({
-        title: `Remove ${device.name}?`,
-        body: device.self
-          ? "This is the device you're using. This window disconnects at once and has to be paired again."
-          : "It disconnects at once and has to be paired again to see or steer threads.",
-        confirm: "Remove",
+        ...removeDeviceQuestion(device, "This window"),
         run: () => revoke.mutate(device.on),
       }),
     dialog: <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />,

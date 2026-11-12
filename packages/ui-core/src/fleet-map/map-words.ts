@@ -49,6 +49,7 @@ export function signInHint(device: string): string {
   return `Open app.acehq.dev on ${device} and sign in with your ace account. It then reaches every machine from anywhere, with no code.`;
 }
 
+/** A question asked before a change that can disconnect something. */
 export interface NetworkOffQuestion {
   title: string;
   body: string;
@@ -70,5 +71,22 @@ export function networkOffQuestion(input: {
     title: `Turn off ${input.network} on ${input.where}?`,
     body: `${listNames(input.dependents)} may disconnect until they can reach ${input.where} another way.`,
     confirm: "Turn off",
+  };
+}
+
+/**
+ * The question before removing a paired device from every machine it's on. `viewer` is what
+ * disconnects when it's the device asking: "This window", "This iPhone".
+ */
+export function removeDeviceQuestion(
+  device: { name: string; self: boolean },
+  viewer: string,
+): NetworkOffQuestion {
+  return {
+    title: `Remove ${device.name}?`,
+    body: device.self
+      ? `This is the device you're using. ${viewer} disconnects at once and has to be paired again.`
+      : "It disconnects at once and has to be paired again to see or steer threads.",
+    confirm: "Remove",
   };
 }

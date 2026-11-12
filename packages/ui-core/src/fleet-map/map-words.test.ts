@@ -1,5 +1,11 @@
 import { expect, test } from "vitest";
-import { fixLabel, networkOffQuestion, nodeFixes, nodeStateWords } from "./map-words.ts";
+import {
+  fixLabel,
+  networkOffQuestion,
+  nodeFixes,
+  nodeStateWords,
+  removeDeviceQuestion,
+} from "./map-words.ts";
 
 const problem = {
   what: "Mini isn't answering.",
@@ -37,4 +43,15 @@ test("a node's state words follow its tone, and a neutral one says its status", 
   expect(nodeStateWords({ tone: "bad", status: "Offline" })).toBe("Can't connect");
   expect(nodeStateWords({ tone: "warn", status: "Needs its code" })).toBe("Needs you");
   expect(nodeStateWords({ tone: "unknown", status: "Connecting" })).toBe("Connecting");
+});
+
+test("removing the device that asks warns that it disconnects itself", () => {
+  expect(removeDeviceQuestion({ name: "iPad", self: false }, "This iPhone").body).toBe(
+    "It disconnects at once and has to be paired again to see or steer threads.",
+  );
+  expect(removeDeviceQuestion({ name: "iPhone", self: true }, "This iPhone")).toEqual({
+    title: "Remove iPhone?",
+    body: "This is the device you're using. This iPhone disconnects at once and has to be paired again.",
+    confirm: "Remove",
+  });
 });
