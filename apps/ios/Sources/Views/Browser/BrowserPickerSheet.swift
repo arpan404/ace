@@ -40,12 +40,13 @@ struct BrowserPickerSheet: View {
     @ViewBuilder private var content: some View {
         switch picker.kind {
         case "select":
-            List {
+            ScrollView {
+                VStack(spacing: AceDesign.Space.group) {
                 ForEach(groups, id: \.offset) { group in
-                    Section(group.label ?? "") {
+                    QuietSection(group.label) {
                         ForEach(group.options, id: \.offset) { option in
                             Button { choose([option.element.value]) } label: {
-                                HStack {
+                                QuietSectionRow {
                                     Text(option.element.label.isEmpty ? option.element.value : option.element.label)
                                         .foregroundStyle(option.element.disabled == true ? AceDesign.Ink.muted : AceDesign.Ink.primary)
                                     Spacer()
@@ -57,12 +58,14 @@ struct BrowserPickerSheet: View {
                         }
                     }
                 }
+                }.padding(.vertical, AceDesign.Space.related)
             }
+            .buttonStyle(.plain)
         case "color":
-            Form { ColorPicker("Colour", selection: $colour, supportsOpacity: false) }
+            ScrollView { QuietSectionRow { ColorPicker("Colour", selection: $colour, supportsOpacity: false) } }
         default:
             if PickerValues.dateKinds.contains(picker.kind) {
-                Form {
+                ScrollView {
                     if picker.kind == "time" { datePicker.datePickerStyle(.wheel) }
                     else { datePicker.datePickerStyle(.graphical) }
                 }

@@ -196,23 +196,30 @@ import Observation
     }
     /// Redeem a confirmed link, store the device, then connect it beside the others.
     func pair(_ link: PairingLink, name: String) async -> ProblemNotice? {
+        guard !Task.isCancelled else { return .cancelled }
         switch await access.perform(.pair(link, name: name)) {
         case .failure(let notice): return notice
         case .success(let outcome):
-            // Through `follow`: an account machine this pairing turns out to be lets its runtime go.
-            if let listed = outcome.machines { paired = listed; await follow(merged()) }
-            guard let paired = outcome.paired, let entry = entry(paired.hostId) else { return .unknown }
-            grants.set(paired.scopes, for: entry)
-            saveGrants()
-            // Paired again while connected: the daemon closed the old credential's sockets, so the
-            // runtime opens again with the new credential and grants.
-            if let client = inbox.client(entry.hostId) {
-                if let target = target(for: entry) { await open(client, entry: entry, target: target) }
-            } else {
-                await connect(entry)
-            }
-            return nil
+            // The machine took the pairing: it is the commit point. Record and connect it whole
+            // (listing, grants, the runtime) even if the person has gone back, in a task of its own
+            // so their leaving can't stop it half way: saved, but never connected.
+            return await Task { @MainActor in await self.commit(outcome) }.value
         }
+    }
+    private func commit(_ outcome: AccessOutcome) async -> ProblemNotice? {
+        // Through `follow`: an account machine this pairing turns out to be lets its runtime go.
+        if let listed = outcome.machines { paired = listed; await follow(merged()) }
+        guard let paired = outcome.paired, let entry = entry(paired.hostId) else { return .unknown }
+        grants.set(paired.scopes, for: entry)
+        saveGrants()
+        // Paired again while connected: the daemon closed the old credential's sockets, so the
+        // runtime opens again with the new credential and grants.
+        if let client = inbox.client(entry.hostId) {
+            if let target = target(for: entry) { await open(client, entry: entry, target: target) }
+        } else {
+            await connect(entry)
+        }
+        return nil
     }
     /// A name for this phone only; the computer keeps its own.
     func rename(_ hostId: String, to name: String) async -> ProblemNotice? {
@@ -488,7 +495,7 @@ import Observation
         client.canOperate = canOperate(entry)
         client.canAdmin = grants.scopes(for: entry).map { Grants(scopes: $0).canAdmin }
         await beforeConnect?(client, target)
-        guard openings[hostId] == opening, inbox.client(hostId) === client, !isOff(hostId) else { return }
+        guard !Task.isCancelled, openings[hostId] == opening, inbox.client(hostId) === client, !isOff(hostId) else { return }
         await client.connect(target: target, directory: storage, itemLimit: itemLimit)
     }
     /// Any open of this machine still waiting goes no further. Returns the new latest.

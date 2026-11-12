@@ -40,39 +40,51 @@ struct GitMessageSheet: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    // At accessibility sizes the subject wraps instead of scrolling out of sight;
-                    // it stays one line of text either way.
-                    TextField(commit ? "Summary" : "Title", text: $subject, axis: typeSize.isAccessibilitySize ? .vertical : .horizontal)
-                        .onChange(of: subject) { _, text in if text.contains("\n") { subject = text.replacingOccurrences(of: "\n", with: " ") } }
-                        .focused($focused).accessibilityIdentifier("changes.text")
-                    TextField(commit ? "Description (optional)" : "Summary (optional)", text: $bodyText, axis: .vertical)
-                        .lineLimit(3...10).accessibilityIdentifier("changes.body")
-                } footer: {
-                    if let failure { Text(failure).foregroundStyle(AceTheme.StatusText.failed).accessibilityIdentifier("changes.draftError") }
-                }
-                Section {
-                    if let id = drafting {
-                        Button(role: .cancel) { model.cancelGitDraft(id); drafting = nil } label: {
-                            HStack(spacing: AceTheme.Spacing.sm) { ProgressView(); Text("Cancel draft") }
+            ScrollView {
+                VStack(alignment: .leading, spacing: AceDesign.Space.group) {
+                    if let failure {
+                        Text(failure).foregroundStyle(AceTheme.StatusText.failed)
+                            .padding(.horizontal, AceDesign.Space.margin)
+                            .accessibilityIdentifier("changes.draftError")
+                    }
+                    QuietSection {
+                        QuietSectionRow {
+                            TextField(commit ? "Summary" : "Title", text: $subject, axis: typeSize.isAccessibilitySize ? .vertical : .horizontal)
+                                .onChange(of: subject) { _, text in if text.contains("\n") { subject = text.replacingOccurrences(of: "\n", with: " ") } }
+                                .focused($focused).accessibilityIdentifier("changes.text")
                         }
-                        .accessibilityIdentifier("changes.cancelDraft")
-                    } else {
-                        Button { drafting = model.draftGitText(for: kind); requested = drafting } label: { Label("Draft with AI", systemImage: "sparkles") }
-                            .accessibilityIdentifier("changes.draft")
+                        QuietSectionRow {
+                            TextField(commit ? "Description (optional)" : "Summary (optional)", text: $bodyText, axis: .vertical)
+                                .lineLimit(3...10).accessibilityIdentifier("changes.body")
+                        }
+                        QuietSectionRow {
+                            if let id = drafting {
+                                Button("Cancel draft") { model.cancelGitDraft(id); drafting = nil }
+                                    .buttonStyle(.textAction()).accessibilityIdentifier("changes.cancelDraft")
+                            } else {
+                                Button("Draft with AI") { drafting = model.draftGitText(for: kind); requested = drafting }
+                                    .buttonStyle(.textAction()).accessibilityIdentifier("changes.draft")
+                            }
+                        }
                     }
-                }
-                if !commit {
-                    Section {
-                        TextField("Reviewers, such as ana, bo", text: $reviewers)
-                            .textInputAutocapitalization(.never).autocorrectionDisabled()
-                            .accessibilityLabel("Reviewers").accessibilityIdentifier("changes.reviewers")
-                    } footer: {
-                        if let opensOn { Text(opensOn).accessibilityIdentifier("changes.opensOn") }
+                    if !commit {
+                        QuietSection("Reviewers") {
+                            QuietSectionRow {
+                                TextField("Reviewers, such as ana, bo", text: $reviewers)
+                                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+                                    .accessibilityLabel("Reviewers").accessibilityIdentifier("changes.reviewers")
+                            }
+                        }
+                        if let opensOn {
+                            Text(opensOn).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                                .foregroundStyle(AceDesign.Ink.muted)
+                                .padding(.horizontal, AceDesign.Space.margin)
+                                .accessibilityIdentifier("changes.opensOn")
+                        }
                     }
-                }
+                }.padding(.vertical, AceDesign.Space.related)
             }
+            .background(AceDesign.Surface.background)
             .navigationTitle(commit ? "Commit" : "Pull request")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

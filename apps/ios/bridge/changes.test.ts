@@ -68,6 +68,23 @@ const rows = (sink: RecordingSink, path: string) =>
   filePages(sink, path).flatMap((page) => page.lines as MobileRow[]);
 
 describe("Changes sheet", () => {
+  test("more files makes changes beyond the first page reachable in the list and tree", async () => {
+    const files = Array.from({ length: 201 }, (_, i) => ({
+      path: `file-${i}.ts`,
+      status: "modified" as const,
+      additions: 1,
+      deletions: 0,
+      binary: false,
+    }));
+    const { session, sink, close } = await openChanges({ status: files });
+    closers.push(close);
+    session.scope("working-tree");
+    expect(sink.read("changes:summary")?.hidden).toBe(1);
+    session.moreFiles();
+    expect(sink.read("changes:summary")?.hidden).toBe(0);
+    expect(sink.read("changes:summary")?.files).toHaveLength(201);
+    expect(sink.read("changes:tree")?.rows).toHaveLength(201);
+  });
   test("files carry their counts and the totals add up", async () => {
     const { sink } = await opened();
     const summary = sink.read("changes:summary");

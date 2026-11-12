@@ -19,6 +19,10 @@ import Observation
     var review: ChangesReview?
     var replies: ChangesReplies?
     var notices: [String: ChangesNotice] = [:]
+    /// Review requests sent whose notice hasn't come yet: a dropped connection answers them.
+    private(set) var awaitingNotices: Set<String> = []
+    /// Reply text kept by comment key while the thread is open, so closing the sheet keeps it.
+    var replyTexts: [String: String] = [:]
     /// The finished turn's review line and the composer's comment chip, while the thread is open.
     var ready: ReviewReadyRow?
     var chip: CommentChipRow?
@@ -32,9 +36,22 @@ import Observation
 
     func reset() {
         agents = nil; changes = nil; tree = []; files = [:]; pages = [:]; wholeLines = [:]
-        review = nil; replies = nil; notices = [:]; ready = nil; chip = nil; outcomes = [:]; draft = nil
+        review = nil; replies = nil; notices = [:]; awaitingNotices = []; replyTexts = [:]; ready = nil; chip = nil; outcomes = [:]; draft = nil
         work = nil; branches = nil; workResults = [:]
         logs = nil; copies = [:]
+    }
+
+    /// A review request went out; its notice answers it.
+    func sent(_ requestId: String) { awaitingNotices.insert(requestId) }
+    /// The connection left ready: no notice can come for what was sent, so each request still
+    /// waiting stops reading "Sending…" for good. It may have reached the computer, so the words
+    /// say the outcome is unknown and ask the person to look before sending it again.
+    func connectionLost() {
+        for id in awaitingNotices where notices[id] == nil {
+            notices[id] = ChangesNotice(requestId: id, action: "", ok: false,
+                                        message: "The connection dropped before your computer answered, so this may have gone through. Check the comments before sending it again.")
+        }
+        awaitingNotices = []
     }
 
     func apply(_ summary: ChangesSummary) {
@@ -65,7 +82,9 @@ import Observation
             wholeLines[line.file, default: [:]][line.row.i] = line.row
         case .review(let review): self.review = review
         case .replies(let replies): self.replies = replies
-        case .notice(let notice): notices[notice.requestId] = notice
+        case .notice(let notice):
+            notices[notice.requestId] = notice
+            awaitingNotices.remove(notice.requestId)
         case .ready(let ready): self.ready = ready
         case .chip(let chip): self.chip = chip
         }

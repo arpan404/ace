@@ -20,9 +20,10 @@ import type { ChangesScope, Reads } from "./changes-scope.ts";
  */
 
 /** Files one summary lists; the rest are counted in `hidden`. */
-const listed = 200;
+const defaultListed = 200;
 
 export interface SummaryInput {
+  listLimit?: number;
   threadId: string;
   epoch: number;
   preview: Preview;
@@ -43,7 +44,7 @@ export interface SummaryInput {
   review: { allowed: boolean; reason: string };
 }
 
-function turnSummary(files: readonly ScopeFile[]) {
+function turnSummary(files: readonly ScopeFile[], listed: number) {
   let additions = 0;
   let deletions = 0;
   for (const file of files) {
@@ -60,9 +61,10 @@ function turnSummary(files: readonly ScopeFile[]) {
 
 export function summaryPatch(input: SummaryInput): Record<string, unknown> {
   const { reads, preview, scope } = input;
-  const checkout = reads ? changesSummary(reads.files, reads.truncated, listed) : undefined;
+  const limit = input.listLimit ?? defaultListed;
+  const checkout = reads ? changesSummary(reads.files, reads.truncated, limit) : undefined;
   const shown = input.turnFiles
-    ? turnSummary(input.turnFiles)
+    ? turnSummary(input.turnFiles, limit)
     : checkout && {
         ...checkout,
         files: checkout.files.map((file) => ({ ...file, counted: true })),

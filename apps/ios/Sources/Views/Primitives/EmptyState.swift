@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// DESIGN.md §3 "Empty state", centred: a faint icon, the title, one muted line, and at
-/// most one secondary action. The error state is the same anatomy with the failed glyph: its line
-/// says what happened, then what to do.
+/// most one action, as a word (design language §5: actions are words, never a filled pill). The
+/// error state drops the icon: one sentence in the failed colour, a line of why, its way out.
 struct EmptyState<Action: View>: View {
     let icon: AceIcon.Name?
     let title: String
@@ -15,7 +15,7 @@ struct EmptyState<Action: View>: View {
     var body: some View {
         VStack(spacing: AceDesign.Space.tight) {
             if failed {
-                StatusGlyph(.failed, tone: .failed, size: AceDesign.Size.emptyIcon).padding(.bottom, AceDesign.Space.related)
+                EmptyView()
             } else if let icon {
                 AceIcon(icon, size: AceDesign.Size.emptyIcon, relativeTo: .title2)
                     .foregroundStyle(AceDesign.Ink.faint)
@@ -27,16 +27,15 @@ struct EmptyState<Action: View>: View {
             }
             Text(title)
                 .font(AceDesign.Typeface.body)
-                .foregroundStyle(AceDesign.Ink.primary)
+                .foregroundStyle(failed ? AceTheme.StatusText.failed : AceDesign.Ink.primary)
             if let line {
                 Text(line)
                     .font(AceDesign.Typeface.meta)
                     .foregroundStyle(AceDesign.Ink.muted)
             }
             action()
-                .buttonStyle(.bordered).buttonBorderShape(.capsule)
-                .tint(AceDesign.Ink.accent)
-                .padding(.top, AceDesign.Space.related)
+                .buttonStyle(.textAction(.prominent))
+                .padding(.top, AceDesign.Space.tight)
         }
         .multilineTextAlignment(.center)
         .frame(maxWidth: AceDesign.Size.emptyWidth)

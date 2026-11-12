@@ -254,10 +254,12 @@ struct InboxStack<Destination: View, Side: View>: View {
                 .accessibilityIdentifier("select.done")
         }
     }
-    /// The scope menu and the round compose button on one glass capsule, then the avatar. Compose shows where the
-    /// tab bar doesn't hold it: before iOS 27, and beside a page in a regular window, which has no
-    /// tab bar. (The system's title menu draws no chevron by a large title, so it would go unseen.)
+    /// The person's avatar at the bar's leading edge, then the scope menu and the round compose
+    /// button on one glass capsule at the right. Compose shows where the tab bar doesn't hold it:
+    /// before iOS 27, and beside a page in a regular window, which has no tab bar. (The system's
+    /// title menu draws no chevron by a large title, so it would go unseen.)
     @ToolbarContentBuilder private var listToolbar: some ToolbarContent {
+        AccountToolbarItem(open: header.page, settings: header.settings)
         if !chats || inbox.showsMachineNames {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu { titleMenu } label: { Image(systemName: "line.3.horizontal.decrease") }
@@ -272,8 +274,6 @@ struct InboxStack<Destination: View, Side: View>: View {
                     .accessibilityIdentifier("inbox.compose")
             }
         }
-        // The person's avatar at the end, as Apple's own apps put the account top right.
-        AccountToolbarItem(open: header.page, settings: header.settings)
     }
 
     /// The list is live; a pull asks every machine that isn't ready to reconnect now.

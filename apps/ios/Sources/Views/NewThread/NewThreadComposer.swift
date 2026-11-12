@@ -150,26 +150,44 @@ struct NewThreadInstructionsView: View {
     let reloadProfiles: () -> Void
     private var draft: NewThreadDraft { drafts.draft }
     var body: some View {
-        List {
-            Section {
-                Picker("Profile", selection: Binding(get: { draft.profileId ?? "" }, set: { id in
-                    drafts.edit { $0.profileId = id.isEmpty ? nil : id; $0.instructions = profiles.first { $0.id == id }?.instructions }
-                })) {
-                    Text("None").tag("")
-                    ForEach(profiles) { Text($0.name).tag($0.id) }
+        ScrollView {
+            VStack(alignment: .leading, spacing: AceDesign.Space.group) {
+                VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                    QuietSection("Instructions") {
+                        QuietSectionRow {
+                            Picker("Profile", selection: Binding(get: { draft.profileId ?? "" }, set: { id in
+                                drafts.edit { $0.profileId = id.isEmpty ? nil : id; $0.instructions = profiles.first { $0.id == id }?.instructions }
+                            })) {
+                                Text("None").tag("")
+                                ForEach(profiles) { Text($0.name).tag($0.id) }
+                            }
+                            .accessibilityIdentifier("newThread.profile")
+                        }
+                        QuietSectionRow {
+                            TextField("Custom instructions", text: Binding(get: { draft.instructions ?? "" }, set: { value in drafts.edit { $0.instructions = value } }), axis: .vertical)
+                                .aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+                                .lineLimit(2...8)
+                                .accessibilityIdentifier("newThread.instructions")
+                        }
+                    }
+                    Text("Included in the thread's first message.")
+                        .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                        .foregroundStyle(AceDesign.Ink.muted)
+                        .padding(.horizontal, AceDesign.Space.margin)
                 }
-                .accessibilityIdentifier("newThread.profile")
-                TextField("Custom instructions", text: Binding(get: { draft.instructions ?? "" }, set: { value in drafts.edit { $0.instructions = value } }), axis: .vertical)
-                    .lineLimit(2...8).accessibilityIdentifier("newThread.instructions")
-            } footer: { Text("Included in the thread's first message.") }
-            .insetRowBackground()
-            Section {
-                NavigationLink { TaskProfilesView(store: TaskProfileStore(defaults: .standard)) } label: { InsetRow("Manage profiles", systemImage: "person.text.rectangle") }
+                QuietSection {
+                    NavigationLink { TaskProfilesView(store: TaskProfileStore(defaults: .standard)) } label: {
+                        QuietSectionRow {
+                            QuietRowText(title: "Manage profiles")
+                            RowCaret()
+                        }
+                    }
                     .accessibilityIdentifier("newThread.profiles")
+                }
             }
-            .insetRowBackground()
+            .padding(.top, AceDesign.Space.related).padding(.bottom, AceDesign.Space.group)
         }
-        .insetGroupedList()
+        .background(AceDesign.Surface.background)
         .onAppear(perform: reloadProfiles)
         .navigationTitle("Instructions").navigationBarTitleDisplayMode(.inline)
     }

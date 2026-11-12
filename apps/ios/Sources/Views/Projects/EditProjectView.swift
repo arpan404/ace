@@ -39,17 +39,17 @@ struct EditProjectView: View {
     }
 
     var body: some View {
-        Form {
-            Section {
+        QuietPage {
+            QuietGroup {
                 TextField("Name", text: $name).textInputAutocapitalization(.never).autocorrectionDisabled()
                     .accessibilityIdentifier("project.edit.name")
             } footer: { Text(project.path).font(AceDesign.Typeface.code) }
-            .insetRowBackground()
+
             iconSection
             if let options {
                 ProjectDefaultsSections(options: options, defaults: $defaults)
             } else {
-                Section {
+                QuietGroup {
                     if let optionsProblem {
                         ServiceProblem(message: optionsProblem)
                         Button("Retry") { Task { await readOptions() } }
@@ -61,23 +61,23 @@ struct EditProjectView: View {
                         .accessibilityHidden(true)
                     }
                 } header: { InsetHeader("New threads") }
-                .insetRowBackground()
+
             }
             notesSection
-            Section {
+            QuietGroup {
                 Button("Remove project…", role: .destructive) { removing = true }.accessibilityIdentifier("project.edit.remove")
             }
-            .insetRowBackground()
+
             if waiting {
-                Section {
+                QuietGroup {
                     Text("Saved on this phone. Waiting for your computer to apply it…")
                         .font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
                 }
-                .insetRowBackground()
+
             }
-            if let problem { Section { ServiceProblem(message: problem) }.insetRowBackground() }
+            if let problem { QuietGroup { ServiceProblem(message: problem) } }
         }
-        .insetGroupedList()
+
         .smoothChange(waiting)
         .smoothChange(icon.mode)
         .smoothChange(options == nil)
@@ -107,7 +107,7 @@ struct EditProjectView: View {
     // MARK: Icon
 
     @ViewBuilder private var iconSection: some View {
-        Section {
+        QuietGroup {
             HStack(spacing: AceDesign.Space.row) {
                 ProjectIconPreview(initials: initials, glyph: options?.choices.glyphs.first { $0.id == icon.glyph }?.icon, icon: icon)
                 Picker("Icon", selection: Binding(get: { icon.mode }, set: { icon.mode = $0; iconTouched = true; imageProblem = nil })) {
@@ -153,7 +153,7 @@ struct EditProjectView: View {
         } header: { InsetHeader("Icon") } footer: {
             Text(icon.mode == .auto ? "Shows the project's own favicon when it has one, else its initials." : "Rows show the mark in quiet ink; the colour shows on the larger mark.")
         }
-        .insetRowBackground()
+
     }
 
     private func pick(_ item: PhotosPickerItem) async {
@@ -171,7 +171,7 @@ struct EditProjectView: View {
     // MARK: Notes
 
     @ViewBuilder private var notesSection: some View {
-        Section {
+        QuietGroup {
             ForEach($notes) { $note in
                 HStack(alignment: .firstTextBaseline) {
                     TextField("Note", text: $note.text, axis: .vertical).lineLimit(1...6)
@@ -184,7 +184,7 @@ struct EditProjectView: View {
                 .disabled(notes.count >= 50)
                 .accessibilityIdentifier("project.edit.addNote")
         } header: { InsetHeader("Notes") } footer: { Text("Facts every agent in the project reads. Editing one makes it yours; clearing one removes it.") }
-        .insetRowBackground()
+
     }
 
     // MARK: Saving
@@ -225,7 +225,7 @@ private struct ProjectDefaultsSections: View {
     @Binding var defaults: [String: ServiceValue]
 
     var body: some View {
-        Section {
+        QuietGroup {
             Picker("Model", selection: modelBinding) {
                 Text("Inherit").tag("")
                 ForEach(options.models) { Text($0.label).tag($0.key) }
@@ -252,15 +252,15 @@ private struct ProjectDefaultsSections: View {
         } header: { InsetHeader("New threads") } footer: {
             if options.modelsFailed { Text("Couldn't list this machine's models. The saved one is kept.") }
         }
-        .insetRowBackground()
-        Section {
+
+        QuietGroup {
             TextField("Check command", text: string("checkCommand"), prompt: Text("The project's check script"))
                 .font(AceDesign.Typeface.code)
                 .textInputAutocapitalization(.never).autocorrectionDisabled()
                 .accessibilityIdentifier("project.edit.check")
         } header: { InsetHeader("Pull requests") } footer: { Text("Verify runs this against pull requests. Empty uses the project's own check script.") }
-        .insetRowBackground()
-        Section {
+
+        QuietGroup {
             Picker("Profile", selection: string("browserProfileScope")) {
                 ForEach(options.choices.browserProfiles) { Text($0.label).tag($0.tag) }
             }
@@ -268,7 +268,7 @@ private struct ProjectDefaultsSections: View {
         } header: { InsetHeader("Browser") } footer: {
             Text("\(options.choices.browserProfiles.first { $0.tag == text("browserProfileScope") }?.note ?? "") Applies to browsers opened after you save.")
         }
-        .insetRowBackground()
+
     }
 
     private func text(_ key: String) -> String { if case .string(let value) = defaults[key] { value } else { "" } }

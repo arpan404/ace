@@ -29,30 +29,29 @@ struct PublishRepositoryView: View {
     @State private var published = 0
 
     var body: some View {
-        Form {
+        QuietPage {
             if let status {
                 if status.ready == false {
-                    Section { ServiceProblem(message: "\(status.instructions ?? "Sign in to GitHub with gh on the machine.") Then pull to refresh.") }
-                        .insetRowBackground()
+                    QuietGroup { ServiceProblem(message: status.instructions ?? "Sign in to GitHub with gh on the machine."); Button("Retry") { Task { await read() } }.buttonStyle(.textAction()) }
+
                 }
                 if let publication = status.publication { record(publication) }
                 // Once published, the record says it all; the form only starts or resumes one.
-                if draft != nil, !["empty", "pushed"].contains(status.publication?.phase ?? "") { form(status) }
+                if draft != nil, status.publication?.phase != "pushed" { form(status) }
             } else if problem == nil {
-                Section {
+                QuietGroup {
                     ForEach(["Owner", "Name", "Description", "Visibility"], id: \.self) { LabeledContent($0) { Text("placeholder") }.redacted(reason: .placeholder) }
                         .accessibilityHidden(true)
                 }
-                .insetRowBackground()
+
             }
-            if let problem { Section { ServiceProblem(message: problem) }.insetRowBackground() }
+            if let problem { QuietGroup { ServiceProblem(message: problem); Button("Retry") { Task { await read() } }.buttonStyle(.textAction()) } }
         }
-        .insetGroupedList()
+
         .smoothChange(status?.publication)
         .smoothChange(status == nil)
         .smoothChange(problem)
         .sensoryFeedback(.success, trigger: published)
-        .disabled(busy)
         .refreshable { await read() }
         .navigationTitle("Publish repository").navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -60,18 +59,24 @@ struct PublishRepositoryView: View {
                 Button { done() } label: { Image(systemName: "xmark") }.accessibilityLabel("Close")
             }
             ToolbarItem(placement: .confirmationAction) {
-                if busy { WorkingMark() } else if let status, status.publication?.phase != "pushed", status.publication?.phase != "empty" {
+                if busy { WorkingMark() } else if let status, status.publication?.phase != "pushed" {
                     Button(status.locked == true ? "Resume" : "Publish") { Task { await publish() } }
                         .disabled(status.ready != true || status.running == true || draft?.name.isEmpty != false)
                         .accessibilityIdentifier("publish.submit")
                 }
             }
         }
-        .task { await read() }
+        .task {
+            await read()
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(2)) } catch { return }
+                if status?.running == true || busy { await read() }
+            }
+        }
     }
 
     @ViewBuilder private func record(_ publication: PublishStatus.Publication) -> some View {
-        Section {
+        QuietGroup {
             Text(publication.words).font(AceDesign.Typeface.body).accessibilityIdentifier("publish.phase")
             if let url = publication.url.flatMap(URL.init(string:)) {
                 Link(publication.fullName ?? url.absoluteString, destination: url)
@@ -81,12 +86,12 @@ struct PublishRepositoryView: View {
                 Button("Stop publication", role: .destructive) { Task { await stop() } }
             }
         } header: { InsetHeader("Publication") }
-        .insetRowBackground()
+
     }
 
     @ViewBuilder private func form(_ status: PublishStatus) -> some View {
         let locked = status.locked == true
-        Section {
+        QuietGroup {
             if let hosts = status.hosts, hosts.count > 1 {
                 Picker("Host", selection: binding(\.host)) { ForEach(hosts, id: \.self) { Text($0).tag($0) } }
             }
@@ -106,8 +111,8 @@ struct PublishRepositoryView: View {
             Text(locked ? "Creation already began, so these stay as they were. Resume to finish." : "Creates the repository with the machine's gh account, adds it as origin and pushes the current branch. ace never rewrites history.")
         }
         .textInputAutocapitalization(.never).autocorrectionDisabled()
-        .disabled(locked)
-        .insetRowBackground()
+        .disabled(locked || busy || status.running == true)
+
     }
 
     private func binding(_ key: WritableKeyPath<PublishStatus.Draft, String>) -> Binding<String> {
@@ -115,7 +120,7 @@ struct PublishRepositoryView: View {
     }
     private func read() async {
         guard let reply = try? await model.service(["type": "native.project", "request": ["op": "publish.status", "workspaceId": project.id, "name": project.name]], as: PublishStatus.self) else {
-            problem = "Couldn't read publication status. Pull to refresh."; return
+            problem = "Couldn't read publication status."; return
         }
         if reply.ok { status = reply; if draft == nil || reply.locked == true { draft = reply.draft }; problem = nil }
         else { problem = reply.message }
@@ -125,7 +130,7 @@ struct PublishRepositoryView: View {
         busy = true; problem = nil
         defer { busy = false }
         guard let reply = try? await model.service(["type": "native.project", "request": ["op": "publish", "workspaceId": project.id, "input": input]], as: PublishStatus.self, timeout: .seconds(120)) else {
-            problem = "The answer was lost. Pull to refresh to see saved progress, then Resume."; return
+            problem = "The answer was lost. Retry to read saved progress, then Resume."; return
         }
         if reply.draft != nil { status = reply; self.draft = reply.draft }
         if reply.ok { published += 1 } else { problem = reply.message }
@@ -133,7 +138,8 @@ struct PublishRepositoryView: View {
     private func stop() async {
         busy = true
         defer { busy = false }
-        _ = await model.projectWrite(["op": "publish.cancel", "workspaceId": project.id])
+        let answer = await model.projectWrite(["op": "publish.cancel", "workspaceId": project.id])
         await read()
+        if !answer.ok { problem = answer.message ?? "Couldn’t stop publication. Try again." }
     }
 }

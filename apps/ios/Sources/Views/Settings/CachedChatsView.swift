@@ -11,13 +11,34 @@ struct CachedChatsView: View {
     var body: some View {
         List {
             Section {
-                InsetRow("Kept on this phone", systemImage: nil, value: summary(threads: total.threads, bytes: total.bytes))
+                if inbox.sessions.contains(where: { $0.client.cacheUsage == nil }) {
+                    SkeletonRows(count: 1, label: "Reading cached chats")
+                } else if inbox.sessions.allSatisfy({ $0.client.cacheUsage?.measured != false }) {
+                    InsetRow("Kept on this phone", systemImage: nil, value: summary(threads: total.threads, bytes: total.bytes))
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("cache.total")
+                }
             } footer: {
                 Text("Messages, older pages and opened message content are kept for up to 7 days. Of settled chats, the 20 most recently opened are kept.")
             }
             .insetRowBackground()
+            ForEach(inbox.sessions) { session in
+                if let usage = session.client.cacheUsage, let problem = usage.problem {
+                    Section {
+                        if inbox.sessions.count > 1 { Text(inbox.name(session.hostId)).font(AceDesign.Typeface.meta) }
+                        ServiceProblem(message: problem)
+                        Button("Retry") {
+                            switch usage.retry {
+                            case "cache.clear": session.client.clearCache()
+                            case "cache.reload":
+                                if let thread = usage.threadId { session.client.action(["type": "cache.reload", "threadId": thread]) }
+                                else { session.client.readCache() }
+                            default: session.client.readCache()
+                            }
+                        }.buttonStyle(.textAction())
+                    }.insetRowBackground()
+                }
+            }
             if inbox.sessions.count > 1 {
                 Section {
                     ForEach(inbox.sessions) { session in
@@ -64,6 +85,7 @@ struct CachedChatsView: View {
     }
     private func usage(_ session: MachineSession) -> String {
         guard let usage = session.client.cacheUsage else { return "Reading…" }
+        if usage.measured == false { return "Unavailable" }
         return summary(threads: usage.threads, bytes: usage.bytes)
     }
 }

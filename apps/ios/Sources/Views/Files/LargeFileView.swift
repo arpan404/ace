@@ -72,6 +72,7 @@ struct LargeFileView: View {
     @ViewBuilder private var footer: some View {
         if let failure {
             Text(failure).foregroundStyle(AceTheme.StatusText.failed).padding(AceTheme.Spacing.lg)
+            Button("Retry") { Task { await more() } }.buttonStyle(.textAction()).disabled(loading)
         } else if loading {
             ProgressView().frame(maxWidth: .infinity, minHeight: AceDesign.Size.rowLine)
         } else if !done {

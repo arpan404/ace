@@ -136,13 +136,18 @@ struct InboxSearchList: View {
                 } header: { SearchHeader("Threads") }
             }
         }
-        if everyKind, !pulls.found.isEmpty {
+        if everyKind, !pulls.found.isEmpty || pulls.problem != nil {
             Section {
                 ForEach(pulls.found) { found in
                     Button { remember(); actions.pull(found.route) } label: { ForgePullRowView(row: found.row) }
                         .buttonStyle(.row)
                         .accessibilityIdentifier("search.pull.\(found.row.number)")
                         .inboxRowChrome()
+                }
+                if let problem = pulls.problem {
+                    QuietProblemRow(title: problem, action: "Try again", identifier: "search.pulls.retry") {
+                        Task { await pulls.retry(inbox) }
+                    }
                 }
             } header: { SearchHeader("Pull requests") }
         }
@@ -165,7 +170,7 @@ struct InboxSearchList: View {
                 .accessibilityLabel("Searching")
                 .listRowSeparator(.hidden).listRowBackground(Color.clear)
         } else if !messages.loading && foundThreads.isEmpty && everything.commands.isEmpty && everything.projects.isEmpty
-                    && pulls.found.isEmpty && messages.merged(inbox).isEmpty {
+                    && pulls.found.isEmpty && !(everyKind && pulls.problem != nil) && messages.merged(inbox).isEmpty {
             EmptyState.search(text)
                 .listRowSeparator(.hidden).listRowBackground(Color.clear)
         }

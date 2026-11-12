@@ -7,6 +7,11 @@ struct TaskProfilesView: View {
     var body: some View {
         List {
             ServiceProblem(message: problem)
+            if profiles.isEmpty {
+                Text("No profiles yet. Save instructions to reuse in new tasks.")
+                    .font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
+                    .listRowBackground(Color.clear)
+            }
             if !profiles.isEmpty {
                 Section {
                     ForEach(profiles) { profile in

@@ -15,6 +15,7 @@ struct ProjectDetailView: View {
     @State private var gone = false
     @State private var saves = 0
     @State private var publishing = false
+    @State private var refreshProblem: String?
     @Environment(\.dismiss) private var dismiss
 
     init(model: ClientModel, project: NativeProject) {
@@ -23,52 +24,58 @@ struct ProjectDetailView: View {
     }
 
     var body: some View {
-        List {
-            Section {
+        QuietPage {
+            if let refreshProblem {
+                QuietGroup {
+                    ServiceProblem(message: refreshProblem)
+                    Button("Retry") { Task { await reread() } }.buttonStyle(.textAction())
+                }
+            }
+            QuietGroup {
                 Text(project.path).font(AceDesign.Typeface.code)
                     .foregroundStyle(AceDesign.Ink.muted).textSelection(.enabled)
                     .accessibilityIdentifier("project.path")
             }
-            .insetRowBackground()
-            Section {
-                NavigationLink { FilesScreen(model: model, scope: .project(project.id), subtitle: project.name, mention: nil) } label: { InsetRow("Files", systemImage: "folder") }
-                NavigationLink { PastSessionsView(model: model, project: project) } label: { InsetRow("Past CLI sessions", systemImage: "clock.arrow.circlepath") }
+
+            QuietGroup {
+                NavigationLink { FilesScreen(model: model, scope: .project(project.id), subtitle: project.name, mention: nil) } label: { HStack { QuietRowText(title: "Files"); RowCaret() } }
+                NavigationLink { PastSessionsView(model: model, project: project) } label: { HStack { QuietRowText(title: "Past CLI sessions"); RowCaret() } }
                 NavigationLink { ProjectRepositoriesView(model: model, project: project) } label: {
-                    InsetRow("Repositories", systemImage: "arrow.triangle.branch", subtitle: "Where reviews are read and pull requests open")
+                    HStack { QuietRowText(title: "Repositories", detail: "Where reviews are read and pull requests open"); RowCaret() }
                 }
                 .accessibilityIdentifier("project.repositories")
                 OpenOnHostMenu(model: model, target: HostOpenTarget(workspaceId: project.id)) {
-                    InsetRow("Open in…", systemImage: "arrow.up.forward.app", subtitle: "An editor or the file manager on the computer")
+                    HStack { QuietRowText(title: "Open in…", detail: "An editor or the file manager on the computer"); RowCaret() }
                 }
                 .accessibilityIdentifier("project.openIn")
                 if model.canOperate {
                     Button { publishing = true } label: {
-                        InsetRow("Publish repository…", systemImage: "arrow.up.doc", subtitle: "A new GitHub repository for this project")
+                        HStack { QuietRowText(title: "Publish repository…", detail: "A new GitHub repository for this project"); RowCaret() }
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("project.publish")
                 }
             }
-            .insetRowBackground()
+
             notes
             // Shown only while this machine links to another (ADR 0101).
             if model.canOperate, model.transfers.linked {
-                Section {
-                    Button { model.openOn(workspaceId: project.id, name: project.name) } label: { InsetRow("Open on…", systemImage: "desktopcomputer") }
+                QuietGroup {
+                    Button { model.openOn(workspaceId: project.id, name: project.name) } label: { HStack { QuietRowText(title: "Open on…"); RowCaret() } }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("project.openOn")
                 }
-                .insetRowBackground()
+
             }
             if model.canOperate {
-                Section {
+                QuietGroup {
                     Button("Remove project…", role: .destructive) { removing = true }
                         .accessibilityIdentifier("project.remove")
                 } footer: { Text("Its threads are deleted. The folder stays on the computer.") }
-                .insetRowBackground()
+
             }
         }
-        .insetGroupedList()
+
         .smoothChange(project.notes.map(\.id) + project.notes.map(\.text))
         .smoothChange(gone)
         .sensoryFeedback(.success, trigger: saves)
@@ -98,7 +105,7 @@ struct ProjectDetailView: View {
                 .tint(AceDesign.Ink.accent)
                 .presentationDetents([.large]).presentationDragIndicator(.visible)
         }
-        .task(id: model.readGeneration(ProjectsView.firstPage)) { await reread() }
+        .task(id: [model.connection, String(model.readGeneration(ProjectsView.firstPage))]) { await reread() }
         .overlay {
             if gone {
                 EmptyState(systemImage: "folder", title: "Project removed", line: "It's no longer on this machine.")
@@ -108,7 +115,7 @@ struct ProjectDetailView: View {
     }
 
     @ViewBuilder private var notes: some View {
-        Section {
+        QuietGroup {
             if project.notes.isEmpty {
                 Text("No notes yet. Agents add what they learn about the project here, and so can you.")
                     .font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
@@ -128,14 +135,18 @@ struct ProjectDetailView: View {
                     .accessibilityIdentifier("project.notes.edit")
             }
         } header: { InsetHeader("Notes") } footer: { Text("Every thread and agent in this project reads these. They stay in ace, never in the repository.") }
-        .insetRowBackground()
+
     }
 
     private func reread() async {
-        guard model.connection == "ready" else { return }
-        guard let reply = try? await model.service(["type": "projects.request", "operation": ["op": "workspace.get", "workspaceId": project.id]], as: ProjectReply.self) else { return }
+        guard model.connection == "ready" else { refreshProblem = "Can’t reach this machine. Reconnect and retry."; return }
+        let reply: ProjectReply
+        do { reply = try await model.service(["type": "projects.request", "operation": ["op": "workspace.get", "workspaceId": project.id]], as: ProjectReply.self) }
+        catch { if !Task.isCancelled { refreshProblem = error.localizedDescription }; return }
+        refreshProblem = nil
         if let fresh = reply.result.project { project = fresh; gone = false }
         else if reply.result.code?.contains("not_found") == true { gone = true }
+        else { refreshProblem = "Couldn’t refresh this project: \(reply.result.code ?? "unavailable")." }
     }
 }
 

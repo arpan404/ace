@@ -2,7 +2,9 @@ import SwiftUI
 
 /// Writing a new skill: its name, what it does, its instructions, where it is saved, which
 /// agents see it and when it runs. The name is checked as it is typed, against the same rules
-/// and list the web's form uses (`bridge/skill-library.ts`); the machine has the last word.
+/// and list the web's form uses (`bridge/skill-library.ts`); the machine has the last word. The
+/// fields and its choices are on the page itself, as the design language's sheets are: quiet
+/// headings, hairlines, actions as words; a read that failed says so where its rows would be.
 struct NewSkillView: View {
     /// Content geometry: the placeholder starts where the editor's text does, past its line numbers.
     private static let pastGutter: CGFloat = 52
@@ -15,8 +17,15 @@ struct NewSkillView: View {
     @State private var manual = false
     @State private var agents: [SkillAgentChoice] = []
     @State private var runs: [SkillRunsChoice] = []
+    /// The draft's choices have arrived once: the sections stop reading them as still coming, even
+    /// when it brought no agent to switch on.
+    @State private var choicesLoaded = false
     @State private var check: SkillNameCheck?
     @State private var checked = ""
+    /// The name check's last read didn't answer: its own sentence, with Retry.
+    @State private var checkProblem: String?
+    /// The agents and runs didn't arrive: their own sentence, with Retry, in place of the rows.
+    @State private var choicesProblem: String?
     @State private var bodyDirty = false
     @State private var creating = false
     /// The last create didn't hear back: sending it again says so (see `bridge/skill-library.ts`).
@@ -32,71 +41,55 @@ struct NewSkillView: View {
         !trimmed.isEmpty && checked == "\(scope)|\(trimmed)" && check?.problem == nil
             && !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && agents.contains(where: \.on) && !creating
     }
+    private static let problemAnchor = "skill.new.problem"
     private var at: [String: Any] { project.map { ["workspaceId": $0.id] } ?? [:] }
 
     var body: some View {
         NavigationStack {
-            List {
-                Section {
-                    TextField("release-notes", text: $name)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .aceMonospace(AceTheme.Typography.code, relativeTo: .body)
-                        .accessibilityIdentifier("skill.new.name")
-                } header: { InsetHeader("Name") } footer: {
-                    if let problem = check?.problem, !trimmed.isEmpty {
-                        Text(problem).foregroundStyle(AceTheme.StatusText.failed).accessibilityIdentifier("skill.new.nameProblem")
-                    } else {
-                        Text(check?.path ?? " ").aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
-                            .foregroundStyle(AceTheme.Colours.faintForeground)
-                    }
-                }
-                Section {
-                    TextField("What it does and when an agent should use it", text: $description, axis: .vertical)
-                        .lineLimit(1...4).accessibilityIdentifier("skill.new.description")
-                } header: { InsetHeader("Description") }
-                Section {
-                    SourceTextView(document: SourceDocument(key: "new", text: "", language: nil, marks: [:]),
-                                   wrap: true, editable: !creating, line: nil, handle: handle, dirty: { bodyDirty = $0 })
-                        .frame(height: AceDesign.Size.editorHeight)
-                        .overlay(alignment: .topLeading) {
-                            if !bodyDirty {
-                                Text("Steps, rules and examples the agent follows")
-                                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                                    .foregroundStyle(AceTheme.Colours.subtleForeground)
-                                    .padding(.leading, Self.pastGutter).padding(.top, AceTheme.Spacing.sm)
-                                    .allowsHitTesting(false).transition(.opacity)
-                            }
+            ScrollViewReader { reader in
+            ScrollView {
+                VStack(alignment: .leading, spacing: AceDesign.Space.group) {
+                    if let problem { QuietProblem(message: problem, id: "skill.new.create.problem").id(Self.problemAnchor) }
+                    QuietField("Name") {
+                        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                            TextField("release-notes", text: $name)
+                                .textInputAutocapitalization(.never).autocorrectionDisabled()
+                                .aceMonospace(AceTheme.Typography.code, relativeTo: .body)
+                                .accessibilityIdentifier("skill.new.name")
+                            nameLine
                         }
-                        .clipShape(AceShape.group)
-                        .listRowInsets(EdgeInsets())
-                        .listRowBackground(Color.clear)
-                        .accessibilityIdentifier("skill.new.body")
-                } header: { InsetHeader("Instructions") }
-                if let project {
-                    Section {
-                        GlassChoice(items: [GlassChoiceItem(id: "personal", label: "Personal"), GlassChoiceItem(id: "project", label: "\(project.name) project")],
-                                    selection: scope, idPrefix: "skill.new.scope") { scope = $0 }
-                            .listRowBackground(Color.clear).listRowInsets(EdgeInsets())
-                    } header: { InsetHeader("Save in") }
-                }
-                Section {
-                    if agents.isEmpty {
-                        ForEach(0..<5, id: \.self) { _ in Text("Claude Code").redacted(reason: .placeholder) }
                     }
-                    SkillAgentToggles(agents: $agents)
-                } header: { InsetHeader("Agents") }
-                if !runs.isEmpty {
-                    Section {
-                        GlassChoice(items: runs.map { GlassChoiceItem(id: $0.manual ? "manual" : "auto", label: $0.label) },
-                                    selection: manual ? "manual" : "auto", idPrefix: "skill.new.runs") { manual = $0 == "manual" }
-                            .listRowBackground(Color.clear).listRowInsets(EdgeInsets())
-                    } header: { InsetHeader("Runs") } footer: {
-                        if let problem { ServiceProblem(message: problem) }
+                    QuietField("Description") {
+                        TextField("What it does and when an agent should use it", text: $description, axis: .vertical)
+                            .lineLimit(1...4).accessibilityIdentifier("skill.new.description")
                     }
+                    QuietField("Instructions") {
+                        SourceTextView(document: SourceDocument(key: "new", text: "", language: nil, marks: [:]),
+                                       wrap: true, editable: !creating, line: nil, handle: handle, dirty: { bodyDirty = $0 })
+                            .frame(height: AceDesign.Size.editorHeight)
+                            .overlay(alignment: .topLeading) {
+                                if !bodyDirty {
+                                    Text("Steps, rules and examples the agent follows")
+                                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                                        .foregroundStyle(AceTheme.Colours.subtleForeground)
+                                        .padding(.leading, Self.pastGutter).padding(.top, AceTheme.Spacing.sm)
+                                        .allowsHitTesting(false).transition(.opacity)
+                                }
+                            }
+                            .accessibilityIdentifier("skill.new.body")
+                    }
+                    if let project { scopeChoice(project) }
+                    agentsSection
+                    runsSection
                 }
+                .padding(.top, AceDesign.Space.related).padding(.bottom, AceDesign.Space.group)
             }
-            .insetRowBackground()
-            .insetGroupedList()
+            // A failed create shows where Create's answer belongs: the top, scrolled into view.
+            .onChange(of: problem) { _, now in
+                if now != nil { withAnimation { reader.scrollTo(Self.problemAnchor, anchor: .top) } }
+            }
+            }
+            .background(AceDesign.Surface.background)
             .animation(.default, value: agents)
             .animation(.default, value: problem)
             .sensoryFeedback(.selection, trigger: agents)
@@ -120,18 +113,111 @@ struct NewSkillView: View {
         .interactiveDismissDisabled(dirty || creating)
     }
 
+    /// What the name check says: a refusal in the failed colour, or the path the skill will take.
+    @ViewBuilder private var nameLine: some View {
+        if let checkProblem {
+            HStack(spacing: AceDesign.Space.related) {
+                Text(checkProblem).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                    .foregroundStyle(AceTheme.StatusText.failed)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("skill.new.nameReadProblem")
+                Button("Retry") { Task { await checkName() } }
+                    .buttonStyle(.textAction(.prominent))
+            }
+        } else if let problem = check?.problem, !trimmed.isEmpty {
+            Text(problem).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                .foregroundStyle(AceTheme.StatusText.failed)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("skill.new.nameProblem")
+        } else {
+            Text(check?.path ?? " ").aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
+                .foregroundStyle(AceTheme.Colours.faintForeground)
+                .lineLimit(1).truncationMode(.middle)
+        }
+    }
+
+    private func scopeChoice(_ project: NativeProject) -> some View {
+        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+            QuietHeading("Save in")
+            GlassChoice(items: [GlassChoiceItem(id: "personal", label: "Personal"),
+                                GlassChoiceItem(id: "project", label: "\(project.name) project")],
+                        selection: scope, idPrefix: "skill.new.scope") { scope = $0 }
+                .disabled(creating)
+        }
+        .padding(.horizontal, AceDesign.Space.margin)
+    }
+
+    /// Which agents see it: a switch each, the read's own sentence while they haven't arrived, or
+    /// a quiet line when the machine offers none.
+    private var agentsSection: some View {
+        QuietSection("Agents") {
+            if let choicesProblem {
+                QuietProblem(message: choicesProblem, id: "skill.new.choices.problem") { Task { await readChoices() } }
+            } else if !choicesLoaded {
+                SkeletonRows(count: 3, label: "Reading agents")
+            } else if agents.isEmpty {
+                QuietSectionRow {
+                    Text("No coding agent is set up here to take a new skill.")
+                        .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                        .foregroundStyle(AceDesign.Ink.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else {
+                SkillAgentToggles(agents: $agents)
+            }
+        }
+    }
+
+    /// When it runs: the two choices, or - while the draft read is out or failed - its heading and a
+    /// quiet line, so the section keeps its place instead of silently going away.
+    private var runsSection: some View {
+        Group {
+            if !runs.isEmpty {
+                runsChoice
+            } else if choicesProblem != nil {
+                VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                    QuietHeading("Runs")
+                    Text("Couldn't read when it runs.")
+                        .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                        .foregroundStyle(AceDesign.Ink.muted)
+                }
+                .padding(.horizontal, AceDesign.Space.margin)
+            }
+        }
+    }
+
+    private var runsChoice: some View {
+        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+            QuietHeading("Runs")
+            GlassChoice(items: runs.map { GlassChoiceItem(id: $0.manual ? "manual" : "auto", label: $0.label) },
+                        selection: manual ? "manual" : "auto", idPrefix: "skill.new.runs") { manual = $0 == "manual" }
+                .disabled(creating)
+        }
+        .padding(.horizontal, AceDesign.Space.margin)
+    }
+
     private func readChoices() async {
-        guard let choices = try? await model.skills(["op": "draft"].merging(at) { $1 }, as: SkillDraftChoices.self) else { return }
-        agents = choices.agents; runs = choices.runs
+        do {
+            let choices = try await model.skills(["op": "draft"].merging(at) { $1 }, as: SkillDraftChoices.self)
+            agents = choices.agents; runs = choices.runs
+            choicesLoaded = true; choicesProblem = nil
+        } catch { if !Task.isCancelled { choicesProblem = error.localizedDescription } }
     }
     private func checkName() async {
         let key = "\(scope)|\(trimmed)"
         // Typing settles first, so each keystroke doesn't cost a round trip.
         try? await Task.sleep(for: .milliseconds(150))
-        guard !Task.isCancelled,
-              let result = try? await model.skills(["op": "check", "name": trimmed, "scope": scope].merging(at) { $1 }, as: SkillNameCheck.self),
-              !Task.isCancelled else { return }
-        check = result; checked = key
+        guard !Task.isCancelled else { return }
+        checkProblem = nil
+        do {
+            let result = try await model.skills(["op": "check", "name": trimmed, "scope": scope].merging(at) { $1 }, as: SkillNameCheck.self)
+            // A Retry runs outside the typing task: an answer for a name since changed is dropped.
+            guard !Task.isCancelled, key == "\(scope)|\(trimmed)" else { return }
+            check = result; checked = key; checkProblem = nil
+        } catch {
+            // An empty name needs no check: the failure names a check that never mattered.
+            if !Task.isCancelled, !trimmed.isEmpty, key == "\(scope)|\(trimmed)" { checkProblem = error.localizedDescription }
+        }
     }
     private func create() async {
         creating = true; problem = nil

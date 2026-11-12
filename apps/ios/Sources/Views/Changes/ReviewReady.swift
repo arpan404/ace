@@ -98,6 +98,7 @@ struct ReviewReadySheet: View {
     @State private var committing = false
     @State private var confirmingMerge = false
     @State private var request: String?
+    @State private var lastAction: [String: Any]?
     @State private var allFiles = false
     /// Files shown before "N more files".
     private static let firstFiles = 5
@@ -188,7 +189,12 @@ struct ReviewReadySheet: View {
     }
 
     @ViewBuilder private var files: some View {
-        if let summary, !summary.files.isEmpty {
+        if let summary, summary.state == "error" {
+            Text(summary.message).foregroundStyle(AceTheme.StatusText.failed)
+            Button("Retry") { model.sheet(["kind": "changes.refresh"]) }.buttonStyle(.textAction())
+        } else if let summary, summary.state == "ready", summary.files.isEmpty {
+            EmptyState(icon: nil, title: "No changes")
+        } else if let summary, !summary.files.isEmpty {
             let shown = allFiles ? summary.files : Array(summary.files.prefix(Self.firstFiles))
             ForEach(shown) { file in
                 ReviewFileRow(file: file, open: openChanges.map { open in { dismiss(); open(file.path) } })
@@ -236,20 +242,23 @@ struct ReviewReadySheet: View {
                     .foregroundStyle(line.1).lineLimit(2).multilineTextAlignment(.center)
                     .accessibilityIdentifier("review.outcome")
             }
+            if outcome?.ok == false, let lastAction {
+                Button("Retry") { send(lastAction) }.buttonStyle(.textAction()).disabled(running || !model.canOperate)
+            }
             if model.canOperate {
                 HStack(spacing: AceDesign.Space.related) {
                     Button { askForChanges() } label: {
                         Text("Ask for changes").frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.textAction())
                     .accessibilityIdentifier("review.askForChanges")
                     if let next = nextAction {
                         Button { next.run() } label: {
                             Group { if running { ProgressView() } else { Text(next.label) } }.frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.textAction(.prominent))
                         .tint(AceTheme.Colours.accent)
-                        .foregroundStyle(AceDesign.Ink.onAccent)
+                        .foregroundStyle(AceDesign.Ink.primary)
                         .disabled(running || next.blocked)
                         .accessibilityIdentifier("review.next")
                     }
@@ -303,7 +312,7 @@ struct ReviewReadySheet: View {
             UIApplication.shared.open(url)
         }
     }
-    private func send(_ action: [String: Any]) { request = model.gitStep(action) }
+    private func send(_ action: [String: Any]) { lastAction = action; request = model.gitStep(action) }
 }
 
 /// One changed file in the review: the path in mono (its folder quieter), and either its −/+

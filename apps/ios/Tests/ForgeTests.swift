@@ -3,6 +3,29 @@ import Foundation
 @testable import Ace
 
 @Suite @MainActor struct ForgeTests {
+    @Test func clippedPickedLinesCannotBecomeReplacementSuggestions() throws {
+        let json = #"""
+        {"kind":"add","old":null,"new":1,"text":"prefix","clipped":true,
+         "anchor":{"line":1,"side":"RIGHT"},"hunk":0,"threads":[],"drafts":[]}
+        """#
+        let line = try JSONDecoder().decode(ForgeFileDiff.Line.self, from: Data(json.utf8))
+        let pick = ForgeLinePick(hunk: 0, anchor: .init(line: 1, side: "RIGHT"))
+        #expect(line.clipped)
+        #expect(pick.suggestion(in: [line]) == nil)
+        let whole = ForgeFileDiff.Line(kind: "add", old: nil, new: 1, text: "prefix and suffix",
+                                       clipped: false, anchor: line.anchor, hunk: 0, threads: [], drafts: [])
+        #expect(pick.suggestion(in: [whole]) == "prefix and suffix")
+        let shortened = ForgeFileDiff.Line(kind: "add", old: nil, new: 2, text: "short",
+                                           clipped: true, anchor: .init(line: 2, side: "RIGHT"),
+                                           hunk: 0, threads: [], drafts: [])
+        #expect(pick.suggestion(in: [whole, shortened]) == "prefix and suffix")
+        var range = pick
+        _ = range.extend(to: .init(line: 2, side: "RIGHT"), hunk: 0)
+        #expect(range.suggestion(in: [whole, shortened]) == nil)
+        let left = ForgeLinePick(hunk: 0, anchor: .init(line: 1, side: "LEFT"))
+        #expect(left.suggestion(in: [whole]) == nil)
+    }
+
     private func store() -> NewThreadDraftStore {
         NewThreadDraftStore(url: FileManager.default.temporaryDirectory.appendingPathComponent("forge-draft-\(UUID().uuidString).json"))
     }

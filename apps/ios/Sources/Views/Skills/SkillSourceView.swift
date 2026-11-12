@@ -1,62 +1,99 @@
 import SwiftUI
 
+/// What a plugin ships, one component at a time: its description, which agents get it in new
+/// sessions, and its source (read, or edited through a review). Cardless, as the design
+/// language's inner pages.
 struct SkillSourceView: View {
     let model: ClientModel
     let component: PluginComponentRow
     @State private var source = ""
     @State private var original = ""
     @State private var hash: String?
+    /// The source read's last failure, with Retry where the source would be.
     @State private var problem: String?
+    /// A failed switch. Its own sentence beside the switches, with no Retry: the switch itself
+    /// repeats the change.
+    @State private var actionProblem: String?
     @State private var editing = false
     @State private var loading = false
     @State private var enabled: Bool?
     @State private var providers: [String]?
     @State private var review: PluginReviewRequest?
     var body: some View {
-        List {
-            Group {
-                Section {
-                    Text(component.description)
+        ScrollView {
+            VStack(alignment: .leading, spacing: AceDesign.Space.group) {
+                QuietSection {
+                    QuietSectionRow {
+                        Text(component.description).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                            .foregroundStyle(AceDesign.Ink.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     if component.kind == "skill", model.canOperate {
-                        Toggle("Enabled for new sessions", isOn: Binding(get: { enabled ?? component.skillAvailability?.enabled ?? component.enabled }, set: { on in availability(enabled: on, providers: providers ?? component.skillAvailability?.providers ?? component.providers) }))
+                        QuietSectionRow {
+                            Toggle("Enabled for new sessions", isOn: Binding(get: { enabled ?? component.skillAvailability?.enabled ?? component.enabled }, set: { on in availability(enabled: on, providers: providers ?? component.skillAvailability?.providers ?? component.providers) }))
+                        }
                         ForEach(ProviderLabels.ids, id: \.self) { provider in
-                            Toggle(provider.capitalized, isOn: Binding(get: { (providers ?? component.skillAvailability?.providers ?? component.providers).contains(provider) }, set: { on in
-                                var selected = providers ?? component.skillAvailability?.providers ?? component.providers
-                                selected.removeAll { $0 == provider }; if on { selected.append(provider) }
-                                availability(enabled: enabled ?? component.skillAvailability?.enabled ?? component.enabled, providers: selected)
-                            }))
+                            QuietSectionRow {
+                                Toggle(provider.capitalized, isOn: Binding(get: { (providers ?? component.skillAvailability?.providers ?? component.providers).contains(provider) }, set: { on in
+                                    var selected = providers ?? component.skillAvailability?.providers ?? component.providers
+                                    selected.removeAll { $0 == provider }; if on { selected.append(provider) }
+                                    availability(enabled: enabled ?? component.skillAvailability?.enabled ?? component.enabled, providers: selected)
+                                }))
+                            }
                         }
                     }
                 }
-                if loading { SkeletonPage(label: "Reading source").listRowInsets(EdgeInsets()).listRowBackground(Color.clear) }
-                ServiceProblem(message: problem)
-                if problem != nil { Button("Retry") { Task { await read() } } }
+                if let actionProblem {
+                    QuietProblem(message: actionProblem, id: "plugin.source.action.problem")
+                }
+                if loading { SkeletonRows(count: 4, label: "Reading source") }
+                if let problem {
+                    QuietProblem(message: problem, id: "plugin.source.problem") { Task { await read() } }
+                }
                 if hash != nil {
                     if editing {
-                        TextEditor(text: $source).frame(minHeight: AceDesign.Size.editorHeight).scrollContentBackground(.hidden)
-                            .aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
+                        QuietSection {
+                            QuietSectionRow {
+                                TextEditor(text: $source).frame(minHeight: AceDesign.Size.editorHeight).scrollContentBackground(.hidden)
+                                    .aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
+                            }
+                        }
                         Button("Review changes") {
                             if let hash { review = PluginReviewRequest(operation: ["type": "plugins.edit", "name": component.plugin, "path": component.path, "expectedHash": hash, "text": source]) }
-                        }.disabled(source == original || source.utf16.count > 262144)
+                        }
+                        .buttonStyle(.textAction(.prominent))
+                        .disabled(source == original || source.utf16.count > 262144)
+                        .padding(.horizontal, AceDesign.Space.margin)
                     } else {
-                        AceMarkdown(text: source)
-                        if model.canOperate { Button("Edit source") { editing = true }.disabled(source.utf16.count > 262144) }
+                        QuietSection {
+                            QuietSectionRow {
+                                AceMarkdown(text: source)
+                                    .padding(.vertical, AceDesign.Space.tight)
+                            }
+                        }
+                        if model.canOperate {
+                            Button("Edit source") { editing = true }
+                                .buttonStyle(.textAction(.prominent))
+                                .disabled(source.utf16.count > 262144)
+                                .padding(.horizontal, AceDesign.Space.margin)
+                        }
                     }
                 }
             }
-            .insetRowBackground()
+            .padding(.top, AceDesign.Space.related).padding(.bottom, AceDesign.Space.group)
         }
-        .insetGroupedList()
+        .background(AceDesign.Surface.background)
         .navigationTitle(component.title ?? component.name).navigationBarTitleDisplayMode(.inline)
         .task { await read() }
         .sheet(item: $review) { PluginReviewView(model: model, request: $0, installed: { editing = false; Task { await read() } }) }
     }
     private func availability(enabled: Bool, providers: [String]) {
         Task {
+            actionProblem = nil
             do {
                 _ = try await model.plugin(["type": "plugins.skillAvailability", "plugin": component.plugin, "name": component.name, "enabled": enabled, "providers": providers], expecting: "plugins.skillAvailability")
-                self.enabled = enabled; self.providers = providers; problem = nil
-            } catch { problem = error.localizedDescription }
+                self.enabled = enabled; self.providers = providers; actionProblem = nil
+            } catch { actionProblem = error.localizedDescription }
         }
     }
     private func read() async {

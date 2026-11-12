@@ -330,3 +330,37 @@ test("an uncached explicit storage refresh forwards force without changing ordin
   expect((await call(services, sink, { type: "host.storage" })).ok).toBe(true);
   expect(operations).toEqual([{ op: "storage.usage", force: true }, { op: "storage.usage" }]);
 });
+
+test("simultaneous retention edits preserve each kind and a refused edit does not block the next", async () => {
+  const { services, sink } = await phone(daemon());
+  const replies = await Promise.all([
+    call(services, sink, {
+      type: "host.storage.set",
+      setting: { key: "kind", kind: "caches", days: null },
+    }),
+    call(services, sink, {
+      type: "host.storage.set",
+      setting: { key: "kind", kind: "logs", days: 60 },
+    }),
+  ]);
+  expect(replies.every((reply) => reply.ok)).toBe(true);
+  const page = await call(services, sink, { type: "host.storage" });
+  const kinds = (page.value.settings as { kinds: { kind: string; days: number | null }[] }).kinds;
+  expect(kinds.find((row) => row.kind === "caches")?.days).toBeNull();
+  expect(kinds.find((row) => row.kind === "logs")?.days).toBe(60);
+  const refused = await call(services, sink, {
+    type: "host.storage.set",
+    setting: { key: "kind", kind: "logs", days: 0 },
+  });
+  expect(refused.ok).toBe(false);
+  const recovered = await call(services, sink, {
+    type: "host.storage.set",
+    setting: { key: "kind", kind: "logs", days: 30 },
+  });
+  expect(recovered.ok).toBe(true);
+  expect(
+    (recovered.value.settings as { kinds: { kind: string; days: number | null }[] }).kinds.find(
+      (row) => row.kind === "logs",
+    )?.days,
+  ).toBe(30);
+});
