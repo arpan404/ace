@@ -6,6 +6,7 @@ import {
   RemoteNetworks,
   type FleetOperation,
   type FleetOutcome,
+  type SettingsKey,
 } from "@ace/protocol";
 import { z } from "zod";
 
@@ -41,7 +42,7 @@ const Entries = z.object({
 type Owner = Pick<ClientCore, "request">;
 
 export async function readFleetMapPart(owner: Owner, signal: AbortSignal): Promise<FleetMapPart> {
-  const setting = async (key: string): Promise<boolean | null> => {
+  const setting = async (key: SettingsKey): Promise<boolean | null> => {
     try {
       const reply = Entries.parse(
         await owner.request({ type: "settings.get", key, scope: {} }, { ...quiet, signal }),
