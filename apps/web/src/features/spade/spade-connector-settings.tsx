@@ -5,6 +5,8 @@ import { SettingAddRow, SettingRow, SettingSection } from "@/components/setting-
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
+import { useCopy } from "@/components/use-copy.ts";
+import { openExternal } from "@/boot/open-external.ts";
 import { AddConnectorDialog } from "./spade-add-connector.tsx";
 import { connectHere, connectInBrowser } from "./spade-connect-flow.ts";
 import { connectorsKey, disconnect, reconnect, useSpadeConnectors } from "./spade-connector-api.ts";
@@ -57,7 +59,11 @@ export function ConnectorSettings(props: { ready: boolean }) {
   );
 }
 
-/** One connected app: its state in words, Reconnect when its sign-in ended, and Disconnect. */
+/**
+ * One connected app: its state in words, Reconnect when its sign-in ended, and Disconnect. A
+ * device sign-in shows its code in the sentence, with Copy code and Open while Spade waits, and
+ * Try again once it expired or was declined.
+ */
 function ConnectorRow(props: { connector: SpadeConnector }) {
   const { connector } = props;
   const client = useSpadeClient();
@@ -69,13 +75,18 @@ function ConnectorRow(props: { connector: SpadeConnector }) {
   const [token, setToken] = useState<string>();
   const refresh = () => cache.invalidateQueries({ queryKey: connectorsKey });
   const signedOut = connector.state === "needs_reconnect" || connector.state === "signing_in";
+  const { device } = connector;
+  const copy = useCopy(() => toast.error({ title: "Couldn't copy the code" }));
   const again = async () => {
     setBusy(true);
     const typed = token?.trim();
     setToken(undefined);
+    // A device sign-in starts again in place: its new code shows in this row.
     const outcome = typed
       ? await connectHere(() => reconnect(client, connector.id, { token: typed }))
-      : await connectInBrowser(() => reconnect(client, connector.id));
+      : device
+        ? await connectHere(() => reconnect(client, connector.id))
+        : await connectInBrowser(() => reconnect(client, connector.id));
     setBusy(false);
     await refresh();
     if (outcome.kind !== "done")
@@ -124,6 +135,30 @@ function ConnectorRow(props: { connector: SpadeConnector }) {
               Connect
             </Button>
           </form>
+        ) : device?.state === "waiting" ? (
+          <>
+            <Button size="sm" onClick={() => copy.copy(device.code)}>
+              {copy.copied ? "Copied" : "Copy code"}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() =>
+                void openExternal(device.url).catch((error: unknown) =>
+                  toast.error({
+                    title: `Couldn't open ${connector.name}`,
+                    description: fault(error),
+                  }),
+                )
+              }
+            >
+              Open
+            </Button>
+          </>
+        ) : device ? (
+          <Button size="sm" disabled={busy} onClick={() => void again()}>
+            Try again
+          </Button>
         ) : (
           signedOut && (
             <Button

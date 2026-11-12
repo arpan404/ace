@@ -6,7 +6,9 @@ proposed). Builds on [ADR 0119](0119-spade-endpoint-keys.md), [ADR 0123](0123-sp
 [ADR 0126](0126-spade-agents.md) and [ADR 0127](0127-spade-main-bot-and-chat.md). Records how
 connectors fit [ADR 0002](0002-local-cli-providers.md). Amended by
 [ADR 0136](0136-spade-client-id-metadata-document.md): Spade signs in as a client ID metadata
-document hosted on acehq.dev where a server fetches them, with one shared callback address.
+document hosted on acehq.dev where a server fetches them, with one shared callback address; and by
+[ADR 0137](0137-spade-public-connector-apps.md): Spade may ship public client IDs, never secrets,
+and signs in with a device code where the maker allows it.
 
 ## Context
 

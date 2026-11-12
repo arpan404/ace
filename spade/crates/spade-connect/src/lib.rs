@@ -6,7 +6,9 @@
 //! Secrets (access and refresh tokens, client secrets, API keys) are only ever in the OS
 //! keychain; the database holds the rest. No view, error or log line carries a secret.
 
+pub mod apps;
 pub mod catalogue;
+mod device_sign_in;
 mod hub;
 mod live;
 pub mod oauth;
@@ -23,7 +25,9 @@ use spade_mcp::{McpClient, McpTool};
 use spade_store::Store;
 use tokio::sync::Notify;
 
+pub use apps::{App, Grant};
 pub use catalogue::{Entry, SignIn};
+pub use device_sign_in::DeviceView;
 pub use hub::{Callback, ConnectError, ConnectRequest, FinishError, Started};
 pub use live::{CallError, ConnectorTool, RELIST};
 pub use oauth::Addresses;
@@ -61,6 +65,11 @@ pub struct Setup {
     /// The client ID metadata document Spade signs in as where a server fetches them
     /// ([`CLIENT_METADATA_URL`] in Spade). `None`: always register, or ask for a client ID.
     pub client_metadata: Option<String>,
+    /// Spade's own registered apps, public client IDs only ([`apps::shipped`] in Spade).
+    pub apps: Vec<App>,
+    /// How long one second of a device sign-in's polling interval lasts: a second in Spade;
+    /// tests shorten it so RFC 8628's five-second steps don't slow them.
+    pub tick: Duration,
 }
 
 /// What the app is shown about one connector. Never a secret.
@@ -80,6 +89,9 @@ pub struct View {
     pub tools: usize,
     /// Why it is unreachable, in a few words.
     pub problem: Option<String>,
+    /// A device sign-in (RFC 8628) in progress or just ended: the code to show and where.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device: Option<DeviceView>,
 }
 
 /// One connector's live session.
@@ -107,6 +119,12 @@ pub struct Connectors {
     timeout: Duration,
     relist: Duration,
     client_metadata: Option<String>,
+    apps: Vec<App>,
+    tick: Duration,
+    /// Device sign-ins in progress or recently ended, by connector.
+    devices: Mutex<HashMap<String, device_sign_in::DeviceSignIn>>,
+    /// Numbers each device sign-in, so a replaced one's poller can't touch its successor.
+    device_serial: std::sync::atomic::AtomicU64,
     /// Where callbacks come back to, without the connector's id.
     redirect: RwLock<Option<String>>,
     /// The connectors, as stored. Changed under this lock, then written.
@@ -137,10 +155,14 @@ impl Connectors {
             addresses: setup.addresses,
             clock: setup.clock,
             random: setup.random,
-            catalogue: setup.catalogue,
+            catalogue: catalogue::with_apps(setup.catalogue, &setup.apps),
             timeout: setup.timeout,
             relist: setup.relist,
             client_metadata: setup.client_metadata,
+            apps: setup.apps,
+            tick: setup.tick,
+            devices: Mutex::default(),
+            device_serial: std::sync::atomic::AtomicU64::new(0),
             redirect: RwLock::new(None),
             records: Mutex::new(records),
             access: Mutex::new(access),
@@ -199,9 +221,11 @@ impl Connectors {
                     account: None,
                     tools: 0,
                     problem: None,
+                    device: None,
                 });
             }
         }
+        views.extend(self.device_views_without_records(&views));
         views.sort_by_key(|view| view.name.to_lowercase());
         views
     }
@@ -214,7 +238,9 @@ impl Connectors {
     fn view(&self, record: &Record) -> View {
         let live = self.live.read().unwrap_or_else(|p| p.into_inner());
         let live = live.get(&record.id);
-        let signing_in = lock(&self.pending).values().any(|p| p.id == record.id);
+        let device = self.device_view(&record.id);
+        let signing_in = lock(&self.pending).values().any(|p| p.id == record.id)
+            || device.as_ref().is_some_and(DeviceView::waiting);
         let tools = live.map_or(0, |l| l.tools.len());
         let problem = live.and_then(|l| l.problem.clone());
         let state = if record.needs_reconnect {
@@ -245,6 +271,7 @@ impl Connectors {
             account: record.account.clone(),
             tools,
             problem,
+            device,
         }
     }
 

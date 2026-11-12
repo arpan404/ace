@@ -281,3 +281,55 @@ async fn main_agent(spade: &Spade) -> Result<String> {
         .unwrap_or_default()
         .to_owned())
 }
+
+#[tokio::test]
+async fn a_device_sign_in_with_spades_own_app_shows_its_code_then_connects_without_a_secret()
+-> Result {
+    let app = FakeConnector::start(app_tools()).await;
+    app.offer_device_flow("spade-public", 1, 900);
+    app.answer_device_polls(&["authorization_pending", "approve"]);
+    let spade = Spade::start_with(
+        Vec::new(),
+        Vec::new(),
+        Options {
+            connectors: true,
+            catalogue: vec![spade_connect::Entry {
+                id: "fake".into(),
+                name: "Fake".into(),
+                url: app.url(),
+                sign_in: vec![spade_connect::SignIn::OauthClient],
+                notes: String::new(),
+                source: "https://example.com/docs".into(),
+                local: true,
+            }],
+            apps: vec![spade_connect::App {
+                connector: "fake".into(),
+                issuer: app.issuer(),
+                client_id: "spade-public".into(),
+                grant: spade_connect::Grant::Device,
+                scopes: None,
+                source: "https://example.com/docs".into(),
+            }],
+            ..Options::default()
+        },
+    )
+    .await?;
+    let (status, started) = spade
+        .post("/v1/connectors", json!({ "catalogue": "fake" }))
+        .await?;
+    assert_eq!(status, 202, "{started}");
+    assert_eq!(started["device"]["code"], "WDJB-MJHT");
+    assert!(started.get("sign_in_url").is_none(), "{started}");
+    let id = started["id"].as_str().unwrap_or_default().to_owned();
+    let (_, shown) = spade.get(&format!("/v1/connectors/{id}")).await?;
+    assert_eq!(shown["connector"]["state"], "signing_in");
+    assert_eq!(shown["connector"]["device"]["state"], "waiting");
+    assert!(
+        !shown.to_string().contains("device-code-"),
+        "the polling code never shows: {shown}"
+    );
+    let view = wait_connected(&spade, &id).await?;
+    assert!(view.get("device").is_none(), "{view}");
+    assert_eq!(app.secrets_sent(), 0);
+    Ok(())
+}

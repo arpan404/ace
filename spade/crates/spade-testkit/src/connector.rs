@@ -10,6 +10,10 @@
 //! - client ID metadata documents when switched on: a URL client ID is fetched and checked as
 //!   [`crate::client_document::fetch_and_check`] does.
 //!
+//! - a public client registered by hand (as an app's maker would for Spade): a fixed client ID
+//!   with a loopback redirect whose port may vary, and no secret;
+//! - the device authorization grant (RFC 8628), its polls answered from a script.
+//!
 //! Tests drive the sign-in by fetching the authorization address with [`FakeConnector::approve`],
 //! which plays the person approving and returns the redirect the browser would follow.
 
@@ -81,6 +85,27 @@ struct State {
     token_requests: AtomicUsize,
     /// Every bearer `/mcp` saw, valid or not.
     bearers: Mutex<Vec<String>>,
+    /// Token or device requests that carried a client secret, in the form or as Basic.
+    secrets_sent: AtomicUsize,
+    /// A client registered by hand: its ID and the loopback redirect it allows on any port.
+    public_client: Mutex<Option<(String, String)>>,
+    device: Mutex<Device>,
+}
+
+/// The device grant: whether it is offered, the code handed out, how each poll is answered.
+#[derive(Default)]
+struct Device {
+    client: Option<String>,
+    /// Device code → whether it was handed out and not yet spent.
+    codes: Vec<String>,
+    /// How the next polls are answered, in order: an OAuth error code, or `approve`. Once used
+    /// up, polls are `authorization_pending`.
+    script: std::collections::VecDeque<String>,
+    polls: Vec<std::time::Instant>,
+    interval: u64,
+    expires_in: u64,
+    /// What the last device authorization request asked for.
+    asked: HashMap<String, String>,
 }
 
 #[derive(Clone)]
@@ -115,6 +140,9 @@ impl FakeConnector {
             tool_runs: AtomicUsize::new(0),
             token_requests: AtomicUsize::new(0),
             bearers: Mutex::default(),
+            secrets_sent: AtomicUsize::new(0),
+            public_client: Mutex::default(),
+            device: Mutex::default(),
         });
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -144,6 +172,7 @@ impl FakeConnector {
             .route("/tenant/register", post(register))
             .route("/tenant/authorize", get(authorize))
             .route("/tenant/token", post(token))
+            .route("/tenant/device", post(device_authorization))
             .with_state(state.clone());
         let stopping = stop.clone();
         tokio::spawn(async move {
@@ -234,6 +263,44 @@ impl FakeConnector {
     pub async fn approve(&self, authorize_url: &str) -> String {
         let client = reqwest_like_get(authorize_url).await;
         client.unwrap_or_else(|e| panic!("authorize: {e}"))
+    }
+
+    /// Knows `client_id` as a public client registered by hand, allowing `redirect` (a loopback
+    /// address without a port) on any port, as RFC 8252 asks. Its token requests carry no secret.
+    pub fn register_public_client(&self, client_id: &str, redirect: &str) {
+        *lock(&self.state.public_client) = Some((client_id.to_owned(), redirect.to_owned()));
+    }
+
+    /// Offers the device grant to `client_id`, codes lasting `expires_in` seconds and polled
+    /// every `interval`.
+    pub fn offer_device_flow(&self, client_id: &str, interval: u64, expires_in: u64) {
+        let mut device = lock(&self.state.device);
+        device.client = Some(client_id.to_owned());
+        device.interval = interval;
+        device.expires_in = expires_in;
+    }
+
+    /// How the next device polls are answered, in order: `authorization_pending`, `slow_down`,
+    /// `expired_token`, `access_denied`, or `approve`.
+    pub fn answer_device_polls(&self, answers: &[&str]) {
+        lock(&self.state.device)
+            .script
+            .extend(answers.iter().map(|a| (*a).to_owned()));
+    }
+
+    /// When each device poll arrived.
+    pub fn device_polls(&self) -> Vec<std::time::Instant> {
+        lock(&self.state.device).polls.clone()
+    }
+
+    /// The last device authorization request's form.
+    pub fn device_asked(&self) -> HashMap<String, String> {
+        lock(&self.state.device).asked.clone()
+    }
+
+    /// How many token or device requests carried a client secret.
+    pub fn secrets_sent(&self) -> usize {
+        self.state.secrets_sent.load(Ordering::SeqCst)
     }
 
     pub fn registrations(&self) -> usize {
@@ -387,6 +454,9 @@ async fn server_metadata(Shared(state): Shared<Arc<State>>) -> Response {
     if state.pkce.load(Ordering::SeqCst) {
         metadata["code_challenge_methods_supported"] = json!(["S256"]);
     }
+    if lock(&state.device).client.is_some() {
+        metadata["device_authorization_endpoint"] = json!(format!("{base}/tenant/device"));
+    }
     axum::Json(metadata).into_response()
 }
 
@@ -438,8 +508,12 @@ async fn authorize(
         }
         state.documents_fetched.fetch_add(1, Ordering::SeqCst);
     }
+    let public = lock(&state.public_client)
+        .as_ref()
+        .is_some_and(|(id, allowed)| id == &client && loopback_matches(allowed, &redirect));
     let mut book = lock(&state.book);
     if !document
+        && !public
         && !book
             .clients
             .get(&client)
@@ -470,10 +544,11 @@ async fn authorize(
 
 async fn token(
     Shared(state): Shared<Arc<State>>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Form(form): Form<HashMap<String, String>>,
 ) -> Response {
     state.token_requests.fetch_add(1, Ordering::SeqCst);
+    count_secrets(&state, &headers, &form);
     let delay = *lock(&state.token_delay);
     tokio::time::sleep(delay).await;
     let get = |k: &str| form.get(k).cloned().unwrap_or_default();
@@ -510,6 +585,13 @@ async fn token(
                 return refused();
             }
         }
+        crate::connector::DEVICE_GRANT => {
+            drop(book);
+            if let Some(answer) = device_poll(&state, &get("client_id"), &get("device_code")) {
+                return answer;
+            }
+            book = lock(&state.book);
+        }
         "refresh_token" => {
             let presented = get("refresh_token");
             if !book.refresh.contains(&presented) {
@@ -534,6 +616,70 @@ async fn token(
         "id_token": format!("e30.{claims}.sig"),
     }))
     .into_response()
+}
+
+const DEVICE_GRANT: &str = "urn:ietf:params:oauth:grant-type:device_code";
+
+fn count_secrets(state: &State, headers: &HeaderMap, form: &HashMap<String, String>) {
+    let basic = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.starts_with("Basic "));
+    if basic || form.contains_key("client_secret") {
+        state.secrets_sent.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+/// RFC 8252 section 7.3: a loopback redirect matches whatever its port.
+fn loopback_matches(allowed: &str, redirect: &str) -> bool {
+    crate::client_document::redirect_matches(allowed, redirect)
+}
+
+async fn device_authorization(
+    Shared(state): Shared<Arc<State>>,
+    headers: HeaderMap,
+    Form(form): Form<HashMap<String, String>>,
+) -> Response {
+    count_secrets(&state, &headers, &form);
+    let base = lock(&state.base).clone();
+    let mut device = lock(&state.device);
+    device.asked = form.clone();
+    if device.client.as_deref() != form.get("client_id").map(String::as_str) {
+        return (
+            StatusCode::BAD_REQUEST,
+            axum::Json(json!({ "error": "invalid_client" })),
+        )
+            .into_response();
+    }
+    let code = format!("device-code-{}", device.codes.len() + 1);
+    device.codes.push(code.clone());
+    axum::Json(json!({
+        "device_code": code,
+        "user_code": "WDJB-MJHT",
+        "verification_uri": format!("{base}/device"),
+        "expires_in": device.expires_in,
+        "interval": device.interval,
+    }))
+    .into_response()
+}
+
+/// A device-grant token request: `None` when approved (tokens are issued as usual), else the
+/// error to answer. Answered with HTTP 200 as GitHub does, so only `error` tells them apart.
+fn device_poll(state: &State, client: &str, code: &str) -> Option<Response> {
+    let mut device = lock(&state.device);
+    device.polls.push(std::time::Instant::now());
+    let error = |code: &str| Some(axum::Json(json!({ "error": code })).into_response());
+    if device.client.as_deref() != Some(client) || !device.codes.iter().any(|c| c == code) {
+        return error("incorrect_device_code");
+    }
+    match device.script.pop_front().as_deref() {
+        Some("approve") => {
+            device.codes.retain(|c| c != code);
+            None
+        }
+        Some(answer) => error(answer),
+        None => error("authorization_pending"),
+    }
 }
 
 fn encode(text: &str) -> String {

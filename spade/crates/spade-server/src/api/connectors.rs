@@ -104,6 +104,20 @@ async fn start(state: &AppState, request: ConnectRequest) -> Response {
             Json(json!({ "id": id, "sign_in_url": url })),
         )
             .into_response(),
+        // A device sign-in: the app shows the code and the page; `GET /v1/connectors/{id}` follows.
+        Ok(Started::Device {
+            id,
+            code,
+            url,
+            expires_in,
+        }) => (
+            StatusCode::ACCEPTED,
+            Json(json!({
+                "id": id,
+                "device": { "code": code, "url": url, "expires_in": expires_in },
+            })),
+        )
+            .into_response(),
         Err(error) => connect_problem(&error),
     }
 }

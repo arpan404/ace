@@ -51,6 +51,7 @@ mod tests {
             token_endpoint_auth_methods_supported: None,
             authorization_response_iss_parameter_supported: iss,
             client_id_metadata_document_supported: cimd,
+            device_authorization_endpoint: None,
         }
     }
 

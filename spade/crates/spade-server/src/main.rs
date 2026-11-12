@@ -280,6 +280,9 @@ async fn run() -> Result<(), Failure> {
                 .filter(|v| !v.trim().is_empty())
                 .unwrap_or_else(|| spade_connect::CLIENT_METADATA_URL.to_owned()),
         ),
+        // Spade's own registered apps: public client IDs, never a secret (ADR 0137).
+        apps: spade_connect::apps::shipped(),
+        tick: Duration::from_secs(1),
     })
     .map_err(other)?;
     tools = tools.with_source(Arc::new(ConnectorSource::new(

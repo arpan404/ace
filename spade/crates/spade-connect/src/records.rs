@@ -33,6 +33,9 @@ pub struct OauthFacts {
     /// Set when Spade registered the client itself, with the redirect it registered.
     #[serde(default)]
     pub registered_redirect: Option<String>,
+    /// The client is one of Spade's own registered apps (ADR 0137), not one the person gave.
+    #[serde(default)]
+    pub shipped: bool,
     #[serde(default)]
     pub scopes: Vec<String>,
     /// When the access token expires, in ms since the epoch, if the server said.

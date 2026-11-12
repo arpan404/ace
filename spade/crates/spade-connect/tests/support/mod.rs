@@ -37,6 +37,50 @@ pub fn spade_with_document(document: &str) -> Result<Spade> {
 }
 
 fn spade_with(relist: Duration, client_metadata: Option<String>) -> Result<Spade> {
+    spade_with_apps(
+        relist,
+        client_metadata,
+        Vec::new(),
+        spade_connect::catalogue::shipped(),
+    )
+}
+
+/// How long a second of a device sign-in's polling interval lasts in these tests.
+pub const TICK: Duration = Duration::from_millis(20);
+
+/// The catalogue entry the shipped-app tests connect through: the fake app at `url`.
+pub const FAKE_ENTRY: &str = "fake";
+
+/// Spade shipping `apps` as its own registered apps (ADR 0137), with a catalogue entry
+/// [`FAKE_ENTRY`] for the fake app at `url` (marked local, as only a test can).
+pub fn spade_shipping(url: &str, apps: Vec<spade_connect::App>) -> Result<Spade> {
+    let mut catalogue = spade_connect::catalogue::shipped();
+    catalogue.push(spade_connect::Entry {
+        id: FAKE_ENTRY.into(),
+        name: "Fake".into(),
+        url: url.to_owned(),
+        sign_in: vec![spade_connect::SignIn::OauthClient],
+        notes: String::new(),
+        source: "https://example.com/docs".into(),
+        local: true,
+    });
+    spade_with_apps(Duration::from_secs(600), None, apps, catalogue)
+}
+
+/// Connecting the fake app through its catalogue entry.
+pub fn from_catalogue() -> ConnectRequest {
+    ConnectRequest {
+        catalogue: Some(FAKE_ENTRY.into()),
+        ..ConnectRequest::default()
+    }
+}
+
+fn spade_with_apps(
+    relist: Duration,
+    client_metadata: Option<String>,
+    apps: Vec<spade_connect::App>,
+    catalogue: Vec<spade_connect::Entry>,
+) -> Result<Spade> {
     let dir = tempfile::tempdir()?;
     let database = dir.path().join("spade.sqlite");
     let store: Arc<CredentialStore> = mock::Store::new()?;
@@ -46,11 +90,13 @@ fn spade_with(relist: Duration, client_metadata: Option<String>) -> Result<Spade
         keys: Some(keys.clone()),
         clock: spade_connect::system_clock(),
         random: Arc::new(OsRandom),
-        catalogue: spade_connect::catalogue::shipped(),
+        catalogue,
         timeout: Duration::from_secs(5),
         relist,
         addresses: spade_connect::Addresses::system(),
         client_metadata,
+        apps,
+        tick: TICK,
     })?;
     connectors.set_listening("127.0.0.1:4555".parse()?);
     Ok(Spade {

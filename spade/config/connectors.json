@@ -6,7 +6,7 @@
       "name": "Asana",
       "url": "https://mcp.asana.com/v2/mcp",
       "sign_in": ["oauth_client"],
-      "notes": "Asana does not register clients by itself: create an MCP app in Asana and enter its client ID and secret. Admins can block or allow each app.",
+      "notes": "Asana requires a client secret, which Spade never ships, so you register your own MCP app in Asana and enter its client ID and secret. Admins can block or allow each app.",
       "source": "https://developers.asana.com/docs/integrating-with-asanas-mcp-server"
     },
     {
@@ -22,7 +22,7 @@
       "name": "Box",
       "url": "https://mcp.box.com",
       "sign_in": ["oauth_client"],
-      "notes": "A Box admin turns the server on and creates its client ID and secret in the Admin Console.",
+      "notes": "Box requires a client secret, which Spade never ships: a Box admin turns the server on and creates its client ID and secret in the Admin Console.",
       "source": "https://developer.box.com/guides/box-mcp/remote/"
     },
     {
@@ -30,7 +30,7 @@
       "name": "Canva",
       "url": "https://api.canva.com/connect/v1/mcp",
       "sign_in": ["oauth_client"],
-      "notes": "Needs a client ID and secret from Canva's Developer Portal with Canva MCP switched on. Some tools need Canva Pro.",
+      "notes": "Canva requires a client secret, which Spade never ships, so you need a client ID and secret from Canva's Developer Portal with Canva MCP switched on. Some tools need Canva Pro.",
       "source": "https://www.canva.dev/docs/apps/mcp/access/"
     },
     {
@@ -46,7 +46,7 @@
       "name": "GitHub",
       "url": "https://api.githubcopilot.com/mcp/",
       "sign_in": ["token", "oauth_client"],
-      "notes": "A personal access token is simplest. Signing in needs a GitHub OAuth app you register. Organisations on Copilot Business or Enterprise must allow MCP servers.",
+      "notes": "A personal access token always works. Sign in shows a code to enter on GitHub once Spade's own GitHub app is registered. Organisations may need to approve the app, and those on Copilot Business or Enterprise must allow MCP servers.",
       "source": "https://github.com/github/github-mcp-server"
     },
     {
@@ -54,7 +54,7 @@
       "name": "HubSpot",
       "url": "https://mcp.hubspot.com",
       "sign_in": ["oauth_client"],
-      "notes": "Create an MCP connector in HubSpot (Development, then MCP Connectors) for the client ID and secret.",
+      "notes": "HubSpot requires a client secret, which Spade never ships, so you create an MCP connector in HubSpot (Development, then MCP Connectors) for the client ID and secret.",
       "source": "https://developers.hubspot.com/docs/apps/developer-platform/build-apps/integrate-with-the-remote-hubspot-mcp-server"
     },
     {
