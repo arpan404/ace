@@ -22,6 +22,7 @@ calls) and `spade-server` (`media/`, `api/media.rs`). Extends [chat-core.md](cha
 | One `document_read` window           | 20,000 characters                                          |
 | Extraction time                      | 20 s, then the child is killed; two children at most       |
 | Child's answer                       | 20 MB                                                      |
+| Child's memory                       | 1 GiB (capped allocator; `setrlimit` on Unix as well)      |
 | Message body                         | 400 MB (`413` past it)                                     |
 | Voice recording                      | 25 MB; WebM, Ogg, MP4/M4A, MP3 or WAV                      |
 | A shared workspace image             | 3.75 MB (PNG, JPEG, GIF, WebP); other files 32 MB          |
@@ -42,19 +43,35 @@ server's own binary), writes the bytes to its stdin and reads one JSON answer fr
   inflated through a counter first; one past 64 MB, past 200 times its compressed size, or a file
   past 256 MB in all is refused ("expands too far to read safely"). The reader then reads each
   entry through the same caps, so a header that lies about sizes gains nothing.
-- **PDF.** Every `stream … endstream` is inflated the same way, filter by filter (Flate, LZW,
-  ASCIIHex, ASCII85, run length), under the same caps, before `pdf-extract` sees the file. Then the
-  page count must be at most 2,000.
+- **PDF.** No stream is inflated by the parser before Spade has inflated it under the same caps,
+  following that stream's parsed `/Filter` chain (Flate with lopdf's raw-deflate fallback, LZW,
+  ASCII85; lopdf decodes nothing else). Cross-reference streams, which lopdf reads first, are
+  found from `startxref` and their `/Prev` and `/XRefStm` links and inflated every way they could
+  be. Object streams are counted in lopdf's load hook before it unpacks them; image XObjects
+  (`/Subtype /Image` in the parsed dictionary) lose their data there, since text extraction never
+  reads them; every other filtered stream is counted after loading, before any page is read.
+  Nothing is skipped because of what its bytes mention. Then the page count must be at most 2,000.
+  An encrypted file's object streams are decrypted and unpacked by lopdf before they can be
+  counted; there the child's memory cap is the bound.
+- **Memory.** The child runs under the server binary's capped allocator (1 GiB unless the
+  `Extractor` says otherwise), so an allocation past it fails and the child stops, on every
+  platform; on Unix `setrlimit` also caps its data segment and, on Linux, its address space.
+  Windows has no process-memory limit reachable without unsafe code here, so the allocator is the
+  bound there.
 
 DOCX text is the body's paragraphs in order, with tabs, line breaks and table cells (tab between
 cells, a line per row), headers and footers left out. XLSX is each sheet under `## <sheet name>`,
 one tab-separated line per row, shared and inline strings resolved, numbers as written, formulas
-as their cached values. CSV and TSV become tab-separated lines. Text is kept to 4 million
-characters and marked as cut past that.
+as their cached values; every value is charged against the text cap before it is copied into its
+row. CSV and TSV become tab-separated lines. Text is kept to 4 million characters or 8 MB and
+marked as cut past that.
 
 ### Storage
 
-`<data>/documents/<sha256>` holds the bytes, `<sha256>.txt` the text, both written aside and renamed.
+`<data>/documents/<sha256>` holds the bytes and `<sha256>.<reader>.txt` the text, both written
+aside and renamed. `<reader>` is the kind and the reader's version (`pdf-v1`, `csv-v1`): the same
+bytes attached as `.csv` and as `.txt` are two texts, and a later reader never takes an older
+one's text for its own. The reference carries it as `reader`.
 A copy goes to the bot's workspace as `attachments/<name>`; when that name holds other bytes the
 copy is `attachments/<stem> (2).<ext>`, and so on. The copy is untrusted like any file Spade
 did not write in a clean turn.
@@ -62,16 +79,17 @@ did not write in a clean turn.
 ### In the prompt
 
 ```
-<document name="report.pdf" id="d3f2…" pages="12" chars="48211">
+<document name="report.pdf" id="d3f2…-pdf-v1" pages="12" chars="48211">
 …the first 6,000 characters…
 </document>
-[42,211 more characters; read on with document_read id="d3f2…" offset=6000]
+[42,211 more characters; read on with document_read id="d3f2…-pdf-v1" offset=6000]
 ```
 
 `document_read { id, offset?, limit? }` (risk read, output untrusted) answers the window from
 `offset` (default 0) of at most `limit` characters (default and most 20,000), with where the next
-window starts when more remains. `id` is the document's SHA-256 (the first 12 hex characters are
-enough when they name one document).
+window starts when more remains. `id` is the document's handle: its SHA-256 (the first 12 hex
+characters are enough when they name one document), `-`, and the reader. Without a reader it
+reads the newest reader's text.
 
 A message that carries a document makes its turn untrusted, as a fetched page does: the gate asks
 before writes, and notes are only suggested. The source shows as "the attached file report.pdf".
@@ -89,9 +107,13 @@ is paged like any page; the title is the file name from the address. Without an 
 
 ## Images a bot makes or shares
 
-`image_generate { prompt, size? }` (risk write, deferred) exists only while some saved model has
-`image-generation` or `image-output`; it is found through `tool_search`. It uses the bot's own
-model if that one can, else the first such model in the person's endpoint order.
+`image_generate { prompt, size? }` (risk write, deferred, background) exists only while some saved
+model has `image-generation` or `image-output`; it is found through `tool_search`. It uses the
+bot's own model if that one can, else the first such model in the person's endpoint order. It runs
+as a background job, so the turn's 120-second tool deadline never cuts off an image the endpoint
+is already making (and charging for); its result arrives as a `<job_result>`. It is refused once
+today's cap is spent, and what it cost (the tokens the endpoint reports at the model's token
+prices, plus the model's `per_call` price) goes in the spending ledger like a model call.
 
 - `image-generation`: `POST {base}/images/generations` with `{model, prompt, n: 1, size?}`; images
   come back as `data[].b64_json` (a `url` answer is refused: Spade never follows an address an
@@ -128,9 +150,11 @@ The app shows them in the bubble of reply `reply`, after its text, and never sho
 the audio as `multipart/form-data` (`model`, `file`) to `POST {base}/audio/transcriptions` of the
 endpoint in the `transcription_model` setting, with its key, and answers `{ "text": "…" }`.
 `409` when no transcription model is set, `400` for audio Spade does not take, `502` with one line
-when the endpoint fails. The setting is `PUT /v1/settings { "transcription_model": "openai/whisper-1" }`
-(`null` clears it) and is listed as `transcription_model` in `GET /v1/models`; the model must
-exist on a saved endpoint.
+when the endpoint fails, `402` once today's cap is spent. Its cost is recorded like an image's. The
+setting is `PUT /v1/settings { "transcription_model": "openai/whisper-1" }` (`null` clears it) and
+is listed as `transcription_model` in `GET /v1/models`; the model must exist on a saved endpoint.
+It is a setting of its own: picking a model never changes the model's saved facts, and the
+person's pick transcribes whatever capabilities it lists.
 
 A voice message is a message with `voice`: its audio is stored by hash in `<data>/audio/` and its
 transcript is the message's text. The model reads `[Spoken; transcribed]` before the words.
@@ -178,7 +202,8 @@ carries what a tool showed the person.
 | `POST /v1/transcriptions`                        | `{ text }` (above)                                                       |
 
 Model facts gain four capabilities, settable on any saved model like the others: `pdf-input`,
-`image-generation`, `image-output`, `transcription`.
+`image-generation`, `image-output`, `transcription`. A price may give `per_call` (US dollars per
+image or transcription call) beside its token prices.
 
 ## Tests
 

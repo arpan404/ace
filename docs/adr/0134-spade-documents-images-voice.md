@@ -42,7 +42,8 @@ the bot, as a web page can.
    not read.
 
 2. **Stored once, by hash.** The bytes go to `<data>/documents/<sha256>` and the extracted text to
-   `<sha256>.txt` beside them, written aside and renamed like images. The message's event holds a
+   `<sha256>.<reader>.txt` beside them (the reader is the kind and its version, so the same bytes
+   read another way are another text), written aside and renamed like images. The message's event holds a
    reference: hash, name, media type, size, page count (PDF) or sheet count (XLSX), character
    count, whether the text was cut, and a trimmed view: the first 6,000 characters. The view is
    fixed when the message is stored, so a rebuilt prompt is the same bytes and the provider's
@@ -61,8 +62,10 @@ the bot, as a web page can.
    stdout, at most 20 MB. The child is killed after 20 seconds, and at most two run at once. Inside
    it, before any parser sees the file: a ZIP may hold at most 10,000 entries, and every entry the
    reader will open is first inflated through a counter that refuses the file past 64 MB from one
-   entry, 256 MB in all, or an expansion of more than 200 times its compressed size; every PDF
-   stream is inflated the same way, layer by layer, under the same caps. A PDF may have at most
+   entry, 256 MB in all, or an expansion of more than 200 times its compressed size; no PDF
+   stream reaches the parser's inflater before Spade has inflated it under the same caps along its
+   parsed filter chain, in lopdf's own load hook and before any page is read (image data is
+   dropped unread). The child runs under a 1 GiB capped allocator. A PDF may have at most
    2,000 pages, a spreadsheet at most 1,000,000 cells. The text kept is at most 4 million
    characters or 8 MB; past that it is cut and marked as cut. Crates: `pdf-extract` on `lopdf` for PDF,
    `zip` and `quick-xml` with Spade's own readers for DOCX and XLSX (paragraphs, tables, tabs and
@@ -94,8 +97,9 @@ the bot, as a web page can.
    first capable model on the person's endpoints. Its risk is `write`, since every image is
    billed: it asks first unless the person always allows it. The image is stored by hash in the
    image store and shown in the bot's bubble with Save; the model gets one line saying it was
-   shown, not the image, so prompts stay small. Image calls are not yet counted against the daily
-   cap, which counts token prices only.
+   shown, not the image, so prompts stay small. It runs as a background job, so the tool deadline never
+   cuts off an image already paid for; image and transcription calls are recorded in the spending
+   ledger (tokens at token prices, plus a `per_call` price) and refused past the cap.
 
 9. **A bot can show a file from its workspace.** `share_file` takes a workspace path. An image
    (PNG, JPEG, GIF, WebP, at most 3.75 MB) is stored by hash and shown in the bubble; any other
@@ -105,8 +109,8 @@ the bot, as a web page can.
 10. **Voice in.** In the composer, the mic records while held and stops on release. The app
     transcribes on the device where the platform offers it (the Web Speech API in browsers that
     have it), else through `POST /v1/transcriptions`, which sends the audio to the model the
-    person picked in Settings (`transcription_model`, an `endpoint/model` whose facts say
-    `transcription`) on the OpenAI-format `POST /audio/transcriptions` route of its endpoint, with
+    person picked in Settings (`transcription_model`, an `endpoint/model`; a setting of its own that
+    never changes the model's facts) on the OpenAI-format `POST /audio/transcriptions` route of its endpoint, with
     that endpoint's key from the keychain. With neither, the mic is not shown. The transcript
     lands in the composer to be checked; sending stores the audio (at most 25 MB: WebM, Ogg,
     MP4/M4A, MP3 or WAV) by hash in `<data>/audio/` and the transcript as the message's text. The
@@ -123,8 +127,8 @@ the bot, as a web page can.
 ## Consequences
 
 - Hostile files cost at most one child process for 20 seconds and the caps above; the service
-  never runs a parser itself. A child cannot be held to a memory limit on every platform, so the
-  inflation caps are what bound its memory.
+  never runs a parser itself. The child runs under a capped allocator on every platform, with
+  `setrlimit` on Unix as well.
 - A conversation with a document stays untrusted until compaction leaves the document out, like
   one that read a page. Bots that are handed files often will ask before writes more often.
 - Each document costs its bytes and text on disk once, however many messages or bots carry it.
@@ -132,7 +136,6 @@ the bot, as a web page can.
   `transcription`. Presets name them where providers document them; the person can set them on
   any saved model.
 - Out of scope for now: OCR of scanned PDFs on models without PDF input, legacy Office formats,
-  slides, images inside documents, voice replies from an endpoint, spoken conversation, and
-  counting image and transcription calls against the daily cap.
+  slides, images inside documents, voice replies from an endpoint and spoken conversation.
 
 `spade/docs/media.md` describes the API and the limits.
