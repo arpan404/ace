@@ -45,7 +45,11 @@ pub trait Remote: Send + Sync {
     /// The linked machines.
     fn machines(&self) -> BoxFuture<'_, Result<Vec<Machine>, RemoteError>>;
     /// One inbox request to `machine` (a host id): Spade's status there and its JSON answer.
-    fn call(&self, machine: &str, request: Value) -> BoxFuture<'_, Result<(u16, Value), RemoteError>>;
+    fn call(
+        &self,
+        machine: &str,
+        request: Value,
+    ) -> BoxFuture<'_, Result<(u16, Value), RemoteError>>;
 }
 
 /// The machines in a `spade.machines.result`.

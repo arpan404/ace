@@ -165,7 +165,10 @@ fn put_members(
     group: &str,
     members: &[StoredMember],
 ) -> rusqlite::Result<()> {
-    tx.execute("DELETE FROM group_members WHERE group_id = ?1", params![group])?;
+    tx.execute(
+        "DELETE FROM group_members WHERE group_id = ?1",
+        params![group],
+    )?;
     for (position, member) in members.iter().enumerate() {
         tx.execute(
             "INSERT OR REPLACE INTO group_members
@@ -212,8 +215,9 @@ impl Store {
     /// Every group, with its members.
     pub fn groups(&self) -> Result<Vec<StoredGroup>> {
         let connection = self.lock()?;
-        let mut statement =
-            connection.prepare(&format!("SELECT {GROUP_COLUMNS} FROM groups ORDER BY created_ms"))?;
+        let mut statement = connection.prepare(&format!(
+            "SELECT {GROUP_COLUMNS} FROM groups ORDER BY created_ms"
+        ))?;
         let mut groups = statement
             .query_map([], group_row)?
             .collect::<rusqlite::Result<Vec<_>>>()?;

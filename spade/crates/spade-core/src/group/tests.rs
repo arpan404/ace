@@ -21,7 +21,10 @@ fn asked(run: &str, ask: &str) -> Event {
 #[test]
 fn a_mention_picks_the_longest_matching_name_once() {
     let names = ["Research", "Research Lab", "Writer"];
-    assert_eq!(mentions("@research lab and @Writer, @writer", &names), vec![1, 2]);
+    assert_eq!(
+        mentions("@research lab and @Writer, @writer", &names),
+        vec![1, 2]
+    );
     assert_eq!(mentions("ask @Research.", &names), vec![0]);
     assert!(mentions("mail me@writer.com or @Researchers", &names).is_empty());
 }

@@ -50,7 +50,10 @@ async fn bot(spade: &Spade, name: &str, scripts: Vec<Script>) -> Result<(Value, 
 }
 
 async fn group(spade: &Spade, name: &str, members: &[&Value]) -> Result<Value> {
-    let members: Vec<Value> = members.iter().map(|m| json!({ "agent": m["id"] })).collect();
+    let members: Vec<Value> = members
+        .iter()
+        .map(|m| json!({ "agent": m["id"] }))
+        .collect();
     let (status, body) = spade
         .post("/v1/groups", json!({ "name": name, "members": members }))
         .await?;
@@ -70,7 +73,10 @@ async fn post(spade: &Spade, group: &Value, text: &str) -> Result {
 }
 
 fn conversation(value: &Value) -> String {
-    value["conversation"].as_str().unwrap_or_default().to_owned()
+    value["conversation"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned()
 }
 
 /// The group's bubbles in order: (who, text), the person as `person`.
@@ -100,7 +106,8 @@ async fn the_lead_hands_part_to_a_member_and_both_answers_are_posted_as_their_bu
     )
     .await?;
     let _titles = quiet_titles(&spade).await?;
-    let (research, research_fake) = bot(&spade, "Research", vec![Script::reply("X is 42.")]).await?;
+    let (research, research_fake) =
+        bot(&spade, "Research", vec![Script::reply("X is 42.")]).await?;
     let (writer, writer_fake) = bot(&spade, "Writer", vec![Script::reply("unused")]).await?;
     let team = group(&spade, "Launch team", &[&research, &writer]).await?;
     assert_eq!(team["lead"]["name"], "Spade", "Spade leads by default");
@@ -129,7 +136,10 @@ async fn the_lead_hands_part_to_a_member_and_both_answers_are_posted_as_their_bu
         "no tool calls in the group"
     );
     let told = research_fake.seen()[0].body["messages"].to_string();
-    assert!(told.contains("Launch team"), "the member knows the group: {told}");
+    assert!(
+        told.contains("Launch team"),
+        "the member knows the group: {told}"
+    );
     let theirs = spade.events(&conversation(&research)).await?;
     let asked = theirs
         .iter()
@@ -137,7 +147,10 @@ async fn the_lead_hands_part_to_a_member_and_both_answers_are_posted_as_their_bu
         .cloned()
         .unwrap_or_default();
     assert_eq!(asked["from_group"]["name"], "Launch team");
-    assert_eq!(asked["from_agent"]["name"], "Spade", "a bot's ask is from that bot");
+    assert_eq!(
+        asked["from_agent"]["name"], "Spade",
+        "a bot's ask is from that bot"
+    );
     assert!(writer_fake.seen().is_empty(), "the writer was never asked");
     let _ = writer;
 
@@ -150,7 +163,11 @@ async fn the_lead_hands_part_to_a_member_and_both_answers_are_posted_as_their_bu
 
 #[tokio::test]
 async fn a_mention_goes_straight_to_that_member_and_not_to_the_lead() -> Result {
-    let spade = Spade::start(vec![Script::reply("the lead should not answer")], Vec::new()).await?;
+    let spade = Spade::start(
+        vec![Script::reply("the lead should not answer")],
+        Vec::new(),
+    )
+    .await?;
     let _titles = quiet_titles(&spade).await?;
     let (research, _research_fake) = bot(&spade, "Research", vec![Script::reply("unused")]).await?;
     let (writer, _writer_fake) = bot(&spade, "Writer", vec![Script::reply("A draft.")]).await?;
@@ -247,7 +264,10 @@ async fn members_ask_each_other_but_a_chain_deeper_than_three_is_refused() -> Re
         .unwrap_or_default();
     assert_eq!(refused["is_error"], true);
     assert!(
-        refused["content"].as_str().unwrap_or("").contains("more than 3"),
+        refused["content"]
+            .as_str()
+            .unwrap_or("")
+            .contains("more than 3"),
         "{refused}"
     );
     Ok(())
@@ -265,7 +285,9 @@ async fn stop_in_a_group_stops_every_member_and_posts_no_partial_answer() -> Res
     spade
         .wait_for(&conversation(&research), "reply_started")
         .await?;
-    spade.wait_for(&conversation(&writer), "reply_started").await?;
+    spade
+        .wait_for(&conversation(&writer), "reply_started")
+        .await?;
     let (_, listed) = spade.get("/v1/groups").await?;
     assert_eq!(listed["groups"][0]["state"], "working");
     assert_eq!(
@@ -283,7 +305,9 @@ async fn stop_in_a_group_stops_every_member_and_posts_no_partial_answer() -> Res
     spade
         .wait_for(&conversation(&research), "reply_stopped")
         .await?;
-    spade.wait_for(&conversation(&writer), "reply_stopped").await?;
+    spade
+        .wait_for(&conversation(&writer), "reply_stopped")
+        .await?;
     let events = spade
         .wait_for_count(&conversation(&team), "group_answered", 2)
         .await?;
@@ -294,7 +318,11 @@ async fn stop_in_a_group_stops_every_member_and_posts_no_partial_answer() -> Res
         .filter_map(|e| e["outcome"].as_str())
         .collect();
     assert_eq!(outcomes, vec!["stopped", "stopped"]);
-    assert_eq!(bubbles(&events).len(), 1, "only the person's message is shown");
+    assert_eq!(
+        bubbles(&events).len(),
+        1,
+        "only the person's message is shown"
+    );
     Ok(())
 }
 

@@ -104,8 +104,16 @@ impl Engine {
             return refuse(404, "no such bot on this machine");
         };
         let from_agent = body["from"].as_object().map(|from| FromAgent {
-            id: from.get("id").and_then(Value::as_str).unwrap_or("").to_owned(),
-            name: from.get("name").and_then(Value::as_str).unwrap_or("A bot").to_owned(),
+            id: from
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_owned(),
+            name: from
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("A bot")
+                .to_owned(),
             depth,
             machine: Some(sender.name.clone()),
         });
@@ -114,9 +122,21 @@ impl Engine {
             .map(|c| c.chars().take(LONGEST_CONTEXT).collect::<String>());
         let from_group = body["group"].as_object().map(|group| {
             Box::new(FromGroup {
-                id: group.get("id").and_then(Value::as_str).unwrap_or("").to_owned(),
-                name: group.get("name").and_then(Value::as_str).unwrap_or("a group").to_owned(),
-                run: group.get("run").and_then(Value::as_str).unwrap_or("").to_owned(),
+                id: group
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_owned(),
+                name: group
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("a group")
+                    .to_owned(),
+                run: group
+                    .get("run")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_owned(),
                 ask: key.to_owned(),
                 machine: Some(sender.name.clone()),
                 // What came from another machine's group is not the person's own words here.
@@ -153,14 +173,19 @@ impl Engine {
         };
         let wait = body["wait_ms"].as_u64().unwrap_or(0).min(LONGEST_WAIT_MS);
         let Ok(Some(agent)) = self.store.agent(&entry.agent_id) else {
-            return (200, json!({ "status": "failed", "text": "The bot was deleted." }));
+            return (
+                200,
+                json!({ "status": "failed", "text": "The bot was deleted." }),
+            );
         };
         let frames = self.live(&agent.conversation).frames.subscribe();
         let reply = self.wait_reply(&agent, entry.seq, frames);
         let outcome = if wait == 0 {
             self.reply_after(&agent, entry.seq)
         } else {
-            tokio::time::timeout(Duration::from_millis(wait), reply).await.ok()
+            tokio::time::timeout(Duration::from_millis(wait), reply)
+                .await
+                .ok()
         };
         match outcome {
             None => (200, json!({ "status": "pending" })),

@@ -118,16 +118,19 @@ pub fn export(
             });
         }
     }
-    let connectors = connectors.map(|hub| match hub.access(id, agent.kind == crate::engine::MAIN) {
-        Access::All => FileConnectors {
-            all: true,
-            connectors: Vec::new(),
-        },
-        Access::Only(ids) => FileConnectors {
-            all: false,
-            connectors: ids.into_iter().collect(),
-        },
-    });
+    let connectors =
+        connectors.map(
+            |hub| match hub.access(id, agent.kind == crate::engine::MAIN) {
+                Access::All => FileConnectors {
+                    all: true,
+                    connectors: Vec::new(),
+                },
+                Access::Only(ids) => FileConnectors {
+                    all: false,
+                    connectors: ids.into_iter().collect(),
+                },
+            },
+        );
     let notes = engine
         .store()
         .notes(Notes::Own(id))
@@ -165,7 +168,8 @@ pub fn import(
         Some(a) if a["kind"] == "image" => match a["data"].as_str().map(crate::images::decode) {
             Some(Ok(bytes)) => Some(AvatarInput::Image(bytes)),
             _ => {
-                left_out.push("The picture couldn't be read; the bot has initials instead.".to_owned());
+                left_out
+                    .push("The picture couldn't be read; the bot has initials instead.".to_owned());
                 None
             }
         },
@@ -206,7 +210,9 @@ pub fn import(
             let (kept, missing): (Vec<&String>, Vec<&String>) =
                 choice.connectors.iter().partition(|c| here.contains(*c));
             for c in missing {
-                left_out.push(format!("The connector {c} isn't connected on this machine."));
+                left_out.push(format!(
+                    "The connector {c} isn't connected on this machine."
+                ));
             }
             Access::Only(kept.into_iter().cloned().collect())
         };

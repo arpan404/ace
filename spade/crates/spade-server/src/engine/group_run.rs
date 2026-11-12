@@ -183,7 +183,8 @@ impl Engine {
         let (group, ask, to) = (group.id.clone(), ask.to_owned(), bot_of(to));
         let run = self.run_of(&group, &ask);
         tokio::spawn(async move {
-            let frames = frames.unwrap_or_else(|| engine.live(&agent.conversation).frames.subscribe());
+            let frames =
+                frames.unwrap_or_else(|| engine.live(&agent.conversation).frames.subscribe());
             let outcome = engine.wait_reply(&agent, seq, frames).await;
             engine.finish_ask(&group, &run, &ask, &to, outcome);
         });
@@ -253,7 +254,12 @@ impl Engine {
 
     /// The run an ask belongs to, from the group's events.
     fn run_of(&self, group: &str, ask: &str) -> String {
-        let Some(conversation) = self.store.group(group).ok().flatten().map(|g| g.conversation)
+        let Some(conversation) = self
+            .store
+            .group(group)
+            .ok()
+            .flatten()
+            .map(|g| g.conversation)
         else {
             return String::new();
         };
@@ -273,9 +279,9 @@ impl Engine {
     fn finish_ask(&self, group: &str, run: &str, ask: &str, to: &GroupBot, outcome: Outcome) {
         if let Ok(Some(group)) = self.store.group(group) {
             let stopped = self.load(&group.conversation).is_ok_and(|events| {
-                events.iter().any(|e| {
-                    matches!(e, Event::Known(Known::GroupStopped { run: r }) if r == run)
-                })
+                events
+                    .iter()
+                    .any(|e| matches!(e, Event::Known(Known::GroupStopped { run: r }) if r == run))
             });
             let detail = match &outcome {
                 Outcome::Answered(_) => None,
@@ -334,7 +340,9 @@ impl Engine {
             let open = group::open_asks(&events);
             let mut runs: Vec<String> = open.iter().map(|a| a.run.clone()).collect();
             if let Some(latest) = events.iter().rev().find_map(|e| match e {
-                Event::Known(Known::GroupMessage { run, from: None, .. }) => Some(run.clone()),
+                Event::Known(Known::GroupMessage {
+                    run, from: None, ..
+                }) => Some(run.clone()),
                 _ => None,
             }) {
                 runs.push(latest);
@@ -346,7 +354,10 @@ impl Engine {
                     |e| matches!(e, Event::Known(Known::GroupStopped { run: r }) if *r == run),
                 );
                 if !done {
-                    self.record(&group.conversation, &Event::Known(Known::GroupStopped { run }))?;
+                    self.record(
+                        &group.conversation,
+                        &Event::Known(Known::GroupStopped { run }),
+                    )?;
                 }
             }
             open
@@ -367,8 +378,16 @@ impl Engine {
 
     /// `group_ask` from the bot of conversation `caller`.
     pub(crate) async fn group_ask(self: &Arc<Self>, caller: &str, arguments: Value) -> ToolOutput {
-        let member = arguments.get("member").and_then(Value::as_str).unwrap_or("").trim();
-        let text = arguments.get("text").and_then(Value::as_str).unwrap_or("").trim();
+        let member = arguments
+            .get("member")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
+        let text = arguments
+            .get("text")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
         if text.is_empty() {
             return ToolOutput::error("The message is empty.");
         }
@@ -409,9 +428,9 @@ impl Engine {
         let waited = tokio::time::timeout(ASK_WAIT, ended.wait_for(Option::is_some)).await;
         match waited {
             Ok(Ok(outcome)) => match outcome.clone() {
-                Some(Outcome::Answered(text)) => {
-                    ToolOutput::ok(format!("{name} answered (it is posted in the group):\n{text}"))
-                }
+                Some(Outcome::Answered(text)) => ToolOutput::ok(format!(
+                    "{name} answered (it is posted in the group):\n{text}"
+                )),
                 Some(other) => ToolOutput::error(other.text().to_owned()),
                 None => ToolOutput::error(format!("{name} did not answer.")),
             },
@@ -440,7 +459,11 @@ impl Engine {
             let Ok(Some(group)) = self.store.group(&from.id) else {
                 continue;
             };
-            if !group.members.iter().any(|m| m.machine.is_empty() && m.agent_id == me) {
+            if !group
+                .members
+                .iter()
+                .any(|m| m.machine.is_empty() && m.agent_id == me)
+            {
                 continue;
             }
             let transcript = self.load(&group.conversation).ok()?;

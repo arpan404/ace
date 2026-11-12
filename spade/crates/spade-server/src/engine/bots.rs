@@ -73,7 +73,9 @@ impl Engine {
             }
         }
         if listed.is_empty() {
-            return ToolOutput::ok("There are no other bots on this machine or your other machines.");
+            return ToolOutput::ok(
+                "There are no other bots on this machine or your other machines.",
+            );
         }
         ToolOutput::ok(Value::Array(listed).to_string())
     }
@@ -120,7 +122,9 @@ impl Engine {
             .map(str::trim)
             .filter(|m| !m.is_empty())
         {
-            return self.bot_message_elsewhere(caller, key, machine, &arguments).await;
+            return self
+                .bot_message_elsewhere(caller, key, machine, &arguments)
+                .await;
         }
         let bot = arguments.get("bot").and_then(Value::as_str).unwrap_or("");
         let text = arguments
@@ -208,8 +212,16 @@ impl Engine {
         machine: &str,
         arguments: &Value,
     ) -> ToolOutput {
-        let bot = arguments.get("bot").and_then(Value::as_str).unwrap_or("").trim();
-        let text = arguments.get("text").and_then(Value::as_str).unwrap_or("").trim();
+        let bot = arguments
+            .get("bot")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
+        let text = arguments
+            .get("text")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
         if text.is_empty() {
             return ToolOutput::error("The message is empty.");
         }
@@ -259,7 +271,13 @@ impl Engine {
             }
             Err(_) => bot.to_owned(),
         };
-        let ask = format!("bm.{}", key.replace(|c: char| !c.is_ascii_alphanumeric() && c != '.' && c != '_' && c != '-', "_"));
+        let ask = format!(
+            "bm.{}",
+            key.replace(
+                |c: char| !c.is_ascii_alphanumeric() && c != '.' && c != '_' && c != '-',
+                "_"
+            )
+        );
         let request = json!({
             "op": "ask",
             "key": ask,
@@ -272,7 +290,9 @@ impl Engine {
             return ToolOutput::error(format!("The message was not stored: {error}"));
         }
         match self.wait_remote(&ask, |_| {}).await {
-            Outcome::Answered(text) => ToolOutput::ok(format!("{bot} on {} answered:\n{text}", target.name)),
+            Outcome::Answered(text) => {
+                ToolOutput::ok(format!("{bot} on {} answered:\n{text}", target.name))
+            }
             other => ToolOutput::error(other.text().to_owned()),
         }
     }
@@ -318,7 +338,9 @@ impl Engine {
         }
         let name = &target.name;
         events.iter().find_map(|stored| match &stored.event {
-            Event::Known(Known::ReplyFinished { text, .. }) => Some(Outcome::Answered(text.clone())),
+            Event::Known(Known::ReplyFinished { text, .. }) => {
+                Some(Outcome::Answered(text.clone()))
+            }
             Event::Known(Known::ReplyStopped { text, .. }) => Some(Outcome::Stopped(format!(
                 "{name} was stopped before it finished. What it had said: {text}"
             ))),

@@ -140,7 +140,10 @@ async fn list(State(state): State<AppState>) -> Response {
 async fn create(State(state): State<AppState>, Body(body): Body<GroupBody>) -> Response {
     let _ = state.engine.machines().await;
     match state.engine.create_group(body.input()).await {
-        Ok(view) => (StatusCode::CREATED, Json(json!({ "group": group_json(&view) })))
+        Ok(view) => (
+            StatusCode::CREATED,
+            Json(json!({ "group": group_json(&view) })),
+        )
             .into_response(),
         Err(error) => group_problem(&error),
     }
@@ -221,9 +224,11 @@ async fn duplicate(
         .and_then(|b| b.name);
     off_thread(move || {
         match teams::duplicate(&state.engine, state.connectors.as_deref(), &id, name) {
-            Ok(view) => {
-                (StatusCode::CREATED, Json(json!({ "agent": agent_json(&view) }))).into_response()
-            }
+            Ok(view) => (
+                StatusCode::CREATED,
+                Json(json!({ "agent": agent_json(&view) })),
+            )
+                .into_response(),
             Err(error) => portable_problem(&error),
         }
     })
@@ -231,24 +236,32 @@ async fn duplicate(
 }
 
 async fn export(State(state): State<AppState>, Path(id): Path<String>) -> Response {
-    off_thread(move || match teams::export(&state.engine, state.connectors.as_deref(), &id) {
-        Ok(file) => {
-            let name: String = file
-                .name
-                .chars()
-                .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '-' })
-                .collect();
-            let disposition = format!("attachment; filename=\"{name}.spade-bot.json\"");
-            let mut response = Json(file).into_response();
-            if let Ok(value) = disposition.parse() {
+    off_thread(
+        move || match teams::export(&state.engine, state.connectors.as_deref(), &id) {
+            Ok(file) => {
+                let name: String = file
+                    .name
+                    .chars()
+                    .map(|c| {
+                        if c.is_ascii_alphanumeric() || c == '-' {
+                            c
+                        } else {
+                            '-'
+                        }
+                    })
+                    .collect();
+                let disposition = format!("attachment; filename=\"{name}.spade-bot.json\"");
+                let mut response = Json(file).into_response();
+                if let Ok(value) = disposition.parse() {
+                    response
+                        .headers_mut()
+                        .insert(header::CONTENT_DISPOSITION, value);
+                }
                 response
-                    .headers_mut()
-                    .insert(header::CONTENT_DISPOSITION, value);
             }
-            response
-        }
-        Err(error) => portable_problem(&error),
-    })
+            Err(error) => portable_problem(&error),
+        },
+    )
     .await
 }
 
@@ -257,8 +270,8 @@ async fn import(State(state): State<AppState>, Body(file): Body<Value>) -> Respo
         Ok(file) => file,
         Err(_) => return problem(StatusCode::BAD_REQUEST, "this is not a Spade bot file"),
     };
-    off_thread(move || {
-        match teams::import(&state.engine, state.connectors.as_deref(), file) {
+    off_thread(
+        move || match teams::import(&state.engine, state.connectors.as_deref(), file) {
             Ok(imported) => (
                 StatusCode::CREATED,
                 Json(json!({
@@ -268,8 +281,8 @@ async fn import(State(state): State<AppState>, Body(file): Body<Value>) -> Respo
             )
                 .into_response(),
             Err(error) => portable_problem(&error),
-        }
-    })
+        },
+    )
     .await
 }
 

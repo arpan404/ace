@@ -113,7 +113,10 @@ impl Engine {
                 let found = self.remote_bot(&machine, &member.agent).await;
                 let (name, avatar) = match found {
                     Some((name, avatar)) => (name, avatar),
-                    None => (member.name.clone().unwrap_or_else(|| "Bot".to_owned()), None),
+                    None => (
+                        member.name.clone().unwrap_or_else(|| "Bot".to_owned()),
+                        None,
+                    ),
                 };
                 members.push(StoredMember {
                     agent_id: member.agent.clone(),
@@ -173,7 +176,9 @@ impl Engine {
             .find(|m| local(m))
             .map(|m| m.agent_id.clone())
             .ok_or_else(|| {
-                GroupError::Conflict("a group needs a lead that is a bot of this machine".to_owned())
+                GroupError::Conflict(
+                    "a group needs a lead that is a bot of this machine".to_owned(),
+                )
             })
     }
 
@@ -274,7 +279,10 @@ impl Engine {
     }
 
     pub fn group_view(&self, id: &str) -> Result<Option<GroupView>, StoreError> {
-        self.store.group(id)?.map(|g| self.group_view_of(g)).transpose()
+        self.store
+            .group(id)?
+            .map(|g| self.group_view_of(g))
+            .transpose()
     }
 
     fn group_view_of(&self, group: StoredGroup) -> Result<GroupView, StoreError> {
@@ -385,7 +393,9 @@ impl Engine {
         bots.iter().find(|b| b["id"] == agent).map(|b| {
             (
                 b["name"].as_str().unwrap_or("Bot").to_owned(),
-                b.get("avatar").filter(|a| !a.is_null()).map(Value::to_string),
+                b.get("avatar")
+                    .filter(|a| !a.is_null())
+                    .map(Value::to_string),
             )
         })
     }

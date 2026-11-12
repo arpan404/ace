@@ -133,7 +133,11 @@ impl Engine {
     }
 
     /// Waits until the entry of `key` ends; `seen` is told each state it passes through.
-    pub(crate) async fn wait_remote(&self, key: &str, mut seen: impl FnMut(&OutboxEntry)) -> Outcome {
+    pub(crate) async fn wait_remote(
+        &self,
+        key: &str,
+        mut seen: impl FnMut(&OutboxEntry),
+    ) -> Outcome {
         let mut changed = self.teams.outbox_changed.subscribe();
         loop {
             match self.store.outbox(key) {
@@ -184,8 +188,8 @@ impl Engine {
             }
             let wait = entry.next_ms - self.now_ms();
             if wait > 0 && !entry.stop {
-                let _ = tokio::time::timeout(Duration::from_millis(wait as u64), wake.notified())
-                    .await;
+                let _ =
+                    tokio::time::timeout(Duration::from_millis(wait as u64), wake.notified()).await;
                 continue;
             }
             let Some(remote) = self.remote() else {
@@ -276,7 +280,10 @@ impl Engine {
     /// Tries again after the backoff, or gives up after [`GIVE_UP_MS`].
     fn later(&self, entry: &OutboxEntry, now: i64) {
         if now - entry.created_ms >= GIVE_UP_MS {
-            let text = format!("{} did not come back online within 7 days.", entry.machine_name);
+            let text = format!(
+                "{} did not come back online within 7 days.",
+                entry.machine_name
+            );
             let answer = json!({ "status": "gave_up", "text": text });
             self.advance(entry, "gave_up", Some(answer), entry.attempts, now);
             return;
@@ -285,19 +292,22 @@ impl Engine {
         let backoff = FIRST_BACKOFF_MS
             .saturating_mul(1 << attempts.saturating_sub(1).min(20))
             .min(LONGEST_BACKOFF_MS);
-        if let Err(error) = self.store.advance_outbox(
-            &entry.key,
-            &entry.state,
-            None,
-            attempts,
-            now + backoff,
-            now,
-        ) {
+        if let Err(error) =
+            self.store
+                .advance_outbox(&entry.key, &entry.state, None, attempts, now + backoff, now)
+        {
             tracing::warn!(%error, "could not record an outbox retry");
         }
     }
 
-    fn advance(&self, entry: &OutboxEntry, state: &str, answer: Option<Value>, attempts: u32, now: i64) {
+    fn advance(
+        &self,
+        entry: &OutboxEntry,
+        state: &str,
+        answer: Option<Value>,
+        attempts: u32,
+        now: i64,
+    ) {
         let answer = answer.map(|a| a.to_string());
         if let Err(error) =
             self.store

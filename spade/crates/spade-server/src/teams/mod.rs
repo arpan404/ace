@@ -13,7 +13,9 @@ use std::sync::{Arc, Mutex};
 
 use tokio::sync::{Notify, watch};
 
-pub use portable::{BotFile, Imported, PortableError, duplicate, export, from_template, import, template_model};
+pub use portable::{
+    BotFile, Imported, PortableError, duplicate, export, from_template, import, template_model,
+};
 pub use remote::{BoxFuture, Machine, Remote, RemoteError, answer_from, machines_from};
 pub use templates::{Template, TemplateRoutine, templates};
 pub use tools::with_tools;
