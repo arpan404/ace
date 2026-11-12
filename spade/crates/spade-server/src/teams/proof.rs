@@ -28,7 +28,8 @@ pub fn verify(
     name: &str,
     body: &[u8],
 ) -> bool {
-    if (now - time).abs() > MOST_SKEW_MS {
+    // `abs_diff` can't overflow, whatever time a request claims.
+    if now.abs_diff(time) > MOST_SKEW_MS.unsigned_abs() {
         return false;
     }
     let Some(expected) = inbox_proof(key, time, sender, name, body) else {
@@ -105,6 +106,16 @@ mod tests {
             "N",
             body
         ));
+    }
+
+    #[test]
+    fn a_time_at_either_end_of_the_range_is_refused_not_a_panic() {
+        let key = "k".repeat(64);
+        let body = br#"{"op":"bots"}"#;
+        for time in [i64::MIN, i64::MAX] {
+            let proof = inbox_proof(&key, time, "d", "N", body).unwrap_or_default();
+            assert!(!verify(&key, &proof, time, 1_000, "d", "N", body));
+        }
     }
 
     #[test]
