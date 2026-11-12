@@ -3,7 +3,8 @@
 use rusqlite::Connection;
 
 /// Each entry moves the schema up one version. Never edit a shipped entry; add a new one.
-const MIGRATIONS: &[&str] = &["
+const MIGRATIONS: &[&str] = &[
+    "
     CREATE TABLE conversations (
         id TEXT PRIMARY KEY,
         title TEXT,
@@ -26,7 +27,15 @@ const MIGRATIONS: &[&str] = &["
         at_ms INTEGER NOT NULL
     );
     CREATE INDEX spend_by_time ON spend (at_ms);
-"];
+",
+    "
+    -- The key a client sent with the start that made the conversation, so a start sent again
+    -- after a lost answer finds it instead of making a second one.
+    ALTER TABLE conversations ADD COLUMN client_key TEXT;
+    CREATE UNIQUE INDEX conversations_by_client_key ON conversations (client_key)
+        WHERE client_key IS NOT NULL;
+",
+];
 
 /// The schema version this build brings a database up to.
 pub fn current_version() -> usize {
