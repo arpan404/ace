@@ -16,7 +16,9 @@ export const bufferScheduler: BufferScheduler = {
   },
 };
 
-const weightOf = (event: Event) => Buffer.byteLength(JSON.stringify(event)) * 8 + 512;
+const encodedBytes = (event: Event) => Buffer.byteLength(JSON.stringify(event));
+const weightOfBytes = (bytes: number) => bytes * 8 + 512;
+const weightOf = (event: Event) => weightOfBytes(encodedBytes(event));
 /** Rows a subscriber may already hold are written within this bound. */
 const eventDelayMs = 75;
 /** A batch without events (an agent's transport signals) carries only liveness times. Nobody has
@@ -82,8 +84,10 @@ export class LiveWriteBuffer {
   append(events: Event[], thread: ThreadId, snapshot: BufferedSnapshot): void {
     this.snapshots.set(thread, snapshot);
     for (const event of events) {
-      this.weight += weightOf(event);
-      this.metrics.liveBytes += Buffer.byteLength(JSON.stringify(event));
+      // One encoding sizes both the weight and the metric.
+      const bytes = encodedBytes(event);
+      this.weight += weightOfBytes(bytes);
+      this.metrics.liveBytes += bytes;
       this.events.push(event);
     }
     this.metrics.peakBytes = Math.max(this.metrics.peakBytes, this.weight);
