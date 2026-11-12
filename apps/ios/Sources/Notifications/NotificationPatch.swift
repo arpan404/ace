@@ -56,10 +56,23 @@ struct LimitNotification: Codable, Sendable, Equatable {
     var delivery: AlertNotification.Delivery? = nil
 }
 
+/// A finished or failed automation run the bridge picked (`bridge/run-alerts.ts`), with how this
+/// phone shows it. Its body says how the run went, never what it printed.
+struct RunNotification: Codable, Sendable, Equatable {
+    let key: String
+    let title: String
+    let body: String
+    /// The thread the run started, which a tap opens; nil opens ace.
+    var threadId: String? = nil
+    let automationId: String
+    var delivery: AlertNotification.Delivery? = nil
+}
+
 /// Bridge patches whose `type` starts with `notifications.`.
 enum NotificationPatch: Decodable, Sendable, Equatable {
     case alert(AlertNotification)
     case limit(LimitNotification)
+    case run(RunNotification)
     case feed(cursor: Int, entries: [AlertNotification], retracted: [String])
     case config(NotificationPreferences)
     case action(id: String, outcome: ActionOutcome)
@@ -73,6 +86,7 @@ enum NotificationPatch: Decodable, Sendable, Equatable {
         switch try box.decode(String.self, forKey: .type) {
         case "notifications.alert": self = .alert(try box.decode(AlertNotification.self, forKey: .notification))
         case "notifications.limit": self = .limit(try LimitNotification(from: decoder))
+        case "notifications.run": self = .run(try RunNotification(from: decoder))
         case "notifications.feed":
             self = .feed(cursor: try box.decode(Int.self, forKey: .cursor),
                          entries: try box.decode([AlertNotification].self, forKey: .entries),

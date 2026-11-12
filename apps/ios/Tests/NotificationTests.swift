@@ -3,7 +3,7 @@ import Testing
 @testable import Ace
 
 @Suite @MainActor struct NotificationTests {
-    @Test func phonePreferencesSavedBeforeUsageLimitsKeepTheirChoicesAndAlertForLimits() throws {
+    @Test func phonePreferencesSavedBeforeUsageLimitsAndRunsKeepTheirChoicesAndAlertForBoth() throws {
         let older = #"{"inApp":{"needsYou":false,"failures":true,"finished":true,"agentSays":true},"system":{"needsYou":true,"failures":false,"finished":true,"agentSays":false}}"#
         let prefs = try JSONDecoder().decode(PhoneNotificationPrefs.self, from: Data(older.utf8))
         // What the person chose stays; the new category starts on, as on the web.
@@ -12,6 +12,38 @@ import Testing
         #expect(prefs.system.failures == false)
         #expect(prefs.inApp.limits)
         #expect(prefs.system["limits"])
+        #expect(prefs.inApp.automations)
+        #expect(prefs.system["automations"])
+    }
+
+    @Test func aFinishedRunOpensItsThreadOnItsMachineAndGoesWhenTheMachineIsTurnedOff() async throws {
+        let center = FakeCenter()
+        let coordinator = NotificationCoordinator(center: center, authorizer: FakeAuthorizer(), defaults: try defaults(), now: { 0 },
+                                                  sleep: fastSleep, makeId: { "tap-1" }, connectInBackground: { _ in [] })
+        await coordinator.setEnabled(true)
+        func run(_ key: String, thread: String?, post: Bool) throws -> NotificationPatch {
+            let threadField = thread.map { #","threadId":"\#($0)""# } ?? #","threadId":null"#
+            let frame = #"{"type":"notifications.run","key":"\#(key)","title":"Nightly audit failed","body":"The automation run failed","automationId":"nightly"\#(threadField),"delivery":{"post":\#(post),"interrupt":false,"banner":false}}"#
+            return try JSONDecoder().decode(NotificationPatch.self, from: Data(frame.utf8))
+        }
+        coordinator.receive(try run("r1", thread: "t-9", post: true), from: "studio")
+        coordinator.receive(try run("r2", thread: nil, post: true), from: "laptop")
+        // The category off for this phone: nothing reaches Notification Center.
+        coordinator.receive(try run("r3", thread: "t-3", post: false), from: "studio")
+        for _ in 0..<20 { await Task.yield() }
+        #expect(Set(center.delivered.keys) == ["run:studio:r1", "run:laptop:r2"])
+        let opened = try #require(center.delivered["run:studio:r1"])
+        #expect(opened.threadId == "t-9")
+        #expect(opened.hostId == "studio")
+        #expect(opened.title == "Nightly audit failed")
+        // Banners off or quiet hours: filed in the list without a banner or sound.
+        #expect(opened.banner == false)
+        #expect(opened.level == .passive)
+        // A run that started no thread opens ace.
+        #expect(center.delivered["run:laptop:r2"]?.threadId == "")
+        coordinator.turnedOff("studio")
+        for _ in 0..<20 { await Task.yield() }
+        #expect(Set(center.delivered.keys) == ["run:laptop:r2"])
     }
 
     @Test func usageLimitChangesPostPerMachineUnlessTheyShouldNotAndGoWhenTheirMachineIsTurnedOff() async throws {

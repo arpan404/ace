@@ -74,6 +74,16 @@ struct AlertContent: Equatable, Sendable {
         content.level = alert.delivery?.interrupt == false ? .passive : .active
         return content
     }
+    /// An automation run on one machine that finished or failed, shown as the phone's preferences
+    /// decided in the bridge. A tap opens the thread it started, or ace when it started none.
+    static func run(_ alert: RunNotification, hostId: String) -> AlertContent {
+        var content = AlertContent(identifier: "run:\(hostId):\(alert.key)", title: alert.title, body: alert.body,
+                                   threadId: alert.threadId ?? "", group: "runs:\(hostId)")
+        content.hostId = hostId
+        content.banner = alert.delivery?.banner ?? true
+        content.level = alert.delivery?.interrupt == false ? .passive : .active
+        return content
+    }
     /// Several threads that finished close together, as one quiet notification: "3 threads
     /// finished" over their titles, newest first. It opens ace, not one of them.
     static func finishedSummary(count: Int, titles: [String]) -> AlertContent {
