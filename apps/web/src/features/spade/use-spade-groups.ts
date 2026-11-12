@@ -2,7 +2,7 @@ import type { SpadeAvatar, SpadeGroup, SpadeGroupMember } from "@ace/ui-core/spa
 import { useQueries } from "@tanstack/react-query";
 import { useMemo } from "react";
 import type { Machine } from "@/lib/machines.ts";
-import { spadeMachineKey, type SpadeMachine } from "./spade-machine.tsx";
+import { spadeMachineKey, spadeMachineOf, type SpadeMachine } from "./spade-machine.tsx";
 import { readGroups } from "./spade-teams-api.ts";
 import type { RosterBot, SpadeHost } from "./use-spade-roster.ts";
 
@@ -13,6 +13,10 @@ export interface RosterGroup extends SpadeGroup {
   machine: SpadeMachine;
   /** That machine's host id, which members of other machines are named against. */
   host: string;
+  /** Its machine is offline: listed from its last answer, nothing can be done in it. */
+  away: boolean;
+  /** Its machine is online but its Spade doesn't answer: listed from its last answer. */
+  unavailable: boolean;
 }
 
 /** A member with the face and name to show, from the roster when its bot is listed there. */
@@ -67,19 +71,27 @@ export function shownMembers(
 }
 
 /**
- * The groups of every machine whose Spade answers (a group lives on its lead's machine), read
- * like the bots: every few seconds, faster while any group works. A machine's last list stays
- * while a read fails.
+ * The groups of every machine this window reaches (a group lives on its lead's machine), read
+ * like the bots: every few seconds while its Spade answers, faster while any group works. A
+ * machine that went offline, or whose Spade stopped answering, keeps its last list, as away or
+ * unavailable, never as still working.
  */
-export function useSpadeGroups(hosts: readonly SpadeHost[]) {
+export function useSpadeGroups(roster: {
+  hosting: { machines: readonly Machine[] };
+  hosts: readonly SpadeHost[];
+}) {
+  const { machines } = roster.hosting;
+  const answering = machines.map((machine) =>
+    roster.hosts.some((host) => host.machine.id === machine.id && host.machine.client),
+  );
   const results = useQueries({
-    queries: hosts.map((host) => ({
-      queryKey: [...groupsKey, host.spade.key],
+    queries: machines.map((machine, index) => ({
+      queryKey: [...groupsKey, spadeMachineKey(machine)],
       queryFn: ({ signal }: { signal: AbortSignal }) =>
-        host.machine.client
-          ? readGroups(host.machine.client, { signal })
+        machine.client
+          ? readGroups(machine.client, { signal })
           : Promise.reject(new Error("offline")),
-      enabled: host.machine.client !== undefined,
+      enabled: answering[index] === true,
       gcTime: Number.POSITIVE_INFINITY,
       retry: 1,
       refetchInterval: (query: { state: { data: SpadeGroup[] | undefined } }) =>
@@ -87,21 +99,53 @@ export function useSpadeGroups(hosts: readonly SpadeHost[]) {
     })),
   });
   const dataKey = results.map((result) => result.dataUpdatedAt).join(",");
+  const answerKey = answering.join(",");
   const groups = useMemo(
     () =>
-      hosts.flatMap((host, index): RosterGroup[] =>
-        (results[index]?.data ?? []).map((group) => ({
-          ...group,
-          machine: host.spade,
-          host: host.machine.id,
-        })),
-      ),
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- `results` is keyed by dataKey
-    [hosts, dataKey],
+      machines.flatMap((machine, index): RosterGroup[] => {
+        const data = results[index]?.data;
+        if (!data) return [];
+        const spade = spadeMachineOf(machine);
+        const away = !machine.client;
+        const unavailable = !away && !answering[index];
+        return data.map((group) => rosterGroup(group, spade, machine.id, away, unavailable));
+      }),
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- `results` and `answering` are keyed
+    [machines, dataKey, answerKey],
   );
   /** Some answering machine hasn't said its groups yet. */
-  const loading = results.some((result) => result.data === undefined && !result.isError);
+  const loading = results.some(
+    (result, index) => answering[index] && result.data === undefined && !result.isError,
+  );
   return { groups, loading };
+}
+
+/** A machine's group as the roster lists it; what it was doing is dropped while it can't answer. */
+function rosterGroup(
+  group: SpadeGroup,
+  machine: SpadeMachine,
+  host: string,
+  away: boolean,
+  unavailable: boolean,
+): RosterGroup {
+  const still = away || unavailable;
+  return {
+    id: group.id,
+    name: group.name,
+    lead: group.lead,
+    members: group.members,
+    conversation: group.conversation,
+    createdAt: group.createdAt,
+    updatedAt: group.updatedAt,
+    lastActivity: group.lastActivity,
+    state: still ? "idle" : group.state,
+    status: still ? undefined : group.status,
+    lastMessage: group.lastMessage,
+    machine,
+    host,
+    away,
+    unavailable,
+  };
 }
 
 /** One entry of the Spade panel: a bot, or a group. */

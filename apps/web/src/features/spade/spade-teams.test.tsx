@@ -133,6 +133,58 @@ test("Open <bot> on a group's status opens the member that waits for the person,
   await screen.findByRole("feed", { name: "Conversation with Research" });
 });
 
+/** Studio Mac with a group of its own, Drafts, led by Writer. */
+const studioWithGroup = {
+  ...studio,
+  seed: (spade: FakeSpadeApi) => {
+    studio.seed(spade);
+    spade.teams.addGroup({
+      id: "drafts",
+      name: "Drafts",
+      members: [
+        spade.teams.member("writer"),
+        { agent: "research", machine: "this-mac", name: "Research", avatar: null, away: false },
+      ],
+      state: "working",
+      status: "Writer is answering",
+    });
+  },
+};
+
+test("a group whose machine goes offline stays listed as away, with nothing to post, stop or edit", async () => {
+  const { app } = await spadeApp("/spade", team, { machines: [studioWithGroup] });
+  await userEvent.click(await (await roster()).findByRole("link", { name: /^Drafts/ }));
+  await screen.findByRole("combobox", { name: "Message Drafts" });
+  app.crashMachine("studio");
+  await waitFor(async () =>
+    expect((await (await roster()).findByRole("link", { name: /^Drafts/ })).textContent).toContain(
+      "Away · Studio Mac is offline",
+    ),
+  );
+  await screen.findByText("Studio Mac is offline. Drafts is back when it is.");
+  expect(screen.queryByRole("combobox", { name: "Message Drafts" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Stop Drafts" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "More actions" })).toBeNull();
+});
+
+test("a group whose machine's Spade stops answering stays listed as unavailable, not working", async () => {
+  const { app } = await spadeApp("/spade", team, { machines: [studioWithGroup] });
+  const row = await (await roster()).findByRole("link", { name: /^Drafts/ });
+  await waitFor(() => expect(row.textContent).toContain("Writer is answering"));
+  const daemon = app.machines.get("studio");
+  if (!daemon) throw new Error("no studio");
+  daemon.spade.status = { state: "off" };
+  await waitFor(async () =>
+    expect((await (await roster()).findByRole("link", { name: /^Drafts/ })).textContent).toContain(
+      "Unavailable · Spade isn't running on Studio Mac",
+    ),
+  );
+  await userEvent.click(await (await roster()).findByRole("link", { name: /^Drafts/ }));
+  await screen.findByText("Spade isn't running on Studio Mac. Drafts is back when it is.");
+  expect(screen.queryByRole("combobox", { name: "Message Drafts" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "More actions" })).toBeNull();
+});
+
 test("a message in a group posts to the group", async () => {
   const { spade } = await spadeApp("/spade", withGroup, { machines: [studio] });
   await openTrips();
@@ -168,6 +220,64 @@ test("New group posts its name, members of both machines and the lead", async ()
     ]),
   );
   await screen.findByRole("feed", { name: "Conversation in Trips" });
+});
+
+test("making Spade lead a group it isn't in adds Spade to the members and names it as lead", async () => {
+  const { spade } = await spadeApp(
+    "/spade",
+    (seed) => {
+      team(seed);
+      seed.teams.addGroup({
+        id: "trips",
+        name: "Trips",
+        members: [
+          seed.teams.member("research"),
+          { agent: "writer", machine: "studio", name: "Writer", avatar: null, away: false },
+        ],
+      });
+    },
+    { machines: [studio] },
+  );
+  await openTrips();
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit group" }));
+  const form = within(await screen.findByRole("dialog", { name: "Edit Trips" }));
+  await userEvent.click(form.getByRole("combobox", { name: "Lead" }));
+  await userEvent.click(await screen.findByRole("option", { name: "Spade" }));
+  await userEvent.click(form.getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(spade.sent("PATCH", "/v1/groups/trips")).toEqual([
+      {
+        members: [{ agent: "main" }, { agent: "research" }, { agent: "writer", machine: "studio" }],
+        lead: "main",
+      },
+    ]),
+  );
+});
+
+test("a group on a machine without Spade offers only that machine's bots to lead and names the lead", async () => {
+  const { others } = await spadeApp("/spade", team, { machines: [studio] });
+  await userEvent.click(await screen.findByRole("button", { name: "New group" }));
+  const form = within(await screen.findByRole("dialog", { name: "New group" }));
+  await userEvent.click(form.getByRole("combobox", { name: "Lives on" }));
+  await userEvent.click(await screen.findByRole("option", { name: "Studio Mac" }));
+  await userEvent.type(form.getByRole("textbox", { name: "Name" }), "Trips");
+  await userEvent.click(await form.findByRole("checkbox", { name: "Research on This Mac" }));
+  await userEvent.click(form.getByRole("checkbox", { name: "Writer" }));
+  await userEvent.click(form.getByRole("combobox", { name: "Lead" }));
+  const leads = await screen.findAllByRole("option");
+  expect(leads.map((option) => option.textContent)).toEqual(["Writer"]);
+  await userEvent.keyboard("{Escape}");
+  await userEvent.click(form.getByRole("button", { name: "Create group" }));
+  await waitFor(() =>
+    expect(others.get("studio")?.sent("POST", "/v1/groups")).toEqual([
+      {
+        name: "Trips",
+        members: [{ agent: "research", machine: "this-mac" }, { agent: "writer" }],
+        lead: "writer",
+      },
+    ]),
+  );
 });
 
 test("a bot's own chat labels a group's message with the group, not as the person", async () => {

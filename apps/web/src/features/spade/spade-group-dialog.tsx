@@ -19,10 +19,12 @@ import {
   choiceKey,
   groupChange,
   groupProblem,
+  hostSpade,
   leadChoices,
   newGroupBody,
   orderChoices,
   spadeLeads,
+  standingLead,
   type MemberChoice,
 } from "./group-draft.ts";
 import { SpadeFace } from "./spade-face.tsx";
@@ -100,8 +102,8 @@ export function NewGroupDialog(props: {
         />
       }
       onClose={props.onClose}
-      onSave={(name, picked, lead) =>
-        submit(newGroupBody(name, picked, lead, host?.machine.id ?? ""))
+      onSave={(name, picked, lead, spade) =>
+        submit(newGroupBody(name, picked, lead, host?.machine.id ?? "", spade))
       }
     />
   );
@@ -152,8 +154,8 @@ export function EditGroupDialog(props: {
       choices={[...choices, ...picked.filter((choice) => !choices.includes(choice))]}
       initial={{ name: group.name, picked, lead: leadIsSpade ? spadeLeads : group.lead.agent }}
       onClose={props.onClose}
-      onSave={async (name, chosen, lead) => {
-        const change = groupChange(before, newGroupBody(name, chosen, lead, group.host));
+      onSave={async (name, chosen, lead, spade) => {
+        const change = groupChange(before, newGroupBody(name, chosen, lead, group.host, spade));
         if (Object.keys(change).length > 0) await editGroup(props.client, group.id, change);
         await cache.invalidateQueries({ queryKey: groupsKey });
         props.onClose();
@@ -181,7 +183,12 @@ function GroupForm(props: {
   initial: { name: string; picked: readonly MemberChoice[]; lead: string };
   machine?: ReactNode;
   onClose(): void;
-  onSave(name: string, picked: readonly MemberChoice[], lead: string): Promise<void>;
+  onSave(
+    name: string,
+    picked: readonly MemberChoice[],
+    lead: string,
+    spade: MemberChoice | undefined,
+  ): Promise<void>;
 }) {
   const ids = { name: useId(), lead: useId() };
   const [name, setName] = useState(props.initial.name);
@@ -192,15 +199,16 @@ function GroupForm(props: {
   const ordered = orderChoices(props.choices, props.groupHost);
   // In the order the person picked them: the group keeps that order.
   const picked = keys.flatMap((key) => ordered.filter((choice) => choice.key === key));
-  const leads = leadChoices(picked, props.groupHost);
-  const leader = leads.some((choice) => choice.value === lead) ? lead : spadeLeads;
-  const blocked = groupProblem(name, picked, leader);
+  const spade = hostSpade(props.choices, props.groupHost);
+  const leads = leadChoices(picked, props.groupHost, spade);
+  const leader = standingLead(leads, lead);
+  const blocked = groupProblem(name, picked, leader, spade);
   const save = async () => {
     if (blocked) return;
     setSaving(true);
     setProblem(undefined);
     try {
-      await props.onSave(name, picked, leader);
+      await props.onSave(name, picked, leader, spade);
     } catch (error) {
       setProblem(fault(error));
     } finally {

@@ -52,7 +52,7 @@ export function SpadeSidebar() {
   const line = spadeStateLine(status, enabled);
   const roster = useSpadeRoster(line.ready);
   useOneSpade(roster.hosting);
-  const { groups } = useSpadeGroups(roster.hosts);
+  const { groups } = useSpadeGroups(roster);
   const entries = rosterEntries(roster.bots, groups);
   const open = useParams({
     strict: false,
@@ -166,6 +166,14 @@ function Row(props: { bot: RosterBot; current: boolean; now: number }) {
   );
 }
 
+/** The second line of a group's row: like a bot's, away or unavailable with its machine. */
+function groupLine(group: RosterGroup): { text: string; tone?: "working" | "needs-you" } {
+  if (group.away) return { text: `Away · ${group.machine.name} is offline` };
+  if (group.unavailable)
+    return { text: `Unavailable · Spade isn't running on ${group.machine.name}` };
+  return spadeGroupLine(group);
+}
+
 /**
  * A group's row: up to three members' faces stacked, its name and when it was last active, then
  * what it does now in its state's colour, or its latest message with who said it.
@@ -179,7 +187,7 @@ function GroupRow(props: {
   const { group } = props;
   const machines = useMachines();
   const members = shownMembers(machines, group, props.bots);
-  const line = spadeGroupLine(group);
+  const line = groupLine(group);
   return (
     <Link
       to="/spade/groups/$groupId"
@@ -189,7 +197,9 @@ function GroupRow(props: {
       data-panel-row=""
       className="flex h-14 w-full min-w-0 items-center gap-2.5 rounded-md px-2.5 text-left transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-hover aria-[current=page]:bg-active"
     >
-      <GroupFaces members={members} size={32} />
+      <span className={cn("flex shrink-0", (group.away || group.unavailable) && "opacity-45")}>
+        <GroupFaces members={members} size={32} />
+      </span>
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="flex min-w-0 items-baseline gap-2">
           <span data-view-row-title="" className="min-w-0 flex-1 truncate text-md text-foreground">

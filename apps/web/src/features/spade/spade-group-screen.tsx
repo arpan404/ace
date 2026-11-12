@@ -36,7 +36,7 @@ import { useSpadeRoster, type RosterBot } from "./use-spade-roster.ts";
 export function SpadeGroupScreen(props: { groupId: string; machine: string | undefined }) {
   const line = useSpadeLine();
   const roster = useSpadeRoster(line.ready);
-  const { groups, loading } = useSpadeGroups(roster.hosts);
+  const { groups, loading } = useSpadeGroups(roster);
   const machines = useMachines();
   const key = props.machine ?? "primary";
   const machine = machines.find((candidate) => spadeMachineKey(candidate) === key);
@@ -62,6 +62,16 @@ export function SpadeGroupScreen(props: { groupId: string; machine: string | und
         </div>
       </Screen>
     );
+  if (group.away || group.unavailable)
+    return (
+      <GroupScreen group={group} bots={roster.bots}>
+        <div className={`${readingColumn} pt-6 text-ui text-muted-foreground`}>
+          {group.away
+            ? `${machine.name} is offline. ${group.name} is back when it is.`
+            : `Spade isn't running on ${machine.name}. ${group.name} is back when it is.`}
+        </div>
+      </GroupScreen>
+    );
   return (
     <SpadeMachineScope
       machine={machine}
@@ -78,11 +88,11 @@ export function SpadeGroupScreen(props: { groupId: string; machine: string | und
   );
 }
 
-/** The screen's frame for a group: its faces and name in the top bar; Edit and Delete in ⋯. */
+/** The screen's frame for a group: its faces and name in the top bar, and its ⋯ when given. */
 function GroupScreen(props: {
   group: RosterGroup;
   bots: readonly RosterBot[];
-  menu?: boolean;
+  menu?: ReactNode;
   children: ReactNode;
 }) {
   const { group } = props;
@@ -91,15 +101,18 @@ function GroupScreen(props: {
     <Screen
       title={group.name}
       mark={<GroupFaces members={shownMembers(machines, group, props.bots)} size={20} />}
-      menu={props.menu ? <GroupMenu group={group} bots={props.bots} /> : undefined}
+      menu={props.menu}
     >
       {props.children}
     </Screen>
   );
 }
 
-function GroupMenu(props: { group: RosterGroup; bots: readonly RosterBot[] }) {
-  const { group } = props;
+/**
+ * Edit and Delete for the ⋯, and their dialogs, which live outside the menu so they stay open
+ * once it closes.
+ */
+function useGroupMenu(group: RosterGroup, bots: readonly RosterBot[]) {
   const client = useSpadeClient();
   const cache = useQueryClient();
   const navigate = useNavigate();
@@ -115,7 +128,7 @@ function GroupMenu(props: { group: RosterGroup; bots: readonly RosterBot[] }) {
       toast.error({ title: `Couldn't delete ${group.name}`, description: message(error) });
     }
   };
-  return (
+  const menu = (
     <>
       <MenuItem onClick={() => setEditing(true)}>Edit group</MenuItem>
       <MenuItem
@@ -131,10 +144,14 @@ function GroupMenu(props: { group: RosterGroup; bots: readonly RosterBot[] }) {
       >
         Delete group
       </MenuItem>
+    </>
+  );
+  const dialogs = (
+    <>
       {editing && (
         <EditGroupDialog
           group={group}
-          bots={props.bots}
+          bots={bots}
           client={client}
           onClose={() => setEditing(false)}
         />
@@ -142,6 +159,7 @@ function GroupMenu(props: { group: RosterGroup; bots: readonly RosterBot[] }) {
       <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />
     </>
   );
+  return { menu, dialogs };
 }
 
 function Conversation(props: { group: RosterGroup; bots: readonly RosterBot[] }) {
@@ -153,6 +171,7 @@ function Conversation(props: { group: RosterGroup; bots: readonly RosterBot[] })
   const machines = useMachines();
   const navigate = useNavigate();
   const members = shownMembers(machines, group, bots);
+  const actions = useGroupMenu(group, bots);
   const [stopping, setStopping] = useState(false);
   if (stopping && !view.busy) setStopping(false);
   const stop = () => {
@@ -186,7 +205,7 @@ function Conversation(props: { group: RosterGroup; bots: readonly RosterBot[] })
     };
   };
   return (
-    <GroupScreen group={group} bots={bots} menu>
+    <GroupScreen group={group} bots={bots} menu={actions.menu}>
       <div data-thread-column="" className="grid h-full min-h-0 grid-cols-1 grid-rows-1">
         <Scroller>
           {problem ? (
@@ -222,6 +241,7 @@ function Conversation(props: { group: RosterGroup; bots: readonly RosterBot[] })
           send={conversation.send}
         />
       </div>
+      {actions.dialogs}
     </GroupScreen>
   );
 }

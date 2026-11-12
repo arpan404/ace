@@ -35,28 +35,66 @@ export function orderChoices(choices: readonly MemberChoice[], groupHost: string
 /** Spade leads unless the person picks another member of the group's machine. */
 export const spadeLeads = "";
 
-/** Who may lead: members of the group's machine (Spade's choice stands for Spade). */
+/** Spade on the group's machine, when it runs there: only then can it lead or join there. */
+export function hostSpade(
+  choices: readonly MemberChoice[],
+  groupHost: string,
+): MemberChoice | undefined {
+  return choices.find((choice) => choice.main && choice.host === groupHost);
+}
+
+/**
+ * Who may lead: Spade when it runs on the group's machine, then the picked members of that
+ * machine.
+ */
 export function leadChoices(
   picked: readonly MemberChoice[],
   groupHost: string,
+  spade: MemberChoice | undefined,
 ): { value: string; label: string }[] {
-  return [
-    { value: spadeLeads, label: "Spade" },
-    ...picked
-      .filter((choice) => choice.host === groupHost && !choice.main)
-      .map((choice) => ({ value: choice.agent, label: choice.name })),
-  ];
+  const choices: { value: string; label: string }[] = [];
+  if (spade) choices.push({ value: spadeLeads, label: spade.name });
+  for (const choice of picked)
+    if (choice.host === groupHost && !choice.main)
+      choices.push({ value: choice.agent, label: choice.name });
+  return choices;
 }
 
-/** How many members the group would have: Spade joins when it leads without being picked. */
-export function memberCount(picked: readonly MemberChoice[], lead: string): number {
-  return picked.length + (lead === spadeLeads && !picked.some((choice) => choice.main) ? 1 : 0);
+/** The lead that stands: the one asked for while it may lead, else the first that may. */
+export function standingLead(leads: readonly { value: string }[], lead: string): string {
+  return leads.some((choice) => choice.value === lead) ? lead : (leads[0]?.value ?? spadeLeads);
+}
+
+/** Members as the form sends them: Spade joins, first, when it leads without being picked. */
+function withLead(
+  picked: readonly MemberChoice[],
+  lead: string,
+  spade: MemberChoice | undefined,
+): readonly MemberChoice[] {
+  if (lead !== spadeLeads || !spade || picked.some((choice) => choice.key === spade.key))
+    return picked;
+  return [spade, ...picked];
+}
+
+/** How many members the group would have, Spade counted when it leads without being picked. */
+export function memberCount(
+  picked: readonly MemberChoice[],
+  lead: string,
+  spade: MemberChoice | undefined,
+): number {
+  return withLead(picked, lead, spade).length;
 }
 
 /** Why the form can't be sent yet, in words; undefined when it can. */
-export function groupProblem(name: string, picked: readonly MemberChoice[], lead: string) {
-  const count = memberCount(picked, lead);
+export function groupProblem(
+  name: string,
+  picked: readonly MemberChoice[],
+  lead: string,
+  spade: MemberChoice | undefined,
+) {
+  const count = memberCount(picked, lead, spade);
   if (!name.trim()) return "Name the group.";
+  if (lead === spadeLeads && !spade) return "Pick a bot of the group's machine to lead.";
   if (count < spadeGroupMembersMin) return "Pick at least one more bot.";
   if (count > spadeGroupMembersMax) return `A group holds up to ${spadeGroupMembersMax} bots.`;
   return undefined;
@@ -72,22 +110,23 @@ export function memberRefs(picked: readonly MemberChoice[], groupHost: string): 
 }
 
 /**
- * The body for `POST /v1/groups`. A picked lead is sent; Spade leading needs no `lead`, unless
- * Spade was picked as a member of the group's machine, when it is named.
+ * The body for `POST /v1/groups`, and what an edit compares against. The lead is always named:
+ * Spade by its id on the group's machine, joining the members when it wasn't picked.
  */
 export function newGroupBody(
   name: string,
   picked: readonly MemberChoice[],
   lead: string,
   groupHost: string,
+  spade: MemberChoice | undefined,
 ): SpadeGroupDraft {
-  const spade = picked.find((choice) => choice.main && choice.host === groupHost);
   const leader = lead === spadeLeads ? spade?.agent : lead;
-  return {
+  const draft: SpadeGroupDraft = {
     name: name.trim(),
-    members: memberRefs(picked, groupHost),
-    ...(leader === undefined ? {} : { lead: leader }),
+    members: memberRefs(withLead(picked, lead, spade), groupHost),
   };
+  if (leader !== undefined) draft.lead = leader;
+  return draft;
 }
 
 const refKey = (ref: SpadeMemberRef) => `${ref.machine ?? ""}/${ref.agent}`;
@@ -103,9 +142,9 @@ export function groupChange(
       const other = after.members[index];
       return other !== undefined && refKey(ref) === refKey(other);
     });
-  return {
-    ...(after.name !== before.name ? { name: after.name } : {}),
-    ...(sameMembers ? {} : { members: after.members }),
-    ...(after.lead !== undefined && after.lead !== before.lead ? { lead: after.lead } : {}),
-  };
+  const change: Partial<SpadeGroupDraft> = {};
+  if (after.name !== before.name) change.name = after.name;
+  if (!sameMembers) change.members = after.members;
+  if (after.lead !== undefined && after.lead !== before.lead) change.lead = after.lead;
+  return change;
 }
