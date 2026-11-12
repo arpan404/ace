@@ -110,7 +110,7 @@ test("a stale cache shows at once, then the background refresh brings the new li
   expect(await within(hub).findByText(/updated just now/)).toBeTruthy();
 }, 30_000);
 
-test("an agent installs in place with progress, then reads Installed with Set up and joins Installed", async () => {
+test("an agent installs in place with progress, then leaves ACP agents for Installed", async () => {
   const { app, hub } = await openRegistry();
   app.daemon.services.providerInstalls.autoComplete = false;
   const row = await rowFor(hub, "kimi", "Kimi CLI");
@@ -118,14 +118,27 @@ test("an agent installs in place with progress, then reads Installed with Set up
   await within(row).findByRole("progressbar", { name: "Kimi CLI installation progress" });
   expect(within(row).getByText("Installing…")).toBeTruthy();
   app.daemon.services.providerInstalls.complete("fake-install-1");
-  expect(await within(row).findByText("Installed")).toBeTruthy();
-  expect(within(row).getByRole("link", { name: "Set up Kimi CLI" }).getAttribute("href")).toContain(
-    "/settings/providers/acp",
-  );
   const installed = screen.getByRole("region", { name: "Installed" });
   expect(
     await within(installed).findByRole("link", { name: "Kimi CLI" }, { timeout: 10_000 }),
   ).toBeTruthy();
+  await waitFor(() => expect(within(hub).queryByRole("group", { name: "Kimi CLI" })).toBeNull());
+}, 30_000);
+
+test("an agent installed from ACP agents moves to Installed and is listed once", async () => {
+  const { app, hub } = await openRegistry();
+  app.daemon.services.providerInstalls.autoComplete = false;
+  const row = await rowFor(hub, "cline", "Cline");
+  await userEvent.click(within(row).getByRole("button", { name: "Install" }));
+  await within(row).findByRole("progressbar", { name: "Cline installation progress" });
+  app.daemon.services.providerInstalls.complete("fake-install-1");
+  const installed = screen.getByRole("region", { name: "Installed" });
+  expect(
+    await within(installed).findByRole("link", { name: "Cline" }, { timeout: 10_000 }),
+  ).toBeTruthy();
+  // It leaves ACP agents, so the page names it in one group, not two.
+  await waitFor(() => expect(within(hub).queryByRole("group", { name: "Cline" })).toBeNull());
+  expect(screen.getAllByRole("group", { name: "Cline" })).toHaveLength(1);
 }, 30_000);
 
 test("cancelling an install leaves the agent available to install again", async () => {
