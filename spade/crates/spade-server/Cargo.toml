@@ -29,6 +29,8 @@ tokio-stream.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
+cap-std = "4.0.3"
+cap-fs-ext = "4.0.3"
 
 [dev-dependencies]
 keyring-core.workspace = true
@@ -48,3 +50,6 @@ tower = "0.5"
 
 [lints]
 workspace = true
+
+[target."cfg(windows)".dependencies]
+win32job = "2.1.0"

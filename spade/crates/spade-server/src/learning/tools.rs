@@ -11,7 +11,7 @@ use spade_models::ToolSpec;
 use super::{
     BODY_BYTES, DESCRIPTION_CHARS, Draft, Learning, NOTE_CHARS, Verdict, WHY_CHARS, is_slug,
 };
-use crate::tools::{EngineHandle, Tool, ToolFuture, ToolOutput, parse};
+use crate::tools::{EngineHandle, Tool, ToolFuture, ToolOutput, TurnFacts, parse};
 
 pub struct SkillPropose {
     pub learning: Arc<Learning>,
@@ -104,11 +104,16 @@ impl Tool for SkillPropose {
     }
 
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {
+        self.run_in(key, arguments, &TurnFacts::default())
+    }
+
+    fn run_in(&self, key: &str, arguments: Value, turn: &TurnFacts) -> ToolFuture {
         let (learning, agent, key) = (
             self.learning.clone(),
             self.bots.agent_for_key(key),
             key.to_owned(),
         );
+        let untrusted = turn.untrusted.clone();
         Box::pin(async move {
             let args: ProposeArgs = match parse(arguments) {
                 Ok(args) => args,
@@ -149,6 +154,7 @@ impl Tool for SkillPropose {
                 body: args.body,
                 why: args.why.trim().to_owned(),
                 base: source,
+                source: untrusted,
             };
             let stored =
                 tokio::task::spawn_blocking(move || learning.propose(&agent, &key, draft)).await;
@@ -189,7 +195,12 @@ impl Tool for SkillFeedback {
     }
 
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {
+        self.run_in(key, arguments, &TurnFacts::default())
+    }
+
+    fn run_in(&self, key: &str, arguments: Value, turn: &TurnFacts) -> ToolFuture {
         let (learning, agent) = (self.learning.clone(), self.bots.agent_for_key(key));
+        let untrusted = turn.untrusted.clone();
         Box::pin(async move {
             let args: FeedbackArgs = match parse(arguments) {
                 Ok(args) => args,
@@ -203,7 +214,13 @@ impl Tool for SkillFeedback {
             }
             let verdict = args.verdict;
             let noted = tokio::task::spawn_blocking(move || {
-                learning.note(&agent, &args.name, args.verdict, args.note.trim())
+                learning.note(
+                    &agent,
+                    &args.name,
+                    args.verdict,
+                    args.note.trim(),
+                    untrusted.as_deref(),
+                )
             })
             .await;
             match noted {

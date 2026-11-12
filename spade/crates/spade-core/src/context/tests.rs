@@ -26,6 +26,7 @@ fn step(reply: &str, text: &str, calls: &[(&str, &str)]) -> Event {
 
 fn result(reply: &str, call_id: &str, name: &str, content: &str) -> Event {
     Event::Known(Known::ToolFinished {
+        untrusted: false,
         reply: reply.into(),
         call_id: call_id.into(),
         name: name.into(),
@@ -252,6 +253,37 @@ fn a_turn_that_read_a_web_page_is_untrusted_until_the_next_turn() {
     assert!(!untrusted_turn(&events, &registry));
 }
 
+#[test]
+fn one_untrusted_result_of_a_trusted_tool_taints_the_turn_and_names_its_source() {
+    let registry = Registry::new([ToolDef {
+        spec: spade_models::ToolSpec {
+            name: "workspace_read".into(),
+            description: "Read a file".into(),
+            schema: serde_json::json!({ "type": "object" }),
+        },
+        risk: Risk::Read,
+        untrusted_output: false,
+        deferred: false,
+        background: false,
+    }]);
+    let mut events = vec![
+        Event::user_message("Read my notes"),
+        Event::reply_started("r1", "m"),
+        step("r1", "", &[("c1", "workspace_read")]),
+    ];
+    let mut read = result("r1", "c1", "workspace_read", "notes");
+    if let Event::Known(Known::ToolFinished { untrusted, .. }) = &mut read {
+        *untrusted = true;
+    }
+    let trusted = events.clone();
+    events.push(read);
+    assert!(!untrusted_turn(
+        &[trusted, vec![result("r1", "c1", "workspace_read", "notes")]].concat(),
+        &registry
+    ));
+    assert!(untrusted_turn(&events, &registry));
+}
+
 fn job_done(job: &str, name: &str, content: &str) -> Event {
     Event::Known(Known::JobFinished {
         job: job.into(),
@@ -403,6 +435,7 @@ fn images_a_tool_returned_follow_the_steps_results_before_steered_messages() {
             &[("c1", "browser_screenshot"), ("c2", "browser_read")],
         ),
         Event::Known(Known::ToolFinished {
+            untrusted: false,
             reply: "r1".into(),
             call_id: "c1".into(),
             name: "browser_screenshot".into(),

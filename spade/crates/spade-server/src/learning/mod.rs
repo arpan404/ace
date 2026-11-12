@@ -6,7 +6,7 @@
 mod tools;
 
 use std::collections::{BTreeMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -61,6 +61,20 @@ pub struct Proposal {
     pub answered_at: Option<i64>,
     /// The library's id for the skill once saved.
     pub skill_id: Option<String>,
+    /// Made in a turn that had read untrusted content: what, in a few words. The app shows it
+    /// beside Save.
+    #[serde(default)]
+    pub source: Option<String>,
+    /// A Save sent to the library whose outcome is not known yet (its answer never came). The
+    /// next answer first looks in the library for the skill before writing again.
+    #[serde(default)]
+    pub attempt: Option<Attempt>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Attempt {
+    pub id: String,
+    pub at: i64,
 }
 
 /// A new proposal, before it is stored.
@@ -70,6 +84,8 @@ pub struct Draft {
     pub body: String,
     pub why: String,
     pub base: Option<SkillSource>,
+    /// What untrusted content the turn had read, if any.
+    pub source: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -85,6 +101,10 @@ pub struct Note {
     #[serde(default)]
     pub note: String,
     pub at: i64,
+    /// Written in a turn that had read untrusted content: what. Loading the skill with this
+    /// note then counts as reading untrusted content.
+    #[serde(default)]
+    pub source: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -182,6 +202,8 @@ impl Learning {
             created_at: self.clock.now_ms(),
             answered_at: None,
             skill_id: None,
+            source: draft.source,
+            attempt: None,
         };
         self.write(&proposal)
             .map_err(|e| ProposeError::Io(e.to_string()))?;
@@ -203,13 +225,16 @@ impl Learning {
         mine
     }
 
-    /// Saves the proposal to ace's library, or discards it. A refused save leaves it open.
+    /// Saves the proposal to ace's library, or discards it. A refused save leaves it open. Only
+    /// one answer to a proposal runs at a time: it is claimed before its state is read.
     pub async fn answer(&self, agent: &str, id: &str, save: bool) -> Result<Proposal, AnswerError> {
-        let proposal = self.open_proposal(agent, id)?;
         if !lock(&self.answering).insert(id.to_owned()) {
             return Err(AnswerError::Busy);
         }
-        let answered = self.answer_open(proposal, save).await;
+        let answered = match self.open_proposal(agent, id) {
+            Ok(proposal) => self.answer_open(proposal, save).await,
+            Err(error) => Err(error),
+        };
         lock(&self.answering).remove(id);
         answered
     }
@@ -219,35 +244,94 @@ impl Learning {
         mut proposal: Proposal,
         save: bool,
     ) -> Result<Proposal, AnswerError> {
-        if save {
-            let written = match &proposal.base {
-                None => {
-                    self.library
-                        .create(&proposal.name, &proposal.description, &proposal.body)
-                        .await
-                }
-                Some(base) => {
-                    let source = SkillSource {
-                        id: base.id.clone(),
-                        name: proposal.name.clone(),
-                        description: base.description.clone(),
-                        hash: base.hash.clone(),
-                        body: base.body.clone(),
-                        manual: base.manual,
-                        editable: true,
-                    };
-                    self.library
-                        .edit(&source, &proposal.description, &proposal.body)
-                        .await
-                }
-            };
-            proposal.skill_id = Some(written.map_err(AnswerError::Library)?);
-        }
-        proposal.state = if save {
-            ProposalState::Saved
-        } else {
-            ProposalState::Discarded
+        // An earlier Save may have reached the library without its answer coming back.
+        let already = match &proposal.attempt {
+            Some(_) => self.reconcile(&proposal).await?,
+            None => None,
         };
+        if let Some(skill) = already {
+            proposal.skill_id = Some(skill);
+            return self.settle(proposal, ProposalState::Saved);
+        }
+        if !save {
+            return self.settle(proposal, ProposalState::Discarded);
+        }
+        proposal.attempt = Some(Attempt {
+            id: uuid::Uuid::new_v4().simple().to_string(),
+            at: self.clock.now_ms(),
+        });
+        {
+            let _files = lock(&self.files);
+            self.write(&proposal)
+                .map_err(|e| AnswerError::Io(e.to_string()))?;
+        }
+        let written = match &proposal.base {
+            None => {
+                self.library
+                    .create(&proposal.name, &proposal.description, &proposal.body)
+                    .await
+            }
+            Some(base) => {
+                self.library
+                    .edit(
+                        &base_source(&proposal, base),
+                        &proposal.description,
+                        &proposal.body,
+                    )
+                    .await
+            }
+        };
+        match written {
+            Ok(skill) => {
+                proposal.skill_id = Some(skill);
+                self.settle(proposal, ProposalState::Saved)
+            }
+            // A refusal means nothing was written: the attempt is over.
+            Err(
+                error @ (WriteError::Conflict(_) | WriteError::Exists(_) | WriteError::Refused(_)),
+            ) => {
+                proposal.attempt = None;
+                let _files = lock(&self.files);
+                let _ = self.write(&proposal);
+                Err(AnswerError::Library(error))
+            }
+            // Unreachable or timed out: it may have been written. The attempt stays recorded.
+            Err(error) => Err(AnswerError::Library(error)),
+        }
+    }
+
+    /// After a Save whose outcome is unknown: the skill's id when the library already holds
+    /// this proposal's skill; `None` when it doesn't and writing again is safe.
+    async fn reconcile(&self, proposal: &Proposal) -> Result<Option<String>, AnswerError> {
+        let found = self
+            .library
+            .source(&proposal.name)
+            .await
+            .map_err(|e| AnswerError::Library(WriteError::Unavailable(e)))?;
+        let same = |skill: &SkillSource| {
+            skill.description.trim() == proposal.description.trim()
+                && skill.body.trim_end() == proposal.body.trim_end()
+        };
+        match (found, &proposal.base) {
+            (Some(skill), _) if same(&skill) => Ok(Some(skill.id)),
+            (None, None) => Ok(None),
+            (Some(skill), Some(base)) if skill.hash == base.hash => Ok(None),
+            (Some(_), _) => Err(AnswerError::Library(WriteError::Conflict(
+                "the skill changed".to_owned(),
+            ))),
+            (None, Some(_)) => Err(AnswerError::Library(WriteError::Refused(
+                "the skill is no longer in the library".to_owned(),
+            ))),
+        }
+    }
+
+    fn settle(
+        &self,
+        mut proposal: Proposal,
+        state: ProposalState,
+    ) -> Result<Proposal, AnswerError> {
+        proposal.state = state;
+        proposal.attempt = None;
         proposal.answered_at = Some(self.clock.now_ms());
         let _files = lock(&self.files);
         self.write(&proposal)
@@ -267,13 +351,15 @@ impl Learning {
         Ok(proposal)
     }
 
-    /// Records the bot's latest verdict on a skill it used.
+    /// Records the bot's latest verdict on a skill it used; `source` when the turn had read
+    /// untrusted content.
     pub fn note(
         &self,
         agent: &str,
         skill: &str,
         verdict: Verdict,
         note: &str,
+        source: Option<&str>,
     ) -> Result<(), String> {
         let _files = lock(&self.files);
         let mut notes = self.read_notes(agent);
@@ -283,10 +369,11 @@ impl Learning {
                 verdict,
                 note: note.to_owned(),
                 at: self.clock.now_ms(),
+                source: source.map(str::to_owned),
             },
         );
         let text = serde_json::to_string_pretty(&notes).map_err(|e| e.to_string())?;
-        write_whole(&self.notes_file(agent), &text).map_err(|e| e.to_string())
+        crate::atomic::write_whole(&self.notes_file(agent), &text).map_err(|e| e.to_string())
     }
 
     /// The bot's note on `skill`, if it left one.
@@ -333,10 +420,23 @@ impl Learning {
 
     fn write(&self, proposal: &Proposal) -> std::io::Result<()> {
         let text = serde_json::to_string_pretty(proposal).map_err(std::io::Error::other)?;
-        write_whole(
+        crate::atomic::write_whole(
             &self.proposals_dir().join(format!("{}.json", proposal.id)),
             &text,
         )
+    }
+}
+
+/// The skill an edit proposal was made against, as the library takes it.
+fn base_source(proposal: &Proposal, base: &Base) -> SkillSource {
+    SkillSource {
+        id: base.id.clone(),
+        name: proposal.name.clone(),
+        description: base.description.clone(),
+        hash: base.hash.clone(),
+        body: base.body.clone(),
+        manual: base.manual,
+        editable: true,
     }
 }
 
@@ -359,18 +459,6 @@ fn safe(id: &str) -> String {
             }
         })
         .collect()
-}
-
-/// Writes `text` to `path` through a temporary file beside it, so a crash leaves the old file or
-/// the new one, never half of one.
-fn write_whole(path: &Path, text: &str) -> std::io::Result<()> {
-    let dir = path.parent().unwrap_or(Path::new("."));
-    std::fs::create_dir_all(dir)?;
-    let mut file = tempfile::NamedTempFile::new_in(dir)?;
-    std::io::Write::write_all(&mut file, text.as_bytes())?;
-    file.as_file().sync_all()?;
-    file.persist(path).map_err(|e| e.error)?;
-    Ok(())
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {

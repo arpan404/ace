@@ -92,6 +92,10 @@ pub enum Known {
         /// Images the tool returned (a screenshot), kept in the image store.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         images: Vec<ImageRef>,
+        /// This one result carries untrusted content although its tool usually doesn't (a
+        /// workspace file written after reading the web), so the turn is untrusted from here.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        untrusted: bool,
     },
     /// An allowed call was handed to a background job. Its `tool_finished` says so at once; the
     /// job's own result comes later as `job_finished`.

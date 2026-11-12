@@ -35,46 +35,107 @@ fn finished<'a>(events: &'a [Value], call: &str) -> Option<&'a Value> {
         .find(|e| e["type"] == "tool_finished" && e["call_id"] == call)
 }
 
+/// Answers approval `call` in `conversation`.
+async fn answer(spade: &Spade, conversation: &str, call: &str, body: Value) -> Result {
+    let (status, _) = spade
+        .post(
+            &format!("/v1/conversations/{conversation}/approvals/{call}"),
+            body,
+        )
+        .await?;
+    assert_eq!(status, 202);
+    Ok(())
+}
+
+fn asked(events: &[Value]) -> Vec<String> {
+    events
+        .iter()
+        .filter(|e| e["type"] == "approval_requested")
+        .map(|e| e["call_id"].as_str().unwrap_or_default().to_owned())
+        .collect()
+}
+
 #[cfg(unix)]
 #[tokio::test]
-async fn a_read_only_command_runs_at_once_and_any_other_asks_first() -> Result {
+async fn every_command_asks_first_even_one_that_only_reads() -> Result {
     let dir = tempfile::tempdir()?;
     let workspaces = Workspaces::new(dir.path());
     let spade = start(
         vec![
             Script::reply("").call("c1", "shell", json!({ "command": "ls -a" })),
-            Script::reply("").call("c2", "shell", json!({ "command": "touch made.txt" })),
             Script::reply("Okay, I won't."),
         ],
         &workspaces,
     )
     .await?;
-    let (bot_id, conversation) = bot(&spade).await?;
-    spade.say(&conversation, "Look, then make a file").await?;
+    let (_, conversation) = bot(&spade).await?;
+    spade.say(&conversation, "Look around").await?;
     let events = spade.wait_for(&conversation, "approval_requested").await?;
-    let asked: Vec<&Value> = events
-        .iter()
-        .filter(|e| e["type"] == "approval_requested")
-        .collect();
-    assert_eq!(asked.len(), 1);
-    assert_eq!(
-        asked[0]["call_id"], "c2",
-        "only the command that writes asks"
-    );
-    let listed = finished(&events, "c1").ok_or("ls never ran")?;
-    assert_eq!(listed["is_error"], false, "{listed}");
-
-    let (status, _) = spade
-        .post(
-            &format!("/v1/conversations/{conversation}/approvals/c2"),
-            json!({ "allowed": false }),
-        )
-        .await?;
-    assert_eq!(status, 202);
-    spade.wait_for(&conversation, "reply_finished").await?;
-    let root = workspaces.of(&bot_id)?.root()?;
+    assert_eq!(asked(&events), vec!["c1"]);
     assert!(
-        !root.join("made.txt").exists(),
+        finished(&events, "c1").is_none(),
+        "nothing ran before the answer"
+    );
+    answer(&spade, &conversation, "c1", json!({ "allowed": false })).await?;
+    spade.wait_for(&conversation, "reply_finished").await?;
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn always_allows_that_exact_command_and_no_other() -> Result {
+    let dir = tempfile::tempdir()?;
+    let workspaces = Workspaces::new(dir.path());
+    let spade = start(
+        vec![
+            Script::reply("").call("c1", "shell", json!({ "command": "touch one.txt" })),
+            Script::reply("Made it."),
+            // The title, asked for after the first turn.
+            Script::reply("").plain(r#"{"title":"Files"}"#),
+            // A later turn: the same command runs at once; another command asks.
+            Script::reply("").call("c2", "shell", json!({ "command": "touch one.txt" })),
+            Script::reply("Again."),
+            Script::reply("").call("c3", "shell", json!({ "command": "touch two.txt" })),
+            Script::reply("Okay."),
+        ],
+        &workspaces,
+    )
+    .await?;
+    let (bot_id, conversation) = bot(&spade).await?;
+    spade.say(&conversation, "Make a file").await?;
+    spade.wait_for(&conversation, "approval_requested").await?;
+    answer(
+        &spade,
+        &conversation,
+        "c1",
+        json!({ "allowed": true, "always": true }),
+    )
+    .await?;
+    spade.wait_for(&conversation, "renamed").await?;
+
+    spade.say(&conversation, "Make it again").await?;
+    let events = spade
+        .wait_for_count(&conversation, "reply_finished", 2)
+        .await?;
+    assert_eq!(asked(&events), vec!["c1"], "{:?}", types(&events));
+    assert_eq!(
+        finished(&events, "c2").map(|e| e["is_error"].clone()),
+        Some(json!(false))
+    );
+
+    spade.say(&conversation, "Make another").await?;
+    let events = spade
+        .wait_for_count(&conversation, "approval_requested", 2)
+        .await?;
+    assert_eq!(asked(&events), vec!["c1", "c3"]);
+    answer(&spade, &conversation, "c3", json!({ "allowed": false })).await?;
+    spade
+        .wait_for_count(&conversation, "reply_finished", 3)
+        .await?;
+    let root = workspaces.of(&bot_id)?.path()?;
+    assert!(root.join("one.txt").exists());
+    assert!(
+        !root.join("two.txt").exists(),
         "a declined command never runs"
     );
     Ok(())
@@ -82,35 +143,55 @@ async fn a_read_only_command_runs_at_once_and_any_other_asks_first() -> Result {
 
 #[cfg(unix)]
 #[tokio::test]
-async fn allowing_a_command_always_lets_the_bots_later_commands_run() -> Result {
+async fn a_program_the_bot_planted_in_its_folder_is_never_found_by_name() -> Result {
+    use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir()?;
-    let workspaces = Workspaces::new(dir.path());
-    let spade = start(
-        vec![
-            Script::reply("").call("c1", "shell", json!({ "command": "touch one.txt" })),
-            Script::reply("").call("c2", "shell", json!({ "command": "touch two.txt" })),
-            Script::reply("Both made."),
-        ],
-        &workspaces,
-    )
-    .await?;
-    let (bot_id, conversation) = bot(&spade).await?;
-    spade.say(&conversation, "Make two files").await?;
-    spade.wait_for(&conversation, "approval_requested").await?;
-    spade
-        .post(
-            &format!("/v1/conversations/{conversation}/approvals/c1"),
-            json!({ "allowed": true, "always": true }),
+    std::fs::create_dir_all(dir.path().join("bin"))?;
+    for planted in [dir.path().join("ls"), dir.path().join("bin/ls")] {
+        std::fs::write(&planted, "#!/bin/sh\necho planted\n")?;
+        std::fs::set_permissions(&planted, std::fs::Permissions::from_mode(0o755))?;
+    }
+    // Spade's own PATH, as a careless setup might have it: the current folder, an empty entry
+    // and a folder inside the workspace.
+    let workspace_bin = dir.path().join("bin").to_string_lossy().into_owned();
+    let env: spade_server::workspace::shell::Env = Arc::new(move |name: &str| {
+        (name == "PATH").then(|| format!(".:{workspace_bin}::/usr/bin:/bin"))
+    });
+    let shell = Shell::new(env);
+    let path = shell
+        .environment(dir.path())
+        .into_iter()
+        .find(|(name, _)| name == "PATH")
+        .map(|(_, value)| value)
+        .unwrap_or_default();
+    for part in path.split(':') {
+        assert!(part.starts_with('/'), "{path}");
+        assert!(!part.starts_with(&*dir.path().to_string_lossy()), "{path}");
+    }
+    let ran = shell.run(dir.path(), "ls", Duration::from_secs(10)).await?;
+    assert!(!ran.stdout.contains("planted"), "{ran:?}");
+    assert!(ran.stdout.contains("bin"), "{ran:?}");
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn output_read_before_a_lingering_process_is_kept() -> Result {
+    let dir = tempfile::tempdir()?;
+    // A process that leaves the group keeps stdout open past the command's end.
+    let ran = Shell::system()
+        .run(
+            dir.path(),
+            "echo first; perl -e 'setpgrp(0,0); print STDERR $$, \"\\n\"; sleep 30' 2> escaped.pid & sleep 1",
+            Duration::from_secs(10),
         )
         .await?;
-    let events = spade.wait_for(&conversation, "reply_finished").await?;
-    let asks = events
-        .iter()
-        .filter(|e| e["type"] == "approval_requested")
-        .count();
-    assert_eq!(asks, 1, "{:?}", types(&events));
-    let root = workspaces.of(&bot_id)?.root()?;
-    assert!(root.join("one.txt").exists() && root.join("two.txt").exists());
+    let escaped = std::fs::read_to_string(dir.path().join("escaped.pid")).unwrap_or_default();
+    let _ = std::process::Command::new("/bin/kill")
+        .args(["-KILL", escaped.trim()])
+        .status();
+    assert!(ran.stdout.contains("first"), "{ran:?}");
+    assert!(ran.cut, "the run says some output may be missing");
     Ok(())
 }
 
@@ -223,10 +304,12 @@ async fn output_too_large_for_the_model_is_kept_as_a_file_it_can_read() -> Resul
     )
     .await?;
     let (bot_id, conversation) = bot(&spade).await?;
-    let root = workspaces.of(&bot_id)?.root()?;
+    let root = workspaces.of(&bot_id)?.path()?;
     let big: String = (0..4_000).map(|n| format!("line {n:05}\n")).collect();
     std::fs::write(root.join("big.txt"), &big)?;
     spade.say(&conversation, "Show the big file").await?;
+    spade.wait_for(&conversation, "approval_requested").await?;
+    answer(&spade, &conversation, "c1", json!({ "allowed": true })).await?;
     let events = spade.wait_for(&conversation, "reply_finished").await?;
     let content = finished(&events, "c1")
         .and_then(|e| e["content"].as_str())

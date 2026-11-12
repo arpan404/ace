@@ -1,15 +1,25 @@
 //! Each bot's workspace (ADR 0130): a folder under Spade's data folder, `workspace/<bot id>/`,
-//! with file tools bounded to it and a shell that runs there. Paths are always relative to the
-//! folder; anything that resolves outside it, after following symlinks, is refused.
+//! with file tools bounded to it and a shell that runs there.
+//!
+//! Every file operation goes through the workspace's opened directory handle (`cap-std`), one
+//! component at a time relative to it, so a path, a symlink or a folder swapped mid-operation can
+//! never reach outside. Paths are relative; absolute paths, `~` and `..` are refused up front.
+//! Writes go to a temporary file beside the target and are renamed over it, never truncated in
+//! place, and a file with more than one hard link is never written.
 
-pub mod allow;
 mod files;
 pub mod shell;
+pub mod taint;
 mod tools;
 
 use std::path::{Component, Path, PathBuf};
 
+use cap_fs_ext::DirExt;
+use cap_std::ambient_authority;
+use cap_std::fs::Dir;
+
 pub use files::{Entry, EntryKind, FileView, Listing};
+pub use taint::Taint;
 pub use tools::{
     ShellTool, WorkspaceEdit, WorkspaceList, WorkspaceRead, WorkspaceSearch, WorkspaceWrite,
     tools as workspace_tools,
@@ -19,6 +29,9 @@ pub use tools::{
 pub const LARGE_OUTPUT_CHARS: usize = 16_000;
 /// Where large outputs go, inside a workspace.
 pub const OUTPUTS: &str = ".spade/outputs";
+/// Where each bot's taint record is kept, inside the workspaces' root (outside every bot's own
+/// folder; bot ids never start with a dot).
+const TAINT_DIR: &str = ".taint";
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum PathError {
@@ -34,6 +47,17 @@ pub enum PathError {
     Io(String),
 }
 
+impl PathError {
+    /// An I/O error on `relative`, in words: a path cap-std refused as escaping is `Outside`.
+    fn at(relative: &str, error: std::io::Error) -> Self {
+        match error.kind() {
+            std::io::ErrorKind::NotFound => Self::Missing(relative.to_owned()),
+            std::io::ErrorKind::PermissionDenied => Self::Outside(relative.to_owned()),
+            _ => Self::Io(format!("{relative}: {error}")),
+        }
+    }
+}
+
 impl From<std::io::Error> for PathError {
     fn from(error: std::io::Error) -> Self {
         Self::Io(error.to_string())
@@ -44,11 +68,16 @@ impl From<std::io::Error> for PathError {
 #[derive(Debug, Clone)]
 pub struct Workspaces {
     root: PathBuf,
+    /// Held while a taint record is read and written.
+    taint_lock: std::sync::Arc<std::sync::Mutex<()>>,
 }
 
 impl Workspaces {
     pub fn new(root: impl Into<PathBuf>) -> Self {
-        Self { root: root.into() }
+        Self {
+            root: root.into(),
+            taint_lock: std::sync::Arc::default(),
+        }
     }
 
     /// The bot's workspace. Its folder is created on first use; `bot` must be an id Spade made.
@@ -61,15 +90,27 @@ impl Workspaces {
             return Err(PathError::Io(format!("{bot} is not a bot id")));
         }
         Ok(Workspace {
-            dir: self.root.join(bot),
+            root: self.root.clone(),
+            bot: bot.to_owned(),
+            taint: Taint::new(
+                self.root.join(TAINT_DIR).join(format!("{bot}.json")),
+                self.taint_lock.clone(),
+            ),
         })
     }
 
-    /// Deletes the bot's workspace and everything in it, if it has one.
+    /// Deletes the bot's workspace, everything in it and its taint record.
     pub fn remove(&self, bot: &str) -> Result<(), PathError> {
         let workspace = self.of(bot)?;
-        match std::fs::remove_dir_all(&workspace.dir) {
-            Ok(()) => Ok(()),
+        workspace.taint.forget();
+        let root = match Dir::open_ambient_dir(&self.root, ambient_authority()) {
+            Ok(root) => root,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error.into()),
+        };
+        match root.symlink_metadata(bot) {
+            Ok(meta) if meta.is_dir() => Ok(root.remove_dir_all(bot)?),
+            Ok(_) => Ok(root.remove_file(bot)?),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(error) => Err(error.into()),
         }
@@ -79,90 +120,54 @@ impl Workspaces {
 /// One bot's folder.
 #[derive(Debug, Clone)]
 pub struct Workspace {
-    dir: PathBuf,
+    root: PathBuf,
+    bot: String,
+    taint: Taint,
 }
 
 impl Workspace {
-    /// The folder, created if missing, with symlinks resolved.
-    pub fn root(&self) -> Result<PathBuf, PathError> {
-        std::fs::create_dir_all(&self.dir)?;
-        Ok(std::fs::canonicalize(&self.dir)?)
-    }
-
-    /// The real path of `relative`, which must exist and lie inside the workspace.
-    pub fn existing(&self, relative: &str) -> Result<PathBuf, PathError> {
-        let root = self.root()?;
-        let joined = root.join(clean(relative)?);
-        let real = match std::fs::canonicalize(&joined) {
-            Ok(real) => real,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Err(PathError::Missing(relative.to_owned()));
-            }
+    /// The folder, opened as a handle every operation is relative to; created if missing. A
+    /// symlink in the folder's own place is refused.
+    pub fn dir(&self) -> Result<Dir, PathError> {
+        std::fs::create_dir_all(&self.root)?;
+        let root = Dir::open_ambient_dir(&self.root, ambient_authority())?;
+        match root.create_dir(&self.bot) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
             Err(error) => return Err(error.into()),
-        };
-        inside(&root, &real, relative)?;
-        Ok(real)
+        }
+        root.open_dir_nofollow(&self.bot)
+            .map_err(|_| PathError::Outside(self.bot.clone()))
     }
 
-    /// Where a file at `relative` would be written: its folders are created, and the folder and
-    /// any existing file (or link) at the path must resolve inside the workspace.
-    pub fn writable(&self, relative: &str) -> Result<PathBuf, PathError> {
-        let root = self.root()?;
-        let cleaned = clean(relative)?;
-        let Some(name) = cleaned.file_name().map(ToOwned::to_owned) else {
-            return Err(PathError::Io("give a file name".to_owned()));
-        };
-        let parent = root.join(cleaned.parent().unwrap_or(Path::new("")));
-        // Each existing folder on the way is checked before anything is created under it.
-        let mut at = root.clone();
-        for part in cleaned.parent().unwrap_or(Path::new("")).components() {
-            at.push(part);
-            match std::fs::symlink_metadata(&at) {
-                Ok(_) => {
-                    let real = std::fs::canonicalize(&at)?;
-                    inside(&root, &real, relative)?;
-                    at = real;
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                    std::fs::create_dir(&at)?;
-                }
-                Err(error) => return Err(error.into()),
-            }
-        }
-        let folder = std::fs::canonicalize(&parent)?;
-        inside(&root, &folder, relative)?;
-        let target = folder.join(name);
-        if std::fs::symlink_metadata(&target).is_ok() {
-            let real = std::fs::canonicalize(&target)
-                .map_err(|_| PathError::Outside(relative.to_owned()))?;
-            inside(&root, &real, relative)?;
-            return Ok(real);
-        }
-        Ok(target)
+    /// The folder's path, for the shell's working directory. Checked to be a real folder.
+    pub fn path(&self) -> Result<PathBuf, PathError> {
+        self.dir()?;
+        Ok(self.root.join(&self.bot))
     }
 
-    /// `path` (inside the workspace) as the model and the person see it: relative, with `/`.
-    pub fn shown(&self, path: &Path) -> String {
-        let root = self.root().unwrap_or_else(|_| self.dir.clone());
-        path.strip_prefix(&root)
-            .unwrap_or(path)
-            .components()
-            .map(|c| c.as_os_str().to_string_lossy().into_owned())
-            .collect::<Vec<_>>()
-            .join("/")
+    /// `relative` as the tools and the taint record name it, or why it is refused.
+    pub fn normal(&self, relative: &str) -> Result<String, PathError> {
+        clean(relative).map(|path| shown(&path))
+    }
+
+    /// What this bot's workspace knows about untrusted content.
+    pub fn taint(&self) -> &Taint {
+        &self.taint
     }
 
     /// Keeps a long result as a file and answers what the model is shown instead: the head, the
-    /// tail and the file's path. Short text comes back as it is.
-    pub fn keep_large(&self, name: &str, text: &str) -> String {
+    /// tail and the file's path. Short text comes back as it is. A kept file marked with
+    /// `untrusted` carries that source.
+    pub fn keep_large(&self, name: &str, text: &str, untrusted: Option<&str>) -> String {
         let count = text.chars().count();
         if count <= LARGE_OUTPUT_CHARS {
             return text.to_owned();
         }
         let file = format!("{OUTPUTS}/{name}.txt");
-        let kept = self
-            .writable(&file)
-            .and_then(|path| std::fs::write(&path, text).map_err(PathError::from));
+        let kept = self.write(&file, text).map(|_| {
+            self.taint.record_write(&file, text.as_bytes(), untrusted);
+        });
         let part = LARGE_OUTPUT_CHARS * 3 / 8;
         let head: String = text.chars().take(part).collect();
         let tail: String = text.chars().skip(count - part).collect();
@@ -201,12 +206,12 @@ fn clean(relative: &str) -> Result<PathBuf, PathError> {
     Ok(out)
 }
 
-fn inside(root: &Path, real: &Path, relative: &str) -> Result<(), PathError> {
-    if real.starts_with(root) {
-        Ok(())
-    } else {
-        Err(PathError::Outside(relative.to_owned()))
-    }
+/// A cleaned path as the model and the person see it: relative, with `/`.
+fn shown(path: &Path) -> String {
+    path.components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 #[cfg(test)]
@@ -227,6 +232,7 @@ mod tests {
         let all = Workspaces::new("/tmp/nowhere");
         assert!(all.of("../a_1").is_err());
         assert!(all.of("a/b").is_err());
+        assert!(all.of(".taint").is_err());
         assert!(all.of("a_1").is_ok());
     }
 }

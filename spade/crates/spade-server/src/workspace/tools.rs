@@ -11,8 +11,8 @@ use spade_core::tools::{Risk, ToolDef};
 use spade_models::ToolSpec;
 
 use super::shell::{Ran, Shell};
-use super::{PathError, Workspace, Workspaces, allow};
-use crate::tools::{EngineHandle, Tool, ToolFuture, ToolOutput, parse};
+use super::{PathError, Workspace, Workspaces, taint};
+use crate::tools::{EngineHandle, Tool, ToolFuture, ToolOutput, TurnFacts, parse};
 
 /// The shell's deadline when the model names none, and the longest it may name: inside the
 /// harness's own 120 s tool limit, so the shell reports a timeout itself.
@@ -52,6 +52,16 @@ pub fn tools(all: Workspaces, bots: EngineHandle, shell: Shell) -> Vec<Arc<dyn T
 }
 
 fn def(name: &str, description: &str, schema: Value, risk: Risk) -> ToolDef {
+    shown_def(name, description, schema, risk, false)
+}
+
+fn shown_def(
+    name: &str,
+    description: &str,
+    schema: Value,
+    risk: Risk,
+    untrusted_output: bool,
+) -> ToolDef {
     ToolDef {
         spec: ToolSpec {
             name: name.to_owned(),
@@ -59,7 +69,7 @@ fn def(name: &str, description: &str, schema: Value, risk: Risk) -> ToolDef {
             schema,
         },
         risk,
-        untrusted_output: false,
+        untrusted_output,
         deferred: false,
         background: false,
     }
@@ -99,6 +109,15 @@ struct ListArgs {
     path: String,
 }
 
+/// A result, marked untrusted when it shows content from `source`.
+fn marked(output: ToolOutput, source: Option<String>) -> ToolOutput {
+    if source.is_some() {
+        output.untrusted()
+    } else {
+        output
+    }
+}
+
 impl Tool for WorkspaceList {
     fn def(&self) -> ToolDef {
         def(
@@ -117,6 +136,8 @@ impl Tool for WorkspaceList {
         };
         blocking(&self.0, key, move |workspace| {
             let listing = workspace.list(&args.path)?;
+            // Names of untrusted files are untrusted too.
+            let source = workspace.taint().any_under(&listing.path);
             if listing.entries.is_empty() {
                 return Ok(ToolOutput::ok("The folder is empty."));
             }
@@ -132,7 +153,7 @@ impl Tool for WorkspaceList {
             if listing.truncated {
                 lines.push(format!("[Only the first {} shown.]", lines.len()));
             }
-            Ok(ToolOutput::ok(lines.join("\n")))
+            Ok(marked(ToolOutput::ok(lines.join("\n")), source))
         })
     }
 }
@@ -169,12 +190,18 @@ impl Tool for WorkspaceRead {
             Err(output) => return Box::pin(async move { output }),
         };
         blocking(&self.0, key, move |workspace| {
-            let text = workspace.read_window(
-                &args.path,
+            let path = workspace.normal(&args.path)?;
+            let text = workspace.text(&path)?;
+            let source = workspace
+                .taint()
+                .source_of(&path, &taint::hash(text.as_bytes()));
+            let window = super::files::window(
+                &path,
+                &text,
                 args.offset.unwrap_or(1),
                 args.limit.unwrap_or(super::files::READ_LINES),
-            )?;
-            Ok(ToolOutput::ok(text))
+            );
+            Ok(marked(ToolOutput::ok(window), source))
         })
     }
 }
@@ -212,7 +239,12 @@ impl Tool for WorkspaceSearch {
         let name = output_name(key);
         blocking(&self.0, key, move |workspace| {
             let found = workspace.search(&args.path, &args.text, args.ignore_case)?;
-            Ok(ToolOutput::ok(workspace.keep_large(&name, &found)))
+            let source = found
+                .files
+                .iter()
+                .find_map(|(path, hash)| workspace.taint().source_of(path, hash));
+            let shown = workspace.keep_large(&name, &found.text, source.as_deref());
+            Ok(marked(ToolOutput::ok(shown), source))
         })
     }
 }
@@ -240,16 +272,22 @@ impl Tool for WorkspaceWrite {
     }
 
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {
+        self.run_in(key, arguments, &TurnFacts::default())
+    }
+
+    fn run_in(&self, key: &str, arguments: Value, turn: &TurnFacts) -> ToolFuture {
         let args: WriteArgs = match parse(arguments) {
             Ok(args) => args,
             Err(output) => return Box::pin(async move { output }),
         };
+        let untrusted = turn.untrusted.clone();
         blocking(&self.0, key, move |workspace| {
-            let bytes = workspace.write(&args.path, &args.content)?;
-            Ok(ToolOutput::ok(format!(
-                "Wrote {bytes} bytes to {}.",
-                args.path
-            )))
+            let path = workspace.normal(&args.path)?;
+            let bytes = workspace.write(&path, &args.content)?;
+            workspace
+                .taint()
+                .record_write(&path, args.content.as_bytes(), untrusted.as_deref());
+            Ok(ToolOutput::ok(format!("Wrote {bytes} bytes to {path}.")))
         })
     }
 }
@@ -279,13 +317,25 @@ impl Tool for WorkspaceEdit {
     }
 
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {
+        self.run_in(key, arguments, &TurnFacts::default())
+    }
+
+    fn run_in(&self, key: &str, arguments: Value, turn: &TurnFacts) -> ToolFuture {
         let args: EditArgs = match parse(arguments) {
             Ok(args) => args,
             Err(output) => return Box::pin(async move { output }),
         };
+        let untrusted = turn.untrusted.clone();
         blocking(&self.0, key, move |workspace| {
-            workspace.edit(&args.path, &args.old, &args.new)?;
-            Ok(ToolOutput::ok(format!("Changed {}.", args.path)))
+            let path = workspace.normal(&args.path)?;
+            let (before, after) = workspace.edit(&path, &args.old, &args.new)?;
+            workspace.taint().record_edit(
+                &path,
+                before.as_bytes(),
+                after.as_bytes(),
+                untrusted.as_deref(),
+            );
+            Ok(ToolOutput::ok(format!("Changed {path}.")))
         })
     }
 }
@@ -304,22 +354,32 @@ struct ShellArgs {
 
 impl Tool for ShellTool {
     fn def(&self) -> ToolDef {
-        def(
+        shown_def(
             "shell",
             "Runs a shell command in your workspace folder (sh on macOS and Linux, cmd on \
              Windows) and answers its output. Stops it after timeout_s seconds (60 unless given, \
-             110 at most). The person is asked first unless it only reads.",
+             110 at most). The person is asked before every command they have not allowed \
+             always. To read files, use workspace_read and workspace_search instead.",
             json!({ "type": "object",
                     "properties": { "command": { "type": "string" },
                                     "timeout_s": { "type": "integer", "minimum": 1, "maximum": 110 } },
                     "required": ["command"] }),
             Risk::Write,
+            // A command can bring in anything: its output, and every file it changes, is
+            // untrusted.
+            true,
         )
     }
 
-    fn risk_of(&self, arguments: &Value) -> Option<Risk> {
-        let command = arguments.get("command").and_then(Value::as_str)?;
-        allow::reads_only(command).then_some(Risk::Read)
+    /// "Always" allows this exact command, nothing like it.
+    fn always_scope(&self, arguments: &Value) -> Option<String> {
+        Some(
+            arguments
+                .get("command")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+        )
     }
 
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {
@@ -335,7 +395,7 @@ impl Tool for ShellTool {
                 Ok(workspace) => workspace,
                 Err(output) => return output,
             };
-            let dir = match workspace.root() {
+            let dir = match workspace.path() {
                 Ok(dir) => dir,
                 Err(error) => return ToolOutput::error(error.to_string()),
             };
@@ -343,15 +403,25 @@ impl Tool for ShellTool {
                 .timeout_s
                 .map_or(SHELL_TIMEOUT, Duration::from_secs)
                 .clamp(Duration::from_secs(1), LONGEST_SHELL);
-            let ran = match shell.run(&dir, &args.command, timeout).await {
-                Ok(ran) => ran,
-                Err(error) => return ToolOutput::error(error),
+            let started = std::time::SystemTime::now();
+            let ran = shell.run(&dir, &args.command, timeout).await;
+            let source = format!("the output of `{}`", args.command);
+            let failed = ran
+                .as_ref()
+                .map_or(true, |ran| ran.timed_out || ran.code != Some(0));
+            let text = match &ran {
+                Ok(ran) => describe(ran, timeout),
+                Err(error) => error.clone(),
             };
-            let failed = ran.timed_out || ran.code != Some(0);
-            let text = describe(&ran, timeout);
-            let shown = tokio::task::spawn_blocking(move || workspace.keep_large(&name, &text))
-                .await
-                .unwrap_or_else(|_| "The output could not be read.".to_owned());
+            // Everything the command changed holds whatever it brought in.
+            let shown = tokio::task::spawn_blocking(move || {
+                for (path, hash) in workspace.changed_since(started) {
+                    workspace.taint().mark(&path, &hash, &source);
+                }
+                workspace.keep_large(&name, &text, Some(&source))
+            })
+            .await
+            .unwrap_or_else(|_| "The output could not be read.".to_owned());
             if failed {
                 ToolOutput::error(shown)
             } else {
@@ -384,7 +454,9 @@ fn describe(ran: &Ran, timeout: Duration) -> String {
         text.push_str(&ran.stderr);
     }
     if ran.cut {
-        text.push_str("\n[Output past 4 MiB was dropped.]");
+        text.push_str(
+            "\n[Some output was dropped: past 4 MiB, or still coming when the command ended.]",
+        );
     }
     text
 }

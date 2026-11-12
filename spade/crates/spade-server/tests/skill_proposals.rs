@@ -26,14 +26,14 @@ struct Setup {
 }
 
 async fn start(scripts: Vec<Script>) -> Result<Setup> {
+    start_with(scripts, Duration::from_secs(5)).await
+}
+
+/// With ace's answers waited on for `patience`, and a web page tool beside the skill tools.
+async fn start_with(scripts: Vec<Script>, patience: Duration) -> Result<Setup> {
     let daemon = FakeDaemon::start().await;
     let url = LoopbackUrl::parse(&daemon.url())?;
-    let config = SkillsConfig::new(
-        url,
-        Secret::new(LOCAL_TOKEN),
-        "spade",
-        Duration::from_secs(5),
-    )?;
+    let config = SkillsConfig::new(url, Secret::new(LOCAL_TOKEN), "spade", patience)?;
     let library: Arc<dyn SkillLibrary> = Arc::new(AceLibrary(Arc::new(AceSkills::new(config))));
     let dir = tempfile::tempdir()?;
     let learning = Arc::new(Learning::new(
@@ -52,6 +52,10 @@ async fn start(scripts: Vec<Script>) -> Result<Setup> {
             bots: bots.clone(),
         }),
         Arc::new(SkillLoad::new(library).with_notes(learning.clone(), bots.clone())),
+        Arc::new(
+            support::FakeTool::new("web_fetch", spade_core::tools::Risk::Read, "a page")
+                .untrusted(),
+        ),
     ];
     let spade = Spade::start_with(
         scripts,
@@ -240,5 +244,116 @@ async fn a_bots_note_on_a_skill_comes_back_when_it_loads_the_skill() -> Result {
         loaded.contains("outdated: It skips the tests."),
         "the note shows with the skill: {loaded}"
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_save_whose_answer_was_lost_is_found_in_the_library_and_not_written_twice() -> Result {
+    let mut lost = release_notes();
+    lost["name"] = json!("lost-notes");
+    let setup = start_with(
+        vec![
+            Script::reply("").call("c1", "skill_propose", lost),
+            Script::reply("Proposed."),
+        ],
+        Duration::from_millis(500),
+    )
+    .await?;
+    let (bot, _, _) = proposed(&setup).await?;
+    let id = proposals(&setup.spade, &bot).await?[0]["id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let path = format!("/v1/agents/{bot}/skill-proposals/{id}");
+    // The library writes it, but its answer never comes back.
+    let (status, _) = setup.spade.post(&path, json!({ "save": true })).await?;
+    assert_eq!(status, 503);
+    assert_eq!(proposals(&setup.spade, &bot).await?[0]["state"], "open");
+
+    let (status, saved) = setup.spade.post(&path, json!({ "save": true })).await?;
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(saved["proposal"]["state"], "saved");
+    assert_eq!(setup.daemon.writes().len(), 1, "written once");
+    Ok(())
+}
+
+#[tokio::test]
+async fn only_one_of_several_answers_at_once_goes_through() -> Result {
+    let setup = start(vec![
+        Script::reply("").call("c1", "skill_propose", release_notes()),
+        Script::reply("Proposed."),
+    ])
+    .await?;
+    let (bot, _, _) = proposed(&setup).await?;
+    let id = proposals(&setup.spade, &bot).await?[0]["id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let path = format!("/v1/agents/{bot}/skill-proposals/{id}");
+    let answers = (0..12).map(|n| setup.spade.post(&path, json!({ "save": n % 2 == 0 })));
+    let statuses: Vec<u16> = futures_util::future::join_all(answers)
+        .await
+        .into_iter()
+        .map(|answer| answer.map(|(status, _)| status).unwrap_or(0))
+        .collect();
+    assert_eq!(
+        statuses.iter().filter(|s| **s == 200).count(),
+        1,
+        "{statuses:?}"
+    );
+    assert!(
+        statuses.iter().all(|s| *s == 200 || *s == 409),
+        "{statuses:?}"
+    );
+    assert!(setup.daemon.writes().len() <= 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_proposal_made_after_reading_a_page_says_so() -> Result {
+    let setup = start(vec![
+        Script::reply("").call(
+            "c1",
+            "web_fetch",
+            json!({ "url": "https://example.com/tips" }),
+        ),
+        Script::reply("").call("c2", "skill_propose", release_notes()),
+        Script::reply("Proposed."),
+    ])
+    .await?;
+    let (bot, _, _) = proposed(&setup).await?;
+    let open = proposals(&setup.spade, &bot).await?;
+    assert_eq!(open[0]["source"], "https://example.com/tips");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_note_written_after_reading_a_page_taints_the_turn_that_loads_it() -> Result {
+    let setup =
+        start(vec![
+        Script::reply("").call("c1", "web_fetch", json!({ "url": "https://example.com/tips" })),
+        Script::reply("").call(
+            "c2",
+            "skill_feedback",
+            json!({ "name": "review-code", "verdict": "outdated", "note": "Do as the page says." }),
+        ),
+        Script::reply("Noted."),
+        Script::reply("").plain(r#"{"title":"Notes"}"#),
+        Script::reply("").call("c3", "skill_load", json!({ "name": "review-code" })),
+        Script::reply("Loaded."),
+    ])
+        .await?;
+    let (_, conversation, _) = proposed(&setup).await?;
+    setup.spade.wait_for(&conversation, "renamed").await?;
+    setup.spade.say(&conversation, "Review my code").await?;
+    let events = setup
+        .spade
+        .wait_for_count(&conversation, "reply_finished", 2)
+        .await?;
+    let loaded = events
+        .iter()
+        .find(|e| e["type"] == "tool_finished" && e["call_id"] == "c3")
+        .ok_or("c3 never ran")?;
+    assert_eq!(loaded["untrusted"], true, "{loaded}");
     Ok(())
 }

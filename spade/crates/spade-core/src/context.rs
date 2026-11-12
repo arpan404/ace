@@ -519,6 +519,12 @@ fn ends_with_spade_text(out: &[Message], text: &str) -> bool {
 /// Whether the open turn has read output from a tool whose output can carry instructions from
 /// strangers. The turn includes what started it: a background job's result can open a turn.
 pub fn untrusted_turn(events: &[Event], registry: &Registry) -> bool {
+    !untrusted_sources(events, registry).is_empty()
+}
+
+/// What made the open turn untrusted, in a few words each ("https://example.com/page", "a
+/// message from Research"), oldest first; empty when nothing did.
+pub fn untrusted_sources(events: &[Event], registry: &Registry) -> Vec<String> {
     let start = events
         .iter()
         .rposition(|e| matches!(e, Event::Known(Known::ReplyStarted { .. })))
@@ -527,23 +533,90 @@ pub fn untrusted_turn(events: &[Event], registry: &Registry) -> bool {
         .iter()
         .rposition(ends_reply)
         .map_or(0, |at| at + 1);
-    events[from..].iter().any(|event| match event {
-        // Another bot's message can carry text it read anywhere: treated like untrusted output,
-        // whether it started the turn or steered it.
-        Event::Known(Known::UserMessage {
-            from_agent: Some(_),
-            ..
-        }) => true,
-        Event::Known(Known::ToolFinished { name, .. } | Known::JobFinished { name, .. }) => {
-            // A tool no longer listed (ace switched it off, or its list is not back yet after a
-            // restart) cannot vouch for its output.
-            match registry.get(name) {
-                Some(tool) => tool.untrusted_output,
-                None => name != TOOL_SEARCH && name != CALL_TOOL,
+    let usually_untrusted = |name: &str| match registry.get(name) {
+        // A tool no longer listed (ace switched it off, or its list is not back yet after a
+        // restart) cannot vouch for its output.
+        Some(tool) => tool.untrusted_output,
+        None => name != TOOL_SEARCH && name != CALL_TOOL,
+    };
+    events[from..]
+        .iter()
+        .filter_map(|event| match event {
+            // Another bot's message can carry text it read anywhere: treated like untrusted
+            // output, whether it started the turn or steered it.
+            Event::Known(Known::UserMessage {
+                from_agent: Some(agent),
+                ..
+            }) => Some(format!("a message from {}", agent.name)),
+            Event::Known(Known::ToolFinished {
+                name,
+                call_id,
+                untrusted,
+                ..
+            }) if *untrusted || usually_untrusted(name) => {
+                Some(describe_source(events, name, call_id))
             }
+            Event::Known(Known::JobFinished { name, .. }) if usually_untrusted(name) => {
+                Some(if name == "bot_message" {
+                    "another bot's answer".to_owned()
+                } else {
+                    format!("the result of {name}")
+                })
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// A tool result as a source, from its call's arguments: the page, the search, the file.
+fn describe_source(events: &[Event], name: &str, call_id: &str) -> String {
+    let arguments = events
+        .iter()
+        .rev()
+        .find_map(|event| match event {
+            Event::Known(Known::StepFinished { calls, .. }) => {
+                calls.iter().find(|call| call.id == call_id)
+            }
+            _ => None,
+        })
+        .map(|call| {
+            if call.name == CALL_TOOL {
+                crate::tools::unwrap_call_tool(&call.arguments)
+                    .map(|(_, inner)| inner)
+                    .unwrap_or_default()
+            } else {
+                call.arguments.clone()
+            }
+        })
+        .unwrap_or_default();
+    let field = |key: &str| {
+        arguments
+            .get(key)
+            .and_then(serde_json::Value::as_str)
+            .map(|v| v.chars().take(200).collect::<String>())
+    };
+    match name {
+        "web_fetch" => field("url").unwrap_or_else(|| "a web page".to_owned()),
+        "web_search" => field("query").map_or_else(
+            || "a web search".to_owned(),
+            |query| format!("a web search for \"{query}\""),
+        ),
+        "workspace_read" | "workspace_search" | "workspace_list" => {
+            field("path").filter(|path| !path.is_empty()).map_or_else(
+                || "a file in its workspace".to_owned(),
+                |path| format!("the file {path}"),
+            )
         }
-        _ => false,
-    })
+        "shell" => field("command").map_or_else(
+            || "a command's output".to_owned(),
+            |command| format!("the output of `{command}`"),
+        ),
+        "skill_load" => field("name").map_or_else(
+            || "a skill's notes".to_owned(),
+            |skill| format!("its notes on {skill}"),
+        ),
+        _ => format!("the result of {name}"),
+    }
 }
 
 fn ends_reply(event: &Event) -> bool {

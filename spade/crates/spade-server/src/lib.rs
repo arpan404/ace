@@ -1,6 +1,7 @@
 //! Spade's server: the local API ([`api`]) over the engine ([`engine`]) that runs turns.
 
 pub mod api;
+mod atomic;
 pub mod clock;
 pub mod config;
 pub mod engine;

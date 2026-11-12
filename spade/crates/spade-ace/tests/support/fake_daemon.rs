@@ -1,6 +1,8 @@
 //! A stand-in for the daemon's loopback WebSocket that speaks just enough of the protocol: `hello`
 //! with the local token, `starting` then `welcome`, and `skills.request` `list`, `read`, `create`
-//! and `edit` (writes are recorded; `review-code` exists, and an edit must name hash `aaa…`). A
+//! and `edit` (writes are recorded; `review-code` exists, and an edit must name hash `aaa…`;
+//! created skills are listed and read from then on; a create named `lost-…` is written but never
+//! answered, as when an answer is lost). A
 //! wrong token gets an `unauthorized` error and close 4001, as the daemon does. Reads answer
 //! late so concurrent requests come back out of order; `skl_…silent` reads never answer.
 
@@ -177,6 +179,7 @@ async fn serve(
             Some("list") => {
                 let stale = operation["workspaceId"] == STALE_WORKSPACE;
                 let mut entries = vec![entry(REVIEW), entry(DEPLOY)];
+                entries.extend(created(&lock(&writes)).into_iter().map(|(entry, _)| entry));
                 if stale {
                     entries.push(json!({ "id": "skl_broken", "scope": "personal" }));
                 }
@@ -194,11 +197,16 @@ async fn serve(
                 if id == SILENT {
                     continue;
                 }
+                let made = created(&lock(&writes))
+                    .into_iter()
+                    .find(|(entry, _)| entry["id"] == json!(id));
                 let out = out.clone();
                 tokio::spawn(async move {
                     tokio::time::sleep(Duration::from_millis(100)).await;
                     let result = if id == FUTURE {
                         json!({ "kind": "hologram", "beam": 3 })
+                    } else if let Some((entry, text)) = made {
+                        json!({ "kind": "skill", "entry": entry, "text": text })
                     } else if id == REVIEW || id == DEPLOY {
                         json!({ "kind": "skill", "entry": entry(&id), "text": text_of(&id), "kept": [] })
                     } else {
@@ -212,6 +220,12 @@ async fn serve(
             }
             Some("create") | Some("edit") => {
                 lock(&writes).push(operation.clone());
+                if operation["name"]
+                    .as_str()
+                    .is_some_and(|name| name.starts_with("lost-"))
+                {
+                    continue;
+                }
                 let result = write_result(operation);
                 send(
                     &out,
@@ -275,8 +289,9 @@ fn write_result(operation: &Value) -> Value {
     if !creating && operation["expectedHash"] != json!("a".repeat(64)) {
         return json!({ "kind": "error", "code": "conflict", "message": "This skill changed elsewhere. Reload it before saving." });
     }
+    let made = created_id(operation["name"].as_str().unwrap_or("new"));
     let id = if creating {
-        "skl_3333333333333333333333333333333333333333"
+        made.as_str()
     } else {
         operation["id"].as_str().unwrap_or(REVIEW)
     };
@@ -296,6 +311,27 @@ fn write_result(operation: &Value) -> Value {
         operation["body"].as_str().unwrap_or("")
     );
     json!({ "kind": "skill", "entry": written, "text": text })
+}
+
+/// A created skill's id, from its name.
+fn created_id(name: &str) -> String {
+    let hex: String = name.bytes().map(|b| format!("{b:02x}")).collect();
+    format!("skl_{:0<40}", &hex[..hex.len().min(40)])
+}
+
+/// Every skill a create made, as listed and read: its entry and text.
+fn created(writes: &[Value]) -> Vec<(Value, String)> {
+    writes
+        .iter()
+        .filter(|op| op["op"] == "create" && op["name"] != "review-code")
+        .map(|op| {
+            let result = write_result(op);
+            (
+                result["entry"].clone(),
+                result["text"].as_str().unwrap_or_default().to_owned(),
+            )
+        })
+        .collect()
 }
 
 pub fn text_of(id: &str) -> String {

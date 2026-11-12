@@ -17,7 +17,7 @@ use spade_core::{Event, Transcript};
 use tokio::sync::watch;
 
 use super::Engine;
-use crate::tools::ToolOutput;
+use crate::tools::{ToolOutput, TurnFacts};
 
 const DECLINED: &str = "The person declined this action.";
 
@@ -42,7 +42,11 @@ pub(super) async fn handle_calls(
 ) -> Handled {
     let registry = engine.tools.registry();
     let transcript = Transcript::fold(events);
-    let untrusted = context::untrusted_turn(events, &registry);
+    let sources = context::untrusted_sources(events, &registry);
+    let untrusted = !sources.is_empty();
+    let facts = TurnFacts {
+        untrusted: (!sources.is_empty()).then(|| sources.join(", ")),
+    };
     let mut runnable: Vec<(Call, String, Value)> = Vec::new();
     let mut waiting = false;
     // Started with no stored result. This worker runs every call it starts to its stored end, so
@@ -60,9 +64,15 @@ pub(super) async fn handle_calls(
                     finish_tool(engine, id, reply, &pending.call, &name, missing).await;
                 }
                 Some(def) => {
-                    let always = transcript.always_allowed.iter().any(|t| t == &name);
-                    let risk = call_risk(engine, &name, &arguments).unwrap_or(def.risk);
-                    match gate::decide(risk, always, untrusted) {
+                    let always = match engine
+                        .tools
+                        .get(&name)
+                        .and_then(|tool| tool.always_scope(&arguments))
+                    {
+                        Some(scope) => allowed_always_for(engine, events, &name, &scope),
+                        None => transcript.always_allowed.iter().any(|t| t == &name),
+                    };
+                    match gate::decide(def.risk, always, untrusted) {
                         Decision::Run => runnable.push((pending.call, name, arguments)),
                         Decision::Ask => {
                             waiting = true;
@@ -96,7 +106,7 @@ pub(super) async fn handle_calls(
         finish_tool(engine, id, reply, &call, &name, unknown).await;
     }
     if !runnable.is_empty() {
-        return run_tools(engine, id, reply, runnable, stop, pause).await;
+        return run_tools(engine, id, reply, runnable, &facts, stop, pause).await;
     }
     if waiting {
         let live = engine.live(id);
@@ -122,9 +132,25 @@ pub(super) async fn handle_calls(
     Handled::Continue
 }
 
-/// The risk of this one call, when the tool judges it by its arguments.
-fn call_risk(engine: &Engine, name: &str, arguments: &Value) -> Option<Risk> {
-    engine.tools.get(name)?.risk_of(arguments)
+/// Whether the person answered "always" to an earlier call of `name` with the same scope (for
+/// the shell, the exact same command). Read from the conversation's own events, so it holds for
+/// the bot across restarts and compaction.
+fn allowed_always_for(engine: &Engine, events: &[Event], name: &str, scope: &str) -> bool {
+    let Some(tool) = engine.tools.get(name) else {
+        return false;
+    };
+    events.iter().any(|event| match event {
+        Event::Known(Known::ApprovalAnswered {
+            call_id,
+            allowed: true,
+            always: true,
+            ..
+        }) => events.iter().any(|asked| {
+            matches!(asked, Event::Known(Known::ApprovalRequested { call_id: c, name: n, arguments, .. })
+                if c == call_id && n == name && tool.always_scope(arguments).as_deref() == Some(scope))
+        }),
+        _ => false,
+    })
 }
 
 /// A call's real tool and arguments: `call_tool` names its tool inside.
@@ -142,6 +168,7 @@ async fn run_tools(
     id: &str,
     reply: &str,
     calls: Vec<(Call, String, Value)>,
+    facts: &TurnFacts,
     stop: &mut watch::Receiver<bool>,
     pause: &mut watch::Receiver<Pause>,
 ) -> Handled {
@@ -174,7 +201,7 @@ async fn run_tools(
             let def = engine.tools.registry().get(&name).cloned();
             let background = def.as_ref().is_some_and(|def| def.background);
             let risk = match &def {
-                Some(def) => Some(call_risk(engine, &name, &arguments).unwrap_or(def.risk)),
+                Some(def) => Some(def.risk),
                 None if name == TOOL_SEARCH => Some(Risk::Read),
                 None => None,
             };
@@ -209,9 +236,9 @@ async fn run_tools(
                 finished.push_back((call, name, started));
                 continue;
             }
-            let (engine, id) = (engine.clone(), id.to_owned());
+            let (engine, id, facts) = (engine.clone(), id.to_owned(), facts.clone());
             running.push(async move {
-                let output = run_one(&engine, &id, &call.id, &name, arguments).await;
+                let output = run_one(&engine, &id, &call.id, &name, arguments, &facts).await;
                 (call, name, output)
             });
         }
@@ -273,6 +300,7 @@ async fn run_one(
     call_id: &str,
     name: &str,
     arguments: Value,
+    facts: &TurnFacts,
 ) -> ToolOutput {
     if name == TOOL_SEARCH {
         let query = arguments.get("query").and_then(Value::as_str).unwrap_or("");
@@ -286,7 +314,12 @@ async fn run_one(
     // Unique across conversations, and the same on every retry of this call.
     let key = format!("{id}.{call_id}");
     let reads_only = tool.def().risk == Risk::Read;
-    match tokio::time::timeout(engine.limits.tool_timeout, tool.run(&key, arguments)).await {
+    match tokio::time::timeout(
+        engine.limits.tool_timeout,
+        tool.run_in(&key, arguments, facts),
+    )
+    .await
+    {
         Ok(output) => output,
         Err(_) => {
             let seconds = engine.limits.tool_timeout.as_secs();
@@ -331,6 +364,7 @@ async fn finish_tool(
         is_error: output.is_error,
         images,
         uncertain: output.uncertain,
+        untrusted: output.untrusted,
     });
     super::jobs::keep_trying(|| engine.record(id, &event).map(|_| ())).await;
 }

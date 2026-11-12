@@ -142,6 +142,7 @@ fn completed_writes_are_listed_with_ids_and_arguments_and_reads_and_failures_are
     ]);
     let finished = |id: &str, name: &str, is_error: bool| {
         Event::Known(Known::ToolFinished {
+            untrusted: false,
             reply: "r".into(),
             call_id: id.into(),
             name: name.into(),
@@ -224,6 +225,7 @@ fn compaction_never_cuts_at_a_message_sent_while_tools_ran() {
         }),
         Event::user_message("only mornings"),
         Event::Known(Known::ToolFinished {
+            untrusted: false,
             reply: "r9".into(),
             call_id: "c1".into(),
             name: "search".into(),
@@ -393,6 +395,7 @@ fn step_calling(calls: &[(&str, &str)]) -> Event {
 
 fn tool_ended(id: &str, name: &str, is_error: bool, uncertain: bool, content: &str) -> Event {
     Event::Known(Known::ToolFinished {
+        untrusted: false,
         reply: "r".into(),
         call_id: id.into(),
         name: name.into(),

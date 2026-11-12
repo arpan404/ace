@@ -356,12 +356,19 @@ impl Tool for SkillLoad {
             match library.read(&skill.id).await {
                 Ok(text) => {
                     let mut shown = format!("<skill name=\"{}\">\n{text}\n</skill>", skill.name);
-                    if let Some(note) =
-                        notes.and_then(|(learning, agent)| learning.note_on(&agent, &skill.name))
-                    {
-                        shown.push_str(&note_line(&note));
+                    let note =
+                        notes.and_then(|(learning, agent)| learning.note_on(&agent, &skill.name));
+                    // A note written after reading untrusted content brings it along.
+                    let untrusted = note.as_ref().is_some_and(|note| note.source.is_some());
+                    if let Some(note) = &note {
+                        shown.push_str(&note_line(note));
                     }
-                    ToolOutput::ok(shown)
+                    let output = ToolOutput::ok(shown);
+                    if untrusted {
+                        output.untrusted()
+                    } else {
+                        output
+                    }
                 }
                 Err(error) => ToolOutput::error(format!("Could not load {}: {error}", skill.name)),
             }
