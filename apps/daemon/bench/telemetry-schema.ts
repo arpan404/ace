@@ -29,6 +29,7 @@ export const Response = z.object({
   meter: z
     .object({
       peakHeapUsed: z.number(),
+      transactions: z.number(),
       cpuUserUs: z.number(),
       cpuSystemUs: z.number(),
     })

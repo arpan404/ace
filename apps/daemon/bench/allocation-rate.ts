@@ -170,6 +170,7 @@ async function main() {
     allocatedPer1000: median(results.map((r) => r.allocatedPer1000)),
     workerAllocatedPer1000: median(results.map((r) => r.workerAllocatedPer1000)),
     collectionsPer1000: median(results.map((r) => (r.mainCollections / events) * 1000)),
+    transactionsPer1000: median(results.map((r) => (r.transactions / events) * 1000)),
     cpuMsPer1000: median(results.map((r) => r.cpuMsPer1000)),
     peakHeapUsed: median(results.map((r) => r.peakHeapUsed)),
     eventsPerSecond: median(results.map((r) => (events / r.wallMs) * 1000)),

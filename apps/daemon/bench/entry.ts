@@ -67,6 +67,8 @@ const Request = z.discriminatedUnion("op", [
   z.object({ id: z.number(), op: z.literal("meter-start") }),
   z.object({ id: z.number(), op: z.literal("meter-stop") }),
 ]);
+/** Store transactions committed before the current allocation window. */
+let committedAtStart = 0;
 const meter = windowSampler(
   () => process.memoryUsage().heapUsed,
   () => process.cpuUsage(),
@@ -185,10 +187,17 @@ process.on("message", (input: unknown) => {
       }
       if (request.op === "meter-start" || request.op === "meter-stop") {
         if (request.op === "meter-start") {
+          committedAtStart = daemon.store.streamingMetrics().transactions;
           collectBetween("", allocationMarkers.start);
           meter.start();
         }
-        const reading = request.op === "meter-stop" ? meter.stop() : undefined;
+        const reading =
+          request.op === "meter-stop"
+            ? {
+                ...meter.stop(),
+                transactions: daemon.store.streamingMetrics().transactions - committedAtStart,
+              }
+            : undefined;
         if (reading) collectBetween(allocationMarkers.stop, allocationMarkers.end);
         process.send?.({
           id: request.id,
