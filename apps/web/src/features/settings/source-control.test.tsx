@@ -233,10 +233,10 @@ async function addHost(name: string) {
   await userEvent.click(await screen.findByRole("menuitem", { name }));
 }
 
-/** The Preferences form's own Add host button, not the Git hosts menu's. */
+/** The Preferences form's own Save host button, not the Git hosts menu's Add host. */
 function submitHost() {
   const form = screen.getByRole("region", { name: "Preferences" });
-  return userEvent.click(within(form).getByRole("button", { name: "Add host" }));
+  return userEvent.click(within(form).getByRole("button", { name: "Save host" }));
 }
 
 /** Rows the page scrolled to; jsdom has no scrolling of its own. */

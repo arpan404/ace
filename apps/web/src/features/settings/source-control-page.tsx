@@ -283,7 +283,7 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
               </Button>
             )}
             <Button size="sm" disabled={disabled || !changed} onClick={() => void save()}>
-              {original === undefined ? "Add host" : "Save preferences"}
+              {original === undefined ? "Save host" : "Save preferences"}
             </Button>
           </SettingFooter>
         </SettingSection>
