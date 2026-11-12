@@ -298,7 +298,10 @@ impl Engine {
                 } else {
                     format!("{base}-{n}")
                 };
-                if taken.contains(&candidate) || skip.contains(&candidate) {
+                if taken.contains(&candidate)
+                    || skip.contains(&candidate)
+                    || self.retiring(&candidate)
+                {
                     continue;
                 }
                 if !self.key_in_keychain(&candidate)? {
@@ -328,6 +331,10 @@ impl Engine {
                 bind_to_origin(&mut stored, preset);
             }
             let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
+            if self.retiring(&id) {
+                skip.insert(id);
+                continue;
+            }
             match self.store.insert_endpoint(&stored) {
                 Ok(()) => {
                     self.sync_endpoints()?;
@@ -358,6 +365,7 @@ impl Engine {
             apply(&mut stored, input.clone())?;
             self.check_host_change(id, &before, &stored)?;
             let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
+            self.not_retiring(id)?;
             if self.endpoint_view(id)?.stored != before {
                 continue;
             }
@@ -430,22 +438,29 @@ impl Engine {
     /// Deletes an endpoint no agent uses, its keychain key first. The fast model is cleared if it
     /// was on it.
     pub fn delete_endpoint(&self, id: &str) -> Result<(), EndpointError> {
-        {
+        let row = {
             let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
-            if !self.store.endpoints()?.iter().any(|e| e.id == id) {
-                return Err(EndpointError::NotFound);
+            if self.retiring(id) {
+                return Err(EndpointError::Conflict(
+                    "this endpoint is already being removed".to_owned(),
+                ));
             }
+            let Some(row) = self.store.endpoints()?.into_iter().find(|e| e.id == id) else {
+                return Err(EndpointError::NotFound);
+            };
             let users = self.endpoint_users(id)?;
             if !users.is_empty() {
                 return Err(EndpointError::InUse(users));
             }
-            // From here no agent can be moved onto it, so it stays unused while the key goes.
+            // This delete owns the endpoint until it ends: no other delete, change, model save or
+            // new endpoint with this id, and no agent can be moved onto it, while the key goes.
             self.retiring
                 .lock()
                 .unwrap_or_else(|p| p.into_inner())
                 .insert(id.to_owned());
-        }
-        let done = self.retire_endpoint(id);
+            row
+        };
+        let done = self.retire_endpoint(&row);
         self.retiring
             .lock()
             .unwrap_or_else(|p| p.into_inner())
@@ -453,7 +468,8 @@ impl Engine {
         done
     }
 
-    fn retire_endpoint(&self, id: &str) -> Result<(), EndpointError> {
+    fn retire_endpoint(&self, row: &StoredEndpoint) -> Result<(), EndpointError> {
+        let id = row.id.as_str();
         // The key goes first, outside the lock (it can block): if it cannot, the endpoint and its
         // id stay, so nothing can later pick up a key left behind.
         if let Some(keychain) = &self.keychain {
@@ -462,8 +478,15 @@ impl Engine {
                 .map_err(|e| EndpointError::Keychain(e.to_string()))?;
         }
         let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
-        if !self.store.endpoints()?.iter().any(|e| e.id == id) {
-            return Ok(());
+        // Only the very row this delete started with, never a replacement under the same id.
+        match self.store.endpoints()?.into_iter().find(|e| e.id == id) {
+            None => return Ok(()),
+            Some(now) if now != *row => {
+                return Err(EndpointError::Conflict(
+                    "the endpoint changed while it was being removed, so it was kept".to_owned(),
+                ));
+            }
+            Some(_) => {}
         }
         if self
             .fast_model()?
@@ -477,6 +500,16 @@ impl Engine {
             .unwrap_or_else(|p| p.into_inner())
             .remove(id);
         self.sync_endpoints()?;
+        Ok(())
+    }
+
+    /// Refuses a change to an endpoint that is being deleted.
+    fn not_retiring(&self, id: &str) -> Result<(), EndpointError> {
+        if self.retiring(id) {
+            return Err(EndpointError::Conflict(
+                "this endpoint is being removed".to_owned(),
+            ));
+        }
         Ok(())
     }
 
@@ -538,6 +571,7 @@ impl Engine {
         input: ModelInput,
     ) -> Result<EndpointView, EndpointError> {
         let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
+        self.not_retiring(endpoint)?;
         let id = input.id.trim().to_owned();
         if id.is_empty() || id.len() > 300 || id.chars().any(char::is_control) {
             return Err(invalid(
@@ -617,6 +651,7 @@ impl Engine {
     /// Forgets a saved model. Agents on it keep working, with defaults.
     pub fn delete_model(&self, endpoint: &str, id: &str) -> Result<bool, EndpointError> {
         let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
+        self.not_retiring(endpoint)?;
         let deleted = self.store.delete_model(endpoint, id)?;
         self.sync_endpoints()?;
         Ok(deleted)

@@ -7,6 +7,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+pub mod gated;
+
 use keyring_core::mock;
 use serde_json::{Value, json};
 use spade_core::tools::{Risk, ToolDef};
@@ -146,6 +148,8 @@ pub struct Options {
     pub keychain_gate: Option<Gate>,
     /// How long admission waits for setup.
     pub settle_deadline: Duration,
+    /// Every keychain delete waits until this opens.
+    pub keychain_delete_gate: Option<Gate>,
     /// Writes to the database before Spade first opens it.
     pub seed: Option<fn(&Store) -> spade_store::Result<()>>,
 }
@@ -163,7 +167,7 @@ impl Gate {
         wake.notify_all();
     }
 
-    fn wait(&self) {
+    pub(crate) fn wait(&self) {
         let (open, wake) = &*self.0;
         if let Ok(mut guard) = open.lock() {
             while !*guard {
@@ -189,6 +193,7 @@ impl Default for Options {
             keychain_gate: None,
             settle_deadline: spade_server::startup::SETTLE_DEADLINE,
             seed: None,
+            keychain_delete_gate: None,
         }
     }
 }
@@ -258,7 +263,16 @@ impl Spade {
         options: Options,
     ) -> Result<Self> {
         let mock = mock::Store::new()?;
-        let keys = KeyStore::with_store(mock.clone(), spade_keys::SERVICE);
+        let keys = match &options.keychain_delete_gate {
+            Some(gate) => KeyStore::with_store(
+                Arc::new(gated::GatedStore {
+                    inner: mock.clone(),
+                    gate: gate.clone(),
+                }),
+                spade_keys::SERVICE,
+            ),
+            None => KeyStore::with_store(mock.clone(), spade_keys::SERVICE),
+        };
         let ace = options.ace_home.clone().map(|home| {
             AceLink::start(
                 AceTarget::Discover(home),
