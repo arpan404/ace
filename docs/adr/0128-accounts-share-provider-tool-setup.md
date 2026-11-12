@@ -24,16 +24,21 @@ ChatGPT desktop app over a pipe it hands to its own children (`BROWSER_USE_ACCES
 1. **A tool source, not a copy.** `providers.codex.toolSource` names a folder holding a Codex
    `config.toml`; null means the default Codex home (`CODEX_HOME`, else `~/.codex`). When ace
    starts a Codex app-server for an account whose home is not that folder, it reads the source's
-   `[marketplaces]`, `[plugins]` and `[mcp_servers]` tables and passes each entry as a `-c`
-   override on that launch. Nothing is written into the account home or ace's storage. Local
-   marketplace sources with relative paths resolve against the source folder; everything else is
-   passed as the person wrote it.
+   `[marketplaces]`, `[plugins]` and `[mcp_servers]` tables and passes each field of each entry
+   as a `-c` override on that launch, which Codex merges into the account's own entry. Nothing is
+   written into the account home or ace's storage. Codex splits `-c` keys on `.` and doesn't
+   unquote them, so only bare names (letters, digits, `_`, `@`, `-`) are passed; other entries
+   are left out and named in the log and the status. Where the account's own config sets
+   `enabled` (ace's MCP switch writes it there), the source never overrides it. An MCP server's
+   `CODEX_HOME` naming the source folder names the account's home instead, so its tools never run
+   against the source's login. Local marketplace sources with plain relative paths resolve
+   against the source folder; everything else is passed as the person wrote it.
 2. **Never the login.** Only those three tables are read. Auth files, `[model_providers]` and the
    rest of the config are never read or passed. The values can still hold secrets (an MCP
    server's `env` or `http_headers`), so logs and status name tables and keys only, never values.
    They travel as process arguments, as ace's own Codex MCP config already does.
-3. **A source that doesn't hold up falls back.** A missing folder, a missing `config.toml` or one
-   that doesn't parse means no extra config; the status says why. The derived arguments are part
+3. **A source that doesn't hold up falls back.** A missing folder, a missing `config.toml`, one
+   over 1 MB or one that doesn't parse means no extra config; the status says why. The derived arguments are part
    of the app-server pool key, so a changed source starts a fresh host.
 4. **Report, don't emulate.** Each provider's native tools are reported on its status row as
    `ready`, `unavailable` or `unknown` with a reason, from facts ace already has or can read
