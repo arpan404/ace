@@ -103,6 +103,8 @@ pub struct AgentView {
     pub state: State,
     pub status: Option<String>,
     pub last_message: Option<LastMessage>,
+    /// What the agent waits on the person for: `approval` or `question` (ADR 0128).
+    pub waiting_for: Option<&'static str>,
 }
 
 /// Why an agent could not be created, changed or deleted.
@@ -201,4 +203,6 @@ pub struct Activity {
     pub waiting_on_you: bool,
     pub state: State,
     pub last_message: Option<LastMessage>,
+    /// `question` while an `ask_user` waits, else `approval` while one waits.
+    pub waiting_for: Option<&'static str>,
 }

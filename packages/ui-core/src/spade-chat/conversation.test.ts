@@ -37,7 +37,11 @@ const said = (entries: readonly SpadeEntry[]) =>
       : entry.kind === "reply"
         ? `spade: ${[
             ...entry.parts.map((part) =>
-              part.kind === "text" ? part.text : `[${part.name} ${part.state}]`,
+              part.kind === "call"
+                ? `[${part.name} ${part.state}]`
+                : part.kind === "remembered"
+                  ? `[remembered ${part.note.text}]`
+                  : part.text,
             ),
             ...(entry.live ? [`${entry.live}…`] : []),
           ].join(" | ")}${entry.end ? ` (${entry.end.kind})` : ""}`
@@ -529,7 +533,9 @@ describe("the conversation as a chat", () => {
             ? `${bubble.agent.name}: ${bubble.text}`
             : bubble.kind === "routine"
               ? `routine: ${bubble.name}`
-              : `${bubble.kind}: ${bubble.text}`,
+              : bubble.kind === "remembered"
+                ? `remembered: ${bubble.note.text}`
+                : `${bubble.kind}: ${bubble.text}`,
       ),
     ).toEqual([
       "person: Find me a flight",

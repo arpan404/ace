@@ -36,6 +36,18 @@ pub enum Known {
     SkillsIndexed {
         text: String,
     },
+    /// The bot's notes for the cached top of the prompt (ADR 0128), stored before the first model
+    /// call and once after each compaction, so the top changes only when the conversation
+    /// compacts.
+    MemoryIndexed {
+        text: String,
+    },
+    /// `ask_user`: the bot asked the person and the turn waits for their next message.
+    QuestionAsked {
+        reply: String,
+        call_id: String,
+        question: String,
+    },
     /// One model call in a turn finished: its text, tool calls and the model's thoughts, kept
     /// whole so they go back exactly as they came.
     StepFinished {
@@ -175,6 +187,10 @@ pub enum Known {
         /// at the end. Missing on events from before it was stored.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         images_left_out: Option<usize>,
+        /// What it summarised (with any earlier summary it folded in) held untrusted content, so
+        /// facts drawn from it are only suggested to the person (ADR 0128).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        untrusted: bool,
     },
 }
 

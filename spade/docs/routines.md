@@ -3,7 +3,7 @@
 Date: 2026-11-12. Bots act on their own ([ADR 0129](../../docs/adr/0129-spade-routines.md)). A
 routine is standing work one bot does in its own conversation: a name, an instruction and a
 trigger. A heartbeat is a checklist a bot goes through every N minutes. Both are kept in Spade's
-database (`routines`, `routine_runs`, schema 3) and deleted with their bot.
+database (`routines`, `routine_runs`, schema 4) and deleted with their bot.
 
 ## How a firing works
 

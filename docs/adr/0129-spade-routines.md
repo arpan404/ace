@@ -102,7 +102,7 @@ that wakes its bots has to live in Spade.
   compaction folds them; leaving them out of later prompts is a follow-up.
 - Event triggers depend on the daemon being reachable; while it is away they don't fire, and
   what happened meanwhile is not replayed.
-- Spade's database gains `routines` and `routine_runs` (schema 3). Deleting a bot deletes its
+- Spade's database gains `routines` and `routine_runs` (schema 4). Deleting a bot deletes its
   routines and their runs.
 
 ## Tests

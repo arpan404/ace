@@ -66,6 +66,8 @@ impl Engine {
             from_agent: None,
             from_routine: Some(Box::new(from)),
         });
+        // The instruction is the person's own words: it recalls notes like their messages do.
+        let message = super::memory::with_recall(self, conversation, message);
         self.deliver(conversation, &message).map_err(|e| match e {
             StoreError::NoConversation(_) => RoutineDeliveryError::Gone,
             e => RoutineDeliveryError::Store(e),

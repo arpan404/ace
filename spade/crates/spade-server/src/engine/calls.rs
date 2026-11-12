@@ -43,6 +43,8 @@ pub(super) async fn handle_calls(
     let registry = engine.tools.registry();
     let transcript = Transcript::fold(events);
     let untrusted = context::untrusted_turn(events, &registry);
+    // A note outlives the turn: one written while a tainted summary is in view asks too.
+    let untrusted_memory = untrusted || context::untrusted_summary(events);
     let mut runnable: Vec<(Call, String, Value)> = Vec::new();
     let mut waiting = false;
     // Started with no stored result. This worker runs every call it starts to its stored end, so
@@ -52,6 +54,28 @@ pub(super) async fn handle_calls(
         let (name, arguments) = resolve(&pending.call);
         match pending.status {
             Status::New if name == TOOL_SEARCH => runnable.push((pending.call, name, arguments)),
+            // `ask_user` (ADR 0128) waits like an approval; the person's next message answers it.
+            Status::New if name == context::ASK_USER => match super::memory::question(&arguments) {
+                Err(refused) => finish_tool(engine, id, reply, &pending.call, &name, refused).await,
+                Ok(question) => {
+                    waiting = true;
+                    let asked = Event::Known(Known::QuestionAsked {
+                        reply: reply.to_owned(),
+                        call_id: pending.call.id.clone(),
+                        question,
+                    });
+                    match engine.record_unless_stopped(id, reply, &asked) {
+                        Ok(true) => {}
+                        Ok(false) => return Handled::Stopped,
+                        Err(error) => return Handled::Failed(error.to_string()),
+                    }
+                }
+            },
+            Status::Asked => waiting = true,
+            Status::Answered => {
+                let answered = ToolOutput::ok(context::ANSWERED);
+                finish_tool(engine, id, reply, &pending.call, &name, answered).await;
+            }
             Status::New => match registry.get(&name) {
                 None => {
                     let missing = ToolOutput::error(format!(
@@ -61,7 +85,12 @@ pub(super) async fn handle_calls(
                 }
                 Some(def) => {
                     let always = transcript.always_allowed.iter().any(|t| t == &name);
-                    match gate::decide(def.risk, always, untrusted) {
+                    let tainted = if def.risk == Risk::Memory {
+                        untrusted_memory
+                    } else {
+                        untrusted
+                    };
+                    match gate::decide(def.risk, always, tainted) {
                         Decision::Run => runnable.push((pending.call, name, arguments)),
                         Decision::Ask => {
                             waiting = true;

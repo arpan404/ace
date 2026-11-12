@@ -81,6 +81,11 @@ const MIGRATIONS: &[Migration] = &[
         backfill: Some(crate::agents::backfill),
     },
     Migration {
+        // ADR 0128: notes, and the index of past text.
+        sql: crate::notes::SCHEMA,
+        backfill: None,
+    },
+    Migration {
         // ADR 0129: routines and heartbeats, each owned by one agent, and their runs.
         sql: "
     CREATE TABLE routines (

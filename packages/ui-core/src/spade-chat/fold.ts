@@ -1,3 +1,4 @@
+import { spadeRemembered, type SpadeRememberedNote } from "./notes.ts";
 import type { SpadeImageRef, SpadeKnownEvent, SpadeLiveInput, SpadeStored } from "./wire.ts";
 
 /** A background job: the tool it runs and, for a delegation, how many tasks it handed out. */
@@ -43,7 +44,11 @@ export type SpadeCallState =
 
 export type SpadeReplyPart =
   | { kind: "text"; key: string; text: string }
-  | { kind: "call"; key: string; name: string; state: SpadeCallState };
+  | { kind: "call"; key: string; name: string; state: SpadeCallState }
+  /** A note the bot saved or rewrote with its memory tools (ADR 0128). */
+  | { kind: "remembered"; key: string; note: SpadeRememberedNote }
+  /** The bot asked the person (`ask_user`); their next message answers it. */
+  | { kind: "question"; key: string; text: string };
 
 export type SpadeReplyEnd =
   | { kind: "finished" }
@@ -109,6 +114,8 @@ export interface SpadeConversationState {
   /** Running tool calls by call id. */
   running: Map<string, { reply: string; name: string }>;
   approvals: SpadeApproval[];
+  /** The open reply's question waiting on the person's next message. */
+  question: { reply: string; callId: string } | undefined;
   /** Background jobs still running, by job id (the id of the call that started each). */
   jobs: Map<string, SpadeJob>;
   /** Jobs a Stop asked to end: their errored end reads as stopped, not failed. */
@@ -137,6 +144,7 @@ export function emptySpadeConversation(): SpadeConversationState {
     calls: new Map(),
     running: new Map(),
     approvals: [],
+    question: undefined,
     jobs: new Map(),
     stopping: new Set(),
     unknown: 0,
@@ -205,6 +213,8 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       );
       if (mine >= 0 && !event.from_agent && !event.from_routine)
         state.pending = state.pending.filter((_, index) => index !== mine);
+      // The person's message answers the bot's question; another bot's doesn't.
+      if (!event.from_agent) state.question = undefined;
       steer(state, {
         kind: "user",
         key,
@@ -275,6 +285,15 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
     case "tool_finished":
       state.running.delete(event.call_id);
       setCall(state, event.reply, event.call_id, event.name, event.is_error ? "failed" : "done");
+      remembered(state, event.reply, key, event.name, event.content, event.is_error === true);
+      return true;
+    case "question_asked":
+      if (state.open?.reply !== event.reply) return false;
+      state.question = { reply: event.reply, callId: event.call_id };
+      updateOpen(state, event.reply, (entry) => ({
+        ...entry,
+        parts: [...entry.parts, { kind: "question", key, text: event.question }],
+      }));
       return true;
     case "job_started":
       state.jobs.set(event.job, {
@@ -310,7 +329,9 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       // An approval for a stopped reply can no longer be answered.
       const before = state.approvals.length;
       if (event.reply) state.approvals = state.approvals.filter((a) => a.reply !== event.reply);
-      return state.approvals.length !== before;
+      const asked = state.question !== undefined && state.question.reply === event.reply;
+      if (asked) state.question = undefined;
+      return state.approvals.length !== before || asked;
     }
     case "renamed":
       if (state.title === event.title) return false;
@@ -337,6 +358,23 @@ function steer(state: SpadeConversationState, message: SpadeEntry) {
   else state.entries.splice(open.index, 1);
   state.entries.push(message, { ...entry, key: `${entry.key}@${message.key}`, parts: [] });
   open.index = state.entries.length - 1;
+}
+
+/** A memory tool's result that saved or rewrote a note shows as its one line in the reply. */
+function remembered(
+  state: SpadeConversationState,
+  reply: string,
+  key: string,
+  name: string,
+  content: unknown,
+  isError: boolean,
+) {
+  const note = spadeRemembered(name, content, isError);
+  if (note)
+    updateOpen(state, reply, (entry) => ({
+      ...entry,
+      parts: [...entry.parts, { kind: "remembered", key, note }],
+    }));
 }
 
 /** Replace the open reply's entry when it is `reply`; `change` returns undefined for no change. */
@@ -438,6 +476,7 @@ function closeOpen(state: SpadeConversationState, end: SpadeReplyEnd, text: stri
     state.calls.delete(callId);
   }
   state.approvals = state.approvals.filter((approval) => approval.reply !== open.reply);
+  if (state.question?.reply === open.reply) state.question = undefined;
   for (const [callId, call] of state.running)
     if (call.reply === open.reply) state.running.delete(callId);
   state.open = undefined;
