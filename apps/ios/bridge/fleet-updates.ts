@@ -3,6 +3,7 @@ import { MachineUpdate, MachineUpdateResult } from "@ace/protocol";
 import {
   FleetUpdateRun,
   fleetMachineLine,
+  fleetRunExpired,
   fleetRunFailed,
   fleetRunNextSends,
   fleetRunSent,
@@ -107,6 +108,14 @@ const runOf = (value: unknown) => {
   const parsed = FleetUpdateRun.safeParse(value);
   return parsed.success ? parsed.data : null;
 };
+/**
+ * A kept run that still reads and is under its seven days; an older one comes back null so
+ * Swift clears its copy and stops watching (as `loadFleetRun` does on the web).
+ */
+const liveRunOf = (value: unknown, now: number) => {
+  const run = runOf(value);
+  return run && !fleetRunExpired(run, now) ? run : null;
+};
 
 export const FleetUpdatesRequest = z.object({
   type: z.literal("fleet.updates"),
@@ -129,7 +138,7 @@ export interface FleetUpdatesReply {
 /** The fleet's update headline, each machine's line, and who the run asks now. */
 export function fleetUpdates(request: z.infer<typeof FleetUpdatesRequest>): FleetUpdatesReply {
   const machines = facts(request.machines);
-  const run = runOf(request.run);
+  const run = liveRunOf(request.run, request.now);
   const plan = fleetUpdatePlan(machines);
   const sends = run
     ? fleetRunNextSends(run, machines, request.now).map((entry) => ({
@@ -190,7 +199,7 @@ export function fleetRun(request: z.infer<typeof FleetRunRequest>): {
       run: newFleetRun({ id: host.uuid(), plan, mode: request.mode, now: request.now }),
     };
   }
-  const run = runOf(request.run);
+  const run = request.op === "sent" ? liveRunOf(request.run, request.now) : runOf(request.run);
   if (!run) return { type: "fleet.run", run: null };
   return {
     type: "fleet.run",
