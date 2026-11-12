@@ -488,9 +488,26 @@ fn the_child_side_answers_what_in_process_reading_gives() -> Result {
 
 #[tokio::test]
 async fn a_child_that_hangs_is_given_up_on_at_its_deadline() -> Result {
-    // `sh -c 'sleep 30'` ignores its input and never answers.
-    let reader = Extractor::child("/bin/sh".into(), vec!["-c".into(), "sleep 30".into()])
-        .with_deadline(std::time::Duration::from_millis(500));
+    // A program that ignores its input and never answers: `sh -c 'sleep 30'`, or on Windows
+    // PowerShell sleeping (the reader's own arguments land after `#`, as a comment).
+    let (program, args): (std::path::PathBuf, Vec<String>) = if cfg!(windows) {
+        let root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_owned());
+        (
+            format!("{root}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe").into(),
+            [
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "Start-Sleep -Seconds 30 #",
+            ]
+            .map(str::to_owned)
+            .to_vec(),
+        )
+    } else {
+        ("/bin/sh".into(), vec!["-c".into(), "sleep 30".into()])
+    };
+    let reader =
+        Extractor::child(program, args).with_deadline(std::time::Duration::from_millis(500));
     let started = std::time::Instant::now();
     let result = reader.read(b"hello".to_vec(), "a.txt").await;
     assert_eq!(result, Err(DocError::TimedOut(1)));
