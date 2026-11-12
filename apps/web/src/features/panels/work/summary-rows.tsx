@@ -1,18 +1,4 @@
-import {
-  agentOutcome,
-  agentStep,
-  askWords,
-  backgroundCommand,
-  foldWords,
-  formatSpan,
-  holdStoppable,
-  isRunning,
-  pluralCount,
-  remoteContactStep,
-  type AgentForestNode,
-  type CommandForestNode,
-} from "@ace/ui-core";
-import { useItem, useThreadMeta } from "@ace/client-react";
+import { holdStoppable, type AgentForestNode, type CommandForestNode } from "@ace/ui-core";
 import type { BackgroundTask, Interaction, ProviderKind } from "@ace/protocol";
 import { CaretDownIcon } from "@phosphor-icons/react";
 import type { KeyboardEvent, ReactNode } from "react";
@@ -20,13 +6,9 @@ import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
 import { useReducedMotion } from "@/lib/motion.ts";
-import { useOpenSubagent } from "@/lib/subagent-link.tsx";
-import { useNow } from "@/lib/time.ts";
-import { useWorkspaceActions } from "@/lib/workspace/index.ts";
-import { useAgentDetails } from "../agents/agent-details.ts";
-import { useAgentIdentity } from "../agents/agent-identity.ts";
 import { StopAgent } from "../agents/stop-agent.tsx";
 import { useStopIntent } from "../agents/use-stop-intent.ts";
+import { useAgentRowFacts, useCommandRowFacts } from "./agent-row-facts.ts";
 
 /** Each level of the tree steps in this far. */
 export const indent = 18;
@@ -46,11 +28,11 @@ export interface RowProps {
 }
 
 /** Escape or ← on a row's Stop goes back to the row it belongs to. */
-function backToRow(event: KeyboardEvent<HTMLElement>) {
+export function backToRow(event: KeyboardEvent<HTMLElement>) {
   if (event.key !== "Escape" && event.key !== "ArrowLeft") return;
   const row = event.currentTarget
     .closest("[data-row-frame]")
-    ?.querySelector<HTMLElement>('[role="treeitem"]');
+    ?.querySelector<HTMLElement>('[role="treeitem"], [data-row-main]');
   if (!row) return;
   event.preventDefault();
   event.stopPropagation();
@@ -179,86 +161,27 @@ export function AgentLine(
 ) {
   const { node } = props;
   const { agent } = node;
-  const thread = useThreadMeta(node.threadId);
-  const identity = useAgentIdentity(node.threadId, agent);
-  const details = useAgentDetails(thread, agent);
-  // A delegate's own work is its thread's main agent's: its step reads from there once loaded.
-  const doer = node.childRoot ?? agent;
-  const status = doer.status;
-  const tool = useItem(
-    node.childRoot ? node.childThread : node.threadId,
-    status.state === "working" && status.itemId ? status.itemId : "",
-  );
-  const openSubagent = useOpenSubagent();
-  const now = useNow();
-  const root = agent.origin === "root" && node.threadId === props.viewed;
-  const asks = props.request ? askWords(props.request.request) : undefined;
-  const own = isRunning(doer);
   const below = node.tally;
-  const asking =
-    props.request !== undefined || (status.state === "blocked" && status.on === "human");
-  const tone = asking ? "needs-you" : status.state === "failed" ? "failed" : undefined;
-  // A child on another machine that lost contact or didn't confirm its stop says so (ADR 0052).
-  const contact = node.live ? undefined : remoteContactStep(agent);
-  const current = contact
-    ? contact
-    : props.request
-      ? asks
-        ? `asks: ${asks}`
-        : agentStep({ status, interaction: props.request })
-      : status.state === "failed"
-        ? // Its own words are in its view; a raw provider error doesn't belong in the tree.
-          "couldn't finish"
-        : own && node.live
-          ? agentStep({ status, item: tool })
-          : node.live
-            ? below.working || below.commands
-              ? `waiting on ${pluralCount(below.working + below.commands, below.working ? "agent" : "command")}`
-              : agentStep({ status, item: tool })
-            : (agentOutcome(identity.spawn) ?? "finished");
-  const fresh = useLiveConnection().fresh;
-  // Facts not confirmed since the connection dropped or the Summary opened: what it was doing
-  // when last seen, and never "finished" for a branch that may be working again.
-  const stale = !fresh || node.stale;
-  // Settled-looking while something under it isn't confirmed or couldn't load: it may still be
-  // working, so it reads neither finished nor done. A failure or a request is known for sure.
-  const uncertain =
-    !node.live && node.unconfirmed && !stale && status.state !== "failed" && !props.request;
-  const unsure = node.live ? `last seen ${current}` : "syncing";
-  // An unloaded delegate says only "not loaded": that is why it isn't sure.
-  const seen = stale ? unsure : !uncertain ? current : node.notLoaded ? "" : "syncing";
-  const step = node.notLoaded ? (seen ? `${seen} · not loaded` : "not loaded") : seen;
-  // A settled-looking row that isn't sure already says so; its fold adds nothing to that.
-  const settledLook = !node.live && (stale || uncertain);
-  const folded = props.expanded === false && !settledLook ? foldWords(below) : "";
-  const end = agent.endedAt ?? (node.live ? Math.max(now, agent.createdAt) : undefined);
-  const time =
-    end !== undefined && end - agent.createdAt >= 1000 ? formatSpan(agent.createdAt, end) : "";
-  const open = root
-    ? undefined
-    : () =>
-        openSubagent({
-          threadId: node.threadId,
-          agentId: agent.id,
-          // A child on another machine has no thread here: it opens as its parent's agent.
-          childThreadId: agent.machine ? undefined : agent.childThreadId,
-        });
-  const name = identity.name;
-  const done = !node.live && !stale && !uncertain;
+  const row = useAgentRowFacts({
+    node,
+    viewed: props.viewed,
+    request: props.request,
+    folded: props.expanded === false,
+  });
   return (
     <RowFrame
       {...props}
       rowKey={node.key}
-      label={`${name}${agent.machine ? ` · ${agent.machine.name}` : ""}: ${step}${folded ? ` · ${folded}` : ""}`}
-      title={[name, ...details.lines].filter(Boolean).join("\n")}
-      onOpen={open}
+      label={row.label}
+      title={row.title}
+      onOpen={row.open}
       actions={
         // A child on another machine stops through the work its parent holds for it.
         agent.machine ? (
           node.hold && holdStoppable(node.hold) ? (
             <TaskStop task={node.hold} />
           ) : undefined
-        ) : own && !root ? (
+        ) : row.own && !row.root ? (
           <StopAgent
             threadId={node.threadId}
             agent={agent}
@@ -275,39 +198,39 @@ export function AgentLine(
       <LiveMark
         provider={agent.native.provider}
         acpAgentId={agent.native.acpAgentId}
-        instance={details.instance}
+        instance={row.details.instance}
         live={node.live}
-        done={done}
-        stale={stale || uncertain}
+        done={row.done}
+        stale={row.stale || row.uncertain}
       />
       <span
         className={cn(
           "max-w-[55%] min-w-0 shrink truncate font-medium",
-          (done || settledLook) && "text-muted-foreground",
+          (row.done || row.settledLook) && "text-muted-foreground",
         )}
       >
-        {name}
+        {row.name}
         {agent.machine && (
           <span className="font-normal text-subtle-foreground"> · {agent.machine.name}</span>
         )}
       </span>
       <span
-        data-tone={tone}
+        data-tone={row.tone}
         className={cn(
           "min-w-0 flex-1 truncate",
-          tone ? "text-(--tone-text)" : "text-subtle-foreground",
+          row.tone ? "text-(--tone-text)" : "text-subtle-foreground",
         )}
       >
-        {step}
-        {folded && <span className="text-subtle-foreground"> · {folded}</span>}
+        {row.step}
+        {row.folded && <span className="text-subtle-foreground"> · {row.folded}</span>}
       </span>
-      <RowTime>{time}</RowTime>
+      <RowTime>{row.time}</RowTime>
     </RowFrame>
   );
 }
 
 /** Stop for a running task, shown on hover, with a line under the row when it was refused. */
-function TaskStop(props: { task: BackgroundTask }) {
+export function TaskStop(props: { task: BackgroundTask; tabbable?: boolean | undefined }) {
   const stop = useStopIntent();
   return (
     <>
@@ -324,7 +247,8 @@ function TaskStop(props: { task: BackgroundTask }) {
       )}
       <button
         type="button"
-        tabIndex={-1}
+        // In the tree, S reaches it; in a plain list it is its own Tab stop.
+        tabIndex={props.tabbable ? undefined : -1}
         data-stop=""
         disabled={stop.busy}
         onKeyDown={backToRow}
@@ -339,26 +263,15 @@ function TaskStop(props: { task: BackgroundTask }) {
 
 /** A background command still running, under the agent that started it, with Stop on hover. */
 export function CommandLine(props: RowProps & { node: CommandForestNode; viewed: string }) {
-  const { task } = props.node;
-  const item = useItem(props.node.threadId, task.toolCallId ?? "");
-  const workspace = useWorkspaceActions(props.viewed);
-  const now = useNow();
-  const command = backgroundCommand(task, item);
-  const fresh = useLiveConnection().fresh && !props.node.unconfirmed;
-  const end = Math.max(now, task.startedAt);
-  // Its output opens in this thread's terminal; a delegated thread's opens there.
-  const show =
-    props.node.threadId === props.viewed
-      ? () => workspace.open({ kind: "shell", id: task.id })
-      : undefined;
+  const row = useCommandRowFacts(props.node, props.viewed);
   return (
     <RowFrame
       {...props}
       rowKey={props.node.key}
-      label={`$ ${command}: ${fresh ? "running" : "last seen running"}`}
-      title={command}
-      onOpen={show}
-      actions={task.stoppable ? <TaskStop task={task} /> : undefined}
+      label={row.label}
+      title={row.command}
+      onOpen={row.open}
+      actions={props.node.task.stoppable ? <TaskStop task={props.node.task} /> : undefined}
     >
       <span
         aria-hidden
@@ -366,9 +279,8 @@ export function CommandLine(props: RowProps & { node: CommandForestNode; viewed:
       >
         $
       </span>
-      <span className="min-w-0 flex-1 truncate font-mono text-xs">{command}</span>
-
-      <RowTime>{end - task.startedAt >= 1000 ? formatSpan(task.startedAt, end) : ""}</RowTime>
+      <span className="min-w-0 flex-1 truncate font-mono text-xs">{row.command}</span>
+      <RowTime>{row.time}</RowTime>
     </RowFrame>
   );
 }

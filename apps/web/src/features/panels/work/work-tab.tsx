@@ -5,6 +5,7 @@ import {
   changesByAgent,
   forestTally,
   latestChecks,
+  primaryPullRequest,
   queuedInputLine,
   summaryPullRequests,
   turnAgentFiles,
@@ -20,19 +21,21 @@ import {
   type TabViewProps,
 } from "@/lib/workspace/index.ts";
 import { SinceYouLooked, useShownCatchUp } from "./catch-up.tsx";
-import { SummaryNow } from "./summary-now.tsx";
+import { Outcome } from "./summary-outcome.tsx";
 import { SummaryPlan } from "./summary-plan.tsx";
-import { Results } from "./summary-results.tsx";
-import { Section } from "./summary-section.tsx";
-import { SummaryTree } from "./summary-tree.tsx";
+import { OtherPullRequests } from "./summary-prs.tsx";
+import { StillRunning } from "./summary-running.tsx";
 import { useAgentForest } from "./use-agent-forest.tsx";
 
 const queueOf = (reader: ThreadReader) => reader.queue;
 
 /**
- * The thread at a glance: current work, what happened since the person last looked,
- * the agent tree, results, the plan, and the project's automations. A section with nothing in it is left out. Everything reads bounded facts: the live
- * entities of each thread and the turn index's digests, never a thread's history.
+ * The thread at a glance, outcome first: the pull request it made (or the files it changed) with
+ * its checks, its other pull requests, what still runs (the full agent tree one click away), the
+ * plan, what happened since the person last looked, and the project's automations. A part with
+ * nothing in it is left out. The thread's own state is the composer strip's and its row's, not
+ * this tab's. Everything reads bounded facts: the live entities of each thread and the turn
+ * index's digests, never a thread's history.
  */
 export default function WorkTab(props: TabViewProps) {
   const thread = useThreadMeta(props.scope);
@@ -51,6 +54,7 @@ export default function WorkTab(props: TabViewProps) {
   const agents = own?.agents;
   const linked = thread?.details?.linkedPrs;
   const prs = useMemo(() => summaryPullRequests(linked ?? []), [linked]);
+  const primary = useMemo(() => primaryPullRequest(prs), [prs]);
   const checks = useMemo(() => (turn ? latestChecks(turn.digest.commands) : []), [turn]);
   const worktree = thread?.details?.worktree ?? thread?.details?.workspace?.path ?? "";
   const changes = useMemo(() => {
@@ -91,7 +95,7 @@ export default function WorkTab(props: TabViewProps) {
     ),
   });
   const total = forestTally(forest.roots);
-  // A main agent alone says nothing Now hasn't: the tree shows once there is a tree.
+  // A main agent alone is no tree: Still running and the composer already say what it does.
   const tree = forest.roots.some((root) => root.children.length > 0) || forest.roots.length > 1;
   return (
     <div
@@ -101,36 +105,32 @@ export default function WorkTab(props: TabViewProps) {
       className="@container/summary flex h-full min-h-0 flex-col gap-4 overflow-x-hidden overflow-y-auto overscroll-contain px-1.5 pt-2 pb-3"
     >
       {loaders}
-      {/* Rows of delegated threads read them through optional leases, as the loaders do. */}
-      <OptionalLeaseScope>
-        <SummaryNow
-          threadId={props.scope}
-          thread={thread}
-          forest={forest}
-          works={works}
-          turn={turn}
-          prs={prs}
-          queued={queued && `${queued.label} · ${queued.when}`}
-        />
-      </OptionalLeaseScope>
-      {catchUp.catchUp && <SinceYouLooked catchUp={catchUp.catchUp} onDismiss={catchUp.dismiss} />}
-      {tree && (
-        <Section name="Agents" count={String(total.working + total.done + total.syncing)}>
-          <OptionalLeaseScope>
-            <SummaryTree threadId={props.scope} roots={forest.roots} works={works} />
-          </OptionalLeaseScope>
-        </Section>
-      )}
-      <Results
+      <Outcome
         threadId={props.scope}
         workspaceId={thread.workspaceId}
-        prs={prs}
+        pr={primary}
         turn={turn}
         changes={changes}
         names={names}
         checks={checks}
       />
+      <OtherPullRequests
+        threadId={props.scope}
+        workspaceId={thread.workspaceId}
+        prs={prs.filter((pr) => pr !== primary)}
+      />
+      {/* Rows of delegated threads read them through optional leases, as the loaders do. */}
+      <OptionalLeaseScope>
+        <StillRunning
+          threadId={props.scope}
+          forest={forest}
+          works={works}
+          queued={queued && `${queued.label} · ${queued.when}`}
+          agents={tree ? total.working + total.done + total.syncing : undefined}
+        />
+      </OptionalLeaseScope>
       <SummaryPlan plans={plans} />
+      {catchUp.catchUp && <SinceYouLooked catchUp={catchUp.catchUp} onDismiss={catchUp.dismiss} />}
       <WorkAutomationsLine automations={automations} />
     </div>
   );

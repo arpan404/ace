@@ -1,4 +1,5 @@
 import {
+  liveRow,
   machineRow,
   nextGitStep,
   openGitMenu,
@@ -187,9 +188,7 @@ test("Run a script lists each script by name with its command, and runs it in a 
 test("an action an agent already runs in the background shows the agent's shell, not a second copy", async () => {
   const app = await openThread();
   const summary = await openWorkPanel();
-  await userEvent.click(
-    await within(summary).findByRole("treeitem", { name: /^\$ bun run dev:relay/ }),
-  );
+  await userEvent.click(await liveRow(summary, /^\$ bun run dev:relay/));
   const panel = await sidePanel();
   expect(await within(panel).findByRole("tab", { name: "dev:relay", selected: true })).toBeTruthy();
   expect(await within(panel).findByText("Agent shell")).toBeTruthy();

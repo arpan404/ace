@@ -1,4 +1,4 @@
-import { facts, multiDayDemo, type Scenario } from "@ace/fake-daemon";
+import { dedupeReconnect, facts, multiDayDemo, type Scenario } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
@@ -98,23 +98,20 @@ async function openReview() {
   return { app, work: await openWorkPanel() };
 }
 
-test("Results show the files changed and who changed them, and the checks in words", async () => {
+test("without a pull request the outcome lists the files changed, the checks as pills, and Review changes", async () => {
   const { work } = await openReview();
-  const results = await within(work).findByRole("region", { name: "Results" });
-  const files = await within(results).findByRole("button", { name: "1 file changed" });
-  await waitFor(() =>
-    expect(files.parentElement?.textContent).toMatch(
-      /by Claude Code \(1\) and Rename the panel helpers \(1\)/,
-    ),
-  );
+  const changes = await within(work).findByRole("region", { name: "Changes" });
+  expect(within(changes).getByRole("heading", { name: "1 file changed" })).toBeTruthy();
   // The person's message is the transcript's, not a result.
-  expect(within(results).queryByText("Split the summary panel into sections.")).toBeNull();
-  await userEvent.click(files);
-  const list = within(results).getByRole("list", { name: "Files changed" });
+  expect(within(changes).queryByText("Split the summary panel into sections.")).toBeNull();
+  const list = within(changes).getByRole("list", { name: "Files changed" });
   expect(within(list).getByRole("button", { name: file })).toBeTruthy();
-  const checks = within(results).getByRole("listitem", { name: "Checks" });
-  expect(checks.textContent).toBe("Typecheck failed · exit 2");
-  await userEvent.click(within(results).getByRole("button", { name: "Review changes" }));
+  const state = within(changes).getByRole("list", { name: "State" });
+  const typecheck = within(state).getByText(/Typecheck/);
+  expect(typecheck.closest("li")?.textContent).toBe("Typecheck failed, exit 2");
+  expect(typecheck.closest("li")?.getAttribute("data-tone")).toBe("failed");
+  expect(within(changes).queryByRole("button", { name: /^Open #/ })).toBeNull();
+  await userEvent.click(within(changes).getByRole("button", { name: "Review changes" }));
   expect(await screen.findByRole("tab", { name: /^Changes/, selected: true })).toBeTruthy();
 });
 
@@ -133,8 +130,8 @@ test("a finished agent is named by its task and its row says how it ended and op
 
 test("two agents editing the same file in one checkout are flagged", async () => {
   const { work } = await openReview();
-  const results = await within(work).findByRole("region", { name: "Results" });
-  const alert = await within(results).findByRole("alert");
+  const changes = await within(work).findByRole("region", { name: "Changes" });
+  const alert = await within(changes).findByRole("alert");
   await waitFor(() =>
     expect(alert.textContent).toBe(
       "src/panel.ts was changed by Claude Code and Rename the panel helpers in the same checkout",
@@ -142,7 +139,7 @@ test("two agents editing the same file in one checkout are flagged", async () =>
   );
 });
 
-test("returning to a thread that moved on shows what happened since, until cleared", async () => {
+test("returning to a thread that moved on folds what happened since into one line that opens, until cleared", async () => {
   let now = 10 * 24 * 60 * 60 * 1000;
   const app = harness({ snapshotItems: 40, clock: () => (now += 1) });
   app.play(multiDayDemo("thread-away", 6, { scans: 2 })).runUntilBlocked();
@@ -150,9 +147,68 @@ test("returning to a thread that moved on shows what happened since, until clear
   await app.open("/t/thread-away");
   const work = await openWorkPanel();
   const since = await within(work).findByRole("region", { name: "Since you looked" });
+  // One quiet line until the person opens it in place.
+  expect(within(since).getByText(/^\d+ updates? since you looked$/)).toBeTruthy();
+  expect(within(since).queryByText(/^\d+ turns finished$/)).toBeNull();
+  await userEvent.click(within(since).getByRole("button", { name: "Show" }));
   expect(within(since).getByText(/^\d+ turns finished$/)).toBeTruthy();
   await userEvent.click(within(since).getByRole("button", { name: "Clear" }));
   await waitFor(() =>
     expect(within(work).queryByRole("region", { name: "Since you looked" })).toBeNull(),
   );
+});
+
+/** The reconnect fix with its pull request #214, untitled when `title` is false. */
+function dedupe(title = true): Scenario {
+  const scenario = dedupeReconnect();
+  const details = scenario.thread.details;
+  if (title || !details) return scenario;
+  const linkedPrs = details.linkedPrs?.map(({ title: _title, ...pr }) => pr);
+  return { ...scenario, thread: { ...scenario.thread, details: { ...details, linkedPrs } } };
+}
+
+async function openDedupe(title = true) {
+  const app = harness();
+  app.play(dedupe(title)).runUntilBlocked();
+  await app.open("/t/thread-dedupe");
+  const work = await openWorkPanel();
+  return { app, work, pr: await within(work).findByRole("region", { name: "Pull request #214" }) };
+}
+
+test("the outcome leads with the pull request: its title once, its checks and files, Review changes and Open", async () => {
+  const { work, pr } = await openDedupe();
+  expect(within(pr).getByRole("heading").textContent).toBe("Dedupe thread events after reconnect");
+  expect(
+    within(work).getAllByText("Dedupe thread events after reconnect", { selector: "h3" }),
+  ).toHaveLength(1);
+  const state = within(pr).getByRole("list", { name: "State" });
+  expect(
+    within(state)
+      .getAllByRole("listitem")
+      .map((pill) => pill.textContent),
+  ).toEqual(["#214 · In review", "Tests passed", "Typecheck passed"]);
+  const files = within(pr).getByRole("list", { name: "Files changed" });
+  expect(
+    within(files)
+      .getAllByRole("button")
+      .map((row) => row.getAttribute("aria-label")),
+  ).toEqual([expect.stringMatching(/replay-session\.ts$/), expect.stringMatching(/outbox\.ts$/)]);
+  // It is the outcome, so the PR isn't listed again under the other pull requests.
+  expect(within(work).queryByRole("region", { name: "Other pull requests" })).toBeNull();
+  await userEvent.click(within(pr).getByRole("button", { name: "Review changes" }));
+  expect(await screen.findByRole("tab", { name: /^Changes/, selected: true })).toBeTruthy();
+  await userEvent.click(screen.getByRole("tab", { name: "Summary" }));
+  const again = await within(await openWorkPanel()).findByRole("region", {
+    name: "Pull request #214",
+  });
+  await userEvent.click(within(again).getByRole("button", { name: "Open #214" }));
+  expect(await screen.findByRole("tab", { name: /^#214/, selected: true })).toBeTruthy();
+});
+
+test("an untitled pull request is named by its number once", async () => {
+  const { pr } = await openDedupe(false);
+  expect(within(pr).getByRole("heading").textContent).toBe("#214");
+  const state = within(pr).getByRole("list", { name: "State" });
+  expect(within(state).getAllByRole("listitem")[0]?.textContent).toBe("In review");
+  expect(pr.textContent?.match(/#214/g)).toHaveLength(2);
 });

@@ -8,10 +8,12 @@ import { gatedClient, memoryReadSnapshots, type Gate } from "@/test/gated-client
 import { harness } from "@/test/harness.tsx";
 import {
   agentRow,
+  agentTree,
   isBreathing,
+  liveRow,
   openWorkPanel,
   showFinished,
-  summaryStatus,
+  stillRunning,
 } from "@/test/open-work.ts";
 
 /*
@@ -34,6 +36,7 @@ test("a delegated branch whose facts aren't confirmed reads as syncing, never fi
   for (const scenario of nestedDelegation()) app.play(scenario).runUntilBlocked();
   await app.open(`/t/${nestedDelegationIds.parent}`);
   let work = await openWorkPanel();
+  await agentTree(work);
   await userEvent.click(await within(work).findByRole("treeitem", { name: "2 done" }));
   expect((await agentRow(work, shellRow)).getAttribute("aria-label")).toMatch(/: finished/);
 
@@ -119,7 +122,7 @@ test("nineteen finished siblings fold into one 19 done line below the live ones,
   app.play(fleet).runUntilBlocked();
   await app.open("/t/thread-fold");
   const work = await openWorkPanel();
-  const tree = await within(work).findByRole("tree", { name: "Agent tree" });
+  const tree = await agentTree(work);
   const done = await within(tree).findByRole("treeitem", { name: "19 done" });
   const rows = within(tree).getAllByRole("treeitem");
   // The main agent, its nine working subagents, then the one line for the finished.
@@ -212,7 +215,8 @@ test("a delegated thread whose first snapshot hasn't come is syncing: never done
   const build = await agentRow(work, "Cold build");
   expect(build.getAttribute("aria-label")).toBe("Cold build: syncing");
   expect(isBreathing(build)).toBe(false);
-  expect(await summaryStatus(work)).toBe("Syncing");
+  // Not confirmed, so not settled: Still running keeps it, saying it is syncing.
+  expect(await liveRow(work, "Cold build: syncing")).toBeTruthy();
 
   // The build thread arrives; the check thread under it is still cold.
   act(() => {
@@ -221,13 +225,13 @@ test("a delegated thread whose first snapshot hasn't come is syncing: never done
   await waitFor(() => expect(build.getAttribute("aria-expanded")).toBe("false"));
   // Its own thread is confirmed, but something under it isn't: still not finished.
   expect(build.getAttribute("aria-label")).toBe("Cold build: syncing");
-  expect(await summaryStatus(work)).toBe("Syncing");
+  expect(await liveRow(work, "Cold build: syncing")).toBeTruthy();
 
   act(() => {
     gate.held = false;
     for (const deliver of gate.queue.splice(0)) deliver();
   });
-  await waitFor(async () => expect(await summaryStatus(work)).toMatch(/^Done/));
+  await waitFor(() => expect(stillRunning(work)).toBeNull());
   expect(build.getAttribute("aria-label")).not.toMatch(/syncing/);
 });
 
@@ -256,7 +260,7 @@ test("when the viewed thread's own subscription fails, the done it kept is not s
   for (const scenario of finishedChain()) app.play(scenario).runUntilBlocked();
   await app.open("/t/thread-cold-check");
   const work = await openWorkPanel();
-  await waitFor(async () => expect(await summaryStatus(work)).toMatch(/^Done/));
+  await waitFor(() => expect(stillRunning(work)).toBeNull());
   const subscriptionId = gate.subscriptions?.get("thread-cold-check");
   if (!subscriptionId || !gate.deliver) throw new Error("The thread's subscription never opened");
   const deliver = gate.deliver;
@@ -269,12 +273,12 @@ test("when the viewed thread's own subscription fails, the done it kept is not s
   // opened and keeps no side panel, so no Summary is left to call it done.
   expect(await screen.findByRole("alert")).toBeTruthy();
   await waitFor(() => expect(screen.queryByRole("tabpanel", { name: "Summary" })).toBeNull());
-  expect(screen.queryByRole("status", { name: /^Thread status/ })).toBeNull();
+  expect(screen.queryByRole("tree", { name: "Agent tree" })).toBeNull();
 });
 
 /** Tab into the tree at its one stop, go Home, then ↓ until the row named `name` has focus. */
 async function focusRow(work: HTMLElement, name: string) {
-  const tree = await within(work).findByRole("tree", { name: "Agent tree" });
+  const tree = await agentTree(work);
   for (let step = 0; step < 80 && !tree.contains(document.activeElement); step++)
     await userEvent.tab();
   await userEvent.keyboard("{Home}");
@@ -289,7 +293,7 @@ test("when the focused agent finishes into an open done line, focus stays on its
   app.play(fleet).runUntilBlocked();
   await app.open("/t/thread-fold");
   const work = await openWorkPanel();
-  const done = await within(work).findByRole("treeitem", { name: "19 done" });
+  const done = await within(await agentTree(work)).findByRole("treeitem", { name: "19 done" });
   await userEvent.click(done);
   expect(done.getAttribute("aria-expanded")).toBe("true");
   await focusRow(work, "Task 0");

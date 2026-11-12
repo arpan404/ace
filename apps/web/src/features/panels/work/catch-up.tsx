@@ -1,10 +1,11 @@
 import type { ClientApi } from "@ace/client";
 import type { ThreadCatchUpResponse } from "@ace/protocol";
 import { catchUpFacts } from "@ace/ui-core";
+import { useState } from "react";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useVisitReadState } from "@/lib/thread-read.ts";
 import { useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
-import { QuietLink, Section } from "./summary-section.tsx";
+import { QuietLink } from "./summary-section.tsx";
 
 /**
  * What the thread did since this device last read it, when it moved on while the person was
@@ -31,10 +32,12 @@ function useCatchUp(threadId: string): {
 }
 
 /**
- * What happened since the person last looked, two to four plain lines: the counts, each on its
- * own line, then the agent's latest words. Clear dismisses it.
+ * What happened since the person last looked, folded to one quiet line, "2 updates since you
+ * looked · Show", that opens its two to four plain bullet lines in place (the counts, each on its
+ * own line, then the agent's latest words). Clear dismisses it.
  */
 export function SinceYouLooked(props: { catchUp: ThreadCatchUpResponse; onDismiss(): void }) {
+  const [open, setOpen] = useState(false);
   const facts = catchUpFacts(props.catchUp);
   const said = props.catchUp.latestAgentMessagePreview.replace(/\s+/g, " ").trim();
   const lines = [
@@ -42,20 +45,37 @@ export function SinceYouLooked(props: { catchUp: ThreadCatchUpResponse; onDismis
     ...(said ? [{ text: said, tone: undefined }] : []),
   ];
   return (
-    <Section name="Since you looked" aside={<QuietLink onClick={props.onDismiss}>Clear</QuietLink>}>
-      <ul className="list-disc space-y-0.5 pl-4 text-ui text-muted-foreground marker:text-subtle-foreground">
-        {lines.map((line) => (
-          <li
-            key={line.text}
-            data-tone={line.tone}
-            className={line.tone ? "truncate text-(--tone-text)" : "truncate"}
-            title={line.text}
-          >
-            {line.text}
-          </li>
-        ))}
-      </ul>
-    </Section>
+    <section aria-label="Since you looked" className="min-w-0 px-2 text-xs">
+      <p className="flex min-w-0 items-center gap-1 text-muted-foreground">
+        <span className="min-w-0 truncate">
+          {lines.length === 1 ? "1 update" : `${lines.length} updates`} since you looked
+        </span>
+        <span aria-hidden className="text-subtle-foreground">
+          ·
+        </span>
+        <QuietLink expanded={open} onClick={() => setOpen(!open)}>
+          {open ? "Hide" : "Show"}
+        </QuietLink>
+        <span aria-hidden className="text-subtle-foreground">
+          ·
+        </span>
+        <QuietLink onClick={props.onDismiss}>Clear</QuietLink>
+      </p>
+      {open && (
+        <ul className="mt-1 list-disc space-y-0.5 pl-4 text-ui text-muted-foreground marker:text-subtle-foreground">
+          {lines.map((line) => (
+            <li
+              key={line.text}
+              data-tone={line.tone}
+              className={line.tone ? "truncate text-(--tone-text)" : "truncate"}
+              title={line.text}
+            >
+              {line.text}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

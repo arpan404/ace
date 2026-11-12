@@ -23,7 +23,7 @@ import {
 } from "@/features/organize/index.ts";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
-import { useWorkspaceActions } from "@/lib/workspace/index.ts";
+import { useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useNow } from "@/lib/time.ts";
 import { useThreadLeave } from "@/lib/thread-leave.ts";
 import type { ThreadRef } from "../sources/index.ts";
@@ -57,6 +57,13 @@ export function ThreadMenuItems(props: {
   const navigate = useNavigate();
   const leave = useThreadLeave();
   const workspace = useWorkspaceActions(props.thread.id);
+  const tabs = useScopeWorkspace(props.thread.id).tabs;
+  // The Summary folds its agent tree away under "Show all agents"; this opens it there.
+  const openAgentTree = () => {
+    const sections = tabs.find((tab) => tab.key === "work")?.ui?.sections;
+    workspace.open({ kind: "work" });
+    workspace.updateUi("work", { sections: { ...sections, "agents:all": true } });
+  };
   const nav = useThreadNav();
   if (!meta) return null;
   const flags = threadRowFlags(meta, { baseline, now, settled: meta.settledAt !== undefined });
@@ -85,7 +92,7 @@ export function ThreadMenuItems(props: {
           <MenuItem
             icon={<TreeStructureIcon aria-hidden size={16} />}
             keys={keymap.agents.keys}
-            onClick={() => workspace.open({ kind: "work" })}
+            onClick={openAgentTree}
           >
             Open agent tree
           </MenuItem>

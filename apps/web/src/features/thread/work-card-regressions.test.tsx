@@ -1,4 +1,10 @@
-import { agentRow, isBreathing, openRunScript, openWorkPanel } from "@/test/open-work.ts";
+import {
+  agentRow,
+  agentTree,
+  isBreathing,
+  openRunScript,
+  openWorkPanel,
+} from "@/test/open-work.ts";
 import { facts, replayCursor, workCardScenario } from "@ace/fake-daemon";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -90,6 +96,7 @@ test("tree folds and Summary scroll position survive a remount", async () => {
   const view = await app.open(`/t/${scenario.thread.id}`);
   await openWorkPanel();
   const card = screen.getByRole("tabpanel", { name: "Summary" });
+  await agentTree(card);
   const parent = within(card).getByRole("treeitem", { name: /^Write retry tests 1:/ });
   parent.focus();
   await userEvent.keyboard("{ArrowLeft}");

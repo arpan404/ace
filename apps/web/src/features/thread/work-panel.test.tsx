@@ -1,4 +1,5 @@
 import {
+  agentTree,
   gitAction,
   machineRow,
   agentRow,
@@ -77,11 +78,14 @@ test("a child keeps working through a non-blocking question and requests attenti
     }),
   ).toBeNull();
   act(() => app.daemon.apply(fixture.thread.id, [facts.endTurn("worker-1")]));
-  expect(
-    await within(card).findByRole("status", {
-      name: "Thread status: Check supervisor logs needs your answer",
-    }),
-  ).toBeTruthy();
+  // A subagent's ask leads Still running, in the needs-you colour, with Open to it.
+  const live = await within(card).findByRole("region", { name: "Still running" });
+  await waitFor(() =>
+    expect(within(live).getAllByRole("button")[0]?.getAttribute("aria-label")).toBe(
+      "Check supervisor logs: asks: Which cases?",
+    ),
+  );
+  expect(within(live).getByRole("button", { name: "Open Check supervisor logs" })).toBeTruthy();
   const asker = await agentRow(card, "Check supervisor logs");
   expect(asker.getAttribute("aria-label")).toBe("Check supervisor logs: asks: Which cases?");
   expect(asker.querySelector("[data-tone=needs-you]")).toBeTruthy();
@@ -142,7 +146,7 @@ test("a failed child opens its own work without leaking its raw error into the t
   app.play(fixture).runUntilBlocked();
   const work = await openWork(app, fixture.thread.id);
   // The tree only says that it failed, in red, not why: opening the row shows the error.
-  const tree = await within(work).findByRole("tree", { name: "Agent tree" });
+  const tree = await agentTree(work);
   expect(within(tree).queryByText("The test command failed. Check its output.")).toBeNull();
   const failed = await agentRow(work, "Check supervisor logs");
   expect(failed.getAttribute("aria-label")).toBe("Check supervisor logs: couldn't finish");

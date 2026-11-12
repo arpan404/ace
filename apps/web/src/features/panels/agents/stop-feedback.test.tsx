@@ -6,7 +6,7 @@ import { beforeEach, expect, test } from "vitest";
 import * as z from "zod/mini";
 import { memoryStorage } from "@/boot/client.ts";
 import { harness } from "@/test/harness.tsx";
-import { agentRow, isBreathing, openWorkPanel } from "@/test/open-work.ts";
+import { agentRow, agentTree, isBreathing, openWorkPanel } from "@/test/open-work.ts";
 
 beforeEach(() => localStorage.clear());
 const cases = [
@@ -27,7 +27,7 @@ async function open(app: ReturnType<typeof harness>, target: (typeof cases)[numb
   app.play(coldStartReplay()).runThrough("turn-2");
   await app.open("/t/thread-cold-start");
   const work = await openWorkPanel();
-  const item = await within(work).findByRole("treeitem", { name: target.row });
+  const item = await within(await agentTree(work)).findByRole("treeitem", { name: target.row });
   const row = item.parentElement;
   if (!row) throw new Error("Missing Stop row");
   return { work, row, stop: within(row).getByRole("button", { name: target.button }) };

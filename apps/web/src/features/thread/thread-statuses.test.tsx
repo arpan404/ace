@@ -8,7 +8,7 @@ import {
   workbench,
   type Scenario,
 } from "@ace/fake-daemon";
-import { configure, screen, within } from "@testing-library/react";
+import { configure, screen, waitFor, within } from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
@@ -156,10 +156,11 @@ test("the side panel lists only the background commands still running", async ()
   const { feed } = await open(watchingRelay());
   await userEvent.keyboard("{Control>}{Shift>}a{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
+  const live = await within(panel).findByRole("region", { name: "Still running" });
   expect(
-    await within(panel).findByRole("treeitem", { name: "$ bun run dev:relay: running" }),
+    await within(live).findByRole("button", { name: "$ bun run dev:relay: running" }),
   ).toBeTruthy();
-  expect(within(panel).queryByRole("treeitem", { name: /^\$ bun run build/ })).toBeNull();
+  expect(within(panel).queryByRole("button", { name: /^\$ bun run build/ })).toBeNull();
   // The two commands read as one group; the finished build stays reachable inside it, and its
   // row opens its output.
   const group = within(feed).getByRole("group", { name: "2 background tasks · 1 running" });
@@ -173,6 +174,9 @@ test("with nothing running in the background, the side panel shows no background
   await open(oneTurnWork());
   await userEvent.keyboard("{Control>}{Shift>}a{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  await within(panel).findByRole("status", { name: /^Thread status: done/ });
-  expect(within(panel).queryByRole("treeitem", { name: /^\$ / })).toBeNull();
+  await waitFor(() => {
+    if (!panel.querySelector("[data-summary]")) throw new Error("The summary is still loading");
+  });
+  expect(within(panel).queryByRole("region", { name: "Still running" })).toBeNull();
+  expect(within(panel).queryByRole("button", { name: /^\$ / })).toBeNull();
 });

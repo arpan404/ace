@@ -18,11 +18,23 @@ export async function openWorkPanel() {
 }
 
 /**
+ * The Summary's full agent tree, opened from its "Show all agents" line when it is folded away
+ * (the choice is kept with the tab, so it stays open from then on).
+ */
+export async function agentTree(work: HTMLElement) {
+  const shown = within(work).queryByRole("tree", { name: "Agent tree" });
+  if (shown) return shown;
+  await userEvent.click(await within(work).findByRole("button", { name: /^Show all agents/ }));
+  return within(work).findByRole("tree", { name: "Agent tree" });
+}
+
+/**
  * An agent's row in the Summary's agent tree by the agent's name ("Explore the panel: Read 41
- * files" is found by "Explore the panel"), waiting until it shows.
+ * files" is found by "Explore the panel"), opening the tree and waiting until the row shows.
  */
 export async function agentRow(work: HTMLElement, name: string) {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  await agentTree(work);
   return within(work).findByRole("treeitem", { name: new RegExp(`^${escaped}: `) });
 }
 
@@ -31,9 +43,17 @@ export function isBreathing(row: HTMLElement): boolean {
   return row.querySelector("[data-breathing]") !== null;
 }
 
-/** The Summary's one short line for now: "Working · 4m", "Done · 52m", "… needs your answer". */
-export async function summaryStatus(work: HTMLElement) {
-  return (await within(work).findByRole("status", { name: /^Thread status/ })).textContent ?? "";
+/** The Summary's Still running list: only live work, absent once nothing anywhere may run. */
+export function stillRunning(work: HTMLElement) {
+  return within(work).queryByRole("region", { name: "Still running" });
+}
+
+/** A row of Still running by its name ("Cold build: syncing"), waiting until it shows. */
+export async function liveRow(work: HTMLElement, name: string | RegExp) {
+  return within(await within(work).findByRole("region", { name: "Still running" })).findByRole(
+    "button",
+    { name },
+  );
 }
 
 /** The header's thread details icon; its name gains ", working" or ", something needs you" with a dot. */
@@ -123,6 +143,7 @@ export async function nextGitStep() {
 
 /** Open every folded "N done" line of the agent tree, so the finished agents' rows show. */
 export async function showFinished(work: HTMLElement) {
+  await agentTree(work);
   for (const row of within(work).queryAllByRole("treeitem", { name: /^\d+ done$/ }))
     if (row.getAttribute("aria-expanded") === "false") await userEvent.click(row);
 }

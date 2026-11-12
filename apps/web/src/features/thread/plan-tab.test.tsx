@@ -45,10 +45,6 @@ test("operational plans show their progress in the composer strip and their full
   const work = await screen.findByRole("tabpanel", { name: "Summary" });
   const list = await within(work).findByRole("list", { name: "Tasks" });
   expect(within(work).getByRole("region", { name: "Plan" }).textContent).toMatch(/^Plan1 of 3/);
-  expect(within(work).getByRole("progressbar", { name: "Plan progress" })).toHaveProperty(
-    "ariaValueNow",
-    "1",
-  );
   expect(screen.getAllByRole("tab", { name: "Summary" })).toHaveLength(1);
   expect(screen.queryByRole("tab", { name: "Agents" })).toBeNull();
   expect(

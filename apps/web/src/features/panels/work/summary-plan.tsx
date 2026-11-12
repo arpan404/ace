@@ -4,8 +4,8 @@ import type { ShownPlan } from "@/lib/use-plans.ts";
 import { Section } from "./summary-section.tsx";
 
 /**
- * The thread's plan: how many items are done of how many, a thin line that fills as they are,
- * then the checklist, the item in progress in foreground ink and settled ones in grey.
+ * The thread's plan: how many items are done of how many, then the checklist: the item in
+ * progress in foreground ink, the rest to do in grey, and settled ones struck through.
  */
 export function SummaryPlan(props: { plans: readonly ShownPlan[] }) {
   const todos = props.plans.flatMap((plan) =>
@@ -18,20 +18,7 @@ export function SummaryPlan(props: { plans: readonly ShownPlan[] }) {
   const done = todos.filter(({ todo }) => todo.status === "completed").length;
   return (
     <Section name="Plan" count={`${done} of ${todos.length}`}>
-      <div
-        role="progressbar"
-        aria-label="Plan progress"
-        aria-valuemin={0}
-        aria-valuemax={todos.length}
-        aria-valuenow={done}
-        className="mt-0.5 mb-2 h-0.75 overflow-hidden rounded-full bg-accent"
-      >
-        <div
-          className="h-full rounded-full bg-muted-foreground transition-[width] duration-(--motion-slow) ease-out"
-          style={{ width: `${(done / todos.length) * 100}%` }}
-        />
-      </div>
-      <ol aria-label="Tasks" className="space-y-1 text-ui">
+      <ol aria-label="Tasks" className="space-y-1 px-2 text-ui">
         {todos.map(({ todo, key }) => {
           const settled = todo.status === "completed" || todo.status === "cancelled";
           return (
@@ -40,13 +27,22 @@ export function SummaryPlan(props: { plans: readonly ShownPlan[] }) {
               aria-current={todo.status === "in_progress" ? "step" : undefined}
               className={cn(
                 "flex min-w-0 items-start gap-2",
-                settled ? "text-subtle-foreground" : "text-foreground",
-                todo.status === "cancelled" && "line-through",
+                settled
+                  ? "text-subtle-foreground line-through decoration-border"
+                  : todo.status === "in_progress"
+                    ? "text-foreground"
+                    : "text-muted-foreground",
               )}
             >
               <span
                 aria-hidden
-                className="mt-0.5 grid size-3.5 shrink-0 place-items-center rounded-xs border border-border text-muted-foreground"
+                className={cn(
+                  "mt-0.5 grid size-3.5 shrink-0 place-items-center rounded-xs border",
+                  todo.status === "completed"
+                    ? "border-transparent bg-(--tone) text-background"
+                    : "border-border",
+                )}
+                data-tone={todo.status === "completed" ? "done" : undefined}
               >
                 {todo.status === "completed" && <CheckIcon size={10} weight="bold" />}
               </span>

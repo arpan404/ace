@@ -13,7 +13,14 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
-import { agentRow, isBreathing, openWorkPanel, summaryStatus } from "@/test/open-work.ts";
+import {
+  agentRow,
+  agentTree,
+  isBreathing,
+  liveRow,
+  openWorkPanel,
+  stillRunning,
+} from "@/test/open-work.ts";
 
 beforeEach(() => {
   localStorage.clear();
@@ -49,7 +56,8 @@ test("a delegated thread's own delegations and their subagents show under it, at
     name: "$ bun run dev:fake --port 5394: running",
   });
   expect(build.closest("li")?.contains(dev)).toBe(true);
-  expect(await summaryStatus(work)).toMatch(/^Working/);
+  // Still running flattens every depth: the great-grandchild's subagent is listed too.
+  expect(await liveRow(work, /^Check daemon search limits: /)).toBeTruthy();
 });
 
 test("every row above a great-grandchild that still works stays live, never done", async () => {
@@ -74,13 +82,14 @@ test("every row above a great-grandchild that still works stays live, never done
     expect(isBreathing(row)).toBe(true);
     expect(row.getAttribute("aria-label")).not.toMatch(/: finished/);
   }
-  expect(await summaryStatus(work)).not.toMatch(/^Done/);
+  // The great-grandchild still runs, so Still running stays and lists it.
+  expect(await liveRow(work, /^Check daemon search limits: /)).toBeTruthy();
 });
 
 test("a finished branch folds to one line saying what is inside, and the person's fold sticks", async () => {
   const { work } = await openNested();
   // The two finished siblings share one "2 done" line; opened, each shows its own row.
-  await userEvent.click(within(work).getByRole("treeitem", { name: "2 done" }));
+  await userEvent.click(within(await agentTree(work)).getByRole("treeitem", { name: "2 done" }));
   const shell = await agentRow(work, "Rail-shell-web-sidebar");
   expect(shell.getAttribute("aria-expanded")).toBe("false");
   expect(shell.getAttribute("aria-label")).toMatch(/ · 1 done$/);
@@ -104,21 +113,24 @@ test("a finished branch folds to one line saying what is inside, and the person'
   );
 });
 
-test("Now names the agent four threads down that needs the person, and Open goes to it", async () => {
+test("Still running leads with the agent four threads down that needs the person, and Open goes to it", async () => {
   const { app, work } = await openNested();
   await agentRow(work, "Check daemon search limits");
   act(() => app.daemon.apply(nestedDelegationIds.review, [nestedQuestion()]));
-  const status = await within(work).findByRole("status", {
-    name: "Thread status: Check daemon search limits needs your answer",
-  });
-  expect(status.getAttribute("data-tone")).toBe("needs-you");
-  expect(within(work).getByText(/^Asks: Keep 3 days as the default\?/)).toBeTruthy();
+  const live = await within(work).findByRole("region", { name: "Still running" });
+  await waitFor(() =>
+    expect(within(live).getAllByRole("button")[0]?.getAttribute("aria-label")).toBe(
+      "Check daemon search limits: asks: Keep 3 days as the default?",
+    ),
+  );
+  const ask = within(live).getAllByRole("button")[0] as HTMLElement;
+  expect(ask.querySelector("[data-tone=needs-you]")).toBeTruthy();
   const row = await agentRow(work, "Check daemon search limits");
   expect(row.getAttribute("aria-label")).toBe(
     "Check daemon search limits: asks: Keep 3 days as the default?",
   );
   await userEvent.click(
-    within(work).getByRole("button", { name: "Open Check daemon search limits" }),
+    within(live).getByRole("button", { name: "Open Check daemon search limits" }),
   );
   expect(
     await screen.findByRole("heading", { level: 1, name: "Check daemon search limits" }),
@@ -150,8 +162,13 @@ test("the tree shows subagents as they spawn and the one that fails in red", asy
   const failed = await agentRow(work, "migration-tester");
   expect(failed.querySelector("[data-tone=failed]")).toBeTruthy();
   expect(failed.textContent).not.toMatch(/Context window exceeded/);
-  await waitFor(async () =>
-    expect(within(work).getByText(/^1 agent working · 1 done$/)).toBeTruthy(),
+  // Still running keeps the one still working; the failed one has left it.
+  await waitFor(() =>
+    expect(
+      within(stillRunning(work) as HTMLElement)
+        .getAllByRole("button")
+        .map((row) => row.getAttribute("aria-label")?.split(":")[0]),
+    ).toEqual(["schema-writer"]),
   );
   await userEvent.click(failed);
   await screen.findByRole("heading", { level: 1, name: "migration-tester" });
@@ -178,13 +195,11 @@ test("Stop ends a background command, and the thread settles once nothing else r
   const app = harness();
   app.play(coldStartReplay()).runThrough("root-replied");
   const work = await openThread(app, "/t/thread-cold-start");
-  const shell = await within(work).findByRole("treeitem", {
-    name: "$ bun run relay:soak --clients 2: running",
-  });
+  const shell = await liveRow(work, "$ bun run relay:soak --clients 2: running");
   await userEvent.click(
     within(shell.parentElement as HTMLElement).getByRole("button", { name: "Stop" }),
   );
-  await waitFor(async () => expect(await summaryStatus(work)).toMatch(/^Done/));
+  await waitFor(() => expect(stillRunning(work)).toBeNull());
   expect(within(work).queryByRole("treeitem", { name: /^\$ bun run relay:soak/ })).toBeNull();
   expect(within(work).queryByRole("button", { name: "Stop" })).toBeNull();
 });
@@ -199,7 +214,7 @@ test("Stop on a subagent interrupts only that subagent", async () => {
   expect(isBreathing(await agentRow(work, "ack-buffer-test"))).toBe(true);
 });
 
-test("a message queued in the composer reads under Now", async () => {
+test("a message queued in the composer reads at the top of Still running", async () => {
   const app = harness();
   app.play(coldStartReplay()).runThrough("turn-2");
   const work = await openThread(app, "/t/thread-cold-start");
@@ -211,8 +226,9 @@ test("a message queued in the composer reads under Now", async () => {
     "Also check the iOS cold-start path{Meta>}{Enter}{/Meta}",
   );
   expect(await screen.findByRole("list", { name: "Queued messages" })).toBeTruthy();
+  const live = await within(work).findByRole("region", { name: "Still running" });
   expect(
-    await within(work).findByText("1 queued message · sends when the agent is free"),
+    await within(live).findByText("1 queued message · sends when the agent is free"),
   ).toBeTruthy();
 });
 
@@ -229,7 +245,7 @@ test("the agent tree is one Tab stop: arrows move and fold, Enter opens an agent
   const app = harness();
   app.play(coldStartReplay()).runThrough("turn-2");
   const work = await openThread(app, "/t/thread-cold-start");
-  const tree = await within(work).findByRole("tree", { name: "Agent tree" });
+  const tree = await agentTree(work);
   const root = await agentRow(work, "Claude Code");
   expect(root.getAttribute("aria-expanded")).toBe("true");
   expect(

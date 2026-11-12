@@ -6,6 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import {
+  agentTree,
   currentCheckout,
   gitAction,
   machineRow,
@@ -51,7 +52,7 @@ test("the details card holds the workspace and branch only; what runs lives in S
   expect(within(card).queryByRole("button", { name: /subagents? working/ })).toBeNull();
   await userEvent.keyboard("{Escape}");
   const summary = await openWorkPanel();
-  const tree = await within(summary).findByRole("tree", { name: "Agent tree" });
+  const tree = await agentTree(summary);
   expect(within(tree).getByRole("treeitem", { name: "$ bun run dev: running" })).toBeTruthy();
 });
 

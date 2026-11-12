@@ -2,6 +2,7 @@ import { foldFinished, type ForestNode, type ThreadWork } from "@ace/ui-core";
 import type { Interaction } from "@ace/protocol";
 import { useCallback, useMemo, useState, type KeyboardEvent } from "react";
 import { useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
+import { forestRequests, requestFor } from "./agent-row-facts.ts";
 import { AgentLine, CommandLine, FinishedLine, guideLeft } from "./summary-rows.tsx";
 import { useKeptFocus } from "./summary-tree-focus.ts";
 
@@ -123,15 +124,7 @@ export function SummaryTree(props: {
   const actions = useWorkspaceActions(props.threadId);
   const sections = workspace.tabs.find((tab) => tab.key === "work")?.ui?.sections;
   const [selected, setActive] = useState<string>();
-  const requests = useMemo(() => {
-    const map = new Map<string, Interaction>();
-    for (const [threadId, work] of props.works)
-      for (const interaction of work.interactions) {
-        const key = `${threadId}/${interaction.agentId}`;
-        if (!map.has(key)) map.set(key, interaction);
-      }
-    return map;
-  }, [props.works]);
+  const requests = useMemo(() => forestRequests(props.works), [props.works]);
   // The main agent's row stays open: it is the tree itself, not a branch of it.
   const isOpen = useCallback(
     (node: ForestNode, depth: number) =>
@@ -226,13 +219,7 @@ function BranchNode(props: { node: ForestNode; depth: number; context: TreeConte
     onFold: () => context.fold(node.key, !open),
   };
   // A delegate speaks for its thread's main agent: that agent's request is its own.
-  const request =
-    node.kind === "agent"
-      ? (context.requests.get(node.key) ??
-        (node.childThread && node.childRoot
-          ? context.requests.get(`${node.childThread}/${node.childRoot.id}`)
-          : undefined))
-      : undefined;
+  const request = node.kind === "agent" ? requestFor(node, context.requests) : undefined;
   return (
     <li role="none">
       {node.kind === "agent" ? (

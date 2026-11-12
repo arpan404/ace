@@ -1,12 +1,14 @@
 import { WarningIcon } from "@phosphor-icons/react";
 import { DiffStat } from "@/components/diff-stat.tsx";
+import { MiddleTruncate } from "@/components/ui/middle-truncate.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { plainRow } from "@/components/ui/rules.ts";
 
 /**
- * One changed file in the Summary: its path, its `+N −M` and, when another agent changed it in
- * the same checkout, a warning. A click opens Changes on the latest turn with the file in view.
+ * One changed file in the Summary: its path in mono, losing its middle rather than its name when
+ * the panel is narrow, its `+N −M` at the right and, when another agent changed it in the same
+ * checkout, a warning. A click opens Changes on the latest turn with the file in view.
  */
 export function FileRow(props: {
   threadId: string;
@@ -17,18 +19,16 @@ export function FileRow(props: {
 }) {
   const workspace = useWorkspaceActions(props.threadId);
   const name = props.path.split("/").at(-1) ?? props.path;
-  const folder = props.path.slice(0, props.path.length - name.length);
   return (
     <li>
       <button
         type="button"
-        title={props.path}
         aria-label={`${props.path}${props.shared ? ", also changed by another agent" : ""}`}
         onClick={() =>
           workspace.open({ kind: "changes", data: { scope: "last", path: props.path } })
         }
         className={cn(
-          "focus-ring-inset flex h-7 w-full min-w-0 items-center gap-2 pr-2 pl-2 text-left font-mono text-xs",
+          "focus-ring-inset flex h-7 w-full min-w-0 items-center gap-2 px-2 text-left font-mono text-xs text-muted-foreground",
           plainRow,
         )}
       >
@@ -40,10 +40,11 @@ export function FileRow(props: {
             className="shrink-0 text-(--tone-text)"
           />
         )}
-        <span className="min-w-0 flex-1 truncate">
-          <span className="text-subtle-foreground">{folder}</span>
-          {name}
-        </span>
+        <MiddleTruncate
+          text={props.path}
+          tail={Math.min(name.length, 32)}
+          className="min-w-0 flex-1"
+        />
         {props.added !== null && props.removed !== null && (
           <DiffStat additions={props.added} deletions={props.removed} className="shrink-0" />
         )}

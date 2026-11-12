@@ -1,38 +1,21 @@
-import { DiffCounts } from "@/components/diff-stat.tsx";
-import type { ForgePrDetail, LinkedPullRequest } from "@ace/protocol";
-import { pluralCount } from "@ace/ui-core";
-import { GitPullRequestIcon, XIcon } from "@phosphor-icons/react";
-import { skipToken, useQuery } from "@tanstack/react-query";
+import type { LinkedPullRequest } from "@ace/protocol";
+import { XIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { usePrPrefetch, prDetailKey } from "@/lib/forge-pr-detail.ts";
+import { usePrPrefetch } from "@/lib/forge-pr-detail.ts";
 import { pullRequestTab, useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { PrUnlinkDialog } from "./pr-unlink-dialog.tsx";
 import { useUnlinkPr } from "./pr-unlink.ts";
+import { QuietLink, Section } from "./summary-section.tsx";
 
-const stateWords: Record<LinkedPullRequest["state"], string> = {
+export const prStateWords: Record<LinkedPullRequest["state"], string> = {
   open: "In review",
   draft: "Draft",
   merged: "Merged",
   closed: "Closed",
 };
 
-const ciWords = {
-  none: "No checks",
-  pending: "Checks running",
-  success: "Checks passed",
-  failure: "Checks failed",
-  unknown: "",
-} as const;
-
-/** A result row's frame: a quiet kind icon, then its title over one grey line. */
-export const resultRow = "flex min-w-0 items-start gap-2.5 py-1.5";
-export const resultIcon = "mt-0.5 shrink-0 text-subtle-foreground";
-
-/**
- * One pull request: its title, then number, state and, once its detail has been read for the PR
- * panel, its checks and size. The Summary never reads the forge itself for this line.
- */
+/** One pull request in one line: its number and title, its state at the right; × unlinks it. */
 function PrRow(props: {
   threadId: string;
   workspaceId: string;
@@ -42,20 +25,12 @@ function PrRow(props: {
   const { pr } = props;
   const actions = useWorkspaceActions(props.threadId);
   const prefetch = usePrPrefetch(props.workspaceId);
-  const detail = useQuery<ForgePrDetail>({
-    queryKey: prDetailKey(props.workspaceId, pr.repo, pr.number),
-    // Read from the cache only: the PR panel reads the forge, the Summary never does.
-    queryFn: skipToken,
-  }).data;
-  const ci = detail ? ciWords[detail.status.ci] : "";
-  const sized = detail?.additions !== undefined && detail.deletions !== undefined;
   return (
-    <li className={`group/pr ${resultRow}`}>
-      <GitPullRequestIcon aria-hidden size={14} className={resultIcon} />
+    <li className="group/pr flex min-w-0 items-center rounded-md hover:bg-accent">
       <button
         type="button"
         title={pr.title}
-        aria-label={`Pull request #${pr.number}${pr.title ? `: ${pr.title}` : ""}, ${stateWords[pr.state].toLowerCase()}`}
+        aria-label={`Pull request #${pr.number}${pr.title ? `: ${pr.title}` : ""}, ${prStateWords[pr.state].toLowerCase()}`}
         onPointerEnter={() => prefetch(pr.repo, pr.number)}
         onFocus={() => prefetch(pr.repo, pr.number)}
         onClick={() =>
@@ -67,17 +42,12 @@ function PrRow(props: {
             }),
           )
         }
-        className="focus-ring-inset min-w-0 flex-1 rounded-sm text-left"
+        className="focus-ring-inset flex h-7.5 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left text-ui pointer-coarse:h-11"
       >
-        <span className="block truncate text-ui font-medium">{pr.title ?? `#${pr.number}`}</span>
-        <span className="block truncate text-xs text-subtle-foreground tabular-nums">
-          {[`#${pr.number}`, stateWords[pr.state], ci].filter(Boolean).join(" · ")}
-          {sized && (
-            <>
-              {" · "}
-              <DiffCounts additions={detail.additions ?? 0} deletions={detail.deletions ?? 0} />
-            </>
-          )}
+        <span className="shrink-0 text-subtle-foreground tabular-nums">#{pr.number}</span>
+        <span className="min-w-0 flex-1 truncate">{pr.title}</span>
+        <span className="shrink-0 text-xs text-subtle-foreground group-focus-within/pr:hidden group-hover/pr:hidden">
+          {prStateWords[pr.state]}
         </span>
       </button>
       <IconButton
@@ -85,17 +55,26 @@ function PrRow(props: {
         label={`Unlink pull request #${pr.number}`}
         size="sm"
         onClick={props.onUnlink}
-        className="hidden group-focus-within/pr:inline-grid group-hover/pr:inline-grid pointer-coarse:inline-grid"
+        className="mr-0.5 hidden group-focus-within/pr:inline-grid group-hover/pr:inline-grid pointer-coarse:inline-grid"
       />
     </li>
   );
 }
 
+/** "24 merged · 2 closed": how many settled pull requests fold into the quiet line. */
+function settledWords(prs: readonly LinkedPullRequest[]) {
+  const merged = prs.filter((pr) => pr.state === "merged").length;
+  const closed = prs.length - merged;
+  return [merged && `${merged} merged`, closed && `${closed} closed`].filter(Boolean).join(" · ");
+}
+
 /**
- * The thread's pull requests, in review first; closed ones fold into one quiet line that opens
- * them. Each opens in the side panel; × unlinks it from the thread after asking.
+ * The thread's other pull requests, beside the one the outcome leads with: open and draft ones
+ * as one-line rows, merged and closed ones folded into one quiet line ("24 merged · Show") that
+ * opens them in place; the choice is kept with the tab. Each opens in the side panel; × unlinks
+ * it from the thread after asking.
  */
-export function PrResults(props: {
+export function OtherPullRequests(props: {
   threadId: string;
   workspaceId: string;
   prs: readonly LinkedPullRequest[];
@@ -103,38 +82,45 @@ export function PrResults(props: {
   const workspace = useScopeWorkspace(props.threadId);
   const actions = useWorkspaceActions(props.threadId);
   const sections = workspace.tabs.find((tab) => tab.key === "work")?.ui?.sections;
-  const showClosed = sections?.["prs:closed"] === true;
+  const showSettled = sections?.["prs:closed"] === true;
   const unlinkPr = useUnlinkPr(props.threadId);
   const [unlink, setUnlink] = useState<LinkedPullRequest | undefined>();
-  const current = props.prs.filter((pr) => pr.state !== "closed");
-  const closed = props.prs.filter((pr) => pr.state === "closed");
-  const rows = showClosed ? [...current, ...closed] : current;
+  if (!props.prs.length) return null;
+  const current = props.prs.filter((pr) => pr.state === "open" || pr.state === "draft");
+  const settled = props.prs.filter((pr) => pr.state === "merged" || pr.state === "closed");
+  const row = (pr: LinkedPullRequest) => (
+    <PrRow
+      key={`${pr.repo.owner}/${pr.repo.name}#${pr.number}`}
+      threadId={props.threadId}
+      workspaceId={props.workspaceId}
+      pr={pr}
+      onUnlink={() => setUnlink(pr)}
+    />
+  );
   return (
-    <>
-      {rows.map((pr) => (
-        <PrRow
-          key={`${pr.repo.owner}/${pr.repo.name}#${pr.number}`}
-          threadId={props.threadId}
-          workspaceId={props.workspaceId}
-          pr={pr}
-          onUnlink={() => setUnlink(pr)}
-        />
-      ))}
-      {closed.length > 0 && (
-        <li>
-          <button
-            type="button"
-            aria-expanded={showClosed}
+    <Section name="Other pull requests">
+      {current.length > 0 && <ul className="min-w-0">{current.map(row)}</ul>}
+      {settled.length > 0 && (
+        <p className="flex h-7 min-w-0 items-center gap-1 px-2 text-xs text-muted-foreground">
+          <span className="min-w-0 truncate">{settledWords(settled)}</span>
+          <span aria-hidden className="text-subtle-foreground">
+            ·
+          </span>
+          <QuietLink
+            expanded={showSettled}
+            label={showSettled ? "Hide merged and closed pull requests" : undefined}
             onClick={() =>
-              actions.updateUi("work", { sections: { ...sections, "prs:closed": !showClosed } })
+              actions.updateUi("work", { sections: { ...sections, "prs:closed": !showSettled } })
             }
-            className="focus-ring-inset rounded-sm py-1 text-xs text-subtle-foreground hover:text-foreground"
           >
-            {showClosed
-              ? "Hide closed pull requests"
-              : `${pluralCount(closed.length, "earlier pull request")}, closed`}
-          </button>
-        </li>
+            {showSettled ? "Hide" : "Show"}
+          </QuietLink>
+        </p>
+      )}
+      {showSettled && settled.length > 0 && (
+        <ul aria-label="Merged and closed pull requests" className="min-w-0">
+          {settled.map(row)}
+        </ul>
       )}
       {unlink && (
         <PrUnlinkDialog
@@ -143,6 +129,6 @@ export function PrResults(props: {
           onUnlink={() => unlinkPr({ number: unlink.number, repo: unlink.repo })}
         />
       )}
-    </>
+    </Section>
   );
 }
