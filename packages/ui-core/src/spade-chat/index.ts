@@ -7,6 +7,7 @@ export * from "./bubbles.ts";
 export * from "./words.ts";
 export * from "./requests.ts";
 export * from "./follow.ts";
+export * from "./lines.ts";
 export * from "./agents.ts";
 export * from "./notes.ts";
 export * from "./endpoints.ts";

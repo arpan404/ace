@@ -2,6 +2,8 @@ import { initials } from "@ace/ui-core";
 import {
   spadeApprovalSentence,
   spadeBubbles,
+  spadeCallDetails,
+  spadeShellCommand,
   spadeFailureSentence,
   type SpadeBubbleFailure,
   withProposals,
@@ -124,16 +126,6 @@ const botSide = (item: SpadeChatItem) =>
 const sameSender = (a: SpadeChatItem, b: SpadeChatItem) =>
   (botSide(a) && botSide(b)) ||
   (a.kind === "other" && b.kind === "other" && a.agent.id === b.agent.id);
-
-/**
- * The exact command a shell call would run, which "always" covers (that command, nothing like
- * it); undefined for every other tool.
- */
-function shellCommand(name: string, args: unknown): string | undefined {
-  if (name !== "shell" || typeof args !== "object" || args === null) return undefined;
-  const command = (args as { command?: unknown }).command;
-  return typeof command === "string" ? command : undefined;
-}
 
 const Bubble = memo(function Bubble(props: {
   item: SpadeChatItem;
@@ -318,7 +310,7 @@ const Bubble = memo(function Bubble(props: {
             sentence={spadeApprovalSentence(item.name, bot.name)}
             reason={item.reason}
             details={item.arguments}
-            command={shellCommand(item.name, item.arguments)}
+            command={spadeShellCommand(item.name, item.arguments)}
             onAnswer={(allowed, always) => props.onAnswer(item.callId, allowed, always)}
           />
         </BotRow>
@@ -442,7 +434,7 @@ function Ask(props: {
   const [answering, setAnswering] = useState<"allow" | "deny" | "always">();
   const [open, setOpen] = useState(false);
   const command = props.command;
-  const details = command === undefined ? callDetails(props.details) : undefined;
+  const details = command === undefined ? spadeCallDetails(props.details) : undefined;
   const answer = (choice: "allow" | "deny" | "always") => {
     setAnswering(choice);
     void props.onAnswer(choice !== "deny", choice === "always").then((sent) => {
@@ -511,25 +503,6 @@ function Ask(props: {
       </div>
     </div>
   );
-}
-
-/** Most of a call's arguments a bubble shows; the rest is cut with an ellipsis. */
-const maxDetailChars = 20_000;
-
-/**
- * What an approval would do, as text: its arguments as the bot sent them, indented JSON (text
- * stays text: React escapes it). Undefined when the call carries none.
- */
-export function callDetails(value: unknown): string | undefined {
-  if (value === undefined || value === null) return undefined;
-  let text: string;
-  try {
-    text = typeof value === "string" ? value : (JSON.stringify(value, null, 2) ?? "");
-  } catch {
-    return undefined;
-  }
-  if (!text || text === "{}") return undefined;
-  return text.length > maxDetailChars ? `${text.slice(0, maxDetailChars)}…` : text;
 }
 
 /**

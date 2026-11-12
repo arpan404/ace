@@ -1,9 +1,10 @@
 import { formatAge } from "@ace/ui-core";
 import {
-  spadeCappedLine,
+  spadeAgentLine,
   spadeGroupLine,
   spadeSetupSentence,
   spadeStateLine,
+  type SpadeAgentLine,
 } from "@ace/ui-core/spade-chat";
 import { Link, useParams } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
@@ -30,22 +31,11 @@ import {
   type RosterGroup,
 } from "./use-spade-groups.ts";
 
-/** The second line of a bot's row: what it does now, a cap it is at, else its latest message. */
-export function rosterLine(bot: RosterBot): { text: string; tone?: "working" | "needs-you" } {
+/** The second line of a bot's row: away or unavailable with its machine, else as every client. */
+export function rosterLine(bot: RosterBot): SpadeAgentLine {
   if (bot.away) return { text: `Away · ${bot.machine.name} is offline` };
   if (bot.unavailable) return { text: `Unavailable · Spade isn't running on ${bot.machine.name}` };
-  if (bot.state === "waiting" && bot.waitingFor === "question")
-    return { text: "Asked you a question", tone: "needs-you" };
-  if (bot.state === "waiting") return { text: bot.status ?? "Waiting for you", tone: "needs-you" };
-  if (bot.state === "working") return { text: bot.status ?? "Working", tone: "working" };
-  // A subscription that couldn't run (signed out, out of quota) until a later reply works.
-  if (bot.problem) return { text: bot.problem, tone: "needs-you" };
-  // At a cap it makes no model call until the cap ends (ADR 0135).
-  if (bot.spending?.capped) return { text: spadeCappedLine(bot.spending.capped) };
-  const last = bot.lastMessage;
-  if (!last?.text) return { text: "No messages yet" };
-  if (last.from === "agent") return { text: last.text };
-  return { text: `${last.fromAgent ? last.fromAgent.name : "You"}: ${last.text}` };
+  return spadeAgentLine(bot);
 }
 
 /**

@@ -1,4 +1,9 @@
-import { spadeFormatNames, spadeModelFacts, type SpadeEndpoint } from "@ace/ui-core/spade-chat";
+import {
+  spadeFormatNames,
+  spadeKeyLine,
+  spadeModelFacts,
+  type SpadeEndpoint,
+} from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
@@ -185,31 +190,10 @@ function KeyRow(props: { endpoint: SpadeEndpoint; keychain: boolean }) {
       setSending(false);
     }
   };
-  if (!props.keychain)
-    return (
-      <SettingRow
-        title="Key"
-        description={
-          endpoint.keySource === "environment"
-            ? "Set from the environment."
-            : "This machine has no keychain. Set the endpoint's environment variable for Spade."
-        }
-      />
-    );
+  const line = spadeKeyLine(endpoint, props.keychain);
+  if (!line.canSave) return <SettingRow title="Key" description={line.description} />;
   return (
-    <SettingRow
-      title="Key"
-      htmlFor={field}
-      description={
-        endpoint.keySource === "environment"
-          ? "Set from the environment. A key saved here is used instead."
-          : endpoint.keySet === undefined
-            ? "Checking the keychain…"
-            : endpoint.keySet
-              ? "Set"
-              : "Not set. Spade can't use these models without it."
-      }
-    >
+    <SettingRow title="Key" htmlFor={field} description={line.description}>
       <form
         className="flex items-center gap-1.5"
         onSubmit={(event) => {
@@ -222,7 +206,7 @@ function KeyRow(props: { endpoint: SpadeEndpoint; keychain: boolean }) {
           type="password"
           autoComplete="off"
           spellCheck={false}
-          placeholder={endpoint.keySet === false ? "Paste key" : "Replace key"}
+          placeholder={line.placeholder}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           disabled={sending}
@@ -232,7 +216,7 @@ function KeyRow(props: { endpoint: SpadeEndpoint; keychain: boolean }) {
           Save
         </Button>
         {/* Only a key in the keychain can be removed from here; the environment's stays. */}
-        {endpoint.keySource === "keychain" && (
+        {line.canRemove && (
           <Button
             size="sm"
             variant="ghost"
