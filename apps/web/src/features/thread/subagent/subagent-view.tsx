@@ -11,7 +11,7 @@ import {
 import type { Agent } from "@ace/protocol";
 import { modelLabel, providerNames, subagentEnded, subagentPhase } from "@ace/ui-core";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Suspense, useCallback } from "react";
+import { Suspense, useCallback, useEffect } from "react";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { MissingState } from "@/components/ui/missing-state.tsx";
 import { SkeletonText } from "@/components/ui/skeleton.tsx";
@@ -27,6 +27,7 @@ import { Screen } from "@/features/shell/index.ts";
 import type { AgentFacts } from "@/lib/agent-facts.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { useHotkey } from "@/lib/hotkeys.ts";
+import { whenIdle } from "@/lib/idle.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useAgentFacts } from "@/lib/use-agent-facts.ts";
 import { ComposerDock } from "../composer/composer-dock.tsx";
@@ -36,6 +37,8 @@ import { ThreadLoadError } from "../thread-load-error.tsx";
 import { AgentTranscript } from "../transcript/agent-transcript.tsx";
 import { SubagentCrumb } from "../header/thread-crumb.tsx";
 import { WorkButton } from "../header/work-button.tsx";
+import { DeferredWorkPopover } from "../header/work-surface.ts";
+import { DeferredStepDetail } from "../items/deferred-step-detail.ts";
 import { useRememberedWorkCardStore, WorkCardContext } from "../header/work-card-store.ts";
 import { WorkSide } from "../header/work-side.tsx";
 import { AskParentRetry } from "./ask-parent-retry.tsx";
@@ -70,6 +73,14 @@ export function SubagentView(props: { threadId: string; agentId: string }) {
   const { name } = useAgentIdentity(threadId, agent);
   const root = !parent || parent.origin === "root";
   const details = useRememberedWorkCardStore();
+  // An opened step's detail and the details icon's popover, so neither waits on first open.
+  useEffect(
+    () =>
+      whenIdle(
+        () => void Promise.all([DeferredStepDetail.preload(), DeferredWorkPopover.preload()]),
+      ),
+    [],
+  );
   useHotkey(keymap.workCard.keys, details.toggle, { id: "workCard" });
   // Esc steps back up to the parent, as Open parent does, once nothing above the page has it.
   const navigate = useNavigate();

@@ -8,7 +8,7 @@ import { useShowBrowserPanel } from "@/features/panels/index.ts";
 import { DeferredMeasurementStep } from "./deferred-measurement.ts";
 import { DeferredQuestionStep } from "../interactions/deferred-card.ts";
 import { MessageAttachments } from "@/components/attachment-message.tsx";
-import { StepDetail } from "./step-detail.tsx";
+import { DeferredStepDetail } from "./deferred-step-detail.ts";
 import { StepImages } from "./ace-steps.tsx";
 import { StepGlyph } from "./step-glyph.tsx";
 import { RailMark } from "./step-rail.tsx";
@@ -126,7 +126,13 @@ function StepLine(props: {
         )}
       {open && (
         <div id={panel} className="mt-1 mb-2 pl-7">
-          <StepDetail item={data.item} threadId={props.threadId} ace={data.step.ace} />
+          <Suspense fallback={null}>
+            <DeferredStepDetail.Component
+              item={data.item}
+              threadId={props.threadId}
+              ace={data.step.ace}
+            />
+          </Suspense>
         </div>
       )}
     </li>
