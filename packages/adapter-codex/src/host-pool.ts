@@ -83,7 +83,13 @@ function spawnKey(ctx: CodexSessionContext, env: NodeJS.ProcessEnv | undefined):
   const entries = Object.entries(env ?? {})
     .filter(([name, value]) => value !== undefined && name !== "ACE_MCP_BEARER_TOKEN")
     .toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-  return JSON.stringify([ctx.executable ?? null, ctx.builtinSkills?.args ?? [], entries]);
+  return JSON.stringify([
+    ctx.executable ?? null,
+    ctx.builtinSkills?.args ?? [],
+    // A changed tool source starts a fresh app-server instead of joining one without it.
+    ctx.toolConfigArgs ?? [],
+    entries,
+  ]);
 }
 
 async function discover(options: ChannelOptions): Promise<string> {
@@ -128,7 +134,12 @@ function startHost(
         spawn: (flow, dropped) =>
           io.spawn({
             command,
-            args: [...(ctx.builtinSkills?.args ?? []), "app-server", ...unloadClosedThreads],
+            args: [
+              ...(ctx.builtinSkills?.args ?? []),
+              ...(ctx.toolConfigArgs ?? []),
+              "app-server",
+              ...unloadClosedThreads,
+            ],
             // A shared process outlives any one workspace; threads carry their own cwd.
             cwd: dedicated ? ctx.cwd : io.homeDir(),
             outputFlow: flow,

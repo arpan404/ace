@@ -30,7 +30,13 @@ export async function harness(
   options: ClaudeOptions = {},
   execution: Pick<
     SessionContext,
-    "fork" | "options" | "aceMcp" | "permissionMode" | "onInputMessage" | "onSessionConfirmed"
+    | "fork"
+    | "options"
+    | "aceMcp"
+    | "permissionMode"
+    | "onInputMessage"
+    | "onSessionConfirmed"
+    | "chrome"
   > = {},
 ) {
   const frames: Frame[] = [];
