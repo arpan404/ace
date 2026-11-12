@@ -67,6 +67,9 @@ pub(super) struct ModelId {
 pub(super) struct Settings {
     #[serde(default, deserialize_with = "present")]
     fast_model: Option<Option<String>>,
+    /// The model that transcribes voice (ADR 0134).
+    #[serde(default, deserialize_with = "present")]
+    transcription_model: Option<Option<String>>,
 }
 
 /// Where the endpoint's key comes from, if it has one: the keychain wins, as in every call.
@@ -157,6 +160,7 @@ fn models_now(state: &AppState) -> Response {
         "endpoints": views.iter().map(|v| endpoint_json(state, v)).collect::<Vec<_>>(),
         "presets": presets,
         "fast_model": fast,
+        "transcription_model": engine.transcription_model().ok().flatten(),
         "keychain": state.keys.is_some(),
         "starting": engine.starting().is_some(),
         "starting_reason": engine.starting(),
@@ -273,6 +277,11 @@ pub(super) async fn settings(
         && let Err(error) = state.engine.set_fast_model(fast.as_deref())
     {
         return endpoint_problem(&error);
+    }
+    if let Some(model) = body.transcription_model
+        && let Err(error) = state.engine.set_transcription_model(model.as_deref())
+    {
+        return problem(StatusCode::BAD_REQUEST, &error.to_string());
     }
     StatusCode::NO_CONTENT.into_response()
 }

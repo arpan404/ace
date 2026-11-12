@@ -36,6 +36,19 @@ async fn main() -> std::process::ExitCode {
         println!("{}", spade_server::home::VERSION);
         return std::process::ExitCode::SUCCESS;
     }
+    // The document reader (ADR 0134): one file on stdin, its text on stdout, then exit. Runs
+    // before logging starts, so nothing else ever writes to stdout.
+    if let Some(flag) = args.first()
+        && flag == spade_docs::CHILD_ARG
+    {
+        let name = args.get(1).and_then(|n| n.to_str()).unwrap_or("file");
+        let code = spade_docs::serve_child(
+            name,
+            &mut std::io::stdin().lock(),
+            &mut std::io::stdout().lock(),
+        );
+        return std::process::ExitCode::from(u8::try_from(code).unwrap_or(1));
+    }
     if let Some(flag) = args.first()
         && flag == "--check-migrations"
     {
@@ -144,7 +157,17 @@ async fn run() -> Result<(), Failure> {
             None
         }
     };
-    let fetcher = Fetcher::new(Policy::default(), Duration::from_secs(30));
+    // Documents are read by this same binary in a child process it kills at the deadline
+    // (ADR 0134); without a path to it, in process.
+    let reader = match std::env::current_exe() {
+        Ok(program) => spade_docs::Extractor::child(program, Vec::new()),
+        Err(error) => {
+            tracing::warn!(%error, "reading documents in process: this binary's path is unknown");
+            spade_docs::Extractor::in_process()
+        }
+    };
+    let fetcher =
+        Fetcher::new(Policy::default(), Duration::from_secs(30)).with_documents(reader.clone());
     let mut core: Vec<Arc<dyn Tool>> = vec![
         Arc::new(WebSearch {
             search: Arc::new(search),
@@ -160,6 +183,10 @@ async fn run() -> Result<(), Failure> {
         workspaces.clone(),
         bots.clone(),
         Shell::system(),
+    ));
+    core.extend(spade_server::media::tools::all(
+        workspaces.clone(),
+        bots.clone(),
     ));
     let mut skills: Option<Arc<dyn SkillLibrary>> = None;
     let mut learning: Option<Arc<Learning>> = None;
@@ -185,7 +212,7 @@ async fn run() -> Result<(), Failure> {
         skills = Some(library);
         learning = Some(learned);
     }
-    let mut tools = Toolbox::new(core);
+    let mut tools = Toolbox::new(core).with_source(spade_server::media::tools::images(&bots));
     if let Some(link) = &ace {
         tools = tools.with_source(link.clone() as Arc<dyn ToolSource>);
     }
@@ -223,6 +250,7 @@ async fn run() -> Result<(), Failure> {
     })
     .map_err(other)?;
     bots.set(&engine);
+    engine.media().read_with(reader);
     let token = new_token();
     home.write_token(&token).map_err(other)?;
     let listener = TcpListener::bind(config.listen).await.map_err(other)?;

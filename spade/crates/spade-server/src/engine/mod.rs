@@ -12,6 +12,7 @@ mod endpoints;
 mod index;
 mod jobs;
 mod maintenance;
+mod media;
 mod memory;
 pub mod roster;
 mod routines;
@@ -22,6 +23,7 @@ pub use agents::{BOT, MAIN, NAME_CHARS, TASK_CHARS};
 pub use bots::MOST_HOPS;
 pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput};
 pub use maintenance::MaintenanceState;
+pub use media::{Outgoing, TranscribeError};
 pub use memory::{MemoryCall, NoteError, NoteScope, note_json};
 pub use roster::{LastMessage, State};
 pub use types::{
@@ -75,6 +77,8 @@ pub struct Engine {
     limits: Limits,
     skills: Option<Arc<dyn SkillLibrary>>,
     images: ImageStore,
+    /// Attached documents and recordings, beside the images (ADR 0134).
+    media: Arc<crate::media::Media>,
     live: Mutex<HashMap<String, Arc<Live>>>,
     /// Orders "store, then broadcast" and makes "steer or start" and "finish unless steered"
     /// atomic against each other, so a message sent as a reply ends is never lost.
@@ -133,6 +137,8 @@ impl Engine {
             tools = tools.with_tool(tool);
         }
         let tools = crate::routines::with_tools(tools, &handle);
+        let data = setup.images.dir().parent().unwrap_or(setup.images.dir());
+        let media = Arc::new(crate::media::Media::open(data));
         let engine = Arc::new(Self {
             store: setup.store,
             models: setup.models,
@@ -144,6 +150,7 @@ impl Engine {
             limits: setup.limits,
             skills: setup.skills,
             images: setup.images,
+            media,
             live: Mutex::default(),
             record_lock: Mutex::default(),
             activity: Mutex::default(),
@@ -346,33 +353,14 @@ impl Engine {
         text: &str,
         images: &[Vec<u8>],
     ) -> Result<(), SendError> {
-        self.check_message(text, images.len())?;
-        if self.store.conversation(id)?.is_none() || self.deleting(id) {
-            return Err(SendError::NotFound);
-        }
-        if self.disabled_main(id)? {
-            return Err(SendError::Disabled);
-        }
-        let message = memory::with_recall(self, id, self.message(text, images)?);
-        self.deliver(id, &message)?;
-        Ok(())
-    }
-
-    /// The person's message as stored, with its images kept in the image store.
-    fn message(&self, text: &str, images: &[Vec<u8>]) -> Result<Event, SendError> {
-        let images = images
-            .iter()
-            .map(|bytes| self.images.put(bytes))
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(Event::Known(Known::UserMessage {
-            text: text.trim().to_owned(),
-            context: None,
-            images,
-            documents: Vec::new(),
-            voice: None,
-            from_agent: None,
-            from_routine: None,
-        }))
+        self.send_message(
+            id,
+            Outgoing {
+                text: text.to_owned(),
+                images: images.to_vec(),
+                ..Outgoing::default()
+            },
+        )
     }
 
     /// A stored image and its media type, by hash.
@@ -382,11 +370,14 @@ impl Engine {
 
     /// Images as a prompt for `model` shows them: as images if it can see them.
     fn images_for(&self, model: &str) -> crate::images::ModelImages<'_> {
-        let can_see = self
-            .models
-            .resolve(model)
-            .is_some_and(|(_, m)| m.can(spade_models::Capability::Images));
-        self.images.for_model(can_see)
+        let facts = self.models.resolve(model).map(|(_, m)| m);
+        let can = |c| facts.as_ref().is_some_and(|m| m.can(c));
+        let shown = self.images.for_model(can(spade_models::Capability::Images));
+        if can(spade_models::Capability::PdfInput) {
+            shown.with_pdfs(&self.media.documents)
+        } else {
+            shown
+        }
     }
 
     /// Stores something the model must read (a message, a job result): it steers the open turn,
@@ -490,13 +481,10 @@ impl Engine {
         &self.models
     }
 
-    fn check_message(&self, text: &str, images: usize) -> Result<(), SendError> {
+    fn check_message(&self, text: &str, attached: usize) -> Result<(), SendError> {
         let text = text.trim();
-        if text.is_empty() && images == 0 {
+        if text.is_empty() && attached == 0 {
             return Err(SendError::Empty);
-        }
-        if images > crate::images::MOST_IMAGES {
-            return Err(SendError::TooManyImages);
         }
         if text.chars().count() > self.limits.longest_message {
             return Err(SendError::TooLong);

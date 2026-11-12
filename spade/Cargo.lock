@@ -3189,6 +3189,7 @@ dependencies = [
  "spade-ace",
  "spade-connect",
  "spade-core",
+ "spade-docs",
  "spade-fetch",
  "spade-keys",
  "spade-mcp",

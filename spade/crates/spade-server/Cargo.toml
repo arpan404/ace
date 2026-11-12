@@ -24,6 +24,7 @@ spade-ace = { path = "../spade-ace" }
 spade-connect = { path = "../spade-connect" }
 spade-mcp = { path = "../spade-mcp" }
 spade-fetch = { path = "../spade-fetch" }
+spade-docs = { path = "../spade-docs" }
 spade-search = { path = "../spade-search" }
 spade-store = { path = "../spade-store" }
 thiserror.workspace = true
