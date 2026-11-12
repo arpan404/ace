@@ -142,7 +142,7 @@ The ways in, each listed with its URL by `outside.request` `endpoints`:
 | --------- | --------------------- | ------------------------------------------------------------------------------------------- |
 | local     | always on             | `http://127.0.0.1:<port>/mcp`                                                               |
 | tailscale | `remote.tailscaleMcp` | `https://<machine>.<tailnet>.ts.net:<port>/mcp`, while Tailscale has issued the certificate |
-| relay     | `remote.relayMcp`     | `https://relay.acehq.dev/m/<hostId>/mcp`, while signed in to ace's relay                    |
+| relay     | `remote.relayMcp`     | `https://cloud.acehq.dev/m/<hostId>/mcp`, while signed in to ace's relay                    |
 | custom    | `remote.mcpPublicUrl` | `<your origin>/mcp`                                                                         |
 
 For the custom path, point Tailscale Funnel, a tunnel or a reverse proxy at the loopback

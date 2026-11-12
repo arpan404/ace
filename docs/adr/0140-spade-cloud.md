@@ -1,6 +1,8 @@
 # 0140: Spade Cloud, a hosted backend for Spade, starting with app sign-in
 
-Status: accepted. Date: 2026-11-12. Decided by: the owner (2026-11-12). Amends
+Status: Superseded by [ADR 0141](0141-ace-cloud.md), which runs the broker in ace cloud's
+Worker instead of a Rust service on Railway; the broker's API and its exception to ADR 0002
+stand as written here. Date: 2026-11-12. Decided by: the owner (2026-11-12). Amends
 [ADR 0002](0002-local-cli-providers.md) with a third narrow hosted exception, beside
 [ADR 0106](0106-ios-remote-push-gateway.md) and [ADR 0110](0110-cloudflare-relay.md), and
 [ADR 0137](0137-spade-public-connector-apps.md), which refused a hosted service holding client

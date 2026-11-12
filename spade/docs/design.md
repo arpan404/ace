@@ -60,7 +60,7 @@ matter; the encrypted channel and grants matter when Spade reaches a daemon from
 | `spade-ace`        | Talks to the ace daemon: locally first, through the relay for a hosted Spade                                                                                       | planned               |
 | `spade-mcp`        | MCP client over streamable HTTP (`rmcp`), shared by ace's tools and connectors                                                                                     | built                 |
 | `spade-connect`    | Connector catalogue, OAuth sign-in, sessions and per-bot access ([connectors.md](connectors.md))                                                                   | built                 |
-| `spade-cloud`      | Spade Cloud, the hosted backend at cloud.acehq.dev: the OAuth broker for apps that need a client secret ([cloud.md](cloud.md))                                     | built                 |
+| `spade-cloud-wire` | What Spade and ace cloud's sign-in broker say to each other, and the token sealing; the broker itself runs in ace cloud's Worker ([cloud.md](cloud.md), ADR 0141)  | built                 |
 | `spade-cloud-wire` | What Spade and Spade Cloud say to each other, and the sealing of tokens to Spade's one-time key                                                                    | built                 |
 | `spade-memory`     | Memory storage and search: built in `spade-core` (`memory`) and `spade-store` (`notes`) instead, see [memory.md](memory.md)                                        | built                 |
 

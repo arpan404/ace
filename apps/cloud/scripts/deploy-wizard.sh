@@ -180,7 +180,7 @@ finish() {
 }
 
 # ──────────────────────────────────────────────────────────────────────────
-# STAGES: first deploy of ace's hosted relay and account backend (docs/relay/accounts.md).
+# STAGES: first deploy of ace cloud: the hosted relay, account backend and Spade's broker (docs/relay/accounts.md).
 # Public values are kept in apps/cloud/.deploy.env (git-ignored). Secrets go
 # straight to Cloudflare and are never written to disk.
 # ──────────────────────────────────────────────────────────────────────────
@@ -206,10 +206,10 @@ fill() {
 # has_secret NAME: whether the deployed Worker already has this secret.
 has_secret() { "${WRANGLER[@]}" secret list "${PROD[@]}" 2>/dev/null | grep -q "\"$1\""; }
 
-banner "Deploy ace's hosted relay to Cloudflare"
+banner "Deploy ace cloud to Cloudflare"
 
 stage "Domain and allowed origins"
-say "The relay and the account API share one domain, e.g. relay.acehq.dev."
+say "The relay, the account API and Spade's broker share one domain, e.g. cloud.acehq.dev."
 say "Its DNS zone must already be on the Cloudflare account you'll sign in with."
 ask RELAY_DOMAIN "Relay domain (no https://):"
 RELAY_DOMAIN="${RELAY_DOMAIN#https://}"; RELAY_DOMAIN="${RELAY_DOMAIN%/}"
