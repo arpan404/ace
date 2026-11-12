@@ -2667,6 +2667,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "spade-connect"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "getrandom 0.4.3",
+ "keyring-core",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "spade-keys",
+ "spade-mcp",
+ "spade-store",
+ "spade-testkit",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "spade-core"
 version = "0.1.0"
 dependencies = [

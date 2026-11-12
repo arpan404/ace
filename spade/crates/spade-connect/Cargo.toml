@@ -1,0 +1,31 @@
+[package]
+name = "spade-connect"
+version = "0.1.0"
+description = "Spade's connectors: the person's apps through their own remote MCP servers (ADR 0131)"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+base64.workspace = true
+getrandom = "0.4"
+reqwest = { workspace = true, features = ["form"] }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+spade-keys = { path = "../spade-keys" }
+spade-mcp = { path = "../spade-mcp" }
+spade-store = { path = "../spade-store" }
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync", "time", "rt"] }
+tracing.workspace = true
+url = "2"
+
+[dev-dependencies]
+keyring-core.workspace = true
+spade-testkit = { path = "../spade-testkit" }
+tempfile.workspace = true
+
+[lints]
+workspace = true
