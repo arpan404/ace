@@ -40,6 +40,8 @@
   /* Fleet, both views: room for the map with its panel beside, the same for Overview. */
   --settings-wide-column: 1040px;
   --setting-row-height: 52px;
+  /* One width for every select and picker in a settings row, so the controls line up. */
+  --setting-select-width: 200px;
   --setting-row-y: 10px;
   /* Between one settings group (title over rows) and the next. */
   --settings-group-gap: 40px;

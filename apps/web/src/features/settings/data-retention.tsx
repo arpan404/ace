@@ -113,7 +113,7 @@ function NumberRow(props: {
           inputMode="numeric"
           min={props.min}
           max={props.max}
-          className={cn(fieldClassName, "h-8 w-24 tabular-nums")}
+          className={cn(fieldClassName, "h-8 w-20 tabular-nums")}
           value={draft ?? props.value ?? ""}
           disabled={!ready || saving || props.value === undefined || props.pinnedBy !== undefined}
           onChange={(event) => setDraft(event.target.value)}

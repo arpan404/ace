@@ -86,12 +86,14 @@ function RoleRow(props: { role: RunRole }) {
               label={`${row.title} effort`}
               value={effort ?? "default"}
               options={effortOptions}
+              className="w-28"
               disabled={offline}
               onValueChange={(next) => write.run(() => setEffort(next))}
             />
           )}
           <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger
+              data-slot="select"
               render={
                 // The width and shape of a Select, so the Roles column lines up with the others.
                 <Button

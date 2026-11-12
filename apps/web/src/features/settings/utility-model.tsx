@@ -55,7 +55,16 @@ function UtilityModelRow() {
       <DaemonSlot control={{ loaded: choice !== undefined, offline, pending: write.pending }}>
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger
-            render={<Button type="button" variant="secondary" size="sm" disabled={offline} />}
+            render={
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={offline}
+                className="h-8 justify-between pr-2 pl-2.5 font-normal"
+              />
+            }
+            data-slot="select"
             aria-label={`${row.title}: ${label}`}
           >
             {resolved && (
@@ -66,7 +75,7 @@ function UtilityModelRow() {
                 accountLabel={false}
               />
             )}
-            <span className="max-w-48 truncate">{label}</span>
+            <span className="min-w-0 flex-1 truncate text-left">{label}</span>
             <CaretDownIcon aria-hidden size={12} className="text-subtle-foreground" />
           </PopoverTrigger>
           <PopoverContent aria-label={row.title} className="overflow-hidden p-0">

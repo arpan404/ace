@@ -93,7 +93,6 @@ export function BrowserSettings() {
               options={browserEngineChoices}
               disabled={engine.offline}
               onValueChange={engine.set}
-              className="w-56"
             />
           </DaemonSlot>
         </SettingRow>
@@ -118,7 +117,6 @@ export function BrowserSettings() {
               options={scopes}
               disabled={scope.offline}
               onValueChange={scope.set}
-              className="w-56"
             />
           </DaemonSlot>
         </SettingRow>

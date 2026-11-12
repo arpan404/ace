@@ -47,6 +47,8 @@ function Select<T extends string>(props: {
       }}
     >
       <SelectPrimitive.Trigger
+        // A default-size select takes a settings row's shared width; one given a width keeps it.
+        data-slot={props.className ? undefined : "select"}
         id={props.id}
         aria-label={props.label}
         aria-required={props.required || undefined}

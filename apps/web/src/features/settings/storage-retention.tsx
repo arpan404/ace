@@ -93,7 +93,7 @@ export function StorageRetentionControls(props: { onSaved(): void }) {
               type="number"
               min={1}
               max={36500}
-              className={cn(fieldClassName, "h-8 w-24 tabular-nums")}
+              className={cn(fieldClassName, "h-8 w-20 tabular-nums")}
               placeholder="Keep"
               value={values[kind] ?? ""}
               disabled={!ready || running}

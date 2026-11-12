@@ -74,7 +74,10 @@ export function SettingRow(props: {
             {props.title}
           </Title>
           {props.description && (
-            <span id={hintId} className="max-w-prose text-xs leading-relaxed text-muted-foreground">
+            <span
+              id={hintId}
+              className="max-w-prose text-xs leading-relaxed text-subtle-foreground"
+            >
               {props.description}
             </span>
           )}
@@ -85,6 +88,8 @@ export function SettingRow(props: {
               // A trailing ghost button's label lines up with the column's edge, not its padding
               // (its negative margin would otherwise count against the max-width its siblings keep).
               "ml-auto flex min-w-0 max-w-[60%] shrink-0 flex-wrap items-center justify-end gap-2 *:max-w-full [&>[data-variant=ghost]:last-child]:-mr-2.5 [&>[data-variant=ghost]:last-child]:max-w-none",
+              // Every select and picker in a row takes one width, so controls start on one edge.
+              "[&_[data-slot=select]]:w-(--setting-select-width) [&_[data-slot=select]]:max-w-full",
               !props.inline &&
                 "@max-[440px]:ml-0 @max-[440px]:max-w-full @max-[440px]:justify-start",
             )}

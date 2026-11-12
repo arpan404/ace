@@ -120,7 +120,6 @@ function FastModelRow(props: { models: SpadeModels }) {
               }),
           )
         }
-        className="w-56"
       />
     </SettingRow>
   );
