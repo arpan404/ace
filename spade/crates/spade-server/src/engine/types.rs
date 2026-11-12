@@ -50,6 +50,7 @@ pub struct Setup {
     pub clock: Arc<dyn Clock>,
     pub ids: Arc<dyn Ids>,
     pub daily_cap_micros: u64,
+    /// No longer read: days are the person's, in the time zone the app sends (ADR 0135).
     pub utc_offset_seconds: i32,
     pub limits: Limits,
     /// The person's skill library, when ace provides one.
@@ -185,6 +186,9 @@ pub enum CompactError {
     Nothing,
     #[error("today's spending cap is used up")]
     OverCap,
+    /// The bot is at one of its own caps (ADR 0135).
+    #[error("{0}")]
+    BotCapped(String),
     #[error("{0}")]
     Failed(String),
 }

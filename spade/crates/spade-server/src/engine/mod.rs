@@ -11,6 +11,8 @@ mod control;
 mod endpoints;
 mod index;
 mod jobs;
+mod ledger;
+pub(crate) use ledger::Admission;
 mod maintenance;
 mod memory;
 mod oversight;
@@ -26,7 +28,8 @@ pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput};
 pub use maintenance::MaintenanceState;
 pub use memory::{MemoryCall, NoteError, NoteScope, note_json};
 pub use oversight::{
-    ActivityQuery, AgentOversight, Global, GlobalChange, OversightChange, OversightError,
+    ActivityPage, ActivityQuery, AgentOversight, Global, GlobalChange, OversightChange,
+    OversightError,
 };
 pub use roster::{LastMessage, State};
 pub use types::{
@@ -76,7 +79,8 @@ pub struct Engine {
     clock: Arc<dyn Clock>,
     ids: Arc<dyn Ids>,
     daily_cap_micros: u64,
-    utc_offset_seconds: i32,
+    /// Model calls admitted and not yet paid for (ADR 0135, `ledger`).
+    in_flight: Mutex<ledger::InFlight>,
     limits: Limits,
     skills: Option<Arc<dyn SkillLibrary>>,
     images: ImageStore,
@@ -145,7 +149,7 @@ impl Engine {
             clock: setup.clock,
             ids: setup.ids,
             daily_cap_micros: setup.daily_cap_micros,
-            utc_offset_seconds: setup.utc_offset_seconds,
+            in_flight: Mutex::default(),
             limits: setup.limits,
             skills: setup.skills,
             images: setup.images,
@@ -484,6 +488,10 @@ impl Engine {
         {
             return Err(CompactError::OverCap);
         }
+        // A bot at its own cap compacts nothing either: the summary is a model call.
+        if let Some(why) = self.cap_refusal(id) {
+            return Err(CompactError::BotCapped(why));
+        }
         let model = compact::conversation_model(self, id).unwrap_or_else(|| self.reply_model(id));
         match compact::now(self, id, &model, focus).await {
             Ok(true) => Ok(()),
@@ -514,7 +522,8 @@ impl Engine {
     }
 
     fn within_cap(&self) -> Result<bool, StoreError> {
-        let since = spending::day_start_ms(self.now_ms(), self.utc_offset_seconds);
+        // The person's day, the same one the bots' caps and the app use (ADR 0135).
+        let since = self.periods().day_start;
         Ok(spending::within_cap(
             self.store.spent_since(since)?,
             self.daily_cap_micros,

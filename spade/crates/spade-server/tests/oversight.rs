@@ -431,7 +431,11 @@ async fn the_activity_log_lists_what_a_bot_did_filtered_and_without_secrets() ->
         .as_array()
         .map(|l| l.iter().filter_map(|e| e["kind"].as_str()).collect())
         .unwrap_or_default();
-    assert_eq!(kinds.first(), Some(&"spend"), "newest first: {kinds:?}");
+    assert_eq!(
+        kinds.first(),
+        Some(&"spend"),
+        "newest first: {kinds:?} {log}"
+    );
     assert!(kinds.contains(&"tool"));
 
     let (_, tools) = spade
@@ -450,5 +454,159 @@ async fn the_activity_log_lists_what_a_bot_did_filtered_and_without_secrets() ->
     assert_eq!(status, 400);
     let (status, _) = spade.get("/v1/agents/nobody/activity").await?;
     assert_eq!(status, 404);
+    Ok(())
+}
+
+#[tokio::test]
+async fn compacting_by_hand_is_refused_for_a_bot_at_its_cap() -> Result {
+    let spade = Spade::start(
+        vec![
+            Script::reply("One"),
+            Script::reply("").plain(r#"{"title":"Notes"}"#),
+            Script::reply("Two"),
+        ],
+        Vec::new(),
+    )
+    .await?;
+    let (agent, conversation) = bot(&spade, "Notes").await?;
+    spade.say(&conversation, "First").await?;
+    settled(&spade, &conversation).await?;
+    spade.say(&conversation, "Second").await?;
+    settled(&spade, &conversation).await?;
+    caps(&spade, &agent, json!({ "daily_cap_micros": 50 })).await?;
+    let calls = spade.fake.seen().len();
+    let (status, body) = spade
+        .post(
+            &format!("/v1/conversations/{conversation}/compact"),
+            json!({}),
+        )
+        .await?;
+    assert_eq!(status, 402, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("daily cap")),
+        "{body}"
+    );
+    assert_eq!(spade.fake.seen().len(), calls, "no summary was asked for");
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_service_cap_lifts_at_the_persons_midnight_too() -> Result {
+    let clock = ManualClock::at(LATE_EVENING);
+    let spade = Spade::start_with(
+        vec![
+            Script::reply("First"),
+            Script::reply("").plain(r#"{"title":"Notes"}"#),
+            Script::reply("Second"),
+        ],
+        Vec::new(),
+        Options {
+            clock: Some(clock.clone()),
+            // 100 micros: one reply and its title use it up.
+            cap_usd: 0.0001,
+            ..Options::default()
+        },
+    )
+    .await?;
+    spade
+        .put("/v1/oversight", json!({ "time_zone": "America/Chicago" }))
+        .await?;
+    let (_, conversation) = bot(&spade, "Notes").await?;
+    spade.say(&conversation, "One").await?;
+    settled(&spade, &conversation).await?;
+    clock.set(LATE_EVENING + HOUR / 2 - 60_000);
+    let (status, _) = spade
+        .post(
+            &format!("/v1/conversations/{conversation}/messages"),
+            json!({ "text": "Two" }),
+        )
+        .await?;
+    assert_eq!(status, 402, "still the 8th in Chicago");
+    let (_, view) = spade.get("/v1/oversight").await?;
+    assert_eq!(view["oversight"]["today_micros"], 184);
+    // Chicago's 9th, though UTC's day has not changed.
+    clock.set(LATE_EVENING + HOUR / 2 + 60_000);
+    let (_, view) = spade.get("/v1/oversight").await?;
+    assert_eq!(
+        view["oversight"]["today_micros"], 0,
+        "the view and the cap agree"
+    );
+    spade.say(&conversation, "Two").await?;
+    let events = settled(&spade, &conversation).await?;
+    assert!(events.iter().any(|e| e["text"] == "Second"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_long_history_is_read_a_bounded_part_at_a_time_and_paged_to_its_start() -> Result {
+    let fetch = FakeTool::new("web_fetch", Risk::Read, "A page");
+    let spade = Spade::start(
+        vec![
+            Script::reply("")
+                .call(
+                    "c1",
+                    "web_fetch",
+                    json!({ "url": "https://example.com/one" }),
+                )
+                .call(
+                    "c2",
+                    "web_fetch",
+                    json!({ "url": "https://example.com/two" }),
+                ),
+            Script::reply("Read them."),
+        ],
+        vec![Arc::new(fetch) as Arc<dyn Tool>],
+    )
+    .await?;
+    let (agent, conversation) = bot(&spade, "Reader").await?;
+    spade.say(&conversation, "Read both").await?;
+    settled(&spade, &conversation).await?;
+    // Then a long stretch with nothing for the log: 25,000 checkpoints of a later reply.
+    let store = spade_store::Store::open(&spade.database())?;
+    let filler: Vec<spade_core::Event> = (0..25_000)
+        .map(|_| spade_core::Event::reply_progress("r_late", "…"))
+        .collect();
+    store.append_all(&conversation, &filler, 1)?;
+
+    // The first request reads at most 20,000 events: it finds nothing yet, and says where to
+    // go on rather than reading the whole history at once.
+    let (status, first) = spade.get(&format!("/v1/agents/{agent}/activity")).await?;
+    assert_eq!(status, 200);
+    assert_eq!(
+        first["entries"].as_array().map(Vec::len),
+        Some(0),
+        "{first}"
+    );
+    assert_eq!(first["more"], true);
+    let next = first["next_before"].as_i64().ok_or("no cursor")?;
+
+    // Following the cursor one entry at a time reaches every entry once, newest first, each
+    // with its arguments (the step that made the call is read with it).
+    let mut seen = Vec::new();
+    let mut before = Some(next);
+    let mut requests = 0;
+    while let Some(cursor) = before {
+        let (_, page) = spade
+            .get(&format!(
+                "/v1/agents/{agent}/activity?kind=tool&limit=1&before={cursor}"
+            ))
+            .await?;
+        for entry in page["entries"].as_array().cloned().unwrap_or_default() {
+            seen.push(entry["summary"].as_str().unwrap_or("").to_owned());
+        }
+        before = page["next_before"].as_i64();
+        assert!(seen.len() <= 4, "paging never repeats: {seen:?}");
+        requests += 1;
+        assert!(requests < 20, "the cursor always moves on");
+    }
+    assert_eq!(
+        seen,
+        vec![
+            "url: https://example.com/two",
+            "url: https://example.com/one"
+        ]
+    );
     Ok(())
 }

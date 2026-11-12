@@ -4,6 +4,9 @@
 use std::collections::HashMap;
 
 use rusqlite::params;
+use spade_core::Event;
+
+use crate::StoredEvent;
 
 use crate::{Result, Store};
 
@@ -61,6 +64,95 @@ impl Store {
             ))
         })?;
         Ok(rows.collect::<rusqlite::Result<HashMap<_, _>>>()?)
+    }
+}
+
+/// Event types the activity log reads (ADR 0135): the rest (progress checkpoints, indexes,
+/// titles, compaction) never make an entry.
+pub const ACTIVITY_TYPES: [&str; 17] = [
+    "user_message",
+    "reply_started",
+    "step_finished",
+    "approval_requested",
+    "approval_answered",
+    "tool_started",
+    "tool_finished",
+    "job_started",
+    "job_finished",
+    "call_reviewed",
+    "cap_reached",
+    "reply_finished",
+    "reply_stopped",
+    "reply_failed",
+    "reply_interrupted",
+    "question_asked",
+    "stop_requested",
+];
+
+impl Store {
+    /// The conversation's last event number, 0 when it has none.
+    pub fn last_seq(&self, conversation: &str) -> Result<i64> {
+        Ok(self.lock()?.query_row(
+            "SELECT COALESCE(MAX(seq), 0) FROM events WHERE conversation_id = ?1",
+            params![conversation],
+            |row| row.get(0),
+        )?)
+    }
+
+    /// The conversation's events numbered from `from` up to `before` (one window of the
+    /// history), of the given `types` only, stored before `until_ms` when given, oldest first.
+    /// SQLite does the filtering; a step's text and thoughts are emptied and a message's context and images
+    /// are left out, since the log never shows them. The lock is held only while the window is
+    /// read: the rows are decoded after it is released, so other bots' reads and writes wait at
+    /// most one window.
+    pub fn activity_window(
+        &self,
+        conversation: &str,
+        from: i64,
+        before: i64,
+        types: &[&str],
+        until_ms: Option<i64>,
+    ) -> Result<Vec<StoredEvent>> {
+        let wanted = serde_json::to_string(types).unwrap_or_else(|_| "[]".to_owned());
+        let raw: Vec<(i64, i64, String)> = {
+            let connection = self.lock()?;
+            let mut statement = connection.prepare_cached(
+                "SELECT seq, at_ms,
+                        CASE json_extract(body, '$.type')
+                          WHEN 'step_finished' THEN json_set(body, '$.text', '', '$.thoughts', json('[]'))
+                          WHEN 'user_message' THEN json_remove(body, '$.context', '$.images')
+                          ELSE body END
+                 FROM events
+                 WHERE conversation_id = ?1 AND seq >= ?2 AND seq < ?3
+                   AND at_ms < ?5
+                   AND json_extract(body, '$.type') IN (SELECT value FROM json_each(?4))
+                   AND (json_extract(body, '$.type') != 'user_message'
+                        OR json_extract(body, '$.from_agent') IS NOT NULL
+                        OR json_extract(body, '$.from_routine') IS NOT NULL)
+                 ORDER BY seq",
+            )?;
+            let rows = statement.query_map(
+                params![
+                    conversation,
+                    from,
+                    before,
+                    wanted,
+                    until_ms.unwrap_or(i64::MAX)
+                ],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )?;
+            rows.collect::<rusqlite::Result<_>>()?
+        };
+        Ok(raw
+            .into_iter()
+            .map(|(seq, at_ms, body)| StoredEvent {
+                seq,
+                at_ms,
+                event: Event::from_json(
+                    serde_json::from_str(&body).unwrap_or(serde_json::Value::String(body)),
+                ),
+            })
+            .collect())
     }
 }
 

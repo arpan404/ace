@@ -28,6 +28,8 @@ enum Ended {
 
 /// What one model step produced.
 enum Step {
+    /// The bot's own cap held at admission.
+    Capped(spade_core::oversight::Hit),
     Answered,
     Calls,
     Paused,
@@ -224,6 +226,12 @@ async fn drive(
                         Err(error) => return Ended::Failed(String::new(), error),
                     },
                     Step::Calls => {}
+                    Step::Capped(hit) => {
+                        return match engine.close_capped(id, &reply, &hit) {
+                            Ok(()) => Ended::Finished,
+                            Err(error) => Ended::Failed(String::new(), error.to_string()),
+                        };
+                    }
                     Step::Paused => return Ended::Paused,
                     Step::Stopped(text) => return Ended::Stopped(text),
                     Step::Failed(text, error) => return Ended::Failed(text, error),
@@ -271,6 +279,14 @@ async fn model_step(
     engine.set_status(id, Some(super::roster::THINKING.to_owned()));
     // Each step's snapshot starts from its own text.
     *live.current.lock().unwrap_or_else(|p| p.into_inner()) = None;
+    // Admitted against the caps counting calls in flight (ADR 0135); paid for when it ends.
+    let admitted = match engine.admit(id, &model, &prompt) {
+        Ok(admitted) => admitted,
+        Err(super::ledger::Refusal::Bot { hit, .. }) => return Step::Capped(hit),
+        Err(super::ledger::Refusal::Service) => {
+            return Step::Failed(String::new(), "today's spending cap is used up".to_owned());
+        }
+    };
     let opened = tokio::select! {
         opened = engine.models.stream(&model, &prompt) => opened,
         _ = stopped(stop) => return Step::Stopped(String::new()),
@@ -336,9 +352,9 @@ async fn model_step(
                     if let Err(error) = engine.record(id, &step) {
                         return Step::Failed(String::new(), error.to_string());
                     }
-                    if cost > 0 {
-                        let _ = engine.store.record_spend(id, &model, cost, engine.now_ms());
-                    }
+                    // The ledger gets the same cost the step records.
+                    let _ = cost;
+                    admitted.settle(&usage);
                     *live.current.lock().unwrap_or_else(|p| p.into_inner()) = None;
                     return if made_calls { Step::Calls } else { Step::Answered };
                 }
@@ -424,21 +440,24 @@ async fn name_if_untitled(engine: &Arc<Engine>, id: &str) {
         Ok(Some(model)) => model,
         _ => engine.reply_model(id),
     };
-    let suggested = match engine
-        .models
-        .generate::<title::Suggestion>(&fast, &title::prompt(&first).session(id))
-        .await
-    {
-        Ok(generated) => {
-            engine.pay(id, &fast, &generated.usage);
-            title::clean(&generated.value.title)
-        }
-        Err(error) => {
-            if let Some(usage) = error.usage() {
-                engine.pay(id, &fast, &usage);
+    let prompt = title::prompt(&first).session(id);
+    let suggested = match engine.admit(id, &fast, &prompt) {
+        // At a cap the title comes from the first message, at no cost.
+        Err(_) => None,
+        Ok(admitted) => match engine
+            .models
+            .generate::<title::Suggestion>(&fast, &prompt)
+            .await
+        {
+            Ok(generated) => {
+                admitted.settle(&generated.usage);
+                title::clean(&generated.value.title)
             }
-            None
-        }
+            Err(error) => {
+                admitted.settle_if(error.usage());
+                None
+            }
+        },
     };
     let name = suggested.unwrap_or_else(|| title::fallback(&first));
     if let Err(error) = engine.record(id, &Event::renamed(name)) {

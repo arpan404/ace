@@ -157,9 +157,12 @@ async fn activity(
     let engine = state.engine.clone();
     let found = tokio::task::spawn_blocking(move || engine.activity_log(&id, &query)).await;
     match found {
-        Ok(Ok((entries, more))) => {
-            Json(json!({ "entries": entries, "more": more })).into_response()
-        }
+        Ok(Ok(page)) => Json(json!({
+            "entries": page.entries,
+            "more": page.next_before.is_some(),
+            "next_before": page.next_before,
+        }))
+        .into_response(),
         Ok(Err(error)) => oversight_problem(&error),
         Err(_) => problem(
             StatusCode::INTERNAL_SERVER_ERROR,

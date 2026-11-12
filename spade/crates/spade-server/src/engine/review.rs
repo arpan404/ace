@@ -45,27 +45,30 @@ pub(super) async fn call(
     }
     let model = engine.review_model(id);
     engine.set_status(id, Some(CHECKING.to_owned()));
-    let (verdict, reason, cost) = match engine.may_spend(id) {
-        Err(why) => (
+    let agent = engine.store.agent_for_conversation(id).ok().flatten();
+    let (bot, task) = agent
+        .as_ref()
+        .map_or(("the bot", ""), |a| (a.name.as_str(), a.task.as_str()));
+    let case = Case {
+        bot,
+        task,
+        person: review::person_words(events),
+        untrusted: context::untrusted_in_view(events, registry),
+        tool: name,
+        description: &def.spec.description,
+        arguments,
+    };
+    let prompt = review::prompt(&case).session(id);
+    let (verdict, reason, cost) = match engine.admit(id, &model, &prompt) {
+        Err(refused) => (
             Verdict::Escalate,
-            format!("The review couldn't run: the bot reached {why}."),
+            format!(
+                "The review couldn't run: the bot reached {}.",
+                refused.reached()
+            ),
             0,
         ),
-        Ok(()) => {
-            let agent = engine.store.agent_for_conversation(id).ok().flatten();
-            let (bot, task) = agent
-                .as_ref()
-                .map_or(("the bot", ""), |a| (a.name.as_str(), a.task.as_str()));
-            let case = Case {
-                bot,
-                task,
-                person: review::person_words(events),
-                untrusted: context::untrusted_in_view(events, registry),
-                tool: name,
-                description: &def.spec.description,
-                arguments,
-            };
-            let prompt = review::prompt(&case).session(id);
+        Ok(admitted) => {
             let asked = tokio::select! {
                 answer = tokio::time::timeout(
                     REVIEW_TIMEOUT,
@@ -75,12 +78,12 @@ pub(super) async fn call(
             };
             match asked {
                 Ok(Ok(generated)) => {
-                    let cost = engine.charge(id, &model, &generated.usage);
+                    let cost = admitted.settle(&generated.usage);
                     let reason = generated.value.reason.trim().to_owned();
                     (generated.value.verdict, reason, cost)
                 }
                 Ok(Err(error)) => {
-                    let cost = error.usage().map_or(0, |u| engine.charge(id, &model, &u));
+                    let cost = admitted.settle_if(error.usage());
                     (
                         Verdict::Escalate,
                         format!("The review couldn't run: {error}"),

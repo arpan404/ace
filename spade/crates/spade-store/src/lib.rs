@@ -13,7 +13,7 @@ mod schema;
 pub use agents::{AVATAR_COLORS, Agent, NewAgent, generated_color};
 pub use endpoints::{StoredEndpoint, StoredModel};
 pub use notes::{HistoryMatch, NewNote, Notes, Saved, StoredNote, Updated};
-pub use oversight::{AgentSpend, OVERSIGHT, agent_key};
+pub use oversight::{ACTIVITY_TYPES, AgentSpend, OVERSIGHT, agent_key};
 pub use routines::{HEARTBEAT, ROUTINE, StoredRoutine, StoredRun};
 
 use std::path::Path;

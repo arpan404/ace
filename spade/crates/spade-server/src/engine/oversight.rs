@@ -246,16 +246,6 @@ impl Engine {
         }
     }
 
-    /// Records a model call's cost for the conversation (research, reviews).
-    pub(crate) fn charge(
-        &self,
-        conversation: &str,
-        model: &str,
-        usage: &spade_models::Usage,
-    ) -> u64 {
-        self.pay(conversation, model, usage)
-    }
-
     /// Ends the open turn of a bot at its cap before its next model call: says so once per
     /// period, then closes the reply without words. Nothing new opens: the cap holds.
     pub(super) fn close_capped(&self, id: &str, reply: &str, hit: &Hit) -> Result<(), StoreError> {
@@ -338,12 +328,14 @@ impl Engine {
         }
     }
 
-    /// The agent's activity, newest first, filtered; and whether older entries match.
+    /// The agent's activity, newest first, filtered. The history is read a window at a time
+    /// from the newest, at most [`MOST_EVENTS`] events per request, so a long history never
+    /// holds the database for long; [`ActivityPage::next_before`] says where to go on.
     pub fn activity_log(
         &self,
         agent: &str,
         query: &ActivityQuery,
-    ) -> Result<(Vec<Entry>, bool), OversightError> {
+    ) -> Result<ActivityPage, OversightError> {
         let agent = self.store.agent(agent)?.ok_or(OversightError::NotFound)?;
         let range = match &query.day {
             Some(day) => Some(self.day_range(day).ok_or_else(|| {
@@ -351,23 +343,50 @@ impl Engine {
             })?),
             None => None,
         };
-        let stored = self.store.events(&agent.conversation, 0)?;
-        let entries = activity::fold(stored.iter().map(|e| Stored {
-            seq: e.seq,
-            at: e.at_ms,
-            event: &e.event,
-        }));
         let limit = query.limit.clamp(1, 500);
-        let mut found: Vec<Entry> = entries
-            .into_iter()
-            .rev()
-            .filter(|e| query.before.is_none_or(|before| e.seq < before))
-            .filter(|e| activity::matches(e, &query.kinds, range, &query.words))
-            .take(limit + 1)
-            .collect();
-        let more = found.len() > limit;
-        found.truncate(limit);
-        Ok((found, more))
+        let types = types_for(&query.kinds);
+        let top = match query.before {
+            Some(before) => before,
+            None => self.store.last_seq(&agent.conversation)? + 1,
+        };
+        let mut rows: Vec<spade_store::StoredEvent> = Vec::new();
+        let mut low = top;
+        loop {
+            let from = (low - WINDOW).max(1);
+            let exhausted = from >= low;
+            if !exhausted {
+                let mut window = self.store.activity_window(
+                    &agent.conversation,
+                    from,
+                    low,
+                    &types,
+                    range.map(|(_, end)| end),
+                )?;
+                window.append(&mut rows);
+                rows = window;
+                low = from;
+            }
+            let older_left = low > 1;
+            // Entries from the first turn start in view on have all their context (the step
+            // that made each call); older ones wait for the next window.
+            let trusted_from = if older_left {
+                rows.iter()
+                    .find(|e| matches!(e.event, Event::Known(Known::ReplyStarted { .. })))
+                    // None in view (a turn longer than the windows read): what was read is
+                    // all there is to go on, and the next request starts below it.
+                    .map_or(low, |e| e.seq)
+            } else {
+                0
+            };
+            let past_day = range.is_some_and(|(start, _)| {
+                rows.first().is_some_and(|e| e.at_ms < start) || !older_left
+            });
+            let found = matching(&rows, query, range, trusted_from);
+            let scanned_enough = top - low >= MOST_EVENTS;
+            if found.len() > limit || !older_left || past_day || scanned_enough {
+                return Ok(page(found, limit, older_left && !past_day, trusted_from));
+            }
+        }
     }
 
     /// The day `YYYY-MM-DD` in the person's zone, as `[start, end)`.
@@ -380,6 +399,82 @@ impl Engine {
             start.timestamp().as_millisecond(),
             end.timestamp().as_millisecond(),
         ))
+    }
+}
+
+/// Events read per window, and at most per request.
+const WINDOW: i64 = 2_000;
+pub const MOST_EVENTS: i64 = 20_000;
+
+/// One request's entries, and where to go on: `next_before` is set when older entries may
+/// match (more of the history to read, or more entries than were asked for).
+#[derive(Debug, Clone)]
+pub struct ActivityPage {
+    pub entries: Vec<Entry>,
+    pub next_before: Option<i64>,
+}
+
+/// The event types the kinds asked for come from (every type when none is asked for). Turn
+/// starts are always read: they mark where a window's entries have their context.
+fn types_for(kinds: &[Kind]) -> Vec<&'static str> {
+    let calls = [
+        Kind::Tool,
+        Kind::Connector,
+        Kind::File,
+        Kind::Bot,
+        Kind::Approval,
+        Kind::Spend,
+    ];
+    if kinds.is_empty() || kinds.iter().any(|k| calls.contains(k)) {
+        return spade_store::ACTIVITY_TYPES.to_vec();
+    }
+    let mut types = vec!["reply_started"];
+    for kind in kinds {
+        types.push(match kind {
+            Kind::Routine => "user_message",
+            Kind::Review => "call_reviewed",
+            _ => "cap_reached",
+        });
+    }
+    types
+}
+
+/// The window's entries that match, newest first, from `trusted_from` on.
+fn matching(
+    rows: &[spade_store::StoredEvent],
+    query: &ActivityQuery,
+    range: Option<(i64, i64)>,
+    trusted_from: i64,
+) -> Vec<Entry> {
+    activity::fold(rows.iter().map(|e| Stored {
+        seq: e.seq,
+        at: e.at_ms,
+        event: &e.event,
+    }))
+    .into_iter()
+    .rev()
+    .filter(|e| e.seq >= trusted_from)
+    .filter(|e| activity::matches(e, &query.kinds, range, &query.words))
+    .collect()
+}
+
+/// At most `limit` entries (more only to finish the last one's event, so `before` never skips
+/// a sibling), and the cursor for the rest.
+fn page(mut found: Vec<Entry>, limit: usize, older_left: bool, trusted_from: i64) -> ActivityPage {
+    if found.len() > limit {
+        let cut = found[limit - 1].seq;
+        let keep = found.iter().take_while(|e| e.seq >= cut).count();
+        found.truncate(keep);
+        let next_before = Some(cut);
+        return ActivityPage {
+            entries: found,
+            next_before,
+        };
+    }
+    let next_before = older_left.then_some(trusted_from.max(1));
+    ActivityPage {
+        entries: found,
+        next_before,
     }
 }
 

@@ -343,7 +343,7 @@ async fn compact(
         Err(error @ (CompactError::Busy | CompactError::Nothing)) => {
             problem(StatusCode::CONFLICT, &error.to_string())
         }
-        Err(error @ CompactError::OverCap) => {
+        Err(error @ (CompactError::OverCap | CompactError::BotCapped(_))) => {
             problem(StatusCode::PAYMENT_REQUIRED, &error.to_string())
         }
         Err(CompactError::Failed(error)) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error),
