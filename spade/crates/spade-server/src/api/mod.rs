@@ -8,6 +8,7 @@ mod endpoints;
 mod memory;
 mod oversight;
 mod routines;
+mod teams;
 mod workspace;
 
 use std::convert::Infallible;
@@ -123,6 +124,7 @@ pub fn router(state: AppState) -> Router {
         .merge(memory::routes())
         .merge(oversight::routes())
         .merge(workspace::routes())
+        .merge(teams::routes())
         .route_layer(middleware::from_fn_with_state(state.clone(), authorize))
         .with_state(state.clone());
     let open = Router::new()
@@ -217,7 +219,7 @@ fn stored(event: &StoredEvent) -> Value {
 fn send_problem(error: &SendError) -> Response {
     let status = match error {
         SendError::NotFound => StatusCode::NOT_FOUND,
-        SendError::Disabled => StatusCode::CONFLICT,
+        SendError::Disabled | SendError::Group => StatusCode::CONFLICT,
         SendError::Empty | SendError::TooLong | SendError::TooManyImages | SendError::Image(_) => {
             StatusCode::BAD_REQUEST
         }

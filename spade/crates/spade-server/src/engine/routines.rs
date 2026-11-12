@@ -65,6 +65,7 @@ impl Engine {
             images: Vec::new(),
             from_agent: None,
             from_routine: Some(Box::new(from)),
+            from_group: None,
         });
         // The instruction is the person's own words: it recalls notes like their messages do.
         let message = super::memory::with_recall(self, conversation, message);

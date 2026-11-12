@@ -13,6 +13,7 @@ pub mod proof;
 pub mod research;
 pub mod routines;
 pub mod startup;
+pub mod teams;
 pub mod tools;
 pub mod workspace;
 

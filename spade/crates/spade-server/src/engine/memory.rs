@@ -92,6 +92,7 @@ pub(super) fn wake_on_message(engine: &Engine, id: &str, event: &Event) {
         Event::Known(Known::UserMessage {
             from_agent: None,
             from_routine: None,
+            from_group: None,
             ..
         })
     ) {
@@ -110,6 +111,7 @@ pub(super) fn with_recall(engine: &Engine, id: &str, event: Event) -> Event {
         images,
         from_agent: None,
         from_routine,
+        from_group: None,
     }) = event
     else {
         return event;
@@ -124,6 +126,7 @@ pub(super) fn with_recall(engine: &Engine, id: &str, event: Event) -> Event {
         images,
         from_agent: None,
         from_routine,
+        from_group: None,
     })
 }
 

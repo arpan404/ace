@@ -55,6 +55,16 @@ export class MachineDirectory {
       this.deps.profiles().find((entry) => entry.name === machine)?.hostId
     );
   }
+  /** Each paired machine by its profile name, with its host id when one is known. */
+  linked(): { machine: string; hostId: HostId | undefined }[] {
+    return this.deps
+      .profiles()
+      .map((profile) => ({ machine: profile.name, hostId: this.host(profile.name) }));
+  }
+  /** The paired machine with this host id, by its profile name. */
+  named(hostId: string): string | undefined {
+    return this.linked().find((entry) => entry.hostId === hostId)?.machine;
+  }
   /** Whether a machine this daemon last saw online lets its agents use a tool group there. */
   serves(group: MachineToolGroup): boolean {
     for (const summary of this.seen.values())

@@ -205,7 +205,12 @@ impl Transcript {
             | Known::ContextCompacted { .. }
             | Known::AgentConfigured { .. }
             | Known::CapReached { .. }
-            | Known::CallReviewed { .. } => {}
+            | Known::CallReviewed { .. }
+            | Known::GroupMessage { .. }
+            | Known::GroupAsked { .. }
+            | Known::GroupAnswered { .. }
+            | Known::GroupQueued { .. }
+            | Known::GroupStopped { .. } => {}
         }
         if self.open_reply().is_none() {
             self.running.clear();

@@ -6,7 +6,7 @@ import { Screen } from "@/features/shell/index.ts";
 import { EditBotDialog } from "./spade-bot-dialog.tsx";
 import { MemoryDialog, type MemoryOpen } from "./spade-memory-dialog.tsx";
 import { SpadeFace } from "./spade-face.tsx";
-import { useDeleteBot } from "./use-bot-actions.ts";
+import { useDeleteBot, useDuplicateBot, useExportBot } from "./use-bot-actions.ts";
 import type { RosterBot } from "./use-spade-roster.ts";
 
 /** A bot's page other than its conversation and files. */
@@ -32,7 +32,8 @@ const viewTitles: Record<BotView, string> = { routines: "Routines", activity: "A
 
 /**
  * The screen's frame for one bot: its face and name in the top bar; in ⋯ the bot's other pages
- * (Conversation, Files, Routines, Activity, leaving out the one shown), Memory, Edit and Delete.
+ * (Conversation, Files, Routines, Activity, leaving out the one shown), Memory, Edit, Duplicate,
+ * Export and Delete.
  * `children` may open the Memory dialog itself (a "Remembered" line).
  */
 export function BotScreen(props: {
@@ -46,6 +47,8 @@ export function BotScreen(props: {
   const [memory, setMemory] = useState<MemoryOpen>();
   const [confirming, setConfirming] = useState<Confirming>();
   const remove = useDeleteBot();
+  const duplicate = useDuplicateBot();
+  const exportBot = useExportBot();
   const navigate = useNavigate();
   const openBot = useOpenBot(bot);
   const main = bot.kind === "main";
@@ -69,6 +72,21 @@ export function BotScreen(props: {
               ))}
             <MenuItem onClick={() => setMemory({ shared: false })}>Memory</MenuItem>
             <MenuItem onClick={() => setEditing(true)}>{main ? "Edit Spade" : "Edit bot"}</MenuItem>
+            <MenuItem
+              onClick={() =>
+                void duplicate(bot).then((copy) => {
+                  if (copy)
+                    void navigate({
+                      to: "/spade/$agentId",
+                      params: { agentId: copy.id },
+                      search: bot.machine.primary ? {} : { on: bot.machine.key },
+                    });
+                })
+              }
+            >
+              Duplicate
+            </MenuItem>
+            <MenuItem onClick={() => void exportBot(bot)}>Export</MenuItem>
             {!main && (
               <MenuItem
                 danger

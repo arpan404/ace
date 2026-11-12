@@ -22,7 +22,13 @@ export function SuggestionList(props: {
   const { suggestions } = props;
   if (suggestions.state === "closed") return null;
   const title =
-    suggestions.kind === "mention" ? "Files and threads" : props.adding ? "Add" : "Commands";
+    suggestions.kind === "mention"
+      ? suggestions.state === "ready" && suggestions.items[0]?.plain
+        ? "Members"
+        : "Files and threads"
+      : props.adding
+        ? "Add"
+        : "Commands";
   return (
     <Popover
       open

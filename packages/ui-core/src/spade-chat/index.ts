@@ -14,3 +14,5 @@ export * from "./connectors.ts";
 export * from "./routines.ts";
 export * from "./oversight.ts";
 export * from "./activity.ts";
+export * from "./groups.ts";
+export * from "./group-fold.ts";

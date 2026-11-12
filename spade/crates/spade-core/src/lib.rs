@@ -7,6 +7,7 @@ pub mod compaction;
 pub mod context;
 pub mod event;
 pub mod gate;
+pub mod group;
 pub mod maintenance;
 pub mod memory;
 pub mod oversight;

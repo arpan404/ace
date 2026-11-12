@@ -53,6 +53,7 @@ pub fn person_words(events: &[Event]) -> Vec<String> {
                 text,
                 from_agent: None,
                 from_routine: None,
+                from_group: None,
                 ..
             }) if !text.trim().is_empty() => Some(cut(text, MESSAGE_CHARS)),
             _ => None,
@@ -148,8 +149,10 @@ mod tests {
                 id: "b".into(),
                 name: "Other".into(),
                 depth: 1,
+                machine: None,
             }),
             from_routine: None,
+            from_group: None,
         });
         let events = vec![
             Event::user_message("one"),

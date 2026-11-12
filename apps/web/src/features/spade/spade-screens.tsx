@@ -1,8 +1,6 @@
 import { spadeStateLine } from "@ace/ui-core/spade-chat";
 import { Link, Navigate } from "@tanstack/react-router";
-import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Button } from "@/components/ui/button.tsx";
-import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
+import { useMemo, useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { readingColumn } from "@/features/thread/index.ts";
@@ -17,56 +15,16 @@ import { SpadeMachineScope, spadeMachineKey } from "./spade-machine.tsx";
 import { SpadeRoutines } from "./spade-routines.tsx";
 import { SpadeStateStrip } from "./spade-state.tsx";
 import { useSpadeConversation } from "./use-spade-conversation.ts";
-import { useSpadeEnabled } from "./use-spade-enabled.ts";
 import { useSpadeRoster, type RosterBot } from "./use-spade-roster.ts";
 import { useSkillProposals } from "./use-skill-proposals.ts";
+import {
+  ConversationSkeleton,
+  message,
+  Problem,
+  Scroller,
+  useSpadeLine,
+} from "./spade-screen-parts.tsx";
 import { useSpadeStatus } from "./use-spade-status.ts";
-
-/** Spade's state line on this window's machine. */
-function useSpadeLine() {
-  const [enabled] = useSpadeEnabled();
-  return spadeStateLine(useSpadeStatus(), enabled);
-}
-
-function pinToEnd(element: HTMLElement | null, atEnd: boolean) {
-  if (element && atEnd) element.scrollTop = element.scrollHeight;
-}
-
-/**
- * A scroller that stays at its end while the person is there, as the conversation grows: on
- * every render and whenever the content's height changes after it.
- */
-function Scroller(props: { children: ReactNode }) {
-  const scroller = useRef<HTMLDivElement>(null);
-  const content = useRef<HTMLDivElement>(null);
-  const atEnd = useRef(true);
-  useLayoutEffect(() => pinToEnd(scroller.current, atEnd.current));
-  useLayoutEffect(() => {
-    const inner = content.current;
-    if (!inner || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => pinToEnd(scroller.current, atEnd.current));
-    observer.observe(inner);
-    return () => observer.disconnect();
-  }, []);
-  return (
-    <div
-      ref={scroller}
-      onScroll={(event) => {
-        const element = event.currentTarget;
-        atEnd.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48;
-      }}
-      className="col-start-1 row-start-1 flex min-h-0 flex-col overflow-y-auto [scrollbar-gutter:stable_both-edges]"
-    >
-      {/* Room under the last line for the composer floating over the conversation. */}
-      <div
-        ref={content}
-        className={`${readingColumn} mt-auto w-full pt-6 pb-[calc(var(--composer-clearance,0px)+1rem)]`}
-      >
-        {props.children}
-      </div>
-    </div>
-  );
-}
 
 /** `/spade`: Spade's own conversation, once the roster says where Spade is. */
 export function SpadeHomeScreen() {
@@ -294,25 +252,3 @@ function Conversation(props: { bot: RosterBot; roster: readonly RosterBot[] }) {
     </BotScreen>
   );
 }
-
-function ConversationSkeleton() {
-  return (
-    <LoadingRegion label="Conversation" className="flex flex-col gap-3">
-      <Skeleton className="ml-auto h-9 w-48 rounded-lg" />
-      <Skeleton className="h-14 w-3/4 rounded-lg" />
-    </LoadingRegion>
-  );
-}
-
-function Problem(props: { text: string; onRetry(): void }) {
-  return (
-    <div role="alert" className="flex items-center gap-2 text-ui text-muted-foreground">
-      <span className="min-w-0 flex-1">{props.text}</span>
-      <Button size="xs" variant="ghost" onClick={props.onRetry}>
-        Try again
-      </Button>
-    </div>
-  );
-}
-
-const message = (error: unknown) => (error instanceof Error ? error.message : "Try again.");

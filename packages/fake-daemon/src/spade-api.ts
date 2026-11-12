@@ -3,6 +3,7 @@ import { FakeSpadeConnectors } from "./spade-connectors-api.ts";
 import { FakeSpadeNotes } from "./spade-notes.ts";
 import { FakeSpadeOversight, type FakeSpadeSpending } from "./spade-oversight.ts";
 import { FakeSpadeRoutines } from "./spade-routines.ts";
+import { FakeSpadeTeams } from "./spade-teams.ts";
 
 /*
  * A stateful stand-in for Spade's local API (ADR 0126, 0127), in Spade's own JSON: agents with
@@ -80,12 +81,27 @@ export class FakeSpadeApi implements FakeSpadeServer {
   private readonly now: () => number;
   /** Each bot's routines and heartbeat (ADR 0129). */
   readonly routines: FakeSpadeRoutines;
+  /** Groups, templates, duplicate, export and import (ADR 0132). */
+  readonly teams: FakeSpadeTeams;
 
   constructor(spade: FakeSpade, now: () => number = () => 1_000) {
     this.spade = spade;
     this.now = now;
     this.notes = new FakeSpadeNotes(now);
     this.routines = new FakeSpadeRoutines(now);
+    const agents = () => this.agents;
+    this.teams = new FakeSpadeTeams({
+      // The list as it is now: a delete replaces it.
+      get agents() {
+        return agents();
+      },
+      addAgent: (fields) => this.addAgent(fields),
+      openConversation: (id) => void this.events.set(id, this.events.get(id) ?? []),
+      store: (conversation, event) => this.store(conversation, event),
+      emitStatus: (conversation, state, status) =>
+        this.spade.emit(`/v1/conversations/${conversation}/live`, "status", { state, status }),
+      now,
+    });
     spade.serve(this);
   }
 
@@ -202,7 +218,9 @@ export class FakeSpadeApi implements FakeSpadeServer {
     const conversation = decodeURIComponent(match[1] ?? "");
     const list = this.events.get(conversation) ?? [];
     const after = Number(match[2]);
-    const agent = this.agents.find((candidate) => candidate.conversation === conversation);
+    const agent =
+      this.agents.find((candidate) => candidate.conversation === conversation) ??
+      this.teams.groups.find((candidate) => candidate.conversation === conversation);
     return [
       ...list
         .filter((stored) => stored.seq > after)
@@ -243,6 +261,13 @@ export class FakeSpadeApi implements FakeSpadeServer {
       return this.agents.some((agent) => agent.id === id)
         ? this.notes.route(request.method, id, undefined, body)
         : problem(404, "No such agent.");
+    if (root === "agents" && id === "import" && request.method === "POST")
+      return this.teams.importRoute(body);
+    if (root === "agents" && id && (sub === "duplicate" || sub === "export"))
+      return this.teams.agentRoute(request.method, id, sub, body);
+    if (root === "groups") return this.teams.groupRoute(request.method, id, sub, body);
+    if (root === "templates" && request.method === "GET")
+      return reply({ templates: this.teams.templates });
     if (root === "agents" && id && (sub === "routines" || sub === "heartbeat"))
       return this.routines.agentRoute(request.method, id, sub, body);
     if (root === "agents") return this.agentRoute(request.method, id, body);

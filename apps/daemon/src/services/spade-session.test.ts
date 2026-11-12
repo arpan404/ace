@@ -102,6 +102,18 @@ test("paths outside Spade's API are refused before anything is forwarded", async
   ).toEqual({ type: "spade.live.ended", requestId: "l", reason: "invalid_path" });
 });
 
+test("Spade's inbox can't be reached through spade.http, only from other machines", async () => {
+  const { handle } = session(["read", "operate"]);
+  for (const path of ["/v1/inbox", "/v1/inbox/", "/v1/Inbox?x=1", "/v1/inbo%78", "/v1/inbox/a"])
+    expect(
+      await handle({ type: "spade.http", requestId: path, method: "POST", path, body: "{}" }),
+    ).toMatchObject({ result: { kind: "error", code: "invalid_path" } });
+  // Another route goes past the path check and is refused only because Spade is off.
+  expect(
+    await handle({ type: "spade.http", requestId: "c", method: "GET", path: "/v1/inboxes" }),
+  ).toMatchObject({ result: { kind: "error", code: "unavailable" } });
+});
+
 test("while Spade is off, requests and streams say it is unavailable", async () => {
   const { handle } = session(["read", "operate"]);
   expect(

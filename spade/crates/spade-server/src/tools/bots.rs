@@ -42,8 +42,9 @@ impl Tool for BotsList {
         ToolDef {
             spec: ToolSpec {
                 name: "bots_list".to_owned(),
-                description: "Lists the other bots on this machine: id, name, what each is for, \
-                              and whether it is idle, working or waiting on the person."
+                description: "Lists the other bots on this machine and on the person's other \
+                              machines: id, name, what each is for, whether it is idle, working \
+                              or waiting on the person, and its machine (null for this one)."
                     .to_owned(),
                 schema: json!({ "type": "object", "properties": {} }),
             },
@@ -58,7 +59,7 @@ impl Tool for BotsList {
         let (engine, caller) = (self.0.get(), caller(key).to_owned());
         Box::pin(async move {
             match engine {
-                Some(engine) => engine.bots_list(&caller),
+                Some(engine) => engine.bots_list(&caller).await,
                 None => ToolOutput::error("Spade is stopping."),
             }
         })
@@ -72,13 +73,15 @@ impl Tool for BotMessage {
         ToolDef {
             spec: ToolSpec {
                 name: "bot_message".to_owned(),
-                description: "Sends a message to another bot on this machine, which wakes it. \
-                              Its answer arrives later as a <job_result>; carry on meanwhile."
+                description: "Sends a message to another bot, which wakes it. For a bot of \
+                              another machine, name that machine. Its answer arrives later as a \
+                              <job_result>; carry on meanwhile."
                     .to_owned(),
                 schema: json!({
                     "type": "object",
                     "properties": {
                         "bot": { "type": "string", "description": "The bot's id or exact name." },
+                        "machine": { "type": "string", "description": "The bot's machine, as bots_list names it; leave out for this machine." },
                         "text": { "type": "string", "description": "What to tell or ask it." }
                     },
                     "required": ["bot", "text"]
@@ -94,10 +97,10 @@ impl Tool for BotMessage {
     }
 
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {
-        let (engine, caller) = (self.0.get(), caller(key).to_owned());
+        let (engine, caller, key) = (self.0.get(), caller(key).to_owned(), key.to_owned());
         Box::pin(async move {
             match engine {
-                Some(engine) => engine.bot_message(&caller, arguments).await,
+                Some(engine) => engine.bot_message(&caller, &key, arguments).await,
                 None => ToolOutput::error("Spade is stopping."),
             }
         })

@@ -66,6 +66,7 @@ fn day() -> Vec<Event> {
                 heartbeat: false,
                 event: None,
             })),
+            from_group: None,
         }),
         k(Known::UserMessage {
             text: "Here are the numbers".into(),
@@ -75,8 +76,10 @@ fn day() -> Vec<Event> {
                 id: "a2".into(),
                 name: "Research".into(),
                 depth: 1,
+                machine: None,
             }),
             from_routine: None,
+            from_group: None,
         }),
         Event::reply_started("r1", "fake/m"),
         step(

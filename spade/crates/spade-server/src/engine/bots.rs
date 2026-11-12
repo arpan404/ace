@@ -14,6 +14,7 @@ use tokio::sync::broadcast::error::RecvError;
 
 use super::roster::{self, State};
 use super::{Engine, Frame};
+use crate::teams::Outcome;
 use crate::tools::ToolOutput;
 
 /// The deepest chain of bot-to-bot messages allowed: the person asks Spade, Spade asks A, A asks
@@ -35,13 +36,14 @@ impl Engine {
             .collect())
     }
 
-    /// `bots_list` for the agent of `caller`.
-    pub(crate) fn bots_list(&self, caller: &str) -> ToolOutput {
+    /// `bots_list` for the agent of `caller`: this machine's bots, then each linked machine's
+    /// whose Spade answers (ADR 0132).
+    pub(crate) async fn bots_list(&self, caller: &str) -> ToolOutput {
         let bots = match self.bots_for(caller) {
             Ok(bots) => bots,
             Err(error) => return ToolOutput::error(format!("Could not list the bots: {error}")),
         };
-        let listed: Vec<Value> = bots
+        let mut listed: Vec<Value> = bots
             .iter()
             .map(|bot| {
                 let state = self
@@ -52,11 +54,28 @@ impl Engine {
                     "name": bot.name,
                     "task": roster::plain(&bot.task, roster::PREVIEW),
                     "state": state.name(),
+                    "machine": Value::Null,
                 })
             })
             .collect();
+        for machine in self.machines().await.unwrap_or_default() {
+            if !machine.online {
+                continue;
+            }
+            for bot in self.remote_bots(&machine.host_id).await.unwrap_or_default() {
+                listed.push(json!({
+                    "id": bot["id"],
+                    "name": bot["name"],
+                    "task": bot["task"],
+                    "state": bot["state"],
+                    "machine": machine.name,
+                }));
+            }
+        }
         if listed.is_empty() {
-            return ToolOutput::ok("There are no other bots on this machine.");
+            return ToolOutput::ok(
+                "There are no other bots on this machine or your other machines.",
+            );
         }
         ToolOutput::ok(Value::Array(listed).to_string())
     }
@@ -94,8 +113,19 @@ impl Engine {
     pub(crate) async fn bot_message(
         self: &Arc<Self>,
         caller: &str,
+        key: &str,
         arguments: Value,
     ) -> ToolOutput {
+        if let Some(machine) = arguments
+            .get("machine")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|m| !m.is_empty())
+        {
+            return self
+                .bot_message_elsewhere(caller, key, machine, &arguments)
+                .await;
+        }
         let bot = arguments.get("bot").and_then(Value::as_str).unwrap_or("");
         let text = arguments
             .get("text")
@@ -135,28 +165,138 @@ impl Engine {
                 id: me.id.clone(),
                 name: me.name.clone(),
                 depth,
+                machine: None,
             }),
             from_routine: None,
+            from_group: None,
         });
         // Subscribed first, so the reply cannot slip by between delivering and listening.
-        let mut frames = self.live(&target.conversation).frames.subscribe();
+        let frames = self.live(&target.conversation).frames.subscribe();
         if let Err(error) = self.deliver(&target.conversation, &message) {
             return ToolOutput::error(format!("The message was not delivered: {error}"));
         }
         let Some(sent) = self.sent_at(&target.conversation, &message) else {
             return ToolOutput::error("The message was not delivered.");
         };
+        let name = &target.name;
+        match self.wait_reply(&target, sent, frames).await {
+            Outcome::Answered(text) => ToolOutput::ok(format!("{name} answered:\n{text}")),
+            other => ToolOutput::error(other.text().to_owned()),
+        }
+    }
+
+    /// Waits for `target`'s first reply to end after `sent` (the seq of the message it answers).
+    /// `frames` was subscribed before the message was stored, so nothing slips by.
+    pub(crate) async fn wait_reply(
+        &self,
+        target: &Agent,
+        sent: i64,
+        mut frames: tokio::sync::broadcast::Receiver<Frame>,
+    ) -> Outcome {
         loop {
-            if let Some(answer) = self.answer_after(&target, sent) {
+            if let Some(answer) = self.reply_after(target, sent) {
                 return answer;
             }
             match tokio::time::timeout(Duration::from_secs(1), frames.recv()).await {
-                Ok(Ok(Frame::Stored(_))) | Ok(Err(RecvError::Lagged(_))) | Err(_) => {}
-                Ok(Ok(_)) => {}
+                Ok(Ok(_)) | Ok(Err(RecvError::Lagged(_))) | Err(_) => {}
                 Ok(Err(RecvError::Closed)) => {
                     frames = self.live(&target.conversation).frames.subscribe();
                 }
             }
+        }
+    }
+
+    /// `bot_message` to a bot of another machine: sent through the outbox, so it is delivered
+    /// once (the call's key is the ask's key) and waits while that machine is away.
+    async fn bot_message_elsewhere(
+        self: &Arc<Self>,
+        caller: &str,
+        key: &str,
+        machine: &str,
+        arguments: &Value,
+    ) -> ToolOutput {
+        let bot = arguments
+            .get("bot")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
+        let text = arguments
+            .get("text")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
+        if text.is_empty() {
+            return ToolOutput::error("The message is empty.");
+        }
+        let Ok(Some(me)) = self.store.agent_for_conversation(caller) else {
+            return ToolOutput::error("Only an agent can message a bot.");
+        };
+        let depth = self.hops(caller) + 1;
+        if depth > MOST_HOPS {
+            return ToolOutput::error(format!(
+                "Refused: this would be a chain of more than {MOST_HOPS} bot-to-bot messages. \
+                 Answer with what you have."
+            ));
+        }
+        let machines = match self.machines().await {
+            Ok(machines) => machines,
+            Err(error) => return ToolOutput::error(format!("Could not reach ace: {error}")),
+        };
+        let Some(target) = machines
+            .iter()
+            .find(|m| m.host_id == machine || m.name.eq_ignore_ascii_case(machine))
+        else {
+            return ToolOutput::error(format!(
+                "There is no linked machine {machine:?}; bots_list shows the machines."
+            ));
+        };
+        // A bot's name is read from its machine while it answers; an id works offline too.
+        let to = match self.remote_bots(&target.host_id).await {
+            Ok(bots) => {
+                let named: Vec<&Value> = bots
+                    .iter()
+                    .filter(|b| b["id"] == bot || b["name"] == bot)
+                    .collect();
+                match named.as_slice() {
+                    [one] => one["id"].as_str().unwrap_or(bot).to_owned(),
+                    [] => {
+                        return ToolOutput::error(format!(
+                            "There is no bot {bot:?} on {}; bots_list shows them.",
+                            target.name
+                        ));
+                    }
+                    _ => {
+                        return ToolOutput::error(format!(
+                            "More than one bot is named {bot:?} there; use its id."
+                        ));
+                    }
+                }
+            }
+            Err(_) => bot.to_owned(),
+        };
+        let ask = format!(
+            "bm.{}",
+            key.replace(
+                |c: char| !c.is_ascii_alphanumeric() && c != '.' && c != '_' && c != '-',
+                "_"
+            )
+        );
+        let request = json!({
+            "op": "ask",
+            "key": ask,
+            "to": to,
+            "text": text,
+            "from": { "id": me.id, "name": me.name },
+            "depth": depth,
+        });
+        if let Err(error) = self.send_remote(&ask, &target.host_id, &target.name, request) {
+            return ToolOutput::error(format!("The message was not stored: {error}"));
+        }
+        match self.wait_remote(&ask, |_| {}).await {
+            Outcome::Answered(text) => {
+                ToolOutput::ok(format!("{bot} on {} answered:\n{text}", target.name))
+            }
+            other => ToolOutput::error(other.text().to_owned()),
         }
     }
 
@@ -188,13 +328,13 @@ impl Engine {
     }
 
     /// The bot's answer: the first reply to end after the message, which saw it.
-    fn answer_after(&self, target: &Agent, sent: i64) -> Option<ToolOutput> {
+    pub(crate) fn reply_after(&self, target: &Agent, sent: i64) -> Option<Outcome> {
         let events = match self.store.events(&target.conversation, sent) {
             Ok(events) => events,
             Err(_) => return None,
         };
         if self.store.agent(&target.id).ok().flatten().is_none() {
-            return Some(ToolOutput::error(format!(
+            return Some(Outcome::Failed(format!(
                 "{} was deleted before it answered.",
                 target.name
             )));
@@ -202,15 +342,15 @@ impl Engine {
         let name = &target.name;
         events.iter().find_map(|stored| match &stored.event {
             Event::Known(Known::ReplyFinished { text, .. }) => {
-                Some(ToolOutput::ok(format!("{name} answered:\n{text}")))
+                Some(Outcome::Answered(text.clone()))
             }
-            Event::Known(Known::ReplyStopped { text, .. }) => Some(ToolOutput::error(format!(
+            Event::Known(Known::ReplyStopped { text, .. }) => Some(Outcome::Stopped(format!(
                 "{name} was stopped before it finished. What it had said: {text}"
             ))),
-            Event::Known(Known::ReplyFailed { error, .. }) => Some(ToolOutput::error(format!(
-                "{name} could not answer: {error}"
-            ))),
-            Event::Known(Known::ReplyInterrupted { .. }) => Some(ToolOutput::error(format!(
+            Event::Known(Known::ReplyFailed { error, .. }) => {
+                Some(Outcome::Failed(format!("{name} could not answer: {error}")))
+            }
+            Event::Known(Known::ReplyInterrupted { .. }) => Some(Outcome::Failed(format!(
                 "{name} was cut off by a restart before it answered; ask again if it matters."
             ))),
             _ => None,
