@@ -56,10 +56,13 @@ impl Loading {
         LOADING.with(|load| load.borrow().as_ref().is_none_or(|l| l.refused))
     }
 
-    /// Counts every stream of the loaded `doc` that still has filters.
+    /// Counts every stream of the loaded `doc` that still has filters, and drops image data the
+    /// load hook did not see: an encrypted file is loaded without it.
     pub fn check_loaded(&self, doc: &mut Document) -> Result<(), DocError> {
         for object in doc.objects.values_mut() {
-            if let Object::Stream(stream) = object {
+            if let Object::Stream(stream) = object
+                && !drop_image(stream)
+            {
                 with_budget(|budget| check_stream(stream, budget))?;
             }
         }
@@ -96,17 +99,25 @@ fn with_budget(work: impl FnOnce(&mut Budget) -> Result<(), DocError>) -> Result
 /// streams); `None` drops it, and a refusal is read back with [`Loading::refused`].
 pub fn load_filter(id: ObjectId, object: &mut Object) -> Option<(ObjectId, Object)> {
     if let Object::Stream(stream) = object {
-        if stream.dict.get(b"Subtype").and_then(Object::as_name).ok() == Some(b"Image".as_slice()) {
-            stream.dict.remove(b"Filter");
-            stream.dict.remove(b"DecodeParms");
-            // Not empty: lopdf rereads an empty stream from the file.
-            stream.set_content(vec![0]);
-        } else if stream.dict.has_type(b"ObjStm") {
+        if !drop_image(stream) && stream.dict.has_type(b"ObjStm") {
             with_budget(|budget| check_stream(stream, budget)).ok()?;
         }
         return Some((id, Object::Null));
     }
     Some((id, object.clone()))
+}
+
+/// Drops an image XObject's data and filters (by its parsed `/Subtype`), since text extraction
+/// never reads them. Answers whether `stream` was one.
+fn drop_image(stream: &mut Stream) -> bool {
+    if stream.dict.get(b"Subtype").and_then(Object::as_name).ok() != Some(b"Image".as_slice()) {
+        return false;
+    }
+    stream.dict.remove(b"Filter");
+    stream.dict.remove(b"DecodeParms");
+    // Not empty: lopdf rereads an empty stream from the file.
+    stream.set_content(vec![0]);
+    true
 }
 
 /// Inflates `stream` within the budget, following its filters as lopdf would.

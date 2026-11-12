@@ -283,6 +283,38 @@ fn a_cross_reference_stream_is_counted_by_its_length_not_its_first_endstream() -
 }
 
 #[test]
+fn an_encrypted_scan_with_no_user_password_reads_and_its_huge_image_costs_nothing() -> Result {
+    use pdf_extract::{EncryptionState, EncryptionVersion, Permissions};
+    let image = Stream::new(
+        dictionary! { "Type" => "XObject", "Subtype" => "Image", "Filter" => "FlateDecode",
+        "Width" => 8000, "Height" => 8000 },
+        zlib(&vec![0u8; 80 * 1024 * 1024])?,
+    );
+    let mut doc = Document::load_mem(&pdf(&["Statement for May"], vec![image])?)?;
+    doc.trailer.set(
+        "ID",
+        vec![
+            Object::string_literal(b"0123456789abcdef".to_vec()),
+            Object::string_literal(b"0123456789abcdef".to_vec()),
+        ],
+    );
+    let state = EncryptionState::try_from(EncryptionVersion::V2 {
+        document: &doc,
+        owner_password: "owner",
+        user_password: "",
+        key_length: 128,
+        permissions: Permissions::all(),
+    })?;
+    doc.encrypt(&state)?;
+    let mut bytes = Vec::new();
+    doc.save_to(&mut bytes)?;
+    assert!(Document::load_mem(&bytes)?.is_encrypted(), "the test file must be encrypted");
+    let read = read(&bytes, "statement.pdf")?;
+    assert!(read.text.contains("Statement for May"), "{}", read.text);
+    Ok(())
+}
+
+#[test]
 fn a_word_document_gives_its_paragraphs_tabs_and_tables() -> Result {
     let body = r#"<w:p><w:r><w:t>Terms &amp; conditions</w:t></w:r></w:p>
 <w:p><w:r><w:t xml:space="preserve">Name:</w:t><w:tab/><w:t>Ada</w:t></w:r></w:p>
