@@ -379,6 +379,7 @@ export * from "./event-view.ts";
 export * from "./forge-timeline.ts";
 export * from "./forge-timeline-pushes.ts";
 export * from "./message-quotes.ts";
+export * from "./guest-session.ts";
 export * from "./forge-comments.ts";
 export * from "./forge-reviewers.ts";
 export * from "./forge-review-rules.ts";
