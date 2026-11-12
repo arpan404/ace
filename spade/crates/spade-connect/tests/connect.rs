@@ -368,6 +368,24 @@ async fn a_server_without_pkce_is_refused_and_one_without_registration_needs_a_c
 }
 
 #[tokio::test]
+async fn sign_in_metadata_that_never_ends_is_cut_off_at_the_limit() -> Result {
+    let app = FakeConnector::start(app_tools()).await;
+    app.endless_metadata();
+    let spade = spade()?;
+    let started = tokio::time::Instant::now();
+    let refused = spade.connectors.connect(by_url(&app.url())).await;
+    assert!(
+        matches!(refused, Err(ConnectError::Unreachable(ref why)) if why.contains("too large")),
+        "{refused:?}"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "it read until the deadline"
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn a_token_connects_at_once_and_a_wrong_one_is_refused() -> Result {
     let app = FakeConnector::start(app_tools()).await;
     app.accept_token("api-key-123");

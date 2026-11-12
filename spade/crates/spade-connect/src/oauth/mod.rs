@@ -550,19 +550,25 @@ async fn get_json(http: &reqwest::Client, address: &Url) -> Result<Option<Value>
     Ok(value.is_object().then_some(value))
 }
 
-async fn read_json(response: reqwest::Response) -> Result<Value, OauthError> {
+async fn read_json(mut response: reqwest::Response) -> Result<Value, OauthError> {
+    let too_large = || OauthError::Network("the answer is too large".into());
     if response
         .content_length()
         .is_some_and(|n| n > MOST_BYTES as u64)
     {
-        return Err(OauthError::Network("the answer is too large".into()));
+        return Err(too_large());
     }
-    let bytes = response
-        .bytes()
+    // Counted as it arrives, so an endless or lying answer stops at the limit.
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
         .await
-        .map_err(|error| OauthError::Network(format!("the answer broke off: {}", short(&error))))?;
-    if bytes.len() > MOST_BYTES {
-        return Err(OauthError::Network("the answer is too large".into()));
+        .map_err(|error| OauthError::Network(format!("the answer broke off: {}", short(&error))))?
+    {
+        if bytes.len() + chunk.len() > MOST_BYTES {
+            return Err(too_large());
+        }
+        bytes.extend_from_slice(&chunk);
     }
     Ok(serde_json::from_slice(&bytes).unwrap_or(Value::Null))
 }

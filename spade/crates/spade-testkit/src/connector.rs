@@ -59,6 +59,7 @@ struct State {
     tools: Mutex<Vec<Tool>>,
     peers: Mutex<Vec<Peer<RoleServer>>>,
     registration: AtomicBool,
+    endless_metadata: AtomicBool,
     pkce: AtomicBool,
     static_token: Mutex<Option<String>>,
     expires_in: AtomicU64,
@@ -87,6 +88,7 @@ impl FakeConnector {
             tools: Mutex::new(tools),
             peers: Mutex::default(),
             registration: AtomicBool::new(true),
+            endless_metadata: AtomicBool::new(false),
             pkce: AtomicBool::new(true),
             static_token: Mutex::new(None),
             expires_in: AtomicU64::new(3600),
@@ -150,6 +152,11 @@ impl FakeConnector {
     /// Stop offering dynamic client registration.
     pub fn without_registration(&self) {
         self.state.registration.store(false, Ordering::SeqCst);
+    }
+
+    /// Its protected-resource metadata never ends: chunks keep coming, with no length given.
+    pub fn endless_metadata(&self) {
+        self.state.endless_metadata.store(true, Ordering::SeqCst);
     }
 
     /// Stop advertising PKCE.
@@ -291,6 +298,17 @@ async fn guard(Shared(state): Shared<Arc<State>>, request: Request, next: Next) 
 }
 
 async fn resource_metadata(Shared(state): Shared<Arc<State>>) -> Response {
+    if state.endless_metadata.load(Ordering::SeqCst) {
+        let chunk = axum::body::Bytes::from(vec![b' '; 16 * 1024]);
+        let endless = futures_util::stream::repeat_with(move || {
+            Ok::<_, std::convert::Infallible>(chunk.clone())
+        });
+        return (
+            [(header::CONTENT_TYPE, "application/json")],
+            axum::body::Body::from_stream(endless),
+        )
+            .into_response();
+    }
     let base = lock(&state.base).clone();
     axum::Json(json!({
         "resource": format!("{base}/mcp"),
