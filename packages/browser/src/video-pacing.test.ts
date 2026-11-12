@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   EncodePacer,
   EncoderWatchdog,
+  FirstPicture,
+  firstPictureMs,
   keyframeGapMs,
   keyframePeriodMs,
+  refreshPictureMs,
   settleMs,
   stallMs,
   stillFrameMs,
@@ -155,5 +158,44 @@ describe("a skipped last frame on a page that goes still", () => {
     pacer.frame(0, false);
     expect(pacer.frame(40, false)).toBe("delta");
     expect(pacer.catchUp(200, false)).toBe(false);
+  });
+});
+
+/** Steps a capture's first-picture watch on the offscreen document's 50 ms clock. */
+function watch(first: FirstPicture, from: number, milliseconds: number) {
+  const steps: { at: number; step: string }[] = [];
+  for (let at = from; at <= from + milliseconds; at += 50) steps.push({ at, step: first.step(at) });
+  return steps.filter((entry) => entry.step !== "wait");
+}
+
+describe("a tab capture whose first picture never comes", () => {
+  it("asks Chrome for a picture, and again every so often while none comes", () => {
+    const asked = watch(new FirstPicture(0), 0, 4 * refreshPictureMs);
+    expect(asked).toEqual(
+      [1, 2, 3, 4].map((times) => ({ at: times * refreshPictureMs, step: "refresh" })),
+    );
+  });
+
+  it("fails once, when no picture came for a while after it opened", () => {
+    const first = new FirstPicture(1_000);
+    const steps = watch(first, 1_000, firstPictureMs + 2_000);
+    expect(steps.filter((entry) => entry.step === "failed")).toEqual([
+      { at: 1_000 + firstPictureMs, step: "failed" },
+    ]);
+    // Nothing more once it failed: the capture ends and another opens.
+    expect(steps.at(-1)?.step).toBe("failed");
+  });
+
+  it("asks for nothing more once a picture came", () => {
+    const first = new FirstPicture(0);
+    expect(watch(first, 0, 600).map((entry) => entry.step)).toEqual(["refresh"]);
+    first.arrived();
+    expect(watch(first, 650, firstPictureMs * 2)).toEqual([]);
+  });
+
+  it("never asks while the first picture comes in time", () => {
+    const first = new FirstPicture(0);
+    first.arrived();
+    expect(watch(first, 0, firstPictureMs * 2)).toEqual([]);
   });
 });

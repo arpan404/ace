@@ -116,3 +116,41 @@ export class EncoderWatchdog {
     return this.waitingSince !== undefined && now - this.waitingSince >= stallMs;
   }
 }
+
+/** A tab capture with no picture yet asks Chrome for one after this long, and again as often. */
+export const refreshPictureMs = 500;
+/** A tab capture with still no picture this long after it opened has failed. */
+export const firstPictureMs = 5_000;
+
+export type FirstPictureStep = "wait" | "refresh" | "failed";
+
+/**
+ * Watches a tab capture for its first picture. Chrome's tab capture sends one picture when it
+ * starts and then only when the page paints; under load that first one can be lost, and a still
+ * page then sends nothing, so the encoders have no picture to make a keyframe of and every
+ * viewer waits forever. The capture asks Chrome for a picture (`refresh`) until one comes, and
+ * gives up (`failed`, once) after `firstPictureMs`: it ends, and the daemon opens another.
+ */
+export class FirstPicture {
+  private openedAt: number;
+  private askedAt: number;
+  private settled = false;
+  constructor(openedAt: number) {
+    this.openedAt = openedAt;
+    this.askedAt = openedAt;
+  }
+  /** A picture came: nothing more to watch. */
+  arrived(): void {
+    this.settled = true;
+  }
+  step(now: number): FirstPictureStep {
+    if (this.settled) return "wait";
+    if (now - this.openedAt >= firstPictureMs) {
+      this.settled = true;
+      return "failed";
+    }
+    if (now - this.askedAt < refreshPictureMs) return "wait";
+    this.askedAt = now;
+    return "refresh";
+  }
+}
