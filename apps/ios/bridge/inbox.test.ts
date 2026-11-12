@@ -29,6 +29,7 @@ import { CommandId, DeviceId, InteractionRequest, ThreadId } from "@ace/protocol
 import { Client } from "@ace/client";
 import { FakeDaemon, facts } from "@ace/fake-daemon";
 import { followInbox, inboxAction, type InboxClock } from "./inbox.ts";
+import { inboxRequests } from "./inbox-manage.ts";
 import { PatchPump } from "./patch-pump.ts";
 import { RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
 
@@ -88,8 +89,9 @@ async function following(seed: (daemon: FakeDaemon) => void) {
   await client.start();
   const clock = new TestClock();
   const sink = new RecordingSink();
-  closers.push(followInbox(client, "mac", sink, clock));
-  return { daemon, client, clock, sink };
+  const inbox = followInbox(client, "mac", sink, clock);
+  closers.push(inbox);
+  return { daemon, client, clock, sink, inbox };
 }
 
 type Sections = { sections: { key: string; ids: string[] }[] };
@@ -103,6 +105,30 @@ const groups = (sink: RecordingSink) =>
 const status = (sink: RecordingSink, id: string) =>
   (sink.read(`inbox:${id}`) as { row: { status: { label: string; token: string } } } | undefined)
     ?.row.status;
+
+/** An approval the agent asks for. */
+const approval = (agent: string, interaction: string) => ({
+  type: "interaction.opened" as const,
+  agent,
+  interaction,
+  blocking: true,
+  request: InteractionRequest.parse({
+    kind: "approval",
+    title: "Run the tests",
+    options: [{ id: "allow", label: "Allow", kind: "allow_once" }],
+  }),
+});
+/** The section that lists the thread, if any. */
+const sectionOf = (sink: RecordingSink, id: string) =>
+  Object.entries(groups(sink)).find(([, ids]) => ids?.includes(id))?.[0];
+/** One finished thread the person settled from the phone. */
+const settledByHand = async () => {
+  const fixture = await following((seed) => finished(seed, "notes", "Notes"));
+  await until(() => sectionOf(fixture.sink, "notes") === "done", "done");
+  inboxAction(fixture.client, { kind: "settle", threadId: "notes" }, "settle", fixture.sink);
+  await until(() => sectionOf(fixture.sink, "notes") === "settled", "settled");
+  return fixture;
+};
 
 /** The real pump emits here and arms timers here; the test drives both by hand. */
 function runPumpTimers() {
@@ -369,6 +395,45 @@ describe("inbox settling", () => {
     );
     const section = Object.entries(groups(sink)).find(([, ids]) => ids?.includes("notes"))?.[0];
     expect(section).toBe("needs-you");
+  });
+
+  test("a settled thread whose subagent asks the person leaves Settled for Needs you", async () => {
+    const { daemon, sink } = await settledByHand();
+    daemon.apply("notes", [
+      facts.turn("root"),
+      facts.subagent("codex", "sub", "helper", "root"),
+      facts.turn("sub", "spawn"),
+      approval("sub", "ask-sub"),
+    ]);
+    await until(() => sectionOf(sink, "notes") === "needs-you", "needs you");
+  });
+
+  test("a thread settled from Select asks, is answered, and stays in the Inbox as the daemon unsettled it", async () => {
+    const { client, daemon, sink, clock, inbox } = await following((seed) =>
+      finished(seed, "notes", "Notes"),
+    );
+    await until(() => sectionOf(sink, "notes") === "done", "done");
+    // Select's settle, wired as the bridge wires it (`main.ts`): shown before the daemon confirms it.
+    const select = inboxRequests(client, inbox.organizer, clock, sink);
+    await select({ type: "inbox.bulk", action: "settle", threadIds: ["notes"] }, "bulk");
+    await until(() => sectionOf(sink, "notes") === "settled", "settled");
+
+    daemon.apply("notes", [facts.turn("root"), approval("root", "ask-1")]);
+    await until(() => sectionOf(sink, "notes") === "needs-you", "needs you");
+    // Answered: the request reopened it, so the settle the phone showed doesn't come back.
+    daemon.apply("notes", [
+      { type: "interaction.closed", interaction: "ask-1", state: "resolved" },
+      facts.endTurn("root"),
+    ]);
+    await until(() => sectionOf(sink, "notes") === "done", "done again");
+  });
+
+  test("a settled thread that asks while the phone is disconnected is in Needs you once it reconnects", async () => {
+    const { client, daemon, sink } = await settledByHand();
+    daemon.disconnectAll();
+    await until(() => client.connectionState().getSnapshot() !== "ready", "disconnected");
+    daemon.apply("notes", [facts.turn("root"), approval("root", "ask-1")]);
+    await until(() => sectionOf(sink, "notes") === "needs-you", "needs you");
   });
 
   test("settling a finished thread moves it to Settled, and unsettling brings it back to Done", async () => {
