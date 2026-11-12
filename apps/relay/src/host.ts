@@ -151,6 +151,7 @@ export async function connectHostToRelay(options: {
           slots.authorize(ticket);
           expire();
         },
+        clock,
       );
       const opened = channel;
       channels.add(opened);

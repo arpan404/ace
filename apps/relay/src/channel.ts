@@ -11,6 +11,8 @@ import type WebSocket from "ws";
 import { deflateRawSync, inflateRawSync } from "node:zlib";
 import { z } from "zod";
 import { FrameReader, sendFrame } from "./socket.ts";
+import type { Clock } from "./clock.ts";
+import { FramePace } from "./frame-pace.ts";
 export type WireMessage = ClientMessage | ServerMessage;
 export const BINARY_MESSAGE_LIMIT = 64 * 1024 + 16;
 export const LOGICAL_MESSAGE_LIMIT = 16 * 1024 * 1024;
@@ -106,8 +108,9 @@ export function clientMessageChannel(
   socket: WebSocket,
   reader: FrameReader,
   transport: Transport,
+  clock: Clock,
 ): ClientChannel {
-  return createChannel(socket, reader, transport, ServerMessage, ClientMessage);
+  return createChannel(socket, reader, transport, clock, ServerMessage, ClientMessage);
 }
 export function hostMessageChannel(
   socket: WebSocket,
@@ -115,9 +118,10 @@ export function hostMessageChannel(
   transport: Transport,
   onReceive: (message: ClientMessage | Uint8Array | string) => void,
   authorize: () => void,
+  clock: Clock,
 ): HostChannel {
   return Object.assign(
-    createChannel(socket, reader, transport, ClientMessage, ServerMessage, onReceive),
+    createChannel(socket, reader, transport, clock, ClientMessage, ServerMessage, onReceive),
     { authorize },
   );
 }
@@ -125,6 +129,7 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
   socket: WebSocket,
   reader: FrameReader,
   transport: Transport,
+  clock: Clock,
   incoming: z.ZodType<Incoming>,
   outgoing: z.ZodType<Outgoing>,
   onReceive?: (message: Incoming | Uint8Array | string) => void,
@@ -141,6 +146,8 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
   let sendCount = 0,
     receiveCount = 0;
   const flow = new FlowCredit();
+  // Every frame this end writes counts against the hosted relay's per-socket budget.
+  const pace = new FramePace();
   // Fragments decrypted as they arrive, so a credit is seen even while the reader is busy.
   const plainQueue: Uint8Array[] = [];
   let plainBytes = 0;
@@ -173,6 +180,8 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
   /** A credit goes out at once, ahead of data still waiting for the peer's credit. */
   const sendCredit = (plain: Uint8Array | undefined) => {
     if (!plain || ended) return;
+    // A credit never waits; its frame still counts, so data after it waits a little longer.
+    pace.take(clock.now());
     void sendFrame(socket, seal(plain)).catch((error: unknown) =>
       end(error instanceof Error ? error : new Error("Send failed")),
     );
@@ -242,6 +251,8 @@ function createChannel<Incoming extends WireMessage, Outgoing extends WireMessag
         const cost = fragmentCost(chunk.length + 1);
         const waiting = () => !ended && !flow.allows(cost);
         while (waiting()) await new Promise<void>((resolve) => creditWaiters.push(resolve));
+        const wait = pace.take(clock.now());
+        if (wait > 0) await new Promise<void>((resolve) => clock.schedule(wait, resolve));
         if (ended) throw new Error("Channel closed");
         flow.spend(cost);
         const plain = new Uint8Array(chunk.length + 1);

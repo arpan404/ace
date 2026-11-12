@@ -352,3 +352,15 @@ it("a device whose connection just drops leaves its daemon a plain peer close", 
   device.close();
   expect(await server.closed).toMatchObject({ code: 1000, reason: "Peer closed" });
 });
+
+it("a daemon's burst of small messages past the relay's frame budget waits instead of cutting the device off", async () => {
+  // Each message is a frame; the relay object closes a socket past 2,000 at once (it can't pause).
+  const { rawDevice } = await host();
+  const { device, transport, server } = await rawDevice();
+  const count = 5_000;
+  const sends = Array.from({ length: count }, () => server.send({ type: "pong" }));
+  for (let index = 0; index < count; index++) transport.receive.decrypt(await device.next());
+  await Promise.all(sends);
+  await server.send({ type: "pong" });
+  transport.receive.decrypt(await device.next());
+});

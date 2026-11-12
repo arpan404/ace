@@ -37,7 +37,7 @@ export async function connectClientViaRelay(options: {
       clock,
       timeoutMs: 10000,
     });
-    return clientMessageChannel(socket, reader, transport);
+    return clientMessageChannel(socket, reader, transport, clock);
   } catch (error) {
     socket.terminate();
     throw error;

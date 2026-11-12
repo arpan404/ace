@@ -6,6 +6,7 @@ export { connectClientViaRelay } from "./client.ts";
 export { RelayRefusedError } from "./refusal.ts";
 export type { ClientChannel, HostChannel, MessageChannel, BinaryChannel } from "./channel.ts";
 export { RelayStreamClosed } from "./channel.ts";
+export { FramePace } from "./frame-pace.ts";
 
 export { readRelayConfig } from "./config.ts";
 export { IpBudget } from "./limits.ts";
