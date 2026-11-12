@@ -21,8 +21,6 @@ export class AceMcpLocations {
   private readonly states = new Map<string, Readiness>();
   private readonly added = new Set<string>();
   private readonly adding = new Set<string>();
-  /** Locations rebuilt while ace's add was in flight: an `ace` found there is ace's own. */
-  private readonly uncertain = new Set<string>();
   private readonly work = new Map<string, Work>();
   private readonly generations = new Map<string, number>();
   private readonly client: OpenCodeClient;
@@ -66,31 +64,27 @@ export class AceMcpLocations {
     this.generations.set(directory, this.generation(directory) + 1);
     this.states.delete(directory);
     this.added.delete(directory);
-    // The add may land in the rebuilt services. The location listed no `ace` before ace's
-    // add, so one found there next is ace's own, not the person's.
-    if (this.adding.has(directory)) this.uncertain.add(directory);
   }
   private async setUp(directory: string, generation: number): Promise<void> {
     if (!this.added.has(directory)) {
-      const listed = await aceMcpListed(this.client, directory);
-      if (!this.current(directory, generation)) return;
-      if (listed && !this.uncertain.has(directory))
+      // OpenCode reports no owner for a server, so an `ace` ace did not add in this generation
+      // may be the person's: it is refused, never adopted. A rebuild racing ace's own add can
+      // leave such a location refusing until the session reopens; that fails safe.
+      if (await aceMcpListed(this.client, directory))
         throw new Error("OpenCode MCP server name collision: ace");
-      if (!listed) {
-        // A set-up holds its slot while it adds, so concurrent new locations cannot pass the
-        // limit together.
-        if (new Set([...this.added, ...this.adding]).size >= 128)
-          throw new Error("OpenCode MCP location limit exceeded");
-        this.adding.add(directory);
-        try {
-          await addAceMcp(this.client, directory, this.connection);
-        } finally {
-          this.adding.delete(directory);
-        }
-        if (!this.current(directory, generation)) return;
+      if (!this.current(directory, generation)) return;
+      // A set-up holds its slot while it adds, so concurrent new locations cannot pass the
+      // limit together.
+      if (new Set([...this.added, ...this.adding]).size >= 128)
+        throw new Error("OpenCode MCP location limit exceeded");
+      this.adding.add(directory);
+      try {
+        await addAceMcp(this.client, directory, this.connection);
+      } finally {
+        this.adding.delete(directory);
       }
+      if (!this.current(directory, generation)) return;
       this.added.add(directory);
-      this.uncertain.delete(directory);
     }
     await connectAceMcp(this.client, directory);
     const readiness = await waitForAceTools(this.client, directory, this.runtime);

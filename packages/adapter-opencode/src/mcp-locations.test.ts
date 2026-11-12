@@ -253,16 +253,16 @@ test("a set-up whose listing straddles a rebuild adds nothing stale, so ace's se
   expect(fake.adds()).toBe(1);
 });
 
-test("an add that lands in the rebuilt location is recognised as ace's own, not a collision", async () => {
+test("an ace server ace cannot prove it added in the rebuilt location is refused, never adopted", async () => {
   const adding = gate();
   const fake = opencode({ add: adding.hold });
   const { subject } = locations(fake);
   const sending = subject.admit("/one");
   await adding.reached;
-  // OpenCode rebuilds while the add is in flight; the add then reaches the new services.
+  // OpenCode rebuilds while the add is in flight; the add then reaches the new services, where
+  // nothing tells ace's server apart from one the person configured.
   fake.rebuild("/one");
   subject.forget("/one");
   adding.release();
-  await expect(sending).resolves.toBeUndefined();
-  expect(fake.adds()).toBe(1);
+  await expect(sending).rejects.toThrow("OpenCode MCP server name collision: ace");
 });
