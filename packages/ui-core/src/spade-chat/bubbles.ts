@@ -50,13 +50,19 @@ export function isSpadeQuiet(text: string): boolean {
 
 export function spadeBubbles(view: SpadeView): SpadeBubble[] {
   const bubbles: SpadeBubble[] = [];
-  // Whether only heartbeats came since the last reply ended: a quiet answer to them shows as
-  // nothing, like the heartbeats themselves (ADR 0129; `silent_replies` in spade-core).
-  let beatOnly = false;
+  // Since the last reply ended: whether anything arrived, and whether all of it was a heartbeat.
+  // A quiet answer only to heartbeats shows as nothing, like the heartbeats themselves (ADR 0129;
+  // `silent_replies` in spade-core); one that also answers anything else always shows.
+  let inputs = false;
+  let onlyBeats = true;
   for (const entry of view.entries) {
-    if (entry.kind === "job") beatOnly = false;
+    if (entry.kind === "job") {
+      inputs = true;
+      onlyBeats = false;
+    }
     if (entry.kind === "user") {
-      beatOnly = entry.fromRoutine?.heartbeat === true;
+      inputs = true;
+      onlyBeats &&= entry.fromRoutine?.heartbeat === true;
       if (entry.fromRoutine) {
         if (!entry.fromRoutine.heartbeat)
           bubbles.push({
@@ -85,14 +91,17 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
     if (entry.live) words.push(entry.live);
     const text = words.join("\n\n").trim();
     const end = entry.end && entry.end.kind !== "finished" ? entry.end.kind : undefined;
-    if (beatOnly) {
-      const quiet =
-        entry.end === undefined
-          ? spadeQuiet.startsWith(text.toLowerCase())
-          : entry.end.kind === "finished" && isSpadeQuiet(text);
-      if (entry.end !== undefined) beatOnly = false;
-      if (quiet) continue;
+    const quiet =
+      inputs &&
+      onlyBeats &&
+      (entry.end === undefined
+        ? spadeQuiet.startsWith(text.toLowerCase())
+        : entry.end.kind === "finished" && isSpadeQuiet(text));
+    if (entry.end !== undefined) {
+      inputs = false;
+      onlyBeats = true;
     }
+    if (quiet) continue;
     // A reply with nothing to say yet shows only as the working line.
     if (!text && !end) continue;
     bubbles.push({

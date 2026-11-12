@@ -224,30 +224,36 @@ pub fn is_quiet(text: &str) -> bool {
     text.eq_ignore_ascii_case(QUIET)
 }
 
-/// The replies that answered only a heartbeat with [`QUIET`], by reply id: shown as nothing, like
-/// the heartbeat messages themselves. A reply that also saw anything else (the person's message,
-/// a job's result) is never silent.
+/// The replies that answered only heartbeats with [`QUIET`], by reply id: shown as nothing, like
+/// the heartbeat messages themselves. A reply is silent only if every input it answers (each
+/// message or job result since the last reply ended) was a heartbeat; one that also answers the
+/// person's message, another bot or a job's result is never silent.
 pub fn silent_replies<'a>(events: impl IntoIterator<Item = &'a Event>) -> HashSet<String> {
     let mut silent = HashSet::new();
-    let mut beat_only = false;
+    // Since the last reply ended: whether anything arrived, and whether all of it was a beat.
+    let (mut inputs, mut only_beats) = (false, true);
     for event in events {
         let Event::Known(known) = event else {
             continue;
         };
         match known {
             Known::UserMessage { from_routine, .. } => {
-                beat_only = from_routine.as_ref().is_some_and(|r| r.heartbeat);
+                inputs = true;
+                only_beats &= from_routine.as_ref().is_some_and(|r| r.heartbeat);
             }
-            Known::JobFinished { .. } => beat_only = false,
+            Known::JobFinished { .. } => {
+                inputs = true;
+                only_beats = false;
+            }
             Known::ReplyFinished { reply, text, .. } => {
-                if beat_only && is_quiet(text) {
+                if inputs && only_beats && is_quiet(text) {
                     silent.insert(reply.clone());
                 }
-                beat_only = false;
+                (inputs, only_beats) = (false, true);
             }
             Known::ReplyStopped { .. }
             | Known::ReplyFailed { .. }
-            | Known::ReplyInterrupted { .. } => beat_only = false,
+            | Known::ReplyInterrupted { .. } => (inputs, only_beats) = (false, true),
             _ => {}
         }
     }

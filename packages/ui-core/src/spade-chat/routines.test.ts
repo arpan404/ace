@@ -60,6 +60,15 @@ describe("a routine in the conversation", () => {
     expect(c.bubbles()).toEqual(["bot: The build is red."]);
   });
 
+  test("a quiet answer to the person's queued message and a later heartbeat still shows", () => {
+    const c = conversation();
+    c.stored({ type: "user_message", text: "Did the deploy finish?" });
+    c.stored({ type: "user_message", text: "Check.", from_routine: fromRoutine(true) });
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.stored({ type: "reply_finished", reply: "r1", text: "[quiet]" });
+    expect(c.bubbles()).toEqual(["person: Did the deploy finish?", "bot: [quiet]"]);
+  });
+
   test("a quiet answer that also answered the person still shows", () => {
     const c = conversation();
     c.stored({ type: "user_message", text: "Check.", from_routine: fromRoutine(true) });

@@ -256,6 +256,19 @@ fn only_a_quiet_answer_to_a_heartbeat_alone_is_silent() {
 }
 
 #[test]
+fn a_quiet_answer_to_the_persons_queued_message_and_a_heartbeat_still_shows() {
+    // The person's message waited (Spade was closed for an update); a beat came after it, and
+    // one reply answered both.
+    let events = [
+        Event::user_message("Did the deploy finish?"),
+        message("b1", true),
+        Event::reply_started("r1", "fake/m"),
+        finished("r1", "[quiet]"),
+    ];
+    assert!(silent_replies(&events).is_empty());
+}
+
+#[test]
 fn a_routine_message_reads_as_the_routine_not_the_person() {
     let Event::Known(Known::UserMessage {
         from_routine: Some(from),
