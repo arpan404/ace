@@ -184,6 +184,20 @@ test("settle, unsettle, snooze, wake and status changes move one thread with a o
   expect(step([{ type: "thread.client.updated", changes: { snoozedUntil: null } }])).toBe("inbox");
 });
 
+test("a settled thread older than the first window comes to the Inbox when it asks the person", async () => {
+  const f = await world();
+  for (let i = 0; i < 30; i++) f.add(`s-${i}`, { ...settled, activityAt: now - day - i });
+  f.add("old", { ...settled, activityAt: now - 9 * day });
+  const list = follow(f);
+  expect(list.held.has("old")).toBe(false);
+  f.store.appendEvents(
+    ThreadId.parse("old"),
+    [{ type: "thread.updated", status: { state: "needs_you", interactions: 1 } }],
+    now,
+  );
+  expect(list.tabs(["old"]).inbox).toEqual(["old"]);
+});
+
 test("a reconnect from revision N gets only the threads that moved since, and the same tabs as a fresh list", async () => {
   const f = await world();
   for (let i = 0; i < 40; i++) f.add(`t-${i}`, { readAt: now, activityAt: now - i });
