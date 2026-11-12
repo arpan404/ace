@@ -1,5 +1,6 @@
-import { useEffect, type ReactElement } from "react";
-import { HoverCard, HoverCardTrigger } from "@/components/ui/hover-card.tsx";
+import type { PreviewCard } from "@base-ui/react/preview-card";
+import { useEffect, useState, type ReactElement } from "react";
+import { HoverCard, HoverCardTrigger, ReplayHoverCardHandle } from "@/components/ui/hover-card.tsx";
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import { useOpenGate } from "@/components/ui/open-gate.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
@@ -30,10 +31,13 @@ export function AgentHoverCard(props: {
   children: ReactElement;
 }) {
   useEffect(() => popup.warm(), []);
-  const gate = useOpenGate(popup, {});
+  const [handle] = useState(() => new ReplayHoverCardHandle());
+  const gate = useOpenGate<PreviewCard.Root.ChangeEventDetails>(popup, {
+    replay: (details) => handle.replay(details),
+  });
   const ready = usePart(popup) !== undefined;
   return (
-    <HoverCard open={gate.open} onOpenChange={gate.onOpenChange}>
+    <HoverCard handle={handle} open={gate.open} onOpenChange={gate.onOpenChange}>
       <HoverCardTrigger delay={450} closeDelay={0} render={props.children} />
       {/* Mounted once the code is in, so it renders at once, never suspending in an open card. */}
       {ready && (

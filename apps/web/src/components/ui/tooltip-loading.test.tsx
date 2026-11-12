@@ -69,7 +69,8 @@ async function showTips() {
   const { Tip, TooltipProvider } = ui;
   const pressed = vi.fn();
   render(
-    <TooltipProvider delay={0}>
+    // No group window: each tooltip opens on its own, never instantly as a neighbour's successor.
+    <TooltipProvider delay={0} timeout={0}>
       <Tip label="Attach files">
         <button type="button" onClick={pressed}>
           Attach
@@ -147,4 +148,59 @@ test("a tooltip whose open state its owner holds opens once the popup arrives", 
   expect(tooltip()).toBeNull();
   await loads.arrive();
   expect((await screen.findByRole("tooltip")).textContent).toBe("Pick a model");
+});
+
+for (const key of ["{Enter}", " "])
+  test(`activating a focused control with ${key === " " ? "Space" : "Enter"} while the popup loads cancels the open`, async () => {
+    const { attach, pressed } = await showTips();
+    await userEvent.tab();
+    expect(document.activeElement).toBe(attach());
+    await userEvent.keyboard(key);
+    expect(pressed).toHaveBeenCalledTimes(1);
+    await loads.arrive();
+    await settle();
+    expect(tooltip()).toBeNull();
+    expect(document.activeElement).toBe(attach());
+  });
+
+/** What a shown tooltip says about how it opened: its state attributes, ids left out. */
+const looks = (element: HTMLElement) =>
+  [...element.attributes]
+    .filter((attribute) => attribute.name.startsWith("data-") || attribute.name === "role")
+    .map((attribute) => `${attribute.name}=${attribute.value}`)
+    .toSorted();
+
+test("a focus open that waited for the popup opens as one with the popup in does, and Escape closes it", async () => {
+  const { attach } = await showTips();
+  await userEvent.tab();
+  await loads.arrive();
+  const cold = await screen.findByRole("tooltip");
+  await settle();
+  const coldLooks = looks(cold);
+  expect(coldLooks).toContain("data-instant=focus");
+  await userEvent.keyboard("{Escape}");
+  await vi.waitFor(() => expect(tooltip()).toBeNull());
+  expect(document.activeElement).toBe(attach());
+
+  await userEvent.tab();
+  const warm = await screen.findByRole("tooltip");
+  await settle();
+  expect(warm.textContent).toBe("Pick a model");
+  expect(coldLooks).toEqual(looks(warm));
+});
+
+test("a hover open that waited for the popup opens as one with the popup in does, and leaving closes it", async () => {
+  const { attach } = await showTips();
+  await userEvent.hover(attach());
+  await loads.arrive();
+  const cold = await screen.findByRole("tooltip");
+  await settle();
+  const coldLooks = looks(cold);
+  await userEvent.unhover(attach());
+  await vi.waitFor(() => expect(tooltip()).toBeNull());
+
+  await userEvent.hover(screen.getByRole("button", { name: "Model" }));
+  const warm = await screen.findByRole("tooltip");
+  await settle();
+  expect(coldLooks).toEqual(looks(warm));
 });

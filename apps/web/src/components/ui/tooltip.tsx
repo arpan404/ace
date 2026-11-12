@@ -3,6 +3,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useState,
   type ComponentProps,
   type ReactElement,
   type ReactNode,
@@ -34,12 +35,25 @@ function TooltipProvider({ delay = 500, ...props }: TooltipPrimitive.Provider.Pr
 /** Whether the tooltip around a popup is open, so a popup that failed to draw tries again. */
 const TooltipOpen = createContext(false);
 
+/** Opens its tooltip through Base UI's own open, as a request held by `useOpenGate` asked. */
+class ReplayHandle extends TooltipPrimitive.Handle<unknown> {
+  replay(details: TooltipPrimitive.Root.ChangeEventDetails) {
+    this.attachedStore?.setOpen(true, details);
+  }
+}
+
 /** A tooltip's root; it opens only once its popup's code has arrived (`useOpenGate`). */
 function Tooltip(props: TooltipPrimitive.Root.Props) {
-  const gate = useOpenGate(popup, props);
+  const [handle] = useState(() => new ReplayHandle());
+  const gate = useOpenGate(popup, { ...props, replay: (details) => handle.replay(details) });
   return (
     <TooltipOpen value={gate.open}>
-      <TooltipPrimitive.Root {...props} open={gate.open} onOpenChange={gate.onOpenChange} />
+      <TooltipPrimitive.Root
+        {...props}
+        handle={handle}
+        open={gate.open}
+        onOpenChange={gate.onOpenChange}
+      />
     </TooltipOpen>
   );
 }
