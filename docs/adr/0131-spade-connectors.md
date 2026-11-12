@@ -48,7 +48,9 @@ Linear; a bot that writes a weekly digest does not need the person's payments ac
    redirect is Spade's own loopback address, one per connector,
    `http://127.0.0.1:<port>/v1/connectors/callback/<connector>`, so a server that doesn't name
    itself in its answer can't have its code taken to another server's token endpoint;
-   the sign-in page opens in the person's own browser. Tokens are refreshed before they expire and
+   the sign-in page opens in the person's own browser. Every address the sign-in reaches must be
+   https and public; only a server the person marks as theirs ("on my own machine or network")
+   when adding it by URL may use local addresses, and DNS never decides that. Tokens are refreshed before they expire and
    when the server says they did. Servers that take a static bearer token or API key work too.
 
 3. **Tokens live only in the OS keychain.** Access tokens, refresh tokens, client secrets and

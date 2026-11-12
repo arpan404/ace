@@ -65,7 +65,7 @@ async fn signing_in_ends_at_spades_callback_and_no_answer_or_row_carries_a_token
     let (status, started) = spade
         .post(
             "/v1/connectors",
-            json!({ "url": app.url(), "name": "Fake" }),
+            json!({ "url": app.url(), "name": "Fake", "local": true }),
         )
         .await?;
     assert_eq!(status, 202, "{started}");
@@ -165,7 +165,7 @@ async fn a_bot_finds_and_runs_only_the_connectors_it_is_allowed() -> Result {
     let (status, body) = spade
         .post(
             "/v1/connectors",
-            json!({ "url": app.url(), "name": "Fake", "token": "api-key-1" }),
+            json!({ "url": app.url(), "name": "Fake", "local": true, "token": "api-key-1" }),
         )
         .await?;
     assert_eq!(status, 200, "{body}");

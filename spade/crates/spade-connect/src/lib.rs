@@ -63,6 +63,8 @@ pub struct View {
     pub name: String,
     pub url: String,
     pub catalogue: Option<String>,
+    /// The person marked it as a server on their own machine or network.
+    pub local: bool,
     /// `oauth`, `token` or `none`.
     pub sign_in: &'static str,
     /// `connected`, `connecting`, `unreachable`, `needs_reconnect` or `signing_in`.
@@ -182,6 +184,7 @@ impl Connectors {
                     name: pending.name.clone(),
                     url: pending.url.clone(),
                     catalogue: pending.catalogue.clone(),
+                    local: pending.local,
                     sign_in: "oauth",
                     state: "signing_in",
                     account: None,
@@ -223,6 +226,7 @@ impl Connectors {
             name: record.name.clone(),
             url: record.url.clone(),
             catalogue: record.catalogue.clone(),
+            local: record.local,
             sign_in: match record.auth {
                 records::Auth::None => "none",
                 records::Auth::Token => "token",

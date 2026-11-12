@@ -22,6 +22,10 @@ pub struct ConnectRequest {
     pub url: Option<String>,
     #[serde(default)]
     pub name: Option<String>,
+    /// For a server added by URL: the person says it runs on their own machine or network, so
+    /// its sign-in may use local addresses. Catalogue servers never are.
+    #[serde(default)]
+    pub local: bool,
     /// A token or API key, sent as a bearer instead of signing in.
     #[serde(default)]
     pub token: Option<String>,
@@ -101,6 +105,7 @@ pub(crate) struct Pending {
     pub name: String,
     pub url: String,
     pub catalogue: Option<String>,
+    pub local: bool,
     pub attempt: Attempt,
     pub started_ms: i64,
     /// Where this sign-in's requests may go, fixed when it started.
@@ -113,6 +118,8 @@ struct Target {
     name: String,
     url: url::Url,
     catalogue: Option<String>,
+    /// Marked local by the person (see [`ConnectRequest::local`]).
+    local: bool,
     existing: Option<Record>,
 }
 
@@ -123,6 +130,10 @@ impl Connectors {
         request: ConnectRequest,
     ) -> Result<Started, ConnectError> {
         let target = self.target(&request)?;
+        // Local addresses only for a connector the person marked local; the server's own
+        // address is held to the same rules as everything its sign-in names.
+        let net = self.addresses.for_connector(target.local, self.timeout);
+        net.check(target.url.as_str()).await.map_err(from_oauth)?;
         if let Some(token) = request
             .token
             .as_deref()
@@ -131,11 +142,6 @@ impl Connectors {
         {
             return self.connect_with_token(target, token.to_owned()).await;
         }
-        let net = self
-            .addresses
-            .for_server(&target.url, self.timeout)
-            .await
-            .map_err(from_oauth)?;
         let challenge = oauth::probe(&net, &target.url).await.map_err(from_oauth)?;
         let Some(challenge) = challenge else {
             return self.connect_open(target).await;
@@ -180,6 +186,7 @@ impl Connectors {
                 name: target.name,
                 url: target.url.to_string(),
                 catalogue: target.catalogue,
+                local: target.local,
                 attempt,
                 started_ms: now,
                 net,
@@ -260,6 +267,7 @@ impl Connectors {
             name: pending.name,
             url: pending.url,
             catalogue: pending.catalogue,
+            local: pending.local,
             auth: Auth::Oauth(OauthFacts {
                 issuer: pending.attempt.server.issuer.clone(),
                 token_endpoint: pending.attempt.server.token_endpoint.clone(),
@@ -370,6 +378,7 @@ impl Connectors {
                 name: existing.name.clone(),
                 url,
                 catalogue: existing.catalogue.clone(),
+                local: existing.local,
                 existing: Some(existing),
             });
         }
@@ -385,6 +394,7 @@ impl Connectors {
                 name: entry.name.clone(),
                 url,
                 catalogue: Some(entry.id.clone()),
+                local: false,
                 existing: self.record(&entry.id),
             });
         }
@@ -401,6 +411,7 @@ impl Connectors {
                 name: existing.name.clone(),
                 url,
                 catalogue: existing.catalogue.clone(),
+                local: existing.catalogue.is_none() && request.local,
                 existing: Some(existing.clone()),
             });
         }
@@ -416,6 +427,7 @@ impl Connectors {
             name,
             url,
             catalogue: None,
+            local: request.local,
             existing: None,
         })
     }
@@ -550,6 +562,7 @@ impl Connectors {
             name: target.name,
             url: target.url.to_string(),
             catalogue: target.catalogue,
+            local: target.local,
             auth,
             account: None,
             needs_reconnect: false,

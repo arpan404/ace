@@ -74,6 +74,28 @@ test("a token goes to Spade in one request, and Disconnect removes the app", asy
   await waitFor(() => expect(section.queryByText("Linear")).toBeNull());
 });
 
+test("a server added by address reaches local addresses only when the person says it is theirs", async () => {
+  const { spade } = await spadeApp("/settings/spade", seed);
+  const dialog = await openCatalogue();
+  await userEvent.type(
+    dialog.getByRole("textbox", { name: "Another server" }),
+    "http://192.168.1.20:8080/mcp",
+  );
+  const mine = dialog.getByRole("switch", { name: "On my own machine or network" });
+  expect(checked(mine)).toBe(false);
+  await userEvent.click(mine);
+  await userEvent.click(dialog.getByRole("button", { name: "Use a token for 192.168.1.20:8080" }));
+  await userEvent.type(dialog.getByLabelText("Token for 192.168.1.20:8080"), "nas-key");
+  await userEvent.click(dialog.getByRole("button", { name: "Connect" }));
+  await waitFor(() =>
+    expect(spade.sent("POST", "/v1/connectors")).toEqual([
+      { url: "http://192.168.1.20:8080/mcp", local: true, token: "nas-key" },
+    ]),
+  );
+  const section = await connectors();
+  expect(await section.findByText("Connected · On your own network")).toBeTruthy();
+});
+
 test("an app that registers no clients by itself asks for the person's client ID", async () => {
   const { spade } = await spadeApp("/settings/spade", (api) => {
     seed(api);

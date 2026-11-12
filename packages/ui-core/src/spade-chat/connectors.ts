@@ -30,6 +30,8 @@ export interface SpadeConnector {
   name: string;
   url: string;
   catalogue: string | undefined;
+  /** The person marked it as a server on their own machine or network. */
+  local: boolean;
   /** How it is signed in: `oauth`, `token` or `none`. */
   signIn: "oauth" | "token" | "none";
   state: SpadeConnectorState;
@@ -89,6 +91,7 @@ const connectorShape = z.object({
   name: text,
   url: z.string().catch(""),
   catalogue: text,
+  local: z.boolean().catch(false).default(false),
   sign_in: z.enum(["oauth", "token", "none"]).catch("none"),
   // A state this client doesn't know reads as still connecting, never as connected.
   state: z.enum(states).catch("connecting"),
@@ -107,6 +110,7 @@ export function parseSpadeConnectorValue(raw: unknown): SpadeConnector | undefin
     name: connector.name || connector.id,
     url: connector.url,
     catalogue: connector.catalogue || undefined,
+    local: connector.local,
     signIn: connector.sign_in,
     state: connector.state,
     account: connector.account || undefined,

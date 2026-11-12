@@ -62,10 +62,12 @@ fn app_tools() -> Vec<rmcp::model::Tool> {
     ]
 }
 
+/// The fake app by its address, marked as a server on the person's own machine, which it is.
 fn by_url(url: &str) -> ConnectRequest {
     ConnectRequest {
         url: Some(url.to_owned()),
         name: Some("Fake".into()),
+        local: true,
         ..ConnectRequest::default()
     }
 }
@@ -168,6 +170,41 @@ async fn signing_in_discovers_the_server_registers_spade_and_uses_pkce_and_the_r
         "{:?}",
         app.resources()
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_server_at_a_local_address_is_reached_only_when_the_person_marked_it_local() -> Result {
+    let app = FakeConnector::start(app_tools()).await;
+    app.accept_token("api-key-1");
+    let spade = spade()?;
+    let unmarked = ConnectRequest {
+        local: false,
+        ..by_url(&app.url())
+    };
+    let refused = spade.connectors.connect(unmarked.clone()).await;
+    assert!(
+        matches!(refused, Err(ConnectError::Unsupported(_))),
+        "{refused:?}"
+    );
+    let with_token = spade
+        .connectors
+        .connect(ConnectRequest {
+            token: Some("api-key-1".into()),
+            ..unmarked
+        })
+        .await;
+    assert!(
+        matches!(with_token, Err(ConnectError::Unsupported(_))),
+        "{with_token:?}"
+    );
+    assert_eq!(app.token_requests() + app.registrations(), 0);
+    assert!(app.bearers().is_empty(), "the unmarked server was reached");
+    assert!(spade.connectors.list().is_empty());
+
+    let marked = sign_in_url(&spade, by_url(&app.url())).await?;
+    assert!(marked.starts_with(&app.issuer()));
+    assert_eq!(spade.connectors.list().first().map(|v| v.local), Some(true));
     Ok(())
 }
 

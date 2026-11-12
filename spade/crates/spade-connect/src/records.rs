@@ -51,6 +51,10 @@ pub struct Record {
     pub auth: Auth,
     #[serde(default)]
     pub account: Option<String>,
+    /// The person marked it as a server on their own machine or network when adding it, so its
+    /// sign-in may use local addresses. Never inferred.
+    #[serde(default)]
+    pub local: bool,
     /// The sign-in expired or was revoked and could not be renewed.
     #[serde(default)]
     pub needs_reconnect: bool,

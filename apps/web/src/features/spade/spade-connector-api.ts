@@ -33,6 +33,8 @@ export interface SpadeConnectDraft {
   catalogue?: string;
   url?: string;
   name?: string;
+  /** A server added by URL that runs on the person's own machine or network. */
+  local?: boolean;
   token?: string;
   client_id?: string;
   client_secret?: string;
@@ -50,7 +52,7 @@ export async function connect(
 export async function reconnect(
   target: SpadeTarget,
   id: string,
-  draft: Omit<SpadeConnectDraft, "catalogue" | "url" | "name"> = {},
+  draft: Omit<SpadeConnectDraft, "catalogue" | "url" | "name" | "local"> = {},
 ): Promise<SpadeConnectStart> {
   const path = `/v1/connectors/${segment(id)}/connect`;
   return sure(

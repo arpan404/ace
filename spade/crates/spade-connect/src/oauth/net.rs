@@ -2,8 +2,10 @@
 //! from a server (metadata, registration and token endpoints), so it is checked like a web page
 //! Spade fetches (`spade-fetch`'s policy): `https`, and every address its name resolves to public
 //! and not this machine's. The request then connects only to the addresses checked, never through
-//! a proxy, so a second DNS answer can't swap them. A server the person added at a local address
-//! (their own machine or network) may send them to local addresses too; nothing else may.
+//! a proxy, so a second DNS answer can't swap them. A connector the person explicitly marked as
+//! local when adding it (a server on their own machine or network) may use local addresses too;
+//! nothing else may, and DNS never decides it: an answer naming any private or local address, even
+//! beside public ones, is refused.
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -33,16 +35,13 @@ impl Addresses {
         Self { resolver, networks }
     }
 
-    /// The network for signing in to `server`, the address the person gave: local addresses are
-    /// allowed only when the server itself is at one.
-    pub async fn for_server(&self, server: &Url, timeout: Duration) -> Result<Net, OauthError> {
-        let addresses = self.resolve(server).await?;
-        let local = !self.all_public(&addresses).await?;
-        Ok(Net {
+    /// The network for signing in to a connector: `local` only when the person marked it so.
+    pub fn for_connector(&self, local: bool, timeout: Duration) -> Net {
+        Net {
             addresses: self.clone(),
             local,
             timeout,
-        })
+        }
     }
 
     async fn resolve(&self, url: &Url) -> Result<Vec<SocketAddr>, OauthError> {
@@ -175,17 +174,8 @@ mod tests {
 
     const PUBLIC: [u8; 4] = [93, 184, 216, 34];
 
-    fn url(text: &str) -> Url {
-        Url::parse(text).unwrap_or_else(|e| panic!("{text}: {e}"))
-    }
-
-    async fn public_server(resolving_to: [u8; 4], mine: Vec<Network>) -> Result<Net, OauthError> {
-        // The server's own name resolves publicly; then every name resolves to `resolving_to`.
-        let mut net = addresses(PUBLIC, Vec::new())
-            .for_server(&url("https://mcp.example.com/mcp"), Duration::from_secs(5))
-            .await?;
-        net.addresses = addresses(resolving_to, mine);
-        Ok(net)
+    fn public_connector(resolving_to: [u8; 4], mine: Vec<Network>) -> Net {
+        addresses(resolving_to, mine).for_connector(false, Duration::from_secs(5))
     }
 
     #[tokio::test]
@@ -197,16 +187,47 @@ mod tests {
             [169, 254, 169, 254],
             [192, 168, 1, 2],
         ] {
-            let net = public_server(private, Vec::new()).await?;
+            let net = public_connector(private, Vec::new());
             assert!(
                 net.check("https://auth.example.com/token").await.is_err(),
                 "{private:?} was allowed"
             );
         }
-        let net = public_server(PUBLIC, Vec::new()).await?;
+        let net = public_connector(PUBLIC, Vec::new());
         assert!(net.check("https://auth.example.com/token").await.is_ok());
         assert!(net.check("http://auth.example.com/token").await.is_err());
         assert!(net.check("http://127.0.0.1:9/token").await.is_err());
+        Ok(())
+    }
+
+    /// The first answer is private, the second public: a server rebinding its name.
+    struct Mixed;
+
+    impl Resolve for Mixed {
+        fn lookup<'a>(&'a self, _host: &'a str, port: u16) -> Lookup<'a> {
+            Box::pin(async move {
+                Ok(vec![
+                    SocketAddr::new(IpAddr::from(PUBLIC), port),
+                    SocketAddr::new(IpAddr::from([127, 0, 0, 1]), port),
+                ])
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn an_answer_mixing_public_and_local_addresses_is_refused_unless_marked_local()
+    -> Result<(), OauthError> {
+        let mixed = Addresses::new(Arc::new(Mixed), Arc::new(Mine(Vec::new())));
+        let refused = mixed
+            .for_connector(false, Duration::from_secs(5))
+            .check("https://rebind.example.com/token")
+            .await;
+        assert!(refused.is_err(), "{refused:?}");
+        let marked = mixed
+            .for_connector(true, Duration::from_secs(5))
+            .check("https://rebind.example.com/token")
+            .await;
+        assert!(marked.is_ok());
         Ok(())
     }
 
@@ -216,18 +237,16 @@ mod tests {
             addr: IpAddr::from(PUBLIC),
             prefix: 24,
         }];
-        let net = public_server([93, 184, 216, 99], mine).await?;
+        let net = public_connector([93, 184, 216, 99], mine);
         assert!(net.check("https://auth.example.com/token").await.is_err());
         Ok(())
     }
 
     #[tokio::test]
-    async fn a_server_the_person_added_at_a_local_address_may_use_local_sign_in_servers()
+    async fn a_connector_the_person_marked_local_may_use_local_sign_in_servers()
     -> Result<(), OauthError> {
-        let local = addresses([192, 168, 1, 20], Vec::new());
-        let net = local
-            .for_server(&url("https://nas.home.arpa/mcp"), Duration::from_secs(5))
-            .await?;
+        let net =
+            addresses([192, 168, 1, 20], Vec::new()).for_connector(true, Duration::from_secs(5));
         assert!(net.check("https://auth.home.arpa/token").await.is_ok());
         assert!(net.check("http://127.0.0.1:9/token").await.is_ok());
         Ok(())
@@ -245,10 +264,7 @@ mod tests {
             .local_addr()
             .map_err(|e| OauthError::Network(e.to_string()))?
             .port();
-        let local = addresses([127, 0, 0, 1], Vec::new());
-        let net = local
-            .for_server(&url("https://pinned.invalid/mcp"), Duration::from_secs(5))
-            .await?;
+        let net = addresses([127, 0, 0, 1], Vec::new()).for_connector(true, Duration::from_secs(5));
         let (client, address) = net
             .client(&format!("https://pinned.invalid:{port}/token"))
             .await?;

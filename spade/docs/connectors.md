@@ -61,8 +61,11 @@ registration and token endpoints, and the authorization page too), so each is he
 `spade-fetch`'s rules for web pages: `https`, and every address its name resolves to public and not
 this machine's own or on its links. The request then connects only to the addresses checked, with
 no proxy and no redirect, so a second DNS answer can't swap them. Endpoints on other origins are
-fine. Only a server the person added at a local address (on this machine or their network) may
-send Spade to local addresses, or to `http` on loopback. Sign-in requests give up after 60 seconds;
+fine. An answer naming any private or local address, even beside public ones, is refused. Only a
+connector the person marked as local when adding it by URL ("On my own machine or network", sent
+as `local: true`) may reach local addresses, or `http` on loopback; DNS never decides it, and
+catalogue servers never are. The server's own address is checked the same way before anything is
+sent to it. Sign-in requests give up after 60 seconds;
 answers stop at 256 KB as they arrive.
 
 ## Tokens
@@ -110,18 +113,18 @@ removes it from every list.
 
 All under `/v1` with Spade's bearer token, except the callback.
 
-| Method and path                    | Body                                                                           | Answer                                                                                                                                                         |
-| ---------------------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /v1/connectors`               |                                                                                | `{catalogue: [entry], connectors: [connector]}`                                                                                                                |
-| `POST /v1/connectors`              | `{catalogue}` or `{url, name?}`, plus `token?`, `client_id?`, `client_secret?` | `200 {connector}` when connected at once (a token, or no sign-in needed); `202 {id, sign_in_url}` to open in the browser                                       |
-| `GET /v1/connectors/{id}`          |                                                                                | `{connector}`; `404`. Poll this after opening the sign-in                                                                                                      |
-| `POST /v1/connectors/{id}/connect` | optional `{token?, client_id?, client_secret?}`                                | As `POST /v1/connectors`: signs in again                                                                                                                       |
-| `DELETE /v1/connectors/{id}`       |                                                                                | `204`; `404`. Deletes its secrets and its place in every allow list                                                                                            |
-| `GET /v1/agents/{id}/connectors`   |                                                                                | `{all: bool, connectors: [id]}`                                                                                                                                |
-| `PUT /v1/agents/{id}/connectors`   | `{all?: bool, connectors?: [id]}`                                              | The list as stored; `400` for an unknown connector, `404` for an unknown agent                                                                                 |
-| `GET /v1/connectors/callback/{id}` | query `code`, `state`, `iss`, `error`                                          | An HTML page: "Connected to …" (`200`) or why not (`400`). Open, no token; `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, a CSP that loads nothing |
+| Method and path                    | Body                                                                                   | Answer                                                                                                                                                         |
+| ---------------------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/connectors`               |                                                                                        | `{catalogue: [entry], connectors: [connector]}`                                                                                                                |
+| `POST /v1/connectors`              | `{catalogue}` or `{url, name?, local?}`, plus `token?`, `client_id?`, `client_secret?` | `200 {connector}` when connected at once (a token, or no sign-in needed); `202 {id, sign_in_url}` to open in the browser                                       |
+| `GET /v1/connectors/{id}`          |                                                                                        | `{connector}`; `404`. Poll this after opening the sign-in                                                                                                      |
+| `POST /v1/connectors/{id}/connect` | optional `{token?, client_id?, client_secret?}`                                        | As `POST /v1/connectors`: signs in again                                                                                                                       |
+| `DELETE /v1/connectors/{id}`       |                                                                                        | `204`; `404`. Deletes its secrets and its place in every allow list                                                                                            |
+| `GET /v1/agents/{id}/connectors`   |                                                                                        | `{all: bool, connectors: [id]}`                                                                                                                                |
+| `PUT /v1/agents/{id}/connectors`   | `{all?: bool, connectors?: [id]}`                                                      | The list as stored; `400` for an unknown connector, `404` for an unknown agent                                                                                 |
+| `GET /v1/connectors/callback/{id}` | query `code`, `state`, `iss`, `error`                                                  | An HTML page: "Connected to …" (`200`) or why not (`400`). Open, no token; `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, a CSP that loads nothing |
 
-A connector: `{id, name, url, catalogue, sign_in: "oauth"|"token"|"none", state, account, tools,
+A connector: `{id, name, url, catalogue, local, sign_in: "oauth"|"token"|"none", state, account, tools,
 problem}`, where `state` is `connected`, `connecting`, `unreachable`, `needs_reconnect` or
 `signing_in`. Errors are `{error}`, with `needs: "client_id"` (`409`, register a client with the
 maker) or `needs: "token"` (`422`, the server refused the token). `422` without `needs`: the

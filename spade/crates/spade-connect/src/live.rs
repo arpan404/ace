@@ -399,13 +399,7 @@ impl Connectors {
             auth_method: facts.client_auth.clone(),
             registered_redirect: facts.registered_redirect.clone(),
         };
-        let server = url::Url::parse(&record.url)
-            .map_err(|_| Unready::Other("the server's address is not valid".into()))?;
-        let net = self
-            .addresses
-            .for_server(&server, self.timeout)
-            .await
-            .map_err(|error| Unready::Other(error.to_string()))?;
+        let net = self.addresses.for_connector(record.local, self.timeout);
         let tokens = match oauth::refresh(
             &net,
             &facts.token_endpoint,

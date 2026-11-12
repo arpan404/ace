@@ -79,6 +79,7 @@ export class FakeSpadeConnectors {
       name: entry?.name ?? body.name ?? id,
       url: entry?.url ?? body.url ?? "",
       catalogue: entry?.id ?? null,
+      local: !entry && body.local === true,
       account: null,
       problem: null,
     };

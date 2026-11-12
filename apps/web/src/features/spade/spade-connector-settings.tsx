@@ -90,7 +90,9 @@ function ConnectorRow(props: { connector: SpadeConnector }) {
   return (
     <SettingRow
       title={connector.name}
-      description={spadeConnectorLine(connector)}
+      description={[spadeConnectorLine(connector), connector.local && "On your own network"]
+        .filter(Boolean)
+        .join(" · ")}
       htmlFor={token === undefined ? undefined : field}
       density="compact"
     >

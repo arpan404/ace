@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
 import { Input } from "@/components/ui/input.tsx";
+import { Switch } from "@/components/ui/switch.tsx";
 import { connectHere, connectInBrowser, type ConnectOutcome } from "./spade-connect-flow.ts";
 import { connect, connectorsKey, type SpadeConnectDraft } from "./spade-connector-api.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
@@ -209,10 +210,15 @@ function ServerChoice(props: {
   );
 }
 
-/** Any other remote MCP server, by its address. */
+/**
+ * Any other remote MCP server, by its address. A server on the person's own machine or network
+ * is marked so here, explicitly: only then may its sign-in reach local addresses.
+ */
 function ByAddress(props: { onDone(): void }) {
   const field = useId();
+  const localId = useId();
   const [address, setAddress] = useState("");
+  const [local, setLocal] = useState(false);
   const typed = address.trim();
   return (
     <div className="flex flex-col gap-2 border-t border-border pt-3">
@@ -227,11 +233,17 @@ function ByAddress(props: { onDone(): void }) {
         value={address}
         onChange={(event) => setAddress(event.target.value)}
       />
+      <div className="flex items-center justify-between gap-3">
+        <label htmlFor={localId} className="text-ui text-foreground">
+          On my own machine or network
+        </label>
+        <Switch id={localId} checked={local} onCheckedChange={setLocal} />
+      </div>
       {/^https?:\/\/\S+/i.test(typed) && (
         <ServerChoice
           name={hostOf(typed)}
           ways={["sign_in", "token"]}
-          draft={{ url: typed }}
+          draft={{ url: typed, ...(local ? { local: true } : {}) }}
           onDone={props.onDone}
         />
       )}
