@@ -1,3 +1,4 @@
+import { ClientError } from "@ace/client";
 import { spadeProblem } from "./wire.ts";
 
 /** Spade refused, or the daemon couldn't reach it. `status` is Spade's, when it answered. */
@@ -26,4 +27,13 @@ export function spadeRefusal(status: number, body: string): string {
 /** A Stop refused with 404 found nothing answering by the time it arrived: what Stop wanted. */
 export function spadeStopAnswered(error: unknown): boolean {
   return error instanceof SpadeRequestError && error.status === 404;
+}
+
+/**
+ * No answer says whether Spade has the request: the daemon sent it and heard nothing back, or the
+ * connection dropped or timed out with it out. Only Spade's own copy can settle it then.
+ */
+export function spadeUnanswered(error: unknown): boolean {
+  if (error instanceof SpadeRequestError) return error.unanswered;
+  return error instanceof ClientError && (error.code === "offline" || error.code === "timeout");
 }

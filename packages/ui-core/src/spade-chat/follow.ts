@@ -1,6 +1,6 @@
 import type { SpadeLiveEnd, SpadeLiveSink } from "@ace/client/spade-live";
 import { emptySpadeConversation, foldSpade, type SpadeFoldInput } from "./fold.ts";
-import { SpadeRequestError } from "./requests.ts";
+import { SpadeRequestError, spadeUnanswered } from "./requests.ts";
 import { spadeView, type SpadeView } from "./view.ts";
 import { parseSpadeEvents, parseSpadeLiveFrame, type SpadeImageRef } from "./wire.ts";
 
@@ -133,12 +133,7 @@ export class SpadeConversationFollow {
     try {
       await post();
     } catch (error) {
-      if (
-        error instanceof SpadeRequestError &&
-        error.unanswered &&
-        (await this.reached(message.key))
-      )
-        return;
+      if (spadeUnanswered(error) && (await this.reached(message.key))) return;
       this.apply({ kind: "refused", key: message.key });
       throw error;
     }

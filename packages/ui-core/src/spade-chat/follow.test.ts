@@ -1,3 +1,4 @@
+import { ClientError } from "@ace/client";
 import type { SpadeLiveSink } from "@ace/client/spade-live";
 import { expect, test } from "vitest";
 import { SpadeConversationFollow, SpadeRequestError, type SpadeFollowLink } from "./index.ts";
@@ -39,14 +40,21 @@ function following() {
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-test("a message whose send got no answer stays once Spade's copy arrives", async () => {
+test.each([
+  [
+    "the daemon heard nothing back",
+    new SpadeRequestError("No answer came back.", undefined, "failed"),
+  ],
+  ["the connection dropped", new ClientError("offline", "offline")],
+  ["the request timed out", new ClientError("timeout", "timeout")],
+])("a message whose answer was lost (%s) stays once Spade's copy arrives", async (_why, lost) => {
   const spade = following();
   await settle();
   expect(spade.opened()).toBe(true);
   spade.caughtUp();
   const sent = spade.follow.send({ key: "local-1", text: "Remember milk" }, async () => {
     spade.stored("Remember milk");
-    throw new SpadeRequestError("No answer came back.", undefined, "failed");
+    throw lost;
   });
   await expect(sent).resolves.toBeUndefined();
   expect(spade.users()).toEqual(["Remember milk"]);

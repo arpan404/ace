@@ -231,6 +231,24 @@ test("a message sent from the phone shows at once and stays, once, after Spade s
   expect(rows(patches.flush()).map((row) => row.text)).toEqual(["Hello", "Remember milk"]);
 });
 
+test("a message whose answer was lost with the connection counts as sent once Spade has it", async () => {
+  const { daemon, spade, patches, ask } = await phone((fake) => {
+    fake.spade.seed("c1", "Notes", [{ type: "user_message", text: "Hello" }]);
+  });
+  spade.handle({ type: "spade.open", conversationId: "c1" });
+  await until(() => daemon.spade.following("c1"));
+  daemon.spade.holding = true;
+  const sent = ask({ type: "spade.send", conversationId: "c1", text: "Remember milk" });
+  await until(() => daemon.spade.waiting === 1);
+  // Spade stores it, then the socket drops before its answer reaches the phone.
+  daemon.spade.letThrough(false);
+  daemon.disconnectAll();
+  // Not back in the composer, where sending it again would say it twice.
+  expect(await sent).toEqual({ ok: true });
+  await until(() => rows(patches.flush()).length === 2 && !rows(patches.flush())[1]?.pending);
+  expect(rows(patches.flush()).map((row) => row.text)).toEqual(["Hello", "Remember milk"]);
+});
+
 test("an approval shows its sentence and details, and moves on once answered", async () => {
   const { spade, patches, ask } = await phone((fake) => {
     fake.spade.seed("c1", "Email", [
