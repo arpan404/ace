@@ -4,6 +4,7 @@ import {
   mergePickBlocked,
   mergePickWords,
   mergeRunRefusal,
+  mergeSelection,
   runWords,
   shownMergeRun,
 } from "./merge-run-words.ts";
@@ -90,4 +91,41 @@ test("a refused start says why in a sentence", () => {
     "Too many runs are waiting in this project. Try again once one ends.",
   );
   expect(mergeRunRefusal(undefined)).toBe("Verify didn't answer. Try again.");
+});
+
+test("a picked row whose head moved since it was picked leaves the selection, and the strip says so", () => {
+  const a = "a".repeat(40);
+  const b = "b".repeat(40);
+  const picked = [
+    { key: "ace#233", number: 233, headSha: a },
+    { key: "ace#224", number: 224, headSha: a },
+    { key: "ace#219", number: 219, headSha: a },
+  ];
+  // #224 got a push; #219 left the list; the rows are in list order.
+  const rows = [
+    { key: "ace#224", headSha: b },
+    { key: "ace#233", headSha: a },
+    { key: "ace#300", headSha: a },
+  ];
+  const selection = mergeSelection(picked, rows);
+  expect(selection.kept.map((pick) => pick.key)).toEqual(["ace#233"]);
+  // What stays keeps the head the person saw, never the row's new one.
+  expect(selection.kept[0]?.headSha).toBe(a);
+  expect(selection.moved).toEqual([224]);
+  expect(selection.notice).toBe(
+    "#224 has new commits since it was picked. Pick it again to merge it.",
+  );
+});
+
+test("several moved heads are named together, and none moved says nothing", () => {
+  const a = "a".repeat(40);
+  const picked = [1, 2].map((number) => ({ key: `k${number}`, number, headSha: a }));
+  const moved = mergeSelection(picked, [
+    { key: "k1", headSha: "c".repeat(40) },
+    { key: "k2", headSha: undefined },
+  ]);
+  expect(moved.notice).toBe(
+    "#1 and #2 have new commits since they were picked. Pick them again to merge them.",
+  );
+  expect(mergeSelection(picked, picked).notice).toBeUndefined();
 });

@@ -220,3 +220,36 @@ const refusals: Partial<Record<NonNullable<VerifyResult["error"]>, string>> = {
 /** Why Verify refused to start or stop a merge run, in a sentence. */
 export const mergeRunRefusal = (code: VerifyResult["error"] | undefined) =>
   (code ? refusals[code] : undefined) ?? "Verify didn't answer. Try again.";
+
+/** A row as picked for a merge run: the head the person saw is the one the run is pinned to. */
+export interface MergePickHead {
+  key: string;
+  number: number;
+  headSha: string;
+}
+
+/**
+ * The picks still on show with the head they were picked at, in list order. A row that got new
+ * commits since leaves the selection, named in `notice`, so a run never merges a head the person
+ * didn't choose; a row that left the list leaves quietly.
+ */
+export function mergeSelection<Pick extends MergePickHead>(
+  picked: readonly Pick[],
+  rows: readonly { key: string; headSha?: string | undefined }[],
+): { kept: Pick[]; moved: number[]; notice: string | undefined } {
+  const byKey = new Map(picked.map((pick) => [pick.key, pick]));
+  const kept: Pick[] = [];
+  const moved: number[] = [];
+  for (const row of rows) {
+    const pick = byKey.get(row.key);
+    if (!pick) continue;
+    if (row.headSha === pick.headSha) kept.push(pick);
+    else moved.push(pick.number);
+  }
+  const notice = !moved.length
+    ? undefined
+    : moved.length === 1
+      ? `${prNumbers(moved)} has new commits since it was picked. Pick it again to merge it.`
+      : `${prNumbers(moved)} have new commits since they were picked. Pick them again to merge them.`;
+  return { kept, moved, notice };
+}

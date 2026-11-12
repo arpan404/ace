@@ -4,7 +4,9 @@ import type { ForgePrRow, VerifyRun, VerifyTarget } from "@ace/protocol";
 import {
   mergePickBlocked,
   mergeRunRefusal,
+  mergeSelection,
   shownMergeRun,
+  type MergePickHead,
   type MergeMethod,
   workKey,
 } from "@ace/ui-core";
@@ -20,20 +22,32 @@ const refusal = (error: unknown) =>
  * The list's verified merge: the ready pull requests picked for it, in list order, and the
  * merge run they started. The strip shows a live run, or the ending of the one started here
  * until it is dismissed or a new selection begins; any run that merged refreshes the list.
+ * Each pick keeps the head it was picked at: a row that gets new commits leaves the selection,
+ * with a notice, so Start never merges a head the person didn't choose.
  */
 export function useMergeRun(
   project: string,
   ready: readonly ForgePrRow[],
   runs: readonly VerifyRun[],
 ) {
-  const [picked, setPicked] = useState<ReadonlySet<string>>(() => new Set());
+  const [picked, setPicked] = useState<ReadonlyMap<string, MergePickHead>>(() => new Map());
   const [own, setOwn] = useState<string>();
   const [dismissed, setDismissed] = useState<ReadonlySet<string>>(() => new Set());
   const verify = useVerifyActions(project);
   const toast = useToast();
   const cache = useQueryClient();
-  const selected = ready.filter((row) => row.headSha && picked.has(keyOf(row)));
+  const selection = mergeSelection(
+    [...picked.values()],
+    ready.map((row) => ({ key: keyOf(row), headSha: row.headSha })),
+  );
+  const heads = new Map(selection.kept.map((pick) => [pick.key, pick.headSha]));
+  const selected = ready.filter((row) => heads.has(keyOf(row)));
   const base = selected[0]?.baseBranch;
+  // A picked row whose head moved is no longer selected; the person hears it once.
+  const notice = selection.notice;
+  useEffect(() => {
+    if (notice) toast.info({ title: "Pick it again", description: notice });
+  }, [notice, toast]);
   const run = shownMergeRun(runs, { dismissed, own, picking: false });
   const shown = shownMergeRun(runs, { dismissed, own, picking: selected.length > 0 });
   // What merged left the open list: read it again.
@@ -46,7 +60,7 @@ export function useMergeRun(
     try {
       const started = await verify.start(target);
       if (started) setOwn(started.id);
-      setPicked(new Set());
+      setPicked(new Map());
     } catch (error) {
       toast.error({ title: "Couldn't start the merge", description: refusal(error) });
     }
@@ -60,11 +74,11 @@ export function useMergeRun(
     base,
     run: shown,
     pending: verify.pending,
-    isPicked: (row: ForgePrRow) => picked.has(keyOf(row)),
+    isPicked: (row: ForgePrRow) => heads.has(keyOf(row)),
     /** Why `row` can't join the selection now; undefined when it can. */
     blocked(row: ForgePrRow): string | undefined {
       return mergePickBlocked({
-        picked: picked.has(keyOf(row)),
+        picked: heads.has(keyOf(row)),
         count: selected.length,
         base,
         rowBase: row.baseBranch,
@@ -72,23 +86,22 @@ export function useMergeRun(
     },
     toggle(row: ForgePrRow) {
       const key = keyOf(row);
-      setPicked((current) => {
-        const next = new Set(current);
-        if (!next.delete(key)) next.add(key);
-        return next;
-      });
+      const headSha = row.headSha;
+      // Moved picks go with this change; the row is picked at the head on show, which Start merges.
+      const next = new Map(selection.kept.map((pick) => [pick.key, pick]));
+      if (!next.delete(key) && headSha) next.set(key, { key, number: row.ref.number, headSha });
+      setPicked(next);
       if (run && isSettled(run)) forget(run.id);
     },
-    clear: () => setPicked(new Set()),
+    clear: () => setPicked(new Map()),
     start: (method: MergeMethod) =>
       start({
         kind: "merge",
         method,
-        prs: selected.flatMap((row) =>
-          row.headSha
-            ? [{ pr: row.ref, headSha: row.headSha, title: row.title.slice(0, 512) }]
-            : [],
-        ),
+        prs: selected.flatMap((row) => {
+          const headSha = heads.get(keyOf(row));
+          return headSha ? [{ pr: row.ref, headSha, title: row.title.slice(0, 512) }] : [];
+        }),
       }),
     again: (from: VerifyRun) => {
       forget(from.id);
