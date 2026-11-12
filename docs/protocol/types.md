@@ -33216,11 +33216,11 @@ Example:
 {
   "requestId": "example",
   "status": {
-    "grant": {
-      "lastUsedAt": null,
-      "state": "revoked"
-    },
     "state": "off",
+    "thread": {
+      "busy": false,
+      "id": "example"
+    },
     "version": "example"
   },
   "type": "spade.status.result"
@@ -33240,9 +33240,13 @@ Example:
 {
   "status": {
     "reason": "example",
+    "setup": {
+      "platform": "example",
+      "reason": "example"
+    },
     "state": "failed",
     "thread": {
-      "busy": true,
+      "busy": false,
       "id": "example"
     },
     "version": "example"
@@ -33388,6 +33392,7 @@ Example:
 | state | yes | [SpadeState.json](schema/SpadeState.json) |  |
 | version | no | string | {"maxLength":64} |
 | reason | no | string | {"maxLength":1024} |
+| setup | no | object | {"properties":{"reason":{"type":"string","maxLength":256},"platform":{"type":"string","maxLength":32}},"required":["reason","platform"]} |
 | thread | no | object | {"properties":{"id":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},"busy":{"type":"boolean"}},"required":["id","busy"]} |
 | grant | no | object | {"properties":{"state":{"type":"string","enum":["present","revoked"]},"lastUsedAt":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]}},"required":["state","lastUsedAt"]} |
 
@@ -33395,11 +33400,11 @@ Example:
 
 ```json
 {
-  "grant": {
-    "lastUsedAt": 8,
-    "state": "present"
-  },
   "state": "failed",
+  "thread": {
+    "busy": true,
+    "id": "example"
+  },
   "version": "example"
 }
 ```
@@ -33418,9 +33423,17 @@ Example:
 ```json
 {
   "status": {
+    "grant": {
+      "lastUsedAt": 3,
+      "state": "present"
+    },
+    "setup": {
+      "platform": "example",
+      "reason": "example"
+    },
     "state": "ready",
     "thread": {
-      "busy": true,
+      "busy": false,
       "id": "example"
     },
     "version": "example"
@@ -33463,11 +33476,11 @@ Example:
 {
   "requestId": "example",
   "status": {
-    "state": "off",
-    "thread": {
-      "busy": false,
-      "id": "example"
-    }
+    "setup": {
+      "platform": "example",
+      "reason": "example"
+    },
+    "state": "off"
   },
   "type": "spade.status.result"
 }
