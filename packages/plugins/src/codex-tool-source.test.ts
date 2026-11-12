@@ -147,8 +147,8 @@ describe("Codex tool source overrides", () => {
   });
 });
 
+const enoent = () => Object.assign(new Error("absent"), { code: "ENOENT" });
 describe("reading a tool source folder", () => {
-  const enoent = () => Object.assign(new Error("absent"), { code: "ENOENT" });
   test.each([
     ["the folder is missing", false, () => Promise.reject(enoent()), "missing_folder"],
     ["config.toml is missing", true, () => Promise.reject(enoent()), "missing_config"],

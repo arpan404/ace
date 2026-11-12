@@ -116,23 +116,26 @@ function hostProblem(
 
 /** Pure: each Codex tool's state for the selected account. */
 export function codexNativeTools(facts: CodexToolFacts): NativeToolStatus[] {
-  return tools.map(({ id, label, plugin }) => {
+  const host = hostProblem(facts);
+  const status: NativeToolStatus[] = [];
+  for (const { id, label, plugin } of tools) {
     if (!pluginOn(facts.tables, plugin))
-      return {
+      status.push({
         id,
         label,
         state: "unavailable",
         reason: facts.sourceProblem ?? "Not turned on in Codex",
-      };
-    if (id === "browser" && !facts.inAppBrowserPipe)
-      return {
+      });
+    else if (id === "browser" && !facts.inAppBrowserPipe)
+      status.push({
         id,
         label,
         state: "unavailable",
         reason: "Needs the ChatGPT app; Chrome and ace's browser still work",
-      };
-    return { id, label, state: "ready", ...hostProblem(facts) };
-  });
+      });
+    else status.push(host ? { id, label, ...host } : { id, label, state: "ready" });
+  }
+  return status;
 }
 
 /** The tool source row for Settings. */
