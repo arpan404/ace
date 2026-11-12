@@ -4,6 +4,7 @@ import {
   networkOffQuestion,
   nodeFixes,
   nodeStateWords,
+  remoteAccessOffQuestion,
   removeDeviceQuestion,
 } from "./map-words.ts";
 
@@ -54,4 +55,24 @@ test("removing the device that asks warns that it disconnects itself", () => {
     body: "This is the device you're using. This iPhone disconnects at once and has to be paired again.",
     confirm: "Remove",
   });
+});
+
+test("turning a network off asks first when what depends on the machine couldn't be checked", () => {
+  expect(
+    networkOffQuestion({ network: "Tailscale", where: "studio", dependents: "unknown" }),
+  ).toEqual({
+    title: "Turn off Tailscale on studio?",
+    body: "Couldn't check what reaches studio. Devices and machines that reach it over Tailscale may disconnect until they can reach it another way.",
+    confirm: "Turn off",
+  });
+});
+
+test("turning remote access off asks first while something reaches this computer, or nothing could be checked", () => {
+  expect(remoteAccessOffQuestion([])).toBe(undefined);
+  expect(remoteAccessOffQuestion(["iPad"])?.body).toBe(
+    "iPad reach this computer through remote access. They disconnect until it's turned on again.",
+  );
+  expect(remoteAccessOffQuestion("unknown")?.body).toBe(
+    "Couldn't check what reaches this computer. Devices and machines that use remote access disconnect until it's turned on again.",
+  );
 });

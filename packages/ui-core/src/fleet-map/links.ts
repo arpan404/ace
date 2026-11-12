@@ -155,15 +155,23 @@ export function fleetDevices(
   return [...joined.values()].toSorted((a, b) => b.lastSeenAt - a.lastSeenAt);
 }
 
+/** What reaches a machine, by name; `unknown` when the client couldn't read enough to say. */
+export type Dependents = readonly string[] | "unknown";
+
 /**
  * What reaches `machine` now, by name: the devices paired with it and the machines linked to it.
- * Turning off a network it's reached over asks first while there are any.
+ * Unknown until its paired devices (`devicesRead` holds the machines whose lists were read) and
+ * every answering machine's links are read: an empty list would turn a network off unasked.
  */
 export function reachDependents(
   machine: string,
   devices: readonly FleetDevice[],
   machines: readonly FleetMachineFacts[],
-): string[] {
+  devicesRead: ReadonlySet<string>,
+): Dependents {
+  if (!devicesRead.has(machine)) return "unknown";
+  if (machines.some((other) => other.id !== machine && other.online && !other.links))
+    return "unknown";
   return [
     ...devices
       .filter((device) => device.on.some((entry) => entry.machine === machine))

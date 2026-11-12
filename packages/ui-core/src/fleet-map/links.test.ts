@@ -114,6 +114,21 @@ test("what reaches a machine is its paired devices and the machines linked to it
     ]),
     linkDeviceIds(facts),
   );
-  expect(reachDependents("studio", joined, facts)).toEqual(["iPhone", "Mac"]);
-  expect(reachDependents("mini", joined, facts)).toEqual([]);
+  const read = new Set(["studio", "mac", "mini"]);
+  expect(reachDependents("studio", joined, facts, read)).toEqual(["iPhone", "Mac"]);
+  expect(reachDependents("mini", joined, facts, read)).toEqual([]);
+});
+
+test("what reaches a machine is unknown while its devices or an answering machine's links aren't read", () => {
+  const facts = [
+    { id: "mac", name: "Mac", online: true, links: undefined },
+    { id: "studio", name: "Studio", online: true, links: [] },
+    { id: "mini", name: "Mini", online: false, links: undefined },
+  ];
+  const joined = fleetDevices(new Map([["studio", [device("p1", "iPhone")]]]), new Set());
+  expect(reachDependents("studio", joined, facts, new Set(["studio"]))).toBe("unknown");
+  const read = [{ id: "mac", name: "Mac", online: true, links: [] }, ...facts.slice(1)];
+  expect(reachDependents("studio", joined, read, new Set())).toBe("unknown");
+  // An offline machine's links say nothing about now, so they're not waited for.
+  expect(reachDependents("studio", joined, read, new Set(["studio"]))).toEqual(["iPhone"]);
 });

@@ -1,4 +1,5 @@
 import { listNames } from "../list-names.ts";
+import type { Dependents } from "./links.ts";
 import type { MapFix, MapNode } from "./map-types.ts";
 
 /*
@@ -58,14 +59,20 @@ export interface NetworkOffQuestion {
 
 /**
  * The question before turning a network off on a machine while devices or machines reach it
- * now; undefined when nothing does, so it turns off at once. `where` is "this computer" or the
- * machine's name.
+ * now, or while what reaches it couldn't be checked; undefined only when nothing does, so it
+ * turns off at once. `where` is "this computer" or the machine's name.
  */
 export function networkOffQuestion(input: {
   network: string;
   where: string;
-  dependents: readonly string[];
+  dependents: Dependents;
 }): NetworkOffQuestion | undefined {
+  if (input.dependents === "unknown")
+    return {
+      title: `Turn off ${input.network} on ${input.where}?`,
+      body: `Couldn't check what reaches ${input.where}. Devices and machines that reach it over ${input.network} may disconnect until they can reach it another way.`,
+      confirm: "Turn off",
+    };
   if (input.dependents.length === 0) return undefined;
   return {
     title: `Turn off ${input.network} on ${input.where}?`,
@@ -88,5 +95,21 @@ export function removeDeviceQuestion(
       ? `This is the device you're using. ${viewer} disconnects at once and has to be paired again.`
       : "It disconnects at once and has to be paired again to see or steer threads.",
     confirm: "Remove",
+  };
+}
+
+/**
+ * The question before turning remote access off on this computer while devices or machines
+ * reach it, or while that couldn't be checked; undefined when nothing does.
+ */
+export function remoteAccessOffQuestion(dependents: Dependents): NetworkOffQuestion | undefined {
+  if (dependents !== "unknown" && dependents.length === 0) return undefined;
+  return {
+    title: "Turn off remote access?",
+    body:
+      dependents === "unknown"
+        ? "Couldn't check what reaches this computer. Devices and machines that use remote access disconnect until it's turned on again."
+        : `${listNames(dependents)} reach this computer through remote access. They disconnect until it's turned on again.`,
+    confirm: "Turn off",
   };
 }

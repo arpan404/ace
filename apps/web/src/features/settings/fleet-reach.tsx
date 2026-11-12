@@ -17,6 +17,7 @@ import {
   directLine,
   networkOffQuestion,
   remoteOffLine,
+  type Dependents,
   type DirectNetwork,
 } from "@ace/ui-core/fleet-map";
 import { settingKeys } from "./data/setting-keys.ts";
@@ -38,7 +39,7 @@ const directRows: readonly { network: DirectNetwork; label: string; id: string }
 export function ReachRows(props: {
   machine: Machine;
   label: string;
-  dependents: readonly string[];
+  dependents: Dependents;
   /** This computer's account row signs it in and out here (the overview); else it only says. */
   signIn?: boolean;
 }) {
