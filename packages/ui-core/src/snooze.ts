@@ -94,7 +94,10 @@ export function eventSnoozes(
 
 /** What a snoozed row says where its status sits: "until it needs you", "until Mon 9:00 AM". */
 export function snoozeLabel(
-  entry: Pick<ThreadListEntry, "snoozedUntil" | "snoozeWake">,
+  entry: {
+    snoozedUntil?: number | undefined;
+    snoozeWake?: { on: SnoozeWake["on"] } | undefined;
+  },
   now: number,
   locale?: string,
 ): string | undefined {

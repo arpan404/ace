@@ -1,5 +1,6 @@
 import {
   emptyInboxLine,
+  eventSnoozes,
   emptyTabTitle,
   listOrderOf,
   threadsTabs,
@@ -88,6 +89,17 @@ export function inboxRow(thread: InboxThread, context: RowContext) {
     listOrder: listOrderOf(entry),
     /** False when the thread never settles by itself. */
     autoSettle: entry.autoSettle !== false,
+    /** The event its snooze waits for ("needs_you", "pr"), so Undo of a settle puts it back. */
+    snoozeWake: entry.snoozeWake?.on ?? null,
+    /**
+     * The snoozes that end on an event and fit this thread (`eventSnoozes`), beside the
+     * layout's time presets: Until it needs you leads them, Until the PR changes follows.
+     */
+    snoozeEvents: eventSnoozes(entry).map((choice) => ({
+      id: choice.wake,
+      label: choice.label,
+      detail: choice.detail,
+    })),
     /**
      * What its menus offer, in order, by the web's rules (`threadMenu`); the words are the
      * layout's `menuLabels`.

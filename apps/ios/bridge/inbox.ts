@@ -10,14 +10,12 @@ import type { ThreadListEntry } from "@ace/protocol";
 import {
   inboxNextChange,
   isChatThread,
-  snoozePresets,
   unsentStatus,
   unsentText,
   type InboxThread,
 } from "@ace/ui-core/mobile";
 import { ThreadId, type CommandPayload } from "@ace/protocol";
 import { z } from "zod";
-import { host } from "./host.ts";
 import { preview } from "./presentation.ts";
 import { followAccounts } from "./inbox-accounts.ts";
 import { chatsLayout, inboxLayout, inboxRow, type InboxClock } from "./inbox-rows.ts";
@@ -397,11 +395,7 @@ const InboxAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("unarchive"), threadId: ThreadId }),
   z.object({ kind: z.literal("settle"), threadId: ThreadId }),
   z.object({ kind: z.literal("unsettle"), threadId: ThreadId }),
-  z.object({
-    kind: z.literal("snooze"),
-    threadId: ThreadId,
-    preset: z.enum(["hour", "tomorrow", "monday"]),
-  }),
+  /** Snoozing answers as a request, with its toast and Undo (`inbox.snooze`, `inbox-snooze.ts`). */
   z.object({ kind: z.literal("wake"), threadId: ThreadId }),
   /** A title the person typed; surrounding space goes, and an empty one is refused. */
   z.object({ kind: z.literal("rename"), threadId: ThreadId, title: z.string().max(1024) }),
@@ -422,7 +416,7 @@ const InboxAction = z.discriminatedUnion("kind", [
   }),
 ]);
 
-function payloadOf(action: z.infer<typeof InboxAction>, now: number): CommandPayload | undefined {
+function payloadOf(action: z.infer<typeof InboxAction>): CommandPayload | undefined {
   switch (action.kind) {
     case "archive":
       return { type: "thread.archive", threadId: action.threadId };
@@ -432,12 +426,6 @@ function payloadOf(action: z.infer<typeof InboxAction>, now: number): CommandPay
       return { type: "thread.settle", threadId: action.threadId };
     case "unsettle":
       return { type: "thread.unsettle", threadId: action.threadId };
-    case "snooze": {
-      const until = snoozePresets(now).find((preset) => preset.id === action.preset)?.until;
-      return until === undefined
-        ? undefined
-        : { type: "thread.snooze", threadId: action.threadId, until };
-    }
     case "wake":
       return { type: "thread.snooze", threadId: action.threadId, until: null };
     case "rename": {
@@ -510,7 +498,7 @@ export function inboxAction(
     );
     return;
   }
-  const payload = payloadOf(action, host.now());
+  const payload = payloadOf(action);
   if (!payload && action.kind === "rename") {
     pump.put(`admission:${requestId}`, () => ({
       type: "admission",

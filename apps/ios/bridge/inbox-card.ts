@@ -61,6 +61,11 @@ export function rowCard(entry: ThreadListEntry, context: RowCardContext) {
           ink: line.ink,
         }
       : null,
+    /**
+     * When a snoozed row comes back, where its status sits (`snoozeLabel`): "until it needs
+     * you", "until Mon 9:00 AM", never an event snooze's backstop date.
+     */
+    wake: card.wake ?? null,
     /** The account the thread runs on, by its name ("Work"), where the machine knows it. */
     accountLabel: context.accounts.find((account) => account.id === instance)?.label ?? null,
     ...agentUseMarks(context.use, entry.id),

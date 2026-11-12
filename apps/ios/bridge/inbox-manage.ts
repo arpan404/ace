@@ -23,6 +23,7 @@ import type { InboxOrganizer } from "./inbox-organize.ts";
 import type { InboxClock } from "./inbox-rows.ts";
 import { preview } from "./presentation.ts";
 import { answerPalette, PaletteRequest } from "./palette.ts";
+import { InboxSnoozeRequest, putSnoozeBack, runSnooze } from "./inbox-snooze.ts";
 
 /*
  * The rest of the web's thread actions for the phone's inbox, by the same commands and patches as
@@ -40,11 +41,15 @@ export const ManageAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("read"), threadId: ThreadId, unread: z.boolean() }),
   z.object({ kind: z.literal("autoSettle"), threadId: ThreadId, enabled: z.boolean() }),
   z.object({ kind: z.literal("move"), threadId: ThreadId, workspaceId: WorkspaceId }),
-  /** Put a snooze back as it was (Undo of a settle, which clears it), or wake (`null`). */
+  /**
+   * Put a snooze back as it was, with the event it waited for (Undo of a snooze, or of a settle,
+   * which clears it), or wake (`null`): `putSnoozeBack`.
+   */
   z.object({
     kind: z.literal("snoozeAt"),
     threadId: ThreadId,
     until: z.number().finite().nullable(),
+    wake: z.enum(["needs_you", "pr"]).nullable().optional(),
   }),
 ]);
 export type ManageAction = z.infer<typeof ManageAction>;
@@ -105,7 +110,10 @@ export interface BulkOutcome {
   retry?: DeleteQuestion;
 }
 
-function patchOf(action: ManageAction): { patch: OrganizePatch; payload: CommandPayload } {
+function patchOf(action: Exclude<ManageAction, { kind: "snoozeAt" }>): {
+  patch: OrganizePatch;
+  payload: CommandPayload;
+} {
   switch (action.kind) {
     case "read":
       return {
@@ -116,11 +124,6 @@ function patchOf(action: ManageAction): { patch: OrganizePatch; payload: Command
       return {
         patch: { autoSettle: action.enabled },
         payload: { type: "thread.autoSettle", threadId: action.threadId, enabled: action.enabled },
-      };
-    case "snoozeAt":
-      return {
-        patch: { snoozedUntil: action.until },
-        payload: { type: "thread.snooze", threadId: action.threadId, until: action.until },
       };
     case "move":
       return {
@@ -134,35 +137,16 @@ function patchOf(action: ManageAction): { patch: OrganizePatch; payload: Command
   }
 }
 
-/** One thread's read, auto-settle or move: on its row now, admitted under `requestId`. */
+/** One thread's read, auto-settle, move or snooze put back: on its row now, admitted under `requestId`. */
 export function runManage(
   organizer: InboxOrganizer,
   action: ManageAction,
   requestId: string,
   pump: PatchSink,
 ): Promise<boolean> {
+  if (action.kind === "snoozeAt") return putSnoozeBack(organizer, action, requestId, pump);
   const { patch, payload } = patchOf(action);
-  if (action.kind !== "snoozeAt")
-    return organizer.run(action.threadId, patch, payload, requestId, pump);
-  // Putting a snooze back (Undo of a settle): one the machine finds already over, by its own
-  // clock, had simply ended. That is the state Undo wants, so it answers as taken.
-  let ended = false;
-  const answer: PatchSink = {
-    clear: (prefix) => pump.clear(prefix),
-    put: (key, read) =>
-      pump.put(
-        key,
-        key === `receipt:${requestId}`
-          ? () => {
-              const value = read();
-              return value && ended ? { ...value, ok: true, message: "" } : value;
-            }
-          : read,
-      ),
-  };
-  return organizer.run(action.threadId, patch, payload, requestId, answer, (result) => {
-    ended = !result.ok && result.error === "snooze_in_past";
-  });
+  return organizer.run(action.threadId, patch, payload, requestId, pump);
 }
 
 /**
@@ -394,6 +378,8 @@ export function inboxRequests(
   return (raw, requestId) => {
     const bulk = InboxBulkRequest.safeParse(raw);
     if (bulk.success) return runBulk(owner, organizer, clock, bulk.data, requestId, pump);
+    const snooze = InboxSnoozeRequest.safeParse(raw);
+    if (snooze.success) return runSnooze(organizer, clock, snooze.data, requestId, pump);
     const palette = PaletteRequest.safeParse(raw);
     if (palette.success) return answerPalette(owner, organizer.entries(), palette.data, requestId);
     const link = AceLinkRequest.safeParse(raw);
