@@ -1,5 +1,6 @@
 /** Spade's agents, endpoints and conversations as every ace client shows them. */
 export * from "./wire.ts";
+export * from "./media.ts";
 export * from "./fold.ts";
 export * from "./view.ts";
 export * from "./bubbles.ts";

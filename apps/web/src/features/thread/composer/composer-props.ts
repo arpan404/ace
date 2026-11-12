@@ -16,6 +16,8 @@ export interface ComposerHandle {
   openAdd(): void;
   /** Put the caret in the message. */
   focus(): void;
+  /** Add words at the end of the message (a voice transcript), the caret after them. */
+  insertText(words: string): void;
   /** Attach what a drop or paste elsewhere on the screen carries; call it during the event. */
   takeFiles(data: DataTransfer): void;
   /**

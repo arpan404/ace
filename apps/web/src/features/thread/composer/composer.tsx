@@ -295,6 +295,11 @@ function ComposerBody({
   useImperativeHandle(ref, () => ({
     openAdd: () => addMenu.current?.open(),
     focus: () => input.current?.focus(),
+    insertText: (words) => {
+      const gap = text && !/\s$/.test(text) ? " " : "";
+      const next = `${text}${gap}${words}`;
+      message.edit({ text: next, caret: next.length });
+    },
     takeFiles: intake,
     submit: (opposite = false) => submit(opposite),
     preserveDraft: (key) => writeDraft(storage, key, current),

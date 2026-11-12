@@ -1,5 +1,6 @@
 import { spadeRemembered, type SpadeRememberedNote } from "./notes.ts";
-import type { SpadeImageRef, SpadeKnownEvent, SpadeLiveInput, SpadeStored } from "./wire.ts";
+import type { SpadeDocumentRef, SpadeImageRef, SpadeVoiceRef } from "./media.ts";
+import type { SpadeKnownEvent, SpadeLiveInput, SpadeStored } from "./wire.ts";
 
 /** A background job: the tool it runs and, for a delegation, how many tasks it handed out. */
 export interface SpadeJob {
@@ -48,7 +49,14 @@ export type SpadeReplyPart =
   /** A note the bot saved or rewrote with its memory tools (ADR 0128). */
   | { kind: "remembered"; key: string; note: SpadeRememberedNote }
   /** The bot asked the person (`ask_user`); their next message answers it. */
-  | { kind: "question"; key: string; text: string };
+  | { kind: "question"; key: string; text: string }
+  /** Images and documents a tool showed the person (`image_generate`, `share_file`; ADR 0134). */
+  | {
+      kind: "shared";
+      key: string;
+      images: readonly SpadeImageRef[];
+      documents: readonly SpadeDocumentRef[];
+    };
 
 export type SpadeReplyEnd =
   | { kind: "finished" }
@@ -74,6 +82,10 @@ export type SpadeEntry =
       key: string;
       text: string;
       images: readonly SpadeImageRef[];
+      /** Present only when the message carries any. */
+      documents?: readonly SpadeDocumentRef[];
+      /** A voice message's recording; `text` is its transcript. */
+      voice?: SpadeVoiceRef;
       pending?: true;
       /** Sent by another bot, not the person. */
       fromAgent?: { id: string; name: string };
@@ -106,7 +118,7 @@ export interface SpadeConversationState {
   title: string;
   entries: SpadeEntry[];
   /** Messages sent from here that Spade hasn't stored yet. */
-  pending: { key: string; text: string; images: readonly SpadeImageRef[] }[];
+  pending: SpadePendingMessage[];
   /** The open reply's id and its entry's index. */
   open: { reply: string; index: number } | undefined;
   /** Where each call of the open reply is shown: its entry's index. */
@@ -126,10 +138,26 @@ export interface SpadeConversationState {
   status: string | undefined;
 }
 
+/** A message sent from here that Spade hasn't stored yet, as the person sent it. */
+export interface SpadePendingMessage {
+  key: string;
+  text: string;
+  images: readonly SpadeImageRef[];
+  documents?: readonly SpadeDocumentRef[];
+  voice?: SpadeVoiceRef;
+}
+
 export type SpadeFoldInput =
   | SpadeLiveInput
   /** The person sent `text`; it shows at once and stays until Spade stores it or refuses it. */
-  | { kind: "sent"; key: string; text: string; images?: readonly SpadeImageRef[] }
+  | {
+      kind: "sent";
+      key: string;
+      text: string;
+      images?: readonly SpadeImageRef[];
+      documents?: readonly SpadeDocumentRef[];
+      voice?: SpadeVoiceRef;
+    }
   | { kind: "refused"; key: string };
 
 export function emptySpadeConversation(): SpadeConversationState {
@@ -168,7 +196,13 @@ export function foldSpade(state: SpadeConversationState, input: SpadeFoldInput):
     case "sent":
       state.pending = [
         ...state.pending,
-        { key: input.key, text: input.text, images: input.images ?? [] },
+        {
+          key: input.key,
+          text: input.text,
+          images: input.images ?? [],
+          ...(input.documents?.length ? { documents: input.documents } : {}),
+          ...(input.voice ? { voice: input.voice } : {}),
+        },
       ];
       return true;
     case "caught_up": {
@@ -220,6 +254,8 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         key,
         text: event.text,
         images: event.images,
+        ...(event.documents.length ? { documents: event.documents } : {}),
+        ...(event.voice ? { voice: event.voice } : {}),
         ...(event.from_agent
           ? { fromAgent: { id: event.from_agent.id, name: event.from_agent.name } }
           : {}),
@@ -287,6 +323,15 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       setCall(state, event.reply, event.call_id, event.name, event.is_error ? "failed" : "done");
       remembered(state, event.reply, key, event.name, event.content, event.is_error === true);
       return true;
+    case "shared":
+      if (!event.images.length && !event.documents.length) return false;
+      return updateOpen(state, event.reply, (entry) => ({
+        ...entry,
+        parts: [
+          ...entry.parts,
+          { kind: "shared", key, images: event.images, documents: event.documents },
+        ],
+      }));
     case "question_asked":
       if (state.open?.reply !== event.reply) return false;
       state.question = { reply: event.reply, callId: event.call_id };
