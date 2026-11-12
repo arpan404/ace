@@ -22,9 +22,11 @@ import { useRegistry } from "./use-registry.ts";
 /** How many agents show before Show all. */
 const firstRows = 5;
 
-type HubRow =
-  | { kind: "provider"; key: string; entry: ProviderEntry }
-  | { kind: "agent"; key: string; agent: RegistryAgent; unavailable: string | undefined };
+interface AgentHubRow {
+  agent: RegistryAgent;
+  /** Why it can't install on this computer, if it can't. */
+  unavailable: string | undefined;
+}
 
 /**
  * Settings → Providers → ACP agents: what ace can install here. Built-in providers not yet on
@@ -47,31 +49,24 @@ export function AcpAgents(props: { entries: readonly ProviderEntry[] }) {
     props.entries.map((entry) => acpRegistryId(entry.install.acpAgentId ?? entry.install.kind)),
   );
   const terms = query.trim().toLowerCase();
-  const providers: HubRow[] = props.entries
+  const providers = props.entries
     .filter((entry) => isMissing(entry) || started.has(entry.id))
-    .filter((entry) => !terms || entry.install.name.toLowerCase().includes(terms))
-    .map((entry) => ({ kind: "provider", key: entry.id, entry }));
-  const agents: HubRow[] = searchRegistry(view?.agents ?? [], query)
+    .filter((entry) => !terms || entry.install.name.toLowerCase().includes(terms));
+  const agents = searchRegistry(view?.agents ?? [], query)
     .filter(
       (agent) =>
         started.has(agent.acpAgentId) ||
         (!known.has(acpRegistryId(agent.acpAgentId)) &&
           registryStanding(agent, view?.installations ?? []).kind !== "installed"),
     )
-    .map((agent): HubRow => {
+    .map((agent): AgentHubRow => {
       const standing = registryStanding(agent, view?.installations ?? []);
-      return {
-        kind: "agent",
-        key: agent.acpAgentId,
-        agent,
-        unavailable: standing.kind === "unavailable" ? standing.reason : undefined,
-      };
+      return { agent, unavailable: standing.kind === "unavailable" ? standing.reason : undefined };
     });
   // What can't install here sorts last.
   const rows = [
-    ...providers,
-    ...agents.filter((row) => row.kind === "agent" && !row.unavailable),
-    ...agents.filter((row) => row.kind === "agent" && row.unavailable),
+    ...agents.filter((row) => !row.unavailable),
+    ...agents.filter((row) => row.unavailable),
   ];
   const folded = !terms && !all && rows.length > firstRows;
   const shown = folded ? rows.slice(0, firstRows) : rows;
@@ -112,13 +107,16 @@ export function AcpAgents(props: { entries: readonly ProviderEntry[] }) {
         />
       }
     >
+      {providers.map((entry) => (
+        <BuiltInRow key={entry.id} entry={entry} onStart={() => start(entry.id)} />
+      ))}
       {list.isPending ? (
         <ListSkeleton label="the registry" shape="row" rows={3} className="py-3" />
       ) : empty && refresh.isPending ? (
         <SettingNote className="inline-flex items-center gap-2">
           <Spinner label="Downloading the registry" /> Downloading the registry…
         </SettingNote>
-      ) : empty && !providers.length ? (
+      ) : empty && !terms ? (
         <SettingNote role="alert">
           {list.error?.message ??
             (failed
@@ -130,22 +128,20 @@ export function AcpAgents(props: { entries: readonly ProviderEntry[] }) {
         </SettingNote>
       ) : (
         <>
-          {shown.map((row) =>
-            row.kind === "provider" ? (
-              <BuiltInRow key={row.key} entry={row.entry} onStart={() => start(row.entry.id)} />
-            ) : (
-              <AgentRow
-                key={row.key}
-                agent={row.agent}
-                unavailable={row.unavailable}
-                onStart={() => start(row.agent.acpAgentId)}
-              />
-            ),
+          {shown.map((row) => (
+            <AgentRow
+              key={row.agent.acpAgentId}
+              agent={row.agent}
+              unavailable={row.unavailable}
+              onStart={() => start(row.agent.acpAgentId)}
+            />
+          ))}
+          {terms && !shown.length && !providers.length && (
+            <SettingNote>No agents match “{query.trim()}”.</SettingNote>
           )}
-          {terms && !shown.length && <SettingNote>No agents match “{query.trim()}”.</SettingNote>}
-          {!terms && rows.length > firstRows && (
+          {!terms && agents.length > firstRows && (
             <SettingAction aria-expanded={!folded} onClick={() => setAll(!all)}>
-              {folded ? `Show all ${rows.length} agents` : "Show fewer"}
+              {folded ? `Show all ${agents.length} agents` : "Show fewer"}
             </SettingAction>
           )}
         </>

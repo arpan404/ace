@@ -81,7 +81,7 @@ test("leaving a provider page during update resumes the same job in the Provider
   await within(group).findByRole("progressbar");
   app.daemon.services.providerInstalls.complete("fake-install-1");
   await waitFor(() => expect(within(group).queryByRole("progressbar")).toBeNull());
-  expect(await within(group).findByText("Installed")).toBeTruthy();
+  expect(await within(group).findByText("Updated")).toBeTruthy();
 });
 
 test("live limits replace a signed-in meter without losing the reason or resetless blocker", async () => {

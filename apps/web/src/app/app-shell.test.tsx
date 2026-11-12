@@ -36,7 +36,7 @@ test.each(["trigger", "item"])(
   "navigation focus preserves an open profile menu's %s focus",
   async (focus) => {
     await harness().open("/settings/providers");
-    await screen.findByRole("region", { name: "Installed providers" });
+    await screen.findByRole("region", { name: "Installed" });
     const frames = new Map<number, FrameRequestCallback>();
     let id = 0;
     const schedule = vi
