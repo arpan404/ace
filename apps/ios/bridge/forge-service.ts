@@ -22,6 +22,12 @@ import type { ShownBodies } from "./forge-conversation.ts";
 import { ProjectListRefused, readProjects } from "./project-list.ts";
 import { ForgeReviewRequest, writeReview } from "./forge-review-write.ts";
 import {
+  ForgeStartFromPickRequest,
+  ForgeStartFromRequest,
+  pickStartFrom,
+  readStartFrom,
+} from "./forge-start-from.ts";
+import {
   ForgeMergeRunRequest,
   ForgeMergeRunWriteRequest,
   MergeRunMemory,
@@ -114,6 +120,8 @@ export const ForgeRequest = z.intersection(
     ForgeFileSidesRequest,
     ForgeMergeRunRequest,
     ForgeMergeRunWriteRequest,
+    ForgeStartFromRequest,
+    ForgeStartFromPickRequest,
   ]),
   z.object({ fresh: z.boolean().default(false) }),
 );
@@ -261,6 +269,10 @@ export class ForgeService {
           return await readMergeRun(this.#owner, this.#mergeRuns, request);
         case "forge.merge-run.write":
           return await writeMergeRun(this.#owner, this.#mergeRuns, request);
+        case "forge.start-from":
+          return await readStartFrom(reads, request, this.#preview);
+        case "forge.start-from.pick":
+          return await pickStartFrom(reads, request, this.#preview);
       }
     } catch (error) {
       const code =

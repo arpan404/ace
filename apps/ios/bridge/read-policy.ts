@@ -128,6 +128,9 @@ export function readFamily(request: unknown): ReadFamily | undefined {
       return "forge";
     case "forge.merge-run":
       return "verify";
+    // New thread's open work; picking one reads its pull request or issue afresh, never kept.
+    case "forge.start-from":
+      return "forge";
     default:
       return undefined;
   }
