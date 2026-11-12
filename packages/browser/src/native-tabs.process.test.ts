@@ -1,4 +1,5 @@
-import { expect, it, vi } from "vitest";
+import { expect, it } from "vitest";
+import type { BrowserBackendRequest } from "@ace/protocol";
 import { z } from "zod";
 import { backendFixture } from "./backend-test-support.ts";
 
@@ -8,6 +9,44 @@ const tabs = (count: number) =>
     url: `https://example.test/${index + 1}`,
     title: `Tab ${index + 1}`,
   }));
+
+const Logs = z.object({ entries: z.array(z.object({ text: z.string() })) });
+
+/**
+ * The desktop reports `count` new tabs, the second shown, and leaves each new tab's setup
+ * (`Log.enable`, its last step) unanswered until the test answers it.
+ */
+async function tabsStillSettingUp(count: number) {
+  const { f, sessionId } = await nativeSession();
+  const setups: BrowserBackendRequest[] = [];
+  f.requests.on("Log.enable", (request: BrowserBackendRequest) => setups.push(request));
+  f.hold("Log.enable");
+  f.sendEvent(sessionId, "ace.tabs.changed", { activeTabId: "tab-2", tabs: tabs(count) });
+  await expect.poll(() => setups.length).toBe(count);
+  expect(f.service.state("thread").activeTabId).toBe("tab-2");
+  const answer = (request: BrowserBackendRequest, error?: string) =>
+    f.desktop.send(
+      JSON.stringify({
+        type: "browser.backend.response",
+        backendId: f.backend.id,
+        sessionId: request.sessionId,
+        id: request.id,
+        ...(error ? { error } : { result: {} }),
+      }),
+    );
+  return { f, sessionId, setups, answer };
+}
+
+/** Whether a promise is still pending after the event loop has had a few turns. */
+async function pending(promise: Promise<unknown>): Promise<boolean> {
+  let settled = false;
+  promise.then(
+    () => (settled = true),
+    () => (settled = true),
+  );
+  for (let turn = 0; turn < 5; turn++) await new Promise((resolve) => setTimeout(resolve, 10));
+  return !settled;
+}
 
 async function nativeSession() {
   const f = await backendFixture({}, { nativeTabs: true });
@@ -48,16 +87,44 @@ it("a malformed tab entry is skipped and reported while the other tabs stay in s
   const state = f.service.state("thread");
   expect(state.activeTabId).toBe("tab-2");
   expect(state.tabs?.find((tab) => tab.tabId === "long")?.url).toBe(longUrl.slice(0, 8192));
-  // The list shows the desktop's tabs at once; commands reach them once every new tab is set
-  // up and the session has taken the change, which on a busy machine comes later.
-  const logs = await vi.waitFor(
-    async () =>
-      z
-        .object({ entries: z.array(z.object({ text: z.string() })) })
-        .parse(await f.service.execute("thread", { action: "logs" })),
-    { timeout: 15_000, interval: 50 },
-  );
+  const logs = Logs.parse(await f.service.execute("thread", { action: "logs" }));
   expect(logs.entries.some((entry) => entry.text.includes("malformed and skipped"))).toBe(true);
+});
+
+it("a command sent while the shown tab is still being set up runs on it once it is ready", async () => {
+  const { f, setups, answer } = await tabsStillSettingUp(2);
+  // Sent once, right after the list changed: no retry by the caller.
+  const logs = f.service.execute("thread", { action: "logs" });
+  expect(await pending(logs)).toBe(true);
+  f.releaseHold();
+  for (const setup of setups) answer(setup);
+  expect(Logs.safeParse(await logs).success).toBe(true);
+  expect(f.service.state("thread").activeTabId).toBe("tab-2");
+});
+
+it("a command waiting for a tab that closes before it is ready fails as not found, on no other tab", async () => {
+  const { f, sessionId, setups, answer } = await tabsStillSettingUp(2);
+  const logs = f.service.execute("thread", { action: "logs" });
+  const refused = expect(logs).rejects.toMatchObject({ code: "tab_not_found" });
+  expect(await pending(logs)).toBe(true);
+  // The person closes the tab the command was for; the other one is still setting up.
+  f.sendEvent(sessionId, "ace.tabs.changed", { activeTabId: "tab-1", tabs: tabs(1) });
+  await refused;
+  f.releaseHold();
+  for (const setup of setups) answer(setup);
+});
+
+it("a command waiting for a tab whose setup fails gets that failure, on no other tab", async () => {
+  const { f, setups, answer } = await tabsStillSettingUp(2);
+  const logs = f.service.execute("thread", { action: "logs" });
+  const refused = expect(logs).rejects.toMatchObject({ code: "backend_changed" });
+  expect(await pending(logs)).toBe(true);
+  f.releaseHold();
+  const [first, second] = setups;
+  if (!first || !second) throw new Error("Both tabs started their setup");
+  answer(second, "Target closed");
+  answer(first);
+  await refused;
 });
 
 it("more than eight threads can hold a browser page at the same time", async () => {
