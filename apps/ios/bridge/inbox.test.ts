@@ -333,6 +333,44 @@ describe("inbox provider accounts", () => {
 });
 
 describe("inbox settling", () => {
+  test("a settled thread whose agent asks the person something leaves Settled for Needs you", async () => {
+    const { client, daemon, sink } = await following((seed) => finished(seed, "notes", "Notes"));
+    await until(() => groups(sink).done?.includes("notes") === true, "done");
+    inboxAction(client, { kind: "settle", threadId: "notes" }, "settle-ask", sink);
+    await until(() => groups(sink).settled?.includes("notes") === true, "settled");
+
+    // The agent starts again and asks: a request is never left in Settled.
+    daemon.apply("notes", [
+      facts.turn("root"),
+      {
+        type: "interaction.opened",
+        agent: "root",
+        interaction: "ask-notes",
+        blocking: true,
+        request: {
+          kind: "question",
+          questions: [
+            {
+              id: "which",
+              text: "Which notes?",
+              multiSelect: false,
+              allowOther: true,
+              secret: false,
+              options: [],
+            },
+          ],
+        },
+      },
+    ]);
+    await until(
+      () =>
+        Object.entries(groups(sink)).find(([, ids]) => ids?.includes("notes"))?.[0] !== "settled",
+      "out of Settled",
+    );
+    const section = Object.entries(groups(sink)).find(([, ids]) => ids?.includes("notes"))?.[0];
+    expect(section).toBe("needs-you");
+  });
+
   test("settling a finished thread moves it to Settled, and unsettling brings it back to Done", async () => {
     const { client, sink } = await following((daemon) => finished(daemon, "notes", "Notes"));
     await until(() => groups(sink).done?.includes("notes") === true, "done");

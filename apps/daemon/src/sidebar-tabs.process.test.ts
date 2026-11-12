@@ -164,6 +164,12 @@ test("settle, unsettle, snooze, wake and status changes move one thread with a o
     step([{ type: "thread.client.updated", changes: { settledAt: null, settledReason: null } }]),
   ).toBe("inbox");
   expect(step([{ type: "thread.client.updated", changes: settle }])).toBe("settled");
+  // It asks the person something: back in the Inbox, whatever settled it.
+  expect(step([{ type: "thread.updated", status: { state: "needs_you", interactions: 1 } }])).toBe(
+    "inbox",
+  );
+  expect(step([{ type: "thread.updated", status: { state: "done" } }])).toBe("inbox");
+  expect(step([{ type: "thread.client.updated", changes: settle }])).toBe("settled");
   // Its agents work again: back in the Inbox (the daemon unsettles working threads).
   expect(step([{ type: "thread.updated", status: { state: "working", agents: 1 } }])).toBe("inbox");
   expect(step([{ type: "thread.updated", status: { state: "done" } }])).toBe("inbox");
