@@ -171,6 +171,7 @@ async fn run() -> Result<(), Failure> {
         catalogue: spade_connect::catalogue::shipped(),
         timeout: Duration::from_secs(60),
         relist: spade_connect::RELIST,
+        addresses: spade_connect::Addresses::system(),
     })
     .map_err(other)?;
     tools = tools.with_source(Arc::new(ConnectorSource::new(

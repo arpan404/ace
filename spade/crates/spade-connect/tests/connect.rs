@@ -43,6 +43,7 @@ fn spade_relisting(relist: Duration) -> Result<Spade> {
         catalogue: spade_connect::catalogue::shipped(),
         timeout: Duration::from_secs(5),
         relist,
+        addresses: spade_connect::Addresses::system(),
     })?;
     connectors.set_listening("127.0.0.1:4555".parse()?);
     Ok(Spade {
@@ -637,6 +638,7 @@ async fn connectors_survive_a_restart_and_reopen_from_the_keychain() -> Result {
         catalogue: Vec::new(),
         timeout: Duration::from_secs(5),
         relist: Duration::from_secs(600),
+        addresses: spade_connect::Addresses::system(),
     })?;
     again.start();
     wait_for(|| {

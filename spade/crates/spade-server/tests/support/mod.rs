@@ -354,6 +354,7 @@ impl Spade {
                 catalogue: spade_connect::catalogue::shipped(),
                 timeout: Duration::from_secs(5),
                 relist: Duration::from_secs(600),
+                addresses: spade_connect::Addresses::system(),
             })?;
             let source = spade_server::tools::ConnectorSource::new(
                 hub.clone(),

@@ -26,6 +26,7 @@ use tokio::sync::Notify;
 pub use catalogue::{Entry, SignIn};
 pub use hub::{Callback, ConnectError, ConnectRequest, FinishError, Started};
 pub use live::{CallError, ConnectorTool, RELIST};
+pub use oauth::Addresses;
 pub use oauth::pkce::{OsRandom, Random};
 pub use records::Access;
 use records::Record;
@@ -51,6 +52,8 @@ pub struct Setup {
     pub timeout: Duration,
     /// How often each server's tool list is read again unasked ([`RELIST`] in Spade).
     pub relist: Duration,
+    /// How names resolve and which networks are this machine's ([`Addresses::system`] in Spade).
+    pub addresses: oauth::Addresses,
 }
 
 /// What the app is shown about one connector. Never a secret.
@@ -87,7 +90,8 @@ struct Live {
 pub struct Connectors {
     store: Store,
     keys: Option<KeyStore>,
-    http: reqwest::Client,
+    /// Where sign-in traffic may go (see [`oauth::net`]).
+    addresses: oauth::Addresses,
     clock: Arc<dyn Fn() -> i64 + Send + Sync>,
     random: Arc<dyn Random>,
     catalogue: Vec<Entry>,
@@ -115,13 +119,12 @@ impl Connectors {
     /// Reads the stored connectors. Nothing is sent and no keychain is read until
     /// [`Connectors::start`].
     pub fn open(setup: Setup) -> Result<Arc<Self>, String> {
-        let http = oauth::http_client(setup.timeout)?;
         let records = records::load(&setup.store)?;
         let access = records::load_access(&setup.store)?;
         Ok(Arc::new(Self {
             store: setup.store,
             keys: setup.keys,
-            http,
+            addresses: setup.addresses,
             clock: setup.clock,
             random: setup.random,
             catalogue: setup.catalogue,

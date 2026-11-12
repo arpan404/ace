@@ -56,8 +56,14 @@ Spade's port changes when the daemon starts it on `127.0.0.1:0`; a client Spade 
 registered again on the next sign-in when the redirect no longer matches. A client registered by
 hand must allow any loopback port.
 
-Addresses must be `https`, or `http` on loopback. Sign-in requests follow no redirects and give
-up after 60 seconds; answers are read up to 256 KB.
+Every address Spade fetches or posts to while signing in comes from a server (metadata,
+registration and token endpoints, and the authorization page too), so each is held to
+`spade-fetch`'s rules for web pages: `https`, and every address its name resolves to public and not
+this machine's own or on its links. The request then connects only to the addresses checked, with
+no proxy and no redirect, so a second DNS answer can't swap them. Endpoints on other origins are
+fine. Only a server the person added at a local address (on this machine or their network) may
+send Spade to local addresses, or to `http` on loopback. Sign-in requests give up after 60 seconds;
+answers stop at 256 KB as they arrive.
 
 ## Tokens
 

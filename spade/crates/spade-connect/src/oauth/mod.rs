@@ -4,10 +4,9 @@
 //! issuer check, code exchange and refresh. Errors never quote a token.
 
 pub mod challenge;
+pub mod net;
 pub mod pkce;
 pub mod wellknown;
-
-use std::time::Duration;
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -17,6 +16,7 @@ use serde_json::{Value, json};
 use url::Url;
 
 pub use challenge::Challenge;
+pub use net::{Addresses, Net};
 
 /// The longest a metadata document, registration or token answer may be.
 const MOST_BYTES: usize = 256 * 1024;
@@ -99,20 +99,10 @@ impl std::fmt::Debug for Tokens {
     }
 }
 
-/// HTTP for sign-in: no redirects (a token request must never be sent somewhere else) and a
-/// deadline on every request.
-pub fn http_client(timeout: Duration) -> Result<reqwest::Client, String> {
-    reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .timeout(timeout)
-        .user_agent(concat!("spade/", env!("CARGO_PKG_VERSION")))
-        .build()
-        .map_err(|error| error.to_string())
-}
-
 /// Asks the MCP server, without a credential, whether it needs one. `Ok(None)`: it answered, so
 /// no sign-in is needed. `Ok(Some(challenge))`: it refused with this challenge (possibly empty).
-pub async fn probe(http: &reqwest::Client, server: &Url) -> Result<Option<Challenge>, OauthError> {
+pub async fn probe(net: &Net, server: &Url) -> Result<Option<Challenge>, OauthError> {
+    let (http, server) = net.client(server.as_str()).await?;
     let initialize = json!({
         "jsonrpc": "2.0", "id": 0, "method": "initialize",
         "params": {
@@ -122,7 +112,7 @@ pub async fn probe(http: &reqwest::Client, server: &Url) -> Result<Option<Challe
         }
     });
     let response = http
-        .post(server.clone())
+        .post(server)
         .header("accept", "application/json, text/event-stream")
         .json(&initialize)
         .send()
@@ -150,7 +140,7 @@ pub async fn probe(http: &reqwest::Client, server: &Url) -> Result<Option<Challe
 /// Reads the server's protected-resource metadata: from the challenge's address, else the
 /// well-known paths in order. The metadata must be about this server.
 pub async fn discover_resource(
-    http: &reqwest::Client,
+    net: &Net,
     server: &Url,
     challenge: &Challenge,
 ) -> Result<Resource, OauthError> {
@@ -160,8 +150,7 @@ pub async fn discover_resource(
     };
     let mut document = None;
     for candidate in candidates {
-        let address = wellknown::checked(&candidate).map_err(OauthError::Unsupported)?;
-        if let Some(found) = get_json(http, &address).await? {
+        if let Some(found) = get_json(net, &candidate).await? {
             document = Some(found);
             break;
         }
@@ -211,14 +200,10 @@ pub async fn discover_resource(
 
 /// Reads the authorization server's metadata from the well-known paths in order, checks its
 /// issuer is the server asked about, and refuses one without PKCE S256.
-pub async fn discover_server(
-    http: &reqwest::Client,
-    issuer: &str,
-) -> Result<AuthServer, OauthError> {
+pub async fn discover_server(net: &Net, issuer: &str) -> Result<AuthServer, OauthError> {
     let issuer_url = wellknown::checked(issuer).map_err(OauthError::Unsupported)?;
     for candidate in wellknown::authorization_server_metadata(&issuer_url) {
-        let address = wellknown::checked(&candidate).map_err(OauthError::Unsupported)?;
-        let Some(document) = get_json(http, &address).await? else {
+        let Some(document) = get_json(net, &candidate).await? else {
             continue;
         };
         let server: AuthServer = serde_json::from_value(document).map_err(|_| {
@@ -229,11 +214,14 @@ pub async fn discover_server(
                 "the authorization server's metadata names a different issuer".into(),
             ));
         }
+        // Each may be on another origin, but each must pass the same address rules; the
+        // authorization page is opened by the person's browser, never fetched, and is held to
+        // them all the same.
         for endpoint in [&server.authorization_endpoint, &server.token_endpoint] {
-            wellknown::checked(endpoint).map_err(OauthError::Unsupported)?;
+            net.check(endpoint).await?;
         }
         if let Some(registration) = &server.registration_endpoint {
-            wellknown::checked(registration).map_err(OauthError::Unsupported)?;
+            net.check(registration).await?;
         }
         let pkce = server
             .code_challenge_methods_supported
@@ -254,7 +242,7 @@ pub async fn discover_server(
 
 /// Registers Spade as a public client (RFC 7591) with `redirect`.
 pub async fn register(
-    http: &reqwest::Client,
+    net: &Net,
     server: &AuthServer,
     redirect: &str,
 ) -> Result<Client, OauthError> {
@@ -268,6 +256,7 @@ pub async fn register(
         "response_types": ["code"],
         "token_endpoint_auth_method": "none",
     });
+    let (http, endpoint) = net.client(endpoint).await?;
     let response = http
         .post(endpoint)
         .json(&body)
@@ -397,11 +386,7 @@ pub fn issuer_matches(attempt: &Attempt, iss: Option<&str>) -> bool {
 }
 
 /// Exchanges the callback's code for tokens.
-pub async fn exchange(
-    http: &reqwest::Client,
-    attempt: &Attempt,
-    code: &str,
-) -> Result<Tokens, OauthError> {
+pub async fn exchange(net: &Net, attempt: &Attempt, code: &str) -> Result<Tokens, OauthError> {
     let form = vec![
         ("grant_type", "authorization_code".to_owned()),
         ("code", code.to_owned()),
@@ -409,12 +394,12 @@ pub async fn exchange(
         ("code_verifier", attempt.verifier.clone()),
         ("resource", attempt.resource.clone()),
     ];
-    token_request(http, &attempt.server.token_endpoint, &attempt.client, form).await
+    token_request(net, &attempt.server.token_endpoint, &attempt.client, form).await
 }
 
 /// Exchanges a refresh token for new tokens. A refused grant means the person must sign in again.
 pub async fn refresh(
-    http: &reqwest::Client,
+    net: &Net,
     token_endpoint: &str,
     client: &Client,
     refresh_token: &str,
@@ -425,15 +410,16 @@ pub async fn refresh(
         ("refresh_token", refresh_token.to_owned()),
         ("resource", resource.to_owned()),
     ];
-    token_request(http, token_endpoint, client, form).await
+    token_request(net, token_endpoint, client, form).await
 }
 
 async fn token_request(
-    http: &reqwest::Client,
+    net: &Net,
     endpoint: &str,
     client: &Client,
     mut form: Vec<(&'static str, String)>,
 ) -> Result<Tokens, OauthError> {
+    let (http, endpoint) = net.client(endpoint).await?;
     let mut request = http.post(endpoint).header("accept", "application/json");
     match (&client.secret, client.auth_method.as_str()) {
         (Some(secret), "client_secret_basic") => {
@@ -525,9 +511,10 @@ pub fn split_scopes(scope: &str) -> Vec<String> {
 }
 
 /// A GET for a JSON document. `Ok(None)` when it is not there (any 4xx).
-async fn get_json(http: &reqwest::Client, address: &Url) -> Result<Option<Value>, OauthError> {
+async fn get_json(net: &Net, address: &str) -> Result<Option<Value>, OauthError> {
+    let (http, address) = net.client(address).await?;
     let response = http
-        .get(address.clone())
+        .get(address)
         .header("accept", "application/json")
         .send()
         .await

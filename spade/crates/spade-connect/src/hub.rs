@@ -103,6 +103,8 @@ pub(crate) struct Pending {
     pub catalogue: Option<String>,
     pub attempt: Attempt,
     pub started_ms: i64,
+    /// Where this sign-in's requests may go, fixed when it started.
+    pub net: oauth::Net,
 }
 
 /// Which server a request is about.
@@ -129,9 +131,12 @@ impl Connectors {
         {
             return self.connect_with_token(target, token.to_owned()).await;
         }
-        let challenge = oauth::probe(&self.http, &target.url)
+        let net = self
+            .addresses
+            .for_server(&target.url, self.timeout)
             .await
             .map_err(from_oauth)?;
+        let challenge = oauth::probe(&net, &target.url).await.map_err(from_oauth)?;
         let Some(challenge) = challenge else {
             return self.connect_open(target).await;
         };
@@ -144,14 +149,14 @@ impl Connectors {
             .clone()
             .map(|base| format!("{base}/{}", target.id))
             .ok_or_else(|| ConnectError::Failed("Spade is not listening yet".into()))?;
-        let resource = oauth::discover_resource(&self.http, &target.url, &challenge)
+        let resource = oauth::discover_resource(&net, &target.url, &challenge)
             .await
             .map_err(from_oauth)?;
-        let server = oauth::discover_server(&self.http, &resource.authorization_server)
+        let server = oauth::discover_server(&net, &resource.authorization_server)
             .await
             .map_err(from_oauth)?;
         let client = self
-            .client_for(&keys, &target, &request, &server, &redirect)
+            .client_for(&net, &keys, &target, &request, &server, &redirect)
             .await?;
         let random = self.random.as_ref();
         let attempt = Attempt {
@@ -177,6 +182,7 @@ impl Connectors {
                 catalogue: target.catalogue,
                 attempt,
                 started_ms: now,
+                net,
             },
         );
         Ok(Started::SignIn {
@@ -214,7 +220,7 @@ impl Connectors {
             .keys
             .clone()
             .ok_or_else(|| FinishError::Failed(ConnectError::NoKeychain.to_string()))?;
-        let tokens = oauth::exchange(&self.http, &pending.attempt, &code)
+        let tokens = oauth::exchange(&pending.net, &pending.attempt, &code)
             .await
             .map_err(|error| {
                 // Fixed words only: the token endpoint's own text never reaches the page.
@@ -433,6 +439,7 @@ impl Connectors {
     /// its redirect still matches, else a fresh registration.
     async fn client_for(
         &self,
+        net: &oauth::Net,
         keys: &KeyStore,
         target: &Target,
         request: &ConnectRequest,
@@ -473,7 +480,7 @@ impl Connectors {
                 registered_redirect: facts.registered_redirect.clone(),
             });
         }
-        oauth::register(&self.http, server, redirect)
+        oauth::register(net, server, redirect)
             .await
             .map_err(from_oauth)
     }
