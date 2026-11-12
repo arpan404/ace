@@ -14,6 +14,11 @@ use spade_server::workspace::{Workspaces, workspace_tools};
 use spade_testkit::Script;
 use support::{Result, Spade, types};
 
+/// The command for this system: `unix` for `/bin/sh`, `windows` for `cmd.exe`.
+fn on_this_system(unix: &'static str, windows: &'static str) -> &'static str {
+    if cfg!(windows) { windows } else { unix }
+}
+
 async fn start(scripts: Vec<Script>, workspaces: &Workspaces) -> Result<Spade> {
     let bots = EngineHandle::default();
     let tools: Vec<Arc<dyn Tool>> =
@@ -55,14 +60,17 @@ fn asked(events: &[Value]) -> Vec<String> {
         .collect()
 }
 
-#[cfg(unix)]
 #[tokio::test]
 async fn every_command_asks_first_even_one_that_only_reads() -> Result {
     let dir = tempfile::tempdir()?;
     let workspaces = Workspaces::new(dir.path());
     let spade = start(
         vec![
-            Script::reply("").call("c1", "shell", json!({ "command": "ls -a" })),
+            Script::reply("").call(
+                "c1",
+                "shell",
+                json!({ "command": on_this_system("ls -a", "dir /a") }),
+            ),
             Script::reply("Okay, I won't."),
         ],
         &workspaces,
@@ -81,21 +89,32 @@ async fn every_command_asks_first_even_one_that_only_reads() -> Result {
     Ok(())
 }
 
-#[cfg(unix)]
 #[tokio::test]
 async fn always_allows_that_exact_command_and_no_other() -> Result {
     let dir = tempfile::tempdir()?;
     let workspaces = Workspaces::new(dir.path());
     let spade = start(
         vec![
-            Script::reply("").call("c1", "shell", json!({ "command": "touch one.txt" })),
+            Script::reply("").call(
+                "c1",
+                "shell",
+                json!({ "command": on_this_system("touch one.txt", "type nul > one.txt") }),
+            ),
             Script::reply("Made it."),
             // The title, asked for after the first turn.
             Script::reply("").plain(r#"{"title":"Files"}"#),
             // A later turn: the same command runs at once; another command asks.
-            Script::reply("").call("c2", "shell", json!({ "command": "touch one.txt" })),
+            Script::reply("").call(
+                "c2",
+                "shell",
+                json!({ "command": on_this_system("touch one.txt", "type nul > one.txt") }),
+            ),
             Script::reply("Again."),
-            Script::reply("").call("c3", "shell", json!({ "command": "touch two.txt" })),
+            Script::reply("").call(
+                "c3",
+                "shell",
+                json!({ "command": on_this_system("touch two.txt", "type nul > two.txt") }),
+            ),
             Script::reply("Okay."),
         ],
         &workspaces,
@@ -290,14 +309,17 @@ async fn the_shell_environment_carries_none_of_spades_secrets() -> Result {
     Ok(())
 }
 
-#[cfg(unix)]
 #[tokio::test]
 async fn output_too_large_for_the_model_is_kept_as_a_file_it_can_read() -> Result {
     let dir = tempfile::tempdir()?;
     let workspaces = Workspaces::new(dir.path());
     let spade = start(
         vec![
-            Script::reply("").call("c1", "shell", json!({ "command": "cat big.txt" })),
+            Script::reply("").call(
+                "c1",
+                "shell",
+                json!({ "command": on_this_system("cat big.txt", "type big.txt") }),
+            ),
             Script::reply("That is long."),
         ],
         &workspaces,

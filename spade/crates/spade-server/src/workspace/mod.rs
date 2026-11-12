@@ -296,7 +296,7 @@ mod tests {
             "notes.txt:hidden",
             "notes.txt::$DATA",
             "notes.txt.",
-            "notes.txt ",
+            "folder /notes.txt",
             "what?.txt",
             "a*b",
         ];
