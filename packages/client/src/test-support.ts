@@ -96,15 +96,19 @@ export class Faults {
         inner.open({
           open: events.open,
           close: events.close,
-          message: (text) => {
-            const message = ServerMessage.parse(JSON.parse(text));
-            this.messages.push(message);
-            for (const watcher of this.watchers.slice())
-              if (watcher.predicate(message)) {
-                this.watchers.splice(this.watchers.indexOf(watcher), 1);
-                watcher.resolve(message);
-              }
-            this.incoming(message, text, events.message);
+          // The daemon packs several messages into one frame, one per line (hello `framing`);
+          // each is faulted on its own, as if it had come alone.
+          message: (frame) => {
+            for (const text of frame.split("\n")) {
+              const message = ServerMessage.parse(JSON.parse(text));
+              this.messages.push(message);
+              for (const watcher of this.watchers.slice())
+                if (watcher.predicate(message)) {
+                  this.watchers.splice(this.watchers.indexOf(watcher), 1);
+                  watcher.resolve(message);
+                }
+              this.incoming(message, text, events.message);
+            }
           },
         });
       },
