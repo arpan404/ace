@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { nativeRecord, type NativeRecord } from "@ace/provider-kit/record";
 import { RawPayload } from "@ace/protocol";
 import { ContentPart } from "@ace/protocol";
 import { CursorSdkAuth } from "@ace/protocol/accounts";
@@ -77,9 +78,8 @@ export const NativeMessage = z
   .object({ type: z.string(), agent_id: identity.optional(), run_id: identity.optional() })
   .passthrough();
 export const Data = z.record(z.string(), z.unknown());
-export function object(value: unknown): Record<string, unknown> {
-  const result = Data.safeParse(value);
-  return result.success ? result.data : {};
+export function object(value: unknown): NativeRecord {
+  return nativeRecord(value);
 }
 export function string(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;

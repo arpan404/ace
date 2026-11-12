@@ -128,6 +128,8 @@ pub struct Spade {
     pub mock: Arc<mock::Store>,
     /// The connection to ace, when started with `ace_home`.
     pub ace: Option<Arc<AceLink>>,
+    /// The person's connected apps, when started with `connectors`.
+    pub connectors: Option<Arc<spade_connect::Connectors>>,
     stop: Option<oneshot::Sender<()>>,
     task: tokio::task::JoinHandle<std::io::Result<()>>,
 }
@@ -158,6 +160,8 @@ pub struct Options {
     pub workspaces: Option<spade_server::workspace::Workspaces>,
     /// Skill proposals, for the API (ADR 0130).
     pub learning: Option<Arc<spade_server::learning::Learning>>,
+    /// Sets up connectors (ADR 0131), with the mock keychain.
+    pub connectors: bool,
     /// The engine's clock; the machine's when absent.
     pub clock: Option<Arc<dyn Clock>>,
     /// The engine's ids; counting from 1 when absent.
@@ -240,6 +244,7 @@ impl Default for Options {
             keychain_gate_for: None,
             workspaces: None,
             learning: None,
+            connectors: false,
             clock: None,
             ids: None,
         }
@@ -372,6 +377,26 @@ impl Spade {
                 store.update_endpoint(&endpoint)?;
             }
         }
+        let connectors = if options.connectors {
+            let hub = spade_connect::Connectors::open(spade_connect::Setup {
+                store: Store::open(&dir.path().join("spade.sqlite"))?,
+                keys: Some(keys.clone()),
+                clock: spade_connect::system_clock(),
+                random: Arc::new(spade_connect::OsRandom),
+                catalogue: spade_connect::catalogue::shipped(),
+                timeout: Duration::from_secs(5),
+                relist: Duration::from_secs(600),
+                addresses: spade_connect::Addresses::system(),
+            })?;
+            let source = spade_server::tools::ConnectorSource::new(
+                hub.clone(),
+                Store::open(&dir.path().join("spade.sqlite"))?,
+            );
+            tools = tools.with_source(Arc::new(source));
+            Some(hub)
+        } else {
+            None
+        };
         let engine = Engine::open(Setup {
             store,
             models,
@@ -399,9 +424,14 @@ impl Spade {
             ace: ace.clone(),
             workspaces: options.workspaces.clone(),
             learning: options.learning.clone(),
+            connectors: connectors.clone(),
         };
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let base = format!("http://{}", listener.local_addr()?);
+        if let Some(hub) = &connectors {
+            hub.set_listening(listener.local_addr()?);
+            hub.start();
+        }
         let (stop, stopped) = oneshot::channel::<()>();
         let task = tokio::spawn(spade_server::serve(listener, state, async {
             let _ = stopped.await;
@@ -422,6 +452,7 @@ impl Spade {
             keys,
             mock,
             ace,
+            connectors,
             stop: Some(stop),
             task,
         })

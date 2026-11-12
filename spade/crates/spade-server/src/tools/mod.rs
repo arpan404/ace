@@ -4,6 +4,7 @@
 mod ace;
 mod ace_link;
 mod bots;
+mod connectors;
 mod memory;
 mod skills;
 mod todo;
@@ -20,6 +21,7 @@ use spade_core::tools::{Registry, ToolDef};
 
 pub use ace_link::{AceLink, AceTarget, GrantError, Retry, grant_slot};
 pub use bots::{BotMessage, BotsList, EngineHandle};
+pub use connectors::ConnectorSource;
 pub use memory::{AskUser, MemoryTool};
 pub use skills::{
     AceLibrary, LibraryFuture, SkillLibrary, SkillLoad, SkillSearch, SkillSource, WriteError,
@@ -113,6 +115,13 @@ pub struct TurnFacts {
 pub trait ToolSource: Send + Sync {
     /// The source's tools now.
     fn tools(&self) -> Vec<Arc<dyn Tool>>;
+
+    /// The source's tools that `conversation` may use now. All of them unless the source limits
+    /// them per bot, as connectors do (ADR 0131).
+    fn tools_for(&self, conversation: &str) -> Vec<Arc<dyn Tool>> {
+        let _ = conversation;
+        self.tools()
+    }
 }
 
 /// Spade's own tools by name, plus tools from live sources; a source's tool never replaces one
@@ -147,8 +156,22 @@ impl Toolbox {
 
     /// Every tool's definition now.
     pub fn registry(&self) -> Registry {
+        self.registry_from(self.sources.iter().flat_map(|source| source.tools()))
+    }
+
+    /// Every tool's definition that `conversation` may use now. The offered list (core tools
+    /// plus `tool_search` and `call_tool`) is the same for every conversation.
+    pub fn registry_for(&self, conversation: &str) -> Registry {
+        self.registry_from(
+            self.sources
+                .iter()
+                .flat_map(|source| source.tools_for(conversation)),
+        )
+    }
+
+    fn registry_from(&self, sourced: impl Iterator<Item = Arc<dyn Tool>>) -> Registry {
         let mut defs: BTreeMap<String, ToolDef> = BTreeMap::new();
-        for tool in self.sources.iter().flat_map(|source| source.tools()) {
+        for tool in sourced {
             let mut def = tool.def();
             def.deferred = true;
             defs.insert(def.spec.name.clone(), def);
@@ -169,6 +192,16 @@ impl Toolbox {
             self.sources
                 .iter()
                 .flat_map(|source| source.tools())
+                .find(|tool| tool.def().spec.name == name)
+        })
+    }
+
+    /// The tool named `name`, if `conversation` may use it.
+    pub fn get_for(&self, conversation: &str, name: &str) -> Option<Arc<dyn Tool>> {
+        self.core.get(name).cloned().or_else(|| {
+            self.sources
+                .iter()
+                .flat_map(|source| source.tools_for(conversation))
                 .find(|tool| tool.def().spec.name == name)
         })
     }

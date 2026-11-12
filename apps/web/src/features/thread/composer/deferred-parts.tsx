@@ -1,3 +1,4 @@
+import { preloadAnnotationChip } from "@/features/annotations/index.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { preloadAttachmentChips } from "./attachments.tsx";
 import { preloadComposerMenus } from "./deferred-menus.tsx";
@@ -38,6 +39,8 @@ export function preloadComposerParts(): Promise<unknown> {
     DeferredSendStatus.preload(),
     DeferredHeldSend.preload(),
     preloadAttachmentChips(),
+    // The browser annotation chip's list, so its first open draws at once.
+    preloadAnnotationChip(),
     import("./send-message.ts"),
   ]);
 }

@@ -89,7 +89,7 @@ async fn run(
         text: compaction::request(focus),
         images: Vec::new(),
     });
-    let carried = compaction::carried_out(events, plan.keep_from, &engine.tools.registry());
+    let carried = compaction::carried_out(events, plan.keep_from, &engine.tools.registry_for(id));
     let written = match engine.models.chat(model, &prompt).await {
         Ok(reply) => {
             engine.pay(id, model, &reply.usage);
@@ -108,7 +108,7 @@ async fn run(
         }
     };
     // Facts drawn from untrusted text are only suggested to the person, never kept straight.
-    let untrusted = spade_core::memory::untrusted_span(events, &engine.tools.registry());
+    let untrusted = spade_core::memory::untrusted_span(events, &engine.tools.registry_for(id));
     if let Some(summary) = &written {
         super::memory::keep_extracted(engine, id, &summary.notes, untrusted);
     }

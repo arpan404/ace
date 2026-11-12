@@ -10,4 +10,5 @@ export * from "./endpoints.ts";
 export * from "./markup.ts";
 export * from "./hosting.ts";
 export * from "./skills.ts";
+export * from "./connectors.ts";
 export * from "./routines.ts";

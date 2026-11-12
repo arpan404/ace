@@ -7,7 +7,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::secret::Secret;
+use spade_mcp::Secret;
 
 /// Mirrors the `hello` arm of `CoreClientMessage` in `packages/protocol/src/wire-core.ts`, with
 /// the local token as its one credential. Its `Debug` never shows the token.

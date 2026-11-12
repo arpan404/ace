@@ -13,12 +13,12 @@ pub enum Risk {
     Destructive,
 }
 
-/// One of ace's tools, as Spade offers it to a model.
+/// One tool a server lists, as Spade offers it to a model.
 #[derive(Debug, Clone, PartialEq)]
-pub struct AceTool {
+pub struct McpTool {
     pub name: String,
     pub description: String,
-    /// The tool's JSON Schema for its arguments, as the daemon sent it.
+    /// The tool's JSON Schema for its arguments, as the server sent it.
     pub input_schema: Value,
     pub risk: Risk,
 }
@@ -54,7 +54,7 @@ impl Part {
 /// What a tool call returned. `is_error` means the tool ran and reported a failure; the model
 /// should see the parts. Protocol and transport failures are `ToolsError`s instead.
 #[derive(Debug, Clone, PartialEq)]
-pub struct AceToolResult {
+pub struct McpToolResult {
     pub parts: Vec<Part>,
     pub is_error: bool,
     /// `structuredContent`, when the tool sent one.
@@ -73,9 +73,9 @@ pub fn risk(read_only: Option<bool>, destructive: Option<bool>) -> Risk {
     }
 }
 
-pub(crate) fn tool(tool: &rmcp::model::Tool) -> AceTool {
+pub(crate) fn tool(tool: &rmcp::model::Tool) -> McpTool {
     let annotations = tool.annotations.as_ref();
-    AceTool {
+    McpTool {
         name: tool.name.to_string(),
         description: tool
             .description
@@ -93,9 +93,9 @@ pub(crate) fn tool(tool: &rmcp::model::Tool) -> AceTool {
 
 /// Reads a `tools/call` result from its JSON. Unknown content kinds and malformed blocks become
 /// `Part::Other`, and unread fields stay in `extra`; nothing is dropped.
-pub fn call_result(value: Value) -> AceToolResult {
+pub fn call_result(value: Value) -> McpToolResult {
     let Value::Object(mut object) = value else {
-        return AceToolResult {
+        return McpToolResult {
             parts: vec![Part::Other(value)],
             is_error: false,
             structured: None,
@@ -116,7 +116,7 @@ pub fn call_result(value: Value) -> AceToolResult {
         Some(Value::Null) | None => Vec::new(),
         Some(other) => vec![Part::Other(other)],
     };
-    AceToolResult {
+    McpToolResult {
         parts,
         is_error,
         structured,

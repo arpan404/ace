@@ -14,8 +14,8 @@ use spade_server::images::ImageStore;
 use spade_server::learning::{Learning, SkillFeedback, SkillPropose};
 use spade_server::presets;
 use spade_server::tools::{
-    AceLink, AceTarget, EngineHandle, Retry, SkillLibrary, SkillLoad, SkillSearch, Todo, Tool,
-    ToolSource, Toolbox, WebFetch, WebSearch,
+    AceLink, AceTarget, ConnectorSource, EngineHandle, Retry, SkillLibrary, SkillLoad, SkillSearch,
+    Todo, Tool, ToolSource, Toolbox, WebFetch, WebSearch,
 };
 use spade_server::workspace::shell::Shell;
 use spade_server::workspace::{Workspaces, workspace_tools};
@@ -189,6 +189,23 @@ async fn run() -> Result<(), Failure> {
     if let Some(link) = &ace {
         tools = tools.with_source(link.clone() as Arc<dyn ToolSource>);
     }
+    // The person's apps (ADR 0131). Sessions open once Spade listens, so the sign-in callback
+    // has an address and nothing reaches the network or keychain before bind.
+    let connectors = spade_connect::Connectors::open(spade_connect::Setup {
+        store: Store::open(&home.database()).map_err(other)?,
+        keys: keychain.clone(),
+        clock: spade_connect::system_clock(),
+        random: Arc::new(spade_connect::OsRandom),
+        catalogue: spade_connect::catalogue::shipped(),
+        timeout: Duration::from_secs(60),
+        relist: spade_connect::RELIST,
+        addresses: spade_connect::Addresses::system(),
+    })
+    .map_err(other)?;
+    tools = tools.with_source(Arc::new(ConnectorSource::new(
+        connectors.clone(),
+        Store::open(&home.database()).map_err(other)?,
+    )));
 
     let engine = Engine::open(Setup {
         store: Store::open(&home.database()).map_err(other)?,
@@ -210,6 +227,8 @@ async fn run() -> Result<(), Failure> {
     home.write_token(&token).map_err(other)?;
     let listener = TcpListener::bind(config.listen).await.map_err(other)?;
     let address = listener.local_addr().map_err(other)?;
+    connectors.set_listening(address);
+    connectors.start();
     spade_server::startup::finish(
         engine.clone(),
         ace.clone(),
@@ -236,6 +255,7 @@ async fn run() -> Result<(), Failure> {
         ace,
         workspaces: Some(workspaces),
         learning,
+        connectors: Some(connectors),
     };
     let stopping = async move {
         shutdown_signal().await;

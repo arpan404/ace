@@ -1,4 +1,5 @@
 import type { FakeSpade, FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
+import { FakeSpadeConnectors } from "./spade-connectors-api.ts";
 import { FakeSpadeNotes } from "./spade-notes.ts";
 import { FakeSpadeRoutines } from "./spade-routines.ts";
 
@@ -65,6 +66,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
   readonly notes: FakeSpadeNotes;
   /** Every request the app sent, in order. */
   readonly requests: FakeSpadeRequest[] = [];
+  /** The person's connected apps and each bot's allow list (ADR 0131). */
+  readonly connectors = new FakeSpadeConnectors();
   private readonly events = new Map<string, Stored[]>();
   private sequence = 0;
   private readonly spade: FakeSpade;
@@ -216,6 +219,11 @@ export class FakeSpadeApi implements FakeSpadeServer {
       return this.workspaceRoute(request.method, id, subId, new URLSearchParams(query));
     if (root === "agents" && id && sub === "skill-proposals")
       return this.proposalRoute(request.method, id, subId, body);
+    if (root === "agents" && id && sub === "connectors") {
+      const agent = this.agents.find((candidate) => candidate.id === id);
+      if (!agent) return problem(404, "No such agent.");
+      return this.connectors.agentRoute(request.method, id, agent.kind === "main", body);
+    }
     if (root === "notes") return this.notes.route(request.method, null, id, body, sub);
     if (root === "agents" && id && sub === "notes")
       return this.agents.some((agent) => agent.id === id)
@@ -225,6 +233,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
       return this.routines.agentRoute(request.method, id, sub, body);
     if (root === "agents") return this.agentRoute(request.method, id, body);
     if (root === "routines" && id) return this.routines.route(request.method, id, sub, body);
+    if (root === "connectors") return this.connectors.route(request.method, id, sub, body);
     if (root === "models" && request.method === "GET")
       return reply({
         endpoints: this.endpoints,

@@ -59,6 +59,7 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     key_env: "OPENCODE_API_KEY",
     session_header: "x-opencode-session",
   });
+  seedConnectors(here);
   const spade = here.addAgent({
     id: "spade",
     kind: "main",
@@ -239,4 +240,69 @@ function running(daemon: FakeDaemon) {
   daemon.spade.status = { state: "ready", version: "0.6.0" };
   daemon.services.settings.write("spade.enabled", true);
   return new FakeSpadeApi(daemon.spade, () => Date.now());
+}
+
+/** A few apps from the catalogue, two of them connected and one signed out (ADR 0131). */
+function seedConnectors(spade: FakeSpadeApi) {
+  spade.connectors.catalogue.push(
+    {
+      id: "asana",
+      name: "Asana",
+      url: "https://mcp.asana.com/v2/mcp",
+      sign_in: ["oauth_client"],
+      notes:
+        "Asana does not register clients by itself: create an MCP app in Asana and enter its client ID and secret.",
+    },
+    {
+      id: "github",
+      name: "GitHub",
+      url: "https://api.githubcopilot.com/mcp/",
+      sign_in: ["token", "oauth_client"],
+      notes:
+        "A personal access token is simplest. Signing in needs a GitHub OAuth app you register.",
+    },
+    {
+      id: "linear",
+      name: "Linear",
+      url: "https://mcp.linear.app/mcp",
+      sign_in: ["oauth", "token"],
+      notes: "An API key also works.",
+    },
+    {
+      id: "notion",
+      name: "Notion",
+      url: "https://mcp.notion.com/mcp",
+      sign_in: ["oauth", "token"],
+      notes: "Workspace tokens are for Business and Enterprise plans.",
+    },
+    {
+      id: "sentry",
+      name: "Sentry",
+      url: "https://mcp.sentry.dev/mcp",
+      sign_in: ["oauth"],
+      notes: "",
+    },
+  );
+  spade.connectors.connectors.push(
+    {
+      id: "github",
+      name: "GitHub",
+      url: "https://api.githubcopilot.com/mcp/",
+      catalogue: "github",
+      sign_in: "token",
+      state: "connected",
+      tools: 41,
+    },
+    {
+      id: "notion",
+      name: "Notion",
+      url: "https://mcp.notion.com/mcp",
+      catalogue: "notion",
+      sign_in: "oauth",
+      state: "needs_reconnect",
+      account: "sam@example.com",
+      tools: 12,
+    },
+  );
+  spade.connectors.access.set("inbox", { all: false, connectors: ["notion"] });
 }

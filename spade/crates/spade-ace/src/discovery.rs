@@ -6,8 +6,8 @@ use std::path::Path;
 use std::time::Duration;
 
 use crate::config::{AceConfig, ConfigError, DEFAULT_TIMEOUT, SkillsConfig, ToolsConfig};
-use crate::secret::Secret;
 use crate::url::{LoopbackUrl, UrlError, UrlKind};
+use spade_mcp::Secret;
 
 /// The first wait before connecting again, and the longest.
 pub const FIRST_RETRY: Duration = Duration::from_secs(1);

@@ -40,7 +40,7 @@ pub(super) async fn handle_calls(
     stop: &mut watch::Receiver<bool>,
     pause: &mut watch::Receiver<Pause>,
 ) -> Handled {
-    let registry = engine.tools.registry();
+    let registry = engine.tools.registry_for(id);
     let transcript = Transcript::fold(events);
     let untrusted = context::untrusted_turn(events, &registry);
     // What a tool keeps (a trusted file, a note, a proposal's source) answers to everything the
@@ -92,10 +92,10 @@ pub(super) async fn handle_calls(
                 Some(def) => {
                     let always = match engine
                         .tools
-                        .get(&name)
+                        .get_for(id, &name)
                         .and_then(|tool| tool.always_scope(&arguments))
                     {
-                        Some(scope) => allowed_always_for(engine, events, &name, &scope),
+                        Some(scope) => allowed_always_for(engine, id, events, &name, &scope),
                         None => transcript.always_allowed.iter().any(|t| t == &name),
                     };
                     let tainted = if def.risk == Risk::Memory {
@@ -166,8 +166,14 @@ pub(super) async fn handle_calls(
 /// Whether the person answered "always" to an earlier call of `name` with the same scope (for
 /// the shell, the exact same command). Read from the conversation's own events, so it holds for
 /// the bot across restarts and compaction.
-fn allowed_always_for(engine: &Engine, events: &[Event], name: &str, scope: &str) -> bool {
-    let Some(tool) = engine.tools.get(name) else {
+fn allowed_always_for(
+    engine: &Engine,
+    id: &str,
+    events: &[Event],
+    name: &str,
+    scope: &str,
+) -> bool {
+    let Some(tool) = engine.tools.get_for(id, name) else {
         return false;
     };
     events.iter().any(|event| match event {
@@ -229,7 +235,7 @@ async fn run_tools(
             // that ran for one that did not.
             // What the tool is now is stored with its start, so compaction reads a write as one
             // even once the tool is gone or reclassified.
-            let def = engine.tools.registry().get(&name).cloned();
+            let def = engine.tools.registry_for(id).get(&name).cloned();
             let background = def.as_ref().is_some_and(|def| def.background);
             let risk = match &def {
                 Some(def) => Some(def.risk),
@@ -335,11 +341,11 @@ async fn run_one(
 ) -> ToolOutput {
     if name == TOOL_SEARCH {
         let query = arguments.get("query").and_then(Value::as_str).unwrap_or("");
-        let registry = engine.tools.registry();
+        let registry = engine.tools.registry_for(id);
         let found = registry.search(query, 5);
         return ToolOutput::ok(describe(&found));
     }
-    let Some(tool) = engine.tools.get(name) else {
+    let Some(tool) = engine.tools.get_for(id, name) else {
         return ToolOutput::error(format!("There is no tool named {name}."));
     };
     // Unique across conversations, and the same on every retry of this call.

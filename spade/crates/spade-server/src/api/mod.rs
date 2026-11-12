@@ -3,6 +3,7 @@
 
 mod agents;
 mod body;
+mod connectors;
 mod endpoints;
 mod memory;
 mod routines;
@@ -51,6 +52,8 @@ pub struct AppState {
     pub workspaces: Option<crate::workspace::Workspaces>,
     /// Skill proposals and notes, when Spade has a skill library.
     pub learning: Option<Arc<crate::learning::Learning>>,
+    /// The person's connected apps (ADR 0131).
+    pub connectors: Option<Arc<spade_connect::Connectors>>,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -115,12 +118,14 @@ pub fn router(state: AppState) -> Router {
                 .post(begin_maintenance)
                 .delete(end_maintenance),
         )
+        .merge(connectors::routes())
         .merge(memory::routes())
         .merge(workspace::routes())
         .route_layer(middleware::from_fn_with_state(state.clone(), authorize))
         .with_state(state.clone());
     let open = Router::new()
         .route("/health", get(health))
+        .merge(connectors::callback_route())
         .with_state(state);
     Router::new()
         .merge(open)

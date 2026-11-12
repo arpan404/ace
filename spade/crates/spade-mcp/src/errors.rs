@@ -6,17 +6,16 @@ use rmcp::ServiceError;
 use rmcp::service::ClientInitializeError;
 use rmcp::transport::streamable_http_client::StreamableHttpError;
 
-use crate::secret::Secret;
-
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ToolsError {
-    /// The daemon refused the token (HTTP 401 or 403): it expired, was revoked, or ace restarted.
-    #[error("ace refused Spade's tool credential")]
+    /// The server refused the credential (HTTP 401 or 403): it expired or was revoked. The
+    /// request did not run.
+    #[error("the server refused Spade's credential")]
     Refused,
-    /// The daemon could not be reached to open a session or list tools.
-    #[error("ace's tools are unavailable: {0}")]
+    /// The server could not be reached to open a session or list tools.
+    #[error("the server's tools are unavailable: {0}")]
     Unavailable(String),
-    /// The request never reached a tool: the daemon had closed the session (HTTP 404) or the
+    /// The request never reached a tool: the server had closed the session (HTTP 404) or the
     /// connection was refused. A call that fails this way did not run; the next request opens a
     /// new session.
     #[error("the request was not run: {0}")]
@@ -24,36 +23,42 @@ pub enum ToolsError {
     /// The connection broke after a call was sent. It may or may not have run.
     #[error("the call may or may not have run: {0}")]
     OutcomeUnknown(String),
-    /// No answer in time. For a call, it may or may not have run; ace was asked to cancel it.
-    #[error("ace did not answer in time")]
+    /// No answer in time. For a call, it may or may not have run; the server was asked to
+    /// cancel it.
+    #[error("the server did not answer in time")]
     Timeout,
-    /// The daemon answered with a JSON-RPC error, such as an unknown tool or bad arguments.
-    #[error("ace refused the request ({code}): {message}")]
+    /// The server answered with a JSON-RPC error, such as an unknown tool or bad arguments.
+    #[error("the server refused the request ({code}): {message}")]
     Server { code: i32, message: String },
-    #[error("ace sent something Spade could not read: {0}")]
+    #[error("the server sent something Spade could not read: {0}")]
     Protocol(String),
     #[error("tool arguments must be a JSON object")]
     InvalidArguments,
 }
 
-pub(crate) fn from_service(error: ServiceError, token: &Secret) -> ToolsError {
+/// `scrub` removes every credential the client knows from text quoted from the server or a
+/// library.
+pub(crate) fn from_service(error: ServiceError, scrub: &dyn Fn(String) -> String) -> ToolsError {
     match error {
         ServiceError::McpError(data) => ToolsError::Server {
             code: data.code.0,
-            message: token.scrub(data.message.to_string()),
+            message: scrub(data.message.to_string()),
         },
         ServiceError::Timeout { .. } => ToolsError::Timeout,
         ServiceError::TransportSend(ref transport) => match http(transport.error.as_ref()) {
             Http::Refused => ToolsError::Refused,
             Http::NotRun(why) => ToolsError::NotRun(why.into()),
-            Http::Other => ToolsError::Unavailable(token.scrub(chain(&error))),
+            Http::Other => ToolsError::Unavailable(scrub(chain(&error))),
         },
-        ServiceError::TransportClosed => ToolsError::Unavailable(token.scrub(chain(&error))),
-        other => ToolsError::Protocol(token.scrub(chain(&other))),
+        ServiceError::TransportClosed => ToolsError::Unavailable(scrub(chain(&error))),
+        other => ToolsError::Protocol(scrub(chain(&other))),
     }
 }
 
-pub(crate) fn from_init(error: ClientInitializeError, token: &Secret) -> ToolsError {
+pub(crate) fn from_init(
+    error: ClientInitializeError,
+    scrub: &dyn Fn(String) -> String,
+) -> ToolsError {
     match &error {
         ClientInitializeError::TransportError { error: inner, .. }
             if http(inner.error.as_ref()) == Http::Refused =>
@@ -62,9 +67,9 @@ pub(crate) fn from_init(error: ClientInitializeError, token: &Secret) -> ToolsEr
         }
         ClientInitializeError::JsonRpcError(data) => ToolsError::Server {
             code: data.code.0,
-            message: token.scrub(data.message.to_string()),
+            message: scrub(data.message.to_string()),
         },
-        _ => ToolsError::Unavailable(token.scrub(chain(&error))),
+        _ => ToolsError::Unavailable(scrub(chain(&error))),
     }
 }
 
@@ -75,8 +80,8 @@ enum Http {
     Other,
 }
 
-/// What the HTTP layer saw. The SDK reports a challenge-less 401 or 403 (what the daemon sends)
-/// only as text, `HTTP 401 Unauthorized…`, so that is matched too.
+/// What the HTTP layer saw. The SDK reports a challenge-less 401 or 403 only as text,
+/// `HTTP 401 Unauthorized…`, so that is matched too.
 fn http(error: &(dyn StdError + 'static)) -> Http {
     let mut next = Some(error);
     while let Some(error) = next {
@@ -92,13 +97,13 @@ fn http(error: &(dyn StdError + 'static)) -> Http {
                 StreamableHttpError::UnexpectedServerResponse(text)
                     if text.starts_with("HTTP 3") =>
                 {
-                    Http::NotRun("ace answered with a redirect, which Spade does not follow")
+                    Http::NotRun("the server answered with a redirect, which Spade does not follow")
                 }
                 StreamableHttpError::SessionExpired => {
-                    Http::NotRun("ace had closed Spade's session before the request arrived")
+                    Http::NotRun("the server had closed Spade's session before the request arrived")
                 }
                 StreamableHttpError::Client(error) if error.is_connect() => {
-                    Http::NotRun("could not connect to ace")
+                    Http::NotRun("could not connect to the server")
                 }
                 _ => Http::Other,
             };

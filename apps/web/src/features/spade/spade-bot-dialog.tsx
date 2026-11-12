@@ -14,10 +14,12 @@ import {
 import { Input, Textarea } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { createAgent, editAgent, type SpadeAgentDraft } from "./spade-api.ts";
+import { ConnectorChoice, useConnectorChoice } from "./spade-bot-connectors.tsx";
 import { AvatarChoice, type AvatarDraft } from "./spade-avatar-choice.tsx";
 import { SpadeMachineScope, spadeMachineKey, useSpadeClient } from "./spade-machine.tsx";
 import { SpadeModelPicker } from "./spade-model-picker.tsx";
 import { agentsKey, type RosterBot, type SpadeHost } from "./use-spade-roster.ts";
+import { connectorsKey } from "./spade-connector-api.ts";
 
 function Field(props: { label: string; htmlFor?: string; children: ReactNode }) {
   return (
@@ -165,9 +167,9 @@ export function NewBotDialog(props: { hosts: readonly SpadeHost[]; onClose(): vo
 }
 
 /**
- * Edit a bot, on its own machine: name, task, face and model, sent as one change of what moved.
- * Spade keeps its name and face. Task and model apply from the bot's next reply, and the dialog
- * says so in one quiet line.
+ * Edit a bot, on its own machine: name, task, face, model and the connected apps it may use,
+ * sent as one change of what moved. Spade keeps its name and face. Task and model apply from the
+ * bot's next reply, and the dialog says so in one quiet line.
  */
 export function EditBotDialog(props: { bot: RosterBot; onClose(): void }) {
   const { bot } = props;
@@ -181,19 +183,22 @@ export function EditBotDialog(props: { bot: RosterBot; onClose(): void }) {
   const [model, setModel] = useState(bot.model);
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string>();
+  const apps = useConnectorChoice(bot.id);
   const change: Partial<SpadeAgentDraft> = {
     ...(!main && name.trim() !== bot.name ? { name: name.trim() } : {}),
     ...(task.trim() !== bot.task.trim() ? { task: task.trim() } : {}),
     ...(model !== bot.model && /\/./.test(model) ? { model } : {}),
     ...(!main && avatar.kind !== "current" ? { avatar } : {}),
   };
-  const changed = Object.keys(change).length > 0 && (main || name.trim() !== "");
+  const changed = (Object.keys(change).length > 0 || apps.changed) && (main || name.trim() !== "");
   const save = async () => {
     setSaving(true);
     setProblem(undefined);
     try {
-      await editAgent(client, bot.id, change);
+      if (Object.keys(change).length > 0) await editAgent(client, bot.id, change);
+      await apps.save(client);
       await cache.invalidateQueries({ queryKey: agentsKey });
+      await cache.invalidateQueries({ queryKey: connectorsKey });
       props.onClose();
     } catch (error) {
       setProblem(fault(error));
@@ -234,6 +239,9 @@ export function EditBotDialog(props: { bot: RosterBot; onClose(): void }) {
           )}
           <Field label="Model" htmlFor={ids.model}>
             <SpadeModelPicker id={ids.model} value={model} onChange={setModel} />
+          </Field>
+          <Field label="Apps">
+            <ConnectorChoice choice={apps} main={main} />
           </Field>
           <p className="text-xs text-subtle-foreground">
             {`Task and model changes apply from ${bot.name}'s next reply.`}

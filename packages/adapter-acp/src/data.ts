@@ -1,19 +1,15 @@
-import { z } from "zod";
 import type { RawPayload } from "@ace/protocol";
+import { nativeRecord, type NativeRecord } from "@ace/provider-kit/record";
 export type Data = Record<string, unknown>;
 export type InlineRawPayload = Extract<RawPayload, { data: unknown }>;
-const ObjectData = z.record(z.string(), z.unknown());
-const ListData = z.array(z.unknown());
-export function object(value: unknown): Data {
-  const result = ObjectData.safeParse(value);
-  return result.success ? result.data : {};
+export function object(value: unknown): NativeRecord {
+  return nativeRecord(value);
 }
 export function string(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
-export function list(value: unknown): unknown[] {
-  const parsed = ListData.safeParse(value);
-  return parsed.success ? parsed.data : [];
+export function list(value: unknown): readonly unknown[] {
+  return Array.isArray(value) ? value : [];
 }
 export function raw(data: unknown, type: string, name?: string): InlineRawPayload {
   return { type, data, ...(name ? { name } : {}) };

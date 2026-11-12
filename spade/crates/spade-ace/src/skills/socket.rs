@@ -15,7 +15,7 @@ use tokio_tungstenite::tungstenite::Message;
 
 use super::wire::{self, Incoming, Operation};
 use super::{SkillErrorCode, SkillsConfig, SkillsError};
-use crate::secret::Secret;
+use spade_mcp::Secret;
 
 /// The daemon closes a socket whose credential it refused with these (`apps/daemon/src/server.ts`).
 const REFUSED_CLOSE_CODES: [u16; 2] = [4001, 4003];

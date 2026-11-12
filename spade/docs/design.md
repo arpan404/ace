@@ -29,7 +29,7 @@ without spare hardware, may come later.
 | Development and internal testing call models with an OpenCode Go API key                                                                                                       | decided  |
 | Model access uses the `genai` crate behind Spade's own `spade-models` crate (see Models)                                                                                       | decided  |
 | The model list is curated: the current model of each family worth running, nothing older                                                                                       | decided  |
-| Connectors reuse existing MCP servers before we write our own (see Connectors)                                                                                                 | proposed |
+| Connectors reuse the app makers' own remote MCP servers first (ADR 0131, [connectors.md](connectors.md))                                                                       | decided  |
 | A hosted Spade would reach daemons through ace's relay with a Spade grant (draft ADR `docs/adr/drafts/spade-daemon-access.md`)                                                 | proposed |
 | Endpoint keys are typed into the app and kept in the OS keychain only, then the endpoint's environment variable (ADR 0119)                                                     | decided  |
 
@@ -58,7 +58,8 @@ matter; the encrypted channel and grants matter when Spade reaches a daemon from
 | `spade-testkit`  | Test-only fake model endpoint                                                                                                                                      | built                 |
 | `spade-protocol` | Types generated from ace's schemas, plus Spade's own                                                                                                               | planned               |
 | `spade-ace`      | Talks to the ace daemon: locally first, through the relay for a hosted Spade                                                                                       | planned               |
-| `spade-mcp`      | Connector catalogue and MCP client (`rmcp`)                                                                                                                        | planned               |
+| `spade-mcp`      | MCP client over streamable HTTP (`rmcp`), shared by ace's tools and connectors                                                                                     | built                 |
+| `spade-connect`  | Connector catalogue, OAuth sign-in, sessions and per-bot access ([connectors.md](connectors.md))                                                                   | built                 |
 | `spade-memory`   | Memory storage and search: built in `spade-core` (`memory`) and `spade-store` (`notes`) instead, see [memory.md](memory.md)                                        | built                 |
 
 Rules carried over from ace: pure core with a thin I/O shell; clocks, ids, randomness and

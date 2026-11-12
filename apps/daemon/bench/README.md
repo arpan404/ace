@@ -130,6 +130,27 @@ allocates, V8's sampling heap profiler can keep collected objects
 (`HeapProfiler.startSampling` with `includeObjectsCollectedByMajorGC` and `…MinorGC`); the source
 daemon runs on Node for that. Its byte counts are V8's, so rank sources with it and measure on Bun.
 
+## Allocation per provider frame
+
+The scripted provider skips every real translator. `adapter-replay.ts` replays the recorded
+sessions under `fixtures/` (Claude, Codex, Cursor and OpenCode; ACP and Pi have no recordings)
+through each provider's own translator, the engine, SQLite and a WebSocket subscriber in the
+parent process, with no CLI and no quota. Each recorded session plays into a fresh thread, its
+frames admitted from wire JSON by `ProviderPayload` as live sessions do, its recorded gaps on the
+manual clocks. It reports main-isolate bytes (GC log, as above), CPU and commits per 1,000
+frames. `--stage=translate` measures payload admission and the translator alone. With several
+checkouts (each holding these bench files) runs interleave per provider:
+
+```sh
+bun apps/daemon/bench/adapter-replay.ts --runs=3 --frames=10000 --stage=translate <base> .
+bun apps/daemon/bench/adapter-replay.ts --runs=3 --frames=3000 --windows=1 <base> .
+bun apps/daemon/bench/adapter-replay.ts --stage=translate --frames=60000 --providers=claude \
+  --cpu-prof=<dir>   # stacks under the child's replay() are synchronous, so attributable
+```
+
+`adapter-replay-facts.ts` prints a digest of the facts, diagnostics and core events each
+fixture produces; diff its output from two checkouts to show a translator change is identical.
+
 ## Long-thread acceptance
 
 `bun --expose-gc apps/daemon/bench/long-thread-reliability.ts` runs the fast acceptance workload: 10,000 initial items, 5,000 answered approvals followed by 5,000 pending approvals, 48 provider subagents, four large-gap reconnects, 64 KiB stdout bursts and a concurrent worker history publication. Pending approvals remain open through reconnects. It verifies item counts, exact committed text length, snapshot and frame budgets, retained memory and writes per delta, including a separate pending-approval write sample. Both write samples budget below 2,048 WAL bytes and one changed row per delta. `check:perf` includes this workload in the daemon gate.

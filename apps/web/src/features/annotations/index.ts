@@ -16,5 +16,6 @@ export {
   type DraftAnnotationsState,
 } from "./draft-annotations.ts";
 export { withAnnotations } from "./hand-off.ts";
-export { AnnotationChip, annotationCount } from "./annotation-chip.tsx";
+export { AnnotationChip, preloadAnnotationChip } from "./annotation-chip.tsx";
+export { annotationCount } from "./annotation-words.ts";
 export { AnnotationsCard } from "./annotation-card.tsx";

@@ -2748,19 +2748,41 @@ name = "spade-ace"
 version = "0.1.0"
 dependencies = [
  "axum",
- "bytes",
  "futures-util",
- "reqwest",
  "rmcp",
  "serde",
  "serde_json",
- "sse-stream",
+ "spade-mcp",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "tokio-tungstenite",
  "tokio-util",
  "tower",
+ "tracing",
+ "url",
+]
+
+[[package]]
+name = "spade-connect"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "getrandom 0.4.3",
+ "keyring-core",
+ "reqwest",
+ "rmcp",
+ "serde",
+ "serde_json",
+ "sha2",
+ "spade-fetch",
+ "spade-keys",
+ "spade-mcp",
+ "spade-store",
+ "spade-testkit",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
  "tracing",
  "url",
 ]
@@ -2805,6 +2827,20 @@ dependencies = [
  "tokio",
  "windows-native-keyring-store",
  "zbus-secret-service-keyring-store",
+]
+
+[[package]]
+name = "spade-mcp"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "futures-util",
+ "reqwest",
+ "rmcp",
+ "serde_json",
+ "sse-stream",
+ "thiserror 2.0.21",
+ "tokio",
 ]
 
 [[package]]
@@ -2857,9 +2893,11 @@ dependencies = [
  "serde_json",
  "sha2",
  "spade-ace",
+ "spade-connect",
  "spade-core",
  "spade-fetch",
  "spade-keys",
+ "spade-mcp",
  "spade-models",
  "spade-search",
  "spade-store",
@@ -2873,6 +2911,7 @@ dependencies = [
  "tower",
  "tracing",
  "tracing-subscriber",
+ "url",
  "uuid",
  "win32job",
 ]
@@ -2893,9 +2932,14 @@ name = "spade-testkit"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64",
  "futures-util",
+ "rmcp",
  "serde_json",
+ "sha2",
  "tokio",
+ "tokio-util",
+ "tower",
 ]
 
 [[package]]

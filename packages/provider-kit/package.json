@@ -10,6 +10,7 @@
     "./cli-requirements": "./src/cli-requirements.ts",
     "./access-modes": "./src/access-modes.ts",
     "./payload": "./src/payload.ts",
+    "./record": "./src/record.ts",
     "./process": "./src/process.ts",
     "./user-tool-paths": "./src/user-tool-paths.ts",
     "./sdk": "./src/sdk.ts",

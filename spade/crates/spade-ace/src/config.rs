@@ -4,8 +4,8 @@
 
 use std::time::Duration;
 
-use crate::secret::Secret;
 use crate::url::{LoopbackUrl, UrlError, UrlKind};
+use spade_mcp::Secret;
 
 /// What a bridge request may take before it gives up, unless the caller sets its own.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);

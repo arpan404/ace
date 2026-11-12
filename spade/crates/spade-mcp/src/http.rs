@@ -55,13 +55,14 @@ pub(crate) struct RawKeeping {
 }
 
 impl RawKeeping {
-    /// No redirects (a redirect could carry a call and its session elsewhere, or send it twice)
-    /// and no proxy: the daemon is on this machine.
-    pub(crate) fn new(routes: CallRoutes) -> Result<Self, reqwest::Error> {
-        let inner = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .no_proxy()
-            .build()?;
+    /// No redirects (a redirect could carry a call and its session elsewhere, or send it twice).
+    /// `direct` skips any proxy, for a server on this machine.
+    pub(crate) fn new(routes: CallRoutes, direct: bool) -> Result<Self, reqwest::Error> {
+        let mut builder = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none());
+        if direct {
+            builder = builder.no_proxy();
+        }
+        let inner = builder.build()?;
         Ok(Self { inner, routes })
     }
 
