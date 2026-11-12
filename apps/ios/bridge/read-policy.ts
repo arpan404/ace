@@ -94,6 +94,7 @@ export function readFamily(request: unknown): ReadFamily | undefined {
       return "catalog";
     case "host.storage":
     case "host.diagnostics":
+    case "machineUpdate.status":
       return "host";
     // A provider's Settings page and the off and missing providers (`provider-page.ts`).
     case "provider.page":
@@ -214,6 +215,8 @@ export function eventFamilies(type: string): readonly ReadFamily[] {
       return ["catalog", "settings-page", "providers"];
     case "forge.pr.updated":
       return ["forge"];
+    case "machineUpdate.changed":
+      return ["host"];
     default:
       return [];
   }
