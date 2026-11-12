@@ -793,8 +793,8 @@
       "sha256": "11a841fe4be5699b44dbee53402f724ad20dd23ab8b589e378a2f303659452de"
     },
     "schema/BrowserState.json": {
-      "bytes": 2399,
-      "sha256": "2b80de752e976005867dd29a2989494dc1685164bf7d74d09c8fc2d8b85d2dc0"
+      "bytes": 2491,
+      "sha256": "678864f61d82320dd602927e4d5e91bf8a96eac8e1e78aa183a22f0475bd1ce1"
     },
     "schema/BrowserTab.json": {
       "bytes": 2084,
@@ -831,6 +831,10 @@
     "schema/BrowserVideoRequest.json": {
       "bytes": 391,
       "sha256": "828e443a8db74a099e85ff7f7faa0d0c635087df9a16abcdedb5e499d4031749"
+    },
+    "schema/BrowserVideoStatus.json": {
+      "bytes": 510,
+      "sha256": "a94fb0ff9c807adaa16b6b03db45c0b57b7a30e787de0c714f89c454f4859c00"
     },
     "schema/Capabilities.json": {
       "bytes": 3707,
@@ -5149,10 +5153,10 @@
       "sha256": "326c4363558fb07a275e1864fb409008dd263601f205b8caaf79afe7141a9242"
     },
     "types.md": {
-      "bytes": 1038017,
-      "sha256": "3e0240205013f0e4f6eeefdd6e2529a94945b44e204d9f92d1b514ccfad32a6a"
+      "bytes": 1038506,
+      "sha256": "91b0f3ac0a17489bbb63de2ece9cbd49feb2a16d5c3afae342d575a397b719b1"
     }
   },
-  "input": "1877cf840b0e05ba760394def359a4aec8469661ae5bc7ded42e4c295688ae3b",
+  "input": "f747f93261f8f47945882d3ec6a9bb16af51d3bb54aee0d6d94af17628ec53d0",
   "version": 1
 }
