@@ -78,12 +78,10 @@ export function signingIdentity(env: NodeJS.ProcessEnv): SigningIdentity {
 
 /**
  * Every release carries Spade's server (ADR 0123): a prebuilt `ACE_SPADE_SERVER_BIN`, or cargo
- * to build it from `spade/`. Only `DISABLE_SPADE=1` releases without it.
+ * to build it from `spade/`. None releases without it: Spade is hidden at run time (ADR 0139).
  */
 export function spadeServerCheck(env: NodeJS.ProcessEnv, cargo: boolean): Check {
   const prebuilt = env.ACE_SPADE_SERVER_BIN;
-  if (env.DISABLE_SPADE === "1")
-    return { name: "Spade server", ok: true, detail: "left out (DISABLE_SPADE=1)", for: "any" };
   if (prebuilt)
     return {
       name: "Spade server",
@@ -98,7 +96,7 @@ export function spadeServerCheck(env: NodeJS.ProcessEnv, cargo: boolean): Check 
     ok: cargo,
     detail: cargo
       ? "cargo builds spade-server from spade/"
-      : "install Rust (spade/rust-toolchain.toml), set ACE_SPADE_SERVER_BIN, or DISABLE_SPADE=1",
+      : "install Rust (spade/rust-toolchain.toml) or set ACE_SPADE_SERVER_BIN",
     for: "any",
   };
 }

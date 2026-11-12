@@ -95,8 +95,15 @@ it.skipIf(process.platform === "win32")(
   },
 );
 
-it("a build without Spade reports it left out", async () => {
-  const { context } = await setup({ env: { DISABLE_SPADE: "1" } });
-  const verdict = await run(context, ports(new Error("never asked")), "spade.service");
-  expect(verdict).toMatchObject({ status: "ok", message: "This build leaves Spade out." });
+it("Spade hidden by features.json with no service reports it hidden", async () => {
+  const { context } = await setup();
+  const verdict = await run(context, ports("absent"), "spade.service");
+  expect(verdict).toMatchObject({ status: "ok", message: expect.stringMatching(/hidden/) });
+});
+
+it("Spade shown by features.json checks its service", async () => {
+  const { context, dataDir } = await setup();
+  await writeFile(join(dataDir, "features.json"), '{"spade": true}');
+  const verdict = await run(context, ports("absent"), "spade.service");
+  expect(verdict.message).not.toMatch(/hidden/);
 });

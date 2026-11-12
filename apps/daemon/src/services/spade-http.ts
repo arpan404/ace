@@ -54,7 +54,8 @@ export function createSpadeHttp(context: {
   authorize(scope: DeviceScope): boolean;
   connected(): boolean;
   send(message: ServerMessage): void;
-  unavailable(): string;
+  /** Why nothing can be forwarded now: hidden on this machine, or not running. */
+  unavailable(): { code: "hidden" | "unavailable"; message: string };
 }) {
   const uploads = new Map<string, Upload>();
   /** Long answers' pieces, read one at a time so no reply outgrows the socket's frame cap. */
@@ -143,7 +144,8 @@ export function createSpadeHttp(context: {
     }
     const ready = context.host()?.ready();
     if (!ready) {
-      fail(message.requestId, "unavailable", context.unavailable());
+      const refusal = context.unavailable();
+      fail(message.requestId, refusal.code, refusal.message);
       return undefined;
     }
     return { connection: ready.connection, path: checked.path };

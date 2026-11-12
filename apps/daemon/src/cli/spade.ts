@@ -3,7 +3,7 @@ import { connect } from "node:net";
 import { join } from "node:path";
 import { SettingsService } from "@ace/settings";
 import { readConfig } from "../config.ts";
-import { spadeDisabled } from "../spade/disabled.ts";
+import { loadFeatures } from "../spade/features-file.ts";
 import { cliVersion } from "../doctor/install.ts";
 import { aceSpadeService, type SpadeServiceControl } from "../spade/service-control.ts";
 import { option, validateArgs, type Args } from "./args.ts";
@@ -32,9 +32,12 @@ export async function spadeCommand(
   const verb = args.words[1];
   if (verb !== "on" && verb !== "off") throw new CliFailure("refused", "Use ace spade on|off");
   validateArgs(args, [], 2, 2);
-  if (spadeDisabled(process.env))
-    throw new CliFailure("refused", "This build of ace leaves Spade out.");
   const enabled = verb === "on";
+  if (enabled && !(await loadFeatures(home)).flags.spade)
+    throw new CliFailure(
+      "refused",
+      "Spade is hidden on this machine. Show it first with ace features show spade.",
+    );
   if (option(args, "remote") || (await daemonRuns(home))) {
     let session: Awaited<ReturnType<typeof connectCli>>;
     try {

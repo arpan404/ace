@@ -1,6 +1,6 @@
 # 0123: Spade runs as its own service
 
-Status: accepted. Date: 2026-11-11. Decision 6 amended by [ADR 0124](0124-desktop-keeps-spades-token.md). Decided by: the owner (2026-11-11: "Spade will not be hosted by
+Status: accepted. Date: 2026-11-11. Decision 6 amended by [ADR 0124](0124-desktop-keeps-spades-token.md). Decision 2 amended by [ADR 0139](0139-spade-hidden-at-run-time.md). Decided by: the owner (2026-11-11: "Spade will not be hosted by
 the daemon; it will be a long-running process on its own"). Supersedes
 [ADR 0121](0121-the-daemon-hosts-spade.md) on when Spade runs, its environment, readiness, stop and
 restart, and its credentials; keeps 0121's host thread and its `spade.*` family, as decision 8
@@ -49,7 +49,7 @@ same way costs little.
 
 2. **Turning Spade on registers the service; off removes it.** The `spade.enabled` setting stays
    the one switch: the desktop app (or `ace spade on|off`) registers or removes the service and
-   writes the setting. With `DISABLE_SPADE=1` builds (#1782) nothing is registered. Spade's data
+   writes the setting. While `features.json` hides Spade (ADR 0139) nothing is registered. Spade's data
    folder (`<ACE_HOME>/spade`), its single-instance lock (exit code 3), `server.json` and its
    0600 token file are unchanged.
 

@@ -125,8 +125,8 @@ const config: Configuration = {
       ? [{ from: join(dist, "locked-use"), to: "locked-use" }]
       : []),
     { from: join(dist, "bin"), to: "bin" },
-    // Spade's server (ADR 0123); absent only in DISABLE_SPADE=1 builds.
-    ...(existsSync(join(dist, "spade")) ? [{ from: join(dist, "spade"), to: "spade" }] : []),
+    // Spade's server (ADR 0123), in every build; `features.json` hides it at run time (ADR 0139).
+    { from: join(dist, "spade"), to: "spade" },
     // The tray images: macOS template and the Linux colour icon; app icons come from build/.
     {
       from: join(desktop, "resources"),

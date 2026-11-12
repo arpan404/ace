@@ -181,3 +181,21 @@ describe("wire trims", () => {
     expect(original).toEqual(before);
   });
 });
+
+it("only clients advertising spade-hidden receive the hidden code and live-end reason", () => {
+  const messages: ServerMessage[] = [
+    {
+      type: "spade.http.result",
+      requestId: "h",
+      result: { kind: "error", code: "hidden", message: "Spade is hidden." },
+    },
+    { type: "spade.live.ended", requestId: "l", reason: "hidden" },
+  ];
+  for (const trims of [undefined, ["spade-hidden"]]) {
+    const wire = new WireTrimmer(trims);
+    const [http, live] = messages.flatMap((frame) => wire.outgoing(frame));
+    const code = trims ? "hidden" : "unavailable";
+    expect(http).toMatchObject({ result: { kind: "error", code } });
+    expect(live).toMatchObject({ reason: code });
+  }
+});

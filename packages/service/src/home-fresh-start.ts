@@ -83,7 +83,7 @@ function readFacts(root: string): HomeFacts {
     // A link to nothing is still something at the path: set it aside, never write through it.
     return exists(root) ? { kind: "unversioned" } : { kind: "missing" };
   }
-  if (names.length === 0) return { kind: "empty" };
+  if (names.every((name) => name === "features.json")) return { kind: "empty" };
   if (!names.includes(HOME_FORMAT_FILE)) return { kind: "unversioned" };
   let text: string;
   try {

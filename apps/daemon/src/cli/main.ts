@@ -44,6 +44,7 @@ ace clean apply PLAN_ID --revision REVISION|clean status PLAN_ID
 ace clean --compact [--abandon COMPACTION_ID]
 ace config get [retention-days|log-cap]|config set retention-days DAYS|config set log-cap SIZE
 ace spade on|off
+ace features [show|hide spade]
 
 All commands: --json, --jq EXPR, --timeout DURATION
 Mutations: --idempotency-key KEY. Waits: --tree, --any or --all (default) for several IDs; --timeout DURATION. Run: --stream jsonl.
@@ -115,7 +116,7 @@ export async function main(input: string[]): Promise<void> {
     }
     // These write into the home without a daemon, so its format is settled first (ADR 0081).
     if (
-      ["remote", "config", "cloud", "spade"].includes(command) ||
+      ["remote", "config", "cloud", "spade", "features"].includes(command) ||
       (command === "pair" && args.words[1] === "redeem")
     )
       await prepareHome(config.dataDir);
@@ -131,6 +132,8 @@ export async function main(input: string[]): Promise<void> {
       return await (await import("./cloud.ts")).cloudCommand(args, config.dataDir);
     if (command === "spade")
       return await (await import("./spade.ts")).spadeCommand(args, config.dataDir);
+    if (command === "features")
+      return await (await import("./features.ts")).featuresCommand(args, config.dataDir);
     if (command === "stop")
       return await (await import("./control.ts")).stopCommand(args, config.dataDir);
     if (["start", "serve", "service"].includes(command))

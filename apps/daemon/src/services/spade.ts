@@ -12,7 +12,7 @@ import { nodeSpadeLinkRuntime, spadeAceCall } from "../spade/link-runtime.ts";
 import { SpadeLink, type SpadeLinkRuntime } from "../spade/link.ts";
 import { cliVersion } from "../doctor/install.ts";
 import { aceSpadeService, type SpadeServiceControl } from "../spade/service-control.ts";
-import { spadeDisabled } from "../spade/disabled.ts";
+import { watchFeatures, type FeaturesWatchRuntime } from "../spade/features-file.ts";
 import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
 import { spadeHostThread } from "./spade-host.ts";
 import { spadeSwitch } from "./spade-switch.ts";
@@ -20,8 +20,10 @@ import type { ServiceContext } from "./types.ts";
 
 /** Test seams for Spade's service; production uses the defaults. */
 export interface DaemonSpadeOptions {
-  /** The environment `DISABLE_SPADE` is read from; the daemon's by default. */
+  /** The environment Spade's service is planned with; the daemon's by default. */
   env?: NodeJS.ProcessEnv;
+  /** How `features.json` is read and watched; the file system by default. */
+  features?: FeaturesWatchRuntime;
   /** Spade's registration with the service manager; `@ace/service` by default. */
   service?: SpadeServiceControl;
   runtime?: SpadeLinkRuntime;
@@ -39,7 +41,6 @@ export async function startSpade(context: ServiceContext): Promise<void> {
   const { config, log, services, store } = context;
   const options = context.options.spade ?? {};
   const env = options.env ?? process.env;
-  const disabled = spadeDisabled(env);
   const dataDir = join(config.dataDir, "spade");
   const service =
     options.service ??
@@ -57,10 +58,20 @@ export async function startSpade(context: ServiceContext): Promise<void> {
   services.spade = link;
   context.resources.own(() => link.close(), "spade");
   const host = spadeHostThread(context, link, dataDir);
-  if (disabled) {
-    // Left out of this build: no service, grant or forwarding, whatever the setting says.
-    return;
-  }
+  // `features.json` (ADR 0139): while Spade is hidden it gets no service, grant or forwarding,
+  // whatever `spade.enabled` says. Applied below, once the switch exists.
+  let onFeatures: ((shown: boolean) => void) | undefined;
+  const features = await watchFeatures({
+    home: config.dataDir,
+    ...(options.features ? { runtime: options.features } : {}),
+    log: (level, message) => log.log(level, message),
+    onChange: (flags) => {
+      link.setHidden(!flags.spade);
+      onFeatures?.(flags.spade);
+    },
+  });
+  context.resources.own(() => features.close(), "spade features");
+  link.setHidden(!features.current().spade);
 
   const sql = {
     statement: (text: string) => store.statement(text),
@@ -155,6 +166,7 @@ export async function startSpade(context: ServiceContext): Promise<void> {
 
   const settings = services.settings;
   if (!settings) return;
+  const shown = () => features.current().spade;
   const toggle = spadeSwitch({
     service,
     link,
@@ -168,9 +180,24 @@ export async function startSpade(context: ServiceContext): Promise<void> {
   const stop = await settings.subscribe({ keys: ["spade.enabled"], scope: {} }, (notification) => {
     if (notification.type !== "changed") return;
     const entry = notification.entries.find((each) => each.key === "spade.enabled");
-    if (entry) void toggle.set(entry.value === true, "changed");
+    if (entry) void toggle.set(shown() && entry.value === true, "changed");
   });
   context.resources.own(stop, "spade setting");
+  // Hiding Spade stops its service and retires its grant, as turning it off does, but leaves
+  // `spade.enabled` and Spade's data as they are: showing it again puts back what the setting
+  // says, and a grant the person revoked stays revoked (`started` reconciles that way).
+  onFeatures = (visible) => {
+    log.log(
+      "info",
+      visible
+        ? "Spade is shown again (features.json)"
+        : "Spade is hidden (features.json): its service stops; its data is kept",
+    );
+    void settings.get("spade.enabled").then(
+      (entry) => toggle.set(visible && entry.value === true, visible ? "started" : "changed"),
+      (error: unknown) => log.log("warn", `Reading spade.enabled failed: ${String(error)}`),
+    );
+  };
   // Not awaited: registering a service can be slow, and the daemon's start doesn't wait on Spade.
-  void toggle.set((await settings.get("spade.enabled")).value === true, "started");
+  void toggle.set(shown() && (await settings.get("spade.enabled")).value === true, "started");
 }

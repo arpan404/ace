@@ -32,12 +32,11 @@ Run from the main checkout (`~/Code/ace-next`). Every check passes before anythi
 bun install --frozen-lockfile --os=darwin --cpu='*'
 set -a; source ~/.ace-release/release.env; set +a
 export ACE_RELEASE_PRIVATE_KEY_FILE=~/.ace-release/ace-key.pem
-export DISABLE_SPADE=1
 PATH=<node 26.12.1>/bin:$PATH bun run release:doctor
 PATH=<node 26.12.1>/bin:$PATH bun run release:build <version> --with-daemon
 ```
 
-`DISABLE_SPADE=1` leaves Spade out until it launches: the app shows only its rail mark, as coming soon, and the daemon never starts it. Drop that line when the owner says Spade ships.
+Every release carries Spade; no build flag leaves it out. Whether a person sees it is decided on their machine by `features.json` in ace's home (ADR 0139): Spade is hidden unless that file says `{"spade": true}`, so a fresh install shows only its rail mark, as coming soon, and the daemon never starts it. `ace features show spade` or `ace features hide spade` flips it on a machine, live. Nothing in this release process changes when Spade launches.
 
 The `--os`/`--cpu` flags also install spare copies of optional native packages such as sharp; a plain install has only the host's. `release:doctor` lists every check; stop on any ✗. `release:build` packages, signs and notarizes the app, verifies it (`codesign`, `spctl`, `stapler`), launches it with an empty data home and fails unless its daemon starts and the updater begins a check, builds and signs the Apple silicon daemon manifest, and stages everything with checksums under `dist/releases/v<version>`. It passes the version to the packager itself, so an `ACE_VERSION` inherited from a running ace does not leak in.
 

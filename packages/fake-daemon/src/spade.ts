@@ -31,6 +31,14 @@ export class FakeSpade {
   status: SpadeStatus = { state: "off" };
   private server: FakeSpadeServer | undefined;
   private readonly streams = new Map<string, { path: string; push: Push }>();
+  /** Connections that asked for the status, which the daemon then keeps told. */
+  private readonly watchers = new Set<Push>();
+
+  /** Changes the status and pushes `spade.status.changed` to every connection that asked. */
+  setStatus(status: SpadeStatus): void {
+    this.status = status;
+    for (const push of this.watchers) push({ type: "spade.status.changed", status });
+  }
 
   serve(server: FakeSpadeServer | undefined): void {
     this.server = server;
@@ -47,6 +55,7 @@ export class FakeSpade {
   handle(message: ClientMessage, push: Push): boolean {
     switch (message.type) {
       case "spade.status":
+        this.watchers.add(push);
         push({ type: "spade.status.result", requestId: message.requestId, status: this.status });
         return true;
       case "spade.http":

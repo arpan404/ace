@@ -57,12 +57,19 @@ const defaultPoll = { waiting: 1000, ready: 5000 };
  * files change and on a timer, and reports `spade.status` from what it sees. Each Spade instance
  * that answers gets a generation, so forwarded streams end when it goes.
  */
+const hiddenStatus: SpadeStatus = {
+  state: "off",
+  hidden: true,
+  reason: "Spade is hidden on this machine.",
+};
+
 export class SpadeLink {
   private facts: SpadeFacts = { enabled: false, service: "absent", healthy: false, silentForMs: 0 };
   private current: SpadeStatus = { state: "off" };
   private thread: SpadeStatus["thread"];
   private grant: SpadeStatus["grant"];
   private revoker: (() => Promise<boolean>) | undefined;
+  private hidden = false;
   private live: (SpadeReady & { key: string }) | undefined;
   private generation = 0;
   private silentSince: number | undefined;
@@ -79,11 +86,22 @@ export class SpadeLink {
     this.options = options;
   }
   status(): SpadeStatus {
+    if (this.hidden) return hiddenStatus;
     return {
       ...this.current,
       ...(this.thread ? { thread: this.thread } : {}),
       ...(this.grant ? { grant: this.grant } : {}),
     };
+  }
+  /**
+   * Spade hidden on this machine (`features.json`, ADR 0139): the status says only that, and
+   * nothing is forwarded, whatever Spade's own state.
+   */
+  setHidden(hidden: boolean): void {
+    if (hidden === this.hidden) return;
+    const before = JSON.stringify(this.status());
+    this.hidden = hidden;
+    this.announce(before);
   }
   /** Spade's grant for ace, reported with every status (never its token). */
   setGrant(grant: SpadeStatus["grant"]): void {
@@ -120,6 +138,7 @@ export class SpadeLink {
     return () => this.arrivals.delete(listener);
   }
   ready(): SpadeReady | undefined {
+    if (this.hidden) return undefined;
     return this.live && { connection: this.live.connection, generation: this.live.generation };
   }
   /** Follows `spade.enabled`: watching and polling run only while it is on. */
