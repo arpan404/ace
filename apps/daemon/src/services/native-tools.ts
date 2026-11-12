@@ -2,12 +2,8 @@ import { logError, logFields } from "@ace/diagnostics";
 import type { ProviderAdapter, SessionContext } from "@ace/engine-api";
 import { SettingsValues } from "@ace/protocol";
 import { defaultCodexHome } from "../account-homes.ts";
-import {
-  claudeChromeFlag,
-  codexLaunchArgs,
-  nodeNativeToolFiles,
-  type NativeToolFiles,
-} from "../native-tools/read.ts";
+import { claudeChromeFlag, codexLaunchArgs } from "../native-tools/read.ts";
+import type { NativeToolFiles } from "../native-tools/files.ts";
 
 /*
  * Starts Codex and Claude sessions with the person's own tool setup (ADR 0128): Codex accounts
@@ -25,7 +21,7 @@ export interface NativeToolsContext {
   log: { log(level: "debug" | "info" | "warn", message: string, data?: unknown): void };
   /** The daemon's own environment: the person's default Codex home and Claude config. */
   env: NodeJS.ProcessEnv;
-  files?: NativeToolFiles;
+  files: NativeToolFiles;
 }
 
 /* Each setting's saved value, or its default when the store is absent or holds something odd. */
@@ -55,13 +51,19 @@ async function codexSession(
       setting: await codexToolSourceSetting(context.settings),
       env: context.env,
       homeDir,
-      files: context.files ?? nodeNativeToolFiles,
+      files: context.files,
     });
     if (launch.problem)
       context.log.log(
         "warn",
         "Codex tool source unusable; starting without it",
         logFields([["reason", launch.problem]]),
+      );
+    if (launch.skipped.length)
+      context.log.log(
+        "warn",
+        "Codex tool source entries left out; Codex can't take their names",
+        logFields([["entries", launch.skipped]]),
       );
     if (!launch.args.length) return session;
     // Names only: an MCP server's env or headers can hold secrets.
@@ -80,7 +82,7 @@ async function claudeSession(
   const chrome = await claudeChromeFlag(
     await claudeChromeSetting(context.settings),
     context.env,
-    context.files ?? nodeNativeToolFiles,
+    context.files,
   );
   return chrome === undefined ? session : { ...session, chrome };
 }

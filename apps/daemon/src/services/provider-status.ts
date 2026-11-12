@@ -14,7 +14,8 @@ import { daemonCursorInstance } from "./cursor-instance.ts";
 import { cursorHosts } from "./cursor-hosts.ts";
 import type { ServiceContext } from "./types.ts";
 import { defaultCodexHome } from "../account-homes.ts";
-import { claudeToolStatus, codexToolStatus, nodeNativeToolFiles } from "../native-tools/read.ts";
+import { claudeToolStatus, codexToolStatus } from "../native-tools/read.ts";
+import { cachedToolFiles, nodeFileSystem } from "../native-tools/files.ts";
 import { claudeChromeSetting, codexToolSourceSetting } from "./native-tools.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
@@ -45,6 +46,7 @@ export function startProviderStatuses(context: ServiceContext): void {
       ? context.services.accountRegistry?.selectedCursorSdk()
       : context.services.accountRegistry?.selectedProvider(provider)) ??
     (provider === "cursor" ? "cursor-sdk-default" : `${provider}-cli-default`);
+  const toolFiles = cachedToolFiles(nodeFileSystem);
   const statuses = new ProviderStatuses(
     {
       ...context.options.providerStatus,
@@ -103,7 +105,7 @@ export function startProviderStatuses(context: ServiceContext): void {
         const env = context.options.accounts?.env ?? process.env;
         const settings = context.services.settings;
         if (row.provider === "claude")
-          return claudeToolStatus(await claudeChromeSetting(settings), env, nodeNativeToolFiles);
+          return claudeToolStatus(await claudeChromeSetting(settings), env, toolFiles);
         if (row.provider !== "codex") return {};
         const account = row.instanceId
           ? context.services.accountRegistry?.get(row.instanceId)?.instance
@@ -112,7 +114,7 @@ export function startProviderStatuses(context: ServiceContext): void {
           setting: await codexToolSourceSetting(settings),
           env,
           homeDir: account?.homeDir ?? defaultCodexHome(env),
-          files: nodeNativeToolFiles,
+          files: toolFiles,
         });
       },
       async versions(row, signal) {

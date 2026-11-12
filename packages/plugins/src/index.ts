@@ -43,6 +43,8 @@ export {
   parseCodexToolConfig,
   codexToolOverrides,
   codexToolEntryNames,
+  relocateCodexHome,
+  mergeCodexToolTables,
   readCodexToolSource,
   emptyCodexToolTables,
   type CodexToolTables,

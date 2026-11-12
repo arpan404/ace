@@ -128,6 +128,13 @@ export function toml(value: unknown): string {
       .join(",")}}`;
   throw new Error("Cannot encode TOML value");
 }
+/**
+ * Whether `key` can be one segment of a Codex `-c` key path. Codex splits the path on `.` and
+ * keeps any quotes as part of the name, so only bare names work; anything else is refused.
+ */
+export function codexKeySegment(key: string): boolean {
+  return /^[A-Za-z0-9_@-]+$/.test(key);
+}
 export function override(projection: PluginProjection, key: string, value: unknown): void {
   projection.args.push("-c", `${key}=${toml(value)}`);
 }

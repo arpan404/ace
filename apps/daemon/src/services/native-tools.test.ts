@@ -2,10 +2,11 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test } from "vitest";
-import { parse as parseToml } from "smol-toml";
 import type { ProviderAdapter, SessionContext } from "@ace/engine-api";
 import { ThreadId } from "@ace/protocol";
-import { codexToolStatus, nodeNativeToolFiles } from "../native-tools/read.ts";
+import { readCodexOverrides } from "@ace/plugins/testing/codex-config";
+import { codexToolStatus } from "../native-tools/read.ts";
+import { cachedToolFiles, nodeFileSystem } from "../native-tools/files.ts";
 import { withNativeTools, type NativeToolsContext } from "./native-tools.ts";
 
 let root: string;
@@ -53,6 +54,7 @@ function harness(provider: "codex" | "claude", values: Record<string, unknown> =
       log: (level, message, data) => logs.push(`${level} ${message} ${JSON.stringify(data)}`),
     },
     env: { HOME: home },
+    files: cachedToolFiles(nodeFileSystem),
   };
   const adapter = withNativeTools(context, inner);
   const open = (session: Partial<SessionContext> = {}) =>
@@ -67,10 +69,9 @@ function harness(provider: "codex" | "claude", values: Record<string, unknown> =
   return { opened, logs, open };
 }
 
-/** The config a Codex launch reads back from its `-c` overrides. */
-function readBack(args: readonly string[] | undefined) {
-  const lines = (args ?? []).filter((_, index) => index % 2 === 1);
-  return parseToml(lines.join("\n"));
+/** The config a Codex launch reads back from its `-c` overrides, parsed as Codex does. */
+function readBack(args: readonly string[] | undefined, base: Record<string, unknown> = {}) {
+  return readCodexOverrides(args ?? [], base);
 }
 
 test("a managed Codex account starts with the person's plugins, marketplaces and MCP servers", async () => {
@@ -85,6 +86,47 @@ test("a managed Codex account starts with the person's plugins, marketplaces and
       node_repl: { command: "/Applications/Host.app/node_repl", env: { TOKEN: "mcp-env-secret" } },
     },
   });
+});
+
+test("a managed account's node_repl runs against its own Codex home, never the source's", async () => {
+  await writeFile(
+    join(codexHome, "config.toml"),
+    `[mcp_servers.node_repl]\ncommand = "/x"\nenv = { CODEX_HOME = ${JSON.stringify(codexHome)} }\n`,
+  );
+  const h = harness("codex");
+  await h.open({ instanceHomeDir: managed });
+  const args = h.opened[0]?.toolConfigArgs ?? [];
+  expect(readBack(args)["mcp_servers"]).toEqual({
+    node_repl: { command: "/x", env: { CODEX_HOME: managed } },
+  });
+  expect(args.join(" ")).not.toContain(codexHome);
+});
+
+test("a Codex account that turned node_repl off in ace keeps it off", async () => {
+  await writeFile(join(codexHome, "config.toml"), personConfig);
+  const own = "[mcp_servers.node_repl]\nenabled = false\n";
+  await writeFile(join(managed, "config.toml"), own);
+  const h = harness("codex");
+  await h.open({ instanceHomeDir: managed });
+  const back = readBack(h.opened[0]?.toolConfigArgs, {
+    mcp_servers: { node_repl: { enabled: false } },
+  });
+  expect(back["mcp_servers"]).toMatchObject({
+    node_repl: { enabled: false, command: "/Applications/Host.app/node_repl" },
+  });
+});
+
+test("a tool source entry Codex can't name is left out and logged by name only", async () => {
+  await writeFile(
+    join(codexHome, "config.toml"),
+    '[mcp_servers."a.b@c"]\ncommand = "/secret/path"\n[plugins."x@y"]\nenabled = true\n',
+  );
+  const h = harness("codex");
+  await h.open({ instanceHomeDir: managed });
+  expect(readBack(h.opened[0]?.toolConfigArgs)).toEqual({ plugins: { "x@y": { enabled: true } } });
+  const logged = h.logs.join("\n");
+  expect(logged).toContain("mcp_servers.a.b@c");
+  expect(logged).not.toContain("/secret/path");
 });
 
 test("Codex logs name the carried entries but never their values or other secrets", async () => {
@@ -156,7 +198,7 @@ test("the Codex row reports a managed account's tools from the person's setup", 
     setting: null,
     env: { HOME: home },
     homeDir: managed,
-    files: nodeNativeToolFiles,
+    files: cachedToolFiles(nodeFileSystem),
   });
   expect(status.toolSource).toEqual({ path: codexHome, usable: true });
   expect(status.nativeTools.map((tool) => [tool.id, tool.state])).toEqual([

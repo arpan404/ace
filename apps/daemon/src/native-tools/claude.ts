@@ -24,13 +24,11 @@ export function claudeNativeTools(
 ): NativeToolStatus[] {
   const tool = { id: "chrome", label: "Claude in Chrome" };
   if (claudeChromeLaunch(setting, claudeDefault) === true) return [{ ...tool, state: "ready" }];
-  return [
-    {
-      ...tool,
-      state: "unavailable",
-      reason: setting === "off" ? "Turned off in ace" : "Off in Claude's settings",
-    },
-  ];
+  if (setting === "off") return [{ ...tool, state: "unavailable", reason: "Turned off in ace" }];
+  if (claudeDefault === false)
+    return [{ ...tool, state: "unavailable", reason: "Off in Claude's settings" }];
+  // No setting ace can read: Claude decides for itself, so ace can't say.
+  return [{ ...tool, state: "unknown", reason: "ace can't read Claude's Chrome setting" }];
 }
 
 /** The person's Claude config: `$CLAUDE_CONFIG_DIR/.claude.json`, else `~/.claude.json`. */

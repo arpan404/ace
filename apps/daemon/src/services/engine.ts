@@ -9,6 +9,7 @@ import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
 import { AgentId } from "@ace/protocol";
 import { withDaemonMcp, withShippedSkills } from "./provider-mcp.ts";
 import { withNativeTools } from "./native-tools.ts";
+import { cachedToolFiles, nodeFileSystem } from "../native-tools/files.ts";
 import { acpEngineOptions } from "../acp-engine.ts";
 import { ManagedWorktrees } from "../managed-worktrees.ts";
 import { daemonClaudeAdapter } from "./claude.ts";
@@ -109,6 +110,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     },
     log,
     env: options.accounts?.env ?? process.env,
+    files: cachedToolFiles(nodeFileSystem),
   };
   const bindProvider = (source: ProviderAdapter) => {
     // Innermost, so the person's tool setup applies to whichever account is chosen (ADR 0128).
