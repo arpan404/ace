@@ -114,7 +114,14 @@ test("a PDF attached in the composer goes as a document, and an image still as a
   await screen.findByRole("group", { name: "report.pdf" });
 });
 
-test("a document chip shows its name and pages, and Download reads it from Spade", async () => {
+test("a document chip shows its name and pages, and Download saves it under its name without opening it in the app", async () => {
+  const opened = vi.spyOn(window, "open").mockImplementation(() => null);
+  const saved: { href: string; download: string }[] = [];
+  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+    this: HTMLAnchorElement,
+  ) {
+    saved.push({ href: this.href, download: this.download });
+  });
   const { spade } = await spadeApp("/spade", (api) => {
     const writer = withWriter(api);
     api.store(writer.conversation, {
@@ -138,11 +145,13 @@ test("a document chip shows its name and pages, and Download reads it from Spade
   const chip = within(await screen.findByRole("group", { name: "report.pdf" }));
   chip.getByText("12 pages · 482 KB");
   await userEvent.click(chip.getByRole("button", { name: "Download" }));
-  await waitFor(() =>
-    expect(spade.requests.map((request) => request.path)).toContain(
-      `/v1/documents/${hash("d")}?name=report.pdf`,
-    ),
+  await waitFor(() => expect(saved).toEqual([{ href: "blob:spade/1", download: "report.pdf" }]));
+  expect(spade.requests.map((request) => request.path)).toContain(
+    `/v1/documents/${hash("d")}?name=report.pdf`,
   );
+  // Nothing offers to show the file in a tab of the app's own origin.
+  expect(chip.queryByRole("button", { name: "Open" })).toBeNull();
+  expect(opened).not.toHaveBeenCalled();
 });
 
 test("an image a bot's tool showed sits in that reply's bubble with Save", async () => {

@@ -99,7 +99,7 @@ the bot, as a web page can.
 
 9. **A bot can show a file from its workspace.** `share_file` takes a workspace path. An image
    (PNG, JPEG, GIF, WebP, at most 3.75 MB) is stored by hash and shown in the bubble; any other
-   file up to 32 MB is stored as a document and shown as a chip with Open and Download. This is
+   file up to 32 MB is stored as a document and shown as a chip with Download. This is
    how charts and diagrams the bot drew with its shell reach the chat. Its risk is `read`.
 
 10. **Voice in.** In the composer, the mic records while held and stops on release. The app
@@ -116,7 +116,7 @@ the bot, as a web page can.
     (`speechSynthesis`), on the device; nothing is sent anywhere.
 
 12. **In the app.** The composer's attach takes images and documents; a document shows as a chip
-    (name, pages or size) with Open and Download in both the person's and the bot's bubbles; the
+    (name, pages or size) with Download in both the person's and the bot's bubbles; the
     images a bot makes or shares sit in its bubble with Save; tool calls stay out of the chat. The
     mic is the platform's own control glyph; every other control is a text button.
 

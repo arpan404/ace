@@ -97,7 +97,11 @@ function Picture(props: { image: SpadeImageRef; saves: boolean }) {
   );
 }
 
-/** Documents in a message: each a chip with its name, pages or sheets and size, Open and Download. */
+/**
+ * Documents in a message: each a chip with its name, pages or sheets and size, and Download.
+ * A document is never shown in the app's own origin (a `blob:` URL opened in a tab would be);
+ * Download hands it to the browser's downloads, or the desktop app's save dialog, to open from.
+ */
 export function DocumentChips(props: {
   documents: readonly SpadeDocumentRef[];
   side: "person" | "bot";
@@ -123,24 +127,23 @@ function DocumentChip(props: { document: SpadeDocumentRef }) {
   const client = useSpadeClient();
   const toast = useToast();
   const { document: file } = props;
-  const [busy, setBusy] = useState<"open" | "download">();
+  const [busy, setBusy] = useState(false);
   const facts = spadeDocumentFacts(file);
-  const fetchFile = async (doing: "open" | "download") => {
-    setBusy(doing);
+  const download = async () => {
+    setBusy(true);
     try {
       const path = `/v1/documents/${segment(file.sha256)}?name=${encodeURIComponent(file.name)}`;
       const blob = await spadeBlob(client, path);
       const url = URL.createObjectURL(blob);
-      if (doing === "open") window.open(url, "_blank", "noopener");
-      else saveAs(url, file.name);
+      saveAs(url, file.name);
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch (error) {
       toast.error({
-        title: doing === "open" ? `Couldn't open ${file.name}` : `Couldn't download ${file.name}`,
+        title: `Couldn't download ${file.name}`,
         description: error instanceof Error ? error.message : undefined,
       });
     } finally {
-      setBusy(undefined);
+      setBusy(false);
     }
   };
   return (
@@ -152,21 +155,8 @@ function DocumentChip(props: { document: SpadeDocumentRef }) {
       <span className="truncate text-ui text-foreground">{file.name}</span>
       {facts && <span className="text-xs text-muted-foreground">{facts}</span>}
       <div className="-mx-2 mt-0.5 flex gap-1">
-        <Button
-          size="xs"
-          variant="ghost"
-          disabled={busy !== undefined}
-          onClick={() => void fetchFile("open")}
-        >
-          {busy === "open" ? "Opening…" : "Open"}
-        </Button>
-        <Button
-          size="xs"
-          variant="ghost"
-          disabled={busy !== undefined}
-          onClick={() => void fetchFile("download")}
-        >
-          {busy === "download" ? "Downloading…" : "Download"}
+        <Button size="xs" variant="ghost" disabled={busy} onClick={() => void download()}>
+          {busy ? "Downloading…" : "Download"}
         </Button>
       </div>
     </div>

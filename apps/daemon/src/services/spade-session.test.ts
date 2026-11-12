@@ -268,7 +268,7 @@ function readySession(port: number) {
   return { handle, result, sent, close: () => service.close?.() };
 }
 
-test("media as large as Spade takes passes both ways: a long recording, a stored document, a full message", async () => {
+test("media as large as Spade takes passes both ways, and a text window keeps the small cap", async () => {
   const documentBytes = 2 * 1024 * 1024;
   const spade = createServer((request, response) => {
     let length = 0;
@@ -307,8 +307,17 @@ test("media as large as Spade takes passes both ways: a long recording, a stored
   });
 
   await handle({ type: "spade.http", requestId: "doc", method: "GET", path: "/v1/documents/ab12" });
-  const document = await result("doc");
-  expect(document).toMatchObject({ kind: "response", status: 200, encoding: "base64" });
+  expect(await result("doc")).toMatchObject({ kind: "response", status: 200, encoding: "base64" });
+  await handle({ type: "spade.http", requestId: "audio", method: "GET", path: "/v1/audio/ab12" });
+  expect(await result("audio")).toMatchObject({ kind: "response", status: 200 });
+  // A text window is small JSON: the same 2 MB there is more than the route takes.
+  await handle({
+    type: "spade.http",
+    requestId: "text",
+    method: "GET",
+    path: "/v1/documents/ab12/text?offset=0",
+  });
+  expect(await result("text")).toMatchObject({ kind: "error", code: "too_large" });
 
   // A message with eight 32 MB documents needs more than two thousand parts.
   await handle({
