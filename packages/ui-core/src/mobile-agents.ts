@@ -4,6 +4,7 @@ import type { ThreadReader } from "@ace/client";
 import { agentName, agentTreeWork, agentWorkState, taskState } from "./agents.ts";
 import { lostChildAsk, type LostChildAsk } from "./lost-child.ts";
 import { modelLabel } from "./providers.ts";
+import { holdStoppable } from "./remote-contact.ts";
 import { toneToken, type StatusDisplay, type StatusToken } from "./mobile-status.ts";
 import {
   agentNodeIcon,
@@ -63,8 +64,16 @@ export interface AgentSheetRow {
   childThreadId: string | null;
   /** Agents under it at any depth: Stop stops them too. */
   descendants: number;
-  /** A person may stop this agent (and its descendants) on its own. The root stops the tree. */
+  /**
+   * A person may stop this agent (and its descendants) on its own. The root stops the tree; a
+   * child on another machine stops through `holdTaskId`.
+   */
   stoppable: boolean;
+  /**
+   * The task its parent holds for a child on another machine: that child's own work, stopped by
+   * stopping this task (`background_task.stop`), and never listed as background work beside it.
+   */
+  holdTaskId: string | null;
   background: boolean;
   createdAt: number;
   endedAt: number | null;
@@ -233,6 +242,12 @@ export function agentSheet(
   }
   const fresh = reader.unconfirmed !== true && reader.syncing !== true;
   const order = treeOrder(agents);
+  // A subagent task naming an agent in this tree is that agent's work, as the forest reads it.
+  const known = new Set(agents.map((agent) => agent.id));
+  const holds = new Map<string, BackgroundTask>();
+  for (const task of tasks)
+    if (task.kind === "subagent" && task.childAgentId && known.has(task.childAgentId))
+      holds.set(task.childAgentId, task);
   // Stop names only the subagents it would stop: those still unsettled.
   const descendants = descendantCounts(order, (id) => work.running.has(id));
   // The first page holds what the person must see first, each with the ancestors that place
@@ -296,6 +311,8 @@ export function agentSheet(
     const state = agentWorkState(agent, work, { fresh });
     const modelId = agent.model ?? usage?.model ?? "";
     const running = work.running.has(agent.id);
+    const hold = agent.machine ? holds.get(agent.id) : undefined;
+    const holdTaskId = hold && holdStoppable(hold) ? hold.id : null;
     rows.push({
       id: agent.id,
       parentId: agent.parentId,
@@ -311,7 +328,8 @@ export function agentSheet(
       costUsd: usage?.costUsd ?? null,
       childThreadId: agent.childThreadId ?? null,
       descendants: descendants.get(agent.id) ?? 0,
-      stoppable: agent.origin !== "root" && running,
+      stoppable: agent.machine ? holdTaskId !== null : agent.origin !== "root" && running,
+      holdTaskId,
       background: agent.background,
       createdAt: agent.createdAt,
       endedAt: agent.endedAt ?? null,
@@ -333,8 +351,11 @@ export function agentSheet(
   }
 
   // Running work (and work ace lost track of) first, then failures, then the newest that
-  // ended; ace's bookkeeping is never listed.
-  const listed = tasks.filter((task) => !isInternalTask(task));
+  // ended; ace's bookkeeping, and the work an agent's own row stands for, are never listed.
+  const listed = tasks.filter(
+    (task) =>
+      !isInternalTask(task) && !(task.childAgentId && holds.get(task.childAgentId) === task),
+  );
   const shownTasks = listed
     .toSorted((a, b) => taskRank(b) - taskRank(a) || b.startedAt - a.startedAt)
     .slice(0, limits.tasks);

@@ -120,7 +120,7 @@ struct AgentTreePage: View {
         .accessibilityHint(row.depth == 0 ? "" : "Opens its transcript")
         .contextMenu {
             if model.canOperate && row.stoppable {
-                Button(role: .destructive) { self.request(.agent(id: row.id, name: row.name, descendants: row.descendants)) } label: {
+                Button(role: .destructive) { stopRow(row) } label: {
                     Label("Stop", systemImage: "stop.circle")
                 }
             }
@@ -171,6 +171,12 @@ struct AgentTreePage: View {
     }
     private var asking: Binding<Bool> {
         Binding(get: { stop.asking != nil }, set: { shown in if !shown { stop.cancel() } })
+    }
+    /// A child on another machine stops through the work its parent holds for it; any other
+    /// agent stops itself, asking first when subagents stop with it.
+    private func stopRow(_ row: AgentSheet.Row) {
+        if let hold = row.holdTaskId { Task { _ = await model.stopTask(hold) } }
+        else { request(.agent(id: row.id, name: row.name, descendants: row.descendants)) }
     }
     private func request(_ target: StopConfirmation.Target) { Task { await stop.request(target, send: send) } }
     private func send(_ target: StopConfirmation.Target) async -> Bool { await model.interrupt(agentId: target.agentId) }

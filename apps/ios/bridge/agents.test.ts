@@ -405,4 +405,56 @@ describe("Agents sheet", () => {
     await until(() => row()?.lost === null && !row()?.needsYou, "the row settles");
     expect(row()?.requests).toEqual([]);
   });
+  test("a child on another machine is one row, stopped through the work its parent holds for it", async () => {
+    const remote = "ace-child:remote";
+    const { store } = await opened("holder", [
+      facts.rootAgent("codex"),
+      facts.turn("root"),
+      {
+        type: "agent.seen",
+        agent: remote,
+        parent: "root",
+        origin: "ace",
+        fidelity: "summary",
+        native: { provider: "claude" },
+        cwd: "",
+        role: "reviewer",
+        machine: { machine: "studio", name: "Studio" },
+      },
+      {
+        type: "agent.external",
+        agent: remote,
+        threadId: ThreadId.parse("remote"),
+        status: { state: "working", agents: 1 },
+      },
+      {
+        type: "background.started",
+        owner: "ace",
+        agent: "root",
+        task: "hold",
+        kind: "subagent",
+        title: "reviewer · Studio",
+        childAgent: remote,
+        stoppable: true,
+      },
+      {
+        type: "background.started",
+        agent: "root",
+        task: "watch",
+        kind: "shell",
+        title: "bun run test --watch",
+        stoppable: true,
+      },
+    ]);
+    const sink = new RecordingSink();
+    followAgents(store, "holder", 1, sink, plainPreview);
+    await until(() => sheet(sink).rows.length === 2 && sheet(sink).tasks.length > 0, "the tree");
+    // The hold is the child's own work: its row stands for it, so it isn't listed again.
+    expect(sheet(sink).tasks.map((task) => task.title)).toEqual(["bun run test --watch"]);
+    expect(sheet(sink).hiddenTasks).toBe(0);
+    const row = sheet(sink).rows.find((candidate) => candidate.machine === "Studio");
+    expect(row).toMatchObject({ running: true, stoppable: true });
+    expect(row?.holdTaskId).toBeTruthy();
+    expect(store.task(row?.holdTaskId ?? "")?.childAgentId).toBe(row?.id);
+  });
 });

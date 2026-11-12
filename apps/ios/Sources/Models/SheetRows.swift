@@ -63,6 +63,8 @@ struct AgentSheet: Codable, Sendable, Equatable {
         var requests: [String]? = nil
         /// A child on another machine whose pairing is gone: the sentence and Stop tracking.
         var lost: Lost? = nil
+        /// The task its parent holds for a child on another machine: Stop stops that task.
+        var holdTaskId: String? = nil
     }
     /// What a lost child's row offers (`lostChildAsk`): the daemon's sentence, and the action that
     /// answers its parent's request with `optionId`; `label` is the option's own words.
