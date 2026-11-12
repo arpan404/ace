@@ -90,11 +90,20 @@ Folded on each request from the conversation's events; nothing more is stored. A
 | `cap`       | `cap_reached`                                                        | `daily` / `monthly` | the cap in words         | null                                                         |
 
 `summary` is one line of at most 160 characters. Arguments show as `key: value` pairs (strings
-unquoted, nested values as compact JSON). Secrets never show: a value under a name containing
-`token`, `secret`, `password`, `passwd`, `key`, `auth`, `cookie`, `credential` or `session` (any
-case) becomes `•••`, and so does any run in a string shaped like a key: `sk-…`, `ghp_…`,
-`github_pat_…`, `xox?-…`, `AKIA…`, `Bearer …`, a JWT, or 32 or more characters of letters, digits,
-`-` and `_` with both letters and digits. A shell command is its own summary, with the same
+unquoted, nested values as compact JSON). Secrets never show. A name is secret when one of its parts (split at `_`, `-`, `.` and
+camelCase) is `token`, `secret`, `password`, `passwd`, `auth`, `authorization`, `credential(s)`,
+`cookie`, `apikey`, `accesskey` or `privatekey`, or is `key` after another part (`api_key`,
+`X-Api-Key`); not `key` alone, `tokens`, `keywords`, `author` or `session_id`. A JSON value under
+such a name becomes `•••`. In text, the value such a name gives is hidden however it is written:
+`NAME=value`, `NAME = value`, `NAME="…"`, `name: value`, `"name": "…"`, `--name value`,
+`--name=value`, a URL's `?name=…`; a value runs to whitespace, to its close quote when it opens
+with one, and in a query also to `&` or `#`. After `Authorization:` the scheme (`Basic`,
+`Bearer`, `Digest`, `Token`) and its credential are both hidden, and so is the word after
+`Bearer` anywhere. Then any word shaped like a key is hidden: one starting `sk-`, `sk_`,
+`pk_live_`, `rk_live_`, `gh?_`, `github_pat_`, `xox?-`, `glpat-`, `AIza`, `AKIA` or `ASIA` (12
+characters or more), a JWT (`eyJ…` in three dotted parts), or 32 or more characters of letters,
+digits, `-`, `_`, `+`, `/` and `=` holding a digit, a lowercase and an uppercase letter (so
+single-case hex such as commit hashes stays). A shell command is its own summary, with the same
 redaction. `spend` and `review` carry `cost_micros`.
 
 `GET /v1/agents/{id}/activity` takes `kind` (comma-separated kinds), `day` (`YYYY-MM-DD` in the
