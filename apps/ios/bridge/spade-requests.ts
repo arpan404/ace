@@ -1,9 +1,9 @@
 import type { ClientCore } from "@ace/client";
 import {
-  parseSpadeCreated,
   parseSpadeModels,
   spadeKeyLine,
   spadeModelRoles,
+  spadeStart,
   spadeStopAnswered,
 } from "@ace/ui-core/spade-chat";
 import { z } from "zod";
@@ -44,7 +44,7 @@ export const NativeSpadeRequest = z.discriminatedUnion("type", [
 export type NativeSpadeRequest = z.infer<typeof NativeSpadeRequest>;
 
 type Outcome = { ok: true } & Record<string, unknown>;
-type Refusal = { ok: false; title: string; message: string };
+type Refusal = { ok: false; title: string; message: string; unknown?: true };
 
 /** A conversation's path in Spade's API. */
 const path = (id: string) => `/v1/conversations/${segment(id)}`;
@@ -67,12 +67,21 @@ export async function answerSpade(
   switch (request.type) {
     case "spade.start":
       try {
-        const id = parseSpadeCreated(
-          await ask("POST", "/v1/conversations", { text: request.text }),
-        );
-        if (!id) throw new Error("Spade started the conversation but didn't say where it is.");
+        const link = {
+          read: (route: string) => ask("GET", route),
+          post: (route: string, body: unknown) => ask("POST", route, body),
+          back: () => spade.reachable(),
+        };
+        const started = await spadeStart(link, { text: request.text }, request.text);
         spade.refresh();
-        return { ok: true, id };
+        if (started.kind === "started") return { ok: true, id: started.id };
+        // Spade may have it: the words stay out of the composer, so a retry can't start it twice.
+        return {
+          ok: false,
+          unknown: true,
+          title: "Couldn't tell whether Spade started the conversation",
+          message: "If it did, it shows in Spade's conversations once this machine is back.",
+        };
       } catch (error) {
         return refused("Couldn't start the conversation", error);
       }

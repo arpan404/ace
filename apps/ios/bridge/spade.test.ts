@@ -330,6 +330,27 @@ test("starting a conversation returns where it is, and Stop with nothing answeri
   );
 });
 
+test("a start whose answer was lost opens the conversation Spade made, and makes no second one", async () => {
+  const { daemon, spade, patches, ask } = await phone();
+  daemon.spade.holding = (request) => request.method === "POST";
+  const started = ask({ type: "spade.start", text: "What's on today?" });
+  await until(() => daemon.spade.waiting === 1);
+  // Spade makes the conversation, then the socket drops before its answer reaches the phone.
+  daemon.spade.letThrough(false);
+  daemon.disconnectAll();
+  const outcome = await started;
+  // Not back in the composer, where sending it again would start a second conversation.
+  expect(outcome).toMatchObject({ ok: true });
+  const id = "id" in outcome ? String(outcome.id) : "";
+
+  spade.handle({ type: "spade.watch", on: true });
+  await until(() => state(patches.flush())?.list.rows?.length);
+  expect(state(patches.flush()).list.rows?.map((row) => row.id)).toEqual([id]);
+  spade.handle({ type: "spade.open", conversationId: id });
+  await until(() => rows(patches.flush()).length === 1);
+  expect(rows(patches.flush()).map((row) => row.text)).toEqual(["What's on today?"]);
+});
+
 test("a key goes to the machine's keychain through Spade, and the phone only learns it is set", async () => {
   const { daemon, ask } = await phone((fake) => {
     fake.spade.models = {

@@ -106,6 +106,23 @@ export class NativeSpade {
     return this.status?.state === "ready";
   }
 
+  /** Resolves true once the machine's connection is ready, false after `waitMs` without it. */
+  reachable(waitMs = 30_000): Promise<boolean> {
+    if (this.owner.state === "ready") return Promise.resolve(true);
+    const connection = this.owner.connectionState();
+    return new Promise((resolve) => {
+      const done = (reached: boolean) => {
+        stop();
+        cancel();
+        resolve(reached);
+      };
+      const stop = connection.subscribe(() => {
+        if (connection.getSnapshot() === "ready") done(true);
+      });
+      const cancel = this.deps.later(waitMs, () => done(false));
+    });
+  }
+
   /** The open conversation's follow, for sends that should show at once. */
   follow(conversationId: string): SpadeConversationFollow | undefined {
     return this.open?.id === conversationId ? this.open.follow : undefined;
