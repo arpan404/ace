@@ -231,12 +231,14 @@ export interface MergePickHead {
 /**
  * The picks still on show with the head they were picked at, in list order. A row that got new
  * commits since leaves the selection, named in `notice`, so a run never merges a head the person
- * didn't choose; a row that left the list leaves quietly.
+ * didn't choose; a row that left the list leaves quietly. When `pruned`, `kept` is the selection
+ * from then on: a dropped pick stays gone, even if its row comes back or its head moves back,
+ * until the person picks it again.
  */
 export function mergeSelection<Pick extends MergePickHead>(
   picked: readonly Pick[],
   rows: readonly { key: string; headSha?: string | undefined }[],
-): { kept: Pick[]; moved: number[]; notice: string | undefined } {
+): { kept: Pick[]; moved: number[]; notice: string | undefined; pruned: boolean } {
   const byKey = new Map(picked.map((pick) => [pick.key, pick]));
   const kept: Pick[] = [];
   const moved: number[] = [];
@@ -251,5 +253,23 @@ export function mergeSelection<Pick extends MergePickHead>(
     : moved.length === 1
       ? `${prNumbers(moved)} has new commits since it was picked. Pick it again to merge it.`
       : `${prNumbers(moved)} have new commits since they were picked. Pick them again to merge them.`;
-  return { kept, moved, notice };
+  return { kept, moved, notice, pruned: kept.length !== picked.length };
+}
+
+/**
+ * Why Start can't send these picks now, or undefined when it can: one whose head moved since it
+ * was picked, or whose row is no longer in the list, is picked again first.
+ */
+export function mergeStartRefusal(
+  picked: readonly MergePickHead[],
+  rows: readonly { key: string; headSha?: string | undefined }[],
+): string | undefined {
+  const selection = mergeSelection(picked, rows);
+  if (selection.notice) return selection.notice;
+  const kept = new Set(selection.kept.map((pick) => pick.key));
+  const gone = picked.filter((pick) => !kept.has(pick.key)).map((pick) => pick.number);
+  if (!gone.length) return undefined;
+  return gone.length === 1
+    ? `${prNumbers(gone)} is no longer in the list. Pick it again to merge it.`
+    : `${prNumbers(gone)} are no longer in the list. Pick them again to merge them.`;
 }

@@ -43,10 +43,16 @@ export function useMergeRun(
   const heads = new Map(selection.kept.map((pick) => [pick.key, pick.headSha]));
   const selected = ready.filter((row) => heads.has(keyOf(row)));
   const base = selected[0]?.baseBranch;
-  // A picked row whose head moved is no longer selected; the person hears it once.
-  const notice = selection.notice;
+  // A dropped pick is gone from the selection itself, not only from view: a row that comes back
+  // (a filter cleared, a head moved back) is unpicked until picked again. Adjusted while
+  // rendering, so no frame shows it; the notice is kept to be said once.
+  const [notice, setNotice] = useState<{ text: string }>();
+  if (selection.pruned) {
+    setPicked(new Map(selection.kept.map((pick) => [pick.key, pick])));
+    if (selection.notice) setNotice({ text: selection.notice });
+  }
   useEffect(() => {
-    if (notice) toast.info({ title: "Pick it again", description: notice });
+    if (notice) toast.info({ title: "Pick it again", description: notice.text });
   }, [notice, toast]);
   const run = shownMergeRun(runs, { dismissed, own, picking: false });
   const shown = shownMergeRun(runs, { dismissed, own, picking: selected.length > 0 });

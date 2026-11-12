@@ -5,6 +5,7 @@ import {
   mergePickWords,
   mergeRunRefusal,
   mergeSelection,
+  mergeStartRefusal,
   runWords,
   shownMergeRun,
 } from "./merge-run-words.ts";
@@ -128,4 +129,44 @@ test("several moved heads are named together, and none moved says nothing", () =
     "#1 and #2 have new commits since they were picked. Pick them again to merge them.",
   );
   expect(mergeSelection(picked, picked).notice).toBeUndefined();
+});
+
+test("a pick dropped from the selection stays dropped when its row comes back", () => {
+  const a = "a".repeat(40);
+  const b = "b".repeat(40);
+  const pick = (number: number) => ({ key: `k${number}`, number, headSha: a });
+  const row = (number: number, headSha = a) => ({ key: `k${number}`, headSha });
+  // The selection as stored: whatever a drop leaves becomes the picks from then on.
+  let picks = [pick(1), pick(2)];
+  const step = (rows: { key: string; headSha: string }[]) => {
+    const selection = mergeSelection(picks, rows);
+    if (selection.pruned) picks = selection.kept;
+    return selection;
+  };
+  // #1 is filtered out of the list, then the filter is cleared.
+  expect(step([row(2)]).pruned).toBe(true);
+  expect(step([row(1), row(2)]).kept.map((each) => each.number)).toEqual([2]);
+  // #2 gets a push, then its head moves back to the one picked.
+  expect(step([row(1), row(2, b)]).notice).toContain("#2 has new commits");
+  expect(step([row(1), row(2)]).kept).toEqual([]);
+  // Nothing dropped leaves the picks as stored.
+  picks = [pick(1)];
+  expect(step([row(1), row(2)])).toMatchObject({ pruned: false, kept: [pick(1)] });
+});
+
+test("Start with a pick whose row left the list says to pick again", () => {
+  expect(mergeStartRefusal([{ key: "k1", number: 1, headSha: "a".repeat(40) }], [])).toBe(
+    "#1 is no longer in the list. Pick it again to merge it.",
+  );
+  const moved = mergeStartRefusal(
+    [{ key: "k1", number: 1, headSha: "a".repeat(40) }],
+    [{ key: "k1", headSha: "b".repeat(40) }],
+  );
+  expect(moved).toBe("#1 has new commits since it was picked. Pick it again to merge it.");
+  expect(
+    mergeStartRefusal(
+      [{ key: "k1", number: 1, headSha: "a".repeat(40) }],
+      [{ key: "k1", headSha: "a".repeat(40) }],
+    ),
+  ).toBeUndefined();
 });
