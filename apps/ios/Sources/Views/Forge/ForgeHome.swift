@@ -129,7 +129,7 @@ struct ForgeHome: View {
         if let session, let chosen {
             switch kind {
             case .pulls:
-                ForgePullsList(model: pulls,
+                ForgePullsList(client: session.client, model: pulls,
                                open: actions.open, openThread: actions.openThread, refresh: { await load(fresh: true) }, more: { await more() })
             case .issues:
                 ForgeIssuesList(model: issues,
