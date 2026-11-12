@@ -59,9 +59,10 @@ fn known(state: &AppState, id: &str) -> Result<(), Box<Response>> {
 fn path_problem(error: &PathError) -> Response {
     let status = match error {
         PathError::Missing(_) => StatusCode::NOT_FOUND,
-        PathError::Absolute(_) | PathError::Parent | PathError::Outside(_) => {
-            StatusCode::BAD_REQUEST
-        }
+        PathError::Absolute(_)
+        | PathError::Parent
+        | PathError::Outside(_)
+        | PathError::Unusable(_) => StatusCode::BAD_REQUEST,
         PathError::Io(_) => StatusCode::UNPROCESSABLE_ENTITY,
     };
     problem(status, &error.to_string())

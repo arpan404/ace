@@ -175,19 +175,25 @@ async fn a_daemon_that_stops_reading_fails_requests_in_time_and_is_let_go() {
     let timeout = Duration::from_millis(300);
     let skills = client(&daemon, LOCAL_TOKEN, timeout);
     let huge = huge();
-    // Building a 32 MiB frame takes a while in a debug build; the bound is loose for it.
-    let request = Instant::now();
-    assert!(skills.read(REVIEW, Some(&huge)).await.is_err());
-    assert!(
-        request.elapsed() < Duration::from_secs(20),
-        "{:?}",
-        request.elapsed()
-    );
-
-    // The stuck write misses its deadline and the socket is let go, client still alive.
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while !daemon.saw_close() && Instant::now() < deadline {
-        tokio::time::sleep(Duration::from_millis(25)).await;
+    // The kernel may take a whole frame into its buffers (Windows grows them on loopback), so
+    // frames go until one write sticks. The stuck write misses its deadline and the socket is
+    // let go, client still alive.
+    for _ in 0..4 {
+        // Building a 32 MiB frame takes a while in a debug build; the bound is loose for it.
+        let request = Instant::now();
+        assert!(skills.read(REVIEW, Some(&huge)).await.is_err());
+        assert!(
+            request.elapsed() < Duration::from_secs(20),
+            "{:?}",
+            request.elapsed()
+        );
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while !daemon.saw_close() && Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        if daemon.saw_close() {
+            break;
+        }
     }
     assert!(daemon.saw_close(), "a stuck write held the socket");
 

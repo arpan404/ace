@@ -199,16 +199,21 @@ struct Task {
     timeout: Duration,
 }
 
+type Stream =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+/// A write that never finished: unsent bytes are still queued in the kernel. Plain closing would
+/// leave the connection lingering, and on Windows it stays open (the daemon never hears Spade
+/// let go) while the kernel keeps trying to send them; a reset drops them and ends it at once.
+fn reset(stream: &Stream) {
+    if let tokio_tungstenite::MaybeTlsStream::Plain(tcp) = stream.get_ref() {
+        let _ = tcp.set_zero_linger();
+    }
+}
+
 /// Owns the socket until the daemon closes it, a write misses its deadline, or Spade drops the
 /// last handle; then answers every waiter left.
-async fn run<S>(
-    mut stream: tokio_tungstenite::WebSocketStream<S>,
-    mut rx: mpsc::Receiver<Message>,
-    waiters: Waiters,
-    task: Task,
-) where
-    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
-{
+async fn run(mut stream: Stream, mut rx: mpsc::Receiver<Message>, waiters: Waiters, task: Task) {
     let Task {
         token,
         stop,
@@ -226,11 +231,15 @@ async fn run<S>(
                                 break SkillsError::Unreachable(token.scrub(error.to_string()));
                             }
                             Err(_) => {
+                                reset(&stream);
                                 break SkillsError::Unreachable("the daemon stopped reading".into());
                             }
                         },
                         // Dropped mid-write: the socket can't be closed cleanly, only let go.
-                        () = stop.notified() => break SkillsError::Unreachable("closed".into()),
+                        () = stop.notified() => {
+                            reset(&stream);
+                            break SkillsError::Unreachable("closed".into());
+                        }
                     }
                 }
                 None => {

@@ -291,9 +291,12 @@ mod platform {
 
     pub(super) fn command(env: &super::Env, command: &str) -> Command {
         let mut shell = Command::new(format!("{}\\System32\\cmd.exe", system_root(env)));
+        // With `/S`, cmd.exe drops the first and the last quote of what follows `/C` and runs
+        // the rest as it is, so the command goes in one more pair: a command that starts and
+        // ends with a quoted word (`"C:\Program Files\x.exe" "a b"`) runs as written.
         shell
             .args(["/D", "/S", "/C"])
-            .raw_arg(command)
+            .raw_arg(format!("\"{command}\""))
             .creation_flags(CREATE_NEW_PROCESS_GROUP);
         shell
     }
