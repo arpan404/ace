@@ -424,3 +424,4 @@ export * from "./forge-review-submit.ts";
 export * from "./forge-fix-marks.ts";
 
 export * from "./forge-capability.ts";
+export * from "./summary-tree-row.ts";

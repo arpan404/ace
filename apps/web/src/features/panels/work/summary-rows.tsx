@@ -1,14 +1,9 @@
 import {
-  agentOutcome,
-  agentStep,
-  askWords,
   backgroundCommand,
-  foldWords,
   formatSpan,
   holdStoppable,
-  isRunning,
-  pluralCount,
-  remoteContactStep,
+  rowStepItem,
+  summaryRow,
   type AgentForestNode,
   type CommandForestNode,
 } from "@ace/ui-core";
@@ -182,58 +177,22 @@ export function AgentLine(
   const thread = useThreadMeta(node.threadId);
   const identity = useAgentIdentity(node.threadId, agent);
   const details = useAgentDetails(thread, agent);
-  // A delegate's own work is its thread's main agent's: its step reads from there once loaded.
-  const doer = node.childRoot ?? agent;
-  const status = doer.status;
-  const tool = useItem(
-    node.childRoot ? node.childThread : node.threadId,
-    status.state === "working" && status.itemId ? status.itemId : "",
-  );
+  const stepItem = rowStepItem(node);
+  const tool = useItem(stepItem?.threadId ?? node.threadId, stepItem?.itemId ?? "");
   const openSubagent = useOpenSubagent();
   const now = useNow();
-  const root = agent.origin === "root" && node.threadId === props.viewed;
-  const asks = props.request ? askWords(props.request.request) : undefined;
-  const own = isRunning(doer);
-  const below = node.tally;
-  const asking =
-    props.request !== undefined || (status.state === "blocked" && status.on === "human");
-  const tone = asking ? "needs-you" : status.state === "failed" ? "failed" : undefined;
-  // A child on another machine that lost contact or didn't confirm its stop says so (ADR 0052).
-  const contact = node.live ? undefined : remoteContactStep(agent);
-  const current = contact
-    ? contact
-    : props.request
-      ? asks
-        ? `asks: ${asks}`
-        : agentStep({ status, interaction: props.request })
-      : status.state === "failed"
-        ? // Its own words are in its view; a raw provider error doesn't belong in the tree.
-          "couldn't finish"
-        : own && node.live
-          ? agentStep({ status, item: tool })
-          : node.live
-            ? below.working || below.commands
-              ? `waiting on ${pluralCount(below.working + below.commands, below.working ? "agent" : "command")}`
-              : agentStep({ status, item: tool })
-            : (agentOutcome(identity.spawn) ?? "finished");
   const fresh = useLiveConnection().fresh;
-  // Facts not confirmed since the connection dropped or the Summary opened: what it was doing
-  // when last seen, and never "finished" for a branch that may be working again.
-  const stale = !fresh || node.stale;
-  // Settled-looking while something under it isn't confirmed or couldn't load: it may still be
-  // working, so it reads neither finished nor done. A failure or a request is known for sure.
-  const uncertain =
-    !node.live && node.unconfirmed && !stale && status.state !== "failed" && !props.request;
-  const unsure = node.live ? `last seen ${current}` : "syncing";
-  // An unloaded delegate says only "not loaded": that is why it isn't sure.
-  const seen = stale ? unsure : !uncertain ? current : node.notLoaded ? "" : "syncing";
-  const step = node.notLoaded ? (seen ? `${seen} · not loaded` : "not loaded") : seen;
-  // A settled-looking row that isn't sure already says so; its fold adds nothing to that.
-  const settledLook = !node.live && (stale || uncertain);
-  const folded = props.expanded === false && !settledLook ? foldWords(below) : "";
-  const end = agent.endedAt ?? (node.live ? Math.max(now, agent.createdAt) : undefined);
-  const time =
-    end !== undefined && end - agent.createdAt >= 1000 ? formatSpan(agent.createdAt, end) : "";
+  const { root, step, tone, folded, time, done, muted, still, own } = summaryRow({
+    node,
+    viewed: props.viewed,
+    request: props.request,
+    tool,
+    spawn: identity.spawn,
+    fresh,
+    expanded: props.expanded,
+    now,
+  });
+  const below = node.tally;
   const open = root
     ? undefined
     : () =>
@@ -244,7 +203,6 @@ export function AgentLine(
           childThreadId: agent.machine ? undefined : agent.childThreadId,
         });
   const name = identity.name;
-  const done = !node.live && !stale && !uncertain;
   return (
     <RowFrame
       {...props}
@@ -278,12 +236,12 @@ export function AgentLine(
         instance={details.instance}
         live={node.live}
         done={done}
-        stale={stale || uncertain}
+        stale={still}
       />
       <span
         className={cn(
           "max-w-[55%] min-w-0 shrink truncate font-medium",
-          (done || settledLook) && "text-muted-foreground",
+          muted && "text-muted-foreground",
         )}
       >
         {name}
