@@ -1,5 +1,12 @@
 import { expect, test } from "vitest";
-import { formatAge, formatAgo, formatElapsed, formatSpan, formatClock } from "./time.ts";
+import {
+  formatAge,
+  formatAgo,
+  formatClock,
+  formatElapsed,
+  formatShortClock,
+  formatSpan,
+} from "./time.ts";
 
 const s = 1000;
 const m = 60 * s;
@@ -47,4 +54,23 @@ test("day periods have the same casing across locales and explicit schedule zone
   expect(formatClock(at, "en-US", "America/Chicago")).toBe("5:32 PM");
   expect(formatClock(at, "en-AU", "America/Chicago")).toBe("5:32 PM");
   expect(formatClock(at, "en-GB", "America/Chicago")).toBe("17:32");
+});
+
+test("a clock in the host's zone follows the person changing zone mid-session", () => {
+  const before = process.env.TZ;
+  const at = Date.UTC(2026, 0, 15, 12, 0);
+  try {
+    process.env.TZ = "UTC";
+    expect(formatClock(at, "en-GB")).toBe("12:00");
+    process.env.TZ = "Asia/Kolkata";
+    expect(formatClock(at, "en-GB")).toBe("17:30");
+    expect(formatShortClock(at, "en-GB")).toBe("17:30");
+    process.env.TZ = "America/New_York";
+    expect(formatClock(at, "en-US")).toBe("7:00 AM");
+    // Summer time in the same zone.
+    expect(formatClock(Date.UTC(2026, 6, 15, 12, 0), "en-US")).toBe("8:00 AM");
+  } finally {
+    if (before === undefined) delete process.env.TZ;
+    else process.env.TZ = before;
+  }
 });
