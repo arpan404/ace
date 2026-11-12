@@ -95,11 +95,16 @@ function discover(root: string): Workspace[] {
   return workspaces;
 }
 
+/** A package's exports that are TypeScript; others (a stylesheet, say) are not type-checked. */
+function typeExports(workspace: Workspace): [string, string][] {
+  return Object.entries(workspace.manifest.exports).filter(([, file]) => /\.[cm]?tsx?$/.test(file));
+}
+
 function declarationPaths(workspaces: Workspace[], own?: Workspace): Record<string, string[]> {
   const paths: Record<string, string[]> = {};
   for (const workspace of workspaces) {
     if (workspace === own) continue;
-    for (const [key, file] of Object.entries(workspace.manifest.exports)) {
+    for (const [key, file] of typeExports(workspace)) {
       const name =
         key === "." ? workspace.manifest.name : `${workspace.manifest.name}/${key.slice(2)}`;
       paths[name] = [
@@ -196,9 +201,7 @@ export function prepareTypecheck(
               outDir: join(dirname(workspace.runtime), "declarations"),
               tsBuildInfoFile: join(dirname(workspace.runtime), "runtime.tsbuildinfo"),
             },
-            files: Object.values(workspace.manifest.exports).map((file) =>
-              resolve(workspace.directory, file),
-            ),
+            files: typeExports(workspace).map(([, file]) => resolve(workspace.directory, file)),
             include: [],
             references,
           },
