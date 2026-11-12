@@ -107,6 +107,9 @@ async fn run(
             None
         }
     };
+    if let Some(summary) = &written {
+        super::memory::keep_extracted(engine, id, &summary.notes);
+    }
     let summary = match written {
         Some(summary) => compaction::render(&summary, &carried),
         None => {

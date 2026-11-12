@@ -40,7 +40,7 @@ impl State {
     /// From the folded transcript: waiting beats working, and background jobs count as working,
     /// so an agent is never shown idle while any of its work runs.
     pub fn of(transcript: &Transcript) -> Self {
-        if !transcript.awaiting.is_empty() {
+        if !transcript.awaiting.is_empty() || transcript.asking() {
             Self::Waiting
         } else if transcript.open_reply().is_some() || !transcript.jobs.is_empty() {
             Self::Working

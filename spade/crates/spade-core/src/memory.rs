@@ -220,19 +220,20 @@ pub fn latest_index(events: &[Event]) -> Option<&str> {
     })
 }
 
-/// Whether a fresh index is due: none since the last compaction (or ever).
+/// Whether the index may be (re)written now: the conversation has had no model call and no index
+/// since it began or last compacted, so the cached top is still free to take one. Afterwards it
+/// stays as it is until the next compaction.
 pub fn index_due(events: &[Event]) -> bool {
-    let compacted = events
+    let from = events
         .iter()
-        .rposition(|e| matches!(e, Event::Known(Known::ContextCompacted { .. })));
-    let indexed = events
-        .iter()
-        .rposition(|e| matches!(e, Event::Known(Known::MemoryIndexed { .. })));
-    match (indexed, compacted) {
-        (None, _) => true,
-        (Some(indexed), Some(compacted)) => indexed < compacted,
-        (Some(_), None) => false,
-    }
+        .rposition(|e| matches!(e, Event::Known(Known::ContextCompacted { .. })))
+        .map_or(0, |at| at + 1);
+    !events[from..].iter().any(|e| {
+        matches!(
+            e,
+            Event::Known(Known::StepFinished { .. } | Known::MemoryIndexed { .. })
+        )
+    })
 }
 
 /// The words of an event worth finding again with `history_search`, labelled with who wrote

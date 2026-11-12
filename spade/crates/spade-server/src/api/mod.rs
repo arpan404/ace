@@ -4,6 +4,7 @@
 mod agents;
 mod body;
 mod endpoints;
+mod memory;
 
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -93,6 +94,7 @@ pub fn router(state: AppState) -> Router {
                 .post(begin_maintenance)
                 .delete(end_maintenance),
         )
+        .merge(memory::routes())
         .route_layer(middleware::from_fn_with_state(state.clone(), authorize))
         .with_state(state.clone());
     let open = Router::new()

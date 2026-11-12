@@ -372,7 +372,19 @@ async fn a_deferred_tool_is_found_with_tool_search_and_run_through_call_tool() -
         .unwrap_or_default();
     assert_eq!(
         offered,
-        vec!["bot_message", "bots_list", "tool_search", "call_tool"],
+        vec![
+            "ask_user",
+            "bot_message",
+            "bots_list",
+            "history_read",
+            "history_search",
+            "memory_forget",
+            "memory_save",
+            "memory_search",
+            "memory_update",
+            "tool_search",
+            "call_tool"
+        ],
         "deferred tools are not sent"
     );
     let later: Vec<String> = spade.fake.seen()[2].body["tools"]

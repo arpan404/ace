@@ -194,6 +194,9 @@ async fn drive(
                 if super::index::if_needed(engine, id, &events).await {
                     continue;
                 }
+                if super::memory::index_if_due(engine, id, &events) {
+                    continue;
+                }
                 let model = turn_model(engine, &events, &reply);
                 // Stop interrupts a compaction too; nothing is stored for one cut short. A pause
                 // lets it finish like a model step, unless the pause is immediate.
