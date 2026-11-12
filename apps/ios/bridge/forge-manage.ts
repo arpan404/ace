@@ -51,10 +51,36 @@ export const ForgeManageWriteRequest = z.object({
 });
 export type ForgeManageWriteRequest = z.infer<typeof ForgeManageWriteRequest>;
 
+/** Where a pull request can go from its state, in the order the page offers them. */
+const lifecycleKinds = [
+  "ready",
+  "draft",
+  "close",
+  "reopen",
+  "update.merge",
+  "update.rebase",
+] as const;
+type LifecycleKind = (typeof lifecycleKinds)[number];
+/** The fields the phone edits in one go; the milestone has its own picker. */
+const editableKinds = ["title", "body", "baseBranch", "labels", "assignees"] as const;
+
 export interface ManageReply {
   type: "forge.pull.manage";
   /** The version every write names. */
   version: string;
+  state: "open" | "draft" | "closed" | "merged";
+  /** The state changes GitHub allows this account now, with the words the page uses. */
+  lifecycle: { kind: LifecycleKind; label: string }[];
+  /** The pull request's text and people as GitHub has them, for the edit sheet. */
+  metadata: {
+    title: string;
+    body: string;
+    baseBranch: string;
+    labels: string[];
+    assignees: string[];
+  };
+  /** Which of `metadata`'s fields this account may change. */
+  editable: (typeof editableKinds)[number][];
   milestone: { number: number; title: string } | null;
   /** Open milestones to choose from; null where the milestone can't be changed. */
   milestones: { number: number; title: string }[] | null;
@@ -118,6 +144,18 @@ export async function readManage(
   return {
     type: "forge.pull.manage",
     version: snapshot.version,
+    state: snapshot.state,
+    lifecycle: lifecycleKinds
+      .filter((kind) => snapshot.actions.includes(kind))
+      .map((kind) => ({ kind, label: lifecycleLabels[kind] })),
+    metadata: {
+      title: preview(snapshot.metadata.title, 256),
+      body: snapshot.metadata.body,
+      baseBranch: snapshot.metadata.baseBranch,
+      labels: snapshot.metadata.labels,
+      assignees: snapshot.metadata.assignees,
+    },
+    editable: editableKinds.filter((kind) => snapshot.editableFields.includes(kind)),
     milestone: snapshot.milestone
       ? { number: snapshot.milestone.number, title: preview(snapshot.milestone.title, 200) }
       : null,

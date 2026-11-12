@@ -102,3 +102,4 @@ export {
   type SidebarGroup,
 } from "./sidebar-rows.ts";
 export { projectRepository } from "./project-repository.ts";
+export { ideas, type Idea } from "./ideas.ts";

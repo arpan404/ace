@@ -48,9 +48,18 @@ struct NotificationPreferences: Codable, Sendable, Equatable {
     static let standard = NotificationPreferences(quietHours: nil, includePreview: false, agentSays: nil)
 }
 
+/// A usage-limit change the bridge judged (`bridge/limit-alerts.ts`), with how this phone shows it.
+struct LimitNotification: Codable, Sendable, Equatable {
+    let key: String
+    let title: String
+    let body: String
+    var delivery: AlertNotification.Delivery? = nil
+}
+
 /// Bridge patches whose `type` starts with `notifications.`.
 enum NotificationPatch: Decodable, Sendable, Equatable {
     case alert(AlertNotification)
+    case limit(LimitNotification)
     case feed(cursor: Int, entries: [AlertNotification], retracted: [String])
     case config(NotificationPreferences)
     case action(id: String, outcome: ActionOutcome)
@@ -63,6 +72,7 @@ enum NotificationPatch: Decodable, Sendable, Equatable {
         let box = try decoder.container(keyedBy: Keys.self)
         switch try box.decode(String.self, forKey: .type) {
         case "notifications.alert": self = .alert(try box.decode(AlertNotification.self, forKey: .notification))
+        case "notifications.limit": self = .limit(try LimitNotification(from: decoder))
         case "notifications.feed":
             self = .feed(cursor: try box.decode(Int.self, forKey: .cursor),
                          entries: try box.decode([AlertNotification].self, forKey: .entries),

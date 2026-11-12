@@ -15,6 +15,7 @@ const all = (value: boolean) => ({
   failures: value,
   finished: value,
   agentSays: value,
+  limits: value,
 });
 
 describe("phone notification delivery", () => {
@@ -48,6 +49,16 @@ describe("phone notification delivery", () => {
       banner: false,
     });
     expect(phoneDelivery("needs_you", quietBanners, open).banner).toBe(true);
+  });
+
+  it("an older phone's preferences without usage limits read them as on", () => {
+    const older = PhoneNotificationPrefs.parse({
+      inApp: { needsYou: true, failures: true, finished: true, agentSays: false },
+      system: { needsYou: true, failures: true, finished: true, agentSays: false },
+      quietHours: null,
+    });
+    expect(phoneDelivery("limits", older, open)).toMatchObject({ post: true, banner: true });
+    expect(phoneDelivery("limits", older, away).post).toBe(true);
   });
 
   it("posts nothing for a category that is off everywhere", () => {

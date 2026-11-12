@@ -172,6 +172,9 @@ export function writeFamilies(request: unknown): readonly ReadFamily[] {
       return ["providers", "settings", "catalog"];
     case "provider.logout":
       return ["providers", "catalog"];
+    // Looking for installed CLIs and their sign-ins again (Providers › Check again).
+    case "providers.request":
+      return ["providers", "catalog", "settings", "settings-page"];
     case "forge.merge":
     case "forge.auto-merge":
     case "forge.review":
