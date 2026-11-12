@@ -4,7 +4,9 @@ import SwiftUI
 /// offer, the run in view and its actions, and why a ready row can't join. Every word is the web
 /// strip's (`@ace/ui-core` `merge-run-words`); Swift draws and routes.
 struct ForgeMergeRunReply: Decodable, Sendable, Equatable {
-    struct Pick: Decodable, Sendable, Equatable { let sentence: String; let start: Bool }
+    /// `refusal`: Verify refused the list, in the web's words; nothing can start, and a check
+    /// command wouldn't help.
+    struct Pick: Decodable, Sendable, Equatable { let sentence: String; let start: Bool; let refusal: String? }
     struct Blocked: Decodable, Sendable, Equatable { let key: String; let reason: String }
     struct Action: Decodable, Sendable, Equatable, Hashable {
         /// stop, dismiss, again, without, log, open or command.
@@ -158,7 +160,7 @@ struct ForgeMergeRunStrip: View {
                 .presentationDetents([.medium, .large])
             }
         } else if let reply = model.reply, let pick = reply.pick, !model.picked.isEmpty {
-            strip { sentence(model.problem ?? model.notice ?? pick.sentence, failed: model.problem != nil) } actions: {
+            strip { pickLine(pick) } actions: {
                 Menu {
                     Picker("Merge method", selection: Binding(get: { model.method }, set: { model.method = $0 })) {
                         ForEach(reply.methods, id: \.value) { Text($0.label).tag($0.value) }
@@ -173,7 +175,7 @@ struct ForgeMergeRunStrip: View {
                         .buttonStyle(StripTextButtonStyle(prominent: true))
                         .disabled(model.busy || !client.canOperate)
                         .accessibilityIdentifier("forge.mergeRun.start")
-                } else if let setCheckCommand {
+                } else if pick.refusal == nil, let setCheckCommand {
                     Button("Set a check command") { setCheckCommand(scope.machineId, scope.project) }
                         .buttonStyle(StripTextButtonStyle(prominent: true))
                         .accessibilityIdentifier("forge.mergeRun.command")
@@ -190,6 +192,14 @@ struct ForgeMergeRunStrip: View {
                     .accessibilityIdentifier("forge.mergeRun.dismissNotice")
             }
         }
+    }
+
+    /// A problem first, then a notice said once, then why Verify refused, then the pick itself.
+    @ViewBuilder private func pickLine(_ pick: ForgeMergeRunReply.Pick) -> some View {
+        if let problem = model.problem { sentence(problem, failed: true) }
+        else if let notice = model.notice { sentence(notice, failed: false) }
+        else if let refusal = pick.refusal { sentence(refusal, failed: true) }
+        else { sentence(pick.sentence, failed: false) }
     }
 
     @ViewBuilder private func runLine(_ run: ForgeMergeRunReply.Run) -> some View {

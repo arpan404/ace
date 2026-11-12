@@ -49,6 +49,7 @@ test("picking ready rows offers to verify and merge them; Start sends one run wi
   expect(picked.pick).toEqual({
     sentence: "Verify and merge 2 pull requests into main",
     start: true,
+    refusal: null,
   });
   expect(picked.run).toBeNull();
   const started = await write(ask, {
@@ -123,7 +124,24 @@ test("a project without a check command offers to set one instead of Start", asy
   expect((await strip(ask, rows)).pick).toEqual({
     sentence: "Verify and merge 2 pull requests into main",
     start: false,
+    refusal: null,
   });
+});
+
+test("a refused list says why in the strip, never offering to set a check command", async () => {
+  const { ask, daemon } = await connected();
+  const rows = await ready(ask);
+  daemon.services.verify.refusing = "forbidden";
+  expect((await strip(ask, rows)).pick).toEqual({
+    sentence: "Verify and merge 2 pull requests into main",
+    start: false,
+    refusal: "This device can't start runs on this machine.",
+  });
+  daemon.services.verify.refusing = "unavailable";
+  expect((await strip(ask, rows)).pick?.refusal).toBe("Verify didn't answer. Try again.");
+  // Retrying a run reads the list first: its refusal is said, not "That run is gone".
+  const again = await write(ask, { kind: "again", runId: "run-1" });
+  expect(again).toMatchObject({ ok: false, message: "Verify didn't answer. Try again." });
 });
 
 async function until(ask: Ask, done: (reply: MergeRunReply) => boolean): Promise<MergeRunReply> {
