@@ -36,6 +36,10 @@ export class Peer {
   send(message: object): void {
     this.#socket.send(JSON.stringify(message));
   }
+  /** Several messages in one text frame, one per line, as a daemon packs them. */
+  sendPacked(messages: object[]): void {
+    this.#socket.send(messages.map((message) => JSON.stringify(message)).join("\n"));
+  }
   welcome(protocolVersion = 1): void {
     this.send({ type: "welcome", hostId, protocolVersion, headSeq: 0 });
   }
