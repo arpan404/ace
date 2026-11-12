@@ -98,6 +98,7 @@ export * from "./held-order.ts";
 export * from "./inline-markdown.ts";
 export * from "./limits.ts";
 export * from "./limit-words.ts";
+export * from "./past-sessions.ts";
 export * from "./models.ts";
 export * from "./model-catalog-read.ts";
 export * from "./new-thread-payload.ts";

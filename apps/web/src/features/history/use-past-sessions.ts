@@ -1,5 +1,6 @@
 import { useClient } from "@ace/client-react";
 import { WorkspaceId, type HistorySession, type HistoryListRequest } from "@ace/protocol";
+import { pastSessionProblems, type PastSessionAction } from "@ace/ui-core";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import type { Project } from "@/lib/projects.ts";
@@ -84,7 +85,7 @@ export function useOpenSession(project: Project | undefined) {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const open = async (session: HistorySession, action: "import" | "continue") => {
+  const open = async (session: HistorySession, action: PastSessionAction) => {
     if (!project) return;
     setBusy(true);
     setError(undefined);
@@ -95,9 +96,7 @@ export function useOpenSession(project: Project | undefined) {
         workspaceId: WorkspaceId.parse(project.id),
       });
       if (imported.status !== "imported") {
-        setError(
-          "This saved conversation couldn't be imported. Open it in its original app, then try again.",
-        );
+        setError(pastSessionProblems.notImported);
         return;
       }
       if (action === "continue") {
@@ -109,15 +108,13 @@ export function useOpenSession(project: Project | undefined) {
           delivery: "queue",
         });
         if (continued.status !== "continued") {
-          setError(
-            "The conversation was imported, but couldn't continue. Use Import to read it, or check the provider in Settings.",
-          );
+          setError(pastSessionProblems.notContinued);
           return;
         }
       }
       await navigate({ to: "/t/$threadId", params: { threadId: imported.threadId } });
     } catch {
-      setError("The saved conversation couldn't be opened. Find past sessions again and retry.");
+      setError(pastSessionProblems.notOpened);
     } finally {
       setBusy(false);
     }
