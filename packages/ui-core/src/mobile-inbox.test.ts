@@ -3,6 +3,7 @@ import type { PendingSend } from "@ace/client";
 import { expect, test } from "vitest";
 import { entry } from "./test-entries.fixture.ts";
 import {
+  inboxGroupRank,
   inboxNextChange,
   inboxSections,
   inboxStatus,
@@ -193,6 +194,21 @@ test("Unsent holds only sends the SDK still owns, in outbox order", () => {
     ],
   );
   expect(result).toEqual({ Unsent: ["mac/b", "mac/c"] });
+});
+
+test("Unsent leads the inbox above Pinned, Needs you and Working, as the web's Inbox puts it on top", () => {
+  const result = sections(
+    [
+      on("mac", entry("busy", { state: "working", agents: 1 }, now)),
+      on("mac", entry("asks", { state: "needs_you", interactions: 1 }, now)),
+      on("mac", entry("kept", { state: "done" }, now, { pinned: true })),
+    ],
+    [send("b", "failed", "words")],
+  );
+  expect(Object.keys(result)).toEqual(["Unsent", "Pinned", "Needs you", "Working"]);
+  // Machines merge sections by rank: Unsent ranks above every thread group there too.
+  const ranks = (["unsent", "pinned", "needs-you", "working"] as const).map(inboxGroupRank);
+  expect(ranks.toSorted((a, b) => a - b)).toEqual(ranks);
 });
 
 test("an unsent row says when it will go and when it needs the person", () => {

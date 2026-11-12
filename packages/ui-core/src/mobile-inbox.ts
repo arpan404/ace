@@ -31,16 +31,17 @@ export type InboxGroupKey =
   | "settled";
 
 /**
- * Top to bottom. Pinned leads, as on Home: the person put those threads there. Snoozed and
+ * Top to bottom. Unsent leads, as the web's Inbox puts it on top: words the person wrote that
+ * haven't gone yet. Then Pinned, as on Home: the person put those threads there. Snoozed and
  * Settled sit last: out of the way until a snooze wakes or the person unsettles a thread.
  * Threads holds every live group when the list is sorted by creation or by hand.
  */
 const groupOrder: readonly InboxGroupKey[] = [
+  "unsent",
   "pinned",
   "needs-you",
   "working",
   "syncing",
-  "unsent",
   "threads",
   "done",
   "snoozed",
@@ -326,13 +327,14 @@ export function unsentRank(machineId: string, position: number): string {
  * Each group's rank, in `groupOrder`'s order. Fixed, never renumbered: a client merges layouts
  * from runtimes of different versions, and a layout kept from an earlier launch, so a group
  * added later takes a number of its own (Pinned leads at -1) instead of moving the others.
+ * Unsent moved to the top at -2, as the web has it; 3, its old number, stays unused.
  */
 const groupRanks: Record<InboxGroupKey, number> = {
+  unsent: -2,
   pinned: -1,
   "needs-you": 0,
   working: 1,
   syncing: 2,
-  unsent: 3,
   threads: 4,
   done: 5,
   snoozed: 6,
