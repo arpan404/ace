@@ -1,7 +1,12 @@
 import type { ClientApi } from "@ace/client";
 import type { SpadeExchange } from "@ace/client/spade-http";
 import { maxSpadeRequestBytes, type SpadeMethod } from "@ace/protocol";
-import { spadeRefusal, SpadeRequestError, type SpadeFollowLink } from "@ace/ui-core/spade-chat";
+import {
+  spadeRefusal,
+  SpadeRequestError,
+  type SpadeFollowLink,
+  type SpadeStartLink,
+} from "@ace/ui-core/spade-chat";
 import { spadeTransport, SpadeTransport, type SpadeBody } from "./spade-transport.ts";
 
 /**
@@ -84,6 +89,31 @@ export function followLink(transport: SpadeTransport): SpadeFollowLink {
     onOpenable: (listener) => transport.onOpenable(listener),
     open: (path, sink) => transport.open(path, sink),
     read: (path) => spadeHttp(transport, "GET", path),
+  };
+}
+
+/** Resolves true once a request to Spade can go again, false after `waitMs` without it. */
+export function spadeReachable(transport: SpadeTransport, waitMs = 30_000): Promise<boolean> {
+  if (transport.canOpen()) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const done = (reached: boolean) => {
+      stop();
+      clearTimeout(timer);
+      resolve(reached);
+    };
+    const stop = transport.onOpenable(() => {
+      if (transport.canOpen()) done(true);
+    });
+    const timer = setTimeout(() => done(false), waitMs);
+  });
+}
+
+/** Starting a conversation by this transport's way, settled if its answer is lost (`spadeStart`). */
+export function startLink(transport: SpadeTransport): SpadeStartLink {
+  return {
+    read: (path) => spadeHttp(transport, "GET", path),
+    post: (path, body) => spadeHttp(transport, "POST", path, { body }),
+    back: () => spadeReachable(transport),
   };
 }
 

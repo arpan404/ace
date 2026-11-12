@@ -1,5 +1,5 @@
 import { useClient } from "@ace/client-react";
-import { parseSpadeCreated, spadeStateLine } from "@ace/ui-core/spade-chat";
+import { spadeStart, spadeStateLine } from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
@@ -11,7 +11,8 @@ import { readingColumn } from "@/features/thread/index.ts";
 import { SpadeApprovalStrip } from "./spade-approval-strip.tsx";
 import { SpadeComposer } from "./spade-composer.tsx";
 import type { SpadeMessage } from "./spade-images.ts";
-import { spadeBody, spadeHttp } from "./spade-requests.ts";
+import { spadeBody, startLink } from "./spade-requests.ts";
+import { spadeTransport } from "./spade-transport.ts";
 import { SpadeStateStrip } from "./spade-state.tsx";
 import { SpadeTranscript } from "./spade-transcript.tsx";
 import { useSpadeConversation } from "./use-spade-conversation.ts";
@@ -69,12 +70,23 @@ export function SpadeNewScreen() {
   const line = useSpadeLine();
   // The panel says Spade's state while it shows; the page says it only when the panel doesn't.
   const panelShown = useViewFrame().sidebarShown;
+  const toast = useToast();
   const start = async (message: SpadeMessage) => {
-    const id = parseSpadeCreated(
-      await spadeHttp(client, "POST", "/v1/conversations", { body: spadeBody(message) }),
+    const started = await spadeStart(
+      startLink(spadeTransport(client)),
+      spadeBody(message),
+      message.text,
     );
-    if (!id) throw new Error("Spade started the conversation but didn't say where it is.");
     void cache.invalidateQueries({ queryKey: conversationsKey });
+    if (started.kind === "unknown") {
+      // Spade may have it: the draft clears, so sending it again can't start it twice.
+      toast.info({
+        title: "Couldn't tell whether Spade started the conversation",
+        description: "If it did, it shows in Spade's conversations once the machine is back.",
+      });
+      return;
+    }
+    const { id } = started;
     // After the composer has heard the send went, so it clears its saved draft before it unmounts.
     setTimeout(
       () => void navigate({ to: "/spade/$conversationId", params: { conversationId: id } }),
