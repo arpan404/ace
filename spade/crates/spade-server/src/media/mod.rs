@@ -91,6 +91,8 @@ impl Media {
 /// and so on when that name holds other bytes. Answers the path. The copy is never trusted
 /// (ADR 0130): Spade's tools did not write it.
 pub fn save_copy(workspace: &Workspace, name: &str, bytes: &[u8]) -> Result<String, PathError> {
+    let storable = crate::workspace::storable(name);
+    let name = storable.as_str();
     let (stem, extension) = match name.rsplit_once('.') {
         Some((stem, extension)) if !stem.is_empty() => (stem, format!(".{extension}")),
         _ => (name, String::new()),
@@ -109,8 +111,38 @@ pub fn save_copy(workspace: &Workspace, name: &str, bytes: &[u8]) -> Result<Stri
                 workspace.write_bytes(&candidate, bytes, largest)?;
                 return Ok(candidate);
             }
+            // No other number makes a name the system refuses usable.
+            Err(error @ PathError::Unusable(_)) => return Err(error),
             Err(_) => continue,
         }
     }
     Err(PathError::Io(format!("too many files named {name}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::workspace::Workspaces;
+
+    #[test]
+    fn an_attachment_named_with_characters_windows_refuses_is_still_copied() {
+        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let workspace = Workspaces::new(dir.path())
+            .of("bot_1")
+            .unwrap_or_else(|e| panic!("{e}"));
+        let path =
+            save_copy(&workspace, "a: b?.pdf", b"%PDF-1.7").unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(
+            workspace
+                .bytes_up_to(&path, 1024)
+                .map_err(|e| e.to_string()),
+            Ok(b"%PDF-1.7".to_vec()),
+            "{path}"
+        );
+        // The same bytes again are the same copy, not a second one.
+        assert_eq!(
+            save_copy(&workspace, "a: b?.pdf", b"%PDF-1.7").map_err(|e| e.to_string()),
+            Ok(path)
+        );
+    }
 }

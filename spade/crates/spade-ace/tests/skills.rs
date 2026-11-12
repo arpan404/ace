@@ -142,7 +142,8 @@ async fn a_socket_the_daemon_dropped_is_opened_again() {
 #[tokio::test]
 async fn a_request_the_daemon_never_answers_times_out() {
     let daemon = FakeDaemon::start().await;
-    let skills = client(&daemon, LOCAL_TOKEN, Duration::from_millis(300));
+    // SILENT never answers; 2 s leaves a slow machine room for the request after it.
+    let skills = client(&daemon, LOCAL_TOKEN, Duration::from_secs(2));
     assert_eq!(
         skills.read(SILENT, None).await.err(),
         Some(SkillsError::Timeout)

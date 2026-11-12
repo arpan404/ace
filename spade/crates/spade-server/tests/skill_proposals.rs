@@ -256,7 +256,9 @@ async fn a_save_whose_answer_was_lost_is_found_in_the_library_and_not_written_tw
             Script::reply("").call("c1", "skill_propose", lost),
             Script::reply("Proposed."),
         ],
-        Duration::from_millis(500),
+        // How long Spade waits for the library's answer; room for a slow machine, since the
+        // lost answer below costs only this once.
+        Duration::from_secs(3),
     )
     .await?;
     let (bot, _, _) = proposed(&setup).await?;
