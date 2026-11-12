@@ -109,7 +109,8 @@ struct ThreadSummaryPage: View {
     }
 
     private func filesRow(_ files: ThreadSummarySheet.Files) -> some View {
-        Button { openChanges?() } label: {
+        // The count is the whole thread's, so Changes opens on This thread, not the last turn.
+        Button { model.sheet(["kind": "changes.scope", "scope": "all"]); openChanges?() } label: {
             QuietSectionRow {
                 AceIcon(.notePencil, size: AceDesign.Size.glyphSmall, relativeTo: .footnote)
                     .foregroundStyle(AceDesign.Ink.subtle)

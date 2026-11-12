@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from "vitest";
 import type { MobileRow } from "@ace/ui-core/mobile";
 import { fileHeader, filePages, openChanges } from "./changes-fixture.ts";
-import type { RecordingSink } from "./sheet-fixture.ts";
+import { Sheets } from "./sheets.ts";
+import { plainPreview, RecordingSink, until } from "./sheet-fixture.ts";
 
 const closers: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -14,6 +15,10 @@ async function opened() {
   return sheet;
 }
 const summary = (sink: RecordingSink) => sink.read("changes:summary");
+const scopeId = (sink: RecordingSink) => {
+  const scope = summary(sink)?.scope;
+  return typeof scope === "object" && scope !== null && "id" in scope ? scope.id : undefined;
+};
 const paths = (sink: RecordingSink) =>
   ((summary(sink)?.files ?? []) as { path: string }[]).map((file) => file.path);
 const changed = (sink: RecordingSink, path: string) =>
@@ -121,5 +126,22 @@ describe("Changes sheet scopes", () => {
     expect(again.sink.read("changes:summary")?.files).toEqual([
       expect.objectContaining({ viewed: true }),
     ]);
+  });
+
+  test("a scope asked for while Changes is closed is the one it opens on, once", async () => {
+    const { client, owner } = await opened();
+    const sink = new RecordingSink();
+    const sheets = new Sheets(sink, plainPreview);
+    const thread = { owner, store: client.thread("changes").store, threadId: "changes", epoch: 1 };
+    // The Summary's files changed count the whole thread, so its row asks for This thread.
+    expect(sheets.action(thread, { kind: "changes.scope", scope: "all" })).toBe(true);
+    expect(sheets.action(thread, { kind: "changes", open: true })).toBe(true);
+    await until(() => scopeId(sink) === "all", "This thread");
+    expect(summary(sink)?.scope).toMatchObject({ label: "This thread" });
+    // Opened again without asking, Changes is back on its last turn.
+    sheets.action(thread, { kind: "changes", open: false });
+    sheets.action(thread, { kind: "changes", open: true });
+    await until(() => scopeId(sink) === "last", "Last turn");
+    sheets.close();
   });
 });
