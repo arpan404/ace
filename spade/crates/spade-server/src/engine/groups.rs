@@ -267,17 +267,17 @@ impl Engine {
             .store
             .groups()?
             .into_iter()
-            .map(|g| self.view_of(g))
+            .map(|g| self.group_view_of(g))
             .collect::<Result<_, _>>()?;
         views.sort_by_key(|v| std::cmp::Reverse(v.last_activity_ms));
         Ok(views)
     }
 
     pub fn group_view(&self, id: &str) -> Result<Option<GroupView>, StoreError> {
-        self.store.group(id)?.map(|g| self.view_of(g)).transpose()
+        self.store.group(id)?.map(|g| self.group_view_of(g)).transpose()
     }
 
-    fn view_of(&self, group: StoredGroup) -> Result<GroupView, StoreError> {
+    fn group_view_of(&self, group: StoredGroup) -> Result<GroupView, StoreError> {
         let stored = self.store.events(&group.conversation, 0)?;
         let events: Vec<Event> = stored.iter().map(|e| e.event.clone()).collect();
         let (state, status) = self.group_status(&group, &events);
@@ -309,7 +309,7 @@ impl Engine {
     /// machine that is answering waits for the person.
     pub(crate) fn group_status(
         &self,
-        group: &StoredGroup,
+        _group: &StoredGroup,
         events: &[Event],
     ) -> (State, Option<String>) {
         let open = group::open_asks(events);

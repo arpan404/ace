@@ -7,6 +7,7 @@ mod connectors;
 mod endpoints;
 mod memory;
 mod routines;
+mod teams;
 mod workspace;
 
 use std::convert::Infallible;
@@ -121,6 +122,7 @@ pub fn router(state: AppState) -> Router {
         .merge(connectors::routes())
         .merge(memory::routes())
         .merge(workspace::routes())
+        .merge(teams::routes())
         .route_layer(middleware::from_fn_with_state(state.clone(), authorize))
         .with_state(state.clone());
     let open = Router::new()
