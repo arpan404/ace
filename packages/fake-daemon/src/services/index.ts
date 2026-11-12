@@ -27,6 +27,7 @@ import { commandCatalog, listCommands } from "./commands.ts";
 import { search, searchTitles } from "./search.ts";
 import { listModels, resolveModel } from "./models.ts";
 import { FakeSettings, type Push } from "./settings.ts";
+import { fakeNativeTools, nativeToolKeys } from "./native-tools.ts";
 import { FakeActivityReads } from "./activity-reads.ts";
 import { FakeVerify } from "./verify.ts";
 import { FakeRegistry } from "./registry.ts";
@@ -315,6 +316,11 @@ export class FakeServices {
       settingsValues(),
       (threadId) => host.thread(threadId)?.workspaceId,
     );
+    // As the daemon does: the tool settings change what the Codex and Claude rows report.
+    this.settings.onChange((keys) => {
+      if (keys.some((key) => nativeToolKeys.some((tool) => tool === key)))
+        this.host.broadcast?.({ type: "providers.changed", providers: this.providerRows() });
+    });
   }
   /** Answers one service message. False when it isn't a service this fake serves. */
   handle(message: ClientMessage, push: Push, device = "fake-device"): boolean {
@@ -407,6 +413,7 @@ export class FakeServices {
     return fakeReadiness(
       this.providerStatuses.map((row) => ({
         ...row,
+        ...(row.installed ? fakeNativeTools(row.provider, (key) => this.settings.get(key)) : {}),
         enabled: providerConfiguration(configurations, row.provider).enabled !== false,
       })),
     );
