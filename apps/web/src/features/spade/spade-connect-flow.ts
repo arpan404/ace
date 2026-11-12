@@ -1,13 +1,14 @@
-import type { SpadeConnectStart, SpadeConnector } from "@ace/ui-core/spade-chat";
+import type { SpadeConnectStart } from "@ace/ui-core/spade-chat";
 import { openExternalWhenReady } from "@/boot/open-external.ts";
 import { SpadeRequestError } from "./spade-requests.ts";
 
-/** The server connected without a sign-in, so there was nothing to open. */
-class ConnectedAtOnce extends Error {
-  readonly connector: SpadeConnector;
-  constructor(connector: SpadeConnector) {
-    super("connected");
-    this.connector = connector;
+/**
+ * Nothing to open: the server connected without a sign-in, or it is a device sign-in, whose code
+ * the connector's row shows.
+ */
+class NothingToOpen extends Error {
+  constructor() {
+    super("nothing to open");
   }
 }
 
@@ -27,7 +28,7 @@ export async function connectInBrowser(
   start: () => Promise<SpadeConnectStart>,
 ): Promise<ConnectOutcome> {
   const address = start().then((started) => {
-    if (started.kind === "connected") throw new ConnectedAtOnce(started.connector);
+    if (started.kind !== "sign_in") throw new NothingToOpen();
     return started.url;
   });
   try {
@@ -51,7 +52,7 @@ export async function connectHere(
 }
 
 function outcome(error: unknown): ConnectOutcome {
-  if (error instanceof ConnectedAtOnce) return { kind: "done" };
+  if (error instanceof NothingToOpen) return { kind: "done" };
   const message = error instanceof Error ? error.message : "Try again.";
   if (error instanceof SpadeRequestError && error.status === 409)
     return { kind: "needs_client", message };

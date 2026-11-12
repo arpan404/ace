@@ -19,14 +19,30 @@ export class FakeSpadeConnectors {
   connectors: Json[] = [];
   /** Allow lists by agent id; absent: Spade may use all, a bot none. */
   readonly access = new Map<string, { all: boolean; connectors: string[] }>();
+  /** Catalogue ids whose sign-in is a device sign-in with Spade's own app (ADR 0137). */
+  readonly deviceSignIn = new Set<string>();
   /** Catalogue ids whose server offers no registration: connecting needs a client ID. */
   readonly needsClient = new Set<string>();
+  private deviceCodes = 0;
 
   /** Ends a sign-in as the person approving it in the browser would. */
   finishSignIn(id: string, account?: string): void {
     const connector = this.connectors.find((candidate) => candidate.id === id);
     if (!connector) return;
-    Object.assign(connector, { state: "connected", account: account ?? null, tools: 3 });
+    Object.assign(connector, {
+      state: "connected",
+      account: account ?? null,
+      tools: 3,
+      device: undefined,
+    });
+  }
+
+  /** Ends a device sign-in without connecting: the code expired, or the person declined. */
+  endDeviceSignIn(id: string, state: "expired" | "denied"): void {
+    const connector = this.connectors.find((candidate) => candidate.id === id);
+    const device = connector?.device;
+    if (!connector || typeof device !== "object" || device === null) return;
+    Object.assign(connector, { state: "needs_reconnect", device: { ...device, state } });
   }
 
   /** `/v1/connectors…`. */
@@ -93,6 +109,12 @@ export class FakeSpadeConnectors {
       state: "signing_in",
       tools: connector.tools ?? 0,
     });
+    if (this.deviceSignIn.has(id)) {
+      const serial = (this.deviceCodes += 1);
+      const device = { code: `WDJB-MJH${serial}`, url: "https://github.com/login/device" };
+      connector.device = { ...device, state: "waiting" };
+      return reply({ id, device: { ...device, expires_in: 900 } }, 202);
+    }
     return reply({ id, sign_in_url: `https://auth.example/authorize?client=${id}` }, 202);
   }
 }

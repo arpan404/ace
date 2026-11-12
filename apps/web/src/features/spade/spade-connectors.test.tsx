@@ -245,3 +245,86 @@ test("Spade may use every connected app until the person narrows it", async () =
     ]),
   );
 });
+
+/** GitHub as Spade lists it once its own app's client ID ships: Sign in leads. */
+const github = {
+  id: "github",
+  name: "GitHub",
+  url: "https://api.githubcopilot.com/mcp/",
+  sign_in: ["oauth", "token", "oauth_client"],
+  notes: "",
+};
+
+function withGitHub(api: FakeSpadeApi) {
+  seed(api);
+  api.connectors.catalogue.push(github);
+  api.connectors.deviceSignIn.add("github");
+}
+
+/** Runs `body` on fake timers, so the two-second follow of a sign-in passes at once. */
+async function onFakeTimers(body: (user: ReturnType<typeof userEvent.setup>) => Promise<void>) {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    await body(userEvent.setup({ advanceTimers: vi.advanceTimersByTime }));
+  } finally {
+    vi.useRealTimers();
+  }
+}
+
+/** Lets the connectors list read Spade again, as it does every two seconds during a sign-in. */
+const followed = () => vi.advanceTimersByTimeAsync(2_100);
+
+test("a device sign-in shows its code in the app's row, with Copy code and Open, until it connects", () =>
+  onFakeTimers(async (user) => {
+    const { spade } = await spadeApp("/settings/spade", withGitHub);
+    const tab = browserTab();
+    const dialog = await openCatalogue();
+    await user.click(dialog.getByRole("button", { name: "Sign in for GitHub" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    // Nothing to open in the browser: the code comes first.
+    expect(tab.location.replace).not.toHaveBeenCalled();
+    expect(spade.sent("POST", "/v1/connectors")).toEqual([{ catalogue: "github" }]);
+    const section = await connectors();
+    expect(
+      await section.findByText("Enter WDJB-MJH1 on GitHub's page to finish signing in."),
+    ).toBeTruthy();
+    await user.click(section.getByRole("button", { name: "Copy code" }));
+    expect(await section.findByRole("button", { name: "Copied" })).toBeTruthy();
+    expect(await navigator.clipboard.readText()).toBe("WDJB-MJH1");
+    const opened = vi.spyOn(window, "open").mockReturnValue(null);
+    await user.click(section.getByRole("button", { name: "Open" }));
+    expect(opened).toHaveBeenCalledWith(
+      "https://github.com/login/device",
+      "_blank",
+      "noopener,noreferrer",
+    );
+    spade.connectors.finishSignIn("github", "octo@example.com");
+    await followed();
+    expect(await section.findByText("Connected as octo@example.com")).toBeTruthy();
+    expect(section.queryByRole("button", { name: "Copy code" })).toBeNull();
+  }));
+
+test("a device code that expired or was declined says so, and Try again shows a new code", () =>
+  onFakeTimers(async (user) => {
+    const { spade } = await spadeApp("/settings/spade", withGitHub);
+    browserTab();
+    const dialog = await openCatalogue();
+    await user.click(dialog.getByRole("button", { name: "Sign in for GitHub" }));
+    const section = await connectors();
+    expect(await section.findByText(/^Enter WDJB-MJH1 /)).toBeTruthy();
+
+    spade.connectors.endDeviceSignIn("github", "expired");
+    await followed();
+    expect(await section.findByText("The code expired before it was entered.")).toBeTruthy();
+    expect(section.queryByRole("button", { name: "Copy code" })).toBeNull();
+    await user.click(section.getByRole("button", { name: "Try again" }));
+    await waitFor(() =>
+      expect(spade.sent("POST", "/v1/connectors/github/connect")).toHaveLength(1),
+    );
+    expect(await section.findByText(/^Enter WDJB-MJH2 /)).toBeTruthy();
+
+    spade.connectors.endDeviceSignIn("github", "denied");
+    await followed();
+    expect(await section.findByText("The sign-in was declined on GitHub.")).toBeTruthy();
+    expect(section.getByRole("button", { name: "Try again" })).toBeTruthy();
+  }));

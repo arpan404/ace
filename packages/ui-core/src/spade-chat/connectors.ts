@@ -40,6 +40,18 @@ export interface SpadeConnector {
   tools: number;
   /** Why it is unreachable, in a few words. */
   problem: string | undefined;
+  /** A device sign-in in progress or just ended: the code the person enters, and where. */
+  device: SpadeDeviceSignIn | undefined;
+}
+
+/**
+ * A device sign-in (RFC 8628, ADR 0137): the person types `code` on the app's page at `url`
+ * while Spade waits for them.
+ */
+export interface SpadeDeviceSignIn {
+  code: string;
+  url: string;
+  state: "waiting" | "expired" | "denied" | "failed";
 }
 
 /** `GET /v1/connectors`. */
@@ -51,7 +63,9 @@ export interface SpadeConnectors {
 /** What connecting answered: connected at once, or a sign-in to open in the browser. */
 export type SpadeConnectStart =
   | { kind: "connected"; connector: SpadeConnector }
-  | { kind: "sign_in"; id: string; url: string };
+  | { kind: "sign_in"; id: string; url: string }
+  /** A device sign-in: nothing opens; the connector's row shows the code. */
+  | { kind: "device"; id: string; code: string; url: string };
 
 /** Which connectors a bot may use. */
 export interface SpadeConnectorAccess {
@@ -98,7 +112,23 @@ const connectorShape = z.object({
   account: text,
   tools: z.number().int().nonnegative().catch(0).default(0),
   problem: text,
+  device: z.unknown().optional(),
 });
+
+/** Only https: the page goes straight to the person's browser. */
+const webPage = z.string().regex(/^https:\/\//i);
+
+const deviceShape = z.object({
+  code: z.string().min(1).max(64),
+  url: webPage,
+  // A state this client doesn't know reads as still waiting.
+  state: z.enum(["waiting", "expired", "denied", "failed"]).catch("waiting"),
+});
+
+function deviceOf(raw: unknown): SpadeDeviceSignIn | undefined {
+  const parsed = deviceShape.safeParse(raw);
+  return parsed.success ? parsed.data : undefined;
+}
 
 /** One connector value; undefined without an id. */
 export function parseSpadeConnectorValue(raw: unknown): SpadeConnector | undefined {
@@ -116,6 +146,7 @@ export function parseSpadeConnectorValue(raw: unknown): SpadeConnector | undefin
     account: connector.account || undefined,
     tools: connector.tools,
     problem: connector.problem || undefined,
+    device: deviceOf(connector.device),
   };
 }
 
@@ -152,6 +183,9 @@ export function parseSpadeConnectStart(body: string): SpadeConnectStart | undefi
   // Only https: the address goes straight to the person's browser.
   if (typeof record.id === "string" && typeof url === "string" && /^https:\/\//i.test(url))
     return { kind: "sign_in", id: record.id, url };
+  const device = deviceOf({ ...spadeRecord(record.device), state: "waiting" });
+  if (typeof record.id === "string" && device)
+    return { kind: "device", id: record.id, code: device.code, url: device.url };
   return undefined;
 }
 
@@ -167,6 +201,7 @@ export function parseSpadeConnectorAccess(body: string): SpadeConnectorAccess | 
 
 /** A connector's state in a few words, for its row. */
 export function spadeConnectorLine(connector: SpadeConnector): string {
+  if (connector.device) return spadeDeviceLine(connector.name, connector.device);
   switch (connector.state) {
     case "connected":
       return connector.account ? `Connected as ${connector.account}` : "Connected";
@@ -178,5 +213,19 @@ export function spadeConnectorLine(connector: SpadeConnector): string {
       return "Signed out";
     case "unreachable":
       return connector.problem ? `Can't reach it: ${connector.problem}` : "Can't reach it";
+  }
+}
+
+/** A device sign-in in one sentence: the code to enter, or why it ended. */
+export function spadeDeviceLine(app: string, device: SpadeDeviceSignIn): string {
+  switch (device.state) {
+    case "waiting":
+      return `Enter ${device.code} on ${app}'s page to finish signing in.`;
+    case "expired":
+      return "The code expired before it was entered.";
+    case "denied":
+      return `The sign-in was declined on ${app}.`;
+    case "failed":
+      return `${app} didn't finish the sign-in.`;
   }
 }

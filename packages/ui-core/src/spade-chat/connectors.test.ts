@@ -71,3 +71,45 @@ test("a bot's allow list reads only with its all flag", () => {
   });
   expect(parseSpadeConnectorAccess(JSON.stringify({ connectors: [] }))).toBeUndefined();
 });
+
+test("a device sign-in reads its code and https page; any other page is refused", () => {
+  expect(
+    parseSpadeConnectStart(
+      JSON.stringify({
+        id: "github",
+        device: { code: "WDJB-MJHT", url: "https://github.com/login/device", expires_in: 900 },
+      }),
+    ),
+  ).toEqual({
+    kind: "device",
+    id: "github",
+    code: "WDJB-MJHT",
+    url: "https://github.com/login/device",
+  });
+  for (const url of ["http://github.com/login/device", "javascript:alert(1)"])
+    expect(
+      parseSpadeConnectStart(JSON.stringify({ id: "github", device: { code: "C", url } })),
+    ).toBeUndefined();
+  const read = parseSpadeConnectors(
+    JSON.stringify({
+      connectors: [
+        {
+          id: "github",
+          name: "GitHub",
+          state: "needs_reconnect",
+          device: { code: "WDJB-MJHT", url: "https://github.com/login/device", state: "expired" },
+        },
+        {
+          id: "box",
+          name: "Box",
+          state: "signing_in",
+          device: { code: "X", url: "https://box.example/device", state: "teleporting" },
+        },
+      ],
+    }),
+  );
+  const [github, box] = read?.connectors ?? [];
+  expect(github && spadeConnectorLine(github)).toBe("The code expired before it was entered.");
+  expect(box?.device?.state).toBe("waiting");
+  expect(box && spadeConnectorLine(box)).toBe("Enter X on Box's page to finish signing in.");
+});
