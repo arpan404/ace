@@ -63,7 +63,8 @@ test("the person adds, pauses and edits a bot's routines from its menu, and turn
   await userEvent.type(form.getByRole("textbox", { name: "Schedule" }), "daily at 9:00");
   await userEvent.click(form.getByRole("button", { name: "Add routine" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  expect(await screen.findByText(/^Every day at 9:00 · Next /)).toBeTruthy();
+  // "Next: tomorrow 9:00", never "Next Tomorrow 9:00".
+  expect(await screen.findByText(/^Every day at 9:00 · Next: (tomorrow |\d)/)).toBeTruthy();
   expect(spade.routines.routines[0]?.time_zone).toBe(
     Intl.DateTimeFormat().resolvedOptions().timeZone,
   );
@@ -82,6 +83,6 @@ test("the person adds, pauses and edits a bot's routines from its menu, and turn
   const beat = within(await screen.findByRole("dialog", { name: "Heartbeat" }));
   await userEvent.type(beat.getByRole("textbox", { name: "Checklist" }), "Is the build green?");
   await userEvent.click(beat.getByRole("button", { name: "Save" }));
-  expect(await screen.findByText(/^Every 30 minutes · Next /)).toBeTruthy();
+  expect(await screen.findByText(/^Every 30 minutes · Next: (tomorrow |\d)/)).toBeTruthy();
   expect(spade.routines.heartbeats.get("scout")?.checklist).toBe("Is the build green?");
 });
