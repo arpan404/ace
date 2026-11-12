@@ -47,11 +47,24 @@ pub struct ThreadChange {
     pub state: ThreadState,
 }
 
+/// The longest snapshot Spade reassembles from parts, in bytes of JSON.
+const MOST_SNAPSHOT_BYTES: usize = 16 * 1024 * 1024;
+
 /// What Spade last saw of each thread. Kept across reconnects; pure.
 #[derive(Debug, Default)]
 pub struct ThreadWatch {
     known: HashMap<String, String>,
     baseline: bool,
+    /// A snapshot arriving in parts on the current socket, with patches that came meanwhile.
+    assembling: Option<Assembly>,
+}
+
+#[derive(Debug)]
+struct Assembly {
+    seq: u64,
+    next: u64,
+    data: String,
+    held: Vec<Value>,
 }
 
 impl ThreadWatch {
@@ -70,11 +83,18 @@ impl ThreadWatch {
             return changes;
         };
         for (id, entry) in threads {
-            // A thread an agent delegated, or one held for a daemon process, is not the person's
-            // own: its finishing would wake the bot that delegated it in a loop.
-            if ["delegatedBy", "delegatedFrom", "host"]
-                .iter()
-                .any(|field| entry.get(field).is_some_and(|v| !v.is_null()))
+            // Only threads the person started count. One an agent delegated or started, one an
+            // outside client (Spade included) started, or one held for a daemon process could be
+            // a routine's own work: its finishing would wake that routine again, in a loop.
+            if [
+                "delegatedBy",
+                "delegatedFrom",
+                "startedBy",
+                "startedByClient",
+                "host",
+            ]
+            .iter()
+            .any(|field| entry.get(field).is_some_and(|v| !v.is_null()))
             {
                 continue;
             }
@@ -105,6 +125,110 @@ impl ThreadWatch {
         }
         self.baseline = true;
         changes
+    }
+
+    /// A new socket: a snapshot half-received on the last one is dropped.
+    pub fn connected(&mut self) {
+        self.assembling = None;
+    }
+
+    /// One server message on the subscription: a `snapshot`, a `snapshot.part` (whose parts,
+    /// joined in order, are the snapshot message's JSON) or a `threads.patch`. Patches that
+    /// arrive while a snapshot is still in parts wait for it. An error means the stream can't be
+    /// trusted and should be opened again.
+    pub fn message(&mut self, message: &Value) -> Result<Vec<ThreadChange>, String> {
+        if !is_ours(message) {
+            return Ok(Vec::new());
+        }
+        match message.get("type").and_then(Value::as_str) {
+            Some("snapshot") => {
+                self.assembling = None;
+                Ok(self.snapshot(message))
+            }
+            Some("snapshot.part") => self.part(message),
+            Some("threads.patch") => match &mut self.assembling {
+                Some(assembly) => {
+                    assembly.held.push(message.clone());
+                    Ok(Vec::new())
+                }
+                None => Ok(self.patch(message)),
+            },
+            _ => Ok(Vec::new()),
+        }
+    }
+
+    fn snapshot(&mut self, message: &Value) -> Vec<ThreadChange> {
+        let view = message.get("view").unwrap_or(&Value::Null);
+        if view.get("kind").and_then(Value::as_str) != Some("threads") {
+            return Vec::new();
+        }
+        self.saw(view.get("threads").unwrap_or(&Value::Null), &[])
+    }
+
+    fn patch(&mut self, message: &Value) -> Vec<ThreadChange> {
+        let removed: Vec<String> = message
+            .get("removed")
+            .and_then(Value::as_array)
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(|id| id.as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default();
+        self.saw(message.get("threads").unwrap_or(&Value::Null), &removed)
+    }
+
+    fn part(&mut self, message: &Value) -> Result<Vec<ThreadChange>, String> {
+        let number = |field: &str| message.get(field).and_then(Value::as_u64);
+        let (Some(seq), Some(index)) = (number("seq"), number("index")) else {
+            return Err("a snapshot part without its place".to_owned());
+        };
+        let data = message.get("data").and_then(Value::as_str).unwrap_or("");
+        let done = message
+            .get("done")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if index == 0 {
+            self.assembling = Some(Assembly {
+                seq,
+                next: 0,
+                data: String::new(),
+                held: Vec::new(),
+            });
+        }
+        let Some(assembly) = &mut self.assembling else {
+            return Err("a snapshot part arrived without its first part".to_owned());
+        };
+        if assembly.seq != seq || assembly.next != index {
+            self.assembling = None;
+            return Err("snapshot parts arrived out of order".to_owned());
+        }
+        if assembly.data.len() + data.len() > MOST_SNAPSHOT_BYTES {
+            self.assembling = None;
+            return Err("the thread list's snapshot is too large".to_owned());
+        }
+        assembly.data.push_str(data);
+        assembly.next += 1;
+        if !done {
+            return Ok(Vec::new());
+        }
+        let Some(assembly) = self.assembling.take() else {
+            return Ok(Vec::new());
+        };
+        let whole: Value = serde_json::from_str(&assembly.data)
+            .map_err(|_| "a snapshot's parts didn't join into one".to_owned())?;
+        let whole_seq = whole.get("seq").and_then(Value::as_u64);
+        if whole.get("type").and_then(Value::as_str) != Some("snapshot")
+            || !is_ours(&whole)
+            || whole_seq != Some(seq)
+        {
+            return Err("a snapshot's parts joined into something else".to_owned());
+        }
+        let mut changes = self.snapshot(&whole);
+        for patch in &assembly.held {
+            changes.extend(self.patch(patch));
+        }
+        Ok(changes)
     }
 }
 
@@ -142,6 +266,7 @@ pub async fn watch_threads(
         .send(Message::text(hello.to_string()))
         .await
         .map_err(|error| ended(&error))?;
+    watch.connected();
     let mut subscribed = false;
     while let Some(frame) = stream.next().await {
         let text = match frame.map_err(|error| ended(&error))? {
@@ -178,28 +303,9 @@ pub async fn watch_threads(
                 }
                 return Err(WatchError::Ended(token.scrub(code.to_owned())));
             }
-            Some("snapshot") if is_ours(&message) => {
-                let view = message.get("view").unwrap_or(&Value::Null);
-                if view.get("kind").and_then(Value::as_str) == Some("threads") {
-                    let threads = view.get("threads").unwrap_or(&Value::Null);
-                    watch.saw(threads, &[]).into_iter().for_each(&mut on_change);
-                }
-            }
-            Some("threads.patch") if is_ours(&message) => {
-                let removed: Vec<String> = message
-                    .get("removed")
-                    .and_then(Value::as_array)
-                    .map(|ids| {
-                        ids.iter()
-                            .filter_map(|id| id.as_str().map(str::to_owned))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                let threads = message.get("threads").unwrap_or(&Value::Null);
-                watch
-                    .saw(threads, &removed)
-                    .into_iter()
-                    .for_each(&mut on_change);
+            Some(_) if subscribed => {
+                let changes = watch.message(&message).map_err(WatchError::Ended)?;
+                changes.into_iter().for_each(&mut on_change);
             }
             _ => {}
         }
@@ -254,6 +360,68 @@ mod tests {
         };
         watch.saw(&child("working"), &[]);
         assert!(watch.saw(&child("done"), &[]).is_empty());
+    }
+
+    #[test]
+    fn threads_an_agent_or_a_client_started_never_fire() {
+        for (field, value) in [
+            ("startedBy", json!({ "threadId": "t0", "agentId": "a1" })),
+            (
+                "startedByClient",
+                json!({ "kind": "mcp_client", "grantId": "g", "name": "Spade" }),
+            ),
+        ] {
+            let mut watch = ThreadWatch::new();
+            let thread = |state: &str| {
+                let mut entry = entry(state);
+                entry[field] = value.clone();
+                json!({ "t1": entry })
+            };
+            watch.saw(&thread("working"), &[]);
+            assert!(watch.saw(&thread("done"), &[]).is_empty(), "{field} fired");
+        }
+    }
+
+    fn ours(mut message: Value) -> Value {
+        message["subscriptionId"] = json!(SUBSCRIPTION);
+        message
+    }
+
+    #[test]
+    fn a_snapshot_in_parts_is_joined_before_the_patches_that_came_meanwhile() {
+        let mut watch = ThreadWatch::new();
+        let snapshot = ours(json!({ "type": "snapshot", "seq": 4,
+            "view": { "kind": "threads", "seq": 4, "threads": { "t1": entry("working") } } }))
+        .to_string();
+        let (head, tail) = snapshot.split_at(snapshot.len() / 2);
+        let part = |index: u64, data: &str, done: bool| {
+            ours(json!({ "type": "snapshot.part", "seq": 4, "index": index,
+                         "done": done, "data": data }))
+        };
+        let patch = ours(json!({ "type": "threads.patch", "seq": 5,
+                                 "threads": { "t1": entry("done") }, "removed": [] }));
+        assert_eq!(watch.message(&part(0, head, false)), Ok(Vec::new()));
+        // The patch waits for the snapshot it follows.
+        assert_eq!(watch.message(&patch), Ok(Vec::new()));
+        let changes = watch.message(&part(1, tail, true)).unwrap_or_default();
+        assert_eq!(
+            changes
+                .iter()
+                .map(|c| (c.thread_id.as_str(), c.state))
+                .collect::<Vec<_>>(),
+            [("t1", ThreadState::Done)]
+        );
+    }
+
+    #[test]
+    fn snapshot_parts_out_of_order_end_the_stream() {
+        let mut watch = ThreadWatch::new();
+        let part = |index: u64| {
+            ours(json!({ "type": "snapshot.part", "seq": 1, "index": index,
+                         "done": false, "data": "{" }))
+        };
+        assert!(watch.message(&part(0)).is_ok());
+        assert!(watch.message(&part(2)).is_err());
     }
 
     #[test]
