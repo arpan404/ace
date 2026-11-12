@@ -293,6 +293,15 @@ async fn a_device_sign_in_with_spades_own_app_shows_its_code_then_connects_witho
         Vec::new(),
         Options {
             connectors: true,
+            catalogue: vec![spade_connect::Entry {
+                id: "fake".into(),
+                name: "Fake".into(),
+                url: app.url(),
+                sign_in: vec![spade_connect::SignIn::OauthClient],
+                notes: String::new(),
+                source: "https://example.com/docs".into(),
+                local: true,
+            }],
             apps: vec![spade_connect::App {
                 connector: "fake".into(),
                 issuer: app.issuer(),
@@ -306,10 +315,7 @@ async fn a_device_sign_in_with_spades_own_app_shows_its_code_then_connects_witho
     )
     .await?;
     let (status, started) = spade
-        .post(
-            "/v1/connectors",
-            json!({ "url": app.url(), "name": "Fake", "local": true }),
-        )
+        .post("/v1/connectors", json!({ "catalogue": "fake" }))
         .await?;
     assert_eq!(status, 202, "{started}");
     assert_eq!(started["device"]["code"], "WDJB-MJHT");

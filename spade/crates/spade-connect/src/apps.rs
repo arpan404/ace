@@ -2,8 +2,10 @@
 //! the owner registered with an app's maker, shipped so the person signs in with one click. Public
 //! means no secret: the file can't carry one, and a sign-in with a shipped ID never sends one.
 //!
-//! An app is tied to its authorization server's issuer, so its client ID only ever goes to that
-//! server, whichever connector reaches it.
+//! An app is tied to its catalogue entry and its authorization server's issuer: it is used only
+//! when the person connects that entry, at the entry's own address, and that server's metadata
+//! names the issuer. A server added by URL never gets it, even one naming the same issuer, so a
+//! token issued to Spade's app only ever goes to the maker's own MCP server.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -104,10 +106,12 @@ pub fn shipped() -> Vec<App> {
         .collect()
 }
 
-/// The app for a sign-in at `issuer`, if Spade ships one.
-pub(crate) fn for_issuer<'a>(apps: &'a [App], issuer: &str) -> Option<&'a App> {
-    apps.iter()
-        .find(|app| app.issuer.trim_end_matches('/') == issuer.trim_end_matches('/'))
+/// Spade's app for catalogue entry `connector` signing in at `issuer`, if it ships one.
+pub(crate) fn for_sign_in<'a>(apps: &'a [App], connector: &str, issuer: &str) -> Option<&'a App> {
+    apps.iter().find(|app| {
+        app.connector == connector
+            && app.issuer.trim_end_matches('/') == issuer.trim_end_matches('/')
+    })
 }
 
 #[cfg(test)]

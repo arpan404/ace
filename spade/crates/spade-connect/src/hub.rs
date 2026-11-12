@@ -483,7 +483,7 @@ impl Connectors {
                 name: entry.name.clone(),
                 url,
                 catalogue: Some(entry.id.clone()),
-                local: false,
+                local: entry.local,
                 existing: self.record(&entry.id),
             });
         }
@@ -606,9 +606,22 @@ impl Connectors {
         request: &ConnectRequest,
         server: &oauth::AuthServer,
     ) -> Result<Option<&App>, ConnectError> {
-        let Some(app) = apps::for_issuer(&self.apps, &server.issuer) else {
+        // Only for the catalogue entry the app was registered for, at that entry's own address:
+        // any other server could name the app's issuer and have the person sign in as Spade,
+        // then receive the token.
+        let Some(connector) = target.catalogue.as_deref() else {
             return Ok(None);
         };
+        let at_entry = self.catalogue.iter().any(|entry| {
+            entry.id == connector
+                && wellknown::checked(&entry.url).is_ok_and(|url| url == target.url)
+        });
+        let Some(app) = apps::for_sign_in(&self.apps, connector, &server.issuer) else {
+            return Ok(None);
+        };
+        if !at_entry {
+            return Ok(None);
+        }
         let given = |value: &Option<String>| {
             value
                 .as_deref()

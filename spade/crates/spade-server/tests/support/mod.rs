@@ -168,6 +168,8 @@ pub struct Options {
     pub client_metadata: Option<String>,
     /// With `connectors`: Spade's own registered apps (ADR 0137).
     pub apps: Vec<spade_connect::App>,
+    /// With `connectors`: catalogue entries added to the shipped ones.
+    pub catalogue: Vec<spade_connect::Entry>,
     /// The engine's clock; the machine's when absent.
     pub clock: Option<Arc<dyn Clock>>,
     /// The engine's ids; counting from 1 when absent.
@@ -268,6 +270,7 @@ impl Default for Options {
             connectors: false,
             client_metadata: None,
             apps: Vec::new(),
+            catalogue: Vec::new(),
             clock: None,
             ids: None,
             brains: None,
@@ -439,7 +442,10 @@ impl Spade {
                 keys: Some(keys.clone()),
                 clock: spade_connect::system_clock(),
                 random: Arc::new(spade_connect::OsRandom),
-                catalogue: spade_connect::catalogue::shipped(),
+                catalogue: spade_connect::catalogue::shipped()
+                    .into_iter()
+                    .chain(options.catalogue.iter().cloned())
+                    .collect(),
                 timeout: Duration::from_secs(5),
                 relist: Duration::from_secs(600),
                 addresses: spade_connect::Addresses::system(),

@@ -25,6 +25,10 @@ pub struct Entry {
     pub notes: String,
     /// The maker's page the address was checked against.
     pub source: String,
+    /// Its sign-in may use local addresses. Never read from the shipped file, so catalogue
+    /// servers never are; tests set it to point an entry at a fake app on 127.0.0.1.
+    #[serde(skip)]
+    pub local: bool,
 }
 
 #[derive(Deserialize)]

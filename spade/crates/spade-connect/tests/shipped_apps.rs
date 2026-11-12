@@ -15,7 +15,7 @@ const PUBLIC_ID: &str = "spade-public-client";
 
 fn app_for(fake: &FakeConnector, grant: Grant) -> App {
     App {
-        connector: "fake".into(),
+        connector: FAKE_ENTRY.into(),
         issuer: fake.issuer(),
         client_id: PUBLIC_ID.into(),
         grant,
@@ -38,8 +38,8 @@ async fn a_shipped_public_client_signs_in_with_pkce_its_exact_callback_and_no_se
     let fake = FakeConnector::start(app_tools()).await;
     fake.without_registration();
     fake.register_public_client(PUBLIC_ID, "http://127.0.0.1/v1/connectors/callback/fake");
-    let spade = spade_shipping(vec![app_for(&fake, Grant::Browser)])?;
-    let url = sign_in_url(&spade, by_url(&fake.url())).await?;
+    let spade = spade_shipping(&fake.url(), vec![app_for(&fake, Grant::Browser)])?;
+    let url = sign_in_url(&spade, from_catalogue()).await?;
     let asked = query(&url)?;
     assert_eq!(asked["client_id"], PUBLIC_ID);
     assert_eq!(
@@ -71,16 +71,16 @@ async fn a_shipped_public_client_signs_in_with_pkce_its_exact_callback_and_no_se
 async fn a_shipped_app_takes_no_client_secret_and_nothing_is_sent_when_one_is_offered() -> Result {
     let fake = FakeConnector::start(app_tools()).await;
     fake.offer_device_flow(PUBLIC_ID, 1, 900);
-    let spade = spade_shipping(vec![app_for(&fake, Grant::Device)])?;
+    let spade = spade_shipping(&fake.url(), vec![app_for(&fake, Grant::Device)])?;
     for request in [
         ConnectRequest {
             client_secret: Some("shh".into()),
-            ..by_url(&fake.url())
+            ..from_catalogue()
         },
         ConnectRequest {
             client_id: Some(PUBLIC_ID.into()),
             client_secret: Some("shh".into()),
-            ..by_url(&fake.url())
+            ..from_catalogue()
         },
     ] {
         match spade.connectors.connect(request).await {
@@ -93,8 +93,8 @@ async fn a_shipped_app_takes_no_client_secret_and_nothing_is_sent_when_one_is_of
     Ok(())
 }
 
-async fn device_sign_in(spade: &Spade, fake: &FakeConnector) -> Result<(String, String, String)> {
-    match spade.connectors.connect(by_url(&fake.url())).await? {
+async fn device_sign_in(spade: &Spade) -> Result<(String, String, String)> {
+    match spade.connectors.connect(from_catalogue()).await? {
         Started::Device { id, code, url, .. } => Ok((id, code, url)),
         other => Err(format!("expected a device sign-in, got {other:?}").into()),
     }
@@ -116,8 +116,8 @@ async fn a_device_sign_in_shows_the_code_waits_slows_down_when_told_and_connects
     let fake = FakeConnector::start(app_tools()).await;
     fake.offer_device_flow(PUBLIC_ID, 2, 900);
     fake.answer_device_polls(&["authorization_pending", "slow_down", "approve"]);
-    let spade = spade_shipping(vec![app_for(&fake, Grant::Device)])?;
-    let (id, code, url) = device_sign_in(&spade, &fake).await?;
+    let spade = spade_shipping(&fake.url(), vec![app_for(&fake, Grant::Device)])?;
+    let (id, code, url) = device_sign_in(&spade).await?;
     assert_eq!(code, "WDJB-MJHT");
     assert_eq!(
         url,
@@ -163,8 +163,8 @@ async fn a_device_code_that_expires_or_is_declined_says_so_and_connects_nothing(
         let fake = FakeConnector::start(app_tools()).await;
         fake.offer_device_flow(PUBLIC_ID, 1, 900);
         fake.answer_device_polls(&["authorization_pending", answer]);
-        let spade = spade_shipping(vec![app_for(&fake, Grant::Device)])?;
-        let (id, _, _) = device_sign_in(&spade, &fake).await?;
+        let spade = spade_shipping(&fake.url(), vec![app_for(&fake, Grant::Device)])?;
+        let (id, _, _) = device_sign_in(&spade).await?;
         let view = ended(&spade, &id).await?;
         assert_eq!(view.device.map(|d| d.state), Some(state), "{answer}");
         assert_eq!(view.state, "needs_reconnect", "{answer}");
@@ -199,8 +199,8 @@ async fn a_device_code_past_its_lifetime_stops_polling_even_if_the_server_never_
     let fake = FakeConnector::start(app_tools()).await;
     // Lasts one second; polled every second, which is TICK here, against the real clock.
     fake.offer_device_flow(PUBLIC_ID, 1, 1);
-    let spade = spade_shipping(vec![app_for(&fake, Grant::Device)])?;
-    let (id, _, _) = device_sign_in(&spade, &fake).await?;
+    let spade = spade_shipping(&fake.url(), vec![app_for(&fake, Grant::Device)])?;
+    let (id, _, _) = device_sign_in(&spade).await?;
     // Spade's clock is the machine's: one real second.
     tokio::time::timeout(Duration::from_secs(4), async {
         loop {
@@ -227,8 +227,8 @@ async fn a_device_signed_in_connector_is_only_for_the_bots_allowed_it() -> Resul
     let fake = FakeConnector::start(app_tools()).await;
     fake.offer_device_flow(PUBLIC_ID, 1, 900);
     fake.answer_device_polls(&["approve"]);
-    let spade = spade_shipping(vec![app_for(&fake, Grant::Device)])?;
-    let (id, _, _) = device_sign_in(&spade, &fake).await?;
+    let spade = spade_shipping(&fake.url(), vec![app_for(&fake, Grant::Device)])?;
+    let (id, _, _) = device_sign_in(&spade).await?;
     wait_for(|| spade.connectors.get(&id).is_some_and(|v| v.tools == 3)).await?;
     assert_eq!(spade.connectors.tools_for("main", true).len(), 3);
     assert!(spade.connectors.tools_for("garden", false).is_empty());
@@ -247,12 +247,42 @@ async fn a_device_signed_in_connector_is_only_for_the_bots_allowed_it() -> Resul
 async fn disconnecting_during_a_device_sign_in_stops_it_and_keeps_nothing() -> Result {
     let fake = FakeConnector::start(app_tools()).await;
     fake.offer_device_flow(PUBLIC_ID, 5, 900);
-    let spade = spade_shipping(vec![app_for(&fake, Grant::Device)])?;
-    let (id, _, _) = device_sign_in(&spade, &fake).await?;
+    let spade = spade_shipping(&fake.url(), vec![app_for(&fake, Grant::Device)])?;
+    let (id, _, _) = device_sign_in(&spade).await?;
     assert!(spade.connectors.disconnect(&id).await?);
     fake.answer_device_polls(&["approve"]);
     tokio::time::sleep(TICK * 12).await;
     assert!(spade.connectors.get(&id).is_none());
     assert_eq!(fake.token_requests(), 0, "polled after the disconnect");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_server_added_by_url_naming_the_shipped_issuer_never_signs_in_as_spade() -> Result {
+    // Spade's app is for the catalogue entry at the maker's address. Another server, added by
+    // its own address, names the app's issuer as its authorization server, hoping the person
+    // signs in as Spade and the token is then sent to it.
+    let maker = FakeConnector::start(app_tools()).await;
+    let impostor = FakeConnector::start(app_tools()).await;
+    impostor.without_registration();
+    impostor.offer_device_flow(PUBLIC_ID, 1, 900);
+    let app = App {
+        issuer: impostor.issuer(),
+        ..app_for(&maker, Grant::Device)
+    };
+    let spade = spade_shipping(&maker.url(), vec![app])?;
+    assert_eq!(
+        spade
+            .connectors
+            .connect(by_url(&impostor.url()))
+            .await
+            .err(),
+        Some(ConnectError::NeedsClient)
+    );
+    assert!(
+        impostor.device_asked().is_empty(),
+        "a device code was asked for"
+    );
+    assert_eq!(impostor.token_requests() + impostor.secrets_sent(), 0);
     Ok(())
 }

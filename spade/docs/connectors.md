@@ -43,7 +43,7 @@ Spade follows the MCP authorization spec (2026-07-28):
 4. **Client.** In the MCP spec's order ([ADR 0136](../../docs/adr/0136-spade-client-id-metadata-document.md),
    [ADR 0137](../../docs/adr/0137-spade-public-connector-apps.md)):
    a client ID the person gave, now or earlier for this issuer; else Spade's own registered app for
-   this issuer (see Spade's own apps below); else Spade's client ID metadata
+   this catalogue entry and issuer (see Spade's own apps below); else Spade's client ID metadata
    document, `https://acehq.dev/oauth/spade.json`
    ([`apps/marketing/public/oauth/spade.json`](../../apps/marketing/public/oauth/spade.json)),
    when the metadata has `client_id_metadata_document_supported: true` and either
@@ -94,7 +94,10 @@ ID belongs to, the `client_id` (empty until registered; such entries are ignored
 optional `scopes`, and the `source` page saying the grant needs no secret. They are public client
 IDs: the file is refused whole if anything in it is named like a secret, a connect request offering
 a `client_secret` for Spade's own app answers `400`, and these sign-ins send and keep no secret.
-An app is used only when the authorization server's metadata names its `issuer`. Which makers allow
+An app is tied to its catalogue entry and issuer: it is used only when the person connects that
+entry, at the entry's own address, and its authorization server's metadata names the app's
+`issuer`. A server added by URL never signs in as Spade, even one naming the same issuer, since its
+token would then be sent to that server. Which makers allow
 this, and how to register each, is in [connector-apps.md](connector-apps.md).
 
 - **`browser`:** the authorization code grant as above, with PKCE and no secret, back to

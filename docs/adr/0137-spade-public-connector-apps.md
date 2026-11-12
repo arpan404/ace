@@ -34,10 +34,15 @@ metadata on 2026-11-12 ([spade/docs/connector-apps.md](../../spade/docs/connecto
    it is, or is named like, a secret. A connect request offering a client secret for Spade's own
    app is refused. A sign-in with a shipped ID sends no secret and keeps none.
 
-2. **Where it is used.** An app is tied to its issuer: its client ID only goes to the authorization
-   server named in the MCP server's protected-resource metadata when that server's metadata gives
-   the same issuer. The order becomes: a client ID the person gives now; one the person gave
-   earlier for this issuer; Spade's own app for the issuer; Spade's client ID metadata document
+2. **Where it is used.** An app is tied to its catalogue entry and issuer: it is used only when the
+   person connects that catalogue entry, at the entry's own address, and the authorization server
+   that MCP server names gives the app's issuer in its metadata. A server added by URL never signs
+   in as Spade, even one naming the same issuer: otherwise any server could name GitHub's issuer,
+   have the person approve Spade on GitHub, and then receive the GitHub token as its bearer. Each
+   connector's tokens are kept under its own id and sent only to its own address, with no
+   redirects followed, so they are never reused by another connector. The order becomes: a client
+   ID the person gives now; one the person gave earlier for this issuer; Spade's own app for the
+   catalogue entry; Spade's client ID metadata document
    (ADR 0136); a client Spade registered; dynamic registration; else the person is asked for a
    client ID. A catalogue entry whose app has a client ID leads with Sign in; the person's own
    client ID is still offered.
@@ -87,6 +92,8 @@ entry>`, which the owner registers without a port (RFC 8252 section 7.3). No mak
 - A device-flow fake: the code shows, `authorization_pending` waits, `slow_down` adds five seconds,
   approval connects; `expired_token` and `access_denied` end it without connecting and Try again
   starts anew; a code past its lifetime stops polling; disconnecting stops it.
+- A server added by URL whose sign-in names the shipped app's issuer gets no device request and is
+  asked for the person's own client ID.
 - An apps file with a secret anywhere is refused; a connect request with a secret for the shipped
   app is refused before any request.
 - A device-signed-in connector's tools reach only the bots allowed it.
