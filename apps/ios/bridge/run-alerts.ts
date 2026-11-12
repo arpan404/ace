@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { AutomationRun } from "@ace/protocol";
 import {
+  batchRunAlerts,
   finishedSince,
   historyPollMs,
   runAlertTitle,
@@ -16,15 +17,19 @@ import type { KeptValue } from "./kept-value.ts";
  */
 
 export interface RunAlert {
-  /** The run's id: said once, and the system notification's identifier. */
+  /** The run's id (or "summary:" and the newest folded run's): said once, and the system notification's identifier. */
   key: string;
   title: string;
   /** Its outcome, never its output: a notification can show on a lock screen. */
   body: string;
   /** The thread the run started, which a tap opens; null opens ace. */
   threadId: string | null;
-  automationId: string;
+  /** The run's automation; null for a summary of several. */
+  automationId: string | null;
 }
+
+/** At most this many inbox pages are read back to the cutoff in one go. */
+const maxPages = 20;
 
 type Schedule = (delayMs: number, run: () => void) => () => void;
 
@@ -34,19 +39,24 @@ type Schedule = (delayMs: number, run: () => void) => () => void;
  */
 const Progress = z.object({ since: z.number() }).nullable();
 
-/** One `automation.inbox` answer: only an `ok` one with its inbox is a reading. */
+/**
+ * One `automation.inbox` page, newest first: only an `ok` one with its inbox is a reading.
+ * `before` reads the page after it; null (or absent) when there is none.
+ */
 export interface InboxReply {
   ok: boolean;
-  inbox?: { runs: readonly AutomationRun[] } | undefined;
+  inbox?: { runs: readonly AutomationRun[]; before?: number | null } | undefined;
 }
 
-/** The runs a reply read, or undefined when it read nothing: refused, or no inbox. */
-function reading(reply: InboxReply | undefined): readonly AutomationRun[] | undefined {
-  return reply?.ok && reply.inbox ? reply.inbox.runs : undefined;
+/** What one go read: the runs back to the cutoff, and whether it got that far. */
+interface Reading {
+  runs: AutomationRun[];
+  /** Every run that could have finished since the cutoff is in `runs`. */
+  complete: boolean;
 }
 
 export class RunWatch {
-  readonly #read: () => Promise<InboxReply>;
+  readonly #read: (before?: number) => Promise<InboxReply>;
   readonly #schedule: Schedule;
   readonly #now: () => number;
   readonly #say: (alert: RunAlert) => void;
@@ -65,8 +75,8 @@ export class RunWatch {
   #run = 0;
 
   constructor(
-    /** Reads the inbox; a refusal or a rejection is a failed read, which changes nothing. */
-    read: () => Promise<InboxReply>,
+    /** Reads an inbox page; a refusal or a rejection is a failed read, which changes nothing. */
+    read: (before?: number) => Promise<InboxReply>,
     schedule: Schedule,
     now: () => number,
     say: (alert: RunAlert) => void,
@@ -133,12 +143,18 @@ export class RunWatch {
     if (this.#keepable) void this.#kept?.save(progress).catch(() => {});
   }
 
-  #see(runs: readonly AutomationRun[]): void {
+  /**
+   * One reading: each run that finished since the cutoff is said once, the newest few by name and
+   * the rest counted in one summary. The cutoff moves past them only when the reading reached it.
+   */
+  #see({ runs, complete }: Reading): void {
     // Only runs still in the inbox can come back; forget the rest.
     const listed = new Set(runs.map((run) => run.id));
     for (const id of this.#said) if (!listed.has(id)) this.#said.delete(id);
-    for (const run of finishedSince(runs, this.#since ?? this.#now(), this.#said)) {
-      this.#said.add(run.id);
+    const news = finishedSince(runs, this.#since ?? this.#now(), this.#said);
+    for (const run of news) this.#said.add(run.id);
+    const batch = batchRunAlerts(news);
+    for (const run of batch.shown)
       this.#say({
         key: run.id,
         title: runAlertTitle(run),
@@ -146,8 +162,21 @@ export class RunWatch {
         threadId: run.threadId ?? null,
         automationId: run.automationId,
       });
+    if (batch.summary) {
+      // Keyed by the newest run it folds, so the next pile is a notification of its own.
+      const folded = news
+        .filter((run) => !batch.shown.includes(run))
+        .reduce((a, b) => ((b.finishedAt ?? 0) > (a.finishedAt ?? 0) ? b : a));
+      this.#say({
+        key: `summary:${folded.id}`,
+        title: batch.summary.title,
+        body: batch.summary.body,
+        threadId: null,
+        automationId: null,
+      });
     }
-    // Every finish this reading holds has been said: carry on from the latest, on the machine's clock.
+    if (!complete) return;
+    // Every finish since the cutoff is said or counted: carry on from the latest, on the machine's clock.
     const latest = Math.max(...runs.map((run) => run.finishedAt ?? Number.NEGATIVE_INFINITY));
     if (this.#since !== undefined && latest > this.#since) {
       this.#since = latest;
@@ -155,10 +184,30 @@ export class RunWatch {
     }
   }
 
+  /**
+   * The inbox back to the cutoff, a page at a time: it ends at a page holding a run started by
+   * then, or at the inbox's end. Undefined when any page reads nothing, so nothing changes.
+   */
+  async #collect(): Promise<Reading | undefined> {
+    const runs: AutomationRun[] = [];
+    let before: number | undefined;
+    for (let page = 0; page < maxPages; page++) {
+      const reply = await this.#read(before).catch(() => undefined);
+      if (!reply?.ok || !reply.inbox) return undefined;
+      runs.push(...reply.inbox.runs);
+      const since = this.#since ?? this.#now();
+      const next = reply.inbox.before ?? null;
+      if (next === null || reply.inbox.runs.some((run) => run.startedAt <= since))
+        return { runs, complete: true };
+      before = next;
+    }
+    return { runs, complete: false };
+  }
+
   async #tick(run: number): Promise<void> {
-    const runs = reading(await this.#read().catch(() => undefined));
+    const reading = await this.#collect();
     if (run !== this.#run) return;
-    if (runs) this.#see(runs);
-    this.#cancel = this.#schedule(historyPollMs(runs ?? []), () => void this.#tick(run));
+    if (reading) this.#see(reading);
+    this.#cancel = this.#schedule(historyPollMs(reading?.runs ?? []), () => void this.#tick(run));
   }
 }

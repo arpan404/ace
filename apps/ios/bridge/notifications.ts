@@ -149,8 +149,12 @@ export class NotificationBridge {
       );
     if (now)
       this.#runs = new RunWatch(
-        () =>
-          client.request({ type: "automation.inbox", limit: runInboxLimit }, { timeoutMs: 15_000 }),
+        // A page of recent runs, newest first; `before` reads further back.
+        (before) =>
+          client.request(
+            { type: "automation.inbox", limit: runInboxLimit, ...(before ? { before } : {}) },
+            { timeoutMs: 15_000 },
+          ),
         schedule,
         now,
         (alert) => this.#run(alert),

@@ -16,6 +16,17 @@ import Testing
         #expect(prefs.system["automations"])
     }
 
+    @Test func aSummaryOfManyFinishedRunsPostsUnderItsOwnKeyAndOpensAce() throws {
+        let frame = #"{"type":"notifications.run","key":"summary:away56","title":"57 more automation runs finished","body":"6 failed","threadId":null,"automationId":null,"delivery":{"post":true,"interrupt":true,"banner":false}}"#
+        guard case .run(let alert) = try JSONDecoder().decode(NotificationPatch.self, from: Data(frame.utf8)) else {
+            Issue.record("not a run patch"); return
+        }
+        let content = AlertContent.run(alert, hostId: "studio")
+        #expect(content.identifier == "run:studio:summary:away56")
+        #expect(content.title == "57 more automation runs finished")
+        #expect(content.threadId == "")
+    }
+
     @Test func runAndLimitNotificationsPostedBeforeARelaunchStillGoWhenTheirMachineIsTurnedOff() async throws {
         // Notification Center keeps what was posted; the app's memory doesn't survive the relaunch.
         let center = FakeCenter()

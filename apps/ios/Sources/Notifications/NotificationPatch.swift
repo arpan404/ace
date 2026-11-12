@@ -56,15 +56,16 @@ struct LimitNotification: Codable, Sendable, Equatable {
     var delivery: AlertNotification.Delivery? = nil
 }
 
-/// A finished or failed automation run the bridge picked (`bridge/run-alerts.ts`), with how this
-/// phone shows it. Its body says how the run went, never what it printed.
+/// A finished or failed automation run the bridge picked (`bridge/run-alerts.ts`), or a summary
+/// of many, with how this phone shows it. Its body says how runs went, never what they printed.
 struct RunNotification: Codable, Sendable, Equatable {
     let key: String
     let title: String
     let body: String
     /// The thread the run started, which a tap opens; nil opens ace.
     var threadId: String? = nil
-    let automationId: String
+    /// Nil for a summary of several runs ("57 more automation runs finished").
+    var automationId: String? = nil
     var delivery: AlertNotification.Delivery? = nil
 }
 

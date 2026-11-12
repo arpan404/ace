@@ -51,12 +51,23 @@ function watch(inbox: (at: number) => Read, options: { kept?: KeptValue; at?: nu
   const timers: { at: number; run: () => void }[] = [];
   const said: RunAlert[] = [];
   const runs = new RunWatch(
-    async () => {
+    // The machine's inbox, newest first, a page of 50 at a time back from `before`, as it pages.
+    async (before) => {
       const read = inbox(now);
       if (read === "lost") throw new Error("socket closed");
-      return read === "refused"
-        ? { ok: false, error: "unavailable" }
-        : { ok: true, inbox: { runs: read } };
+      if (read === "refused") return { ok: false, error: "unavailable" };
+      const rows = read
+        .map((entry, index) => ({ entry, seq: index + 1 }))
+        .filter((row) => before === undefined || row.seq < before)
+        .toReversed();
+      const page = rows.slice(0, 50);
+      return {
+        ok: true,
+        inbox: {
+          runs: page.map((row) => row.entry),
+          before: rows.length > 50 ? (page.at(-1)?.seq ?? null) : null,
+        },
+      };
     },
     (delay, go) => {
       const timer = { at: now + delay, run: go };
@@ -223,4 +234,63 @@ test("alerts off from launch, then on: what finished meanwhile stays unsaid afte
   later.runs.start();
   await later.settle();
   expect(later.said).toEqual([]);
+});
+
+/** Sixty runs, one finishing every second, all while the phone was away; every tenth failed. */
+const away = Array.from({ length: 60 }, (_, index) =>
+  run(`away${index}`, {
+    status: index % 10 === 0 ? "failed" : "succeeded",
+    startedAt: start + 1_000 * index,
+    finishedAt: start + 1_000 * index + 500,
+  }),
+);
+/** Ten that finished before the last launch's cutoff. */
+const earlier = Array.from({ length: 10 }, (_, index) =>
+  run(`before${index}`, {
+    status: "succeeded",
+    startedAt: start - 1_000 + index,
+    finishedAt: start - 500 + index,
+  }),
+);
+
+const awayInbox = () => [...earlier, ...away];
+
+test("sixty runs that finished while the phone was away are each said or counted, and never again", async () => {
+  const kept = memoryKept(0, { since: start });
+  const phone = watch(awayInbox, { kept, at: start + 3_600_000 });
+  phone.runs.start();
+  await phone.settle();
+  // The newest three each, then the other 57 in one: none of the ten from before the cutoff.
+  expect(phone.said.slice(0, 3).map((alert) => alert.key)).toEqual(["away59", "away58", "away57"]);
+  expect(phone.said.slice(3)).toEqual([
+    {
+      key: "summary:away56",
+      title: "57 more automation runs finished",
+      body: "6 failed",
+      threadId: null,
+      automationId: null,
+    },
+  ]);
+  await phone.next();
+  expect(phone.said).toHaveLength(4);
+  const relaunched = watch(awayInbox, { kept, at: start + 7_200_000 });
+  relaunched.runs.start();
+  await relaunched.settle();
+  expect(relaunched.said).toEqual([]);
+});
+
+test("a page of the inbox that can't be read leaves everything for the next read", async () => {
+  const kept = memoryKept(0, { since: start });
+  let reads = 0;
+  // The second page goes unanswered once.
+  const phone = watch(() => (++reads === 2 ? "lost" : [...earlier, ...away]), {
+    kept,
+    at: start + 3_600_000,
+  });
+  phone.runs.start();
+  await phone.settle();
+  expect(phone.said).toEqual([]);
+  expect(kept.value).toEqual({ since: start });
+  await phone.next();
+  expect(phone.said.map((alert) => alert.title).at(-1)).toBe("57 more automation runs finished");
 });
