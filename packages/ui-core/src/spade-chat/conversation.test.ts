@@ -43,7 +43,9 @@ const said = (entries: readonly SpadeEntry[]) =>
                   ? `[remembered ${part.note.text}]`
                   : part.kind === "files"
                     ? `[files ${part.paths.join(", ")}]`
-                    : part.text,
+                    : part.kind === "shared"
+                      ? `[shared ${part.images.length + part.documents.length}]`
+                      : part.text,
             ),
             ...(entry.live ? [`${entry.live}…`] : []),
           ].join(" | ")}${entry.end ? ` (${entry.end.kind})` : ""}`

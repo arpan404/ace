@@ -17,6 +17,7 @@ mod jobs;
 mod ledger;
 pub(crate) use ledger::{Admission, Hint};
 mod maintenance;
+mod media;
 mod memory;
 mod outbox;
 mod oversight;
@@ -32,6 +33,7 @@ pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput};
 pub use groups::{GROUP_NAME_CHARS, GroupError, GroupInput, GroupLast, GroupView, MemberRef};
 pub use inbox::{InboxAnswer, Sender as InboxSender};
 pub use maintenance::MaintenanceState;
+pub use media::{Outgoing, TranscribeError};
 pub use memory::{MemoryCall, NoteError, NoteScope, note_json};
 pub use oversight::{
     ActivityPage, ActivityQuery, AgentOversight, Global, GlobalChange, OversightChange,
@@ -92,6 +94,8 @@ pub struct Engine {
     limits: Limits,
     skills: Option<Arc<dyn SkillLibrary>>,
     images: ImageStore,
+    /// Attached documents and recordings, beside the images (ADR 0134).
+    media: Arc<crate::media::Media>,
     live: Mutex<HashMap<String, Arc<Live>>>,
     /// Orders "store, then broadcast" and makes "steer or start" and "finish unless steered"
     /// atomic against each other, so a message sent as a reply ends is never lost.
@@ -153,6 +157,8 @@ impl Engine {
         }
         let tools = crate::routines::with_tools(tools, &handle);
         let tools = crate::teams::with_tools(tools, &handle);
+        let data = setup.images.dir().parent().unwrap_or(setup.images.dir());
+        let media = Arc::new(crate::media::Media::open(data));
         let engine = Arc::new(Self {
             store: setup.store,
             models: setup.models,
@@ -165,6 +171,7 @@ impl Engine {
             limits: setup.limits,
             skills: setup.skills,
             images: setup.images,
+            media,
             live: Mutex::default(),
             record_lock: Mutex::default(),
             activity: Mutex::default(),
@@ -323,7 +330,9 @@ impl Engine {
         let _ = self.live(id).frames.send(Frame::Status {
             state: activity.state,
             status,
+            waiting_member: None,
         });
+        self.announce_asking_groups(id);
     }
 
     /// The status words for `id` in `activity`'s state; `None` when idle.
@@ -371,38 +380,14 @@ impl Engine {
         text: &str,
         images: &[Vec<u8>],
     ) -> Result<(), SendError> {
-        self.check_message(text, images.len())?;
-        if self.store.conversation(id)?.is_none() || self.deleting(id) {
-            return Err(SendError::NotFound);
-        }
-        if self.disabled_main(id)? {
-            return Err(SendError::Disabled);
-        }
-        if self.store.group_for_conversation(id)?.is_some() {
-            return Err(SendError::Group);
-        }
-        if let Some(why) = self.cap_refusal(id) {
-            return Err(SendError::BotCapped(why));
-        }
-        let message = memory::with_recall(self, id, self.message(text, images)?);
-        self.deliver(id, &message)?;
-        Ok(())
-    }
-
-    /// The person's message as stored, with its images kept in the image store.
-    fn message(&self, text: &str, images: &[Vec<u8>]) -> Result<Event, SendError> {
-        let images = images
-            .iter()
-            .map(|bytes| self.images.put(bytes))
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(Event::Known(Known::UserMessage {
-            text: text.trim().to_owned(),
-            context: None,
-            images,
-            from_agent: None,
-            from_routine: None,
-            from_group: None,
-        }))
+        self.send_message(
+            id,
+            Outgoing {
+                text: text.to_owned(),
+                images: images.to_vec(),
+                ..Outgoing::default()
+            },
+        )
     }
 
     /// A stored image and its media type, by hash.
@@ -412,11 +397,14 @@ impl Engine {
 
     /// Images as a prompt for `model` shows them: as images if it can see them.
     fn images_for(&self, model: &str) -> crate::images::ModelImages<'_> {
-        let can_see = self
-            .models
-            .resolve(model)
-            .is_some_and(|(_, m)| m.can(spade_models::Capability::Images));
-        self.images.for_model(can_see)
+        let facts = self.models.resolve(model).map(|(_, m)| m);
+        let can = |c| facts.as_ref().is_some_and(|m| m.can(c));
+        let shown = self.images.for_model(can(spade_models::Capability::Images));
+        if can(spade_models::Capability::PdfInput) {
+            shown.with_pdfs(&self.media.documents)
+        } else {
+            shown
+        }
     }
 
     /// Stores something the model must read (a message, a job result): it steers the open turn,
@@ -426,14 +414,14 @@ impl Engine {
     }
 
     /// [`Engine::deliver`], recording `ask` (an ask from another machine) in the same write.
-    /// Returns the seq the event was stored at, or `None` when `ask` was already delivered.
+    /// What was stored, or why nothing was.
     fn deliver_as(
         self: &Arc<Self>,
         id: &str,
         event: &Event,
-        ask: Option<&spade_store::InboxEntry>,
-    ) -> Result<Option<i64>, StoreError> {
-        let (start, seq) = {
+        ask: Option<spade_store::Delivery<'_>>,
+    ) -> Result<spade_store::Delivered, StoreError> {
+        let (start, delivered) = {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
             if self.deleting(id) {
                 return Err(StoreError::NoConversation(id.to_owned()));
@@ -455,10 +443,10 @@ impl Engine {
                     let started = Event::reply_started(self.ids.next("r"), model);
                     (true, self.append_as(id, &[event.clone(), started], ask)?)
                 };
-            let Some(stored) = stored else {
-                return Ok(None);
-            };
-            (start, stored.first().map(|e| e.seq))
+            if !matches!(stored, spade_store::Delivered::Stored(_)) {
+                return Ok(stored);
+            }
+            (start, stored)
         };
         if start {
             self.spawn_turn(id);
@@ -466,7 +454,7 @@ impl Engine {
             // A turn waiting on the person (an `ask_user` question) reads the message now.
             memory::wake_on_message(self, id, event);
         }
-        Ok(seq)
+        Ok(delivered)
     }
 
     /// Live frames after `after`, with the stored backlog and the open reply's text so far.
@@ -485,9 +473,9 @@ impl Engine {
         };
         let backlog = self.store.events(id, after)?;
         let activity = self.activity(id)?;
-        let (state, status) = match self.group_status_of(id) {
-            Some(group) => group,
-            None => (activity.state, self.status_for(id, &activity)),
+        let (state, status, waiting_member) = match self.group_status_of(id) {
+            Some(group) => (group.state, group.status, group.waiting_member),
+            None => (activity.state, self.status_for(id, &activity), None),
         };
         Ok(Some(Subscription {
             frames,
@@ -495,6 +483,7 @@ impl Engine {
             snapshot,
             state,
             status,
+            waiting_member,
         }))
     }
 
@@ -544,13 +533,10 @@ impl Engine {
         &self.models
     }
 
-    fn check_message(&self, text: &str, images: usize) -> Result<(), SendError> {
+    fn check_message(&self, text: &str, attached: usize) -> Result<(), SendError> {
         let text = text.trim();
-        if text.is_empty() && images == 0 {
+        if text.is_empty() && attached == 0 {
             return Err(SendError::Empty);
-        }
-        if images > crate::images::MOST_IMAGES {
-            return Err(SendError::TooManyImages);
         }
         if text.chars().count() > self.limits.longest_message {
             return Err(SendError::TooLong);
@@ -619,28 +605,35 @@ impl Engine {
     /// Stores `events` together and sends them to subscribers, in order; the caller holds
     /// `record_lock`. The only way events are written, so the activity cache stays true.
     fn append_events(&self, id: &str, events: &[Event]) -> Result<Vec<StoredEvent>, StoreError> {
-        self.append_as(id, events, None)?
-            .ok_or_else(|| StoreError::NoConversation(id.to_owned()))
+        match self.append_as(id, events, None)? {
+            spade_store::Delivered::Stored(stored) => Ok(stored),
+            _ => Err(StoreError::NoConversation(id.to_owned())),
+        }
     }
 
-    /// [`Engine::append_events`], recording `ask` in the same transaction; `None` when that ask
-    /// was already delivered (nothing is stored).
+    /// [`Engine::append_events`], recording `ask` in the same transaction; nothing is stored when
+    /// that ask was already delivered or its sender is over its limit.
     fn append_as(
         &self,
         id: &str,
         events: &[Event],
-        ask: Option<&spade_store::InboxEntry>,
-    ) -> Result<Option<Vec<StoredEvent>>, StoreError> {
+        ask: Option<spade_store::Delivery<'_>>,
+    ) -> Result<spade_store::Delivered, StoreError> {
         let now = self.now_ms();
         let stored = match ask {
             Some(ask) => self.store.append_delivered(id, events, ask, now),
-            None => self.store.append_all(id, events, now).map(Some),
+            None => self
+                .store
+                .append_all(id, events, now)
+                .map(spade_store::Delivered::Stored),
         };
         // Dropped whether or not the write succeeded: a failed write may still have landed.
         self.forget_activity(id);
         let stored = stored?;
-        for event in stored.iter().flatten() {
-            let _ = self.live(id).frames.send(Frame::Stored(event.clone()));
+        if let spade_store::Delivered::Stored(events) = &stored {
+            for event in events {
+                let _ = self.live(id).frames.send(Frame::Stored(event.clone()));
+            }
         }
         Ok(stored)
     }

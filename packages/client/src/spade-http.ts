@@ -29,8 +29,8 @@ const defaultLater: SpadeLater = (delay, callback) => {
 };
 
 /**
- * How long an upload may go without its result once the daemon opened it: room for 60 MB on a
- * slow link and Spade's own work. The request's own timeout ended when it resolved on the open.
+ * How long an upload may go without its result once the daemon opened it, unless the caller
+ * gives its own: room for tens of megabytes on a slow link and Spade's own work. The request's own timeout ended when it resolved on the open.
  */
 const uploadAnswerMs = 5 * 60_000;
 

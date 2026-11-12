@@ -302,7 +302,7 @@ impl Run {
             sources.len(),
         );
         let mut output = ToolOutput::ok(out).untrusted();
-        output.files = vec![path];
+        output.files = Box::new([path]);
         output
     }
 

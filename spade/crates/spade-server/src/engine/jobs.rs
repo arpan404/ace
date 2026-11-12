@@ -90,7 +90,22 @@ pub(super) fn start(
                 if !matches!(jobs.get(&job), Some(Job::Running { .. })) {
                     return;
                 }
-                jobs.insert(job.clone(), Job::Finishing { reply });
+                jobs.insert(
+                    job.clone(),
+                    Job::Finishing {
+                        reply: reply.clone(),
+                    },
+                );
+            }
+            // What the job showed the person goes in the bubble of the reply that started it.
+            if !output.shared.is_empty() {
+                let shared = Event::Known(Known::Shared {
+                    reply: reply.clone(),
+                    call_id: job.clone(),
+                    images: output.shared.images.clone(),
+                    documents: output.shared.documents.clone(),
+                });
+                keep_trying(|| engine.record(&id, &shared).map(|_| ())).await;
             }
             let content = super::calls::trim(&output.content, engine.limits.result_chars);
             let finished = Event::Known(Known::JobFinished {
@@ -99,7 +114,7 @@ pub(super) fn start(
                 content,
                 is_error: output.is_error,
                 uncertain: output.uncertain,
-                files: output.files.clone(),
+                files: output.files.to_vec(),
             });
             keep_trying(|| engine.deliver(&id, &finished)).await;
             engine

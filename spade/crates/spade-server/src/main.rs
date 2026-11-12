@@ -27,21 +27,59 @@ use tracing_subscriber::filter::filter_fn;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
+/// Every allocation is counted, so a document reader child can be held to a memory cap on every
+/// platform (ADR 0134). The server itself runs without a cap.
+#[global_allocator]
+static ALLOCATOR: cap::Cap<std::alloc::System> = cap::Cap::new(std::alloc::System, usize::MAX);
+
 /// Exit code when another Spade holds the data folder (docs/ace-integration.md).
 const BUSY: u8 = 3;
 
-#[tokio::main]
-async fn main() -> std::process::ExitCode {
+/// Plain and synchronous, so the document reader (and the other one-shot modes) run before any
+/// async runtime or its threads exist; the server builds its runtime only after them.
+fn main() -> std::process::ExitCode {
     let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
     if args.first().is_some_and(|flag| flag == "--version") {
         println!("{}", spade_server::home::VERSION);
         return std::process::ExitCode::SUCCESS;
+    }
+    // The document reader (ADR 0134): one file on stdin, its text on stdout, then exit. Runs
+    // before logging starts, so nothing else ever writes to stdout.
+    if let Some(flag) = args.first()
+        && flag == spade_docs::CHILD_ARG
+    {
+        let name = args.get(1).and_then(|n| n.to_str()).unwrap_or("file");
+        let memory = spade_docs::child_memory(args.get(2).and_then(|n| n.to_str()));
+        // Past the cap an allocation fails and the child aborts; the server reports the file
+        // as unreadable.
+        let _ = ALLOCATOR.set_limit(ALLOCATOR.allocated().saturating_add(memory));
+        spade_docs::limit_memory(memory);
+        let code = spade_docs::serve_child(
+            name,
+            &mut std::io::stdin().lock(),
+            &mut std::io::stdout().lock(),
+        );
+        return std::process::ExitCode::from(u8::try_from(code).unwrap_or(1));
     }
     if let Some(flag) = args.first()
         && flag == "--check-migrations"
     {
         return check_migrations(args.get(1));
     }
+    match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime.block_on(serve_main()),
+        Err(error) => {
+            eprintln!("spade could not start its runtime: {error}");
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+/// The server: logging, then `run` on the runtime `main` built.
+async fn serve_main() -> std::process::ExitCode {
     // The HTML parser's own logs carry page text, so they are dropped by a separate layer that no
     // RUST_LOG setting can turn back on.
     tracing_subscriber::registry()
@@ -145,7 +183,18 @@ async fn run() -> Result<(), Failure> {
             None
         }
     };
-    let fetcher = Arc::new(Fetcher::new(Policy::default(), Duration::from_secs(30)));
+    // Documents are read by this same binary in a child process it kills at the deadline
+    // (ADR 0134); without a path to it, in process.
+    let reader = match std::env::current_exe() {
+        Ok(program) => spade_docs::Extractor::child(program, Vec::new()),
+        Err(error) => {
+            tracing::warn!(%error, "reading documents in process: this binary's path is unknown");
+            spade_docs::Extractor::in_process()
+        }
+    };
+    let fetcher = Arc::new(
+        Fetcher::new(Policy::default(), Duration::from_secs(30)).with_documents(reader.clone()),
+    );
     let search = Arc::new(search);
     let mut core: Vec<Arc<dyn Tool>> = vec![
         Arc::new(WebSearch {
@@ -168,6 +217,10 @@ async fn run() -> Result<(), Failure> {
         workspaces.clone(),
         bots.clone(),
         Shell::system(),
+    ));
+    core.extend(spade_server::media::tools::all(
+        workspaces.clone(),
+        bots.clone(),
     ));
     let mut skills: Option<Arc<dyn SkillLibrary>> = None;
     let mut learning: Option<Arc<Learning>> = None;
@@ -193,7 +246,7 @@ async fn run() -> Result<(), Failure> {
         skills = Some(library);
         learning = Some(learned);
     }
-    let mut tools = Toolbox::new(core);
+    let mut tools = Toolbox::new(core).with_source(spade_server::media::tools::images(&bots));
     if let Some(link) = &ace {
         tools = tools.with_source(link.clone() as Arc<dyn ToolSource>);
     }
@@ -231,6 +284,7 @@ async fn run() -> Result<(), Failure> {
     })
     .map_err(other)?;
     bots.set(&engine);
+    engine.media().read_with(reader);
     if let Some(link) = &ace {
         engine.set_remote(link.clone());
     }

@@ -62,6 +62,8 @@ export interface SpadeModels {
   presets: SpadePreset[];
   /** `endpoint/model` for titles and other small jobs; undefined: each agent's own. */
   fastModel: string | undefined;
+  /** `endpoint/model` that turns recordings into words (ADR 0134); undefined: none set. */
+  transcriptionModel: string | undefined;
   /** False only when Spade says this machine has no keychain to keep keys in. */
   keychain: boolean;
 }
@@ -183,6 +185,10 @@ export function parseSpadeModels(body: string): SpadeModels | undefined {
     presets: listOf(record.presets, presetOf),
     fastModel:
       typeof record.fast_model === "string" && record.fast_model ? record.fast_model : undefined,
+    transcriptionModel:
+      typeof record.transcription_model === "string" && record.transcription_model
+        ? record.transcription_model
+        : undefined,
     keychain: record.keychain !== false,
   };
 }

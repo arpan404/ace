@@ -154,6 +154,16 @@ impl Models {
             .await
     }
 
+    /// The key for a media call, read off the async workers.
+    pub(crate) async fn key_for(&self, endpoint: &Endpoint) -> Option<String> {
+        self.key_for_call(endpoint).await
+    }
+
+    /// The HTTP client every call goes through (no redirects followed).
+    pub(crate) fn http(&self) -> &reqwest::Client {
+        &self.http
+    }
+
     fn key(&self, endpoint: &Endpoint) -> Option<String> {
         self.keys.get(KeyRequest {
             endpoint: &endpoint.id,

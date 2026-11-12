@@ -8,6 +8,7 @@ pub mod engine;
 pub mod home;
 pub mod images;
 pub mod learning;
+pub mod media;
 pub mod presets;
 pub mod proof;
 pub mod research;

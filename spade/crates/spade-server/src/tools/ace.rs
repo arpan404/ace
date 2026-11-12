@@ -127,7 +127,8 @@ pub fn output(result: Result<AceToolResult, ToolsError>) -> ToolOutput {
                 uncertain: false,
                 images,
                 untrusted: false,
-                files: Vec::new(),
+                files: Box::default(),
+                shared: crate::tools::Shared::default(),
             }
         }
         Err(ToolsError::NotRun(why)) => {

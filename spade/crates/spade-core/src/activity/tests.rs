@@ -57,6 +57,8 @@ fn day() -> Vec<Event> {
             text: "Morning check".into(),
             context: None,
             images: Vec::new(),
+            documents: Vec::new(),
+            voice: None,
             from_agent: None,
             from_routine: Some(Box::new(FromRoutine {
                 id: "rt1".into(),
@@ -72,6 +74,8 @@ fn day() -> Vec<Event> {
             text: "Here are the numbers".into(),
             context: None,
             images: Vec::new(),
+            documents: Vec::new(),
+            voice: None,
             from_agent: Some(FromAgent {
                 id: "a2".into(),
                 name: "Research".into(),

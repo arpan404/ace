@@ -418,6 +418,38 @@ async fn one_machine_can_deliver_only_so_many_asks_a_day() -> Result {
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn asks_sent_at_once_never_overshoot_the_days_limit() -> Result {
+    let limits = Limits {
+        remote_asks_per_day: 2,
+        ..Limits::default()
+    };
+    let (studio, research, _fake, _titles) =
+        studio_with(vec![Script::reply("ok"); 12], limits).await?;
+    let base = studio.base.clone();
+    let sends = (0..12).map(|i| {
+        let base = base.clone();
+        let ask = json!({ "op": "ask", "key": format!("c{i}"), "to": research["id"], "text": "Hi",
+                          "depth": 1, "from": { "id": "a", "name": "Spade" } });
+        tokio::spawn(async move {
+            deliver(&base, "laptop-device", &ask, DAEMON_TOKEN, None)
+                .await
+                .map(|(s, _)| s)
+                .unwrap_or(0)
+        })
+    });
+    let mut accepted = 0;
+    for send in sends.collect::<Vec<_>>() {
+        if send.await? == 200 {
+            accepted += 1;
+        }
+    }
+    assert_eq!(accepted, 2, "exactly the day's limit was taken");
+    let delivered = user_messages(&studio.events(&conversation(&research)).await?);
+    assert_eq!(delivered.len(), 2);
+    Ok(())
+}
+
 #[tokio::test]
 async fn stop_in_a_group_stops_its_member_on_another_machine() -> Result {
     let slow = Script::reply("A long answer.").delay(Duration::from_secs(30));

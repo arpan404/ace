@@ -428,7 +428,21 @@ async fn finish_tool(
         uncertain: output.uncertain,
         untrusted: output.untrusted,
     });
-    super::jobs::keep_trying(|| engine.record(id, &event).map(|_| ())).await;
+    // What it showed the person is stored with its result (ADR 0134), never apart from it.
+    let mut events = vec![event];
+    if !output.shared.is_empty() {
+        events.push(Event::Known(Known::Shared {
+            reply: reply.to_owned(),
+            call_id: call.id.clone(),
+            images: output.shared.images,
+            documents: output.shared.documents,
+        }));
+    }
+    super::jobs::keep_trying(|| {
+        let _order = engine.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+        engine.append_events(id, &events).map(|_| ())
+    })
+    .await;
 }
 
 pub(super) fn trim(text: &str, longest: usize) -> String {

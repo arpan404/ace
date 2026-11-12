@@ -376,6 +376,8 @@ mod tests {
                 text: "hi".into(),
                 context: Some(context.into()),
                 images: Vec::new(),
+                documents: Vec::new(),
+                voice: None,
                 from_agent: None,
                 from_routine: None,
                 from_group: None,

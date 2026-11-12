@@ -84,6 +84,8 @@ pub enum Frame {
     Status {
         state: State,
         status: Option<String>,
+        /// In a group's stream, the member that waits for the person (ADR 0132).
+        waiting_member: Option<spade_core::event::GroupBot>,
     },
 }
 
@@ -101,6 +103,8 @@ pub struct Subscription {
     /// What the agent is doing as the subscription opened.
     pub state: State,
     pub status: Option<String>,
+    /// In a group's stream, the member that waits for the person.
+    pub waiting_member: Option<spade_core::event::GroupBot>,
 }
 
 /// An agent as the roster shows it.
@@ -178,6 +182,11 @@ pub enum SendError {
     BotCapped(String),
     #[error("a message can carry at most {} images", crate::images::MOST_IMAGES)]
     TooManyImages,
+    #[error(
+        "a message can carry at most {} documents",
+        crate::media::MOST_DOCUMENTS
+    )]
+    TooManyDocuments,
     #[error(transparent)]
     Image(#[from] ImageError),
     #[error(transparent)]

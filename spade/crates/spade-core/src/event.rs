@@ -18,6 +18,14 @@ pub enum Known {
         /// Images the person attached. The bytes live in Spade's image store, by hash.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         images: Vec<ImageRef>,
+        /// Documents the person attached (ADR 0134). Their bytes and text live in Spade's
+        /// document store, by hash; each carries the view the prompt shows.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        documents: Vec<DocumentRef>,
+        /// The recording, when the message was spoken; `text` is its transcript. Boxed to keep
+        /// every event small.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        voice: Option<Box<VoiceRef>>,
         /// Another agent on this machine sent it (`bot_message`), not the person.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         from_agent: Option<FromAgent>,
@@ -114,6 +122,17 @@ pub enum Known {
         /// workspace file written after reading the web), so the turn is untrusted from here.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         untrusted: bool,
+    },
+    /// What a tool showed the person (ADR 0134): images a bot made and files from its
+    /// workspace, stored by hash. Stored with the tool's `tool_finished`; the model never reads
+    /// it, the app shows it in the reply's bubble.
+    Shared {
+        reply: String,
+        call_id: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        images: Vec<ImageRef>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        documents: Vec<DocumentRef>,
     },
     /// An allowed call was handed to a background job. Its `tool_finished` says so at once; the
     /// job's own result comes later as `job_finished`.
@@ -338,6 +357,55 @@ pub struct ImageRef {
     pub bytes: u64,
 }
 
+/// An attached document, as stored in an event (ADR 0134): its SHA-256 (hex), name, media type
+/// and size, what it holds, and the view of its text the prompt shows, fixed when it was stored so
+/// a rebuilt prompt is the same bytes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DocumentRef {
+    pub sha256: String,
+    pub name: String,
+    pub media_type: String,
+    pub bytes: u64,
+    /// A PDF's page count.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pages: Option<u32>,
+    /// A spreadsheet's sheet count.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sheets: Option<u32>,
+    /// Characters of extracted text.
+    pub chars: u64,
+    /// The text stopped at Spade's limit; the document holds more.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cut: bool,
+    /// The start of the text, as the prompt shows it.
+    #[serde(default)]
+    pub view: String,
+    /// Which reader made the text, and its version (`pdf-v1`): the same bytes read as another
+    /// kind, or by a later reader, are another text. Empty on references made before it was kept.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub reader: String,
+}
+
+impl DocumentRef {
+    /// The id the model reads the document by: the hash's first 12 characters, then the reader.
+    pub fn handle(&self) -> String {
+        let short: String = self.sha256.chars().take(12).collect();
+        if self.reader.is_empty() {
+            short
+        } else {
+            format!("{short}-{}", self.reader)
+        }
+    }
+}
+
+/// A spoken message's recording: its SHA-256 (hex), media type and size.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VoiceRef {
+    pub sha256: String,
+    pub media_type: String,
+    pub bytes: u64,
+}
+
 /// A tool call as stored.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Call {
@@ -393,6 +461,8 @@ impl Event {
             text: text.into(),
             context: None,
             images: Vec::new(),
+            documents: Vec::new(),
+            voice: None,
             from_agent: None,
             from_routine: None,
             from_group: None,

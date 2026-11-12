@@ -163,6 +163,16 @@ test("a name outside ASCII is sent percent-encoded and signed as sent", async ()
   expect(seen?.headers["x-ace-from-name"]).toBe("Arpan%E2%80%99s%20Mac");
 });
 
+test("a long name outside ASCII is cut to 100 characters before it is encoded", async () => {
+  const spade = await fakeSpade({ status: 200, body: { bots: [] } });
+  const call = machine({ access: "operate", spade: spade.connection });
+  await call({ op: "bots" }, { ...origin, hostName: "\u00e9".repeat(256) });
+  const stamped = String(spade.seen[0]?.headers["x-ace-from-name"] ?? "");
+  // Spade refuses a stamp over 1 KiB; 256 encoded "é" would be 1,536 bytes.
+  expect(stamped.length).toBeLessThanOrEqual(1024);
+  expect(decodeURIComponent(stamped)).toBe("\u00e9".repeat(100));
+});
+
 test("the signature matches the one Spade checks", () => {
   // The same vector is checked in spade-server's `inbox_proof` test.
   expect(

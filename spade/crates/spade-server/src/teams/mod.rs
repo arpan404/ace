@@ -61,6 +61,9 @@ pub struct Shared {
     pub(crate) asks: Mutex<HashMap<String, watch::Sender<Option<Outcome>>>>,
     /// Outbox entries with a running worker, and how to wake each.
     pub(crate) outbox: Mutex<HashMap<String, Arc<Notify>>>,
+    /// For each bot of this machine answering group asks, the transcripts of those groups, once
+    /// per open ask: its status changes are the groups' too.
+    pub(crate) asked_in: Mutex<HashMap<String, Vec<String>>>,
     /// The linked machines as last listed.
     pub(crate) machines: Mutex<Vec<Machine>>,
     /// Told whenever an outbox entry changes.
@@ -75,6 +78,7 @@ impl Default for Shared {
             asks: Mutex::default(),
             outbox: Mutex::default(),
             machines: Mutex::default(),
+            asked_in: Mutex::default(),
             outbox_changed: tokio::sync::broadcast::channel(256).0,
         }
     }

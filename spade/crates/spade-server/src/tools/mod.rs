@@ -17,6 +17,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use serde_json::Value;
+use spade_core::event::{DocumentRef, ImageRef};
 use spade_core::tools::{Registry, ToolDef};
 
 pub use ace_link::{AceLink, AceTarget, GrantError, Retry, grant_slot};
@@ -46,7 +47,23 @@ pub struct ToolOutput {
     pub untrusted: bool,
     /// Workspace files the tool kept for the person to open (a research report), relative to
     /// the bot's workspace. Shown as file chips; only background jobs carry them for now.
-    pub files: Vec<String>,
+    pub files: Box<[String]>,
+    /// What the tool showed the person, already stored (ADR 0134). Recorded as a `shared` event
+    /// beside the result; the model is not shown it.
+    pub shared: Shared,
+}
+
+/// Images and documents a tool showed the person, by reference.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Shared {
+    pub images: Vec<ImageRef>,
+    pub documents: Vec<DocumentRef>,
+}
+
+impl Shared {
+    pub fn is_empty(&self) -> bool {
+        self.images.is_empty() && self.documents.is_empty()
+    }
 }
 
 impl ToolOutput {
@@ -57,7 +74,8 @@ impl ToolOutput {
             uncertain: false,
             images: Vec::new(),
             untrusted: false,
-            files: Vec::new(),
+            files: Box::default(),
+            shared: Shared::default(),
         }
     }
 
@@ -75,7 +93,8 @@ impl ToolOutput {
             uncertain: false,
             images: Vec::new(),
             untrusted: false,
-            files: Vec::new(),
+            files: Box::default(),
+            shared: Shared::default(),
         }
     }
 

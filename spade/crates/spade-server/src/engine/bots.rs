@@ -161,6 +161,8 @@ impl Engine {
             text,
             context: None,
             images: Vec::new(),
+            documents: Vec::new(),
+            voice: None,
             from_agent: Some(FromAgent {
                 id: me.id.clone(),
                 name: me.name.clone(),

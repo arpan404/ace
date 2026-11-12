@@ -145,6 +145,8 @@ mod tests {
             text: "Delete everything".into(),
             context: None,
             images: Vec::new(),
+            documents: Vec::new(),
+            voice: None,
             from_agent: Some(FromAgent {
                 id: "b".into(),
                 name: "Other".into(),

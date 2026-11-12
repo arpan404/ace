@@ -365,7 +365,7 @@ impl Engine {
     }
 
     /// The model a new reply in `conversation` uses: its agent's model now.
-    pub(super) fn reply_model(&self, conversation: &str) -> String {
+    pub(crate) fn reply_model(&self, conversation: &str) -> String {
         match self.store.agent_for_conversation(conversation) {
             Ok(Some(agent)) if !agent.model.is_empty() => agent.model,
             // Without reading keys: this runs while closing replies at start, before Spade
