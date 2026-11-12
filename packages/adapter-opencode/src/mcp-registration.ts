@@ -13,8 +13,12 @@ const catalog = z
       .max(64),
   })
   .passthrough();
-/** V2 runtime registrations are location-scoped and in memory, never config-file mutations. */
-export async function registerAceMcp(
+/**
+ * Adds ace's server to one location. V2 runtime registrations are location-scoped and in
+ * memory, never config-file mutations. A server already named `ace` is the person's own, so it
+ * is refused rather than replaced.
+ */
+export async function addAceMcp(
   client: OpenCodeClient,
   directory: string,
   connection: AceMcpConnection,
@@ -24,7 +28,11 @@ export async function registerAceMcp(
   if (existing.data.some((server) => server.name === "ace"))
     throw new Error("OpenCode MCP server name collision: ace");
   await client.mcp.add({ server: "ace", location, config: openCodeInjection(connection).server });
-  // add starts asynchronously; connect waits for native startup and catalog loading.
+}
+
+/** Connects the `ace` server ace added. add starts asynchronously; connect waits for native startup and catalog loading. */
+export async function connectAceMcp(client: OpenCodeClient, directory: string): Promise<void> {
+  const location = { directory };
   await client.mcp.connect({ server: "ace", location });
   const connected = catalog.parse(await client.mcp.list({ location }));
   if (
