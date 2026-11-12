@@ -263,6 +263,7 @@ export class Recovery {
   }
   /** Records a plain continuation for interrupted live work (a provider exit, a host pause). */
   capture(id: ThreadId): void {
+    if (this.spadeOwned(id)) return;
     this.repo.store.atomic(() => {
       this.captureWith(id, () => continueMessage);
       // A plain continuation is no restart capture; startup must not read an older one.
@@ -275,6 +276,7 @@ export class Recovery {
    * checkpoint reconciliation, so it keeps the plain continuation.
    */
   captureRestart(id: ThreadId): void {
+    if (this.spadeOwned(id)) return;
     this.repo.store.atomic(() => {
       const captured = this.captureWith(id, (lost) =>
         this.repo.backend(id) === "cursor-sdk" ? continueMessage : restartContinuation(lost),
@@ -329,6 +331,7 @@ export class Recovery {
    * never continues it by itself.
    */
   holdInterrupted(id: ThreadId): void {
+    if (this.spadeOwned(id)) return;
     if (this.repo.pending.uncertainContinuation(id)) return;
     const queue = this.repo.queue.get(id);
     if (stoppedHold(queue)) return;
@@ -349,7 +352,15 @@ export class Recovery {
     );
     this.sync(id);
   }
+  /**
+   * A Spade bot's hidden session (ADR 0133): Spade owns its lifecycle, so no limit hold, timed
+   * resume, account move or continuation ever starts or holds work there.
+   */
+  private spadeOwned(id: ThreadId): boolean {
+    return this.repo.store.getThread(id)?.host === "spade-bot";
+  }
   observe(state: ThreadState, facts: Fact[], _events: EventPayload[], at: number): void {
+    if (this.spadeOwned(state.threadId)) return;
     // A root turn that completes ends any run of restarts the loop guard was counting.
     if (
       facts.some(
@@ -523,6 +534,7 @@ export class Recovery {
     while (this.pendingPolicy.size) await Promise.all(this.pendingPolicy.values());
   }
   automatic(id: ThreadId, action?: "migrate_now"): CommandResult | undefined {
+    if (this.spadeOwned(id)) return undefined;
     // Maintenance holds turns ace would start by itself: keep a due deadline for when it reopens.
     if (this.ports.admits?.() === false) {
       this.repo.queue.set(

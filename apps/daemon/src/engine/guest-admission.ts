@@ -43,6 +43,7 @@ export function hostRefusal(
   payload: CommandPayload,
   host: ThreadDetailsHost,
 ): CommandResult | undefined {
+  if (host === "spade-bot" && widensAccess.has(payload.type)) return botRefusal(commandId);
   if (host !== "spade" || (!startsAgent.has(payload.type) && payload.type !== "thread.fork"))
     return undefined;
   return {
@@ -56,14 +57,13 @@ export function hostRefusal(
 
 type ThreadDetailsHost = import("@ace/protocol").Thread["host"];
 
-/** The refusal for a client's command that would run an agent on any host thread. */
-export function personRefusal(
-  commandId: CommandId,
-  payload: CommandPayload,
-  host: ThreadDetailsHost,
-): CommandResult | undefined {
-  if (host !== "spade-bot") return hostRefusal(commandId, payload, host);
-  if (!startsAgent.has(payload.type) && payload.type !== "thread.fork") return undefined;
+/**
+ * Commands that would change what a bot's session may do. Its access is read-only for good
+ * (ADR 0133): no caller, the session's own agent included, may change it.
+ */
+const widensAccess = new Set<CommandPayload["type"]>(["thread.permission.set", "thread.mode.set"]);
+
+function botRefusal(commandId: CommandId): CommandResult {
   return {
     commandId,
     ok: false,
@@ -71,4 +71,17 @@ export function personRefusal(
     title: "A Spade bot's own thread",
     detail: "Spade runs this bot's turns here; talk to the bot in Spade.",
   };
+}
+
+/**
+ * The refusal for a client's command on a host thread: one that would run an agent on Spade's
+ * host thread, and every command on a bot's session, which Spade alone drives.
+ */
+export function personRefusal(
+  commandId: CommandId,
+  payload: CommandPayload,
+  host: ThreadDetailsHost,
+): CommandResult | undefined {
+  if (host === "spade-bot") return botRefusal(commandId);
+  return hostRefusal(commandId, payload, host);
 }

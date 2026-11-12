@@ -8,9 +8,11 @@ import {
   type SpadeBrainFrame,
   type SpadeBrainTurnRequest,
   type SpadeSubscriptions,
+  type ProviderKind,
   type Thread,
   type WorkspaceId,
 } from "@ace/protocol";
+import { cursorInstanceId } from "@ace/provider-kit/cursor-selection";
 import { commandContext, type CommandContext, type CommandHandler } from "../commands.ts";
 import type { Store } from "../store.ts";
 import { BrainWatch, failureLine, providerNames, refusalReason } from "./brain-watch.ts";
@@ -23,7 +25,13 @@ export interface SpadeProject {
 export interface SpadeBrainsDeps {
   store: Pick<Store, "statement" | "getThread" | "subscribe" | "recordCommand"> &
     Parameters<typeof commandContext>[0];
-  engine: () => { internalHandler: CommandHandler } | undefined;
+  engine: () =>
+    | {
+        internalHandler: CommandHandler;
+        /** The account a launch on `provider` uses when none is named: ace's default. */
+        targetInstance(provider: ProviderKind): string;
+      }
+    | undefined;
   /** Spade's project, from its host thread; undefined while Spade is off. */
   project(): SpadeProject | undefined;
   /** The model roster the `models` tool shows, as Spade's host thread sees it. */
@@ -64,7 +72,10 @@ export class SpadeBrains {
       emit({ type: "failed", reason: "unavailable", message: "ace isn't ready for Spade yet." });
       return;
     }
-    const existing = this.botThread(request);
+    // The account named, else the one ace launches on now: a session on another account is
+    // never reused (it is another subscription's context).
+    const account = request.account ?? engine.targetInstance(request.provider);
+    const existing = this.botThread(request, account);
     const fresh = existing === undefined;
     const threadId = existing?.id ?? ThreadId.parse(this.deps.id());
     const text =
@@ -87,7 +98,7 @@ export class SpadeBrains {
             threadId,
             workspaceId: project.workspaceId,
             provider: request.provider,
-            ...(request.account ? { accountId: request.account } : {}),
+            accountId: account,
             model: request.model,
             access: "read-only",
             mode: "local",
@@ -117,7 +128,14 @@ export class SpadeBrains {
         }
         const event = queued.shift();
         if (event) {
-          for (const frame of watch.next(event.payload)) emit(frame);
+          const frames = watch.next(event.payload);
+          // A native prompt would wait in a thread nobody sees and hold every later turn: the
+          // whole session tree stops before Spade hears why.
+          if (
+            frames.some((frame) => frame.type === "failed" && frame.reason === "needs_permission")
+          )
+            this.interrupt(engine.internalHandler, threadId);
+          for (const frame of frames) emit(frame);
           continue;
         }
         await new Promise<void>((resolve) => {
@@ -132,7 +150,7 @@ export class SpadeBrains {
   }
 
   /** The bot's current hidden thread, unless the provider or account changed since. */
-  private botThread(request: SpadeBrainTurnRequest): Thread | undefined {
+  private botThread(request: SpadeBrainTurnRequest, account: string): Thread | undefined {
     const row = this.deps.store
       .statement(
         `SELECT id FROM threads WHERE json_extract(client,'$.host')='spade-bot'
@@ -143,8 +161,9 @@ export class SpadeBrains {
     if (!row) return undefined;
     const thread = this.deps.store.getThread(ThreadId.parse(row.id));
     if (!thread || thread.provider !== request.provider) return undefined;
-    const account = thread.execution?.instanceId ?? thread.live?.account;
-    if (request.account && account !== request.account) return undefined;
+    const held = thread.execution?.instanceId ?? thread.live?.account;
+    const wanted = request.provider === "cursor" ? cursorInstanceId(account) : account;
+    if (held !== wanted) return undefined;
     return thread;
   }
 

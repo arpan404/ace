@@ -1,10 +1,19 @@
+import { once } from "node:events";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { Command, ThreadId, type SpadeBrainFrame } from "@ace/protocol";
+import {
+  Command,
+  DeviceId,
+  ThreadId,
+  type ServerMessage,
+  type SpadeBrainFrame,
+} from "@ace/protocol";
 import type { Fact } from "@ace/core";
 import { commandContext } from "./commands.ts";
 import { fakeSpadeService } from "./__fixtures__/spade/fake-service.ts";
 import { daemonFixture } from "./agent-control/daemon-test-support.ts";
+import { Client } from "./socket-test-support.ts";
 import { connectSpadeMcp, spadeEnv, until } from "./spade-test-support.ts";
 
 type Fixture = Awaited<ReturnType<typeof daemonFixture>>;
@@ -236,3 +245,128 @@ test("subscriptions list the providers this daemon has installed and signed in, 
     await turn.done;
   });
 }, 30_000);
+
+/** A client's command over the socket, as the apps send it; its result or refusal. */
+async function clientCommand(daemon: Daemon, payload: Record<string, unknown>) {
+  const token = await readFile(daemon.tokenPath, "utf8");
+  const socket = new Client(daemon.url);
+  await once(socket.socket, "open");
+  socket.send({ type: "hello", protocolVersion: 1, deviceId: DeviceId.parse("desktop"), token });
+  const command = Command.parse({ id: `client-${payload.type}`, deviceId: "desktop", payload });
+  socket.send({ type: "command", command });
+  try {
+    for (;;) {
+      const message: ServerMessage = await socket.next();
+      if ("commandId" in message && message.commandId === command.id) return message;
+    }
+  } finally {
+    await socket.close();
+  }
+}
+
+test("a native permission prompt stops the bot's whole session and says it needs permission", async () => {
+  await withSpade(async (f, grant) => {
+    const turn = sendTurn(f.daemon, grant, { instructions: "Rules", message: "Tidy my notes" });
+    const thread = ThreadId.parse((await until(() => sessionOf(turn.frames), "session")).thread);
+    await until(() => f.h.inputs.get(thread)?.length === 1, "the message to arrive");
+    provide(f, thread, {
+      type: "interaction.opened",
+      agent: "root",
+      interaction: "edit-approval",
+      blocking: true,
+      request: {
+        kind: "question",
+        questions: [
+          {
+            id: "go",
+            text: "Edit notes.md?",
+            options: [{ id: "yes", label: "Yes" }],
+            multiSelect: false,
+            allowOther: false,
+            secret: false,
+          },
+        ],
+      },
+    });
+    await turn.done;
+    expect(turn.frames.at(-1)).toMatchObject({ type: "failed", reason: "needs_permission" });
+    await until(() => f.h.interrupts.includes(thread), "the session to be interrupted");
+  });
+}, 30_000);
+
+test("no client and no agent changes a bot's session: commands are refused and it stays read-only", async () => {
+  await withSpade(async (f, grant) => {
+    const turn = sendTurn(f.daemon, grant, { instructions: "Rules", message: "Hello" });
+    const thread = ThreadId.parse((await until(() => sessionOf(turn.frames), "session")).thread);
+    await until(() => f.h.inputs.get(thread)?.length === 1, "the message to arrive");
+    provide(f, thread, reply("Hi."), ended);
+    await turn.done;
+    for (const payload of [
+      { type: "thread.permission.set", threadId: thread, access: "full-access" },
+      { type: "thread.rename", threadId: thread, title: "Mine now" },
+      { type: "thread.interrupt", threadId: thread, cascade: true },
+    ])
+      expect(await clientCommand(f.daemon, payload)).toMatchObject({ code: "host_thread" });
+    // Not through an agent's tools either, the session's own included.
+    expect(
+      f.controls.delegations.command("agent-widens", {
+        type: "thread.permission.set",
+        threadId: thread,
+        access: "full-access",
+      }),
+    ).toMatchObject({ ok: false, error: "host_thread" });
+    expect(f.daemon.store.getThread(thread)?.permission?.effective).toBe("read-only");
+  });
+}, 30_000);
+
+test("a quota failure or a daemon restart holds nothing back: Spade's next turn goes straight to the CLI", async () => {
+  await withSpade(async (f, grant) => {
+    // The person lets ace resume limited threads at reset; a bot's session is not one of them.
+    await f.daemon.settings.set("threads.limitPolicy", "resume_at_reset", { kind: "global" });
+    const first = sendTurn(f.daemon, grant, { instructions: "Rules", message: "One" });
+    const thread = ThreadId.parse((await until(() => sessionOf(first.frames), "session")).thread);
+    await until(() => f.h.inputs.get(thread)?.length === 1, "the first message");
+    const reset = f.h.clock.now() + 60_000;
+    provide(
+      f,
+      thread,
+      { type: "retry", agent: "root", on: "rate_limit", until: reset },
+      {
+        type: "turn.ended",
+        agent: "root",
+        outcome: "failed",
+        error: { kind: "quota", message: "You've hit your usage limit" },
+      },
+    );
+    await first.done;
+    expect(first.frames.at(-1)).toMatchObject({ type: "failed", reason: "quota" });
+    // The reset passes: nothing sends the cut turn again behind Spade's back.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    f.h.clock.advance(reset + 1_000);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(f.h.attempts.filter((a) => a.threadId === thread)).toHaveLength(1);
+    // No limit hold: the next turn is sent at once.
+    const second = sendTurn(f.daemon, grant, { instructions: "Rules", message: "Two" });
+    await until(() => f.h.inputs.get(thread)?.includes("Two"), "the second message, unheld");
+
+    // The daemon restarts mid-turn: nothing resumes or replays the cut turn by itself.
+    const cut = second.done.catch(() => {});
+    const restarted = await f.restart();
+    await cut;
+    try {
+      await until(() => restarted.spade?.status().state === "ready", "Spade after the restart");
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(f.h.attempts.filter((a) => a.threadId === thread).map((a) => a.text)).toEqual([
+        expect.stringContaining("One"),
+        "Two",
+      ]);
+      const third = sendTurn(restarted, grant, { instructions: "Rules", message: "Three" });
+      await until(() => f.h.inputs.get(thread)?.includes("Three"), "the third message, unheld");
+      provide(f, thread, reply("Done.", "answer-3"), ended);
+      await third.done;
+      expect(third.frames.at(-1)).toMatchObject({ type: "finished" });
+    } finally {
+      await restarted.close();
+    }
+  });
+}, 60_000);
