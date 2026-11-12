@@ -1,6 +1,6 @@
 import { renderHook } from "@testing-library/react";
 import { afterEach, expect, onTestFinished, test, vi } from "vitest";
-import { useListMotion } from "./motion.ts";
+import { staggerSpanMs, useListMotion } from "./motion.ts";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -56,4 +56,29 @@ test("a list that never settles keeps only the rows still fading out, not every 
   expect(result.current.rows.filter((row) => row.phase !== "exit").map((row) => row.key)).toEqual(
     slide(500),
   );
+});
+
+test("rows leaving together with a stagger go one after another, and a big fold still ends within the span", () => {
+  vi.stubGlobal("matchMedia", media(false));
+  const many = Array.from({ length: 30 }, (_, n) => `row-${n}`);
+  const { result, rerender } = renderHook(
+    ({ items }) => useListMotion(items, keyOf, { exitStagger: 40, bulkAt: Infinity }),
+    { initialProps: { items: [...many, "kept"] } },
+  );
+  rerender({ items: ["kept"] });
+
+  const delays = result.current.rows.filter((row) => row.phase === "exit").map((r) => r.delay);
+  expect(delays).toHaveLength(30);
+  expect(delays.every((delay, n) => n === 0 || delay > (delays[n - 1] ?? 0))).toBe(true);
+  expect((delays.at(-1) ?? 0) + 140).toBeLessThanOrEqual(staggerSpanMs);
+});
+
+test("without a stagger, a change past the bulk limit shows at once", () => {
+  vi.stubGlobal("matchMedia", media(false));
+  const many = Array.from({ length: 30 }, (_, n) => `row-${n}`);
+  const { result, rerender } = renderHook(({ items }) => useListMotion(items, keyOf), {
+    initialProps: { items: [...many, "kept"] },
+  });
+  rerender({ items: ["kept"] });
+  expect(result.current.rows.map((row) => row.key)).toEqual(["kept"]);
 });
