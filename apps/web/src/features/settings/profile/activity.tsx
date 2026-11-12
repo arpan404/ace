@@ -78,7 +78,7 @@ export function ProvidersSection(props: { shares: readonly AccountShare[] }) {
   if (!props.shares.length) return null;
   return (
     <SettingSection label="Most used providers">
-      <SettingList className="divide-y divide-border-soft">
+      <SettingList>
         {props.shares.map((share) => {
           const kind = ProviderKind.safeParse(share.provider);
           const provider = kind.success ? providerNames[kind.data] : share.provider;

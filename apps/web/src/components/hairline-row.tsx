@@ -5,14 +5,14 @@ import { cn } from "@/lib/cn.ts";
 
 /*
  * Quiet list rows for overview pages (Settings › Fleet): a small tile, a title over one status
- * line, facts at the right, and actions that show under the pointer or focus. Rows sit on
- * hairlines under a group title; nothing is boxed.
+ * line, facts at the right, and actions that show under the pointer or focus. A group's rows
+ * share one rounded surface, as a settings group's do, with hairlines between them.
  */
 
-/** A group's rows on hairlines: one above the first, one between each. */
+/** A group's rows on one rounded surface, hairlines between them. */
 export function HairlineList(props: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn("flex flex-col border-t border-border-soft", props.className)}>
+    <div className={cn("flex flex-col rounded-lg bg-surface-1 p-1", props.className)}>
       {props.children}
     </div>
   );
@@ -135,8 +135,8 @@ export function HairlineRow(props: {
       data-row={props["data-row"]}
       data-flash={flashing || undefined}
       className={cn(
-        // The wash overhangs the column; the hairline under the row keeps to it.
-        "group/row relative -mx-2 rounded-lg px-2 transition-colors duration-(--motion-fast) hover:bg-hover focus-within:bg-hover",
+        // Inset 4px in its group's surface, so the wash's corners nest in the surface's.
+        "group/row relative rounded-md px-3 transition-colors duration-(--motion-fast) hover:bg-hover focus-within:bg-hover",
         flashing && "bg-accent",
       )}
     >
