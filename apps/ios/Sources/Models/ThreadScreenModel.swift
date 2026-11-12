@@ -60,6 +60,9 @@ import Observation
     var attachmentsLocked: String?
     /// Browser annotations on the next message.
     var annotations: [AnnotationChip] = []
+    /// The passages of the agent's messages the next message replies to, and whether one more fits.
+    var quotes: [QuoteChip] = []
+    var quotesFull = false
     /// The native subagent lane open in its sheet.
     var lane: LaneModel?
     /// What the menu and messages offer (`thread.transitions`).
@@ -103,6 +106,8 @@ import Observation
         attachments = shown.attachments
         attachmentsLocked = shown.attachmentsLocked
         annotations = shown.annotations
+        quotes = shown.quotes
+        quotesFull = shown.quotesFull
         lane = shown.lane
         transitions = shown.transitions
         fork = shown.fork
@@ -137,6 +142,8 @@ import Observation
         attachments = incoming.attachments
         attachmentsLocked = incoming.attachmentsLocked
         annotations = incoming.annotations
+        quotes = incoming.quotes
+        quotesFull = incoming.quotesFull
         lane = incoming.lane
         transitions = incoming.transitions
         fork = incoming.fork
@@ -162,6 +169,8 @@ import Observation
         work = nil
         attachmentsLocked = nil
         annotations = []
+        quotes = []
+        quotesFull = false
         hasOlder = false
     }
     /// Opening a kept thread again: what belonged to the last visit's bridge session goes (its
@@ -172,6 +181,8 @@ import Observation
         attachments = []
         attachmentsLocked = nil
         annotations = []
+        quotes = []
+        quotesFull = false
         modelList = ThreadModels()
         // The last visit's fork was its bridge session's; a new one starts on this thread.
         fork = nil

@@ -45,6 +45,14 @@ extension ClientModel {
     /// Take a browser annotation off the next message; the rest close ranks, on the page too.
     func removeAnnotation(_ id: String) { threadAction(["type": "annotation.remove", "id": id]) }
     func clearAnnotations() { threadAction(["type": "annotation.clear"]) }
+    /// Reply to the words between `start` and `end` (UTF-16, as a text view gives them) of an
+    /// agent's message: the bridge makes them a quote on the next message, with the words around.
+    func addQuote(_ message: String, start: Int, end: Int) {
+        guard canOperate else { return }
+        threadAction(["type": "quote.add", "message": message, "start": start, "end": end])
+    }
+    func removeQuote(_ id: String) { threadAction(["type": "quote.remove", "id": id]) }
+    func clearQuotes() { threadAction(["type": "quote.clear"]) }
     func detach(_ localId: String) {
         threadAction(["type": "detach", "localId": localId])
         AttachmentStaging().discard(localId)
