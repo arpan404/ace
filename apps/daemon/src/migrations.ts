@@ -198,6 +198,11 @@ export function schemaVersionBefore(step: (typeof migrations)[number]): number {
   return index;
 }
 
+/** Every step from schema `version` on, oldest first, for an upgrade test to undo. */
+export function migrationsFrom(version: number): readonly (typeof migrations)[number][] {
+  return migrations.slice(version);
+}
+
 export function migrate(db: DatabaseSync): void {
   removeUpgradeBackups(db);
   db.exec("BEGIN IMMEDIATE");

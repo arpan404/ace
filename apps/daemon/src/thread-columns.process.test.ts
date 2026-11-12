@@ -17,7 +17,7 @@ import {
 } from "@ace/protocol";
 import { updateThread } from "@ace/projection";
 import { Store } from "./store.ts";
-import { schemaVersionBefore } from "./migrations.ts";
+import { rewindSchema } from "./schema-rewind-test-support.ts";
 import { threadColdTable } from "./thread-cold.ts";
 
 const cleanups: (() => Promise<void> | void)[] = [];
@@ -410,8 +410,8 @@ function runSeed(seed: number) {
     -- The schema before thread_cold had no machine_children columns from later steps; those
     -- steps add them again.
     DROP TABLE IF EXISTS machine_children;
-    UPDATE schema_version SET version = ${schemaVersionBefore(threadColdTable)} WHERE id = 1;
   `);
+  rewindSchema(old, threadColdTable);
   old.close();
   ({ db, store } = open(path));
   // Moving the values rewrites each thread's row, so each takes a new row revision and a list
