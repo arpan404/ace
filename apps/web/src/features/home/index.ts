@@ -25,4 +25,4 @@ export {
 } from "./new-thread/choices.ts";
 export { OnMachine, machineAwayText } from "./on-machine.tsx";
 export { rememberMachine, rememberedMachine, targetMachine } from "./new-thread/machine-choice.ts";
-export { ThreadHoverPreview } from "./deferred-thread-preview.tsx";
+export { ThreadHoverPreview } from "./thread-hover-preview.tsx";
