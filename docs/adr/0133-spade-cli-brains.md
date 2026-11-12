@@ -44,15 +44,19 @@ untrusted-content rules.
    `cli:<provider>@<account>/<model>`, with the provider and model ids as ace knows them and the
    account as ace's account id (no `/` or `@` in it). With no account the provider's default
    account runs it. The picker lists only what the daemon reports as installed, turned on and
-   signed in, per account.
+   signed in, per account, and only providers with a read-only mode: Cursor and Antigravity have
+   none, and an ACP agent has none ace has verified, so their bots could never run (a turn on one
+   fails as `unavailable`, saying so).
 2. **One hidden session per bot.** The daemon keeps one thread per bot in Spade's hidden project,
    marked `host: "spade-bot"` with the bot's id, and resumes its provider session on every turn,
    so the CLI keeps its own context. Changing the provider or the account starts a new thread;
    changing the model inside a provider switches the model on the same thread. Like Spade's host
-   thread, it is left out of every list, search and notification, and no client command may run
-   an agent in it; only the daemon's brain service sends to it. It runs with read-only access in
-   Spade's workspace folder, so the CLI's own edit and shell tools cannot change the person's
-   files: everything the bot changes goes through Spade's gated tools or ace's tools.
+   thread, it is left out of every list, search and notification. Only the daemon's brain service
+   sends any command to it: clients, outside MCP clients and agents (its own included) are
+   refused, and ace's recovery never holds, resumes or moves it. It runs read-only in Spade's
+   workspace folder, whatever native mode the person chose for the provider (a provider without
+   a read-only mode refuses to open it), so the CLI's own edit and shell tools cannot change the
+   person's files: everything the bot changes goes through Spade's gated tools.
 3. **A turn is one streamed HTTP request.** Spade sends `POST <daemon>/spade/brains/turn` with its
    grant as the bearer. The daemon sends the message to the bot's session and streams what
    happens as JSON lines: text, a status line, and one end (finished with token counts, or failed
@@ -69,9 +73,13 @@ untrusted-content rules.
    endpoint model's call: reads run, writes ask, destructive calls always ask, and a turn that
    read untrusted output asks for every write. The call waits for the person's answer; if the
    CLI gives up first, the result goes to the CLI with the next turn. Calls run one at a time.
-   ace's own tools in that session are the session's own (ADR 0121's lease rules, `ask` withheld);
-   `bots_list`, `bot_message`, memory, workspace, routines, skills, connectors and `ask_user` are
-   Spade's.
+   ace's own tools in that session are the session's own (ADR 0121's lease rules), less `ask` and
+   everything that starts, steers or schedules other agents (`delegate`, `wait`, `thread_start`,
+   `agent_message`, `agent_cancel`, `thread_control`, `thread_fork`, `transfer`,
+   `automation_put`, `automation_run`), whose work would run ungated; `bots_list`,
+   `bot_message`, memory, workspace, routines, skills, connectors and `ask_user` are Spade's.
+   Each adapter lets the bridge and ace's read-only tools run in read-only without a prompt
+   nobody would see. A turn is finished only once nothing else in the session runs.
 5. **Failures are one line and never retried.** A CLI that is missing, signed out, rate-limited
    or out of quota ends the turn as failed with one plain line (for example "Codex is signed out.
    Sign in to it in ace, then send again."). The bot's roster row and conversation show it until

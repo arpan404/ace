@@ -2,8 +2,9 @@
 
 Date: 2026-11-12. Status: built. Decision: [ADR 0133](../../docs/adr/0133-spade-cli-brains.md).
 
-A bot can think with one of the person's subscriptions (Codex, Claude Code, OpenCode, Cursor,
-Antigravity, Pi, an ACP agent) instead of an endpoint. Spade never reads a CLI's login: the ace
+A bot can think with one of the person's subscriptions (Codex, Claude Code, OpenCode, Pi)
+instead of an endpoint. A bot's session runs read-only, so only providers with a read-only mode
+can carry one: Cursor and Antigravity have none, and ACP agents have none ace has verified. Spade never reads a CLI's login: the ace
 daemon runs the turn in the person's own installed, signed-in CLI, as it runs any provider
 session (ADR 0002).
 
@@ -24,8 +25,8 @@ shape; whether the CLI is there is ace's to say when a turn runs.
 
 `GET /v1/subscriptions` answers `{"providers": [...], "error": null}`, each provider
 `{provider, name, accounts: [{id, label}], models: [{id, name}]}`, as ace lists them: providers
-whose CLI is installed and turned on, with every account not known to be signed out. While ace is
-away it answers `{"providers": [], "error": "<one line>"}`.
+whose CLI is installed and turned on and that have a read-only mode, with every account not known
+to be signed out. While ace is away it answers `{"providers": [], "error": "<one line>"}`.
 
 ## A turn
 
@@ -103,8 +104,18 @@ optional) and `tools/call` (`params.name`, `params.arguments`), one JSON answer 
 each `tools/call` with `params._meta["dev.acehq.spade/seq"]`: how many lines of the running turn's
 answer precede the call (ace first commits and turns into lines everything the session reported).
 Spade admits the call only once it has applied that many lines, so a `read` the CLI made just
-before the call taints it even when the call arrives first. Sessions whose native mode keeps only
-read-only tools (Pi) still offer the two bridge tools, which ace lists only in a bot's session.
+before the call taints it even when the call arrives first. A call without the stamp answers "Not
+run".
+
+How each adapter runs the bridge in read-only (the daemon marks the session as a bot's and names
+the ace tools it may run unasked: the bridge and ace's read-only tools):
+
+| Provider | Read-only is                         | The bridge                                                                                           |
+| -------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| Codex    | read-only sandbox, approvals `never` | ace's non-destructive tools run unasked already                                                      |
+| Claude   | plan mode                            | the adapter answers Claude's permission check for them itself; `ExitPlanMode` is refused with a note |
+| OpenCode | the plan agent                       | allow rules for `ace_<tool>` on the session                                                          |
+| Pi       | a read-only tool list                | the bridge is kept in the list                                                                       |
 
 A call is stored as a step of the open reply (with the text the CLI wrote before it) and goes
 through the same gate as an endpoint model's call: reads run, notes run unless the turn is
@@ -112,7 +123,12 @@ untrusted, writes ask unless allowed always, destructive calls always ask, and a
 untrusted output asks for every write. A `read` line counts as untrusted output. The call waits
 for the person's answer; the CLI gets the stored result (for `ask_user`, the person's answer).
 Calls run one at a time. A call made while the bot has no CLI turn running answers "Not run".
-ace's own tools are the session's own, under the host thread's lease rules (no `ask`).
+ace's own tools are the session's own, under the host thread's lease rules, less `ask` and
+everything that starts, steers or schedules other agents (`delegate`, `wait`, `thread_start`,
+`agent_message`, `agent_cancel`, `thread_control`, `thread_fork`, `transfer`, `automation_put`,
+`automation_run`). The turn is reported finished only once nothing else in the session runs (no
+agent, background task or queued work); after two minutes the session is stopped and the turn
+fails with one line. Reply text comes only from this turn's runs.
 
 ## Failures
 
