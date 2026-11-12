@@ -22,7 +22,8 @@ export function historyAssembly() {
         const last = entry.turns.at(-1);
         if (last && str(turn["id"]) && last["id"] === turn["id"])
           last["items"] = [...list(last["items"]), ...list(turn["items"])];
-        else entry.turns.push(turn);
+        // A copy: the next part of a split turn appends its items here, and frame data is frozen.
+        else entry.turns.push({ ...turn });
       }
     },
     /** The discovered thread with its history in place of the note's empty turn list. */
