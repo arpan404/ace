@@ -125,9 +125,9 @@ export class FakeSpadeApi implements FakeSpadeServer {
     spade.serve(this);
   }
 
-  /** Stages what the daemon says of Spade, read when a client next asks (`spade.status`). */
+  /** Stages what the daemon says of Spade, and tells every socket that asked, as the daemon does. */
   setStatus(status: FakeSpade["status"]): void {
-    this.spade.status = status;
+    this.spade.setStatus(status);
   }
 
   /** Adds an agent with its conversation; returns it. */

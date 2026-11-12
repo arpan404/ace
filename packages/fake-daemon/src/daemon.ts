@@ -940,6 +940,7 @@ export class FakeDaemon implements Host {
   release(connection: Connection): void {
     this.connections.delete(connection);
     this.services.release(connection.push);
+    this.spade.release(connection.push);
   }
   /** Scripted metadata changes use the same event stream as command effects. */
   updateThread(
