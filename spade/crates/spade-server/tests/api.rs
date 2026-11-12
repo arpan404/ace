@@ -229,3 +229,57 @@ async fn a_start_with_a_client_key_that_is_not_a_plain_token_is_refused() -> Res
     assert_eq!(list, json!([]));
     Ok(())
 }
+
+#[tokio::test]
+async fn a_keyed_start_cut_off_before_its_message_was_kept_delivers_it_when_sent_again() -> Result {
+    let spade = Spade::start(Vec::new(), Vec::new()).await?;
+    let key = "0b9e2f4a-6c1d-4e3b-8a7f-5d2c1b0a9e8f";
+    // The crash window: the start's conversation and key were written, its message never was.
+    spade_store::Store::open(&spade.database())?.create_keyed_conversation(
+        "c_cut",
+        Some(key),
+        1,
+    )?;
+    let spade = spade
+        .restart(
+            Vec::new(),
+            vec![
+                Script::reply("Here's your week."),
+                Script::reply("").plain(r#"{"title":"Week"}"#),
+            ],
+        )
+        .await?;
+    // The client never heard back, so it sends the same start again.
+    let (status, body) = spade
+        .post(
+            "/v1/conversations",
+            json!({ "text": "Plan my week", "client_key": key }),
+        )
+        .await?;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["id"], "c_cut");
+    let events = spade.wait_for("c_cut", "reply_finished").await?;
+    let messages: Vec<&str> = events
+        .iter()
+        .filter(|event| event["type"] == "user_message")
+        .filter_map(|event| event["text"].as_str())
+        .collect();
+    assert_eq!(messages, ["Plan my week"]);
+    // Sent once more, it is answered with the same conversation and delivered no second time.
+    let (status, _) = spade
+        .post(
+            "/v1/conversations",
+            json!({ "text": "Plan my week", "client_key": key }),
+        )
+        .await?;
+    assert_eq!(status, 200);
+    let events = spade.events("c_cut").await?;
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event["type"] == "user_message")
+            .count(),
+        1
+    );
+    Ok(())
+}
