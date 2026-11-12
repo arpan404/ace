@@ -13,13 +13,16 @@ import Testing
 
     @Test func quotesReachTheComposerAndAVisitsQuotesGoWithIt() throws {
         let screen = ThreadScreenModel()
-        try apply(#"{"type":"thread.quotes","threadId":"t","epoch":1,"items":[{"id":"q1","text":"the guard"}],"full":true}"#, to: screen)
+        try apply(#"{"type":"thread.quotes","threadId":"t","epoch":1,"items":[{"id":"q1","text":"the guard"}],"full":true,"kept":[{"id":"q1","text":"the guard","before":"It can double as ","after":"."}]}"#, to: screen)
         #expect(screen.quotes.map(\.text) == ["the guard"])
         #expect(screen.quotesFull)
-        // The bridge says the thread's quotes again on the next visit; until then none show.
+        #expect(screen.keptQuotes == [DraftQuote(id: "q1", text: "the guard", before: "It can double as ", after: ".")])
+        // The bridge says the thread's quotes again on the next visit; until then none show, and
+        // none are known, so the draft never keeps an empty list over them.
         screen.revisit()
         #expect(screen.quotes.isEmpty)
         #expect(!screen.quotesFull)
+        #expect(screen.keptQuotes == nil)
     }
 
     @Test func theChipNamesOneQuoteByItsWordsAndSeveralByCount() {

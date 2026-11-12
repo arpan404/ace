@@ -177,6 +177,7 @@ struct ThreadView: View {
                 model.addQuote(text, start: start, end: end)
                 composerFocus += 1
             } : nil)
+            .keepsThreadQuotes(model: model, thread: thread)
             .environment(\.openChanges) { path in
                 changesFile = path
                 open(.changes)

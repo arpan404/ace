@@ -52,6 +52,11 @@ extension ClientModel {
         threadAction(["type": "quote.add", "message": message, "start": start, "end": end])
     }
     func removeQuote(_ id: String) { threadAction(["type": "quote.remove", "id": id]) }
+    /// Give the bridge the quotes this phone kept with the thread's draft (after a relaunch).
+    func restoreQuotes(_ quotes: [DraftQuote]) {
+        guard canOperate, !quotes.isEmpty else { return }
+        threadAction(["type": "quote.restore", "quotes": quotes.map(\.json)])
+    }
     func clearQuotes() { threadAction(["type": "quote.clear"]) }
     func detach(_ localId: String) {
         threadAction(["type": "detach", "localId": localId])
