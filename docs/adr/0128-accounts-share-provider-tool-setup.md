@@ -43,7 +43,8 @@ ChatGPT desktop app over a pipe it hands to its own children (`BROWSER_USE_ACCES
 5. **Claude in Chrome follows the person.** `providers.claude.chrome` is `auto`, `on` or `off`.
    `auto` follows `claudeInChromeDefaultEnabled` in the person's Claude config (`~/.claude.json`,
    or `$CLAUDE_CONFIG_DIR/.claude.json`); `on` and an enabled `auto` start Claude Code with
-   `--chrome`; `off` never does.
+   `--chrome`; `off` starts it with `--no-chrome`, so ace's choice holds whatever Claude's
+   default is. An `auto` with Claude's default off passes neither flag.
 6. Both settings are global and admin-only: they decide what programs a provider may start.
 
 ## Consequences
