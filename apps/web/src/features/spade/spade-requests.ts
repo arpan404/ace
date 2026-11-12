@@ -1,7 +1,7 @@
 import type { ClientApi } from "@ace/client";
 import type { SpadeExchange } from "@ace/client/spade-http";
 import { maxSpadeRequestBytes, type SpadeMethod } from "@ace/protocol";
-import { spadeProblem } from "@ace/ui-core/spade-chat";
+import { spadeRefusal, SpadeRequestError, type SpadeFollowLink } from "@ace/ui-core/spade-chat";
 import { spadeTransport, SpadeTransport, type SpadeBody } from "./spade-transport.ts";
 
 /**
@@ -10,28 +10,7 @@ import { spadeTransport, SpadeTransport, type SpadeBody } from "./spade-transpor
  * the bodies' shape, so callers parse them with `@ace/ui-core/spade-chat`.
  */
 
-/** Spade refused, or the daemon couldn't reach it. `status` is Spade's, when it answered. */
-export class SpadeRequestError extends Error {
-  readonly status: number | undefined;
-  /** The daemon's code when it, not Spade, answered (`failed`: no answer came back). */
-  readonly code: string | undefined;
-  constructor(message: string, status?: number, code?: string) {
-    super(message);
-    this.name = "SpadeRequestError";
-    this.status = status;
-    this.code = code;
-  }
-  /** The request may have reached Spade: no answer came back to say either way. */
-  get unanswered(): boolean {
-    return this.code === "failed";
-  }
-}
-
-/** What a refusal says to the person, by Spade's status where its own words would be vague. */
-function refusal(status: number, body: string): string {
-  if (status === 402) return "Today's spending cap is reached. Spade will answer again tomorrow.";
-  return spadeProblem(body) ?? `Spade answered ${status}.`;
-}
+export { SpadeRequestError };
 
 /** A connection, or the transport over it (`spadeTransport`). */
 export type SpadeTarget = ClientApi | SpadeTransport;
@@ -55,7 +34,7 @@ async function spadeAnswer(
   if (answer.kind === "error") throw new SpadeRequestError(answer.message, undefined, answer.code);
   if (answer.status < 200 || answer.status > 299)
     throw new SpadeRequestError(
-      refusal(answer.status, "text" in answer.body ? answer.body.text : ""),
+      spadeRefusal(answer.status, "text" in answer.body ? answer.body.text : ""),
       answer.status,
     );
   return answer;
@@ -96,6 +75,16 @@ export async function spadeBlob(
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
   return new Blob([bytes], { type });
+}
+
+/** A conversation's live streams and history reads, by the transport's way. */
+export function followLink(transport: SpadeTransport): SpadeFollowLink {
+  return {
+    canOpen: () => transport.canOpen(),
+    onOpenable: (listener) => transport.onOpenable(listener),
+    open: (path, sink) => transport.open(path, sink),
+    read: (path) => spadeHttp(transport, "GET", path),
+  };
 }
 
 /** A message's body as Spade takes it: images as `{data}` with their base64. */
