@@ -224,4 +224,61 @@ mod tests {
         let zero = URL_SAFE_NO_PAD.encode([0u8; 32]);
         assert_eq!(seal(&random, &zero, b"x", FINISH), Err(SealError::BadKey));
     }
+
+    #[derive(serde::Deserialize)]
+    struct Vectors {
+        cases: Vec<Vector>,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct Vector {
+        spade_private_key: String,
+        spade_public_key: String,
+        cloud_private_key: String,
+        app: String,
+        purpose: String,
+        plaintext: String,
+        sealed: Sealed,
+    }
+
+    fn hex(text: &str) -> Vec<u8> {
+        (0..text.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap_or_else(|e| panic!("{e}")))
+            .collect()
+    }
+
+    /// The vectors ace cloud's Worker (`apps/cloud/src/broker/seal.ts`) checks too: with the same
+    /// one-time keys, both seal to the same bytes and open each other's answers.
+    #[test]
+    #[allow(deprecated)] // ring's fixed "random", the only way to give it a known private key
+    fn the_shared_vectors_seal_and_open_byte_for_byte_as_ace_cloud_does() -> Result<(), SealError> {
+        use ring::test::rand::FixedSliceRandom;
+        let vectors: Vectors = serde_json::from_str(include_str!("../test-vectors.json"))
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert!(!vectors.cases.is_empty());
+        for case in &vectors.cases {
+            let purpose = match case.purpose.as_str() {
+                "finish" => Purpose::Finish,
+                _ => Purpose::Refresh,
+            };
+            let context = Context {
+                app: &case.app,
+                purpose,
+            };
+            let cloud_key = hex(&case.cloud_private_key);
+            let sealed = seal(
+                &FixedSliceRandom { bytes: &cloud_key },
+                &case.spade_public_key,
+                case.plaintext.as_bytes(),
+                context,
+            )?;
+            assert_eq!(sealed, case.sealed, "{} {}", case.app, case.purpose);
+            let spade_key = hex(&case.spade_private_key);
+            let spade = OneTimeKey::generate(&FixedSliceRandom { bytes: &spade_key })?;
+            assert_eq!(spade.public_key(), case.spade_public_key);
+            assert_eq!(spade.open(&case.sealed, context)?, case.plaintext.as_bytes());
+        }
+        Ok(())
+    }
 }

@@ -1,0 +1,29 @@
+{
+  "about": "Sealing vectors shared by Spade (spade-cloud-wire, ring) and ace cloud (apps/cloud/src/broker/seal.ts, @noble): each case's private keys are hex, the cloud's key is the one-time key it seals with, and both implementations must produce and open exactly `sealed`. ADR 0141.",
+  "cases": [
+    {
+      "spade_private_key": "a8abababababababababababababababababababababababababababababab6b",
+      "spade_public_key": "43EthRoOXXm4McXjSrIrQaGYFx3iCbi4-sojoRxiSFk",
+      "cloud_private_key": "c8cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd4d",
+      "app": "asana",
+      "purpose": "finish",
+      "plaintext": "{\"access_token\":\"at-1\",\"expires_in\":3600,\"refresh_token\":\"rt-1\",\"token_type\":\"bearer\"}",
+      "sealed": {
+        "epk": "tb6oI9nJ_1dgkcVLfFlsCuKWiE8OFQKQ6IRV1_umEm8",
+        "ciphertext": "F8E5zAY2zTmHNrbSSgAVApgpa-ZChCFDAnPAP9nk1LxjmS2epQKPLlYyMKrZV21rqo6lFY22xmBoCuJuZHktAnslSDrM9YPV3uww7a-q9MHAiL-62X6in6Vltx34RacQYgVP3Yv1"
+      }
+    },
+    {
+      "spade_private_key": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "spade_public_key": "j0DFrbaPJWJK5bIU6nZ6bslNgp09e14a0bpvPiE4KF8",
+      "cloud_private_key": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "app": "box",
+      "purpose": "refresh",
+      "plaintext": "{\"access_token\":\"at-2\",\"token_type\":\"bearer\"}",
+      "sealed": {
+        "epk": "NYBy1jZYgNGu6jKa35EhODhR7SGijjt16WXQ0s0WYlQ",
+        "ciphertext": "jdIzJxe73mwTZB2Hw8jBptRWrg3BjX7KDk0eoIxigAIjgSbOua18VBWo-r_Y_pYsoHS3QMwLxsWrL_jLfQ"
+      }
+    }
+  ]
+}

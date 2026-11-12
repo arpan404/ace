@@ -1,5 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
+  // ace cloud (ADR 0141). The script keeps the name `ace-relay`: its relay Durable Objects
+  // live under that name, and renaming the script would leave them behind.
   "name": "ace-relay",
   "main": "src/worker.ts",
   "compatibility_date": "2026-07-01",
@@ -8,9 +10,16 @@
   // daemon's work on forwarded HTTP.
   "compatibility_flags": ["nodejs_compat", "enable_request_signal"],
   "durable_objects": {
-    "bindings": [{ "name": "RELAY", "class_name": "RelayObject" }],
+    "bindings": [
+      { "name": "RELAY", "class_name": "RelayObject" },
+      // Spade's connector sign-ins in progress, one object per account (ADR 0141).
+      { "name": "SIGN_INS", "class_name": "SignInObject" },
+    ],
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RelayObject"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["RelayObject"] },
+    { "tag": "v2", "new_sqlite_classes": ["SignInObject"] },
+  ],
   // Accounts, pending sign-ins and the machine directory (ADR 0111). Replace database_id with
   // the id `wrangler d1 create ace-accounts` prints; see docs/relay/accounts.md.
   "d1_databases": [
@@ -35,24 +44,43 @@
       "namespace_id": "1004",
       "simple": { "limit": 600, "period": 60 },
     },
+    // Spade's sign-in broker (ADR 0141): per caller address, then per account. Spade polls a
+    // sign-in every three seconds.
+    {
+      "name": "BROKER_ADDRESS_REQUESTS",
+      "namespace_id": "1005",
+      "simple": { "limit": 240, "period": 60 },
+    },
+    {
+      "name": "BROKER_ACCOUNT_REQUESTS",
+      "namespace_id": "1006",
+      "simple": { "limit": 120, "period": 60 },
+    },
   ],
   // Expired sign-ins and sessions are also dropped whenever a sign-in starts.
   "triggers": { "crons": ["17 * * * *"] },
   // Request logs would record join tickets in URLs. Account secrets, grants and tokens are
   // never logged either.
   "observability": { "enabled": false },
-  // ace's hosted relay at relay.acehq.dev: deploy with `--env production`. The top level above
-  // is for local development and tests.
+  // ace cloud at cloud.acehq.dev, and at relay.acehq.dev for apps released before the rename:
+  // deploy with `--env production`. The top level above is for local development and tests.
   "env": {
     "production": {
       "name": "ace-relay",
-      "routes": [{ "pattern": "relay.acehq.dev", "custom_domain": true }],
+      "routes": [
+        { "pattern": "cloud.acehq.dev", "custom_domain": true },
+        { "pattern": "relay.acehq.dev", "custom_domain": true },
+      ],
       "vars": {
-        "ACE_ACCOUNT_PUBLIC_URL": "https://relay.acehq.dev",
+        // Where sign-in pages and WorkOS and app makers' redirects come back to.
+        "ACE_ACCOUNT_PUBLIC_URL": "https://cloud.acehq.dev",
         "ACE_ACCOUNT_ALLOWED_ORIGINS": "https://app.acehq.dev,app://ace",
       },
       "durable_objects": {
-        "bindings": [{ "name": "RELAY", "class_name": "RelayObject" }],
+        "bindings": [
+          { "name": "RELAY", "class_name": "RelayObject" },
+          { "name": "SIGN_INS", "class_name": "SignInObject" },
+        ],
       },
       "d1_databases": [
         {
@@ -78,6 +106,16 @@
           "name": "HTTP_HOST_REQUESTS",
           "namespace_id": "1004",
           "simple": { "limit": 600, "period": 60 },
+        },
+        {
+          "name": "BROKER_ADDRESS_REQUESTS",
+          "namespace_id": "1005",
+          "simple": { "limit": 240, "period": 60 },
+        },
+        {
+          "name": "BROKER_ACCOUNT_REQUESTS",
+          "namespace_id": "1006",
+          "simple": { "limit": 120, "period": 60 },
         },
       ],
       "triggers": { "crons": ["17 * * * *"] },

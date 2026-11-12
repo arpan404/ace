@@ -1,7 +1,10 @@
+import type { SignInObject } from "./broker/sign-in-object.ts";
 import type { RelayObject } from "./relay-object.ts";
 
 export interface Env {
   RELAY: DurableObjectNamespace<RelayObject>;
+  /** Spade's connector sign-ins in progress, one object per account (ADR 0141). */
+  SIGN_INS: DurableObjectNamespace<SignInObject>;
   /** Account and machine-directory database (ADR 0111). */
   ACCOUNTS: D1Database;
   /** Upgrade rate limit per client address. Absent where no limit is configured. */
@@ -12,6 +15,14 @@ export interface Env {
   HTTP_REQUESTS?: RateLimit;
   /** Forwarded HTTP per machine, keyed by host id. */
   HTTP_HOST_REQUESTS?: RateLimit;
+  /** Spade's sign-in broker per caller address, then per account (ADR 0141). */
+  BROKER_ADDRESS_REQUESTS?: RateLimit;
+  BROKER_ACCOUNT_REQUESTS?: RateLimit;
+  /**
+   * The broker's apps as JSON in place of the shipped list (tests, staging). Each app's client
+   * ID and secret are Worker secrets named in its entry, such as `SPADE_CLOUD_ASANA_CLIENT_ID`.
+   */
+  SPADE_CLOUD_APPS?: string;
   ACE_ACCOUNT_PUBLIC_URL?: string;
   ACE_ACCOUNT_ALLOWED_ORIGINS?: string;
   WORKOS_CLIENT_ID?: string;

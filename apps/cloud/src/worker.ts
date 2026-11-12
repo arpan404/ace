@@ -3,11 +3,15 @@ import { accountApi, isAccountPath } from "./account/api.ts";
 import type { AccountApi } from "./account/api.ts";
 import { readAccountSetup } from "./account/config.ts";
 import type { AccountSetup } from "./account/config.ts";
+import { configureApps } from "./broker/apps.ts";
+import { broker, isBrokerPath } from "./broker/broker.ts";
+import { durableSignIns } from "./broker/sign-in-object.ts";
 import { ACCOUNT_HEADER, EXCHANGE_HEADER, PROTOCOL_HEADER, admit } from "./admission.ts";
 import type { Env } from "./env.ts";
 import { forwardPath } from "./http-path.ts";
 import type { ForwardPath } from "./http-path.ts";
 
+export { SignInObject } from "./broker/sign-in-object.ts";
 export { RelayObject } from "./relay-object.ts";
 
 const endpoints = new Set(["/host", "/client", "/join", "/serve"]);
@@ -24,8 +28,8 @@ function rateKey(request: Request): string {
 
 async function limited(
   limit: RateLimit | undefined,
-  request: Request,
-  key = rateKey(request),
+  request: Request | undefined,
+  key = request ? rateKey(request) : "unknown",
 ): Promise<boolean> {
   return limit ? !(await limit.limit({ key })).success : false;
 }
@@ -66,8 +70,11 @@ async function forwardHttp(
   return relay.fetch(new Request(request, { headers }));
 }
 
-/** Account settings and the API built from them, once per isolate. */
-const isolates = new WeakMap<Env, { setup: AccountSetup; api: AccountApi }>();
+/** Account settings and the APIs built from them, once per isolate. */
+const isolates = new WeakMap<
+  Env,
+  { setup: AccountSetup; api: AccountApi; broker: ReturnType<typeof broker> }
+>();
 function accounts(env: Env) {
   let found = isolates.get(env);
   if (!found) {
@@ -80,26 +87,43 @@ function accounts(env: Env) {
       forgotten: (hostId, accountId) =>
         env.RELAY.get(env.RELAY.idFromName(hostId)).registerAgain(accountId),
     });
-    found = { setup, api };
+    const ready = setup.status === "ready" ? setup : undefined;
+    const spade = broker({
+      apps: configureApps({ ...env }),
+      account: ready && { keys: ready.keys, publicUrl: ready.config.publicUrl },
+      signIns: durableSignIns(env.SIGN_INS),
+      fetch: (input, init) => fetch(input, init),
+      now: () => Date.now(),
+      random: (length) => crypto.getRandomValues(new Uint8Array(length)),
+      limited: {
+        address: (request) => limited(env.BROKER_ADDRESS_REQUESTS, request),
+        account: (id) => limited(env.BROKER_ACCOUNT_REQUESTS, undefined, id),
+      },
+      // Observability is off; `wrangler tail` sees these. Their fields are all they can carry.
+      log: (entry) => console.log(JSON.stringify({ broker: entry })),
+    });
+    found = { setup, api, broker: spade };
     isolates.set(env, found);
   }
   return found;
 }
 
 /**
- * One Worker serves ace's account API under `/v1/` and the relay. Each relay upgrade is
+ * One Worker, ace cloud (ADR 0141), serves Spade's sign-in broker under `/v1/oauth/`, ace's
+ * account API under the rest of `/v1/`, and the relay, on cloud.acehq.dev and relay.acehq.dev. Each relay upgrade is
  * checked here and handed to the Durable Object named by its host id.
  */
 export default {
   async fetch(request, env, ctx): Promise<Response> {
     const url = new URL(request.url);
+    if (isBrokerPath(url.pathname)) return accounts(env).broker.handle(request);
     if (isAccountPath(url.pathname))
       return accounts(env).api.handle(request, await limited(env.ACCOUNT_REQUESTS, request));
     const target = forwardPath(url);
     if (target) return forwardHttp(request, env, ctx, target);
     if (!endpoints.has(url.pathname))
       return url.pathname === "/"
-        ? new Response("ace relay\n")
+        ? new Response("ace cloud\n")
         : new Response(null, { status: 404 });
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket")
       return new Response(null, { status: 426 });

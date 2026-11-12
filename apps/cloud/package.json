@@ -18,6 +18,9 @@
     "@ace/protocol": "workspace:*",
     "@ace/relay": "workspace:*",
     "@ace/secure-channel": "workspace:*",
+    "@noble/ciphers": "2.0.1",
+    "@noble/curves": "2.0.1",
+    "@noble/hashes": "2.0.1",
     "zod": "^4.6.5"
   },
   "devDependencies": {
