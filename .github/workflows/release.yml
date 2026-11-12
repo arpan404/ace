@@ -6,8 +6,9 @@ name: Release
 # unsigned, because signing stays offline (ADR 0041). Nothing is signed or published: the
 # owner signs and publishes with `release.ts` and tools/release (docs/releasing.md).
 #
-# One thing does go live: a v* tag deploys ace's hosted relay (relay.acehq.dev, ADR 0110) from
-# that tag, after its D1 migrations, with the CLOUDFLARE_API_TOKEN secret (docs/relay/accounts.md).
+# One thing does go live: a v* tag deploys ace cloud (cloud.acehq.dev, also still relay.acehq.dev;
+# ADR 0110, 0141) from that tag, after its D1 migrations, with the CLOUDFLARE_API_TOKEN secret
+# (docs/relay/accounts.md).
 on:
   workflow_dispatch:
     inputs:
@@ -73,7 +74,6 @@ jobs:
           version="${RELEASE_VERSION#v}"
           [ -n "$version" ] || version=$(node -p 'require("./apps/desktop/package.json").version')
           echo "VERSION=$version" >> "$GITHUB_ENV"
-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -155,7 +155,6 @@ jobs:
         with:
           bun-version-file: package.json
 
-
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
@@ -229,7 +228,6 @@ jobs:
         with:
           bun-version-file: package.json
 
-
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
@@ -250,14 +248,14 @@ jobs:
             tools/release/dist/ace-*-${{ matrix.target }}.tar.gz
             tools/release/dist/${{ matrix.target }}.json
 
-  relay:
-    name: Deploy the hosted relay
+  cloud:
+    name: Deploy ace cloud
     # Only a release tag deploys; a manual run builds artifacts and leaves production alone.
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     # One deploy at a time, whatever the tag, and never cancelled halfway through migrations.
     concurrency:
-      group: relay-production
+      group: cloud-production
       cancel-in-progress: false
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -268,7 +266,7 @@ jobs:
       - name: Require the Cloudflare token
         run: |
           if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
-            echo "::error::Set the CLOUDFLARE_API_TOKEN repository secret to deploy the relay (docs/relay/accounts.md)."
+            echo "::error::Set the CLOUDFLARE_API_TOKEN repository secret to deploy ace cloud (docs/relay/accounts.md)."
             exit 1
           fi
 
@@ -299,18 +297,19 @@ jobs:
         with:
           bun-version-file: package.json
 
-
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
       - name: Apply D1 migrations
-        working-directory: apps/relay-cloudflare
+        working-directory: apps/cloud
         run: bunx wrangler d1 migrations apply ACCOUNTS --remote --env production
 
       - name: Deploy
-        working-directory: apps/relay-cloudflare
+        working-directory: apps/cloud
         run: bunx wrangler deploy --env production --message "Release ${GITHUB_REF_NAME}"
 
       - name: Smoke test
-        working-directory: apps/relay-cloudflare
-        run: bun run smoke https://relay.acehq.dev
+        working-directory: apps/cloud
+        run: |
+          bun run smoke https://cloud.acehq.dev
+          bun run smoke https://relay.acehq.dev

@@ -35,7 +35,7 @@ settings:
     ACE_ACCOUNT_URL: ""
   configs:
     Release:
-      ACE_ACCOUNT_URL: https://relay.acehq.dev
+      ACE_ACCOUNT_URL: https://cloud.acehq.dev
     Debug:
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG ACE_FIXTURE
     Perf:

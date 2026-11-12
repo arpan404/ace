@@ -25,8 +25,8 @@ function input(overrides: Partial<FleetMapInput> = {}): FleetMapInput {
   return {
     own: { id: "mac", name: "This Mac", online: true, working: 3 },
     enabled: true,
-    networks: networks({ tailscale: "https://100.64.0.1:4243", account: "wss://relay.acehq.dev" }),
-    relayHost: "relay.acehq.dev",
+    networks: networks({ tailscale: "https://100.64.0.1:4243", account: "wss://cloud.acehq.dev" }),
+    relayHost: "cloud.acehq.dev",
     machines: [],
     account: [],
     devices: [],
@@ -64,7 +64,7 @@ test.each([
     machine: machine({
       id: "studio",
       status: "machine_code",
-      via: { kind: "account", url: "wss://relay.acehq.dev" },
+      via: { kind: "account", url: "wss://cloud.acehq.dev" },
     }),
     tone: "warn",
     wire: { from: "relay", kind: "needs", label: "needs code" },
@@ -195,7 +195,7 @@ test.each([
   },
   {
     case: "has nothing it can use when only ace's account relay serves",
-    over: { networks: networks({ account: "wss://relay.acehq.dev" }) },
+    over: { networks: networks({ account: "wss://cloud.acehq.dev" }) },
     tone: "warn",
     wire: { from: "mac", kind: "broken", label: "local network off" },
     fixes: ["turnOnLan", "askSignIn"],
@@ -266,12 +266,12 @@ test("zones are drawn only for networks something is known to be on", () => {
     { id: "tailnet", label: "Tailnet", sub: "tail1a2b.ts.net" },
   ]);
   expect(node(both.nodes, "mac").zones).toEqual(["lan", "tailnet"]);
-  const none = fleetMapFacts(input({ networks: networks({ account: "wss://relay.acehq.dev" }) }));
+  const none = fleetMapFacts(input({ networks: networks({ account: "wss://cloud.acehq.dev" }) }));
   expect(none.zones).toEqual([]);
 });
 
 test("the relay cloud shows only while something goes through it, named by its host", () => {
-  expect(fleetMapFacts(input()).relay).toEqual({ label: "ace relay", host: "relay.acehq.dev" });
+  expect(fleetMapFacts(input()).relay).toEqual({ label: "ace cloud", host: "cloud.acehq.dev" });
   expect(
     fleetMapFacts(input({ networks: networks({ tailscale: "https://100.64.0.1" }) })).relay,
   ).toBe(undefined);

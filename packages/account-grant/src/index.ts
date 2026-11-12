@@ -40,6 +40,7 @@ export const CloudGrantClaims = GrantClaims.extend({
   aud: z.literal("cloud.acehq.dev"),
   purpose: z.literal("spade-cloud"),
 });
+export type CloudGrantClaims = z.infer<typeof CloudGrantClaims>;
 const AnyGrantClaims = z.union([GrantClaims, CloudGrantClaims]);
 
 export function signCloudGrant(
@@ -106,13 +107,32 @@ export function verifyGrant(
   now: number,
   kind: GrantKind,
 ): GrantClaims {
+  return verifySigned(token, keys, now, kind, GrantClaims);
+}
+
+/**
+ * Verify a cloud credential (ADR 0140, 0141): a `machine` grant that also names the cloud
+ * audience and purpose. A general machine or device grant is refused, as `verifyGrant` refuses
+ * a cloud credential.
+ */
+export function verifyCloudGrant(token: string, keys: GrantKeySet, now: number): CloudGrantClaims {
+  return verifySigned(token, keys, now, "machine", CloudGrantClaims);
+}
+
+function verifySigned<Claims extends GrantClaims>(
+  token: string,
+  keys: GrantKeySet,
+  now: number,
+  kind: GrantKind,
+  schema: z.ZodType<Claims>,
+): Claims {
   const [body, signature, extra] = token.split(".");
   if (!body || !signature || extra !== undefined || token.length > 2048)
     throw new GrantError("Malformed grant");
   const bytes = decodeBase64url(body);
-  let claims: GrantClaims;
+  let claims: Claims;
   try {
-    claims = GrantClaims.parse(
+    claims = schema.parse(
       JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes)),
     );
   } catch {

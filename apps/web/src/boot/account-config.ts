@@ -1,9 +1,11 @@
 import { readJson, type KeyValueStorage } from "@ace/ui-core";
 import {
   ACE_APP_SIGN_IN_RETURN,
+  ACE_FORMER_HOSTED_ACCOUNT_ORIGINS,
   ACE_HOSTED_ACCOUNT_ORIGIN,
   ACE_WEB_SIGN_IN_PATH,
   AceAccountGrant,
+  HostedAddress,
 } from "@ace/protocol/ace-account";
 
 /*
@@ -47,7 +49,30 @@ export function accountSessionKey(origin: string): string {
   return `ace.account.session:${origin}`;
 }
 
+/** Whether `machineOrigin`, saved with a machine, names the account backend at `origin`. */
+export function sameAccountOrigin(origin: string, machineOrigin: string): boolean {
+  return HostedAddress.parse(origin) === HostedAddress.parse(machineOrigin);
+}
+
+/**
+ * Moves a session this window kept under a former address of ace's backend to `origin`'s key,
+ * so the window stays signed in across the move. A session already under `origin` stays.
+ */
+function moveFormerWindowSession(storage: KeyValueStorage, origin: string): void {
+  const key = accountSessionKey(origin);
+  if (HostedAddress.parse(origin) !== origin || storage.getItem(key) !== null) return;
+  for (const former of ACE_FORMER_HOSTED_ACCOUNT_ORIGINS) {
+    if (HostedAddress.parse(former) !== origin) continue;
+    const value = storage.getItem(accountSessionKey(former));
+    if (value === null) continue;
+    storage.setItem(key, value);
+    storage.removeItem?.(accountSessionKey(former));
+    return;
+  }
+}
+
 /** The ace session this window holds for `origin`, if any. */
 export function windowAccountSession(storage: KeyValueStorage, origin: string) {
+  moveFormerWindowSession(storage, origin);
   return readJson(storage, accountSessionKey(origin), AceAccountGrant.nullable(), null);
 }

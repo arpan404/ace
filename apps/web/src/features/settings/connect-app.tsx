@@ -18,7 +18,7 @@ import { DaemonSlot } from "./setting-control.tsx";
 const order: readonly OutsideEndpoint["path"][] = ["local", "tailscale", "relay", "custom"];
 
 /** Said once, on the relay's row (ADR 0122, Reach). */
-const relayTrust = "ace's relay can read what passes through it; it keeps none of it.";
+const relayTrust = "ace cloud can read what passes through it; it keeps none of it.";
 
 /**
  * Settings › a machine › Connect an app: the four addresses an outside client can use, each with

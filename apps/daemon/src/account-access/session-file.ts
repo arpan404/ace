@@ -2,11 +2,12 @@ import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { AceAccount, AceAccountGrant, AceAccountOrigin } from "@ace/protocol/ace-account";
+import { AceAccount, AceAccountGrant, StoredAceAccountOrigin } from "@ace/protocol/ace-account";
 
 /** The daemon's one ace session (ADR 0111). Only the daemon reads it; it is never logged. */
 export const StoredSession = z.object({
-  origin: AceAccountOrigin,
+  /** A session stored on a former address of ace's backend reads as the current one. */
+  origin: StoredAceAccountOrigin,
   token: AceAccountGrant.shape.token,
   account: AceAccount,
   expiresAt: z.number().int().positive(),

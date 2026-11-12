@@ -2,7 +2,12 @@ import { machineCodeGate, relayRoute } from "@ace/client";
 import { AceAccountError, aceAccountClient } from "@ace/client/ace-account";
 import type { AccountMachineOptions } from "@ace/client-worker/machines";
 import type { KeyValueStorage } from "@ace/ui-core";
-import { accountOrigin, accountSessionKey, windowAccountSession } from "./account-config.ts";
+import {
+  accountOrigin,
+  accountSessionKey,
+  sameAccountOrigin,
+  windowAccountSession,
+} from "./account-config.ts";
 import { accountMachineClient, accountMachineOptions } from "./account-machine-options.ts";
 import { accountSecret } from "./account-secret.ts";
 import { authorizeDaemonUrl } from "./daemon-network.ts";
@@ -66,7 +71,8 @@ export function browserAccountRoutes(options: {
   return async (machine) => {
     const origin = accountOrigin();
     const account = accountMachineOptions(options);
-    if (!origin || !account || origin !== machine.origin) return undefined;
+    // A machine chosen on a former address of ace's backend is on the same backend.
+    if (!origin || !account || !sameAccountOrigin(origin, machine.origin)) return undefined;
     const secure = "secure" in options ? options.secure : accountSecret();
     const key = accountSessionKey(origin);
     const backend = aceAccountClient({
@@ -77,7 +83,7 @@ export function browserAccountRoutes(options: {
       },
     });
     const restore = async () => {
-      if (!secure || options.session.getItem(key) !== null) return;
+      if (!secure || windowAccountSession(options.session, origin) !== null) return;
       const token = await secure.read(origin).catch(() => null);
       if (!token) return;
       const session = await backend.session(token, AbortSignal.timeout(15_000));

@@ -1,12 +1,13 @@
-# Spade Cloud
+# Spade's sign-in broker in ace cloud
 
-Spade Cloud is Spade's hosted backend at `https://cloud.acehq.dev`
-([ADR 0140](../../docs/adr/0140-spade-cloud.md)). Its first job is signing people in to apps whose
+ace cloud is ace's hosted service at `https://cloud.acehq.dev`: the relay, the account API and,
+for Spade, this broker, all in one Cloudflare Worker ([ADR 0141](../../docs/adr/0141-ace-cloud.md);
+the broker itself is [ADR 0140](../../docs/adr/0140-spade-cloud.md)). The broker's job is signing people in to apps whose
 OAuth needs a client secret, which Spade can't ship: Asana, Box, Canva and HubSpot. It uses the
 person's ace account; there is no separate Spade login. It stores no tokens.
 
-Code: `spade/crates/spade-cloud` (the service, binary `spade-cloud`) and
-`spade/crates/spade-cloud-wire` (the API's shapes and the token sealing, shared with Spade).
+Code: `apps/cloud/src/broker` (TypeScript, in the Worker) and `spade/crates/spade-cloud-wire`
+(the API's shapes and the token sealing, as Spade speaks them).
 
 ## How a sign-in goes
 
@@ -37,7 +38,6 @@ the relay rejects cloud credentials through its strict claims parser. Bodies are
 
 | Request                        | Body                                  | Answers                                                                              |
 | ------------------------------ | ------------------------------------- | ------------------------------------------------------------------------------------ |
-| `GET /health`                  |                                       | `200 {"ok": true, "version"}`                                                        |
 | `POST /v1/oauth/{app}/start`   | `{code_challenge, public_key}`        | `200 {sign_in, authorization_url, expires_in, issuer, client_id}`                    |
 | `GET /v1/oauth/callback/{app}` | query `state`, `code`, `iss`, `error` | an HTML page: signed in (200), cancelled (200) or not found (400)                    |
 | `POST /v1/oauth/{app}/finish`  | `{sign_in, code_verifier}`            | `202 {"status": "waiting"}` or `200 {"status": "done", "sealed": {epk, ciphertext}}` |
@@ -62,9 +62,9 @@ base64url without padding. The sealed plaintext is the maker's token response cu
 | `refused`             | 400    | The maker refused the code or refresh token: sign in again        |
 | `upstream`            | 502    | The maker couldn't be reached or answered something unusable      |
 
-Budgets, in memory: per account a burst of 60 requests, then one a second; per address a burst
-of 120, then two a second. An account holds at most five sign-ins at once (a sixth drops the
-oldest).
+Budgets, from Workers rate-limit bindings: 240 requests a minute per address
+(`BROKER_ADDRESS_REQUESTS`), then 120 a minute per account (`BROKER_ACCOUNT_REQUESTS`). An
+account holds at most five sign-ins at once (a sixth drops the oldest).
 
 ### Sealing
 
@@ -73,41 +73,45 @@ key. The message key is HKDF-SHA256 with salt `spade-cloud/v1 seal`, the shared 
 and the cloud's then Spade's public key as info. The token response is encrypted with
 ChaCha20-Poly1305, a zero nonce (each key seals one message) and associated data
 `spade-cloud/v1 <app> finish` or `spade-cloud/v1 <app> refresh`. An all-zero shared secret is
-refused. Implemented once, with ring, in `spade-cloud-wire`.
+refused. Spade opens it with ring (`spade-cloud-wire`); the Worker seals it with `@noble`
+(Workers' Web Crypto has no ChaCha20-Poly1305). `spade-cloud-wire/test-vectors.json` holds fixed
+keys and their sealed bytes, and both sides' tests check them.
 
 ## Threat model
 
 What the cloud holds:
 
-- **Client secrets** for Spade's registered apps, in its environment only.
-- **Sign-ins in progress**, in memory, at most ten minutes: the state, account id, app, PKCE
-  challenge, Spade's public key, and the authorization code from the redirect until Spade
-  collects it.
-- **Rate-limit counters**, in memory.
+- **Client secrets** for Spade's registered apps, as Worker secrets only.
+- **Sign-ins in progress**, in one Durable Object per account, at most ten minutes: the state,
+  account id, app, PKCE challenge, Spade's public key, and the authorization code from the
+  redirect until Spade collects it. An alarm drops each when it runs out, and the object's
+  storage is emptied once none are left.
+- **Rate-limit counters**, in Cloudflare's rate-limit bindings.
 - **Tokens in transit** only: an exchange or refresh answer is sealed and sent in the request
-  that produced it, then dropped. No database, no disk, no logs of tokens.
+  that produced it, then dropped. Never in storage or logs.
 
-Logs carry the account id, the app, the step and the outcome. Never a token, code, verifier,
+Logs (`wrangler tail` only; the Worker's observability is off) carry the account id, the app,
+the step and the outcome. Never a token, code, verifier,
 state, sign-in handle, grant or secret; a test captures the logs of a whole sign-in and refresh
 and checks.
 
 | Attack                                                      | What stops it                                                                                                                      |
 | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Someone without an ace account uses the broker              | Every request needs a live cloud credential signed by ace's account backend; device grants and expired or altered ones are refused |
+| Someone without an ace account uses the broker              | Every request needs a live cloud credential signed by ace cloud's own keys; relay grants and expired or altered ones are refused   |
 | Another account finishes or reads someone's sign-in         | A sign-in is bound to its account and app; another account or app gets `unknown_sign_in` and changes nothing                       |
 | A stolen authorization code (browser history, a log)        | The exchange needs the PKCE verifier, which only Spade holds; one wrong verifier ends the sign-in                                  |
 | A redirect replayed, or a second code injected for a state  | A state takes one answer; a second, and any after it is used, gets the not-found page                                              |
 | A redirect from another authorization server (mix-up)       | The callback path must match the state's app; `iss` must exactly match its issuer and is required when metadata advertises support |
 | A network observer or a proxy reads the finish answer       | TLS, and the tokens are sealed to Spade's one-time key; a different key, app or purpose doesn't open them                          |
 | The cloud's operator or a compromise of the running service | Sees client secrets and the tokens of sign-ins and refreshes during the compromise; no stored tokens exist to take. Rotate secrets |
-| A flood of sign-ins or guesses                              | Per-account and per-address budgets, five sign-ins per account, 50,000 in all                                                      |
+| A flood of sign-ins or guesses                              | Per-account and per-address budgets, five sign-ins per account                                                                     |
 | The code leaks from the callback page                       | The page has no links or scripts, `Referrer-Policy: no-referrer`, a strict CSP, and `Cache-Control: no-store`                      |
 
 Known limits:
 
 - Refresh tokens travel to the cloud over TLS, not sealed to a cloud key.
-- Sign-ins in progress live in one process, so the service runs one replica until they move to a
-  shared store.
+- The broker shares the Worker with the relay and accounts: a compromise of one exposes the
+  others' secrets too (ADR 0141).
 
 Spade keeps working without the cloud: other connectors are untouched, and these four still take
 the person's own client ID. With the cloud away, a connected app keeps its current token until it
@@ -115,31 +119,32 @@ expires and its row says why it can't renew.
 
 ## Configuration
 
-Only through the environment:
+All in `apps/cloud`: `wrangler.jsonc` (bindings, routes) and Worker secrets.
 
-| Variable                                  | Default                   | Meaning                                                                    |
-| ----------------------------------------- | ------------------------- | -------------------------------------------------------------------------- |
-| `PORT`                                    | `8080`                    | Where it listens (plain HTTP behind the host's TLS edge)                   |
-| `SPADE_CLOUD_PUBLIC_URL`                  | `https://cloud.acehq.dev` | Its own address; makers redirect to their own `/v1/oauth/callback/{app}`   |
-| `SPADE_CLOUD_ACCOUNT_ORIGIN`              | `https://relay.acehq.dev` | ace's account backend, whose `/v1/keys` verify grants                      |
-| `SPADE_CLOUD_ADDRESS_HEADER`              | unset (peer address)      | The header the host puts the client address in, for per-address budgets    |
-| `SPADE_CLOUD_APPS_FILE`                   | the shipped `apps.json`   | Another apps file                                                          |
-| `SPADE_CLOUD_<APP>_CLIENT_ID` / `_SECRET` | unset                     | Each app's client, named in `apps.json`; an app missing either answers 503 |
-| `RUST_LOG`                                | `info`                    | Log filter; logs are JSON lines on stdout                                  |
+| Setting                                   | Kind       | Meaning                                                                          |
+| ----------------------------------------- | ---------- | -------------------------------------------------------------------------------- |
+| `ACE_ACCOUNT_PUBLIC_URL`                  | var        | ace cloud's address (`https://cloud.acehq.dev`); makers redirect to its callback |
+| `ACE_GRANT_KEY`, `ACE_GRANT_PREVIOUS_KEY` | secret     | The account API's grant keys, which also verify cloud credentials                |
+| `SPADE_CLOUD_<APP>_CLIENT_ID` / `_SECRET` | secret     | Each app's client, named in the app list; an app missing either answers 503      |
+| `SPADE_CLOUD_APPS`                        | var        | Another app list as JSON in place of the shipped one (tests, staging)            |
+| `SIGN_INS`                                | DO binding | `SignInObject`, sign-ins in progress per account                                 |
+| `BROKER_ADDRESS_REQUESTS`, `_ACCOUNT_`    | rate limit | The budgets above                                                                |
 
 In Spade, `SPADE_CLOUD_URL` points at another cloud (development), or `off` leaves these apps on
 the person's own client ID.
 
-The apps file (`spade/crates/spade-cloud/apps.json`) lists each app's issuer, authorization and
-token endpoints, client authentication, scopes, MCP resource and variable names. Endpoints were
-read from each maker's live metadata on the date it records. Every catalogue entry marked
-`via: "cloud"` must have an app there for the same server; a test checks.
+The app list (`apps/cloud/src/broker/apps.ts`) gives each app's issuer, authorization and token
+endpoints, client authentication, scopes, MCP resource and secret names. Endpoints were read from
+each maker's live metadata on the date it records. Every catalogue entry marked `via: "cloud"`
+must have an app there for the same server; a test checks.
 
 ## Deploying (the owner)
 
-Nothing here has been deployed. To bring it up on Railway:
+The broker ships with ace cloud: `wrangler deploy --env production` from `apps/cloud`
+([accounts.md](../../docs/relay/accounts.md) covers the Worker and the `cloud.acehq.dev` domain).
+Then, for each app:
 
-1. **Register Spade's app with each maker**, with its own redirect URI
+1. **Register Spade's app with the maker**, with its own redirect URI
    `https://cloud.acehq.dev/v1/oauth/callback/{app}` (URLs listed below):
    - Asana: an MCP app in the developer console.
    - Box: an MCP client in the Admin Console (Box may limit it to your enterprise; see
@@ -147,36 +152,32 @@ Nothing here has been deployed. To bring it up on Railway:
    - Canva: an integration in the Developer Portal with Canva MCP switched on (public
      integrations are reviewed by Canva).
    - HubSpot: an MCP connector under Development, MCP Connectors.
-2. **Create the Railway service** from this repository. In its settings set the root directory
-   to `spade` and the config file path to `/spade/crates/spade-cloud/railway.toml`. That builds
-   `crates/spade-cloud/Dockerfile` and health-checks `/health`. Keep one replica.
-3. **Set variables** on the service: `SPADE_CLOUD_ADDRESS_HEADER=x-forwarded-for`, and for each
-   registered app its `SPADE_CLOUD_<APP>_CLIENT_ID` and `SPADE_CLOUD_<APP>_CLIENT_SECRET` (for
-   example `SPADE_CLOUD_ASANA_CLIENT_ID`). Mark the secrets sealed. The defaults cover the public
-   URL and account origin.
-4. **Add the custom domain** `cloud.acehq.dev` under the service's Networking settings. Railway
-   shows a CNAME target; at the DNS host for `acehq.dev` (Cloudflare) add a `CNAME` record for
-   `cloud` pointing to it, DNS only (grey cloud) so Railway can issue its certificate. Railway
-   may also ask for a `TXT` verification record; add it as shown.
-5. **Check**: `curl https://cloud.acehq.dev/health` answers `{"ok":true,…}`, and the deploy log
-   lists each app with `ready: true`. Then connect Asana from Spade.
+2. **Set its client as Worker secrets**, from `apps/cloud`:
 
-Locally: `docker build -f crates/spade-cloud/Dockerfile -t spade-cloud .` from `spade/`, then
-`docker run -p 8080:8080 -e SPADE_CLOUD_PUBLIC_URL=http://127.0.0.1:8080 spade-cloud`.
+   ```sh
+   export XDG_CONFIG_HOME=~/.ace-cloudflare
+   bunx wrangler secret put SPADE_CLOUD_ASANA_CLIENT_ID --env production
+   bunx wrangler secret put SPADE_CLOUD_ASANA_CLIENT_SECRET --env production
+   # likewise BOX, CANVA, HUBSPOT
+   ```
+
+   Secrets apply at once, without a deploy.
+
+3. **Check**: `bun run smoke https://cloud.acehq.dev` (the broker refuses a request without a
+   credential), then connect the app from Spade.
 
 ### Rotating secrets
 
 1. Create a new client secret at the maker (most let two live at once).
-2. Set the new value in Railway; the service restarts with it (Railway overlaps the old
-   deployment for 20 seconds and drains it for 30, so sign-ins in flight finish).
+2. `wrangler secret put` the new value; new requests use it at once.
 3. Revoke the old secret at the maker.
 
 A secret rotation doesn't sign anyone out: refresh tokens belong to the client ID, not the secret.
 Changing a client ID does: every person must connect that app again.
 
-If a secret leaks, revoke it at the maker first, then set the new one. Grant signing keys belong
-to the account backend and rotate there ([accounts](../../docs/relay/accounts.md)); the cloud
-fetches new keys by itself.
+If a secret leaks, revoke it at the maker first, then set the new one. Grant signing keys rotate
+with the account API ([accounts](../../docs/relay/accounts.md)); the broker verifies with the
+same keys, so nothing else changes.
 
 Each vendor registration must use its own callback URL:
 
@@ -185,6 +186,6 @@ Each vendor registration must use its own callback URL:
 - Canva: `https://cloud.acehq.dev/v1/oauth/callback/canva`
 - HubSpot: `https://cloud.acehq.dev/v1/oauth/callback/hubspot`
 
-The apps file records `authorization_response_iss_parameter_supported` from vendor metadata.
+The app list records `authorization_response_iss_parameter_supported` from vendor metadata.
 When true, missing `iss` declines the sign-in; when supplied, it is always compared exactly,
 including trailing slashes. An answer on another vendor's path is refused before exchange.

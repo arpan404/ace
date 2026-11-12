@@ -20,7 +20,7 @@ function sentence(status: ConnectionStatus, name: string): string {
     case "unreachable":
       if (status.offline) return "This device is offline. ace connects once the network is back.";
       if (status.mismatch) return versionMismatchWords;
-      return `Couldn't reach ${name} through ace's relay. Is it on, with ace running? ace keeps trying.`;
+      return `Couldn't reach ${name} through ace cloud. Is it on, with ace running? ace keeps trying.`;
     case "editing":
       switch (status.problem) {
         case "signed_out":
