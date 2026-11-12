@@ -1,6 +1,6 @@
 import { useClient } from "@ace/client-react";
 import { WorkspaceId, type HistorySession, type HistoryListRequest } from "@ace/protocol";
-import { pastSessionProblems, type PastSessionAction } from "@ace/ui-core";
+import { openPastSession, pastSessionProblems, type PastSessionAction } from "@ace/ui-core";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import type { Project } from "@/lib/projects.ts";
@@ -90,29 +90,19 @@ export function useOpenSession(project: Project | undefined) {
     setBusy(true);
     setError(undefined);
     try {
-      const imported = await client.request({
-        type: "history.import",
-        sourceId: session.id,
-        workspaceId: WorkspaceId.parse(project.id),
-      });
-      if (imported.status !== "imported") {
-        setError(pastSessionProblems.notImported);
+      const opened = await openPastSession(
+        {
+          importSession: (request) => client.request(request),
+          continueSession: (request) => client.request(request),
+        },
+        { sourceId: session.id, workspaceId: WorkspaceId.parse(project.id) },
+        action,
+      );
+      if (opened.threadId === null) {
+        setError(opened.problem);
         return;
       }
-      if (action === "continue") {
-        const continued = await client.request({
-          type: "history.continue",
-          threadId: imported.threadId,
-          mode: "resume",
-          input: [],
-          delivery: "queue",
-        });
-        if (continued.status !== "continued") {
-          setError(pastSessionProblems.notContinued);
-          return;
-        }
-      }
-      await navigate({ to: "/t/$threadId", params: { threadId: imported.threadId } });
+      await navigate({ to: "/t/$threadId", params: { threadId: opened.threadId } });
     } catch {
       setError(pastSessionProblems.notOpened);
     } finally {
