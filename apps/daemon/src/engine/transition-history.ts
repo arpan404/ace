@@ -12,11 +12,22 @@ export function quiescent(state: ThreadState, agentsReady: boolean): boolean {
   if (
     Object.keys(state.indexes.liveTools).length ||
     Object.keys(state.indexes.pendingInteractions).length ||
-    Object.keys(state.indexes.runningTasks).some((key) => state.tasks[key]?.owner !== "ace") ||
-    Object.keys(state.uncertainTasks ?? {}).length
+    runsProviderWork(state)
   )
     return false;
   return agentsReady;
+}
+
+/**
+ * Provider background work still running, or lost track of: work that reopening or switching
+ * the session would end, whether or not it holds the thread's status (ADR 0116). Ace's own
+ * bookkeeping is not provider work.
+ */
+export function runsProviderWork(state: ThreadState): boolean {
+  return (
+    Object.keys(state.indexes.runningTasks).some((key) => state.tasks[key]?.owner !== "ace") ||
+    Object.keys(state.uncertainTasks ?? {}).length > 0
+  );
 }
 export function boundary(repo: EngineRepository, id: ThreadId, point: ForkPoint) {
   return repo.store.atomic((db) => {
