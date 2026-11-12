@@ -23,6 +23,7 @@
     "./tool-icons": "./src/tool-icons.ts",
     "./terminal-keys": "./src/terminal-keys.ts",
     "./ace-account": "./src/ace-account.ts",
+    "./ace-account-error": "./src/ace-account-error.ts",
     "./install-id": "./src/install-id.ts",
     "./link-proof": "./src/link-proof.ts"
   },

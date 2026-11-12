@@ -1,5 +1,5 @@
 import { ClientError } from "@ace/client";
-import { AceAccountError } from "@ace/client/ace-account";
+import { AceAccountError } from "@ace/client/ace-account-error";
 import type { GrantProblem } from "./main-machine.ts";
 
 /** The window is signed in to another ace account than the machine's: no grant is asked for. */

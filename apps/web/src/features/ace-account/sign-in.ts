@@ -1,4 +1,5 @@
-import { AceAccountError, type aceAccountClient } from "@ace/client/ace-account";
+import type { aceAccountClient } from "@ace/client/ace-account";
+import { AceAccountError } from "@ace/client/ace-account-error";
 import type { AceAccountGrant, AceLogin } from "@ace/protocol/ace-account";
 
 type AceAccountClient = ReturnType<typeof aceAccountClient>;

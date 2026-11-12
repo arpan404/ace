@@ -1,4 +1,3 @@
-import { aceAccountClient } from "@ace/client/ace-account";
 import {
   createContext,
   use,
@@ -16,6 +15,7 @@ import { webStorage } from "@/boot/web-storage.ts";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { useMachinePool } from "@/lib/machine-pool.ts";
 import { followAccountLeaving } from "./account-switch.ts";
+import { lazyAceAccountClient } from "./lazy-client.ts";
 import {
   aceAccountStore,
   type AceAccountBackend,
@@ -37,7 +37,7 @@ function deployedBackend(): AceAccountBackend | undefined {
   if (!origin) return undefined;
   return {
     origin,
-    client: aceAccountClient({
+    client: lazyAceAccountClient({
       origin,
       fetch: async (input, init) => {
         await authorizeDaemonUrl(`${origin}/`);

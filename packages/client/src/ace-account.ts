@@ -9,15 +9,10 @@ import {
   AceMachine,
   AceMachineList,
 } from "@ace/protocol/ace-account";
+import { AceAccountError } from "./ace-account-error.ts";
 import { httpJson } from "./http-json.ts";
 
-export class AceAccountError extends Error {
-  readonly status: number;
-  constructor(status: number) {
-    super(status === 401 ? "Sign in to ace again." : "Couldn't reach your ace account. Try again.");
-    this.status = status;
-  }
-}
+export { AceAccountError };
 
 /** Calls the account backend, never a paired daemon or a coding provider. */
 export function aceAccountClient(options: { origin: string; fetch: typeof fetch }) {

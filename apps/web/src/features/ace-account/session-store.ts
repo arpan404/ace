@@ -1,4 +1,5 @@
-import { AceAccountError, type aceAccountClient } from "@ace/client/ace-account";
+import type { aceAccountClient } from "@ace/client/ace-account";
+import { AceAccountError } from "@ace/client/ace-account-error";
 import { AceAccountGrant, type AceLogin } from "@ace/protocol/ace-account";
 import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
 import { accountSessionKey } from "@/boot/account-config.ts";

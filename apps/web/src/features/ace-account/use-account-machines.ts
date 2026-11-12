@@ -1,4 +1,4 @@
-import { AceAccountError } from "@ace/client/ace-account";
+import { AceAccountError } from "@ace/client/ace-account-error";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { useDaemonConnection } from "@/boot/connection.tsx";

@@ -23,6 +23,11 @@ export const forbiddenInitialModules = [
   // A tooltip's popup and Floating UI's placement: nothing draws them before a hover rests.
   "/src/components/ui/tooltip-popup.tsx",
   "/@base-ui/react/internals/useAnchorPositioning.mjs",
+  // The ace account backend's client and its reply schemas: the account's state stays eager,
+  // its HTTP calls load on first use (`lazy-client.ts`).
+  "/packages/client/src/ace-account.ts",
+  // A provider sign-in's login runs only once someone signs in (`sign-in-host.tsx`).
+  "/src/features/sign-in/login-controller.ts",
 ];
 
 /** Inspect the page's actual static closure, independently of chunk names. */

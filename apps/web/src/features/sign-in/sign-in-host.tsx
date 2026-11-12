@@ -11,7 +11,8 @@ import {
   type ReactNode,
 } from "react";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
-import { LoginController, type SignInTarget } from "./login-controller.ts";
+import { deferredPart } from "@/lib/deferred-part.ts";
+import type { LoginController, SignInTarget } from "./login-controller.ts";
 
 /** Open the sign-in dialog for a provider (or one of its upstreams), or sign out of it. */
 export type OpenSignIn = (target: SignInTarget) => void;
@@ -41,8 +42,14 @@ const needsMethod = (target: SignInTarget) =>
   !target.signIn &&
   !target.newAccount;
 
+/** The login itself loads with the dialog, the first time someone signs in. */
+const controller = deferredPart(() =>
+  import("./login-controller.ts").then((module) => module.LoginController),
+);
+
 /** Start loading the dialog (a Sign in button hovered or focused). */
-export const preloadSignIn = (): Promise<unknown> => SignInDialog.preload();
+export const preloadSignIn = (): Promise<unknown> =>
+  Promise.all([SignInDialog.preload(), controller.load()]);
 
 /**
  * The one sign-in dialog. Opening it starts the login at once (from the click, so a remount
@@ -56,18 +63,34 @@ export function SignInHost(props: { children: ReactNode }) {
   // The running login, outside state: starting and cancelling are effects of a click, and
   // state updaters may run twice.
   const running = useRef<LoginController | undefined>(undefined);
+  // The latest open or close: a login whose code arrives after another click, or after the
+  // dialog closed, never starts.
+  const request = useRef(0);
   const begin = useCallback(
     (target: SignInTarget) => {
       running.current?.dispose();
-      const next = new LoginController(client, target);
-      running.current = next;
-      setLogin(next);
+      running.current = undefined;
+      const asked = ++request.current;
+      const start = (Controller: typeof LoginController) => {
+        if (asked !== request.current) return;
+        const next = new Controller(client, target);
+        running.current = next;
+        setLogin(next);
+      };
+      const loaded = controller.current();
+      if (loaded) return start(loaded);
+      // A failed load closes the dialog, as a dialog whose own code failed shows nothing; the
+      // next click loads again.
+      controller.load().then(start, () => {
+        if (asked === request.current) setOpen(false);
+      });
     },
     [client],
   );
   const show = useCallback<OpenSignIn>(
     (target) => {
       if (needsMethod(target)) {
+        request.current++;
         running.current?.dispose();
         setOpen(false);
         setChoosing(target);
@@ -80,6 +103,7 @@ export function SignInHost(props: { children: ReactNode }) {
     [begin],
   );
   const close = useCallback(() => {
+    request.current++;
     setOpen(false);
     running.current?.dispose();
   }, []);
