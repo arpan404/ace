@@ -42,8 +42,9 @@ function watch(readings: ((at: number) => AccountView[])[]) {
   );
   /** Moves the clock to the next timer and runs it. */
   const next = async () => {
-    const timer = timers.sort((a, b) => a.at - b.at).shift();
+    const timer = timers.toSorted((a, b) => a.at - b.at)[0];
     if (!timer) return;
+    timers.splice(timers.indexOf(timer), 1);
     now = timer.at;
     timer.run();
     await Promise.resolve();
@@ -84,7 +85,7 @@ test("stopping ends the reads: nothing more is scheduled or said", async () => {
 });
 
 test("a read still out when the watch stops and starts again is dropped: one timer, not two", async () => {
-  let release: (views: AccountView[]) => void = () => {};
+  let release: ((views: AccountView[]) => void) | undefined;
   const timers: (() => void)[] = [];
   const said: LimitAlert[] = [];
   let reads = 0;
@@ -108,7 +109,7 @@ test("a read still out when the watch stops and starts again is dropped: one tim
   await Promise.resolve();
   await Promise.resolve();
   // The first run's read lands late: it neither alerts nor schedules alongside the second.
-  release([account(100, start)]);
+  release?.([account(100, start)]);
   await Promise.resolve();
   await Promise.resolve();
   expect(timers).toHaveLength(1);
