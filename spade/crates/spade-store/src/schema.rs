@@ -121,6 +121,11 @@ const MIGRATIONS: &[Migration] = &[
 ",
         backfill: None,
     },
+    Migration {
+        // ADR 0132: groups, and asks between machines.
+        sql: crate::teams::SCHEMA,
+        backfill: None,
+    },
 ];
 
 /// The schema version this build brings a database up to.

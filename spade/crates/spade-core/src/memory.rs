@@ -378,6 +378,7 @@ mod tests {
                 images: Vec::new(),
                 from_agent: None,
                 from_routine: None,
+                from_group: None,
             })
         };
         let events = vec![
