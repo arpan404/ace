@@ -3,7 +3,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { SettingAddRow, SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -13,8 +12,14 @@ import { setFastModel } from "./spade-api.ts";
 import { EndpointSection } from "./spade-endpoint-settings.tsx";
 import { OversightSettings } from "./spade-oversight-settings.tsx";
 import { SearchSettings } from "./spade-search-settings.tsx";
-import { TranscriptionRow } from "./spade-transcription-row.tsx";
+import { TranscriptionRow, transcriptionWords } from "./spade-transcription-row.tsx";
 import { SpadeNotes } from "./spade-notes.tsx";
+import {
+  LoadingRow,
+  LoadingRows,
+  SelectSkeleton,
+  SwitchSkeleton,
+} from "./spade-settings-loading.tsx";
 import { useSpadeEnabled } from "./use-spade-enabled.ts";
 import { modelsKey, useSpadeModels } from "./use-spade-models.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
@@ -25,7 +30,9 @@ import { useSpadeClient } from "./spade-machine.tsx";
  * (ADR 0135); About you, the notes every bot
  * sees (ADR 0128); then each of the person's model endpoints (its key, its saved models,
  * removing it) and Add endpoint, from a preset or custom; then web search's Brave key and
- * SearXNG; then the apps Spade is connected to (ADR 0131).
+ * SearXNG; then the apps Spade is connected to (ADR 0131). While the setting or Spade's state is
+ * still being read, every group stands in place with placeholders, and the switch shows none of
+ * on or off until the setting is known.
  */
 export function SpadeSettings() {
   const id = useId();
@@ -34,6 +41,9 @@ export function SpadeSettings() {
   const line = spadeStateLine(status, enabled);
   const models = useSpadeModels(line.ready);
   const [adding, setAdding] = useState(false);
+  // Not known yet whether Spade runs: the groups it would show hold their place.
+  const reading = !line.ready && (enabled === undefined || status === undefined);
+  const modelsLoading = (line.ready && models.isPending) || reading;
   return (
     <>
       <SettingSection label="Assistant">
@@ -44,29 +54,53 @@ export function SpadeSettings() {
           density="compact"
           inline
         >
-          <Switch
-            id={id}
-            checked={enabled === true}
-            disabled={enabled === undefined || saving}
-            onCheckedChange={(checked) => void setEnabled(checked)}
-          />
+          {enabled === undefined ? (
+            <SwitchSkeleton />
+          ) : (
+            <Switch
+              id={id}
+              checked={enabled}
+              disabled={saving}
+              onCheckedChange={(checked) => void setEnabled(checked)}
+            />
+          )}
         </SettingRow>
         {models.data && <FastModelRow models={models.data} />}
         {models.data && <TranscriptionRow models={models.data} />}
+        {modelsLoading && !models.data && (
+          <>
+            <LoadingRow
+              title="Fast model"
+              description={fastModelWords}
+              control={<SelectSkeleton />}
+            />
+            <LoadingRow
+              title="Transcription"
+              description={transcriptionWords}
+              control={<SelectSkeleton />}
+            />
+          </>
+        )}
       </SettingSection>
-      {line.ready && <OversightSettings />}
-      {line.ready && (
+      {(line.ready || reading) && <OversightSettings ready={line.ready} />}
+      {(line.ready || reading) && (
         <SettingSection label="About you" anchor="about-you">
-          <SpadeNotes
-            scope={{ kind: "shared" }}
-            label="About you"
-            placeholder="Add something about you"
-          />
+          {line.ready ? (
+            <SpadeNotes
+              scope={{ kind: "shared" }}
+              label="About you"
+              placeholder="Add something about you"
+            />
+          ) : (
+            <LoadingRows label="About you" rows={2} />
+          )}
         </SettingSection>
       )}
-      {line.ready &&
-        (models.isPending ? (
-          <ListSkeleton label="endpoints" shape="row" rows={2} />
+      {(line.ready || reading) &&
+        (!models.data && !models.isError ? (
+          <SettingSection label="Endpoints">
+            <LoadingRows label="Endpoints" rows={2} />
+          </SettingSection>
         ) : models.isError ? (
           <SettingSection label="Endpoints">
             <SettingRow title="Couldn't read Spade's endpoints" description={models.error.message}>
@@ -92,11 +126,13 @@ export function SpadeSettings() {
             )}
           </>
         ))}
-      {line.ready && <SearchSettings />}
-      {line.ready && <ConnectorSettings />}
+      {(line.ready || reading) && <SearchSettings ready={line.ready} />}
+      {(line.ready || reading) && <ConnectorSettings ready={line.ready} />}
     </>
   );
 }
+
+const fastModelWords = "Used for titles and other small jobs; defaults to each agent's own model.";
 
 /** The select's value for "no fast model": each bot uses its own. */
 const ownModel = "own";
@@ -120,12 +156,7 @@ function FastModelRow(props: { models: SpadeModels }) {
   if (!options.some((option) => option.value === current))
     options.push({ value: current, label: current });
   return (
-    <SettingRow
-      title="Fast model"
-      description="Used for titles and other small jobs; defaults to each agent's own model."
-      htmlFor={id}
-      density="compact"
-    >
+    <SettingRow title="Fast model" description={fastModelWords} htmlFor={id} density="compact">
       <Select
         id={id}
         label="Fast model"

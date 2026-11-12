@@ -97,3 +97,15 @@ test("Settings › Spade › Web search keeps a Brave key in the keychain and a 
   await userEvent.click(section.getAllByRole("button", { name: "Remove" })[1]!);
   await waitFor(() => expect(spade.search.searxngUrl).toBeNull());
 });
+
+test("while the setting loads, Run Spade shows neither on nor off, and every group holds its place", async () => {
+  await spadeApp("/settings/spade", garden, {
+    daemon: (daemon) => daemon.holdRequests("settings.subscribe"),
+  });
+  const row = (await screen.findByText("Run Spade on this machine")).closest("[data-setting-slot]");
+  if (!(row instanceof HTMLElement)) throw new Error("no Run Spade row");
+  // Its place is held by a placeholder, never an off switch that may be on.
+  expect(within(row).queryByRole("switch")).toBeNull();
+  for (const group of ["Endpoints", "Web search", "Connectors"])
+    expect(screen.getByRole("region", { name: group })).toBeTruthy();
+});

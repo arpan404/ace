@@ -8,6 +8,7 @@ import {
   spadeRunWords,
   spadeView,
   spadeWhen,
+  spadeWhenInSentence,
 } from "./index.ts";
 
 function conversation() {
@@ -134,5 +135,14 @@ describe("the routine list", () => {
     expect(spadeWhen(Date.parse("2026-12-01T09:00:00Z"), now, "UTC")).toBe("Dec 1, 9:00");
     // 9:00 in New York is 14:00 UTC.
     expect(spadeWhen(Date.parse("2026-11-12T14:00:00Z"), now, "America/New_York")).toBe("9:00");
+  });
+
+  test("inside a sentence, only tomorrow and yesterday are lower case", () => {
+    const now = Date.parse("2026-11-12T12:00:00Z");
+    const when = (iso: string) => spadeWhenInSentence(Date.parse(iso), now, "UTC");
+    expect(when("2026-11-13T08:00:00Z")).toBe("tomorrow 8:00");
+    expect(when("2026-11-11T08:00:00Z")).toBe("yesterday 8:00");
+    expect(when("2026-11-16T08:00:00Z")).toBe("Mon 8:00");
+    expect(when("2026-12-01T08:00:00Z")).toBe("Dec 1, 8:00");
   });
 });

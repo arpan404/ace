@@ -153,7 +153,7 @@ export function spadeCapSentence(cap: SpadeCapScope, capMicros: number): string 
   return `I've reached my ${cap} spending cap of ${spadeMoney(capMicros)}, so I've stopped ${until}. You can raise it in my settings.`;
 }
 
-/** A bot's caps in a few words: "Caps $1.00 a day, $20.00 a month", or "No caps". */
+/** A bot's caps in a few words: "Caps: $1.00 a day, $20.00 a month", or "No caps". */
 export function spadeCapsWords(spending: SpadeSpending): string {
   const caps = [
     ...(spending.dailyCapMicros === undefined
@@ -163,5 +163,5 @@ export function spadeCapsWords(spending: SpadeSpending): string {
       ? []
       : [`${spadeMoney(spending.monthlyCapMicros)} a month`]),
   ];
-  return caps.length ? `Caps ${caps.join(", ")}` : "No caps";
+  return caps.length ? `Caps: ${caps.join(", ")}` : "No caps";
 }

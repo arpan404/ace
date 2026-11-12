@@ -15,6 +15,7 @@ import { SpadeMachineScope, spadeMachineKey } from "./spade-machine.tsx";
 import { SpadeRoutines } from "./spade-routines.tsx";
 import { SpadeStateStrip } from "./spade-state.tsx";
 import { useSpadeConversation } from "./use-spade-conversation.ts";
+import { useSpadeModels } from "./use-spade-models.ts";
 import { useSpadeRoster, type RosterBot } from "./use-spade-roster.ts";
 import { useSkillProposals } from "./use-skill-proposals.ts";
 import {
@@ -165,6 +166,8 @@ function Conversation(props: { bot: RosterBot; roster: readonly RosterBot[] }) {
   const toast = useToast();
   const skills = useSkillProposals(bot.id, view);
   const openBot = useOpenBot(bot);
+  const endpoints = useSpadeModels(true).data?.endpoints;
+  const endpointName = (id: string) => endpoints?.find((endpoint) => endpoint.id === id)?.name;
   const [stopping, setStopping] = useState(false);
   // Stopping lasts until nothing is open: the reply and its background jobs.
   if (stopping && !view.busy) setStopping(false);
@@ -210,6 +213,19 @@ function Conversation(props: { bot: RosterBot; roster: readonly RosterBot[] }) {
                 onRemembered={(note) => openMemory({ shared: note.shared, note: note.id })}
                 onOpenFile={(path) =>
                   openBot({ files: path.split("/").slice(0, -1).join("/"), file: path })
+                }
+                endpointName={endpointName}
+                onRetry={(text) =>
+                  conversation.send({ text, images: [] }).then(
+                    () => true,
+                    (error: unknown) => {
+                      toast.error({
+                        title: `Couldn't send to ${bot.name}`,
+                        description: message(error),
+                      });
+                      return false;
+                    },
+                  )
                 }
                 proposals={skills.proposals}
                 onProposal={(id, save) =>

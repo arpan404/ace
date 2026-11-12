@@ -35,6 +35,8 @@ pub enum ModelError {
         message: String,
         transient: bool,
         retry_after: Option<Duration>,
+        /// The HTTP status the endpoint refused it with; none when no answer came at all.
+        status: Option<u16>,
     },
 
     /// The endpoint answered (and charged for it) but sent nothing usable.

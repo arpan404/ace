@@ -203,9 +203,11 @@ function KeyRow(props: { endpoint: SpadeEndpoint; keychain: boolean }) {
       description={
         endpoint.keySource === "environment"
           ? "Set from the environment. A key saved here is used instead."
-          : endpoint.keySet
-            ? "Set"
-            : "Not set. Spade can't use these models without it."
+          : endpoint.keySet === undefined
+            ? "Checking the keychain…"
+            : endpoint.keySet
+              ? "Set"
+              : "Not set. Spade can't use these models without it."
       }
     >
       <form
@@ -220,7 +222,7 @@ function KeyRow(props: { endpoint: SpadeEndpoint; keychain: boolean }) {
           type="password"
           autoComplete="off"
           spellCheck={false}
-          placeholder={endpoint.keySet ? "Replace key" : "Paste key"}
+          placeholder={endpoint.keySet === false ? "Paste key" : "Replace key"}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           disabled={sending}

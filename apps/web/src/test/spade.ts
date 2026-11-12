@@ -15,6 +15,8 @@ export async function spadeApp(
     machines?: { hostId: string; name: string; seed(spade: FakeSpadeApi): void }[];
     /** The router's history, for tests that move through it. */
     history?: RouterHistory;
+    /** Stages the daemon before the app opens (requests it holds or fails). */
+    daemon?(daemon: FakeDaemon): void;
   } = {},
 ) {
   const app = harness({
@@ -24,6 +26,7 @@ export async function spadeApp(
   });
   const spade = runningSpade(app.daemon);
   seed(spade);
+  options.daemon?.(app.daemon);
   const others = new Map<string, FakeSpadeApi>();
   for (const machine of options.machines ?? []) {
     const daemon = app.machines.get(machine.hostId);

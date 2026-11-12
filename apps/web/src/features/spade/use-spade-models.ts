@@ -6,7 +6,13 @@ import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 /** Every Spade models read; one machine's under `[...modelsKey, machine key]`. */
 export const modelsKey = ["spade", "models"] as const;
 
-/** The person's endpoints, presets and fast model, on the machine in scope. */
+/** How often the list is read again while the keychain hasn't answered for some keys. */
+const keysPendingPoll = 1_000;
+
+/**
+ * The person's endpoints, presets and fast model, on the machine in scope. Spade answers at once
+ * even while a keychain prompt is open; until the keychain answers, the list is read again.
+ */
 export function useSpadeModels(ready: boolean) {
   const machine = useSpadeMachine().key;
   const client = useSpadeClient();
@@ -14,6 +20,7 @@ export function useSpadeModels(ready: boolean) {
     queryKey: [...modelsKey, machine],
     queryFn: ({ signal }) => readModels(client, { signal }),
     enabled: ready,
+    refetchInterval: (query) => (query.state.data?.keysPending ? keysPendingPoll : false),
   });
 }
 
@@ -27,7 +34,8 @@ export function useEndpointModels(endpoint: SpadeEndpoint | undefined) {
   const live = useQuery({
     queryKey: [...modelsKey, machine, "live", endpoint?.id ?? ""],
     queryFn: ({ signal }) => readLiveModels(client, endpoint?.id ?? "", { signal }),
-    enabled: endpoint !== undefined && (!endpoint.needsKey || endpoint.keySet),
+    // Not while its key isn't known yet: the endpoint's list would wait on the keychain too.
+    enabled: endpoint !== undefined && (!endpoint.needsKey || endpoint.keySet === true),
     staleTime: 60_000,
     retry: false,
   });

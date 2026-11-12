@@ -1,6 +1,6 @@
 import {
   spadeRunWords,
-  spadeWhen,
+  spadeWhenInSentence,
   type SpadeHeartbeat,
   type SpadeRoutine,
 } from "@ace/ui-core/spade-chat";
@@ -152,21 +152,21 @@ export function SpadeRoutines(props: { bot: RosterBot }) {
   );
 }
 
-/** `Weekdays at 9:00 · Next Fri 9:00`, then how the last run went. */
+/** `Weekdays at 9:00 · Next: Fri 9:00`, then how the last run went. */
 function RoutineFacts(props: { routine: SpadeRoutine; now: number }) {
   const { routine, now } = props;
   const next = routine.paused
     ? "Paused"
     : routine.nextRun === undefined
       ? undefined
-      : `Next ${spadeWhen(routine.nextRun, now, routine.timeZone)}`;
+      : `Next: ${spadeWhenInSentence(routine.nextRun, now, routine.timeZone)}`;
   const last = routine.lastRun;
   return (
     <>
       <span className="block">{[routine.words, next].filter(Boolean).join(" · ")}</span>
       {last && (
         <span className="block">
-          {`Last ${spadeWhen(last.at, now, routine.timeZone)}: ${spadeRunWords(last)}`}
+          {`Last: ${spadeWhenInSentence(last.at, now, routine.timeZone)} · ${spadeRunWords(last)}`}
         </span>
       )}
     </>
@@ -183,7 +183,7 @@ function heartbeatFacts(beat: SpadeHeartbeat, now: number): string {
   return [
     every(beat.everyMinutes),
     beat.quiet && `Quiet ${beat.quiet.start} to ${beat.quiet.end}`,
-    beat.nextRun !== undefined && `Next ${spadeWhen(beat.nextRun, now, beat.timeZone)}`,
+    beat.nextRun !== undefined && `Next: ${spadeWhenInSentence(beat.nextRun, now, beat.timeZone)}`,
   ]
     .filter(Boolean)
     .join(" · ");

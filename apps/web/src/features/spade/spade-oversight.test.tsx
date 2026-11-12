@@ -191,7 +191,7 @@ test("a report's chip on the bot's bubble opens the report in its files", async 
 test("Settings › Spade tells Spade the person's zone and shows each bot's spend and caps", async () => {
   const { spade } = await spadeApp("/settings/spade", seed);
   const group = within(await screen.findByRole("region", { name: "Spending and review" }));
-  expect(await group.findByText("$0.42 today · $3.10 this month · Caps $1.00 a day")).toBeTruthy();
+  expect(await group.findByText("$0.42 today · $3.10 this month · Caps: $1.00 a day")).toBeTruthy();
   expect(group.getByText("Daily cap $5.00")).toBeTruthy();
   await waitFor(() =>
     expect(spade.sent("PUT", "/v1/oversight")).toContainEqual({

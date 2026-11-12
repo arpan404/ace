@@ -23,5 +23,5 @@ pub mod tools;
 pub mod transcript;
 pub mod turn;
 
-pub use event::{Event, ReplyEnd};
+pub use event::{Event, FailureKind, ReplyEnd};
 pub use transcript::{Message, Outcome, Speaker, Transcript, TurnState};

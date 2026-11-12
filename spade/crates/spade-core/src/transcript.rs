@@ -132,7 +132,9 @@ impl Transcript {
             Known::ReplyStopped { reply, text } => {
                 self.update(reply, text, Some(Outcome::Stopped));
             }
-            Known::ReplyFailed { reply, text, error } => {
+            Known::ReplyFailed {
+                reply, text, error, ..
+            } => {
                 self.update(reply, text, Some(Outcome::Failed(error.clone())));
             }
             Known::ReplyInterrupted { reply, text } => {
@@ -306,6 +308,7 @@ impl Transcript {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::FailureKind;
 
     fn finished(reply: &str, text: &str) -> Event {
         Event::Known(Known::ReplyFinished {
@@ -598,6 +601,8 @@ mod tests {
                 reply: "r1".into(),
                 text: "Half".into(),
                 error: "rate limited".into(),
+                kind: FailureKind::RateLimited,
+                endpoint: None,
             }),
         ];
         let transcript = Transcript::fold(&events);

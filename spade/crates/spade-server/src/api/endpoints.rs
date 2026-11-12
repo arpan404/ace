@@ -2,6 +2,7 @@
 //! never sent back: an endpoint shows only its header names and where its key comes from.
 
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
@@ -72,24 +73,37 @@ pub(super) struct Settings {
     transcription_model: Option<Option<String>>,
 }
 
-/// Where the endpoint's key comes from, if it has one: the keychain wins, as in every call.
-fn key_source(state: &AppState, id: &str, env: Option<&str>) -> Value {
-    let in_keychain = state
-        .keys
-        .as_ref()
-        .and_then(|keys| keys.has(id).ok())
-        .unwrap_or(false);
-    let in_env = env.is_some_and(|var| std::env::var(var).is_ok_and(|v| !v.trim().is_empty()));
-    match (in_keychain, in_env) {
-        (true, _) => json!("keychain"),
-        (false, true) => json!("environment"),
-        (false, false) => Value::Null,
+/// How long a list of endpoints waits for the keychain before answering without it: long enough
+/// for a read with no prompt, short enough that an open prompt never holds the list up.
+const KEYCHAIN_WAIT: Duration = Duration::from_millis(150);
+
+/// Whether the keychain holds each endpoint's key: `None` while its read is still waiting (a
+/// keychain prompt nobody answered yet).
+fn in_keychain(state: &AppState, views: &[EndpointView]) -> Vec<Option<bool>> {
+    let ids: Vec<&str> = views.iter().map(|v| v.stored.id.as_str()).collect();
+    match &state.keys {
+        Some(keys) => keys.has_within(&ids, KEYCHAIN_WAIT),
+        None => vec![Some(false); ids.len()],
     }
 }
 
-fn endpoint_json(state: &AppState, view: &EndpointView) -> Value {
+/// Where the endpoint's key comes from, if it has one: the keychain wins, as in every call.
+/// `(key_set, key_source)`, each null while the keychain hasn't answered and it matters.
+fn key_source(in_keychain: Option<bool>, env: Option<&str>) -> (Value, Value) {
+    let in_env = env.is_some_and(|var| std::env::var(var).is_ok_and(|v| !v.trim().is_empty()));
+    match (in_keychain, in_env) {
+        (Some(true), _) => (json!(true), json!("keychain")),
+        (Some(false), true) => (json!(true), json!("environment")),
+        (Some(false), false) => (json!(false), Value::Null),
+        // A key either way; which one wins waits on the keychain.
+        (None, true) => (json!(true), Value::Null),
+        (None, false) => (Value::Null, Value::Null),
+    }
+}
+
+fn endpoint_json(view: &EndpointView, in_keychain: Option<bool>) -> Value {
     let e = &view.stored;
-    let source = key_source(state, &e.id, e.key_env.as_deref());
+    let (key_set, source) = key_source(in_keychain, e.key_env.as_deref());
     json!({
         "id": e.id,
         "name": e.name,
@@ -98,7 +112,7 @@ fn endpoint_json(state: &AppState, view: &EndpointView) -> Value {
         "session_header": e.session_header,
         "header_names": e.headers.iter().map(|(name, _)| name.clone()).collect::<Vec<_>>(),
         "needs_key": e.needs_key,
-        "key_set": !source.is_null(),
+        "key_set": key_set,
         "key_source": source,
         "models": view.models.iter().map(|(model, source)| json!({
             "id": model.id,
@@ -108,6 +122,12 @@ fn endpoint_json(state: &AppState, view: &EndpointView) -> Value {
             "source": source,
         })).collect::<Vec<_>>(),
     })
+}
+
+/// One endpoint, as `/v1/models` lists it.
+fn one_endpoint(state: &AppState, view: &EndpointView) -> Value {
+    let known = in_keychain(state, std::slice::from_ref(view));
+    endpoint_json(view, known.first().copied().flatten())
 }
 
 fn endpoint_problem(error: &EndpointError) -> Response {
@@ -135,7 +155,8 @@ pub(super) async fn models(State(state): State<AppState>) -> Response {
     off_thread(move || models_now(&state)).await
 }
 
-/// Reads where each key comes from, so it runs off the async workers.
+/// Reads where each key comes from (waiting briefly on the keychain), so it runs off the async
+/// workers.
 fn models_now(state: &AppState) -> Response {
     let engine = &state.engine;
     let (views, fast) = match (engine.endpoint_views(), engine.fast_model()) {
@@ -156,8 +177,11 @@ fn models_now(state: &AppState) -> Response {
             })
         })
         .collect();
+    let known = in_keychain(state, &views);
     Json(json!({
-        "endpoints": views.iter().map(|v| endpoint_json(state, v)).collect::<Vec<_>>(),
+        "endpoints": views.iter().zip(&known).map(|(v, k)| endpoint_json(v, *k)).collect::<Vec<_>>(),
+        // Some keys' keychain reads are still waiting (a prompt): asked again, they may be known.
+        "keys_pending": known.iter().any(Option::is_none),
         "presets": presets,
         "fast_model": fast,
         "transcription_model": engine.transcription_model().ok().flatten(),
@@ -175,7 +199,7 @@ pub(super) async fn create(
     off_thread(move || match state.engine.create_endpoint(body.input()) {
         Ok(view) => (
             StatusCode::CREATED,
-            Json(json!({ "endpoint": endpoint_json(&state, &view) })),
+            Json(json!({ "endpoint": one_endpoint(&state, &view) })),
         )
             .into_response(),
         Err(error) => endpoint_problem(&error),
@@ -196,7 +220,7 @@ pub(super) async fn update(
     }
     off_thread(
         move || match state.engine.update_endpoint(&id, body.input()) {
-            Ok(view) => Json(json!({ "endpoint": endpoint_json(&state, &view) })).into_response(),
+            Ok(view) => Json(json!({ "endpoint": one_endpoint(&state, &view) })).into_response(),
             Err(error) => endpoint_problem(&error),
         },
     )
@@ -251,7 +275,7 @@ pub(super) async fn save_model(
         capabilities: body.capabilities,
     };
     off_thread(move || match state.engine.save_model(&id, input) {
-        Ok(view) => Json(json!({ "endpoint": endpoint_json(&state, &view) })).into_response(),
+        Ok(view) => Json(json!({ "endpoint": one_endpoint(&state, &view) })).into_response(),
         Err(error) => endpoint_problem(&error),
     })
     .await

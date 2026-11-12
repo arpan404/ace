@@ -7,9 +7,11 @@
 //! and never touch a real keychain.
 
 mod lookup;
+mod presence;
 
 use std::fmt;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use keyring_core::{CredentialStore, Entry, Error};
 
@@ -42,6 +44,8 @@ pub enum KeyError {
 pub struct KeyStore {
     store: Arc<CredentialStore>,
     service: String,
+    /// Whether each endpoint has a key, as last read, shared by every clone.
+    presence: Arc<presence::Presence>,
 }
 
 impl fmt::Debug for KeyStore {
@@ -63,6 +67,7 @@ impl KeyStore {
         Self {
             store,
             service: service.to_owned(),
+            presence: Arc::default(),
         }
     }
 
@@ -156,17 +161,48 @@ impl KeyStore {
         self.get(endpoint).map(|key| key.is_some())
     }
 
+    /// Whether each of `endpoints` has a key, without waiting on the keychain longer than
+    /// `wait`: `None` for one whose first read hasn't answered yet (a prompt still open). Every
+    /// call also reads each key again in the background, at most one read per endpoint at a
+    /// time, so a key changed outside Spade shows on a later call. A read that fails reads as no
+    /// key.
+    pub fn has_within(&self, endpoints: &[&str], wait: Duration) -> Vec<Option<bool>> {
+        let deadline = Instant::now() + wait;
+        for endpoint in endpoints {
+            if !self.presence.claim(endpoint) {
+                continue;
+            }
+            let keys = self.clone();
+            let owned = (*endpoint).to_owned();
+            let spawned = std::thread::Builder::new()
+                .name("spade-key-check".to_owned())
+                .spawn(move || {
+                    let present = keys.get(&owned).is_ok_and(|key| key.is_some());
+                    keys.presence.done(&owned, present);
+                });
+            // No thread for it: no read is out, so a later call tries again.
+            if spawned.is_err() {
+                self.presence.release(endpoint);
+            }
+        }
+        self.presence.known_by(endpoints, deadline)
+    }
+
     /// Stores `key` for `endpoint`, replacing any earlier one. Surrounding whitespace is removed.
     pub fn set(&self, endpoint: &str, key: &str) -> Result<(), KeyError> {
         let key = checked(key)?;
         self.entry(endpoint)?
             .set_password(key)
-            .map_err(|error| classify(&error))
+            .map_err(|error| classify(&error))?;
+        self.presence.note(endpoint, true);
+        Ok(())
     }
 
     /// Deletes the key for `endpoint`. Returns whether there was one.
     pub fn delete(&self, endpoint: &str) -> Result<bool, KeyError> {
-        Self::remove(&self.entry(endpoint)?)
+        let removed = Self::remove(&self.entry(endpoint)?)?;
+        self.presence.note(endpoint, false);
+        Ok(removed)
     }
 
     fn remove(entry: &Entry) -> Result<bool, KeyError> {

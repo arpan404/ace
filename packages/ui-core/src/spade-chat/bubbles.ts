@@ -1,7 +1,8 @@
-import type { SpadeReplyEntry } from "./fold.ts";
+import type { SpadeEntry, SpadeReplyEntry } from "./fold.ts";
 import type { SpadeRememberedNote } from "./notes.ts";
 import type { SpadeDocumentRef, SpadeImageRef, SpadeVoiceRef } from "./media.ts";
 import type { SpadeView } from "./view.ts";
+import type { SpadeFailureKind } from "./wire.ts";
 import { spadeCapSentence } from "./oversight.ts";
 
 /*
@@ -45,7 +46,8 @@ export type SpadeBubble =
       live: boolean;
       /** How the reply ended when it didn't finish on its own. */
       end: "stopped" | "failed" | "interrupted" | undefined;
-      error: string | undefined;
+      /** Why it failed, when it did. */
+      failure: SpadeBubbleFailure | undefined;
       /** Workspace files a tool kept since the bot's last bubble: chips that open each. */
       files?: readonly string[];
       /** What the reply's tools showed the person, after its words (ADR 0134). */
@@ -70,6 +72,20 @@ export type SpadeBubble =
       /** Why the model review asked the person: "Asked you because: …". */
       reason: string | undefined;
     };
+
+/** Why a reply failed, as its bubble says it. */
+export interface SpadeBubbleFailure {
+  kind: SpadeFailureKind;
+  /** The endpoint's id, when the endpoint was to blame. */
+  endpoint: string | undefined;
+  /** The endpoint's or Spade's own words, for Details and the activity log. */
+  error: string;
+  /**
+   * The person's last message, to send again with Try again: only on the conversation's last
+   * reply, when the person's text-only message started it and a cap didn't stop it.
+   */
+  retry: string | undefined;
+}
 
 /** What a bot answers a heartbeat when nothing needs the person (`spade_core::routine::QUIET`). */
 export const spadeQuiet = "[quiet]";
@@ -100,7 +116,7 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
         text: spadeCapSentence(entry.scope, entry.capMicros),
         live: false,
         end: undefined,
-        error: undefined,
+        failure: undefined,
         images: [],
         documents: [],
       });
@@ -170,6 +186,7 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
   }
   if (held.key !== undefined && held.paths.length)
     bubbles.push({ kind: "files", key: `files:${held.key}`, paths: held.paths });
+  offerRetry(bubbles, view.entries);
   for (const approval of view.approvals)
     bubbles.push({
       kind: "ask",
@@ -208,7 +225,7 @@ function replyBubbles(entry: SpadeReplyEntry, bubbles: SpadeBubble[], held: Held
       text,
       live: false,
       end: undefined,
-      error: undefined,
+      failure: undefined,
       ...take(),
     });
   };
@@ -239,7 +256,15 @@ function replyBubbles(entry: SpadeReplyEntry, bubbles: SpadeBubble[], held: Held
       text,
       live: entry.end === undefined,
       end,
-      error: entry.end?.kind === "failed" ? entry.end.error : undefined,
+      failure:
+        entry.end?.kind === "failed"
+          ? {
+              kind: entry.end.failure,
+              endpoint: entry.end.endpoint,
+              error: entry.end.error,
+              retry: undefined,
+            }
+          : undefined,
       ...take(),
     });
   // Under the finished reply, so it sits below the bot's own words about it.
@@ -269,4 +294,30 @@ function pushBot(
   held.paths.length = 0;
   held.key = undefined;
   bubbles.push({ kind: "bot", ...bubble, ...files });
+}
+
+/**
+ * Try again on the last bubble when the conversation's last reply failed after a message the
+ * person typed: that message's words, sent again. A message with pictures, files or a recording
+ * isn't offered (they would be lost), nor one a routine, group or bot sent, nor a cap's failure.
+ */
+function offerRetry(bubbles: SpadeBubble[], entries: readonly SpadeEntry[]) {
+  const last = bubbles.at(-1);
+  if (last?.kind !== "bot" || !last.failure || last.failure.kind === "cap") return;
+  const reply = entries.findLastIndex((entry) => entry.kind === "reply");
+  if (reply !== entries.length - 1) return;
+  const asked = entries.slice(0, reply).findLast((entry) => entry.kind === "user");
+  if (
+    asked?.kind !== "user" ||
+    asked.pending ||
+    asked.fromAgent ||
+    asked.fromRoutine ||
+    asked.fromGroup ||
+    asked.voice ||
+    asked.images.length ||
+    asked.documents?.length ||
+    !asked.text.trim()
+  )
+    return;
+  bubbles[bubbles.length - 1] = { ...last, failure: { ...last.failure, retry: asked.text } };
 }

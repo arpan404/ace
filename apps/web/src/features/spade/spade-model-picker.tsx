@@ -136,7 +136,8 @@ export function SpadeModelChoice(props: {
     setOpen(false);
     setQuery("");
   };
-  const needsKey = props.endpoint.needsKey && !props.endpoint.keySet;
+  const needsKey = props.endpoint.needsKey && props.endpoint.keySet === false;
+  const checkingKey = props.endpoint.needsKey && props.endpoint.keySet === undefined;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
@@ -196,9 +197,11 @@ export function SpadeModelChoice(props: {
           <p className="px-2 pt-1 pb-0.5 text-xs text-subtle-foreground">
             {needsKey
               ? "Add this endpoint's key to see what it lists."
-              : live.isError
-                ? `Couldn't list its models. ${live.error.message}`
-                : "Listing its models…"}
+              : checkingKey
+                ? "Checking this endpoint's key…"
+                : live.isError
+                  ? `Couldn't list its models. ${live.error.message}`
+                  : "Listing its models…"}
           </p>
         )}
       </PopoverContent>

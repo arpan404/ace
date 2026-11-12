@@ -2,6 +2,20 @@ import { z } from "zod";
 import { spadeJson as json } from "./json.ts";
 import { spadeDocumentList, spadeImageList, spadeVoiceField } from "./media.ts";
 
+/**
+ * Why a reply failed (`reply_failed`'s `kind`): the endpoint couldn't be reached, refused the key,
+ * is rate limiting, the model failed, a spending cap stopped it, or anything else.
+ */
+export const spadeFailureKinds = [
+  "unreachable",
+  "key",
+  "rate_limited",
+  "model",
+  "cap",
+  "other",
+] as const;
+export type SpadeFailureKind = (typeof spadeFailureKinds)[number];
+
 /*
  * Spade's own bodies, as its local API writes them (spade/docs/chat-core.md, harness.md). The
  * daemon passes them through as text, so every client parses them here, leniently: an event
@@ -70,6 +84,9 @@ const known = z.discriminatedUnion("type", [
     reply,
     text: text.default(""),
     error: z.string().default(""),
+    // Missing on events from before kinds, or one this client doesn't know: `other`.
+    kind: z.enum(spadeFailureKinds).catch("other").default("other"),
+    endpoint: z.string().nullish().catch(undefined),
   }),
   z.object({ type: z.literal("reply_interrupted"), reply, text: text.default("") }),
   z.object({

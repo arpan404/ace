@@ -141,3 +141,29 @@ test("with a usable endpoint but Spade on one it can't reach, setup asks only fo
   );
   await waitFor(() => expect(screen.queryByRole("region", { name: "Spade's model" })).toBeNull());
 });
+
+test("while the keychain hasn't answered, an endpoint's key says it is being checked, then what it is", async () => {
+  const { spade } = await spadeApp("/settings/spade", (api) => {
+    withEndpoint(api);
+    api.keysPending = true;
+    main(api, "openrouter/saved/model");
+  });
+  const openrouter = within(await screen.findByRole("region", { name: "OpenRouter" }));
+  // The list is there at once; only the key waits.
+  expect(await openrouter.findByText("Checking the keychain…")).toBeTruthy();
+  expect(openrouter.getByText("Saved model")).toBeTruthy();
+  expect(openrouter.queryByText(/^Not set/)).toBeNull();
+  spade.keysPending = false;
+  expect(await openrouter.findByText("Set")).toBeTruthy();
+});
+
+test("Spade never asks for a key the keychain may still hold", async () => {
+  const { spade } = await spadeApp("/spade", (api) => {
+    withEndpoint(api);
+    api.keysPending = true;
+    main(api, "openrouter/saved/model");
+  });
+  await waitFor(() => expect(spade.sent("GET", "/v1/models").length).toBeGreaterThan(0));
+  await screen.findByRole("feed");
+  expect(screen.queryByRole("region", { name: "Spade's model" })).toBeNull();
+});

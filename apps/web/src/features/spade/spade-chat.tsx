@@ -2,6 +2,8 @@ import { initials } from "@ace/ui-core";
 import {
   spadeApprovalSentence,
   spadeBubbles,
+  spadeFailureSentence,
+  type SpadeBubbleFailure,
   withProposals,
   type SpadeAvatar,
   type SpadeChatItem,
@@ -54,6 +56,10 @@ export function SpadeChat(props: {
   onOpenFile(path: string): void;
   proposals?: readonly SpadeProposal[];
   onProposal?(id: string, save: boolean): Promise<boolean>;
+  /** An endpoint's name by its id, for a failed reply's sentence; undefined when unknown. */
+  endpointName?(id: string): string | undefined;
+  /** Try again on a failed reply: sends the person's last message again. */
+  onRetry?(text: string): Promise<boolean>;
 }) {
   const { view, bot } = props;
   const bubbles = withProposals(spadeBubbles(view), view.entries, props.proposals ?? []);
@@ -70,19 +76,23 @@ export function SpadeChat(props: {
     >
       {bubbles.map((item, index) => {
         const next = bubbles[index + 1];
-        // The face sits by the last of a run of the bot's bubbles, or by the working line.
-        const lastOfRun =
-          !(next && botSide(next) && botSide(item)) && !(busy && index === bubbles.length - 1);
+        const last = index === bubbles.length - 1;
+        // The face sits by the last of a run of one sender's bubbles, or by the working line.
+        const lastOfRun = !(next && sameSender(item, next)) && !(busy && last);
+        const previous = bubbles[index - 1];
         return (
           <Bubble
             key={item.key}
             item={item}
             bot={bot}
             face={lastOfRun}
+            first={!(previous && sameSender(previous, item))}
+            endpointName={props.endpointName}
             onAnswer={props.onAnswer}
             onProposal={props.onProposal}
             onRemembered={props.onRemembered}
             onOpenFile={props.onOpenFile}
+            onRetry={props.onRetry}
           />
         );
       })}
@@ -110,6 +120,11 @@ export function SpadeChat(props: {
 const botSide = (item: SpadeChatItem) =>
   item.kind === "bot" || item.kind === "ask" || item.kind === "skill" || item.kind === "files";
 
+/** Two bubbles in a row from one sender: the bot's own, or the same other bot's. */
+const sameSender = (a: SpadeChatItem, b: SpadeChatItem) =>
+  (botSide(a) && botSide(b)) ||
+  (a.kind === "other" && b.kind === "other" && a.agent.id === b.agent.id);
+
 /**
  * The exact command a shell call would run, which "always" covers (that command, nothing like
  * it); undefined for every other tool.
@@ -123,11 +138,16 @@ function shellCommand(name: string, args: unknown): string | undefined {
 const Bubble = memo(function Bubble(props: {
   item: SpadeChatItem;
   bot: ChatBot;
+  /** The last of its sender's run: its face shows beside it. */
   face: boolean;
+  /** The first of its sender's run: another bot's name shows above it. */
+  first: boolean;
+  endpointName: ((id: string) => string | undefined) | undefined;
   onAnswer(callId: string, allowed: boolean, always: boolean): Promise<boolean>;
   onProposal: ((id: string, save: boolean) => Promise<boolean>) | undefined;
   onRemembered(note: SpadeRememberedNote): void;
   onOpenFile(path: string): void;
+  onRetry: ((text: string) => Promise<boolean>) | undefined;
 }) {
   const { item, bot } = props;
   switch (item.kind) {
@@ -189,9 +209,15 @@ const Bubble = memo(function Bubble(props: {
       };
       return (
         <div role="article" aria-label={item.agent.name} className="flex flex-col gap-1">
-          <span className="pl-9.5 text-xs text-subtle-foreground">{item.agent.name}</span>
+          {props.first && (
+            <span className="pl-9.5 text-xs text-subtle-foreground">{item.agent.name}</span>
+          )}
           <div className="flex items-end gap-2.5">
-            <SpadeFace avatar={avatar} size={28} />
+            {props.face ? (
+              <SpadeFace avatar={avatar} size={28} />
+            ) : (
+              <span aria-hidden className={faceRoom} />
+            )}
             <div className={botBubble}>
               <SpadeBubbleText text={item.text} />
             </div>
@@ -199,34 +225,58 @@ const Bubble = memo(function Bubble(props: {
         </div>
       );
     }
-    case "bot":
+    case "bot": {
+      const words = Boolean(item.text || item.end);
+      const media = (
+        <>
+          {item.images.length > 0 && <Pictures images={item.images} side="bot" />}
+          {item.documents.length > 0 && <DocumentChips documents={item.documents} side="bot" />}
+        </>
+      );
       return (
-        <BotRow bot={bot} face={props.face}>
-          <div className="group/reply flex min-w-0 flex-1 flex-col items-start gap-1">
-            {(item.text || item.end) && (
+        <BotRow
+          bot={bot}
+          face={props.face}
+          after={
+            <>
+              {/* What its tools showed the person, after its words (ADR 0134). */}
+              {words && media}
+              {item.text && !item.live && <ReadAloud text={item.text} />}
+              {item.files && <FileChips paths={item.files} onOpen={props.onOpenFile} />}
+            </>
+          }
+        >
+          {/* The column beside the face, so a bubble's width is as before. */}
+          <div className="flex min-w-0 flex-1 flex-col items-start">
+            {words ? (
               <div className={botBubble}>
                 {item.text && <SpadeBubbleText text={item.text} />}
-                {item.end && (
-                  <p className={cn("text-ui text-muted-foreground", item.text && "mt-1")}>
-                    {item.end === "stopped"
-                      ? "Stopped"
-                      : item.end === "failed"
-                        ? item.error
-                          ? `Couldn't finish: ${item.error}`
-                          : "Couldn't finish"
-                        : "Interrupted"}
-                  </p>
+                {item.end === "failed" && item.failure ? (
+                  <Failure
+                    failure={item.failure}
+                    endpoint={item.failure.endpoint && props.endpointName?.(item.failure.endpoint)}
+                    spaced={Boolean(item.text)}
+                    onRetry={props.onRetry}
+                  />
+                ) : (
+                  item.end && (
+                    <p className={cn("text-ui text-muted-foreground", item.text && "mt-1")}>
+                      {item.end === "stopped"
+                        ? "Stopped"
+                        : item.end === "failed"
+                          ? "Couldn't finish"
+                          : "Interrupted"}
+                    </p>
+                  )
                 )}
               </div>
+            ) : (
+              <div className="flex min-w-0 flex-col items-start gap-1">{media}</div>
             )}
-            {/* What its tools showed the person, after its words (ADR 0134). */}
-            {item.images.length > 0 && <Pictures images={item.images} side="bot" />}
-            {item.documents.length > 0 && <DocumentChips documents={item.documents} side="bot" />}
-            {item.text && !item.live && <ReadAloud text={item.text} />}
-            {item.files && <FileChips paths={item.files} onOpen={props.onOpenFile} />}
           </div>
         </BotRow>
       );
+    }
     case "files":
       return (
         <BotRow bot={bot} face={props.face}>
@@ -289,16 +339,90 @@ const Bubble = memo(function Bubble(props: {
   }
 });
 
-function BotRow(props: { bot: ChatBot; face: boolean; children: React.ReactNode }) {
+/**
+ * A bubble of the bot's: its face (or the room for it) beside the bubble itself, bottom-aligned
+ * with it, and anything under the bubble (pictures, Read aloud, file chips) below, in the
+ * bubble's column, so the face never drops to their row.
+ */
+function BotRow(props: {
+  bot: ChatBot;
+  face: boolean;
+  children: React.ReactNode;
+  after?: React.ReactNode;
+}) {
   return (
-    <div role="article" aria-label={props.bot.name} className="flex items-end gap-2.5">
-      {props.face ? (
-        <SpadeFace avatar={props.bot.avatar} size={28} />
-      ) : (
-        <span aria-hidden className={faceRoom} />
+    <div role="article" aria-label={props.bot.name} className="group/reply flex flex-col gap-1">
+      <div className="flex items-end gap-2.5">
+        {props.face ? (
+          <SpadeFace avatar={props.bot.avatar} size={28} />
+        ) : (
+          <span aria-hidden className={faceRoom} />
+        )}
+        {props.children}
+      </div>
+      {props.after && (
+        <div className="flex min-w-0 flex-col items-start gap-1 pl-9.5 empty:hidden">
+          {props.after}
+        </div>
       )}
-      {props.children}
     </div>
+  );
+}
+
+/**
+ * A failed reply: one plain sentence by its kind, naming the endpoint; Try again, which sends the
+ * person's last message again; and Details, the endpoint's own words, which also stay in the
+ * activity log.
+ */
+function Failure(props: {
+  failure: SpadeBubbleFailure;
+  endpoint: string | undefined;
+  spaced: boolean;
+  onRetry: ((text: string) => Promise<boolean>) | undefined;
+}) {
+  const { failure, onRetry } = props;
+  const [open, setOpen] = useState(false);
+  const [sending, setSending] = useState(false);
+  const retry = failure.retry;
+  return (
+    <>
+      <p className={cn("text-ui text-muted-foreground", props.spaced && "mt-1")}>
+        {spadeFailureSentence(failure.kind, props.endpoint)}
+      </p>
+      {open && failure.error && (
+        <pre
+          aria-label="Details"
+          className="no-scrollbar mt-1.5 max-h-48 overflow-auto rounded-md bg-code px-2.5 py-2 font-mono text-xs leading-normal whitespace-pre-wrap shadow-[inset_0_0_0_1px_var(--border)]"
+        >
+          {failure.error}
+        </pre>
+      )}
+      <div className="-mx-2 mt-1 -mb-1 flex flex-wrap gap-1">
+        {retry !== undefined && onRetry && (
+          <Button
+            size="xs"
+            variant="ghost"
+            disabled={sending}
+            onClick={() => {
+              setSending(true);
+              void onRetry(retry).then(() => setSending(false));
+            }}
+          >
+            {sending ? "Sending…" : "Try again"}
+          </Button>
+        )}
+        {failure.error && (
+          <Button
+            size="xs"
+            variant="ghost"
+            aria-expanded={open}
+            onClick={() => setOpen((shown) => !shown)}
+          >
+            Details
+          </Button>
+        )}
+      </div>
+    </>
   );
 }
 

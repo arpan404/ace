@@ -9,7 +9,7 @@ use std::panic::AssertUnwindSafe;
 use futures_util::{FutureExt, StreamExt};
 use spade_core::checkpoint::Checkpoints;
 use spade_core::context::{self, SYSTEM};
-use spade_core::event::{Call, Known, ReplyEnd, Tokens};
+use spade_core::event::{Call, FailureKind, Known, ReplyEnd, Tokens};
 use spade_core::maintenance::{Pause, Point, halts};
 use spade_core::turn::{Next, next_step, progress, stop_requested, unique_call_ids};
 use spade_core::{Event, Transcript, spending, title};
@@ -29,6 +29,40 @@ enum Ended {
     Paused,
     Stopped(String),
     Failed(String, String),
+    /// Failed with a known kind: what streamed, the error, and its kind.
+    FailedAs(String, String, Failure),
+}
+
+/// Why a step failed, for the plain sentence a client shows (`reply_failed`'s `kind`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Failure {
+    pub kind: FailureKind,
+    /// The endpoint the call went to, when the failure was the endpoint's.
+    pub endpoint: Option<String>,
+}
+
+impl Failure {
+    /// A failed call on `model`, named by its endpoint when the endpoint is to blame.
+    fn of(error: &spade_models::ModelError, model: &str) -> Self {
+        let kind = FailureKind::of(error);
+        let endpoint = kind
+            .names_endpoint()
+            .then(|| {
+                model
+                    .split_once('/')
+                    .map(|(endpoint, _)| endpoint.to_owned())
+            })
+            .flatten();
+        Self { kind, endpoint }
+    }
+
+    /// A spending cap: the day's, or the turn's own cost limit.
+    fn cap() -> Self {
+        Self {
+            kind: FailureKind::Cap,
+            endpoint: None,
+        }
+    }
 }
 
 /// What one model step produced.
@@ -40,6 +74,7 @@ pub(super) enum Step {
     Paused,
     Stopped(String),
     Failed(String, String),
+    FailedAs(String, String, Failure),
 }
 
 pub(super) async fn run(
@@ -83,6 +118,15 @@ pub(super) async fn run(
                 reply: reply.clone(),
                 text,
                 error,
+                kind: FailureKind::Other,
+                endpoint: None,
+            })),
+            Ended::FailedAs(text, error, failure) => Some(Event::Known(Known::ReplyFailed {
+                reply: reply.clone(),
+                text,
+                error,
+                kind: failure.kind,
+                endpoint: failure.endpoint,
             })),
         };
         if let Some(event) = event {
@@ -201,15 +245,17 @@ async fn drive(
                     );
                 }
                 if !cli && done.cost_micros >= engine.limits.turn_cost_micros {
-                    return Ended::Failed(
+                    return Ended::FailedAs(
                         String::new(),
                         "the turn reached its cost limit".to_owned(),
+                        Failure::cap(),
                     );
                 }
                 if !cli && !engine.within_cap().unwrap_or(false) {
-                    return Ended::Failed(
+                    return Ended::FailedAs(
                         String::new(),
                         "today's spending cap is used up".to_owned(),
+                        Failure::cap(),
                     );
                 }
                 // The bot's own cap (ADR 0135): no model call starts; it says so once.
@@ -247,6 +293,9 @@ async fn drive(
                         Step::Paused => return Ended::Paused,
                         Step::Stopped(text) => return Ended::Stopped(text),
                         Step::Failed(text, error) => return Ended::Failed(text, error),
+                        Step::FailedAs(text, error, failure) => {
+                            return Ended::FailedAs(text, error, failure);
+                        }
                     }
                     continue;
                 }
@@ -276,6 +325,9 @@ async fn drive(
                     Step::Paused => return Ended::Paused,
                     Step::Stopped(text) => return Ended::Stopped(text),
                     Step::Failed(text, error) => return Ended::Failed(text, error),
+                    Step::FailedAs(text, error, failure) => {
+                        return Ended::FailedAs(text, error, failure);
+                    }
                 }
             }
             Next::Calls { reply, calls } => {
@@ -332,7 +384,11 @@ async fn model_step(
         Ok(admitted) => admitted,
         Err(super::ledger::Refusal::Bot { hit, .. }) => return Step::Capped(hit),
         Err(super::ledger::Refusal::Service | super::ledger::Refusal::InFlight) => {
-            return Step::Failed(String::new(), "today's spending cap is used up".to_owned());
+            return Step::FailedAs(
+                String::new(),
+                "today's spending cap is used up".to_owned(),
+                Failure::cap(),
+            );
         }
     };
     // A step cut off before its usage came is still paid for: its prompt, and what streamed.
@@ -360,7 +416,11 @@ async fn model_step(
                 None if error.may_have_billed() => admitted.settle(&partly("")),
                 None => 0,
             };
-            return Step::Failed(String::new(), error.to_string());
+            return Step::FailedAs(
+                String::new(),
+                error.to_string(),
+                Failure::of(&error, &model),
+            );
         }
     };
     let mut text = String::new();
@@ -430,7 +490,8 @@ async fn model_step(
                 }
                 Some(Err(error)) => {
                     admitted.settle(&error.usage().unwrap_or_else(|| partly(&text)));
-                    return Step::Failed(text, error.to_string());
+                    let failure = Failure::of(&error, &model);
+                    return Step::FailedAs(text, error.to_string(), failure);
                 }
                 None => {
                     admitted.settle(&partly(&text));

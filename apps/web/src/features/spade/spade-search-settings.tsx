@@ -18,12 +18,13 @@ const fault = (error: unknown) => (error instanceof Error ? error.message : "Try
  * the OS keychain, and the address of the person's own SearXNG. Models whose endpoint searches
  * by itself need neither. A bot whose search found nothing set up links here (`#web-search`).
  */
-export function SearchSettings() {
+export function SearchSettings(props: { ready: boolean }) {
   const machine = useSpadeMachine().key;
   const client = useSpadeClient();
   const settings = useQuery({
     queryKey: [...searchKey, machine],
     queryFn: ({ signal }) => readSearchSettings(client, { signal }),
+    enabled: props.ready,
   });
   // Opened from a reply's "Set up web search": brought into view once it is drawn, which is
   // after the page's own jump to the anchor (this part loads later).

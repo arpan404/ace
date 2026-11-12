@@ -258,7 +258,7 @@ pub fn instructions(events: &[Event]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::event::{Call, Tokens};
+    use crate::event::{Call, FailureKind, Tokens};
 
     #[test]
     fn subscription_models_name_a_known_provider_and_an_account_without_slashes() {
@@ -357,6 +357,8 @@ mod tests {
                 reply: reply.into(),
                 text: String::new(),
                 error: "Codex is signed out.".into(),
+                kind: FailureKind::Other,
+                endpoint: None,
             })
         };
         let mut events = vec![
