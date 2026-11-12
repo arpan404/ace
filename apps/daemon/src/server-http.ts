@@ -16,10 +16,26 @@ import type { RemoteAuth } from "./remote-auth.ts";
 import type { ServerOptions } from "./server-options.ts";
 import { webHttp } from "./web-http.ts";
 import { brainPathPrefix } from "./spade/brain-http.ts";
+import {
+  accountGrantHttp,
+  accountGrantPath,
+  machineGrantSource,
+} from "./spade/account-grant-http.ts";
 
 type Handler = (request: IncomingMessage, response: ServerResponse) => void;
 /** `/mcp` (with or without a query) to the daemon's MCP handler; everything else to `next`. */
 function mcpFirst(options: ServerOptions, next: Handler): Handler {
+  // Read per request: Spade's service publishes its grant check after the server listens.
+  let spadeAccount: Handler | undefined;
+  const accountGrant = (): Handler | undefined => {
+    const account = options.machineAccount;
+    const dataDir = options.remoteConfig?.dataDir;
+    if (!options.spadeGrantVerify || !account || !dataDir) return undefined;
+    return (spadeAccount ??= accountGrantHttp({
+      verify: (bearer) => options.spadeGrantVerify?.(bearer) ?? false,
+      grant: machineGrantSource(account, dataDir),
+    }));
+  };
   return (request, response) => {
     const path = (request.url ?? "/").split("?")[0];
     const serve = options.mcp?.handleHttp;
@@ -27,6 +43,9 @@ function mcpFirst(options: ServerOptions, next: Handler): Handler {
     // Spade's bots' turns on the person's subscriptions (ADR 0133), with Spade's grant.
     const brains = options.spadeBrains;
     if (path?.startsWith(brainPathPrefix) && brains) return brains(request, response);
+    // A machine grant for Spade Cloud (ADR 0139), with Spade's grant.
+    const spadeAccount = path === accountGrantPath ? accountGrant() : undefined;
+    if (spadeAccount) return spadeAccount(request, response);
     next(request, response);
   };
 }

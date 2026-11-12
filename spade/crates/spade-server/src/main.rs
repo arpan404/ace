@@ -283,6 +283,17 @@ async fn run() -> Result<(), Failure> {
         // Spade's own registered apps: public client IDs, never a secret (ADR 0137).
         apps: spade_connect::apps::shipped(),
         tick: Duration::from_secs(1),
+        // Spade Cloud signs in to apps that need a client secret, with the person's ace account
+        // (ADR 0139). `SPADE_CLOUD_URL=off` leaves those apps on the person's own client ID.
+        cloud: match env("SPADE_CLOUD_URL").map(|v| v.trim().to_owned()) {
+            Some(off) if off == "off" => None,
+            url => Some(spade_connect::Cloud {
+                url: url
+                    .filter(|v| !v.is_empty())
+                    .unwrap_or_else(|| spade_connect::CLOUD_URL.to_owned()),
+                credential: Arc::new(spade_server::tools::CloudAccount::new(ace.clone())),
+            }),
+        },
     })
     .map_err(other)?;
     tools = tools.with_source(Arc::new(ConnectorSource::new(

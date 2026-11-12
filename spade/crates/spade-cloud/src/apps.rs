@@ -175,4 +175,30 @@ mod tests {
         assert!(parse(&file("http://a/token", "ID")).is_err());
         assert!(parse(&file("https://a/token", "id; rm")).is_err());
     }
+
+    #[test]
+    fn every_catalogue_entry_spade_signs_in_through_the_cloud_has_an_app_here_for_its_server() {
+        let catalogue: serde_json::Value =
+            serde_json::from_str(include_str!("../../../config/connectors.json"))
+                .unwrap_or_else(|e| panic!("{e}"));
+        let apps = parse(SHIPPED).unwrap_or_else(|e| panic!("{e}"));
+        let via_cloud: Vec<&serde_json::Value> = catalogue["connectors"]
+            .as_array()
+            .map(|all| all.iter().filter(|e| e["via"] == "cloud").collect())
+            .unwrap_or_default();
+        assert_eq!(via_cloud.len(), apps.len());
+        for entry in via_cloud {
+            let id = entry["id"].as_str().unwrap_or("");
+            let app = apps
+                .iter()
+                .find(|a| a.id == id)
+                .unwrap_or_else(|| panic!("{id} has no app"));
+            let url = entry["url"].as_str().unwrap_or("");
+            assert_eq!(
+                app.resource.trim_end_matches('/'),
+                url.trim_end_matches('/'),
+                "{id}: the tokens must be for the server Spade connects to"
+            );
+        }
+    }
 }

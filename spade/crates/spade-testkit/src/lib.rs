@@ -5,6 +5,7 @@
 
 mod anthropic;
 pub mod client_document;
+pub mod cloud;
 pub mod connector;
 pub mod media;
 mod models;
@@ -27,6 +28,7 @@ use serde_json::{Value, json};
 use tokio::net::TcpListener;
 
 pub use client_document::ClientDocument;
+pub use cloud::FakeCloud;
 pub use connector::FakeConnector;
 pub use media::FakeMedia;
 pub use models::FakeModelList;

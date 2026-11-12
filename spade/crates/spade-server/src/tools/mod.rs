@@ -4,6 +4,7 @@
 mod ace;
 mod ace_link;
 mod bots;
+mod cloud_account;
 mod connectors;
 mod memory;
 mod skills;
@@ -22,6 +23,7 @@ use spade_core::tools::{Registry, ToolDef};
 
 pub use ace_link::{AceLink, AceTarget, GrantError, Retry, grant_slot};
 pub use bots::{BotMessage, BotsList, EngineHandle};
+pub use cloud_account::CloudAccount;
 pub use connectors::ConnectorSource;
 pub use memory::{AskUser, MemoryTool};
 pub use skills::{

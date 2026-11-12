@@ -170,6 +170,8 @@ pub struct Options {
     pub apps: Vec<spade_connect::App>,
     /// With `connectors`: catalogue entries added to the shipped ones.
     pub catalogue: Vec<spade_connect::Entry>,
+    /// With `connectors`: Spade Cloud (ADR 0139).
+    pub cloud: Option<spade_connect::Cloud>,
     /// The engine's clock; the machine's when absent.
     pub clock: Option<Arc<dyn Clock>>,
     /// The engine's ids; counting from 1 when absent.
@@ -271,6 +273,7 @@ impl Default for Options {
             client_metadata: None,
             apps: Vec::new(),
             catalogue: Vec::new(),
+            cloud: None,
             clock: None,
             ids: None,
             brains: None,
@@ -453,6 +456,7 @@ impl Spade {
                 apps: options.apps.clone(),
                 // A device sign-in's seconds pass in milliseconds here.
                 tick: Duration::from_millis(1),
+                cloud: options.cloud.clone(),
             })?;
             let source = spade_server::tools::ConnectorSource::new(
                 hub.clone(),

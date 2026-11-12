@@ -6,7 +6,7 @@ mod support;
 
 use serde_json::{Value, json};
 use spade_testkit::connector::tool;
-use spade_testkit::{ClientDocument, FakeConnector, Script};
+use spade_testkit::{ClientDocument, FakeCloud, FakeConnector, Script};
 use support::{Options, Result, Spade};
 
 async fn with_connectors(scripts: Vec<Script>) -> Result<Spade> {
@@ -300,6 +300,7 @@ async fn a_device_sign_in_with_spades_own_app_shows_its_code_then_connects_witho
                 sign_in: vec![spade_connect::SignIn::OauthClient],
                 notes: String::new(),
                 source: "https://example.com/docs".into(),
+                via: None,
                 local: true,
             }],
             apps: vec![spade_connect::App {
@@ -331,5 +332,96 @@ async fn a_device_sign_in_with_spades_own_app_shows_its_code_then_connects_witho
     let view = wait_connected(&spade, &id).await?;
     assert!(view.get("device").is_none(), "{view}");
     assert_eq!(app.secrets_sent(), 0);
+    Ok(())
+}
+
+/// The person's ace account as Spade Cloud sees it: the fake cloud's grant, or signed out.
+struct Account(bool);
+
+impl spade_connect::AccountCredential for Account {
+    fn grant(&self) -> spade_connect::Credential<'_> {
+        let signed_in = self.0;
+        Box::pin(async move {
+            if signed_in {
+                Ok(spade_testkit::cloud::GRANT.to_owned())
+            } else {
+                Err(spade_connect::AccountProblem::SignedOut)
+            }
+        })
+    }
+}
+
+async fn spade_with_cloud(
+    app: &FakeConnector,
+    cloud: &FakeCloud,
+    signed_in: bool,
+) -> Result<Spade> {
+    Spade::start_with(
+        Vec::new(),
+        Vec::new(),
+        Options {
+            connectors: true,
+            catalogue: vec![spade_connect::Entry {
+                id: "fake".into(),
+                name: "Fake".into(),
+                url: app.url(),
+                sign_in: vec![spade_connect::SignIn::OauthClient],
+                notes: String::new(),
+                source: "https://example.com/docs".into(),
+                via: Some(spade_connect::Via::Cloud),
+                local: true,
+            }],
+            cloud: Some(spade_connect::Cloud {
+                url: cloud.url(),
+                credential: std::sync::Arc::new(Account(signed_in)),
+            }),
+            ..Options::default()
+        },
+    )
+    .await
+}
+
+#[tokio::test]
+async fn an_app_through_spade_cloud_signs_in_in_the_browser_and_its_row_says_so() -> Result {
+    let app = FakeConnector::start(app_tools()).await;
+    app.accept_token("access-1");
+    let cloud = FakeCloud::start(3600).await;
+    let spade = spade_with_cloud(&app, &cloud, true).await?;
+    let (_, listed) = spade.get("/v1/connectors").await?;
+    let entry = listed["catalogue"]
+        .as_array()
+        .and_then(|all| all.iter().find(|e| e["id"] == "fake").cloned())
+        .unwrap_or_default();
+    assert_eq!(entry["sign_in"][0], "oauth", "{entry}");
+    assert_eq!(entry["via"], "cloud");
+    let (status, started) = spade
+        .post("/v1/connectors", json!({ "catalogue": "fake" }))
+        .await?;
+    assert_eq!(status, 202, "{started}");
+    assert!(
+        started["sign_in_url"]
+            .as_str()
+            .is_some_and(|url| url.starts_with("https://auth.maker.example/")),
+        "{started}"
+    );
+    cloud.approve();
+    let view = wait_connected(&spade, "fake").await?;
+    assert_eq!(view["via"], "cloud", "{view}");
+    assert!(!view.to_string().contains("access-1"), "{view}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn signed_out_of_ace_an_app_through_spade_cloud_answers_that_it_needs_the_ace_account()
+-> Result {
+    let app = FakeConnector::start(app_tools()).await;
+    let cloud = FakeCloud::start(3600).await;
+    let spade = spade_with_cloud(&app, &cloud, false).await?;
+    let (status, refused) = spade
+        .post("/v1/connectors", json!({ "catalogue": "fake" }))
+        .await?;
+    assert_eq!(status, 409, "{refused}");
+    assert_eq!(refused["needs"], "ace_account");
+    assert_eq!(cloud.starts(), 0);
     Ok(())
 }
