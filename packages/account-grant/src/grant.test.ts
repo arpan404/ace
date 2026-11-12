@@ -4,6 +4,8 @@ import {
   grantFromSubprotocols,
   grantPublicKey,
   signGrant,
+  signCloudGrant,
+  grantLifetimeMs,
   verifyGrant,
 } from "./index.ts";
 
@@ -71,4 +73,10 @@ it("the shared test vectors, which spade-cloud also checks, give the same verdic
       () => verifyGrant(each.token, vectors.keys, each.now ?? vectors.now, each.kind),
       each.why,
     ).toThrow();
+});
+
+it("cloud credentials cannot be replayed as relay host grants", () => {
+  const token = signCloudGrant({ ...claims, kind: "machine" }, key);
+  expect(grantLifetimeMs(token)).toBe(GRANT_LIFETIME_MS);
+  expect(() => verifyGrant(token, keys, 2_000, "machine")).toThrow("Malformed");
 });

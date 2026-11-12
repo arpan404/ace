@@ -37,7 +37,7 @@ async fn a_sign_in_ends_with_the_makers_tokens_sealed_to_spades_key_and_nothing_
     assert_eq!(query("client_id").as_deref(), Some("cloud-client"));
     assert_eq!(
         query("redirect_uri"),
-        Some(format!("{}/v1/oauth/callback", cloud.url))
+        Some(format!("{}/v1/oauth/callback/asana", cloud.url))
     );
     assert_eq!(query("code_challenge_method").as_deref(), Some("S256"));
     assert_eq!(
@@ -103,7 +103,7 @@ async fn a_sign_in_ends_with_the_makers_tokens_sealed_to_spades_key_and_nothing_
     assert_eq!(field("code_verifier"), Some(VERIFIER));
     assert_eq!(
         field("redirect_uri"),
-        Some(format!("{}/v1/oauth/callback", cloud.url).as_str())
+        Some(format!("{}/v1/oauth/callback/asana", cloud.url).as_str())
     );
     assert_eq!(field("resource"), Some("https://mcp.maker.example/asana"));
     Ok(())
@@ -114,8 +114,16 @@ async fn an_app_taking_basic_authentication_gets_the_secret_in_the_header_not_th
     let cloud = Cloud::start(Options::default()).await?;
     let (started, key) = cloud.begin("box", "user_a").await?;
     cloud
-        .callback(&[("code", "code-1"), ("state", &started.state)])
-        .await?;
+        .http
+        .get(format!("{}/v1/oauth/callback/box", cloud.url))
+        .query(&[
+            ("code", "code-1"),
+            ("state", &started.state),
+            ("iss", ISSUER),
+        ])
+        .send()
+        .await
+        .map_err(fail)?;
     let (status, body) = cloud
         .finish("box", "user_a", &started.sign_in, VERIFIER)
         .await?;
@@ -380,5 +388,80 @@ async fn health_answers_without_a_grant() -> Result {
         .await
         .map_err(fail)?;
     assert_eq!(response.status().as_u16(), 200);
+    Ok(())
+}
+
+#[tokio::test]
+async fn callback_paths_and_exact_issuers_prevent_token_endpoint_mixups() -> Result {
+    let cloud = Cloud::start(Options::default()).await?;
+    let (started, _) = cloud.begin("asana", "alice").await?;
+    let response = cloud
+        .http
+        .get(format!("{}/v1/oauth/callback/box", cloud.url))
+        .query(&[("state", started.state.as_str()), ("code", "code-1")])
+        .send()
+        .await
+        .map_err(fail)?;
+    assert_eq!(response.status().as_u16(), 400);
+    assert_eq!(
+        cloud
+            .finish("asana", "alice", &started.sign_in, VERIFIER)
+            .await?
+            .0,
+        202
+    );
+    cloud
+        .callback(&[
+            ("state", &started.state),
+            ("code", "code-1"),
+            ("iss", &format!("{ISSUER}/")),
+        ])
+        .await?;
+    assert_eq!(
+        cloud
+            .finish("asana", "alice", &started.sign_in, VERIFIER)
+            .await?
+            .0,
+        409
+    );
+    let (started, _) = cloud.begin("box", "alice").await?;
+    cloud
+        .http
+        .get(format!("{}/v1/oauth/callback/box", cloud.url))
+        .query(&[("state", started.state.as_str()), ("code", "code-1")])
+        .send()
+        .await
+        .map_err(fail)?;
+    assert_eq!(
+        cloud
+            .finish("box", "alice", &started.sign_in, VERIFIER)
+            .await?
+            .0,
+        409
+    );
+    assert!(cloud.sent.lock().map_err(fail)?.forms.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn general_machine_grants_and_credentials_for_other_audiences_are_refused() -> Result {
+    let cloud = Cloud::start(Options::default()).await?;
+    for aud in [None, Some("relay.acehq.dev")] {
+        let grant = cloud.grant_audience(
+            "alice",
+            "machine",
+            support::NOW,
+            support::NOW + 300_000,
+            aud,
+        );
+        assert_eq!(
+            cloud
+                .post("/v1/oauth/asana/start", Some(&grant), serde_json::json!({}))
+                .await?
+                .0,
+            401
+        );
+    }
+    assert!(cloud.begin("asana", "alice").await.is_ok());
     Ok(())
 }

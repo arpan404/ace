@@ -19,6 +19,8 @@ pub struct App {
     pub id: String,
     pub name: String,
     pub issuer: String,
+    #[serde(default)]
+    pub authorization_response_iss_parameter_supported: bool,
     pub authorization_endpoint: String,
     pub token_endpoint: String,
     pub client_auth: ClientAuth,
@@ -31,9 +33,9 @@ pub struct App {
 }
 
 impl App {
-    /// The RFC 9207 check: `iss` names this app's issuer, a trailing slash aside.
+    /// The RFC 9207 check: `iss` names this app's issuer, compared exactly.
     pub fn is_issuer(&self, iss: &str) -> bool {
-        iss.trim_end_matches('/') == self.issuer.trim_end_matches('/')
+        iss == self.issuer
     }
 }
 

@@ -35,7 +35,7 @@ pub fn router(service: Arc<Service>) -> Router {
         .route("/v1/oauth/{app}/start", post(start))
         .route("/v1/oauth/{app}/finish", post(finish))
         .route("/v1/oauth/{app}/refresh", post(refresh))
-        .route(CALLBACK_PATH, get(callback))
+        .route(&format!("{CALLBACK_PATH}/{{app}}"), get(callback))
         .layer(DefaultBodyLimit::max(MOST_BODY_BYTES))
         .with_state(service)
 }
@@ -163,7 +163,7 @@ impl Service {
             query
                 .append_pair("response_type", "code")
                 .append_pair("client_id", &client.id)
-                .append_pair("redirect_uri", &self.redirect)
+                .append_pair("redirect_uri", &format!("{}/{}", self.redirect, app.id))
                 .append_pair("state", state)
                 .append_pair("code_challenge", challenge)
                 .append_pair("code_challenge_method", "S256")
@@ -267,6 +267,7 @@ async fn callback(
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     RawQuery(query): RawQuery,
+    Path(callback_app): Path<String>,
 ) -> Response {
     if let Err(response) = service.take_address(&headers, peer) {
         return response;
@@ -285,10 +286,17 @@ async fn callback(
         );
         return Page::Invalid.into_response();
     };
+    if app != callback_app {
+        return Page::Invalid.into_response();
+    }
     // RFC 9207: an `iss` naming another server is an answer mixed up between servers.
     let issuer_ok = match (&query.iss, service.apps.iter().find(|c| c.app.id == app)) {
         (Some(iss), Some(configured)) => configured.app.is_issuer(iss),
-        (None, Some(_)) => true,
+        (None, Some(configured)) => {
+            !configured
+                .app
+                .authorization_response_iss_parameter_supported
+        }
         (_, None) => false,
     };
     let verdict = sign_ins.callback(
@@ -370,7 +378,7 @@ async fn finish(
             caller.client,
             &code,
             &request.code_verifier,
-            &service.redirect,
+            &format!("{}/{}", service.redirect, caller.app.id),
         )
         .await;
     sealed_answer(

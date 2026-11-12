@@ -10,12 +10,12 @@ Code: `spade/crates/spade-cloud` (the service, binary `spade-cloud`) and
 
 ## How a sign-in goes
 
-1. The person picks Asana in Settings › Spade › Connectors. Spade asks its daemon for a machine
-   grant (`POST <daemon>/spade/account-grant`, authorized by Spade's own grant).
+1. The person picks Asana in Settings › Spade › Connectors. Spade asks its daemon for a cloud-specific
+   credential (`POST <daemon>/spade/account-grant`, authorized by Spade's own grant).
 2. Spade makes a PKCE verifier and a one-time X25519 key and calls `start` with the challenge and
    the public key. The cloud keeps a state bound to the account, the app, the challenge, the key
    and a ten-minute expiry, and answers with Asana's authorization address, whose redirect is
-   `https://cloud.acehq.dev/v1/oauth/callback`.
+   `https://cloud.acehq.dev/v1/oauth/callback/asana`.
 3. Spade opens that address in the person's browser. They sign in at Asana, which redirects to the
    cloud. The cloud checks the state and `iss` and shows "Signed in. You can close this tab."
 4. Meanwhile Spade calls `finish` every three seconds with the verifier. Once the person is back,
@@ -29,15 +29,17 @@ cloud refreshes with its secret and answers sealed.
 
 ## API
 
-Every `/v1/oauth/*` request except the callback carries `Authorization: Bearer <machine grant>`,
-an ADR 0111 grant of kind `machine` signed by ace's account backend. Bodies are JSON, at most
+Every `/v1/oauth/*` request except the callback carries `Authorization: Bearer <cloud credential>`,
+a credential signed by ace's account backend using ADR 0111 signing, with kind `machine`,
+`aud: "cloud.acehq.dev"` and `purpose: "spade-cloud"`. General machine grants are refused;
+the relay rejects cloud credentials through its strict claims parser. Bodies are JSON, at most
 16 KB. Refusals are `{"error": "<code>"}`.
 
 | Request                        | Body                                  | Answers                                                                              |
 | ------------------------------ | ------------------------------------- | ------------------------------------------------------------------------------------ |
 | `GET /health`                  |                                       | `200 {"ok": true, "version"}`                                                        |
 | `POST /v1/oauth/{app}/start`   | `{code_challenge, public_key}`        | `200 {sign_in, authorization_url, expires_in, issuer, client_id}`                    |
-| `GET /v1/oauth/callback`       | query `state`, `code`, `iss`, `error` | an HTML page: signed in (200), cancelled (200) or not found (400)                    |
+| `GET /v1/oauth/callback/{app}` | query `state`, `code`, `iss`, `error` | an HTML page: signed in (200), cancelled (200) or not found (400)                    |
 | `POST /v1/oauth/{app}/finish`  | `{sign_in, code_verifier}`            | `202 {"status": "waiting"}` or `200 {"status": "done", "sealed": {epk, ciphertext}}` |
 | `POST /v1/oauth/{app}/refresh` | `{refresh_token, public_key}`         | `200 {"sealed": {epk, ciphertext}}`                                                  |
 
@@ -91,11 +93,11 @@ and checks.
 
 | Attack                                                      | What stops it                                                                                                                      |
 | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Someone without an ace account uses the broker              | Every request needs a live machine grant signed by ace's account backend; device grants and expired or altered ones are refused    |
+| Someone without an ace account uses the broker              | Every request needs a live cloud credential signed by ace's account backend; device grants and expired or altered ones are refused |
 | Another account finishes or reads someone's sign-in         | A sign-in is bound to its account and app; another account or app gets `unknown_sign_in` and changes nothing                       |
 | A stolen authorization code (browser history, a log)        | The exchange needs the PKCE verifier, which only Spade holds; one wrong verifier ends the sign-in                                  |
 | A redirect replayed, or a second code injected for a state  | A state takes one answer; a second, and any after it is used, gets the not-found page                                              |
-| A redirect from another authorization server (mix-up)       | `iss`, when present, must name the app's issuer (RFC 9207); otherwise the sign-in ends as declined                                 |
+| A redirect from another authorization server (mix-up)       | The callback path must match the state's app; `iss` must exactly match its issuer and is required when metadata advertises support |
 | A network observer or a proxy reads the finish answer       | TLS, and the tokens are sealed to Spade's one-time key; a different key, app or purpose doesn't open them                          |
 | The cloud's operator or a compromise of the running service | Sees client secrets and the tokens of sign-ins and refreshes during the compromise; no stored tokens exist to take. Rotate secrets |
 | A flood of sign-ins or guesses                              | Per-account and per-address budgets, five sign-ins per account, 50,000 in all                                                      |
@@ -103,9 +105,6 @@ and checks.
 
 Known limits:
 
-- A machine grant has no audience. One handed to the cloud could be replayed at the relay's
-  `/host` within its five minutes; the relay's Noise handshake still requires the machine's own
-  key. An audience claim in `@ace/account-grant` is the fix.
 - Refresh tokens travel to the cloud over TLS, not sealed to a cloud key.
 - Sign-ins in progress live in one process, so the service runs one replica until they move to a
   shared store.
@@ -121,7 +120,7 @@ Only through the environment:
 | Variable                                  | Default                   | Meaning                                                                    |
 | ----------------------------------------- | ------------------------- | -------------------------------------------------------------------------- |
 | `PORT`                                    | `8080`                    | Where it listens (plain HTTP behind the host's TLS edge)                   |
-| `SPADE_CLOUD_PUBLIC_URL`                  | `https://cloud.acehq.dev` | Its own address; makers redirect to its `/v1/oauth/callback`               |
+| `SPADE_CLOUD_PUBLIC_URL`                  | `https://cloud.acehq.dev` | Its own address; makers redirect to their own `/v1/oauth/callback/{app}`   |
 | `SPADE_CLOUD_ACCOUNT_ORIGIN`              | `https://relay.acehq.dev` | ace's account backend, whose `/v1/keys` verify grants                      |
 | `SPADE_CLOUD_ADDRESS_HEADER`              | unset (peer address)      | The header the host puts the client address in, for per-address budgets    |
 | `SPADE_CLOUD_APPS_FILE`                   | the shipped `apps.json`   | Another apps file                                                          |
@@ -140,8 +139,8 @@ read from each maker's live metadata on the date it records. Every catalogue ent
 
 Nothing here has been deployed. To bring it up on Railway:
 
-1. **Register Spade's app with each maker**, with redirect URI
-   `https://cloud.acehq.dev/v1/oauth/callback`:
+1. **Register Spade's app with each maker**, with its own redirect URI
+   `https://cloud.acehq.dev/v1/oauth/callback/{app}` (URLs listed below):
    - Asana: an MCP app in the developer console.
    - Box: an MCP client in the Admin Console (Box may limit it to your enterprise; see
      [connector-apps.md](connector-apps.md)).
@@ -178,3 +177,14 @@ Changing a client ID does: every person must connect that app again.
 If a secret leaks, revoke it at the maker first, then set the new one. Grant signing keys belong
 to the account backend and rotate there ([accounts](../../docs/relay/accounts.md)); the cloud
 fetches new keys by itself.
+
+Each vendor registration must use its own callback URL:
+
+- Asana: `https://cloud.acehq.dev/v1/oauth/callback/asana`
+- Box: `https://cloud.acehq.dev/v1/oauth/callback/box`
+- Canva: `https://cloud.acehq.dev/v1/oauth/callback/canva`
+- HubSpot: `https://cloud.acehq.dev/v1/oauth/callback/hubspot`
+
+The apps file records `authorization_response_iss_parameter_supported` from vendor metadata.
+When true, missing `iss` declines the sign-in; when supplied, it is always compared exactly,
+including trailing slashes. An answer on another vendor's path is refused before exchange.

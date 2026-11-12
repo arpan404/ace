@@ -32,6 +32,10 @@ pub struct Claims {
     pub subject: String,
     pub iat: u64,
     pub exp: u64,
+    #[serde(default)]
+    pub aud: Option<String>,
+    #[serde(default)]
+    pub purpose: Option<String>,
 }
 
 /// `GET /v1/keys` on the account backend.
@@ -121,6 +125,22 @@ pub fn verify(token: &str, keys: &KeySet, now: u64, kind: &Kind) -> Result<Claim
     if claims.iat > now + GRANT_SKEW_MS || claims.exp.saturating_sub(claims.iat) > GRANT_LIFETIME_MS
     {
         return Err(GrantError::Lifetime);
+    }
+    Ok(claims)
+}
+
+/// Cloud requests never accept a general relay grant.
+pub fn verify_cloud(
+    token: &str,
+    keys: &KeySet,
+    now: u64,
+    kind: &Kind,
+) -> Result<Claims, GrantError> {
+    let claims = verify(token, keys, now, kind)?;
+    if claims.aud.as_deref() != Some("cloud.acehq.dev")
+        || claims.purpose.as_deref() != Some("spade-cloud")
+    {
+        return Err(GrantError::WrongKind);
     }
     Ok(claims)
 }

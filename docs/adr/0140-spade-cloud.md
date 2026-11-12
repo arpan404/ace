@@ -44,20 +44,23 @@ The owner, 2026-11-12:
    `spade-cloud-wire`, which Spade and the service share.
 
 2. **Same ace account.** A request carries the person's ace account credential: an ADR 0111
-   `machine` grant for the machine Spade runs on, verified exactly as the relay verifies it
+   cloud-specific credential for the machine Spade runs on, verified with ADR 0111 signing
    (Ed25519 over the claims, keys from the account backend's `GET /v1/keys`, kind, lifetime,
    skew), against the same test vectors as `@ace/account-grant`. There is no Spade login. Spade
    gets the grant from its daemon through `POST <daemon>/spade/account-grant`, authorized by
    Spade's own durable grant (ADR 0123); the daemon mints it with the machine's ace session as it
-   does for the relay. Each account is rate limited.
+   does for the relay, requesting purpose `spade-cloud`. The signed claims require
+   `aud: "cloud.acehq.dev"` and `purpose: "spade-cloud"`; the cloud refuses general machine
+   grants and the relay refuses these extra claims through its strict parser. Each account is rate limited.
 
 3. **The broker.** A data file lists each app the cloud signs in to: issuer, authorization and
    token endpoints, client authentication method, scopes, the MCP resource, and the names of the
    environment variables holding its client ID and secret. Spade starts a sign-in with a PKCE
    challenge and a one-time X25519 public key; the cloud keeps a state bound to the account, app,
    challenge, public key and a ten-minute expiry, and returns the authorization URL whose redirect
-   is `https://cloud.acehq.dev/v1/oauth/callback`. The maker redirects there; the cloud checks
-   state and `iss` and shows "Signed in. You can close this tab." Spade then sends the PKCE
+   is `https://cloud.acehq.dev/v1/oauth/callback/{app}`. The maker redirects there; the cloud checks
+   state and the vendor-specific callback path. It compares `iss` exactly and requires it
+   when metadata advertises `authorization_response_iss_parameter_supported`, then shows "Signed in. You can close this tab." Spade then sends the PKCE
    verifier; the cloud checks it against the challenge, exchanges the code with the client
    secret, seals the token response to Spade's key (X25519, HKDF-SHA256, ChaCha20-Poly1305),
    returns it and forgets it. Refreshing works the same way: Spade sends its refresh token over
@@ -88,9 +91,8 @@ The owner, 2026-11-12:
 - ace now runs a service that holds client secrets and sees app tokens in transit. A compromise
   of the service exposes the secrets (rotate at each maker) and tokens of sign-ins and refreshes
   during the compromise; stored tokens are not exposed, because none are stored.
-- Machine grants are not bound to an audience: one handed to Spade Cloud could be replayed at the
-  relay's `/host` within five minutes, where the Noise handshake still requires the machine's key.
-  An audience claim is a later change to `@ace/account-grant`.
+- Cloud credentials are bound to the cloud audience and purpose and cannot be used at relay `/host`.
+- The owner registers each vendor's own callback URL ending in `/asana`, `/box`, `/canva` or `/hubspot`.
 - People using a self-hosted account backend can't use Spade Cloud; the cloud trusts only
   ace's.
 

@@ -110,7 +110,7 @@ impl GrantKeys {
             .set
             .clone()
             .ok_or_else(|| CheckError::NoKeys("no keys".into()))?;
-        match grant::verify(token, &set, now, &Kind::Machine) {
+        match grant::verify_cloud(token, &set, now, &Kind::Machine) {
             Err(GrantError::UnknownKey(kid))
                 if !stale && now.saturating_sub(cached.fetched_ms) >= REFETCH_MS =>
             {
@@ -120,7 +120,7 @@ impl GrantKeys {
                     .clone()
                     .ok_or_else(|| CheckError::NoKeys("no keys".into()))?;
                 Ok(
-                    grant::verify(token, &set, now, &Kind::Machine).map_err(|e| match e {
+                    grant::verify_cloud(token, &set, now, &Kind::Machine).map_err(|e| match e {
                         GrantError::UnknownKey(_) => GrantError::UnknownKey(kid),
                         other => other,
                     })?,

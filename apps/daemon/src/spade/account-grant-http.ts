@@ -21,8 +21,7 @@ export interface AccountGrantHttpOptions {
 
 /**
  * `POST <daemon>/spade/account-grant` on the loopback listener (ADR 0140): Spade, with its grant,
- * gets a short-lived machine grant for this machine's ace account to show Spade Cloud. The same
- * grant the relay takes (ADR 0111); nothing is kept. Signed out answers 409 `signed_out`, so
+ * gets a short-lived machine grant for this machine's ace account to show Spade Cloud. It carries the cloud audience and purpose; the relay refuses it. Nothing is kept. Signed out answers 409 `signed_out`, so
  * Spade can say "Sign in to ace".
  */
 export function accountGrantHttp(options: AccountGrantHttpOptions) {
@@ -59,7 +58,7 @@ export function machineGrantSource(account: MachineAccount, dataDir: string): Sp
     const signedIn = account.account();
     if (!signedIn) return undefined;
     const keys = await loadOrCreateHostKeys(join(dataDir, "relay"));
-    const token = await account.machineGrant(hostId(keys.publicKey), signal);
+    const token = await account.cloudGrant(hostId(keys.publicKey), signal);
     return { token, account: signedIn.id };
   };
 }

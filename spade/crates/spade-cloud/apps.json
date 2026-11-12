@@ -12,7 +12,8 @@
       "scopes": ["default"],
       "resource": "https://mcp.asana.com/v2/mcp",
       "client_id_env": "SPADE_CLOUD_ASANA_CLIENT_ID",
-      "client_secret_env": "SPADE_CLOUD_ASANA_CLIENT_SECRET"
+      "client_secret_env": "SPADE_CLOUD_ASANA_CLIENT_SECRET",
+      "authorization_response_iss_parameter_supported": false
     },
     {
       "id": "box",
@@ -24,7 +25,8 @@
       "scopes": [],
       "resource": "https://mcp.box.com/",
       "client_id_env": "SPADE_CLOUD_BOX_CLIENT_ID",
-      "client_secret_env": "SPADE_CLOUD_BOX_CLIENT_SECRET"
+      "client_secret_env": "SPADE_CLOUD_BOX_CLIENT_SECRET",
+      "authorization_response_iss_parameter_supported": false
     },
     {
       "id": "canva",
@@ -53,7 +55,8 @@
       ],
       "resource": "https://api.canva.com/connect/v1/mcp",
       "client_id_env": "SPADE_CLOUD_CANVA_CLIENT_ID",
-      "client_secret_env": "SPADE_CLOUD_CANVA_CLIENT_SECRET"
+      "client_secret_env": "SPADE_CLOUD_CANVA_CLIENT_SECRET",
+      "authorization_response_iss_parameter_supported": false
     },
     {
       "id": "hubspot",
@@ -65,7 +68,8 @@
       "scopes": [],
       "resource": "https://mcp.hubspot.com",
       "client_id_env": "SPADE_CLOUD_HUBSPOT_CLIENT_ID",
-      "client_secret_env": "SPADE_CLOUD_HUBSPOT_CLIENT_SECRET"
+      "client_secret_env": "SPADE_CLOUD_HUBSPOT_CLIENT_SECRET",
+      "authorization_response_iss_parameter_supported": false
     }
   ]
 }

@@ -1,11 +1,15 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
-import { GRANT_LIFETIME_MS, grantPublicKey, signGrant } from "@ace/account-grant";
+import { GRANT_LIFETIME_MS, grantPublicKey, signCloudGrant, signGrant } from "@ace/account-grant";
 
 const account = { id: "user_a", email: "a@example.com", name: "A" };
 const base64url43 = () => randomBytes(32).toString("base64url");
-const GrantBody = z.object({ kind: z.enum(["machine", "device"]), subject: z.string() });
+const GrantBody = z.object({
+  kind: z.enum(["machine", "device"]),
+  subject: z.string(),
+  purpose: z.literal("spade-cloud").optional(),
+});
 
 function reply(response: ServerResponse, status: number, body: unknown) {
   response.writeHead(status, { "Content-Type": "application/json" });
@@ -69,7 +73,7 @@ export async function startFakeAccountBackend(now: () => number) {
         grantRequests.push(body);
         const exp = now() + GRANT_LIFETIME_MS;
         return reply(response, 200, {
-          token: signGrant(
+          token: (body.purpose ? signCloudGrant : signGrant)(
             { kind: body.kind, account: account.id, subject: body.subject, iat: now(), exp },
             signingKey,
           ),

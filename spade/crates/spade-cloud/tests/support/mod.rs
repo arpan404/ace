@@ -171,6 +171,7 @@ impl Cloud {
             id: id.into(),
             name: id.into(),
             issuer: ISSUER.into(),
+            authorization_response_iss_parameter_supported: id == "box",
             authorization_endpoint: "https://auth.maker.example/authorize?prompt=consent".into(),
             token_endpoint: format!("http://{maker}/token"),
             client_auth: auth,
@@ -249,9 +250,21 @@ impl Cloud {
     }
 
     pub fn grant_with(&self, account: &str, kind: &str, iat: i64, exp: i64) -> String {
+        self.grant_audience(account, kind, iat, exp, Some("cloud.acehq.dev"))
+    }
+
+    pub fn grant_audience(
+        &self,
+        account: &str,
+        kind: &str,
+        iat: i64,
+        exp: i64,
+        aud: Option<&str>,
+    ) -> String {
         let claims = serde_json::json!({
             "v": 1, "kid": "k1", "kind": kind, "account": account,
             "subject": "h".repeat(43), "iat": iat, "exp": exp,
+            "aud": aud, "purpose": "spade-cloud",
         })
         .to_string();
         let signature = self.key.sign(claims.as_bytes());
@@ -316,7 +329,7 @@ impl Cloud {
     pub async fn callback(&self, query: &[(&str, &str)]) -> Result<(u16, String)> {
         let response = self
             .http
-            .get(format!("{}/v1/oauth/callback", self.url))
+            .get(format!("{}/v1/oauth/callback/asana", self.url))
             .query(query)
             .send()
             .await
