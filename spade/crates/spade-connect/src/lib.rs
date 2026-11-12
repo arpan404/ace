@@ -27,13 +27,17 @@ pub use catalogue::{Entry, SignIn};
 pub use hub::{Callback, ConnectError, ConnectRequest, FinishError, Started};
 pub use live::{CallError, ConnectorTool, RELIST};
 pub use oauth::Addresses;
+pub use oauth::cimd::CLIENT_METADATA_URL;
 pub use oauth::pkce::{OsRandom, Random};
 pub use records::Access;
 use records::Record;
 
-/// The path of Spade's sign-in callbacks, under its own address. Each connector comes back to
-/// its own, `<CALLBACK_PATH>/<connector id>`, so an answer meant for one authorization server
-/// can't finish another's sign-in, even from a server that doesn't name itself (RFC 9207).
+/// The path of Spade's sign-in callbacks, under its own address. A client Spade registered, or
+/// one the person gave, comes back to its connector's own, `<CALLBACK_PATH>/<connector id>`, so
+/// an answer meant for one authorization server can't finish another's sign-in, even from a
+/// server that doesn't name itself (RFC 9207). A sign-in as Spade's client ID metadata document
+/// comes back to `CALLBACK_PATH` itself, the one address the document lists, and must carry `iss`
+/// ([`oauth::cimd`]).
 pub const CALLBACK_PATH: &str = "/v1/connectors/callback";
 
 /// How long a sign-in may take from start to callback.
@@ -54,6 +58,9 @@ pub struct Setup {
     pub relist: Duration,
     /// How names resolve and which networks are this machine's ([`Addresses::system`] in Spade).
     pub addresses: oauth::Addresses,
+    /// The client ID metadata document Spade signs in as where a server fetches them
+    /// ([`CLIENT_METADATA_URL`] in Spade). `None`: always register, or ask for a client ID.
+    pub client_metadata: Option<String>,
 }
 
 /// What the app is shown about one connector. Never a secret.
@@ -99,6 +106,7 @@ pub struct Connectors {
     catalogue: Vec<Entry>,
     timeout: Duration,
     relist: Duration,
+    client_metadata: Option<String>,
     /// Where callbacks come back to, without the connector's id.
     redirect: RwLock<Option<String>>,
     /// The connectors, as stored. Changed under this lock, then written.
@@ -132,6 +140,7 @@ impl Connectors {
             catalogue: setup.catalogue,
             timeout: setup.timeout,
             relist: setup.relist,
+            client_metadata: setup.client_metadata,
             redirect: RwLock::new(None),
             records: Mutex::new(records),
             access: Mutex::new(access),

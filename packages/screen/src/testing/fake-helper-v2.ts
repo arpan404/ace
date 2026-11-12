@@ -27,6 +27,14 @@ function windowsTargets(bundleId: string) {
     displays: [],
   };
 }
+const interactiveDesktopRequirements = [
+  {
+    kind: "interactiveDesktop",
+    state: "ready",
+    title: "Interactive Windows desktop",
+    message: "The helper can access the interactive input desktop.",
+  },
+];
 let socket: Socket | undefined;
 await rm(endpoint.slice(5), { force: true });
 const server = createServer((client) => {
@@ -115,7 +123,15 @@ lines.on("line", (line) => {
       };
       break;
     case "permissions":
-      data = { screen: "n/a", input: "granted" };
+      // Same shape as the real Windows helper's reply (inspection.rs `permissions`).
+      data = {
+        platform: "win32",
+        screen: "n/a",
+        input: "granted",
+        screenRecording: true,
+        accessibility: true,
+        requirements: interactiveDesktopRequirements,
+      };
       break;
     case "targets":
       if (process.platform === "win32" && process.env.TARGET_BUNDLE) {

@@ -363,6 +363,7 @@ impl Engine {
         caller: &str,
         call: MemoryCall,
         arguments: &Value,
+        suggest: bool,
     ) -> ToolOutput {
         let agent = match self.store.agent_for_conversation(caller) {
             Ok(Some(agent)) => agent,
@@ -371,6 +372,10 @@ impl Engine {
         };
         let text = |key: &str| arguments.get(key).and_then(Value::as_str).unwrap_or("");
         let result = match call {
+            MemoryCall::Save if suggest => self.tool_suggest(&agent.id, text("text")),
+            MemoryCall::Update if suggest => self
+                .visible_note(&agent.id, text("id"))
+                .and_then(|_| self.tool_suggest(&agent.id, text("text"))),
             MemoryCall::Save => self.tool_save(&agent.id, text("text"), arguments),
             MemoryCall::Update => self.tool_update(&agent.id, text("id"), text("text")),
             MemoryCall::Forget => self.tool_forget(&agent.id, text("id")),
@@ -406,6 +411,27 @@ impl Engine {
             }
             Saved::Full => return Err(NoteError::Full),
         })
+    }
+
+    /// While only a tainted summary is in view: `text` waits in `agent`'s own notes as a
+    /// suggestion for the person to keep or dismiss; the bot doesn't see it until it is kept.
+    fn tool_suggest(&self, agent: &str, text: &str) -> Result<ToolOutput, NoteError> {
+        Ok(
+            match self.store_note(Some(agent), text, Source::Bot, true)? {
+                Saved::New(note) | Saved::Exists(note) if note.suggested => ToolOutput::ok(
+                    json!({
+                        "suggested": tool_note(&note),
+                        "why": "Earlier turns this conversation summarises read untrusted content, \
+                                so the person keeps or dismisses this note in your Memory.",
+                    })
+                    .to_string(),
+                ),
+                Saved::New(note) | Saved::Exists(note) => {
+                    ToolOutput::ok(json!({ "exists": tool_note(&note) }).to_string())
+                }
+                Saved::Full => return Err(NoteError::Full),
+            },
+        )
     }
 
     /// A note `agent` may change: its own or a shared one.

@@ -64,6 +64,8 @@ export interface WorkspaceRuntimeOptions {
   git?: GitOptions;
   writingCli?: ReturnType<typeof createWritingCli>;
   reconcileThread?(id: ThreadId): Promise<void>;
+  /** Provider background work still runs, or is lost track of (the workspace fence's check). */
+  runsProviderWork?(id: ThreadId): boolean;
   changeWorkspace?(
     id: ThreadId,
     commandId: string,
@@ -393,7 +395,12 @@ export class WorkspaceRuntime {
     await this.reconcileTerminals(id);
     await this.options.reconcileThread?.(id);
     await this.settleBeforeAttempt(id);
-    return continueError(this.store, id, (owner) => this.hasOwnedWork(owner));
+    return continueError(
+      this.store,
+      id,
+      (owner) => this.hasOwnedWork(owner),
+      (owner) => this.options.runsProviderWork?.(owner) ?? false,
+    );
   }
   hasOwnedWork(id: ThreadId): boolean {
     return this.liveTerminalCount(id) > 0;

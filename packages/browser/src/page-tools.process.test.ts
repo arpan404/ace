@@ -155,9 +155,11 @@ describe.skipIf(!executablePath)("the person's page tools in ace's Chrome", () =
     await f.navigate();
     await f.evaluate("document.cookie = 'kept=1; max-age=3600'; localStorage.setItem('kept', '1')");
     expect(await f.evaluate("[document.cookie, localStorage.length]")).toEqual(["kept=1", 1]);
+    // Chrome's own cache clear (Network.clearBrowserCache) takes about 0.1 s on an idle
+    // machine and over 30 s on a busy one, so this test keeps the process tier's limit.
     await f.service.execute("thread", { action: "clear_data" }, person);
     expect(await f.evaluate("[document.cookie, localStorage.length]")).toEqual(["", 0]);
-  }, 60_000);
+  });
 
   it("agents get none of the person's page tools", async () => {
     const f = await sharedFixture();

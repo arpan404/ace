@@ -1,0 +1,5 @@
+# Spade's OAuth client ID metadata document (ADR 0136). Authorization servers fetch it.
+/oauth/spade.json
+  Content-Type: application/json; charset=utf-8
+  Cache-Control: public, max-age=3600
+  Access-Control-Allow-Origin: *

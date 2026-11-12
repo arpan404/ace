@@ -62,7 +62,7 @@ try {
           name: "ace_context",
           description: expect.stringContaining("Project and session context"),
         },
-        { name: "ace_tools_find", description: expect.stringContaining("Find the ace tools") },
+        { name: "ace_tools_find", description: expect.stringContaining("Find ace tools") },
         { name: "ace_tools_call", description: expect.stringContaining("Run any ace tool") },
       ],
     },

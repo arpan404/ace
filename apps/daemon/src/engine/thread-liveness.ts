@@ -6,6 +6,7 @@ import type { IntentWorkers } from "./workers.ts";
 import type { Recovery } from "./recovery.ts";
 import type { Sessions } from "./sessions.ts";
 import { lostWork } from "./lost-work.ts";
+import { runsProviderWork } from "./transition-history.ts";
 import { settleSessionBoundTasks } from "./session-bound-tasks.ts";
 import { threadAttention } from "@ace/projection";
 
@@ -123,6 +124,11 @@ export class ThreadLiveness {
         operationsRunning++;
     }
     return { agentsRunning, operationsRunning };
+  }
+  /** The workspace fence's provider-work check for one thread (`runsProviderWork`). */
+  providerWork(id: ThreadId): boolean {
+    const state = this.ports.repo.state(id);
+    return state !== undefined && runsProviderWork(state);
   }
   /**
    * Something in the thread's local tree goes on: a turn runs or retries, a background task

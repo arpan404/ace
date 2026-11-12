@@ -31,6 +31,24 @@ describe("spade.status from the service and its files", () => {
       version: "0.4.0",
     });
   });
+  test("is ready and says why while Spade still waits on its setup, with the platform", () => {
+    const waiting = facts({
+      endpoint,
+      healthy: true,
+      proof: "ok",
+      setup: "waiting for the keychain",
+      platform: "darwin",
+    });
+    expect(spadeState(waiting)).toEqual({
+      state: "ready",
+      version: "0.4.0",
+      setup: { reason: "waiting for the keychain", platform: "darwin" },
+    });
+    expect(spadeState({ ...waiting, setup: undefined })).toEqual({
+      state: "ready",
+      version: "0.4.0",
+    });
+  });
   test.each(["missing", "wrong"] as const)(
     "is failed, never ready, when the listener's proof is %s",
     (proof) => {

@@ -4,6 +4,7 @@ import {
   spadeApprovalSentence,
   spadeCallLine,
   spadeJobEndLine,
+  spadeSetupSentence,
   spadeStateLine,
 } from "./index.ts";
 
@@ -31,6 +32,24 @@ describe("what the Spade place says about Spade", () => {
       spadeStateLine({ state: "failed", reason: "It exited with code 1." }, true).sentence,
     ).toBe("Spade stopped. It exited with code 1.");
   });
+});
+
+const waiting = (platform: string) =>
+  spadeSetupSentence({
+    state: "ready",
+    version: "0.1.0",
+    setup: { reason: "waiting for the keychain", platform },
+  });
+
+test("while Spade waits for the keychain, the person is told what to look for on its platform", () => {
+  expect(waiting("darwin")).toBe(
+    "Spade is waiting for the keychain. Look for a macOS prompt and choose Always Allow.",
+  );
+  expect(waiting("linux")).toContain("keyring");
+  expect(waiting("win32")).toContain("Windows");
+  expect(waiting("freebsd")).toContain("waiting for the keychain");
+  expect(spadeSetupSentence({ state: "ready", version: "0.1.0" })).toBeUndefined();
+  expect(spadeSetupSentence({ state: "starting" })).toBeUndefined();
 });
 
 test("a call reads as what it did, or why it didn't run", () => {

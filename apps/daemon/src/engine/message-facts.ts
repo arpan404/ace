@@ -4,6 +4,7 @@ import type { InputFate } from "./input-fate.ts";
 import type { AdapterRegistry } from "./registry.ts";
 import type { EngineRepository, IntentHeader } from "./repository.ts";
 import { rootRun } from "./steer-yield.ts";
+import { runsProviderWork } from "./transition-history.ts";
 
 /**
  * What the engine knows about an accepted message that decides when it reaches the model. Read
@@ -65,15 +66,18 @@ export function readyForInput(
   intent: IntentHeader,
 ): boolean {
   if (intent.trigger === "subagent_result") return readyForChildResults(state);
+  if (repo.quiescent(state)) return true;
+  // A replied thread reads done while the commands it left running still run (ADR 0116).
+  const selection = repo.pending.hasSelection(intent.id);
+  if (selection && runsProviderWork(state)) return false;
   const status = deriveThreadStatus({ ...state, queueCount: state.queueSources.provider });
   return (
     ["new", "done", "failed"].includes(status.state) ||
-    repo.quiescent(state) ||
     (intent.kind === "thread.send" &&
       (intent.trigger === undefined ||
         intent.trigger === "user" ||
         intent.trigger === "parent_agent") &&
-      !repo.pending.hasSelection(intent.id) &&
+      !selection &&
       repo.acceptsPersonInput(state))
   );
 }

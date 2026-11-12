@@ -119,6 +119,34 @@ test("metadata writes wait for a real worker transaction instead of failing imme
   }
 });
 
+test("a store opens beside another connection's write instead of failing as locked", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-open-writer-"));
+  const path = join(root, "events.sqlite");
+  await new Store(path).close();
+  const entry = join(root, "writer.mjs");
+  await writeFile(
+    entry,
+    `import { DatabaseSync } from 'node:sqlite'; import { parentPort, workerData } from 'node:worker_threads';
+    const db = new DatabaseSync(workerData.path); db.exec('BEGIN IMMEDIATE'); parentPort.postMessage('locked');
+    parentPort.once('message', () => setTimeout(() => { db.exec('COMMIT'); db.close(); parentPort.close(); }, 200));`,
+  );
+  const worker = new Worker(entry, { workerData: { path } });
+  const exited = once(worker, "exit");
+  let store: Store | undefined;
+  try {
+    await once(worker, "message");
+    worker.postMessage("release");
+    // Opening writes the database header; it waits for the writer like every later statement.
+    store = new Store(path);
+    expect(store.createWorkspace("/opened", "Opened").length).toBeGreaterThan(0);
+    await exited;
+  } finally {
+    await worker.terminate();
+    await store?.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("history notification reclaims a WAL retained by an earlier reader", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-audit-wal-"));
   const path = join(root, "events.sqlite");

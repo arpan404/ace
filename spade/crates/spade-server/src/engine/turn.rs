@@ -4,7 +4,9 @@
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use futures_util::StreamExt;
+use std::panic::AssertUnwindSafe;
+
+use futures_util::{FutureExt, StreamExt};
 use spade_core::checkpoint::Checkpoints;
 use spade_core::context::{self, SYSTEM};
 use spade_core::event::{Call, Known, ReplyEnd, Tokens};
@@ -16,6 +18,9 @@ use tokio::sync::watch;
 
 use super::calls::{Handled, handle_calls};
 use super::{Engine, Frame, Snapshot};
+
+/// The reason a reply failed when its turn panicked.
+const PANICKED: &str = "Spade ran into an internal error";
 
 /// How a turn ended, other than finishing normally (which `finish_unless_steered` records).
 enum Ended {
@@ -49,7 +54,15 @@ pub(super) async fn run(
     // is taken before the first stop check, so a Stop that arrives at once still closes it.
     // It is the one `spawn_turn` read, so closing it never depends on another read succeeding.
     let mut driven: Option<String> = Some(reply);
-    let ended = drive(&engine, &id, stop_rx, &mut pause_rx, &mut driven).await;
+    // A panic anywhere in the turn (a tool, a parser) must not leave the reply open and the
+    // conversation marked running forever: it closes the reply as failed like any error.
+    let ended = AssertUnwindSafe(drive(&engine, &id, stop_rx, &mut pause_rx, &mut driven))
+        .catch_unwind()
+        .await
+        .unwrap_or_else(|_| {
+            tracing::error!(conversation = %id, "a turn panicked; closing its reply as failed");
+            Ended::Failed(String::new(), PANICKED.to_owned())
+        });
     let paused = matches!(ended, Ended::Paused);
     // Decided from the reply this worker drove, not from a fresh read: a read that fails now must
     // not release the reply still open. Whether it is still open is checked as it is closed.
@@ -124,7 +137,7 @@ fn still_open(engine: &Engine, id: &str, reply: &str) -> Result<bool, spade_stor
 }
 
 /// Resolves once Stop is pressed (or the turn's signal goes away).
-async fn stopped(stop: &mut watch::Receiver<bool>) {
+pub(super) async fn stopped(stop: &mut watch::Receiver<bool>) {
     let _ = stop.wait_for(|stopped| *stopped).await;
 }
 
@@ -328,25 +341,28 @@ async fn model_step(
         let streamed = u32::try_from(text.len() / 4).unwrap_or(u32::MAX);
         super::ledger::likely_usage(input, hint, streamed)
     };
-    let opened = tokio::select! {
-        opened = engine.models.stream(&model, &prompt) => opened,
-        _ = stopped(stop) => {
+    // Sent again while it fails before anything streams; only a call the endpoint answered is
+    // paid for, and one cut off while waiting for its answer may have been.
+    let mut stream = match super::retry::open(engine, id, &model, &prompt, stop, pause).await {
+        super::retry::Opened::Answering(stream) => stream,
+        super::retry::Opened::Stopped => {
             admitted.settle(&partly(""));
             return Step::Stopped(String::new());
         }
-        _ = pausing(pause, Point::Streaming) => {
+        super::retry::Opened::Paused => {
             admitted.settle(&partly(""));
             return Step::Paused;
         }
-    };
-    let stream = match opened {
-        Ok(stream) => stream,
-        Err(error) => {
-            admitted.settle_if(error.usage());
+        super::retry::Opened::Failed(error) => {
+            // Unanswered, it was never billed; answered and then cut, it may have been.
+            match error.usage() {
+                Some(usage) => admitted.settle(&usage),
+                None if error.may_have_billed() => admitted.settle(&partly("")),
+                None => 0,
+            };
             return Step::Failed(String::new(), error.to_string());
         }
     };
-    let mut stream = Box::pin(stream);
     let mut text = String::new();
     let mut calls: Vec<ToolCall> = Vec::new();
     let mut checkpoints = Checkpoints::new(engine.now_ms());

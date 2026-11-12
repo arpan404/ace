@@ -325,3 +325,47 @@ async fn one_odd_item_does_not_lose_the_good_ones() -> Result {
     );
     Ok(())
 }
+
+/// An address nothing listens on.
+async fn closed_root() -> Result<String> {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let root = format!("http://{}/", listener.local_addr()?);
+    drop(listener);
+    Ok(root)
+}
+
+#[tokio::test]
+async fn with_no_searxng_where_the_file_looks_and_no_brave_key_nothing_is_set_up() -> Result {
+    let brave = start(Answer::Json(brave_page())).await?;
+    let error = search(&closed_root().await?, &brave.root, None, 2000)?
+        .search("tokio", 5)
+        .await;
+    assert_eq!(error, Err(SearchError::NotSetUp));
+    assert!(brave.seen().is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_persons_own_searxng_is_asked_instead_of_the_files_address() -> Result {
+    let mine = start(Answer::Json(searxng_page())).await?;
+    let brave = start(Answer::Json(brave_page())).await?;
+    let search = search(&closed_root().await?, &brave.root, None, 2000)?;
+    assert_eq!(
+        search.set_searxng(Some("file:///etc/passwd")),
+        Err(SearchError::BadAddress)
+    );
+    let address = mine.root.trim_end_matches('/').to_owned();
+    search.set_searxng(Some(&address))?;
+    assert_eq!(search.searxng(), Some(mine.root.clone()));
+    let found = search.search("rust", 5).await?;
+    assert_eq!(found.backend, "searxng");
+    assert_eq!(mine.seen().len(), 1);
+
+    // A SearXNG the person named that is down is a failure to report, not a missing setup.
+    search.set_searxng(Some(&closed_root().await?))?;
+    let error = search.search("rust", 5).await;
+    assert!(matches!(error, Err(SearchError::AllFailed(_))), "{error:?}");
+    search.set_searxng(None)?;
+    assert_eq!(search.searxng(), None);
+    Ok(())
+}

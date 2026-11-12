@@ -158,6 +158,29 @@ export function spadeStateLine(
   }
 }
 
+/** Spade's reason while its keychain read waits on the person (`spade/src/startup.rs`). */
+const keychainWait = "waiting for the keychain";
+
+/**
+ * While Spade runs but still waits on its setup, one sentence on what the person should do, in
+ * the words of the platform it runs on. Undefined once it is set up, or while it isn't running.
+ */
+export function spadeSetupSentence(status: SpadeStatus | undefined): string | undefined {
+  if (status?.state !== "ready" || !status.setup) return undefined;
+  const { reason, platform } = status.setup;
+  if (reason !== keychainWait) return `Spade is still starting: ${reason}.`;
+  switch (platform) {
+    case "darwin":
+      return "Spade is waiting for the keychain. Look for a macOS prompt and choose Always Allow.";
+    case "win32":
+      return "Spade is waiting for Windows Credential Manager. Look for a Windows prompt and allow it.";
+    case "linux":
+      return "Spade is waiting for the keyring. Look for a prompt to unlock it and enter your password.";
+    default:
+      return "Spade is waiting for the keychain. Look for a prompt asking to allow it.";
+  }
+}
+
 /** Background jobs that wait on ace's agents: a delegation, or a wait for agents already out. */
 const agentJobs = new Set(["delegate", "wait"]);
 

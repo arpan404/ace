@@ -658,6 +658,18 @@ pub fn untrusted_sources(events: &[Event], registry: &Registry) -> Vec<String> {
 /// and the summary when it was drawn from untrusted content. What a bot keeps (a trusted file, a
 /// note) must not be made from a prompt that shows any of these (ADR 0130).
 pub fn untrusted_in_view(events: &[Event], registry: &Registry) -> Vec<String> {
+    let mut sources: Vec<String> = Vec::new();
+    if untrusted_summary(events) {
+        sources.push("the summary of earlier turns".to_owned());
+    }
+    sources.extend(untrusted_events_in_view(events, registry));
+    sources
+}
+
+/// The untrusted events the prompt shows, oldest first: every one since the last compaction,
+/// from this turn or an earlier one. Unlike [`untrusted_in_view`], leaves out a tainted summary:
+/// a note written while only that is in view becomes a suggestion rather than asking (memory.md).
+pub fn untrusted_events_in_view(events: &[Event], registry: &Registry) -> Vec<String> {
     let from = events
         .iter()
         .rev()
@@ -667,17 +679,11 @@ pub fn untrusted_in_view(events: &[Event], registry: &Registry) -> Vec<String> {
         })
         .unwrap_or(0)
         .min(events.len());
-    let mut sources: Vec<String> = Vec::new();
-    if untrusted_summary(events) {
-        sources.push("the summary of earlier turns".to_owned());
-    }
-    sources.extend(
-        events[from..]
-            .iter()
-            .filter(|event| untrusted_event(event, registry))
-            .map(|event| describe_event(events, event)),
-    );
-    sources
+    events[from..]
+        .iter()
+        .filter(|event| untrusted_event(event, registry))
+        .map(|event| describe_event(events, event))
+        .collect()
 }
 
 /// Whether the summary the prompt shows was drawn from untrusted content (ADR 0128). Its facts

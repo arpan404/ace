@@ -22,6 +22,11 @@ use crate::tools::{ToolOutput, TurnFacts};
 
 const DECLINED: &str = "The person declined this action.";
 
+/// Memory tools whose writes become suggestions while only a tainted summary is in view.
+fn suggestible(name: &str) -> bool {
+    matches!(name, "memory_save" | "memory_update")
+}
+
 /// How handling a step's calls ended.
 pub(super) enum Handled {
     Continue,
@@ -47,11 +52,17 @@ pub(super) async fn handle_calls(
     // What a tool keeps (a trusted file, a note, a proposal's source) answers to everything the
     // prompt shows, not just this turn: untrusted text from an earlier turn is still in view.
     let in_view = context::untrusted_in_view(events, &registry);
+    // A note outlives the turn, so it answers to everything the prompt shows (ADR 0130): an
+    // untrusted event from any turn since the last compaction makes a note ask. A tainted
+    // summary alone does not block: a note saved or rewritten then is only suggested to the
+    // person (memory.md), so one page read long ago never stops a routine's notes for good.
+    let events_in_view = !context::untrusted_events_in_view(events, &registry).is_empty();
+    let untrusted_memory = untrusted || events_in_view;
+    let summary_only = !untrusted_memory && context::untrusted_summary(events);
     let facts = TurnFacts {
         untrusted: (!in_view.is_empty()).then(|| in_view.join(", ")),
+        memory_suggests: summary_only,
     };
-    // A note outlives the turn: one written while a tainted summary is in view asks too.
-    let untrusted_memory = untrusted || context::untrusted_summary(events);
     let mut runnable: Vec<(Call, String, Value)> = Vec::new();
     let mut waiting = false;
     // Started with no stored result. This worker runs every call it starts to its stored end, so
@@ -99,10 +110,11 @@ pub(super) async fn handle_calls(
                         Some(scope) => allowed_always_for(engine, id, events, &name, &scope),
                         None => transcript.always_allowed.iter().any(|t| t == &name),
                     };
-                    let tainted = if def.risk == Risk::Memory {
-                        untrusted_memory
-                    } else {
-                        untrusted
+                    let tainted = match def.risk {
+                        // Only saving and rewriting can wait as a suggestion; any other change to
+                        // notes (forgetting one) asks while the summary is tainted.
+                        Risk::Memory => untrusted_memory || (summary_only && !suggestible(&name)),
+                        _ => untrusted,
                     };
                     let mut decision = gate::decide(def.risk, always, tainted);
                     // The model review (ADR 0135) may turn a run into a question, never the

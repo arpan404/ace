@@ -398,6 +398,7 @@ impl Connectors {
             secret,
             auth_method: facts.client_auth.clone(),
             registered_redirect: facts.registered_redirect.clone(),
+            metadata_document: self.client_metadata.as_deref() == Some(facts.client_id.as_str()),
         };
         let net = self.addresses.for_connector(record.local, self.timeout);
         let tokens = match oauth::refresh(

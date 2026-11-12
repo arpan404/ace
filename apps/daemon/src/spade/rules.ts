@@ -32,13 +32,17 @@ export interface SpadeFacts {
   proof?: "ok" | "missing" | "wrong" | undefined;
   /** How long Spade has been registered and running without answering. */
   silentForMs: number;
+  /** While Spade answers but is still setting up: why, from `/health` ("waiting for the keychain"). */
+  setup?: string | undefined;
+  /** This machine's platform (`process.platform`), which Spade runs on too. */
+  platform?: string | undefined;
 }
 /** How long a running service may take to answer before Spade counts as failed. */
 export const spadeStartGraceMs = 15_000;
 export type SpadeState =
   | { state: "off"; reason?: string }
   | { state: "starting" }
-  | { state: "ready"; version: string }
+  | { state: "ready"; version: string; setup?: { reason: string; platform: string } }
   | { state: "failed"; reason: string };
 
 /** Whether the facts show Spade itself answering: only then is its token or grant sent. */
@@ -70,7 +74,14 @@ export function spadeState(facts: SpadeFacts): SpadeState {
   if (facts.service === "stopped")
     return { state: "failed", reason: "Spade's service is registered but not running." };
   const { endpoint } = facts;
-  if (spadeAnswering(facts) && endpoint) return { state: "ready", version: endpoint.version };
+  if (spadeAnswering(facts) && endpoint)
+    return facts.setup
+      ? {
+          state: "ready",
+          version: endpoint.version,
+          setup: { reason: facts.setup, platform: facts.platform ?? "unknown" },
+        }
+      : { state: "ready", version: endpoint.version };
   if (endpoint && facts.healthy)
     return {
       state: "failed",

@@ -1,6 +1,7 @@
 import type { FakeSpade, FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
 import { FakeSpadeConnectors } from "./spade-connectors-api.ts";
 import { FakeSpadeNotes } from "./spade-notes.ts";
+import { FakeSpadeSearch } from "./spade-search.ts";
 import { FakeSpadeOversight, type FakeSpadeSpending } from "./spade-oversight.ts";
 import { FakeSpadeRoutines } from "./spade-routines.ts";
 import { base64Bytes, sha256Hex } from "./sha256.ts";
@@ -86,6 +87,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
   readonly connectors = new FakeSpadeConnectors();
   /** Caps, the review and the activity log (ADR 0135). */
   readonly oversight = new FakeSpadeOversight();
+  /** Web search settings: the SearXNG address and whether a Brave key is set. */
+  readonly search = new FakeSpadeSearch();
   private readonly events = new Map<string, Stored[]>();
   private sequence = 0;
   private readonly spade: FakeSpade;
@@ -118,6 +121,11 @@ export class FakeSpadeApi implements FakeSpadeServer {
       now,
     });
     spade.serve(this);
+  }
+
+  /** Stages what the daemon says of Spade, read when a client next asks (`spade.status`). */
+  setStatus(status: FakeSpade["status"]): void {
+    this.spade.status = status;
   }
 
   /** Adds an agent with its conversation; returns it. */
@@ -300,6 +308,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
       return reply({ providers: this.subscriptions, error: null });
     if (root === "endpoints") return this.endpointRoute(request.method, id, sub, body, query);
     if (root === "keys" && id) return this.keyRoute(request.method, id);
+    if (root === "search") return this.search.route(request.method, id, body, this.keychain);
     if (root === "settings" && request.method === "PUT") {
       if ("fast_model" in body)
         this.fastModel = typeof body.fast_model === "string" ? body.fast_model : null;
