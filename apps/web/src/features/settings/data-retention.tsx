@@ -23,7 +23,7 @@ export function DataRetentionSettings() {
     <SettingSection
       label="Data window"
       scope="daemon"
-      note="Idle threads, unused attachments and old logs go after this many days. Pinned and live work stays."
+      note="Idle threads, unused attachments and old logs are removed after this. Pinned and live work stays."
     >
       <NumberRow
         id="storage.retentionDays"

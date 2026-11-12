@@ -53,7 +53,7 @@ export function WorktreeStorageSettings(props: {
     <SettingSection
       label="Worktrees"
       scope="daemon"
-      note="Automatic deletion only removes clean worktrees merged into origin/main."
+      note="Only clean worktrees merged into origin/main are deleted."
     >
       <SettingRow {...settingRow("storage.worktreeDeletion")} inline>
         <Switch
