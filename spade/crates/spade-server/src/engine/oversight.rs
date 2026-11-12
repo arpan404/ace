@@ -482,11 +482,7 @@ fn open_calls(rows: &[spade_store::StoredEvent]) -> Vec<String> {
         match &row.event {
             Event::Known(
                 Known::ToolStarted { call_id, .. } | Known::JobStarted { job: call_id, .. },
-            ) => {
-                if !open.contains(call_id) {
-                    open.push(call_id.clone());
-                }
-            }
+            ) if !open.contains(call_id) => open.push(call_id.clone()),
             Event::Known(
                 Known::ToolFinished { call_id, .. } | Known::JobFinished { job: call_id, .. },
             ) => {
