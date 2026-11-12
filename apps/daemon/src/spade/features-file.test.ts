@@ -65,3 +65,60 @@ test("showing Spade keeps the file's other keys", async ({ onTestFinished }) => 
     spade: true,
   });
 });
+
+test("a replacement during watcher installation is reconciled before returning", async () => {
+  let text = '{"spade":false}';
+  const watch = await watchFeatures({
+    home: "/test",
+    log: () => {},
+    onChange: () => {},
+    runtime: {
+      readText: async () => text,
+      watch: () => {
+        text = '{"spade":true}';
+        return () => {};
+      },
+      every: () => () => {},
+    },
+  });
+  expect(watch.current().spade).toBe(true);
+  watch.close();
+});
+
+test("a change during the initial read is read again without overlapping reads", async () => {
+  let changed: (() => void) | undefined;
+  let release: ((text: string) => void) | undefined;
+  let first = true;
+  let active = 0;
+  let maximum = 0;
+  const pending = watchFeatures({
+    home: "/test",
+    log: () => {},
+    onChange: () => {},
+    runtime: {
+      async readText() {
+        active++;
+        maximum = Math.max(maximum, active);
+        const text = first
+          ? await new Promise<string>((resolve) => {
+              release = resolve;
+              first = false;
+            })
+          : '{"spade":true}';
+        active--;
+        return text;
+      },
+      watch: (_directory, notify) => {
+        changed = () => notify("features.json");
+        return () => {};
+      },
+      every: () => () => {},
+    },
+  });
+  changed?.();
+  release?.('{"spade":false}');
+  const watch = await pending;
+  expect(watch.current().spade).toBe(true);
+  expect(maximum).toBe(1);
+  watch.close();
+});

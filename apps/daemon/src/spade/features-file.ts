@@ -2,6 +2,7 @@ import { watch } from "node:fs";
 import { readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  defaultFeatures,
   featuresFileName,
   readFeatures,
   withSpadeShown,
@@ -96,7 +97,7 @@ export async function watchFeatures(input: {
     }
     return result.flags;
   };
-  let flags = await read();
+  let flags = defaultFeatures;
   // One read at a time; changes during a read are picked up by one more read after it.
   let reading: Promise<void> | undefined;
   let again = false;
@@ -124,6 +125,8 @@ export async function watchFeatures(input: {
     runtime.watch(input.home, (file) => {
       if (file === undefined || file === featuresFileName) reread();
     }) ?? runtime.every(pollMs, reread);
+  reread();
+  await reading;
   return {
     current: () => flags,
     close() {
