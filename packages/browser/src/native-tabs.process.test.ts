@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { z } from "zod";
 import { backendFixture } from "./backend-test-support.ts";
 
@@ -48,9 +48,15 @@ it("a malformed tab entry is skipped and reported while the other tabs stay in s
   const state = f.service.state("thread");
   expect(state.activeTabId).toBe("tab-2");
   expect(state.tabs?.find((tab) => tab.tabId === "long")?.url).toBe(longUrl.slice(0, 8192));
-  const logs = z
-    .object({ entries: z.array(z.object({ text: z.string() })) })
-    .parse(await f.service.execute("thread", { action: "logs" }));
+  // The list shows the desktop's tabs at once; commands reach them once every new tab is set
+  // up and the session has taken the change, which on a busy machine comes later.
+  const logs = await vi.waitFor(
+    async () =>
+      z
+        .object({ entries: z.array(z.object({ text: z.string() })) })
+        .parse(await f.service.execute("thread", { action: "logs" })),
+    { timeout: 15_000, interval: 50 },
+  );
   expect(logs.entries.some((entry) => entry.text.includes("malformed and skipped"))).toBe(true);
 });
 
