@@ -109,7 +109,7 @@ test("a prepared delegation is visible before launch and its stable card follows
   );
 });
 
-test("a delegated thread keeps its card live while background work survives a turn and reopens after completion", async () => {
+test("a delegated thread keeps its card live while a background subagent survives a turn and reopens after completion", async () => {
   const h = setup();
   const parent = await h.parent();
   const child = h.delegate(parent, "background");
@@ -119,8 +119,9 @@ test("a delegated thread keeps its card live while background work survives a tu
     type: "background.started",
     agent: "root",
     task: "shell",
-    kind: "shell",
-    title: "Background check",
+    // A command left running after the reply no longer holds (ADR 0116); a subagent does.
+    kind: "subagent",
+    title: "Background reviewer",
     stoppable: true,
   });
   await h.complete(child.childId, "Turn complete");

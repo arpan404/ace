@@ -162,10 +162,13 @@ test("a finished run can fork while its source background task remains live", as
     }).ok,
   ).toBe(true);
   await h.engine.flush();
-  expect(h.store.getThread(source)?.status).toMatchObject({
-    state: "waiting",
-    on: "background_task",
-  });
+  // The source replied; its build is left running, never ended by the fork (ADR 0116).
+  expect(h.store.getThread(source)?.status).toEqual({ state: "done" });
+  expect(
+    Object.values(h.store.snapshotThread(source)?.backgroundTasks ?? {}).map(
+      (entry) => entry.status,
+    ),
+  ).toEqual(["running"]);
   expect(h.store.listThreads()).toHaveLength(2);
 });
 
