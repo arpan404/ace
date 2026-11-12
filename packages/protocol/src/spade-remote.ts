@@ -14,7 +14,8 @@ export const SpadeInboxRequest = z
   .record(z.string(), z.unknown())
   .refine((value) => jsonBytes(value) <= maxSpadeRequestBytes, {
     message: "The request is larger than 512 KiB.",
-  });
+  })
+  .meta({ "x-ace-constraint": "A JSON object of at most 512 KiB serialized." });
 export type SpadeInboxRequest = z.infer<typeof SpadeInboxRequest>;
 
 /** The target's answer to a `spade` machine call: Spade's status there and its JSON body. */
