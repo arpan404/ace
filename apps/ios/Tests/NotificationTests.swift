@@ -16,6 +16,28 @@ import Testing
         #expect(prefs.system["automations"])
     }
 
+    @Test func runAndLimitNotificationsPostedBeforeARelaunchStillGoWhenTheirMachineIsTurnedOff() async throws {
+        // Notification Center keeps what was posted; the app's memory doesn't survive the relaunch.
+        let center = FakeCenter()
+        let store = try defaults()
+        func coordinator() -> NotificationCoordinator {
+            NotificationCoordinator(center: center, authorizer: FakeAuthorizer(), defaults: store, now: { 0 },
+                                    sleep: fastSleep, makeId: { "tap-1" }, connectInBackground: { _ in [] })
+        }
+        func patch(_ frame: String) throws -> NotificationPatch { try JSONDecoder().decode(NotificationPatch.self, from: Data(frame.utf8)) }
+        let before = coordinator()
+        await before.setEnabled(true)
+        before.receive(try patch(#"{"type":"notifications.run","key":"r1","title":"t","body":"b","automationId":"a","threadId":null}"#), from: "studio")
+        before.receive(try patch(#"{"type":"notifications.limit","key":"reached:work:1","title":"t","body":"b"}"#), from: "studio")
+        before.receive(try patch(#"{"type":"notifications.run","key":"r2","title":"t","body":"b","automationId":"a","threadId":null}"#), from: "laptop")
+        for _ in 0..<20 { await Task.yield() }
+        #expect(center.delivered.count == 3)
+        let after = coordinator()
+        after.turnedOff("studio")
+        for _ in 0..<20 { await Task.yield() }
+        #expect(Set(center.delivered.keys) == ["run:laptop:r2"])
+    }
+
     @Test func aFinishedRunOpensItsThreadOnItsMachineAndGoesWhenTheMachineIsTurnedOff() async throws {
         let center = FakeCenter()
         let coordinator = NotificationCoordinator(center: center, authorizer: FakeAuthorizer(), defaults: try defaults(), now: { 0 },
