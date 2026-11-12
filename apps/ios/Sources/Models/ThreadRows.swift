@@ -187,7 +187,7 @@ struct BlockRow: Codable, Sendable, Equatable {
 /// Something that happened to the thread rather than in the conversation, flattened by the bridge
 /// (`bridge/thread-messages.ts`). `kind` picks the row: "event" and "system" (a muted row with its
 /// time, opening `note` and `detail`), "error", "refusal", "notSent", "notice", "quiet",
-/// "handoff", "user", "none"; others draw the item as it is.
+/// "handoff", "sent", "user", "none"; others draw the item as it is.
 struct EventRow: Codable, Sendable, Equatable {
     let kind: String
     let icon: String
@@ -203,6 +203,39 @@ struct EventRow: Codable, Sendable, Equatable {
     let count: Int
     /// A stale Git lock an earlier daemon left stopped this send: Clear stale lock is offered.
     var fenced: Bool? = nil
+    /// A brief another thread's agent sent ("sent"): the line naming its sender, and its words as
+    /// the person's bubble. Nil on every other row.
+    var sent: SentLine? = nil
+    var bubble: BubbleLine? = nil
+}
+
+/// Who sent a brief from another thread (`@ace/ui-core` `sentBy`): its provider's mark, the
+/// thread to open (empty when unknown, and the line is plain text), the machine it is on (empty
+/// for this one) and the line as the bridge words it, with the title recorded here.
+struct SentLine: Codable, Sendable, Equatable {
+    let provider: String
+    let threadId: String
+    let host: String
+    let line: String
+
+    /// Where tapping the line goes: the thread on this machine, or the `ace://` link that opens it
+    /// on the paired machine it is on.
+    enum Target: Equatable { case thread(String), link(URL) }
+
+    /// The line as shown: a sender on this machine by its title as the thread list has it now
+    /// (`current`, as the fork's divider reads it), else the bridge's line with the title recorded
+    /// here.
+    func shown(current: String?) -> String {
+        let title = current?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard host.isEmpty, !threadId.isEmpty, !title.isEmpty else { return line }
+        return "Sent by \(title)"
+    }
+
+    /// Nil for a sender ace knows nothing of: its line is plain text.
+    var target: Target? {
+        guard !threadId.isEmpty else { return nil }
+        return host.isEmpty ? .thread(threadId) : .link(AceLink.thread(threadId, machine: host))
+    }
 }
 
 /// The composer's canonical choices: delivery while busy, the alternate, and Stop.

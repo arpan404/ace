@@ -199,3 +199,73 @@ private struct BubbleText: View {
         return pieces
     }
 }
+
+/// A brief another thread's agent sent, as the web draws it: the person's sent bubble of its words,
+/// folded to four lines, under a muted line with the sender's mark and "Sent by <thread>", plus
+/// " · <machine>" for a sender on another machine. The line opens the sending thread: here on
+/// this machine, or through its `ace://` link on the paired machine it is on. A sender ace knows
+/// nothing of reads "Sent from another thread" and opens nothing.
+struct SentMessageRow: View {
+    let sent: SentLine
+    let bubble: BubbleLine
+    let row: TranscriptRow
+    let links: TranscriptLinks?
+    @Environment(\.openURL) private var openURL
+    var body: some View {
+        VStack(alignment: .trailing, spacing: AceDesign.Space.tight) {
+            SentByLine(provider: sent.provider, line: line, open: open)
+            if bubble.readable {
+                UserBubble(text: "", bubble: bubble, id: row.id)
+                    .messageMenu(UserMessageRow.copyText(bubble, text: ""), title: "Message", row: row)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("message.sent.\(row.id)")
+    }
+    private var line: String { sent.shown(current: sent.threadId.isEmpty ? nil : links?.threadTitle?(sent.threadId)) }
+    private var open: (() -> Void)? {
+        switch sent.target {
+        case .thread(let id):
+            guard let links else { return nil }
+            return { links.openThread(id) }
+        case .link(let url):
+            // The app opens its own link on that machine, or says why it can't.
+            let openURL = openURL
+            return { openURL(url) }
+        case nil:
+            return nil
+        }
+    }
+}
+
+/// The quiet line above a sent brief: the sender's mark and its words on one line, ending in an
+/// ellipsis when long. A button when there is a thread to open.
+private struct SentByLine: View {
+    let provider: String
+    let line: String
+    let open: (() -> Void)?
+    var body: some View {
+        if let open {
+            Button(action: open) { label }
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens the thread that sent it")
+                .accessibilityIdentifier("message.sentBy")
+        } else {
+            label.accessibilityIdentifier("message.sentBy")
+        }
+    }
+    private var label: some View {
+        HStack(spacing: AceDesign.Space.tight) {
+            if !provider.isEmpty { ProviderMark(provider: provider, size: AceDesign.Size.glyphSmall) }
+            Text(line).lineLimit(1).truncationMode(.tail)
+        }
+        .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+        .foregroundStyle(AceTheme.Colours.mutedForeground)
+        .frame(minHeight: AceDesign.Space.group)
+        .contentShape(Rectangle())
+        .padding(.leading, UserBubble.inset)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(line)
+    }
+}

@@ -3,16 +3,26 @@ import SwiftUI
 /// Anything in the transcript that is neither the person's words nor the agent's answer or work,
 /// drawn as the bridge's `EventRow` says (`@ace/ui-core` `eventView`, the web's same decision):
 /// ace's own inputs and thread events as quiet rows, errors as one readable row, notices as one
-/// quiet line, a handoff as the one centred divider. Never a chat bubble.
+/// quiet line, a handoff as the one centred divider. Never a chat bubble, except the person's own
+/// words and a brief another thread's agent sent, drawn as the person's sent bubble.
 struct EventRowView: View {
     let event: EventRow
     @Bindable var item: ItemModel
     var openMedia: ((TranscriptRow) -> Void)? = nil
     var openMessage: ((TranscriptRow) -> Void)? = nil
+    /// Where a sent brief's line opens its sender and reads its current title.
+    var links: TranscriptLinks? = nil
     var body: some View {
         switch event.kind {
         case "none": EmptyView()
         case "user": UserMessageRow(row: item.row)
+        case "sent":
+            if let sent = event.sent, let bubble = event.bubble {
+                SentMessageRow(sent: sent, bubble: bubble, row: item.row, links: links)
+            } else {
+                // An older bridge's sent row: the item as it is.
+                ItemRowView(item: item, openMedia: openMedia, openMessage: openMessage)
+            }
         case "handoff":
             if let handoff = item.row.handoff { HandoffRow(handoff: handoff) }
         case "event", "system": SystemRow(event: event)
