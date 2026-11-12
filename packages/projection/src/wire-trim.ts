@@ -12,6 +12,8 @@ import { structuredCopy } from "./structured-copy.ts";
  */
 
 export const wireTrims = {
+  /** Accepts the hidden Spade error code and live-end reason. */
+  spadeHidden: "spade-hidden",
   /** Items leave out `complete: true`, `synthetic: false` and an empty `raw`. */
   itemDefaults: "item-defaults",
   /** Threads name their provider's capabilities by a key sent once per connection. */
@@ -44,15 +46,27 @@ function mapRecord<T>(record: Record<string, T>, change: (value: T) => T): Recor
 
 /** What the daemon sends one connection, given the trims its hello asked for. */
 export class WireTrimmer {
+  readonly #hidden: boolean;
   readonly #items: boolean;
   readonly #capabilities: boolean;
   readonly #keys = new Map<string, string>();
   constructor(trims: readonly string[] | undefined) {
+    this.#hidden = trims?.includes(wireTrims.spadeHidden) === true;
     this.#items = trims?.includes(wireTrims.itemDefaults) === true;
     this.#capabilities = trims?.includes(wireTrims.providerCapabilities) === true;
   }
   /** `message` as this connection should receive it, behind any capabilities it now needs. */
   outgoing(message: Outgoing): Outgoing[] {
+    if (!this.#hidden) {
+      if (message.type === "spade.live.ended" && message.reason === "hidden")
+        message = { ...message, reason: "unavailable" };
+      if (
+        message.type === "spade.http.result" &&
+        message.result.kind === "error" &&
+        message.result.code === "hidden"
+      )
+        message = { ...message, result: { ...message.result, code: "unavailable" } };
+    }
     if (!this.#items && !this.#capabilities) return [message];
     const before: Outgoing[] = [];
     const trimmed = this.trim(message, before);

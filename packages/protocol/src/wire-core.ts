@@ -267,7 +267,8 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
        * Redundant bytes this client can put back, so the daemon may leave them out of snapshots
        * and pages: `item-defaults` (items without `complete`, `synthetic` or `raw` when they hold
        * their defaults), `provider-capabilities` (threads that name their capabilities by a key
-       * sent once in `provider.capabilities`). Unknown names are ignored; without a name the
+       * sent once in `provider.capabilities`), `spade-hidden` (accepts the hidden Spade
+       * error code and live-end reason). Unknown names are ignored; without a name the
        * daemon sends the full shape.
        */
       trims: z.array(z.string().max(32)).max(16).optional(),
