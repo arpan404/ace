@@ -162,3 +162,70 @@ async fn health_proves_spade_holds_its_token_without_revealing_it() -> Result {
     assert_eq!(bad.status(), 400);
     Ok(())
 }
+
+#[tokio::test]
+async fn a_start_sent_again_with_its_client_key_gets_the_same_conversation() -> Result {
+    let spade = Spade::start(vec![Script::reply("Here's your week.")], Vec::new()).await?;
+    let key = "6f1c0b3e-2a4d-4f8e-9b1a-0c2d3e4f5a6b";
+    let start = json!({ "text": "Plan my week", "client_key": key });
+    let (status, first) = spade.post("/v1/conversations", start.clone()).await?;
+    assert_eq!(status, 201, "{first}");
+    let id = first["id"].as_str().unwrap_or_default().to_owned();
+    spade.wait_for(&id, "reply_finished").await?;
+    let calls_before = spade.fake.seen().len();
+    // The answer was lost, so the client asks again with the same key.
+    let (status, again) = spade.post("/v1/conversations", start).await?;
+    assert_eq!(status, 200, "{again}");
+    assert_eq!(again["id"], first["id"]);
+    let events = spade.events(&id).await?;
+    assert_eq!(
+        support::types(&events)
+            .iter()
+            .filter(|kind| *kind == "user_message")
+            .count(),
+        1
+    );
+    assert_eq!(
+        spade.fake.seen().len(),
+        calls_before,
+        "the repeat called no model"
+    );
+    // The list says which start made each conversation; one without a key says none.
+    let other = spade.ask("Plan my week").await?;
+    let (_, list) = spade.get("/v1/conversations").await?;
+    let keys: Vec<(String, serde_json::Value)> = list
+        .as_array()
+        .map(|rows| {
+            rows.iter()
+                .map(|row| {
+                    (
+                        row["id"].as_str().unwrap_or_default().to_owned(),
+                        row["client_key"].clone(),
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    assert_eq!(
+        keys,
+        vec![(other, serde_json::Value::Null), (id, json!(key))]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_start_with_a_client_key_that_is_not_a_plain_token_is_refused() -> Result {
+    let spade = Spade::start(vec![Script::reply("hi")], Vec::new()).await?;
+    for key in ["", "has space", &"k".repeat(129)] {
+        let (status, body) = spade
+            .post(
+                "/v1/conversations",
+                json!({ "text": "Hi", "client_key": key }),
+            )
+            .await?;
+        assert_eq!(status, 400, "{key:?}: {body}");
+    }
+    let (_, list) = spade.get("/v1/conversations").await?;
+    assert_eq!(list, json!([]));
+    Ok(())
+}

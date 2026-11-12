@@ -13,7 +13,8 @@ mod types;
 
 pub use maintenance::MaintenanceState;
 pub use types::{
-    Activity, AnswerError, CompactError, Frame, Limits, SendError, Setup, Snapshot, Subscription,
+    Activity, AnswerError, CompactError, Frame, Limits, SendError, Setup, Snapshot, Started,
+    Subscription,
 };
 
 use std::collections::HashMap;
@@ -169,20 +170,34 @@ impl Engine {
         Ok(Some(self.store.events(id, after)?))
     }
 
-    /// Starts a conversation with `text` and returns its id.
+    /// Starts a conversation with `text`. With a client `key` that already started one, that
+    /// conversation is returned and nothing is sent again, so a start repeated after a lost answer
+    /// is answered with the conversation it made.
     pub fn start_conversation(
         self: &Arc<Self>,
         text: &str,
         images: &[Vec<u8>],
-    ) -> Result<String, SendError> {
+        key: Option<&str>,
+    ) -> Result<Started, SendError> {
+        if let Some(key) = key
+            && let Some(id) = self.store.conversation_by_key(key)?
+        {
+            return Ok(Started { id, created: false });
+        }
         self.check_message(text, images.len())?;
         // Images are checked and stored first, so a refused one never leaves an empty
         // conversation behind.
         let message = self.message(text, images)?;
         let id = self.ids.next("c");
-        self.store.create_conversation(&id, self.now_ms())?;
+        // Another start with this key may have made it meanwhile; the store says which.
+        if let Some(id) = self
+            .store
+            .create_keyed_conversation(&id, key, self.now_ms())?
+        {
+            return Ok(Started { id, created: false });
+        }
         self.deliver(&id, &message)?;
-        Ok(id)
+        Ok(Started { id, created: true })
     }
 
     /// Sends a message, with any attached images. While a reply is open it steers that turn;

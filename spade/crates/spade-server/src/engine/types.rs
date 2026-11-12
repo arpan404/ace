@@ -81,6 +81,13 @@ pub struct Subscription {
     pub snapshot: Option<Snapshot>,
 }
 
+/// A started conversation, and whether this start made it (`false`: its key had already).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Started {
+    pub id: String,
+    pub created: bool,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum SendError {
     #[error("no such conversation")]
