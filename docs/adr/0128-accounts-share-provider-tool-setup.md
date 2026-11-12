@@ -1,7 +1,7 @@
 # 0128: Accounts share the person's provider tool setup, never their login
 
-Status: accepted. Date: 2026-11-12. Decided by: the owner (approved 2026-11-12; "people should be
-able to point it at another root folder for plugins"). Builds on
+Status: accepted. Date: 2026-11-12. Decided by: the owner (approved 2026-11-12, including that people
+can point the tool source at another folder). Builds on
 [ADR 0002](0002-local-cli-providers.md),
 [ADR 0018](0018-accounts-and-session-portability.md) (managed account homes) and
 [ADR 0069](0069-shared-native-browser.md).
