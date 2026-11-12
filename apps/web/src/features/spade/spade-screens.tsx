@@ -74,10 +74,15 @@ export function SpadeNewScreen() {
   const [note, setNote] = useState<string | undefined>();
   const start = async (message: SpadeMessage) => {
     setNote(undefined);
-    const started = await spadeStart(startLink(spadeTransport(client)), spadeBody(message), {
-      text: message.text,
-      images: message.images.length,
-    });
+    const started = await spadeStart(
+      startLink(spadeTransport(client)),
+      spadeBody(message),
+      {
+        text: message.text,
+        images: message.images.length,
+      },
+      crypto.randomUUID(),
+    );
     void cache.invalidateQueries({ queryKey: conversationsKey });
     if (started.kind === "unknown") {
       // Never sent again on its own: the person checks Spade's list and decides.

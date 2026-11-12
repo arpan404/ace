@@ -1,13 +1,21 @@
 import { SpadeRequestError, spadeUnanswered } from "./requests.ts";
-import { parseSpadeConversations, parseSpadeCreated, parseSpadeEvents } from "./wire.ts";
+import {
+  parseSpadeConversations,
+  parseSpadeCreated,
+  parseSpadeEvents,
+  type SpadeConversationRow,
+} from "./wire.ts";
 
 /*
- * Starting a conversation, safely when its answer is lost. Spade's start takes no key a client
- * could look it up by later (`POST /v1/conversations {text}`), so a start whose answer never
- * came is settled by what Spade lists: the one conversation that wasn't there before and opens
- * with this message is the one it made. When that can't be told for sure (two match, images
- * can't be compared, Spade is out of reach) the start is `unknown`: its words stay with the person
- * with a note, never sent again on their own, and never cleared.
+ * Starting a conversation, safely when its answer is lost. Each start carries the client's own
+ * key (`client_key`, a fresh UUID per start). Spade keeps it with the conversation it makes and
+ * answers the same start again with that conversation (spade/docs/chat-core.md), so a start whose
+ * answer never came is found by its key, or sent again with it, and never makes a second one.
+ *
+ * A Spade older than keys ignores the key and lists none. Its lost starts are settled by what it
+ * lists: the one conversation that wasn't there before and opens with this message. When that
+ * can't be told for sure (two match, images can't be compared, Spade is out of reach) the start
+ * is `unknown`: its words stay with the person with a note, never sent again on their own.
  */
 
 /** The way to Spade for a start: reads, the start itself, and waiting for the way back. */
@@ -30,60 +38,107 @@ export type SpadeStartResult = { kind: "started"; id: string } | { kind: "unknow
 /** New conversations looked into for this start's message, newest first. */
 const lookAt = 5;
 
+const startPath = "/v1/conversations";
+const unknown: SpadeStartResult = { kind: "unknown" };
+
 /** What the person sent, to know Spade's copy by: its words, and how many images came with them. */
 export interface SpadeStartMessage {
   text: string;
   images: number;
 }
 
+/** `key`: this start's own client key, fresh for each start the person makes. */
 export async function spadeStart(
   link: SpadeStartLink,
-  body: unknown,
+  body: Record<string, unknown>,
   message: SpadeStartMessage,
+  key: string,
 ): Promise<SpadeStartResult> {
   // Read before the start goes, so nothing has been sent if this fails.
   const before = new Set((await list(link)).map((row) => row.id));
+  const keyed = { ...body, client_key: key };
   let answer: string;
   try {
-    answer = await link.post("/v1/conversations", body);
+    answer = await link.post(startPath, keyed);
   } catch (error) {
     if (!spadeUnanswered(error)) throw error;
-    return settle(link, before, message);
+    return settle(link, { before, message, keyed, key });
   }
+  return created(answer);
+}
+
+function created(answer: string): SpadeStartResult {
   const id = parseSpadeCreated(answer);
   if (!id)
     throw new SpadeRequestError("Spade started the conversation but didn't say where it is.");
   return { kind: "started", id };
 }
 
+interface Lost {
+  before: ReadonlySet<string>;
+  message: SpadeStartMessage;
+  keyed: Record<string, unknown>;
+  key: string;
+}
+
 /** The answer was lost: find what Spade made from this start, once it can be asked. */
-async function settle(
+async function settle(link: SpadeStartLink, lost: Lost): Promise<SpadeStartResult> {
+  if (!(await link.back())) return unknown;
+  let rows: SpadeConversationRow[];
+  try {
+    rows = await list(link);
+  } catch {
+    return unknown;
+  }
+  const mine = rows.find((row) => row.clientKey === lost.key);
+  if (mine) return { kind: "started", id: mine.id };
+  // A Spade that keeps keys and lists none of this one's: the start goes again with its key.
+  if (rows.some((row) => row.clientKey !== undefined)) return again(link, lost.keyed);
+  return byContent(link, rows, lost);
+}
+
+/**
+ * The same start again, by its key: Spade answers with the conversation it made, or makes it now.
+ * A refusal means Spade doesn't have it (a key it knows is answered before any check).
+ */
+async function again(
   link: SpadeStartLink,
-  before: ReadonlySet<string>,
-  message: SpadeStartMessage,
+  keyed: Record<string, unknown>,
 ): Promise<SpadeStartResult> {
-  if (!(await link.back())) return { kind: "unknown" };
+  try {
+    return created(await link.post(startPath, keyed));
+  } catch (error) {
+    if (spadeUnanswered(error)) return unknown;
+    throw error;
+  }
+}
+
+/** A Spade older than keys: the one new conversation opening with this message, when sure. */
+async function byContent(
+  link: SpadeStartLink,
+  rows: readonly SpadeConversationRow[],
+  { before, message }: Lost,
+): Promise<SpadeStartResult> {
   const matches: string[] = [];
   try {
-    const fresh = (await list(link)).filter((row) => !before.has(row.id)).slice(0, lookAt);
-    for (const row of fresh) {
+    for (const row of rows.filter((entry) => !before.has(entry.id)).slice(0, lookAt)) {
       const first = await opening(link, row.id);
       if (first?.text === message.text.trim() && first.images === message.images)
         matches.push(row.id);
     }
   } catch {
-    return { kind: "unknown" };
+    return unknown;
   }
   const [only, ...others] = matches;
   if (only === undefined)
     throw new SpadeRequestError("The connection dropped before Spade got the message.");
   // Two alike, or images Spade stores by hash and this side holds as bytes: not for sure ours.
-  if (others.length || message.images > 0) return { kind: "unknown" };
+  if (others.length || message.images > 0) return unknown;
   return { kind: "started", id: only };
 }
 
 async function list(link: SpadeStartLink) {
-  const rows = parseSpadeConversations(await link.read("/v1/conversations"));
+  const rows = parseSpadeConversations(await link.read(startPath));
   if (!rows) throw new SpadeRequestError("Spade's conversation list didn't make sense.");
   return rows;
 }

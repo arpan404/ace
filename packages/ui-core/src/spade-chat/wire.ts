@@ -191,6 +191,11 @@ export interface SpadeConversationRow {
   jobs: number;
   /** An approval waits on the person. */
   waitingOnYou: boolean;
+  /**
+   * The client key of the start that made it; null when it had none. Undefined from a Spade older
+   * than keys, which lists none.
+   */
+  clientKey: string | null | undefined;
 }
 
 const conversationRow = z.object({
@@ -200,6 +205,7 @@ const conversationRow = z.object({
   answering: z.boolean().default(false),
   jobs: z.number().int().nonnegative().default(0),
   waiting_on_you: z.boolean().default(false),
+  client_key: z.string().nullish().catch(null),
 });
 
 /** The conversation list, newest first as Spade sends it; a row it can't read is left out. */
@@ -209,7 +215,7 @@ export function parseSpadeConversations(body: string): SpadeConversationRow[] | 
   return rows.flatMap((row) => {
     const parsed = conversationRow.safeParse(row);
     if (!parsed.success) return [];
-    const { id, title, updated_at, answering, jobs, waiting_on_you } = parsed.data;
+    const { id, title, updated_at, answering, jobs, waiting_on_you, client_key } = parsed.data;
     return [
       {
         id,
@@ -218,6 +224,7 @@ export function parseSpadeConversations(body: string): SpadeConversationRow[] | 
         answering,
         jobs,
         waitingOnYou: waiting_on_you,
+        clientKey: client_key,
       },
     ];
   });

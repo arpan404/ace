@@ -80,6 +80,8 @@ export async function answerSpade(
           link,
           { text: request.text },
           { text: request.text, images: 0 },
+          // This start's own key: Spade answers it again with the conversation it made.
+          deps.id(),
         );
         spade.refresh();
         if (started.kind === "started") return { ok: true, id: started.id };
