@@ -540,9 +540,9 @@ pub fn untrusted_turn(events: &[Event], registry: &Registry) -> bool {
         }) => true,
         // A routine fired by an ace event carries that event's text (a thread's title).
         Event::Known(Known::UserMessage {
-            from_routine: Some(crate::event::FromRoutine { event: Some(_), .. }),
+            from_routine: Some(from),
             ..
-        }) => true,
+        }) if from.event.is_some() => true,
         Event::Known(Known::ToolFinished { name, .. } | Known::JobFinished { name, .. }) => {
             // A tool no longer listed (ace switched it off, or its list is not back yet after a
             // restart) cannot vouch for its output.

@@ -253,6 +253,15 @@ impl Store {
         Ok(true)
     }
 
+    /// Moves a routine's next slot from `slot` to `next` without a run (a heartbeat in quiet
+    /// hours). Returns false when the slot was no longer `slot`.
+    pub fn advance_routine(&self, id: &str, slot: Option<i64>, next: Option<i64>) -> Result<bool> {
+        Ok(self.lock()?.execute(
+            "UPDATE routines SET next_due_ms = ?3 WHERE id = ?1 AND next_due_ms IS ?2",
+            params![id, slot, next],
+        )? == 1)
+    }
+
     /// Marks a claimed run delivered at `seq`.
     pub fn run_delivered(&self, run: &str, seq: i64) -> Result<()> {
         self.lock()?.execute(

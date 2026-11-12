@@ -23,7 +23,7 @@ pub enum Known {
         from_agent: Option<FromAgent>,
         /// One of the agent's routines sent it (ADR 0129), not the person.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        from_routine: Option<FromRoutine>,
+        from_routine: Option<Box<FromRoutine>>,
     },
     /// The agent's task or model changed (ADR 0126). Used from the next turn on: a turn's prompt
     /// takes the task in effect when its reply started, and `reply_started` names its model.

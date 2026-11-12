@@ -2749,6 +2749,7 @@ dependencies = [
  "chrono",
  "futures-util",
  "hmac",
+ "jiff",
  "keyring-core",
  "reqwest",
  "rmcp",

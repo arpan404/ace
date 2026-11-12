@@ -199,14 +199,14 @@ fn message(run: &str, heartbeat: bool) -> Event {
         context: None,
         images: Vec::new(),
         from_agent: None,
-        from_routine: Some(FromRoutine {
+        from_routine: Some(Box::new(FromRoutine {
             id: "rt_1".into(),
             name: "Check".into(),
             run: run.into(),
             label: "9:00".into(),
             heartbeat,
             event: None,
-        }),
+        })),
     })
 }
 
