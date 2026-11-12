@@ -60,8 +60,10 @@ struct ForgePullsList: View {
 
     private var mergeKey: String {
         guard let scope = model.scope else { return "" }
-        let request = ForgeMergeRunModel.request(project: scope.project, picked: ready.filter { merge.picked.contains($0.key) }, ready: ready)
-        return "\(scope.project)|\(merge.picked)|\(ready.map(\.key))|\(client.readGeneration(request))"
+        let request = ForgeMergeRunModel.request(project: scope.project, picked: merge.picks, ready: ready)
+        // A ready row's new head reads the strip again: a pick made at the old one leaves.
+        let rows = ready.map { "\($0.key)@\($0.headSha)" }
+        return "\(scope.project)|\(merge.picks.map { "\($0.key)@\($0.headSha)" })|\(rows)|\(client.readGeneration(request))"
     }
 }
 

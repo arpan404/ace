@@ -24,6 +24,10 @@ struct ForgeMergeRunReply: Decodable, Sendable, Equatable {
     }
     struct Method: Decodable, Sendable, Equatable, Hashable { let value: String; let label: String }
     let pick: Pick?
+    /// The picks still selected, each at the head it was picked at.
+    let picked: [String]
+    /// Picks whose head moved since they were picked: they leave the selection.
+    let notice: String?
     let blocked: [Blocked]
     let run: Run?
     /// A run that merged something: the list reads again once for it.
@@ -31,52 +35,70 @@ struct ForgeMergeRunReply: Decodable, Sendable, Equatable {
     let methods: [Method]
 }
 
-/// The Pull requests list's verified merge: the ready rows picked, in list order, the method, and
-/// the strip's answer for them. Picks go when the project changes; a run keeps its own state in
-/// the bridge, so the strip finds it again after the list is left.
+/// The Pull requests list's verified merge: the ready rows picked, each with the head it was
+/// picked at, the method, and the strip's answer for them. A pick whose row gets new commits
+/// leaves the selection with a notice, so Start never merges a head the person didn't choose.
+/// Picks go when the project changes; a run keeps its own state in the bridge, so the strip
+/// finds it again after the list is left.
 @MainActor @Observable final class ForgeMergeRunModel {
-    private(set) var picked: [String] = []
+    /// As picked: the head here is the one Start sends.
+    private(set) var picks: [ForgeMergePick] = []
+    var picked: [String] { picks.map(\.key) }
+    /// Why picks left the selection, until the next pick or Clear.
+    private(set) var notice: String?
     var method = "squash"
     private(set) var reply: ForgeMergeRunReply?
     private(set) var busy = false
     private(set) var problem: String?
     @ObservationIgnored private var mergedSeen: String?
 
-    func isPicked(_ pick: ForgeMergePick) -> Bool { picked.contains(pick.key) }
+    func isPicked(_ pick: ForgeMergePick) -> Bool { picks.contains { $0.key == pick.key } }
     func blocked(_ pick: ForgeMergePick) -> String? { reply?.blocked.first { $0.key == pick.key }?.reason }
     func toggle(_ client: ClientModel, project: String, _ pick: ForgeMergePick) {
-        if let at = picked.firstIndex(of: pick.key) { picked.remove(at: at) } else { picked.append(pick.key) }
+        if let at = picks.firstIndex(where: { $0.key == pick.key }) { picks.remove(at: at) } else { picks.append(pick) }
         problem = nil
+        notice = nil
         // A new selection replaces a settled run's ending for good, as the web's strip does.
         if let run = reply?.run, run.settled {
             Task { await write(client, project: project, op: ["kind": "dismiss", "runId": run.id]) }
         }
     }
-    func clear() { picked = []; problem = nil }
+    func clear() { picks = []; problem = nil; notice = nil }
 
-    /// The request for the rows on show: the picked ones in list order, and every ready one.
+    /// The ready rows on show as the bridge compares picks with them: their heads now.
+    static func rows(_ ready: [ForgeMergePick]) -> [[String: Any]] {
+        ready.map { ["key": $0.key, "base": $0.base, "headSha": $0.headSha] }
+    }
+    /// The request for the rows on show: the picks as made, and every ready one as it is now.
     static func request(project: String, picked: [ForgeMergePick], ready: [ForgeMergePick]) -> [String: Any] {
-        ["type": "forge.merge-run", "project": project, "picked": picked.map(\.json),
-         "rows": ready.map { ["key": $0.key, "base": $0.base] }]
+        ["type": "forge.merge-run", "project": project, "picked": picked.map(\.json), "rows": rows(ready)]
     }
 
     /// Reads the strip; `merged` runs once for each run that merged something.
     func read(_ client: ClientModel, project: String, ready: [ForgeMergePick], merged: () async -> Void) async {
-        let picks = ready.filter { picked.contains($0.key) }
-        // Rows that left the list (merged, closed, filtered out) leave the selection.
-        if picks.count != picked.count { picked = picks.map(\.key) }
+        let sent = picks
         do {
-            let next = try await client.read(Self.request(project: project, picked: picks, ready: ready), as: ForgeMergeRunReply.self)
+            let next = try await client.read(Self.request(project: project, picked: sent, ready: ready), as: ForgeMergeRunReply.self)
+            // A pick or Clear while this was read asks again; this answer is for picks no longer held.
+            guard sent == picks else { return }
             reply = next
+            // Rows that left the list or moved to a newer head leave the selection; the bridge says which.
+            let kept = Set(next.picked)
+            if picks.contains(where: { !kept.contains($0.key) }) {
+                picks = next.picked.compactMap { key in picks.first { $0.key == key } }
+                if let said = next.notice { notice = said }
+            }
             if let id = next.merged, id != mergedSeen { mergedSeen = id; await merged() }
         } catch is CancellationError {
         } catch { problem = error.localizedDescription }
     }
 
+    /// Sends the picks at the heads they were picked at, with the rows on show: one whose head
+    /// moved since starts nothing, and the next read takes it out of the selection.
     func start(_ client: ClientModel, project: String, ready: [ForgeMergePick]) async {
-        let picks = ready.filter { picked.contains($0.key) }
         guard !picks.isEmpty else { return }
-        if await write(client, project: project, op: ["kind": "start", "method": method, "prs": picks.map(\.json)]) { picked = [] }
+        let op: [String: Any] = ["kind": "start", "method": method, "prs": picks.map(\.json), "rows": Self.rows(ready)]
+        if await write(client, project: project, op: op) { picks = [] }
     }
 
     func act(_ client: ClientModel, project: String, _ action: ForgeMergeRunReply.Action, run: ForgeMergeRunReply.Run) async {
@@ -136,7 +158,7 @@ struct ForgeMergeRunStrip: View {
                 .presentationDetents([.medium, .large])
             }
         } else if let reply = model.reply, let pick = reply.pick, !model.picked.isEmpty {
-            strip { sentence(model.problem ?? pick.sentence, failed: model.problem != nil) } actions: {
+            strip { sentence(model.problem ?? model.notice ?? pick.sentence, failed: model.problem != nil) } actions: {
                 Menu {
                     Picker("Merge method", selection: Binding(get: { model.method }, set: { model.method = $0 })) {
                         ForEach(reply.methods, id: \.value) { Text($0.label).tag($0.value) }
@@ -159,6 +181,13 @@ struct ForgeMergeRunStrip: View {
                 Button("Clear") { model.clear() }
                     .buttonStyle(StripTextButtonStyle(prominent: false))
                     .accessibilityIdentifier("forge.mergeRun.clear")
+            }
+        } else if let notice = model.notice {
+            // Every pick moved on: the strip still says why the selection emptied.
+            strip { sentence(notice, failed: false) } actions: {
+                Button("Dismiss") { model.clear() }
+                    .buttonStyle(StripTextButtonStyle(prominent: true))
+                    .accessibilityIdentifier("forge.mergeRun.dismissNotice")
             }
         }
     }
