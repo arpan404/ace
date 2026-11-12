@@ -43,6 +43,27 @@ import Testing
         #expect(!inbox.allReady)
     }
 
+    @Test func aMachineRowCountsOnlyTheWorkItsMachineHasConfirmed() async throws {
+        let fixture = try Fixture(machines: [machine("studio", device: "phone-1")])
+        defer { fixture.cleanUp() }
+        await fixture.model.load()
+        let studio = try #require(fixture.sessions.started.first)
+        func thread(_ id: String, working: Bool, confirmed: Bool) -> String {
+            #"{"type":"inbox.row","id":"\#(id)","row":{"id":"\#(id)","title":"Thread","state":"working","project":"ace","branch":"","machine":"","provider":"codex","model":"","agents":1,"updatedAt":1,"canSteer":false,"status":{"label":"Working","token":"working"},"confirmed":\#(confirmed),"generation":1\#(working ? #","workingSince":1"# : "")}}"#
+        }
+        // One thread working as the machine says now, one working only in a copy from disk, one done.
+        studio.emit("[" + [#"{"type":"connection","state":"ready"}"#, #"{"type":"inbox.reset"}"#,
+                           thread("live", working: true, confirmed: true),
+                           thread("kept", working: true, confirmed: false),
+                           thread("done", working: false, confirmed: true)].joined(separator: ",") + "]")
+        let inbox = fixture.model.inbox
+        await settle { inbox.client("studio")?.inbox.count == 3 }
+        let facts = MachineFacts(inbox: inbox, machines: fixture.model, hostId: "studio")
+        #expect(facts.working == 1)
+        for session in fixture.model.inbox.sessions { session.client.disconnect() }
+        for session in fixture.sessions.started { session.finishShutdown() }
+    }
+
     @Test func aRowsCommandsGoOnlyToTheRuntimeOfItsMachine() async throws {
         let fixture = try Fixture(machines: [machine("studio", device: "phone-1"), machine("laptop", device: "phone-2")])
         defer { fixture.cleanUp() }
