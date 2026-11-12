@@ -101,18 +101,21 @@ export function SpadeNotes(props: {
     }
   };
   if (notes.isPending) return <ListSkeleton label="notes" shape="row" rows={2} />;
-  if (notes.isError)
-    return (
-      <SettingRow title="Couldn't read the notes" description={notes.error.message}>
-        <Button size="sm" variant="ghost" onClick={() => void notes.refetch()}>
-          Try again
-        </Button>
-      </SettingRow>
-    );
+  // A failed read says so inline; with notes already read, the list and any open editor (and
+  // its draft) stay.
+  const failed = notes.isError && (
+    <SettingRow title="Couldn't read the notes" description={notes.error.message}>
+      <Button size="sm" variant="ghost" onClick={() => void notes.refetch()}>
+        Try again
+      </Button>
+    </SettingRow>
+  );
+  if (notes.data === undefined) return failed;
   const suggested = notes.data.filter((note) => note.suggested);
   const kept = notes.data.filter((note) => !note.suggested);
   return (
     <>
+      {failed}
       {suggested.length > 0 && (
         <Suggested
           notes={suggested}

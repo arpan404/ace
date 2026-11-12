@@ -26,6 +26,8 @@ const problem = (status: number, error: string) => answer({ error }, status);
 
 export class FakeSpadeNotes {
   notes: FakeSpadeNote[] = [];
+  /** While above zero, each list read fails with 500 and counts it down. */
+  failReads = 0;
   private sequence = 0;
   private readonly now: () => number;
 
@@ -72,6 +74,10 @@ export class FakeSpadeNotes {
   /** `/v1/agents/{agent}/notes` (agent set) or `/v1/notes[/{id}]`. */
   route(method: string, agent: string | null, id: string | undefined, body: unknown, sub?: string) {
     const text = clean(body);
+    if (!id && method === "GET" && this.failReads > 0) {
+      this.failReads -= 1;
+      return problem(500, "Spade could not read its notes.");
+    }
     if (!id && method === "GET")
       return answer({
         notes: this.notes
@@ -83,7 +89,8 @@ export class FakeSpadeNotes {
       if (this.notes.filter((note) => note.agent === agent).length >= 1000)
         return problem(409, "This scope already holds 1,000 notes.");
       const same = this.notes.find((note) => note.agent === agent && note.text === text);
-      if (same) return answer(same);
+      // The person saying it keeps a matching suggestion.
+      if (same) return answer(Object.assign(same, { suggested: false }));
       return answer(this.add({ text, agent, scope: agent ? "agent" : "shared" }), 201);
     }
     const note = this.notes.find((candidate) => candidate.id === id);

@@ -181,6 +181,28 @@ test("an open note follows the bot's changes until typed in, then Save won't ove
   await dialog.findByRole("button", { name: "Edit: Prefers front rows" });
 });
 
+test("a failed read keeps an open note and its draft, and says so inline", async () => {
+  const { spade } = await spadeApp("/spade/travel", (api) => {
+    withTravel(api);
+    api.notes.add({ text: "Prefers window seats", agent: "travel", source: "bot" });
+  });
+  await screen.findByRole("feed", { name: "Conversation with Travel" });
+  const dialog = await openMemory();
+  await userEvent.click(await dialog.findByRole("button", { name: "Edit: Prefers window seats" }));
+  const field = await dialog.findByRole<HTMLInputElement>("textbox", { name: "Note" });
+  await userEvent.clear(field);
+  await userEvent.type(field, "Prefers front rows");
+
+  // The bot moves the note on, so Save is refused, and the read after it fails.
+  spade.notes.rewrite("n_1", "Prefers aisle seats");
+  spade.notes.failReads = 5;
+  await userEvent.type(field, "{Enter}");
+  expect(await dialog.findByText("Couldn't read the notes")).toBeTruthy();
+  const still = dialog.getByRole<HTMLInputElement>("textbox", { name: "Note" });
+  expect(still.value).toBe("Prefers front rows");
+  expect(texts(spade, "travel")).toEqual(["Prefers aisle seats"]);
+});
+
 test("suggested notes wait under Suggested: Keep moves one into the notes, Dismiss deletes it", async () => {
   const { spade } = await spadeApp("/spade/travel", (api) => {
     withTravel(api);
