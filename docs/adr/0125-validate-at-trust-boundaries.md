@@ -33,8 +33,18 @@ trusted.
    validated as before. Going back to an older build and forward again records a new start, so
    rows written in between are decoded too. The table is created at open, so it needs no
    migration step and so no pre-upgrade backup.
-4. **Writes still validate.** The writer's `Event.parse` fills schema defaults and is what puts a
-   row in this build's shape; it stays until a cheaper canonical writer replaces it.
+4. **Writes still validate, and canonicalise cheaply where the schema allows.** The writer
+   (`event-writer.ts`, `store-stream.ts`) makes every event canonical with `canonicalEvent`
+   (`canonical-event.ts`) before storing it. Its output equals `Event.parse`'s: the same values,
+   defaults, key order and stored JSON, and a rejection wherever `Event.parse` rejects. For a
+   payload variant whose fields are all flat (strings, numbers, booleans, literals and enums,
+   optional or nullable, with only length, integer and range checks; `item.delta` is the hot
+   one), it runs those checks and rebuilds the event in schema order itself, from plans read off
+   the schema once, so no default or transform can be missed: a variant with anything else in it
+   has no plan. Unplanned variants, and every input a plan rejects, go to `Event.parse`. A
+   variant that gains a nested object, a default or another kind of check loses its plan by
+   itself; `canonical-event.test.ts` runs both on every planned variant, mutated field by field,
+   and on the payloads of the recorded provider sessions, and asserts identical output.
 5. **Thread rows are trusted per row, by revision.** A threads row is rewritten in place a few
    columns at a time and has no sequence, so `thread-row-trust.ts` keeps a side table of
    stamps: the row revision at which this build confirmed the whole row reads the same as
