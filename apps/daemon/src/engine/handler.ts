@@ -284,6 +284,7 @@ export function engineHandler(
             at,
             silenceMs,
             client: {
+              ...(context.host ? { host: context.host.host, hostKey: context.host.key } : {}),
               details: {
                 workspace: {
                   id: p.workspaceId,

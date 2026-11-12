@@ -16,6 +16,11 @@ export type CommandContext = Pick<
   "appendEvents" | "getThread" | "readEvents" | "getInteraction"
 > & {
   creationOwner?: object;
+  /**
+   * In-process only: the thread `thread.create` makes is a daemon-held host thread, such as a
+   * Spade bot's hidden session (ADR 0133). Never set from wire data.
+   */
+  host?: { host: "spade-bot"; key: string };
   preparedWorkspace?: {
     id: ThreadId;
     path: string;

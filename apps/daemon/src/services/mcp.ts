@@ -1,4 +1,5 @@
 import { createTextRedactor } from "@ace/redaction";
+import { spadeBrainToolNames, spadeBrainToolkit } from "../spade/brain-tools.ts";
 import { htmlPublication } from "../html-publication.ts";
 import { htmlLayout, htmlPreview, MeasuredLayouts } from "../html-preview.ts";
 import { imagePublication } from "../image-publication.ts";
@@ -154,6 +155,14 @@ export async function startMcp(context: ServiceContext): Promise<void> {
         },
       }),
       ...(options.toolkits ?? []),
+      // A Spade bot's own tools, in its hidden session only (ADR 0133).
+      spadeBrainToolkit({
+        botOf: (threadId) => {
+          const thread = store.getThread(threadId);
+          return thread?.host === "spade-bot" ? thread.hostKey : undefined;
+        },
+        spade: () => services.spade?.ready()?.connection,
+      }),
       // Commands on other paired machines; a local agent uses its own shell (ADR 0105).
       commandToolkit(async (caller, call, signal) => {
         const machines = services.machines;
@@ -240,6 +249,7 @@ export async function startMcp(context: ServiceContext): Promise<void> {
             !!services.agentControl?.delegations.journal.get(caller.threadId)),
         unavailableTools: [
           ...(thread?.host === undefined ? [] : hostWithheldTools),
+          ...(thread?.host === "spade-bot" ? [] : spadeBrainToolNames),
           ...(services.machines?.caller.serves("commands") ? [] : commandToolNames),
           ...(services.computer || services.machines?.caller.serves("screen")
             ? []

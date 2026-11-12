@@ -6,6 +6,8 @@ import { GrantTokens } from "../external-mcp/tokens.ts";
 import { SpadeGrantDelivery } from "../spade/delivery.ts";
 import { SpadeGrantAuthenticator } from "../spade/grant-auth.ts";
 import { SpadeGrants } from "../spade/grant.ts";
+import { brainHttp } from "../spade/brain-http.ts";
+import { SpadeBrains } from "../spade/brain-sessions.ts";
 import { nodeSpadeLinkRuntime, spadeAceCall } from "../spade/link-runtime.ts";
 import { SpadeLink, type SpadeLinkRuntime } from "../spade/link.ts";
 import { cliVersion } from "../doctor/install.ts";
@@ -83,6 +85,24 @@ export async function startSpade(context: ServiceContext): Promise<void> {
     stopAuth?.();
     auth.close();
   }, "spade grant");
+  services.spadeBrains = brainHttp({
+    brains: new SpadeBrains({
+      store,
+      engine: () => services.engine,
+      project: () => host.current(),
+      roster: () => {
+        const thread = host.current();
+        const delegations = services.agentControl?.delegations;
+        if (!thread || !delegations) return undefined;
+        return delegations.models(
+          { sessionId: "spade:brains", threadId: thread.threadId, agentId: thread.agentId },
+          {},
+        );
+      },
+      id: context.id,
+    }),
+    verify: (bearer) => grants.verify(bearer) !== undefined,
+  });
   if (!services.mcp) log.log("warn", "Spade's grant can't reach ace's tools: no MCP endpoint");
 
   const delivery = new SpadeGrantDelivery({

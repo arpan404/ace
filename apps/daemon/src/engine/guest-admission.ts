@@ -34,19 +34,41 @@ export function guestRefusal(
 
 /**
  * The refusal for a command that would run an agent on a host thread (ADR 0121): the daemon holds
- * it for Spade, whose tools act as it, and no provider ever runs it.
+ * it for Spade, whose tools act as it, and no provider ever runs it. A bot's hidden session
+ * (`spade-bot`, ADR 0133) runs, but only the turns Spade asks for: `personRefusal` keeps every
+ * client off it, and the daemon's brain service sends to it in-process.
  */
 export function hostRefusal(
   commandId: CommandId,
   payload: CommandPayload,
-  host: "spade" | undefined,
+  host: ThreadDetailsHost,
 ): CommandResult | undefined {
-  if (!host || (!startsAgent.has(payload.type) && payload.type !== "thread.fork")) return undefined;
+  if (host !== "spade" || (!startsAgent.has(payload.type) && payload.type !== "thread.fork"))
+    return undefined;
   return {
     commandId,
     ok: false,
     error: "host_thread",
     title: "Spade's own thread",
     detail: "Spade works through this thread; nothing runs in it.",
+  };
+}
+
+type ThreadDetailsHost = import("@ace/protocol").Thread["host"];
+
+/** The refusal for a client's command that would run an agent on any host thread. */
+export function personRefusal(
+  commandId: CommandId,
+  payload: CommandPayload,
+  host: ThreadDetailsHost,
+): CommandResult | undefined {
+  if (host !== "spade-bot") return hostRefusal(commandId, payload, host);
+  if (!startsAgent.has(payload.type) && payload.type !== "thread.fork") return undefined;
+  return {
+    commandId,
+    ok: false,
+    error: "host_thread",
+    title: "A Spade bot's own thread",
+    detail: "Spade runs this bot's turns here; talk to the bot in Spade.",
   };
 }

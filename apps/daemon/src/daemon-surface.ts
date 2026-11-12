@@ -57,6 +57,7 @@ export function bindLiveServices(serverOptions: ServerOptions, services: Service
     "transfers",
     "fleet",
     "mcp",
+    "spadeBrains",
     "notifications",
     "notificationPublicKey",
     "review",
