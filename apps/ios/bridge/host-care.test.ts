@@ -364,3 +364,51 @@ test("simultaneous retention edits preserve each kind and a refused edit does no
     )?.days,
   ).toBe(30);
 });
+
+test("checks started from the phone keep running after it leaves, and the page rejoins them by id", async () => {
+  const fixture = daemon();
+  const finish = fixture.checks.hold();
+  const first = await phone(fixture);
+  const started = await call(first.services, first.sink, { type: "host.checks" });
+  expect(started.value).toMatchObject({
+    state: "running",
+    lead: "Checking for",
+    note: "You can leave this page; the checks keep running.",
+    rows: [],
+  });
+  const runId = started.value.runId;
+  expect(runId).toEqual(expect.any(String));
+
+  // Back on the page, from a fresh connection: the page read finds the run still going.
+  const back = await phone(fixture, "ios-care-test-back");
+  const page = await call(back.services, back.sink, { type: "host.diagnostics" });
+  expect(page.value.checks).toMatchObject({ state: "running", runId });
+  const joined = call(back.services, back.sink, { type: "host.checks.join", runId });
+  finish();
+  const done = await joined;
+  expect(done.value).toMatchObject({ state: "done", summary: "Every check passed." });
+  expect((done.value.rows as { label: string }[]).map((row) => row.label)).toContain("App runtime");
+  // Joining waited for the same run: the checks ran once.
+  expect(fixture.checks.starts).toBe(1);
+  const later = await call(back.services, back.sink, { type: "host.diagnostics" });
+  expect(later.value.checks).toMatchObject({ state: "done", runId });
+});
+
+test("checks asked for while repairs run elsewhere say so in the web's words, and start nothing", async () => {
+  const fixture = daemon();
+  const finish = fixture.checks.hold();
+  const desktop = await connect(fixture, "desktop");
+  const repairs = desktop.request(
+    { type: "diagnostics.request", operation: "fix", requestId: crypto.randomUUID() },
+    { timeoutMs: 60_000 },
+  );
+  const { services, sink } = await phone(fixture);
+  const refused = await call(services, sink, { type: "host.checks" });
+  expect(refused).toMatchObject({
+    ok: false,
+    message: "Other checks are running on this computer. Try again when they finish.",
+  });
+  finish();
+  await repairs;
+  expect(fixture.checks.starts).toBe(1);
+});

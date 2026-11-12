@@ -3,7 +3,8 @@ import UIKit
 
 /// One machine's Diagnostics: read-only checks, ace's health, a support bundle to share, the
 /// worktree preparation deadline and a reset of its settings. Repairs and `ace triage` stay on
-/// the computer (ADR 0092). Words come from `bridge/host-diagnostics.ts`.
+/// the computer (ADR 0092). Words come from `bridge/host-diagnostics.ts`; the checks run lives on
+/// the machine (`bridge/host-checks-run.ts`), so leaving the page doesn't stop it.
 struct HostDiagnosticsView: View {
     let model: ClientModel
     @State private var page: HostDiagnosticsPage?
@@ -26,7 +27,9 @@ struct HostDiagnosticsView: View {
 
     init(model: ClientModel) {
         self.model = model
-        _page = State(initialValue: model.kept(Self.read, as: HostDiagnosticsPage.self))
+        let kept = model.kept(Self.read, as: HostDiagnosticsPage.self)
+        _page = State(initialValue: kept)
+        _checks = State(initialValue: kept?.checks)
     }
 
     var body: some View {
@@ -64,14 +67,25 @@ struct HostDiagnosticsView: View {
         }
         .onDisappear { discardBundle() }
         .readWhenConnected(model, id: model.readGeneration(Self.read)) { await load() }
+        // A run going on the machine is waited on by its id; leaving stops waiting, not the run.
+        .task(id: joiningRun) { await join() }
         .refreshable { await load() }
     }
 
     @ViewBuilder private var checksSection: some View {
         Section {
-            Button(checking ? "Checking…" : "Run checks") { runChecks() }
-                .disabled(checking || model.connection != "ready").accessibilityIdentifier("diagnostics.run")
-            if let checks {
+            Button(running ? "Checking…" : "Run checks") { runChecks() }
+                .disabled(running || model.connection != "ready").accessibilityIdentifier("diagnostics.run")
+            if let checks, checks.state == "running", let startedAt = checks.startedAt {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    let elapsed = ActivityTime.running(since: Date(timeIntervalSince1970: startedAt / 1000), now: context.date)
+                    Text(verbatim: "\(checks.lead) \(elapsed).\(checks.note.isEmpty ? "" : " \(checks.note)")")
+                        .monospacedDigit()
+                }
+                .font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
+                .accessibilityIdentifier("diagnostics.running")
+            }
+            if let checks, checks.state == "done" {
                 Text(checks.summary).accessibilityIdentifier("diagnostics.summary")
                 ForEach(checks.rows) { row in
                     VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
@@ -139,12 +153,19 @@ struct HostDiagnosticsView: View {
         }
     }
 
+    /// Checks are going: this page's own request, or a run on the machine it joins.
+    private var running: Bool { checking || checks?.state == "running" }
+    private var joiningRun: String? { checks?.state == "running" ? checks?.runId : nil }
+
     private func load() async {
         do {
             page = try await model.read(Self.read, as: HostDiagnosticsPage.self)
+            // The machine's run, unless this page is still waiting on the one it started.
+            if let run = page?.checks, !checking { checks = run }
             problem = nil
         } catch is CancellationError {} catch { if !Task.isCancelled { problem = error.localizedDescription } }
     }
+    /// Start checks: the bridge answers once the run is going, and `join` waits on it from there.
     private func runChecks() {
         checking = true; checksProblem = nil
         Task {
@@ -152,6 +173,13 @@ struct HostDiagnosticsView: View {
             do { checks = try await model.service(["type": "host.checks"], as: HostChecksReply.self, timeout: .seconds(16 * 60 + 30)) }
             catch is CancellationError {} catch { checksProblem = error.localizedDescription }
         }
+    }
+    private func join() async {
+        guard let runId = joiningRun else { return }
+        do {
+            checks = try await model.service(["type": "host.checks.join", "runId": runId], as: HostChecksReply.self, timeout: .seconds(16 * 60 + 30))
+            checksProblem = nil
+        } catch is CancellationError {} catch { if !Task.isCancelled { checksProblem = error.localizedDescription } }
     }
     private func export() {
         exporting = true; bundleProblem = nil

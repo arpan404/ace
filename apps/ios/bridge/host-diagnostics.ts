@@ -1,15 +1,10 @@
 import { downloadFile, type ClientCore } from "@ace/client";
-import { SettingsValues, type DiagnosticReport, type DiagnosticsHealth } from "@ace/protocol";
-import {
-  checkStatusWords,
-  healthRows,
-  hostChecks,
-  queueRows,
-  unknownCheck,
-} from "@ace/ui-core/host-care";
+import { SettingsValues, type DiagnosticsHealth } from "@ace/protocol";
+import { healthRows, queueRows } from "@ace/ui-core/host-care";
 import { z } from "zod";
 import { base64, gather } from "./bytes.ts";
 import { host } from "./host.ts";
+import { HostChecksRun } from "./host-checks-run.ts";
 import { HostProblem } from "./host-problem.ts";
 
 /*
@@ -21,51 +16,16 @@ import { HostProblem } from "./host-problem.ts";
 const msPerMinute = 60_000;
 /** The support bundle's cap, as the web's export. */
 const bundleLimit = 16 * 1024 ** 2;
-/** Longer than the daemon's largest integrity budget, so the daemon reports first. */
-const checksTimeoutMs = 16 * 60_000;
 
 export const HostDiagnosticsRequest = z.discriminatedUnion("type", [
   z.object({ type: z.literal("host.diagnostics") }),
   z.object({ type: z.literal("host.checks") }),
+  z.object({ type: z.literal("host.checks.join"), runId: z.string().min(1).max(128) }),
   z.object({ type: z.literal("host.support"), includeThreads: z.boolean() }),
   z.object({ type: z.literal("host.worktreeTimeout"), minutes: z.number() }),
   z.object({ type: z.literal("host.reset") }),
 ]);
 export type HostDiagnosticsRequest = z.infer<typeof HostDiagnosticsRequest>;
-
-export interface HostCheckRow {
-  id: string;
-  label: string;
-  status: "ok" | "warn" | "fail";
-  word: string;
-  message: string;
-  /** What to do, for a check that didn't pass. */
-  fix: string | null;
-}
-
-/** The setup checks as rows, without the provider checks Providers already shows. */
-export function checkRows(report: DiagnosticReport): HostCheckRow[] {
-  return report.checks
-    .filter((check) => !check.id.startsWith("provider."))
-    .map((check) => {
-      const info = hostChecks[check.id] ?? unknownCheck;
-      return {
-        id: check.id,
-        label: info.label,
-        status: check.status,
-        word: checkStatusWords[check.status],
-        message: check.message,
-        fix: check.status === "ok" ? null : info.fix,
-      };
-    });
-}
-
-/** One line over the checks: all passed, or how many need something. */
-export function checksSummary(rows: readonly HostCheckRow[]): string {
-  const failing = rows.filter((row) => row.status !== "ok").length;
-  if (!failing) return "Every check passed.";
-  return failing === 1 ? "1 check needs attention." : `${failing} checks need attention.`;
-}
 
 export function healthView(health: DiagnosticsHealth) {
   return {
@@ -78,27 +38,19 @@ export function healthView(health: DiagnosticsHealth) {
 
 export class HostDiagnostics {
   #owner: ClientCore;
+  #checks: HostChecksRun;
   constructor(owner: ClientCore) {
     this.#owner = owner;
+    this.#checks = new HostChecksRun(owner);
   }
   async answer(request: HostDiagnosticsRequest, signal: AbortSignal): Promise<unknown> {
     switch (request.type) {
       case "host.diagnostics":
         return this.#page(signal);
-      case "host.checks": {
-        const reply = await this.#owner.request(
-          { type: "diagnostics.request", operation: "doctor", requestId: host.uuid() },
-          { signal, timeoutMs: checksTimeoutMs },
-        );
-        if (!reply.report || reply.error)
-          throw new HostProblem(
-            reply.error === "diagnostics_busy"
-              ? "Checks are already running on this machine. Try again shortly."
-              : "Couldn't finish the checks. Reconnect to this computer and try again.",
-          );
-        const rows = checkRows(reply.report);
-        return { type: "host.checks", summary: checksSummary(rows), rows };
-      }
+      case "host.checks":
+        return this.#checks.start(signal);
+      case "host.checks.join":
+        return this.#checks.join(request.runId, signal);
       case "host.support":
         return this.#support(request.includeThreads, signal);
       case "host.worktreeTimeout": {
@@ -130,7 +82,7 @@ export class HostDiagnostics {
     }
   }
   async #page(signal: AbortSignal) {
-    const [health, timeout] = await Promise.allSettled([
+    const [health, timeout, checks] = await Promise.allSettled([
       this.#owner.request(
         { type: "diagnostics.health", requestId: host.uuid() },
         { signal, timeoutMs: 10_000 },
@@ -144,6 +96,7 @@ export class HostDiagnostics {
         },
         { signal, timeoutMs: 15_000 },
       ),
+      this.#checks.status(signal),
     ]);
     const report = health.status === "fulfilled" && health.value.ok ? health.value.health : null;
     const entry =
@@ -155,6 +108,8 @@ export class HostDiagnostics {
       type: "host.diagnostics",
       health: report ? healthView(report) : null,
       healthProblem: report ? null : "Couldn't read ace health. Pull to try again.",
+      /** The checks run, to show or rejoin; null where the daemon can't report it. */
+      checks: (checks.status === "fulfilled" && checks.value) || null,
       worktreeTimeout: ms.success
         ? {
             minutes: Math.round(ms.data / msPerMinute),

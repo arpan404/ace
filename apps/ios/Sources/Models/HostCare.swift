@@ -86,9 +86,12 @@ struct HostDiagnosticsPage: Decodable, Sendable, Equatable {
     let health: Health?
     let healthProblem: String?
     let worktreeTimeout: Timeout?
+    /// The machine's checks run, to show or rejoin; nil where the daemon can't report it.
+    let checks: HostChecksReply?
 }
 
-/// `host.checks`: the read-only setup checks, worded.
+/// `host.checks` and `host.checks.join`: the machine's checks run (`bridge/host-checks-run.ts`),
+/// which outlives this page, with its read-only setup checks worded once it's done.
 struct HostChecksReply: Decodable, Sendable, Equatable {
     struct Row: Decodable, Sendable, Equatable, Identifiable {
         let id: String
@@ -98,6 +101,15 @@ struct HostChecksReply: Decodable, Sendable, Equatable {
         let message: String
         let fix: String?
     }
+    /// `idle`, `running` or `done`.
+    let state: String
+    /// The run to wait on while it runs; nil when it isn't known.
+    let runId: String?
+    /// When a running run started, in ms since 1970 by this phone's clock.
+    let startedAt: Double?
+    /// The words around its running time: "Checking for" 12s, then the note.
+    let lead: String
+    let note: String
     let summary: String
     let rows: [Row]
 }
