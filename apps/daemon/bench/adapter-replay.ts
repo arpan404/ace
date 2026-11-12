@@ -1,5 +1,6 @@
 /**
  * Allocation and CPU per 1,000 provider frames through the real adapters' translators.
+ * `--stage=translate` measures payload admission and the translator alone, no engine or store.
  * Replays the recorded sessions under fixtures/ (no provider CLI, no quota) through each
  * provider's translator, the engine, SQLite and a real WebSocket subscriber in this process
  * (adapter-replay-child.ts is the measured side). Allocation is read from JSC's GC log as in
@@ -29,6 +30,7 @@ const frames = z.coerce.number().int().min(100).parse(argument("frames", "5000")
 const windows = z.coerce.number().int().min(1).max(20).parse(argument("windows", "3"));
 const providers = argument("providers", "claude,codex,cursor,opencode").split(",");
 const cpuProfile = argument("cpu-prof", "");
+const stage = z.enum(["daemon", "translate"]).parse(argument("stage", "daemon"));
 const positional = process.argv.slice(2).filter((arg) => !arg.startsWith("--"));
 const checkouts = positional.length
   ? positional.map((path) => resolve(path))
@@ -102,7 +104,7 @@ async function measure(checkout: string, provider: string) {
   const home = await mkdtemp(join(tmpdir(), "ace-adapter-replay-"));
   const child = fork(
     join(checkout, "apps/daemon/bench/adapter-replay-child.ts"),
-    [`--provider=${provider}`, `--frames=${frames}`, `--windows=${windows}`],
+    [`--provider=${provider}`, `--frames=${frames}`, `--windows=${windows}`, `--stage=${stage}`],
     {
       cwd: checkout,
       execPath: bunBinary(),
@@ -152,13 +154,16 @@ async function measure(checkout: string, provider: string) {
   }
   try {
     const ready = await next("ready");
-    const subscriber = await subscribe(ready.url, ready.token, ready.threads.flat());
+    const threads = ready.threads.flat();
+    const subscriber = threads.length
+      ? await subscribe(ready.url, ready.token, threads)
+      : undefined;
     const results = [];
     for (let window = 0; window <= windows; window++) {
       log = "";
       child.send({ op: "window", window });
       const replayed = await next("replayed");
-      await Promise.race([subscriber.reach(replayed.head), failed.promise]);
+      if (subscriber) await Promise.race([subscriber.reach(replayed.head), failed.promise]);
       child.send({ op: "stop" });
       const reading = await next("stopped");
       let allocation = windowAllocation(log);
@@ -177,7 +182,7 @@ async function measure(checkout: string, provider: string) {
         peakHeapUsed: reading.peakHeapUsed,
       });
     }
-    await subscriber.close();
+    await subscriber?.close();
     return {
       allocatedPer1000: median(results.map((r) => r.allocatedPer1000)),
       cpuMsPer1000: median(results.map((r) => r.cpuMsPer1000)),
