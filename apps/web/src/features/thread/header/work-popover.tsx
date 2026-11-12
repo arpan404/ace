@@ -1,6 +1,7 @@
-import { Suspense, useLayoutEffect, useState, type CSSProperties, type RefObject } from "react";
+import { Suspense, type CSSProperties, type RefObject } from "react";
 import { Popover, PopoverContent } from "@/components/ui/popover.tsx";
 import { cn } from "@/lib/cn.ts";
+import { useOpenAfterMount } from "@/lib/pending-open.tsx";
 import { DeferredWorkCard, workSurface } from "./work-surface.ts";
 import type { WorkCardStore } from "./work-card-store.ts";
 
@@ -18,15 +19,10 @@ export function WorkPopover(props: {
   room: number | undefined;
 }) {
   const { button, store, room } = props;
-  const [mounted, setMounted] = useState(false);
-  useLayoutEffect(() => {
-    // Base UI plays a popup's opening transition only when a mounted, closed root opens.
-    // oxlint-disable-next-line react/set-state-in-effect, react-compiler/set-state-in-effect -- one commit closed, then open, before paint.
-    setMounted(true);
-  }, []);
+  const { mounted, open } = useOpenAfterMount(props.open);
   return (
     <Popover
-      open={mounted && props.open}
+      open={open}
       onOpenChange={(next, details) => {
         // A press on the icon toggles; the popover's own outside press must not undo it.
         const target = details.event?.target;

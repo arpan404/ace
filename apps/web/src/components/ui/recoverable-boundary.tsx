@@ -8,6 +8,10 @@ interface Props {
   children: ReactNode;
   fallback?: ReactNode;
   report(retry: () => void): void;
+  /** Called once it fails, for a region that must also close what opened it. */
+  onFailed?: (() => void) | undefined;
+  /** When this turns true after a failure, it tries again (the person reopened what failed). */
+  retryWhen?: boolean | undefined;
 }
 
 export class RecoverableBoundary extends Component<Props, { failed: boolean }> {
@@ -24,6 +28,10 @@ export class RecoverableBoundary extends Component<Props, { failed: boolean }> {
   override componentDidCatch(error: unknown) {
     this.error = error;
     this.props.report(this.retry);
+    this.props.onFailed?.();
+  }
+  override componentDidUpdate(previous: Props) {
+    if (this.state.failed && this.props.retryWhen && !previous.retryWhen) this.retry();
   }
   override render() {
     if (!this.state.failed) return this.props.children;

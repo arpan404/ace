@@ -3,6 +3,8 @@ import { listTreeFacts, treeWorking } from "@ace/ui-core";
 import { CirclesThreeIcon } from "@phosphor-icons/react";
 import { Suspense, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
+import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
+import { PendingDismiss } from "@/lib/pending-open.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { DeferredWorkCard } from "./work-surface.ts";
 import { useWorkCardState, useWorkCardStore, type WorkCardStore } from "./work-card-store.ts";
@@ -68,15 +70,29 @@ export function WorkButton(props: { threadId: string }) {
         )}
       </span>
       {opened && (
-        <Suspense fallback={null}>
-          <DeferredWorkPopover.Component
-            threadId={props.threadId}
-            open={popover}
-            button={button}
-            store={store}
-            room={room}
-          />
-        </Suspense>
+        // The card's code arrives after the first open: until then Escape or a press elsewhere
+        // still closes it, and a failed load closes it, leaving the thread as it was, until the
+        // next open tries again.
+        <LocalBoundary
+          label="thread details"
+          fallback={null}
+          onFailed={() => store?.setOpen(false)}
+          retryWhen={popover}
+        >
+          <Suspense
+            fallback={
+              popover && <PendingDismiss anchor={button} onDismiss={() => store?.setOpen(false)} />
+            }
+          >
+            <DeferredWorkPopover.Component
+              threadId={props.threadId}
+              open={popover}
+              button={button}
+              store={store}
+              room={room}
+            />
+          </Suspense>
+        </LocalBoundary>
       )}
     </>
   );

@@ -126,13 +126,15 @@ function StepLine(props: {
         )}
       {open && (
         <div id={panel} className="mt-1 mb-2 pl-7">
-          <Suspense fallback={null}>
-            <DeferredStepDetail.Component
-              item={data.item}
-              threadId={props.threadId}
-              ace={data.step.ace}
-            />
-          </Suspense>
+          <LocalBoundary label="this step's detail">
+            <Suspense fallback={null}>
+              <DeferredStepDetail.Component
+                item={data.item}
+                threadId={props.threadId}
+                ace={data.step.ace}
+              />
+            </Suspense>
+          </LocalBoundary>
         </div>
       )}
     </li>
