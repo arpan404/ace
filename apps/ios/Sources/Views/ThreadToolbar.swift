@@ -158,6 +158,9 @@ struct ThreadMenu: View, Equatable {
     /// Leaves the thread after it was snoozed or archived.
     let leave: () -> Void
     @State private var showing = false
+    /// The item picked, opened once the menu has gone: a sheet asked for while the menu's own
+    /// sheet is still leaving is dropped without a word.
+    @State private var picked: ThreadDestination?
 
     var body: some View {
         Button {
@@ -173,7 +176,12 @@ struct ThreadMenu: View, Equatable {
         .accessibilityIdentifier("thread.menu")
         .popover(isPresented: $showing) {
             ThreadMenuPanel(model: model, thread: thread, title: title, archived: archived,
-                            open: open, leave: leave, pages: pages)
+                            open: { picked = $0 }, leave: leave, pages: pages)
+                .onDisappear {
+                    guard let destination = picked else { return }
+                    picked = nil
+                    open(destination)
+                }
                 .presentationCompactAdaptation(.sheet)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
