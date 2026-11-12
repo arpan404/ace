@@ -224,9 +224,15 @@ test("a message sent from the phone shows at once and stays, once, after Spade s
   });
   spade.handle({ type: "spade.open", conversationId: "c1" });
   await until(() => daemon.spade.following("c1"));
-  expect(await ask({ type: "spade.send", conversationId: "c1", text: "Remember milk" })).toEqual({
-    ok: true,
-  });
+  daemon.spade.holding = true;
+  const sent = ask({ type: "spade.send", conversationId: "c1", text: "Remember milk" });
+  await until(() => daemon.spade.waiting === 1);
+  // Before Spade has the message, it shows as sending.
+  await until(() => rows(patches.flush())[1]?.pending === true);
+  expect(rows(patches.flush()).map((row) => row.text)).toEqual(["Hello", "Remember milk"]);
+
+  daemon.spade.letThrough();
+  expect(await sent).toEqual({ ok: true });
   await until(() => rows(patches.flush()).length === 2 && !rows(patches.flush())[1]?.pending);
   expect(rows(patches.flush()).map((row) => row.text)).toEqual(["Hello", "Remember milk"]);
 });
@@ -310,10 +316,14 @@ test("a conversation Spade no longer has says so instead of loading forever", as
 });
 
 test("starting a conversation returns where it is, and Stop with nothing answering is fine", async () => {
-  const { daemon, ask } = await phone();
+  const { daemon, spade, patches, ask } = await phone();
   const started = await ask({ type: "spade.start", text: "What's on today?" });
   expect(started).toMatchObject({ ok: true });
   const id = String("id" in started ? started.id : "");
+  // The id is where Spade keeps it: its history holds the message that started it.
+  spade.handle({ type: "spade.open", conversationId: id });
+  await until(() => rows(patches.flush()).length === 1);
+  expect(rows(patches.flush()).map((row) => row.text)).toEqual(["What's on today?"]);
   expect(await ask({ type: "spade.stop", conversationId: id })).toEqual({ ok: true });
   expect(daemon.spade.asked.map((call) => `${call.method} ${call.path}`)).toContain(
     `POST /v1/conversations/${id}/stop`,
