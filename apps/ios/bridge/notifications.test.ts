@@ -31,8 +31,22 @@ const categories = (failures: boolean) => ({
   agentSays: true,
 });
 
+const finishedRun = (id: string, finishedAt: number) => ({
+  id,
+  automationId: "nightly",
+  title: "Nightly audit",
+  eventKey: id,
+  trigger: "schedule" as const,
+  status: "succeeded" as const,
+  startedAt: 100,
+  finishedAt,
+  threadId: `t-${id}`,
+  result: "all green",
+});
+const runCategories = (automations: boolean) => ({ ...categories(true), automations });
+
 /** The real SDK against the fixture daemon; patches are what Swift would receive. */
-async function phone() {
+async function phone(now?: () => number) {
   const daemon = new FakeDaemon({ clock: () => 1000 });
   daemon.createThread({
     id: threadId,
@@ -90,6 +104,8 @@ async function phone() {
     schedule,
     () => 23 * 60,
     200,
+    undefined,
+    now,
   );
   closers.push(async () => {
     bridge.close();
@@ -190,6 +206,41 @@ it("each alert says how this phone shows it, by the categories and quiet hours S
   await vi.waitFor(() => expect(of("notifications.alert")).toHaveLength(3));
   expect(of("notifications.alert")[2]).toMatchObject({
     notification: { delivery: { post: false } },
+  });
+});
+
+it("a finished automation run is posted once, when run alerts are on, by the phone's choice", async () => {
+  // The phone started watching at 500; the machine's inbox holds one run from before and one after.
+  const { daemon, act, settle, of } = await phone(() => 500);
+  daemon.seedServices({
+    settings: { "automations.enabled": true },
+    runs: [finishedRun("old", 400), finishedRun("new", 700)],
+  });
+  const sync = (automations: boolean) =>
+    act({
+      type: "notifications.sync",
+      enabled: true,
+      appState: "background",
+      cursor: 0,
+      phone: {
+        inApp: runCategories(automations),
+        system: runCategories(automations),
+        quietHours: null,
+      },
+    });
+  sync(false);
+  await settle();
+  expect(of("notifications.run")).toEqual([]);
+  sync(true);
+  await vi.waitFor(() => expect(of("notifications.run")).toHaveLength(1));
+  expect(of("notifications.run")[0]).toEqual({
+    type: "notifications.run",
+    key: "new",
+    title: "Nightly audit finished",
+    body: "The automation run finished",
+    threadId: "t-new",
+    automationId: "nightly",
+    delivery: { post: true, interrupt: true, banner: false },
   });
 });
 
