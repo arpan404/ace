@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { strayWeights, tableWeights } from "./icon-weights.ts";
+import { weightProblems } from "./icon-weight-guard.ts";
+import { tableWeights } from "./icon-weights.ts";
 
 const tables = {
   "src/file-icon.ts": ["regular"],
@@ -74,19 +75,75 @@ describe("which weights an icon drawn only by glyph tables keeps", () => {
   });
 });
 
-test("a module asking for a weight the build drops is named, unless it is a glyph table", () => {
-  expect(
-    strayWeights(
-      new Map([
-        ["src/components/empty-glyphs.ts", 'pinnedGlyph(WarningCircleIcon, ["duotone"])'],
+/** What the build keeps: every icon's weights, and duotone in the empty-state table. */
+const kept = (path: string) =>
+  new Set(["regular", "fill", "bold", ...(path === "src/empty-glyphs.ts" ? ["duotone"] : [])]);
+
+/** The lines `weightProblems` names in one module of `code`. */
+const problems = (code: string, path = "src/features/home/row.tsx") =>
+  weightProblems(
+    new Map([[path, `import { GearIcon } from "@phosphor-icons/react";\n${code}`]]),
+    kept,
+  );
+
+describe("places that ask an icon for a weight the build may drop", () => {
+  test("weights spelled out as kept weights, or chosen between them, pass", () => {
+    expect(
+      problems(
         [
-          "src/components/ace-icons.tsx",
-          'const solid = weight === "fill" || weight === "duotone";',
-        ],
-        ["src/features/home/empty.tsx", '<FolderIcon weight="duotone" />'],
-        ["src/features/home/row.tsx", "<FolderIcon weight='thin' />"],
-        ["src/features/home/list.tsx", '<FolderIcon weight="bold" />'],
-      ]),
-    ),
-  ).toEqual(["src/features/home/empty.tsx", "src/features/home/row.tsx"]);
+          'export const A = () => <GearIcon weight="bold" />;',
+          'export const B = (p) => <GearIcon weight={p.on ? "fill" : "regular"} />;',
+          'export const C = (p) => <GearIcon weight={p.on ? `fill` : "regular"} />;',
+          'export const D = { icon: GearIcon, weight: "fill" as const };',
+          // A cache's byte weight is no icon's.
+          "export const E = { weight: (entry) => entry.bytes };",
+        ].join("\n"),
+      ),
+    ).toEqual([]);
+  });
+
+  test("a dropped weight is named, spelled out, chosen, or under a quoted key", () => {
+    expect(
+      problems(
+        [
+          'export const A = () => <GearIcon weight="duotone" />;',
+          'export const B = (p) => <GearIcon weight={p.compact ? "light" : "regular"} />;',
+          'export const C = { icon: GearIcon, "weight": "thin" };',
+        ].join("\n"),
+      ),
+    ).toEqual([
+      'src/features/home/row.tsx:2 asks an icon for "duotone", a weight the build drops',
+      'src/features/home/row.tsx:3 asks an icon for "light", a weight the build drops',
+      'src/features/home/row.tsx:4 asks an icon for "thin", a weight the build drops',
+    ]);
+  });
+
+  test("a weight from a variable or a call, or props spread onto an icon, can't be read and is named", () => {
+    expect(
+      problems(
+        [
+          'const w = compact ? "light" : "regular";',
+          "export const A = () => <GearIcon weight={w} />;",
+          "export const B = () => <GearIcon weight={pick()} />;",
+          "export const C = (props) => <GearIcon size={16} {...props} />;",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      "src/features/home/row.tsx:3 sets <GearIcon>'s weight to a value the source doesn't spell out",
+      "src/features/home/row.tsx:4 sets <GearIcon>'s weight to a value the source doesn't spell out",
+      "src/features/home/row.tsx:5 spreads props onto <GearIcon>, so its weight can't be read",
+    ]);
+  });
+
+  test("a glyph table may draw its own weight, and a typed module may pass one along", () => {
+    expect(
+      problems('export const A = { icon: GearIcon, weight: "duotone" };', "src/empty-glyphs.ts"),
+    ).toEqual([]);
+    expect(
+      problems(
+        "export const A = (p) => <GearIcon {...p} weight={p.weight} />;",
+        "src/components/icon.tsx",
+      ),
+    ).toEqual([]);
+  });
 });

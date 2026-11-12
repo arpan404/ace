@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import type { Plugin } from "vite";
 import { parseAst } from "vite";
+import { weightProblems } from "./icon-weight-guard.ts";
 
 /**
  * The Phosphor weights any icon is drawn in (ADR 0056): regular when inactive, fill when active,
@@ -29,22 +30,6 @@ export const glyphTables: Readonly<Record<string, readonly TableWeight[]>> = {
   "src/components/project-glyphs.ts": ["regular", "bold"],
   "src/components/empty-glyphs.ts": ["duotone"],
 };
-
-/**
- * Modules that may name a weight `iconWeights` leaves out: the tables, and ace's own icons,
- * which take Phosphor's weight names but draw their own paths.
- */
-const ownWeights = new Set([...Object.keys(glyphTables), "src/components/ace-icons.tsx"]);
-// `duotone` is only ever an icon weight; `thin` and `light` are other words too (a theme), so
-// they count where a weight is set.
-const leftOut = /["'`]duotone["'`]|\bweight\s*[:=]\s*\{?\s*["'`](?:thin|light)["'`]/;
-
-/** Source modules that ask for a weight the build drops: any would draw an empty icon. */
-export function strayWeights(sources: ReadonlyMap<string, string>): string[] {
-  return [...sources].flatMap(([path, code]) =>
-    !ownWeights.has(path) && leftOut.test(code) ? [path] : [],
-  );
-}
 
 const phosphor = /["']@phosphor-icons\/react(?:\/[^"']*)?["']/g;
 const named =
@@ -168,10 +153,13 @@ export function phosphorWeights(): Plugin {
     enforce: "pre",
     buildStart() {
       const sources = readSources(import.meta.dirname);
-      const stray = strayWeights(sources);
-      if (stray.length)
+      const problems = weightProblems(
+        sources,
+        (path) => new Set([...iconWeights, ...(glyphTables[path] ?? [])]),
+      );
+      if (problems.length)
         this.error(
-          `These modules ask for an icon weight the build drops (icon-weights.ts), which would draw nothing; draw it through a glyph table: ${stray.join(", ")}`,
+          `An icon asked for a weight the build may drop draws nothing (icon-weights.ts). Spell its weight out as one of ${iconWeights.join(", ")}, or draw it through a glyph table:\n${problems.join("\n")}`,
         );
       kept = tableWeights(sources);
     },
