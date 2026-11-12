@@ -1,4 +1,3 @@
-import { readFile, stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { readCodexToolSource, type CodexToolSource } from "@ace/plugins";
 import type { NativeToolSource, NativeToolStatus } from "@ace/protocol";
@@ -21,20 +20,9 @@ import {
   type ClaudeChromeSetting,
 } from "./claude.ts";
 
+import type { NativeToolFiles } from "./files.ts";
+
 /* Thin shell around the native tool rules: reads the files they need through `files`. */
-
-export interface NativeToolFiles {
-  /** Rejects with an `ENOENT` code when the file is absent. */
-  readFile(path: string): Promise<string>;
-  isDirectory(path: string): Promise<boolean>;
-  isFile(path: string): Promise<boolean>;
-}
-
-export const nodeNativeToolFiles: NativeToolFiles = {
-  readFile: (path) => readFile(path, "utf8"),
-  isDirectory: async (path) => (await stat(path)).isDirectory(),
-  isFile: async (path) => (await stat(path)).isFile(),
-};
 
 export interface CodexToolRead {
   /** `providers.codex.toolSource`; null is the default Codex home. */
@@ -56,7 +44,8 @@ export async function readCodexTools(read: CodexToolRead): Promise<CodexToolSour
 
 /** What one Codex launch adds from the tool source. Never throws. */
 export async function codexLaunchArgs(read: CodexToolRead): Promise<CodexToolLaunch> {
-  return codexToolLaunch(await readCodexTools(read), read.homeDir);
+  const source = await readCodexTools(read);
+  return codexToolLaunch(source, read.homeDir, await readCodexToolSource(read.homeDir, read.files));
 }
 
 /** The Codex row's tool status for the account whose home is `homeDir`. Never throws. */
@@ -74,7 +63,7 @@ export async function codexToolStatus(
       : (await read.files.isFile(repl.command).catch(() => false))
         ? "found"
         : "not_found";
-  const launch = codexToolLaunch(source, read.homeDir);
+  const launch = codexToolLaunch(source, read.homeDir, home);
   const sourceProblem = launch.problem ?? toolSourceProblem(source);
   return {
     nativeTools: codexNativeTools({

@@ -3,6 +3,8 @@ import {
   codexToolEntryNames,
   codexToolOverrides,
   emptyCodexToolTables,
+  mergeCodexToolTables,
+  relocateCodexHome,
   type CodexToolSource,
   type CodexToolSourceProblem,
   type CodexToolTables,
@@ -18,6 +20,7 @@ const problemWords: Record<CodexToolSourceProblem, string> = {
   missing_folder: "The Codex tool folder doesn't exist",
   missing_config: "The Codex tool folder has no config.toml",
   unreadable_config: "ace can't read config.toml in the Codex tool folder",
+  too_large_config: "config.toml in the Codex tool folder is over 1 MB",
   malformed_config: "config.toml in the Codex tool folder doesn't parse",
 };
 
@@ -34,34 +37,47 @@ export interface CodexToolLaunch {
   args: string[];
   /** `table.key` names for logs; never values. */
   entries: string[];
+  /** `table.key` names of source entries Codex couldn't be given; never values. */
+  skipped: string[];
   /** Why the source added nothing, when it should have. */
   problem?: string;
 }
 
-/** What a Codex launch from `homeDir` adds: nothing when that home is the tool source itself. */
-export function codexToolLaunch(source: CodexToolSource, homeDir: string): CodexToolLaunch {
-  if (sameFolder(source.dir, homeDir)) return { args: [], entries: [] };
-  if (!source.ok) return { args: [], entries: [], problem: problemWords[source.problem] };
-  return { args: codexToolOverrides(source.tables), entries: codexToolEntryNames(source.tables) };
+const tablesOf = (source: CodexToolSource) => (source.ok ? source.tables : emptyCodexToolTables);
+
+/**
+ * What a Codex launch from `homeDir` adds: nothing when that home is the tool source itself.
+ * `home` is that account home's own config: its own `enabled` choices stay, and the source's
+ * MCP servers run with the account's Codex home, not the source's.
+ */
+export function codexToolLaunch(
+  source: CodexToolSource,
+  homeDir: string,
+  home: CodexToolSource,
+): CodexToolLaunch {
+  if (sameFolder(source.dir, homeDir)) return { args: [], entries: [], skipped: [] };
+  if (!source.ok)
+    return { args: [], entries: [], skipped: [], problem: problemWords[source.problem] };
+  const tables = relocateCodexHome(source.tables, source.dir, homeDir);
+  return {
+    args: codexToolOverrides(tables, tablesOf(home)),
+    entries: codexToolEntryNames(tables),
+    skipped: [...source.skipped],
+  };
 }
 
 /**
- * The tables a Codex launch from `homeDir` ends up with: the account home's own config, each
- * source entry replacing the one of the same name, as the `-c` overrides do.
+ * The tables a Codex launch from `homeDir` ends up with: the account home's own config with
+ * the source merged in field by field, the account's own `enabled` kept, as Codex merges the
+ * overrides.
  */
 export function effectiveCodexTools(
   source: CodexToolSource,
   homeDir: string,
   home: CodexToolSource,
 ): CodexToolTables {
-  if (sameFolder(source.dir, homeDir)) return source.ok ? source.tables : emptyCodexToolTables;
-  const base = home.ok ? home.tables : emptyCodexToolTables;
-  const over = source.ok ? source.tables : emptyCodexToolTables;
-  return {
-    marketplaces: { ...base.marketplaces, ...over.marketplaces },
-    plugins: { ...base.plugins, ...over.plugins },
-    mcp_servers: { ...base.mcp_servers, ...over.mcp_servers },
-  };
+  if (sameFolder(source.dir, homeDir)) return tablesOf(source);
+  return mergeCodexToolTables(tablesOf(source), tablesOf(home));
 }
 
 /** The `node_repl` MCP server that hosts Codex's computer use, Chrome and browser plugins. */
@@ -138,8 +154,12 @@ export function codexNativeTools(facts: CodexToolFacts): NativeToolStatus[] {
   return status;
 }
 
-/** The tool source row for Settings. */
+/** The tool source row for Settings; names entries Codex couldn't be given, never values. */
 export function codexToolSourceStatus(source: CodexToolSource): NativeToolSource {
-  const reason = toolSourceProblem(source);
+  const reason =
+    toolSourceProblem(source) ??
+    (source.ok && source.skipped.length
+      ? `Left out, Codex can't take these names: ${source.skipped.join(", ")}`.slice(0, 512)
+      : undefined);
   return { path: source.dir, usable: source.ok, ...(reason ? { reason } : {}) };
 }

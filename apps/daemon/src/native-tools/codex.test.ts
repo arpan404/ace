@@ -1,6 +1,12 @@
 import { describe, expect, test } from "vitest";
 import { parseCodexToolConfig, type CodexToolSource } from "@ace/plugins";
-import { codexNativeTools, codexToolLaunch, effectiveCodexTools, nodeRepl } from "./codex.ts";
+import {
+  codexNativeTools,
+  codexToolLaunch,
+  codexToolSourceStatus,
+  effectiveCodexTools,
+  nodeRepl,
+} from "./codex.ts";
 
 const source = "/Users/me/.codex";
 const managed = "/Users/me/.ace/account-homes/work";
@@ -20,6 +26,8 @@ enabled = true
 command = "/Applications/Host.app/node_repl"
 `;
 
+const noConfig: CodexToolSource = { ok: false, dir: managed, problem: "missing_config" };
+
 function states(text: string, facts: Partial<Parameters<typeof codexNativeTools>[0]> = {}) {
   const config = parsed(text);
   const tables = effectiveCodexTools(config, source, config);
@@ -32,11 +40,15 @@ function states(text: string, facts: Partial<Parameters<typeof codexNativeTools>
 
 describe("Codex launches", () => {
   test("an account whose home is the tool source starts with nothing extra", () => {
-    expect(codexToolLaunch(parsed(allPlugins), `${source}/`)).toEqual({ args: [], entries: [] });
+    expect(codexToolLaunch(parsed(allPlugins), `${source}/`, noConfig)).toEqual({
+      args: [],
+      entries: [],
+      skipped: [],
+    });
   });
 
   test("a managed account starts with the source's entries", () => {
-    const launch = codexToolLaunch(parsed(allPlugins), managed);
+    const launch = codexToolLaunch(parsed(allPlugins), managed, noConfig);
     expect(launch.entries).toEqual([
       "plugins.computer-use@bundled",
       "plugins.chrome@bundled",
@@ -47,19 +59,29 @@ describe("Codex launches", () => {
   });
 
   test("an unusable source adds nothing and says why", () => {
-    expect(codexToolLaunch({ ok: false, dir: source, problem: "missing_config" }, managed)).toEqual(
-      { args: [], entries: [], problem: "The Codex tool folder has no config.toml" },
-    );
+    expect(
+      codexToolLaunch({ ok: false, dir: source, problem: "missing_config" }, managed, noConfig),
+    ).toEqual({
+      args: [],
+      entries: [],
+      skipped: [],
+      problem: "The Codex tool folder has no config.toml",
+    });
   });
 
-  test("the source's entries replace the account's own, which otherwise stay", () => {
+  test("the account's own entries stay, its enabled choices over the source's", () => {
     const home = parsed(
-      '[plugins."chrome@bundled"]\nenabled = false\n[plugins."mine@local"]\nenabled = true\n',
+      '[plugins."chrome@bundled"]\nenabled = false\n[plugins."mine@local"]\nenabled = true\n' +
+        "[mcp_servers.node_repl]\nenabled = false\n",
       managed,
     );
     const tables = effectiveCodexTools(parsed(allPlugins), managed, home);
-    expect(tables.plugins["chrome@bundled"]).toEqual({ enabled: true });
+    expect(tables.plugins["chrome@bundled"]).toEqual({ enabled: false });
     expect(tables.plugins["mine@local"]).toEqual({ enabled: true });
+    expect(tables.mcp_servers["node_repl"]).toEqual({
+      command: "/Applications/Host.app/node_repl",
+      enabled: false,
+    });
   });
 });
 
@@ -144,5 +166,16 @@ describe("Codex tool status", () => {
   test("node_repl without a command counts as not set up", () => {
     const config = parsed("[mcp_servers.node_repl]\nargs = []\n");
     expect(nodeRepl(effectiveCodexTools(config, source, config))).toEqual({ state: "missing" });
+  });
+});
+
+test("the tool source row names entries Codex couldn't be given, never their values", () => {
+  const status = codexToolSourceStatus(
+    parsed('[mcp_servers."a.b@c"]\ncommand = "/secret/path"\n[plugins."x@y"]\nenabled = true\n'),
+  );
+  expect(status).toEqual({
+    path: source,
+    usable: true,
+    reason: "Left out, Codex can't take these names: mcp_servers.a.b@c",
   });
 });
