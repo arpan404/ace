@@ -1,6 +1,6 @@
-import { onSocketMove, type ClientApi } from "@ace/client";
+import type { ClientApi } from "@ace/client";
 import { spadeExchange, type SpadeExchange } from "@ace/client/spade-http";
-import type { SpadeLiveEndReason } from "@ace/protocol";
+import { SpadeDaemonLive, type SpadeLiveEnd, type SpadeLiveSink } from "@ace/client/spade-live";
 import { desktopSpade, type DesktopSpade, type DirectAnswer } from "./desktop-spade.ts";
 import {
   afterLook,
@@ -18,16 +18,9 @@ export type SpadeReply =
   /** `failed`: no answer came back, so Spade may have the request. */
   | { kind: "error"; code: string; message: string };
 
-/**
- * How a live stream ended. `dropped`: the way it went is gone (the daemon socket dropped or
- * moved, or Spade wasn't at its address); open again, after the last `seq`, once `canOpen`.
- */
-export type LiveEnd = SpadeLiveEndReason | "dropped";
-export interface LiveSink {
-  frame(event: string, data: string): void;
-  /** Called once, unless the stream was closed first. */
-  ended(reason: LiveEnd, status?: number): void;
-}
+/** How a live stream ended; `dropped`: open again, after the last `seq`, once `canOpen`. */
+export type LiveEnd = SpadeLiveEnd;
+export type LiveSink = SpadeLiveSink;
 
 export interface TransportDeps {
   id(): string;
@@ -52,9 +45,9 @@ export class SpadeTransport {
   /** The last socket seen, so a new one is noticed once. */
   private socket: number | undefined;
   private readonly openable = new Set<() => void>();
-  private readonly daemonStreams = new Map<string, LiveSink>();
   private readonly directStreams = new Map<string, LiveSink>();
-  private daemonStops: (() => void)[] | undefined;
+  /** The daemon's streams, and the moments a stream can open there again. */
+  private readonly daemon: SpadeDaemonLive;
   private readonly client: ClientApi;
   readonly desktop: DesktopSpade | undefined;
   private readonly deps: TransportDeps;
@@ -63,6 +56,7 @@ export class SpadeTransport {
     this.client = client;
     this.desktop = desktop;
     this.deps = deps;
+    this.daemon = new SpadeDaemonLive(client, deps.id);
     desktop?.onEndpointChanged(() => {
       this.route = { state: "unknown" };
       void this.look();
@@ -131,10 +125,10 @@ export class SpadeTransport {
   /** `listener` runs whenever a stream may open where it couldn't (or had to reopen). */
   onOpenable(listener: () => void): () => void {
     this.openable.add(listener);
-    this.attachDaemon();
+    const stop = this.daemon.onOpenable(listener);
     return () => {
       this.openable.delete(listener);
-      this.detachDaemon();
+      stop();
     };
   }
 
@@ -247,78 +241,7 @@ export class SpadeTransport {
   }
 
   private openDaemon(path: string, sink: LiveSink): () => void {
-    const requestId = `spade-live-${this.deps.id()}`;
-    this.daemonStreams.set(requestId, sink);
-    this.attachDaemon();
-    const refuse = (reason: LiveEnd) =>
-      queueMicrotask(() => {
-        if (this.daemonStreams.delete(requestId)) sink.ended(reason);
-      });
-    if (!this.daemonStops) refuse("forbidden");
-    else if (this.client.state !== "ready") refuse("dropped");
-    else
-      try {
-        this.client.send({ type: "spade.live.subscribe", requestId, path });
-      } catch {
-        refuse("dropped");
-      }
-    return () => {
-      if (!this.daemonStreams.delete(requestId)) return;
-      this.detachDaemon();
-      if (this.client.state !== "ready") return;
-      try {
-        this.client.send({ type: "spade.live.unsubscribe", requestId });
-      } catch {
-        // The socket closed first; the daemon ended the stream with it.
-      }
-    };
-  }
-
-  /** Listen to the daemon while anything streams or waits to. */
-  private attachDaemon() {
-    if (this.daemonStops) return;
-    const connection = this.client.connectionState();
-    const stops: (() => void)[] = [];
-    try {
-      stops.push(this.client.onMessage((message) => this.receive(message)));
-    } catch {
-      // At the listener limit: daemon streams can't be followed (`openDaemon` says so).
-      return;
-    }
-    stops.push(
-      connection.subscribe(() => {
-        // The daemon ends a socket's streams with it.
-        if (connection.getSnapshot() !== "ready") this.dropDaemonStreams();
-        else this.notifyOpenable();
-      }),
-      onSocketMove(this.client, () => {
-        this.dropDaemonStreams();
-        this.notifyOpenable();
-      }),
-    );
-    this.daemonStops = stops;
-  }
-
-  private detachDaemon() {
-    if (this.openable.size || this.daemonStreams.size) return;
-    for (const stop of this.daemonStops?.splice(0) ?? []) stop();
-    this.daemonStops = undefined;
-  }
-
-  private receive(message: Parameters<Parameters<ClientApi["onMessage"]>[0]>[0]) {
-    if (message.type === "spade.live.frame")
-      return this.daemonStreams.get(message.requestId)?.frame(message.event, message.data);
-    if (message.type !== "spade.live.ended") return;
-    const sink = this.daemonStreams.get(message.requestId);
-    if (!sink) return;
-    this.daemonStreams.delete(message.requestId);
-    sink.ended(message.reason, message.status);
-  }
-
-  private dropDaemonStreams() {
-    const sinks = [...this.daemonStreams.values()];
-    this.daemonStreams.clear();
-    for (const sink of sinks) sink.ended("dropped");
+    return this.daemon.open(path, sink);
   }
 
   private notifyOpenable() {
