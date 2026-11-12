@@ -5,12 +5,6 @@ import { harness } from "@/test/harness.tsx";
 
 configure({ asyncUtilTimeout: 10_000 });
 
-const disclosureOf = (title: string) => {
-  const details = screen.getByText(title, { selector: "summary" }).closest("details");
-  if (!details) throw new Error(`${title} is not a disclosure`);
-  return details;
-};
-
 test("a settings disclosure stays folded until opened, shows its rows, and folds again", async () => {
   await harness().open("/settings/providers/claude");
   const summary = await screen.findByText("MCP servers", { selector: "summary span" });

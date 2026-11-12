@@ -67,7 +67,7 @@ export function ProviderProblemLine(props: {
   return (
     <div
       role="status"
-      className="mb-7 flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-[color-mix(in_oklab,var(--status-needs-you)_9%,var(--surface-1))] px-4 py-2 text-ui"
+      className="mb-7 flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-[color-mix(in_oklab,var(--status-needs-you)_12%,var(--surface-1))] px-4 py-2 text-ui"
     >
       <p className="min-w-0 flex-1">{problem.text}</p>
       {fix && <div className="flex shrink-0 items-center gap-2">{fix}</div>}

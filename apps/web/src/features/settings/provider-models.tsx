@@ -278,7 +278,7 @@ function DefaultModel(props: {
         value={current?.label ?? "None"}
         note={missing ? "Unavailable" : current?.userDefault ? "Your choice" : undefined}
         disabled={preferences.disabled}
-        className="max-w-56"
+        className="w-(--setting-select-width) max-w-full"
         onPick={(key) => void choose(modelIdOfKey(key))}
       />
       {(current?.userDefault || missing) && (

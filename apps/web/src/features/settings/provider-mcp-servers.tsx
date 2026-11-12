@@ -11,12 +11,7 @@ import {
 } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import {
-  mcpServersNote,
-  mcpServerWord,
-  pluralCount,
-  providerHasMcpServers,
-} from "@ace/ui-core";
+import { mcpServersNote, mcpServerWord, pluralCount, providerHasMcpServers } from "@ace/ui-core";
 import { providerMcpSource } from "./provider-mcp-source.ts";
 
 const AddMcpServer = lazy(() => import("./add-mcp-server.tsx"));

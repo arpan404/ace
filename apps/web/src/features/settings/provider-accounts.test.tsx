@@ -383,7 +383,9 @@ test("an Antigravity account added in Settings signs in on its own, beside the C
 
   await userEvent.click(within(await row("Work")).getByRole("button", { name: "Manage Work" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Remove account…" }));
-  const confirm = within(await screen.findByRole("dialog", { name: "Remove Work from Antigravity?" }));
+  const confirm = within(
+    await screen.findByRole("dialog", { name: "Remove Work from Antigravity?" }),
+  );
   await userEvent.click(confirm.getByRole("button", { name: "Remove account" }));
   await waitFor(() => expect(within(list).queryByText("Work")).toBeNull());
   expect((await listed()).map((entry) => entry.label)).toEqual(["Antigravity"]);
