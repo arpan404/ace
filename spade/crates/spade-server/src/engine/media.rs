@@ -30,7 +30,7 @@ impl Engine {
             return Err(SendError::TooManyDocuments);
         }
         let attached = outgoing.images.len() + outgoing.documents.len();
-        self.check_message(&outgoing.text, attached)?;
+        self.check_message(id, &outgoing.text, attached)?;
         if self.store.conversation(id)?.is_none() || self.deleting(id) {
             return Err(SendError::NotFound);
         }

@@ -227,6 +227,12 @@ export function recoverEngine(
           fail(intent, "Retired for thread deletion");
           return;
         }
+        // A Spade bot's session (ADR 0133): Spade's turn ended with the restart and Spade sends
+        // the next one itself; nothing here carries on or replays.
+        if (repo.store.getThread(intent.threadId)?.host === "spade-bot") {
+          fail(intent, "Spade sends this bot's turns again itself.");
+          return;
+        }
         if (repo.store.getThread(intent.threadId)?.continuation) {
           fail(
             intent,
@@ -287,6 +293,11 @@ export function recoverEngine(
     isolated(state.threadId, skip, () =>
       repo.store.atomic(() => {
         if (repo.cleaning(state.threadId)) return;
+        if (repo.store.getThread(state.threadId)?.host === "spade-bot") {
+          recovery.captures.take(state.threadId);
+          recovery.discard(state.threadId);
+          return;
+        }
         // Each capture informs this one decision; taking it in the same transaction means a
         // crash before here leaves it for the next start.
         const capture = recovery.captures.take(state.threadId);

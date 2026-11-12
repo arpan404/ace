@@ -12,6 +12,7 @@ import { ThreadLiveness, type LiveWork } from "./thread-liveness.ts";
 import { reclaimIdleSlot } from "./slot-reclaim.ts";
 import { EngineModels } from "./models.ts";
 import { personCommand } from "./person-command.ts";
+import { personRefusal } from "./guest-admission.ts";
 import { cancelDelegatedInputs } from "./stop-intents.ts";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -427,7 +428,16 @@ export class Engine {
               ),
     };
     this.handler = {
-      handle: (command, context) => this.internalHandler.handle(personCommand(command), context),
+      handle: (command, context) => {
+        const payload = command.payload;
+        if ("threadId" in payload && payload.threadId) {
+          // A Spade bot's hidden session runs only the turns Spade asks for (ADR 0133).
+          const host = store.getThread(ThreadId.parse(payload.threadId))?.host;
+          const refused = personRefusal(command.id, payload, host);
+          if (refused) return refused;
+        }
+        return this.internalHandler.handle(personCommand(command), context);
+      },
     };
     // A thread whose stored state cannot be read is left out of startup, never the daemon.
     const unreadable = (id: ThreadId, error: unknown) =>

@@ -27,7 +27,7 @@ enum Ended {
 }
 
 /// What one model step produced.
-enum Step {
+pub(super) enum Step {
     /// The bot's own cap held at admission.
     Capped(spade_core::oversight::Hit),
     Answered,
@@ -175,21 +175,25 @@ async fn drive(
             Next::Idle => return Ended::Finished,
             Next::CallModel { reply } => {
                 *driven = Some(reply.clone());
+                let model = turn_model(engine, &events, &reply);
+                // A subscription (ADR 0133) runs its own loop and keeps its own context: Spade's
+                // step, cost and cap limits and compaction are for endpoint models.
+                let cli = spade_core::brain::CliModel::is(&model);
                 let done = progress(&events);
-                if done.steps >= engine.limits.max_steps {
+                if !cli && done.steps >= engine.limits.max_steps {
                     let limit = engine.limits.max_steps;
                     return Ended::Failed(
                         String::new(),
                         format!("the turn reached its limit of {limit} steps"),
                     );
                 }
-                if done.cost_micros >= engine.limits.turn_cost_micros {
+                if !cli && done.cost_micros >= engine.limits.turn_cost_micros {
                     return Ended::Failed(
                         String::new(),
                         "the turn reached its cost limit".to_owned(),
                     );
                 }
-                if !engine.within_cap().unwrap_or(false) {
+                if !cli && !engine.within_cap().unwrap_or(false) {
                     return Ended::Failed(
                         String::new(),
                         "today's spending cap is used up".to_owned(),
@@ -208,7 +212,31 @@ async fn drive(
                 if super::memory::index_if_due(engine, id, &events) {
                     continue;
                 }
-                let model = turn_model(engine, &events, &reply);
+                if cli {
+                    let step =
+                        super::brain::step(engine, id, &reply, &events, &model, &mut stop, pause)
+                            .await;
+                    match step {
+                        Step::Answered => {
+                            match super::brain::finish_unless_steered(engine, id, &reply) {
+                                Ok(true) => return Ended::Finished,
+                                Ok(false) => {}
+                                Err(error) => return Ended::Failed(String::new(), error),
+                            }
+                        }
+                        Step::Calls => {}
+                        Step::Capped(hit) => {
+                            return match engine.close_capped(id, &reply, &hit) {
+                                Ok(()) => Ended::Finished,
+                                Err(error) => Ended::Failed(String::new(), error.to_string()),
+                            };
+                        }
+                        Step::Paused => return Ended::Paused,
+                        Step::Stopped(text) => return Ended::Stopped(text),
+                        Step::Failed(text, error) => return Ended::Failed(text, error),
+                    }
+                    continue;
+                }
                 // Stop interrupts a compaction too; nothing is stored for one cut short. A pause
                 // lets it finish like a model step, unless the pause is immediate.
                 let compacted = tokio::select! {
@@ -400,7 +428,7 @@ async fn model_step(
 /// Adds a streamed piece to the open reply's snapshot in place, so each piece costs its own
 /// length; the text is copied whole only when the step's snapshot starts (`text` is everything
 /// streamed so far, `piece` included) and when a subscriber joins.
-fn add_piece(current: &mut Option<Snapshot>, reply: &str, text: &str, piece: &str) {
+pub(super) fn add_piece(current: &mut Option<Snapshot>, reply: &str, text: &str, piece: &str) {
     match current {
         Some(snapshot) if snapshot.reply == reply => snapshot.text.push_str(piece),
         _ => {

@@ -10,6 +10,7 @@ publish.workspace = true
 [dependencies]
 spade-mcp = { path = "../spade-mcp" }
 futures-util = { workspace = true, features = ["sink"] }
+reqwest = { workspace = true, features = ["stream"] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -19,6 +20,7 @@ tracing.workspace = true
 url = "2"
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
 axum.workspace = true
 tempfile.workspace = true
 rmcp = { version = "3.9.0", default-features = false, features = [

@@ -45,7 +45,7 @@ characters>` it also answers `proof`: lowercase hex HMAC-SHA256 with the token f
   (messages are stored and answered once it opens), at most 15 s: after that admission opens
   anyway and setup finishes by itself whenever the keychain answers. Until it has,
   `GET /health` and `GET /v1/models` answer `"starting": true` with `"starting_reason"` (`setting
-  up endpoints`, `waiting for the keychain`, or `setting up endpoints failed; trying again`);
+up endpoints`, `waiting for the keychain`, or `setting up endpoints failed; trying again`);
   then `"starting": false` and `null`.
 - **Stop.** SIGTERM: Spade closes admission, lets a running model step finish (up to 5 s for a
   plain stop), records open turns as paused (`turn_paused`), ends its live streams and exits. On
@@ -212,8 +212,9 @@ ADR 0121 records the daemon side.
   two live children of one parent can't share a role.
 - **Skills:** `skills.request` (ADR 0103) over the daemon WebSocket with the local token, for the
   list and each skill's text, so Spade and ace share one skill library.
-- **CLI brains (later):** Spade asks the daemon to run a turn on a provider CLI with Spade's tools
-  attached; the daemon's existing provider sessions carry it.
+- **CLI brains:** Spade asks the daemon (`POST <daemon>/spade/brains/turn`, with its grant) to
+  run a bot's turn in the bot's hidden provider session; the bot's tools reach that session
+  through ace's MCP endpoint and Spade's `/v1/agents/{id}/mcp` ([cli-brains.md](cli-brains.md)).
 
 ## How Spade calls ace's tools
 

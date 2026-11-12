@@ -5,6 +5,7 @@
 mod adopt;
 mod agents;
 mod bots;
+mod brain;
 mod calls;
 mod compact;
 mod control;
@@ -29,6 +30,7 @@ mod types;
 
 pub use agents::{BOT, MAIN, NAME_CHARS, TASK_CHARS};
 pub use bots::MOST_HOPS;
+pub use brain::BrainSource;
 pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput};
 pub use groups::{GROUP_NAME_CHARS, GroupError, GroupInput, GroupLast, GroupView, MemberRef};
 pub use inbox::{InboxAnswer, Sender as InboxSender};
@@ -132,6 +134,8 @@ pub struct Engine {
     retiring: Mutex<std::collections::HashSet<String>>,
     /// Routines' timer and settings (ADR 0129, `crate::routines`).
     routines: crate::routines::Shared,
+    /// Turns on the person's subscriptions through ace (ADR 0133).
+    brains: brain::Brains,
     /// Groups and asks between machines (ADR 0132, `crate::teams`).
     teams: crate::teams::Shared,
 }
@@ -189,6 +193,7 @@ impl Engine {
             endpoint_lock: Mutex::default(),
             retiring: Mutex::default(),
             routines: crate::routines::Shared::default(),
+            brains: brain::Brains::default(),
             teams: crate::teams::Shared::default(),
         });
         handle.set(&engine);
@@ -299,6 +304,7 @@ impl Engine {
             state: State::of(&transcript),
             last_message: roster::last_message(&stored),
             waiting_for: memory::waiting_for(&transcript),
+            problem: spade_core::brain::problem(stored.iter().map(|e| &e.event)).map(str::to_owned),
         };
         self.activity
             .lock()
@@ -533,7 +539,7 @@ impl Engine {
         &self.models
     }
 
-    fn check_message(&self, text: &str, attached: usize) -> Result<(), SendError> {
+    fn check_message(&self, id: &str, text: &str, attached: usize) -> Result<(), SendError> {
         let text = text.trim();
         if text.is_empty() && attached == 0 {
             return Err(SendError::Empty);
@@ -541,10 +547,15 @@ impl Engine {
         if text.chars().count() > self.limits.longest_message {
             return Err(SendError::TooLong);
         }
-        if !self.within_cap()? {
+        if !self.cap_free(id) && !self.within_cap()? {
             return Err(SendError::OverCap);
         }
         Ok(())
+    }
+
+    /// Whether `id`'s turns run on a subscription (ADR 0133), which Spade's cap never limits.
+    fn cap_free(&self, id: &str) -> bool {
+        spade_core::brain::CliModel::is(&self.reply_model(id))
     }
 
     fn within_cap(&self) -> Result<bool, StoreError> {

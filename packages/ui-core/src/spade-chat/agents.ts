@@ -68,7 +68,7 @@ export interface SpadeAgent {
   /** What the agent is for, in the person's words: its instructions. */
   task: string;
   avatar: SpadeAvatar;
-  /** `endpoint/model`. */
+  /** `endpoint/model`, or `cli:<provider>[@<account>]/<model>` on a subscription. */
   model: string;
   /** Its one conversation's id, for the conversation routes. */
   conversation: string;
@@ -80,6 +80,8 @@ export interface SpadeAgent {
   waitingFor: "approval" | "question" | undefined;
   /** A few words on what it is doing now, while it works. */
   status: string | undefined;
+  /** Why its latest reply on a subscription failed (signed out, out of quota), until one works. */
+  problem: string | undefined;
   lastMessage: SpadeLastMessage | undefined;
   /** Its spend and caps (ADR 0135); undefined from a Spade before them. */
   spending: SpadeSpending | undefined;
@@ -122,6 +124,7 @@ const agentShape = z.object({
   /** Before 0127 Spade said only whether it worked. */
   working: z.boolean().optional().catch(undefined),
   status: z.string().nullish().catch(undefined),
+  problem: z.string().nullish().catch(undefined),
   last_message: lastMessageShape.nullish().catch(undefined),
 });
 
@@ -167,6 +170,7 @@ export function parseSpadeAgentValue(raw: unknown): SpadeAgent | undefined {
     state: agent.state ?? (agent.working ? "working" : "idle"),
     waitingFor: agent.waiting_for ?? undefined,
     status: agent.status || undefined,
+    problem: agent.problem || undefined,
     lastMessage: last
       ? { from: last.from, text: last.text, at: last.at, fromAgent: last.from_agent ?? undefined }
       : undefined,

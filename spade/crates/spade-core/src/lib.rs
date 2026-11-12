@@ -2,6 +2,7 @@
 //! inputs, so it is tested directly.
 
 pub mod activity;
+pub mod brain;
 pub mod checkpoint;
 pub mod compaction;
 pub mod context;

@@ -17,6 +17,12 @@ export function bareToolName(name: string): string {
 /** Finds ace tools for a task; listed to every client. */
 export const aceToolSearch = "tools_find";
 /**
+ * The bridge to a Spade bot's own tools (ADR 0133), listed only in that bot's hidden session.
+ * Spade's approval gate decides every call, so a session whose native mode keeps only reads
+ * still offers them, as it offers its reads.
+ */
+export const spadeBridgeTools: readonly string[] = ["spade_tools", "spade_call"];
+/**
  * Runs any ace tool by name, for clients that never reload their tool list: `tools_call
  * {name, arguments}`. Approvals, transcripts and privacy treat such a call as its target.
  */

@@ -193,7 +193,7 @@ fn fire(
         ))
     } else if heartbeat && !engine.idle(&agent.conversation)? {
         Some(("skipped_busy", "The bot was busy.".to_owned()))
-    } else if !engine.can_spend()? {
+    } else if !engine.can_run_turn(&agent.conversation)? {
         Some(("skipped_cap", "Today's spending cap is reached.".to_owned()))
     } else {
         capped.map(|why| ("skipped_cap", why))
