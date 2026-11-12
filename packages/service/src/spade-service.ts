@@ -1,5 +1,6 @@
 import { mkdir, rename, rm, stat, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { withInstallLock } from "./files.ts";
+import { dirname, join } from "node:path";
 import { checked, type Runner } from "./process.ts";
 import { managerFailure, noUserManager, systemctl } from "./service.ts";
 import { loadedIdentity, loadedProperties } from "./service-identity.ts";
@@ -92,6 +93,16 @@ export async function installSpadeService(
   plan: SpadeServicePlan,
   ports: SpadeServicePorts = systemSpadePorts,
 ): Promise<SpadeServiceState> {
+  return lifecycle(plan, ports, async () => {
+    if (ports.shown && !(await ports.shown(plan.home))) return spadeServiceState(plan, ports);
+    return installSpadeServiceUnlocked(plan, ports);
+  });
+}
+
+async function installSpadeServiceUnlocked(
+  plan: SpadeServicePlan,
+  ports: SpadeServicePorts = systemSpadePorts,
+): Promise<SpadeServiceState> {
   const before = await spadeServiceState(plan, ports);
   if ((await installedSpadeVersion(plan.home)) === undefined)
     throw new Error("Install Spade's binary before registering its service");
@@ -124,6 +135,15 @@ export async function removeSpadeService(
   plan: SpadeServicePlan,
   ports: SpadeServicePorts = systemSpadePorts,
 ): Promise<SpadeServiceState> {
+  return lifecycle(plan, ports, async () => {
+    return removeSpadeServiceUnlocked(plan, ports);
+  });
+}
+
+async function removeSpadeServiceUnlocked(
+  plan: SpadeServicePlan,
+  ports: SpadeServicePorts = systemSpadePorts,
+): Promise<SpadeServiceState> {
   const before = await spadeServiceState(plan, ports);
   if (plan.platform === "win32") return removeSpadeTask(plan, ports, before);
   if (plan.platform === "darwin") {
@@ -145,6 +165,16 @@ export async function removeSpadeService(
  * Refuses when the service is absent: the updater never registers Spade by itself.
  */
 export async function restartSpadeService(
+  plan: SpadeServicePlan,
+  ports: SpadeServicePorts = systemSpadePorts,
+): Promise<void> {
+  return lifecycle(plan, ports, async () => {
+    if (ports.shown && !(await ports.shown(plan.home))) return;
+    return restartSpadeServiceUnlocked(plan, ports);
+  });
+}
+
+async function restartSpadeServiceUnlocked(
   plan: SpadeServicePlan,
   ports: SpadeServicePorts = systemSpadePorts,
 ): Promise<void> {
@@ -196,4 +226,25 @@ async function removeLoaded(plan: DarwinSpadePlan, run: Runner): Promise<void> {
 async function systemd(run: Runner, args: readonly string[]): Promise<void> {
   const result = await systemctl(run, args);
   if (result.code) throw managerFailure(result.code, result.stderr);
+}
+
+/** Shared by hide, registration and updater restart, including across processes. */
+async function lifecycle<T>(
+  plan: SpadeServicePlan,
+  ports: SpadeServicePorts,
+  work: () => Promise<T>,
+): Promise<T> {
+  for (;;) {
+    let entered = false;
+    try {
+      return await withInstallLock(join(plan.home, ".spade-lifecycle"), () => {
+        entered = true;
+        return work();
+      });
+    } catch (error) {
+      const code = error instanceof Error ? Reflect.get(error, "errcode") : undefined;
+      if (entered || (code !== 5 && code !== 6)) throw error;
+      await ports.wait(25);
+    }
+  }
 }
