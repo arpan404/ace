@@ -373,6 +373,7 @@ impl Connectors {
         if generation != seen {
             return Ok(());
         }
+        let epoch = self.epoch(&record.id);
         // Read again under the lock: an earlier renewal may have stored new facts.
         let record = self
             .record(&record.id)
@@ -410,6 +411,11 @@ impl Connectors {
             }
             Err(error) => return Err(Unready::Other(error.to_string())),
         };
+        // Written only if nothing disconnected it while the refresh was out.
+        let _writing = self.writes.lock().await;
+        if self.epoch(&record.id) != epoch || self.record(&record.id).is_none() {
+            return Err(Unready::Other("disconnected".into()));
+        }
         secrets::put(
             keys,
             &record.id,
@@ -429,7 +435,9 @@ impl Connectors {
             .map(|s| self.now() + crate::hub::seconds_ms(s));
         let mut renewed = record.clone();
         renewed.auth = Auth::Oauth(facts);
-        self.put_record(renewed).map_err(Unready::Other)?;
+        if !self.update_record(renewed).map_err(Unready::Other)? {
+            return Err(Unready::Other("disconnected".into()));
+        }
         let wake = {
             let mut live = self.live.write().unwrap_or_else(|p| p.into_inner());
             let session = live.entry(record.id.clone()).or_default();

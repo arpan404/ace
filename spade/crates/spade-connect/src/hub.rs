@@ -187,6 +187,7 @@ impl Connectors {
         let pending = lock(&self.pending)
             .remove(state)
             .ok_or(FinishError::UnknownState)?;
+        let epoch = self.epoch(&pending.id);
         if self.now() - pending.started_ms >= SIGN_IN_WINDOW_MS {
             return Err(FinishError::Expired);
         }
@@ -221,6 +222,13 @@ impl Connectors {
             })?;
         let id = pending.id.clone();
         let failed = |e: String| FinishError::Failed(e);
+        // A disconnect while the code was exchanged wins: nothing is written.
+        let _writing = self.writes.lock().await;
+        if self.epoch(&id) != epoch {
+            return Err(FinishError::Failed(
+                "the app was disconnected meanwhile".into(),
+            ));
+        }
         secrets::put(&keys, &id, secrets::ACCESS, Some(tokens.access.clone()))
             .await
             .map_err(failed)?;
@@ -261,6 +269,8 @@ impl Connectors {
 
     /// Forgets a connector: its session, its secrets, and every bot's permission for it.
     pub async fn disconnect(&self, id: &str) -> Result<bool, String> {
+        let _writing = self.writes.lock().await;
+        self.next_epoch(id);
         let had_pending = {
             let mut pending = lock(&self.pending);
             let before = pending.len();
@@ -465,6 +475,7 @@ impl Connectors {
         token: String,
     ) -> Result<Started, ConnectError> {
         let keys = self.keys.clone().ok_or(ConnectError::NoKeychain)?;
+        let epoch = self.epoch(&target.id);
         let client = McpClient::new(
             McpConfig::new(target.url.as_str(), self.timeout).bearer(Secret::new(token.clone())),
         );
@@ -473,6 +484,12 @@ impl Connectors {
             Err(ToolsError::Refused) => return Err(ConnectError::Refused),
             Err(error) => return Err(ConnectError::Unreachable(error.to_string())),
         };
+        let _writing = self.writes.lock().await;
+        if self.epoch(&target.id) != epoch {
+            return Err(ConnectError::Failed(
+                "the app was disconnected meanwhile".into(),
+            ));
+        }
         secrets::put(&keys, &target.id, secrets::ACCESS, Some(token))
             .await
             .map_err(ConnectError::Failed)?;
@@ -485,11 +502,18 @@ impl Connectors {
     }
 
     async fn connect_open(self: &Arc<Self>, target: Target) -> Result<Started, ConnectError> {
+        let epoch = self.epoch(&target.id);
         let client = McpClient::new(McpConfig::new(target.url.as_str(), self.timeout));
         let tools = client
             .tools()
             .await
             .map_err(|e| ConnectError::Unreachable(e.to_string()))?;
+        let _writing = self.writes.lock().await;
+        if self.epoch(&target.id) != epoch {
+            return Err(ConnectError::Failed(
+                "the app was disconnected meanwhile".into(),
+            ));
+        }
         if let Some(keys) = &self.keys {
             secrets::forget_all(keys, &target.id)
                 .await
@@ -528,7 +552,7 @@ impl Connectors {
             && !record.needs_reconnect
         {
             record.needs_reconnect = true;
-            if let Err(error) = self.put_record(record) {
+            if let Err(error) = self.update_record(record) {
                 tracing::error!(%error, connector = id, "could not store that a sign-in expired");
             }
         }

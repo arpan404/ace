@@ -338,6 +338,33 @@ async fn a_sign_in_that_cannot_be_renewed_asks_to_reconnect_and_reconnecting_wor
 }
 
 #[tokio::test]
+async fn a_renewal_in_flight_when_the_app_is_disconnected_never_brings_it_back() -> Result {
+    let app = FakeConnector::start(app_tools()).await;
+    let spade = spade()?;
+    let view = signed_in(&spade, &app).await?;
+    app.expire_access_tokens();
+    app.slow_tokens(Duration::from_millis(400));
+    let connectors = spade.connectors.clone();
+    let id = view.id.clone();
+    let call =
+        tokio::spawn(async move { connectors.call(&id, "echo", serde_json::json!({})).await });
+    // The call was refused and its renewal is waiting on the token endpoint.
+    wait_for(|| app.token_requests() == 2).await?;
+    assert!(spade.connectors.disconnect(&view.id).await?);
+    let _ = call.await?;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(
+        spade.connectors.list().is_empty(),
+        "{:?}",
+        spade.connectors.list()
+    );
+    assert!(spade.connectors.tools_for("main", true).is_empty());
+    assert_eq!(spade.keys.connector_secret(&view.id, "access")?, None);
+    assert_eq!(spade.keys.connector_secret(&view.id, "refresh")?, None);
+    Ok(())
+}
+
+#[tokio::test]
 async fn a_server_without_pkce_is_refused_and_one_without_registration_needs_a_client_id() -> Result
 {
     let spade = spade()?;

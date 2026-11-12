@@ -100,6 +100,12 @@ pub struct Connectors {
     live: RwLock<HashMap<String, Live>>,
     keepers: Mutex<HashMap<String, tokio::task::AbortHandle>>,
     renewing: tokio::sync::Mutex<()>,
+    /// Held while a connector's credentials or record are written, by sign-in, renewal and
+    /// disconnect alike, so a write never lands after a disconnect.
+    writes: tokio::sync::Mutex<()>,
+    /// Each connector's credential epoch: changed by every disconnect, so a sign-in or renewal
+    /// that began before it drops its result instead of writing.
+    epochs: Mutex<HashMap<String, u64>>,
 }
 
 impl Connectors {
@@ -125,6 +131,8 @@ impl Connectors {
             live: RwLock::default(),
             keepers: Mutex::default(),
             renewing: tokio::sync::Mutex::new(()),
+            writes: tokio::sync::Mutex::new(()),
+            epochs: Mutex::default(),
         }))
     }
 
@@ -227,6 +235,29 @@ impl Connectors {
 
     fn record(&self, id: &str) -> Option<Record> {
         lock(&self.records).iter().find(|r| r.id == id).cloned()
+    }
+
+    fn epoch(&self, id: &str) -> u64 {
+        lock(&self.epochs).get(id).copied().unwrap_or(0)
+    }
+
+    /// Ends every credential write begun under the current epoch of `id`.
+    fn next_epoch(&self, id: &str) {
+        *lock(&self.epochs).entry(id.to_owned()).or_default() += 1;
+    }
+
+    /// Replaces `record` if it still exists, then writes every record. Returns whether it did:
+    /// a connector disconnected meanwhile stays gone.
+    fn update_record(&self, record: Record) -> Result<bool, String> {
+        let mut records = lock(&self.records);
+        let mut next = records.clone();
+        let Some(existing) = next.iter_mut().find(|r| r.id == record.id) else {
+            return Ok(false);
+        };
+        *existing = record;
+        records::save(&self.store, &next)?;
+        *records = next;
+        Ok(true)
     }
 
     /// Replaces or adds `record`, then writes every record.

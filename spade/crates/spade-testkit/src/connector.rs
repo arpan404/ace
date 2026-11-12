@@ -60,6 +60,8 @@ struct State {
     peers: Mutex<Vec<Peer<RoleServer>>>,
     registration: AtomicBool,
     endless_metadata: AtomicBool,
+    /// Every token request waits this long before it is answered.
+    token_delay: Mutex<std::time::Duration>,
     /// When set, a code exchange is refused with this as its `error_description`.
     refuse_codes: Mutex<Option<String>>,
     pkce: AtomicBool,
@@ -92,6 +94,7 @@ impl FakeConnector {
             registration: AtomicBool::new(true),
             endless_metadata: AtomicBool::new(false),
             refuse_codes: Mutex::new(None),
+            token_delay: Mutex::new(std::time::Duration::ZERO),
             pkce: AtomicBool::new(true),
             static_token: Mutex::new(None),
             expires_in: AtomicU64::new(3600),
@@ -160,6 +163,11 @@ impl FakeConnector {
     /// Its protected-resource metadata never ends: chunks keep coming, with no length given.
     pub fn endless_metadata(&self) {
         self.state.endless_metadata.store(true, Ordering::SeqCst);
+    }
+
+    /// Token requests are answered only after `delay`, so a renewal can be caught in flight.
+    pub fn slow_tokens(&self, delay: std::time::Duration) {
+        *lock(&self.state.token_delay) = delay;
     }
 
     /// Refuses every code exchange with `description` as the error's text.
@@ -422,6 +430,8 @@ async fn token(
     Form(form): Form<HashMap<String, String>>,
 ) -> Response {
     state.token_requests.fetch_add(1, Ordering::SeqCst);
+    let delay = *lock(&state.token_delay);
+    tokio::time::sleep(delay).await;
     let get = |k: &str| form.get(k).cloned().unwrap_or_default();
     let refused = || {
         (
