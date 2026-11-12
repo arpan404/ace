@@ -25,7 +25,8 @@ test.each([
 test.each([
   ["on", undefined, "ready", undefined],
   ["auto", true, "ready", undefined],
-  ["auto", undefined, "unavailable", "Off in Claude's settings"],
+  ["auto", false, "unavailable", "Off in Claude's settings"],
+  ["auto", undefined, "unknown", "ace can't read Claude's Chrome setting"],
   ["off", true, "unavailable", "Turned off in ace"],
 ] as const)(
   "Claude in Chrome set to %s with Claude's default %s reads %s",
