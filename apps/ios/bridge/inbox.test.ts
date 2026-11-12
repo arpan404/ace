@@ -28,7 +28,7 @@ const { pumpFrames, pumpTimers } = await vi.hoisted(async () => {
 import { CommandId, DeviceId, InteractionRequest, ThreadId } from "@ace/protocol";
 import { Client } from "@ace/client";
 import { FakeDaemon, facts } from "@ace/fake-daemon";
-import { followInbox, inboxAction, type InboxClock, type InboxFollow } from "./inbox.ts";
+import { followInbox, inboxAction, type InboxClock } from "./inbox.ts";
 import { inboxRequests } from "./inbox-manage.ts";
 import { PatchPump } from "./patch-pump.ts";
 import { RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
@@ -89,8 +89,9 @@ async function following(seed: (daemon: FakeDaemon) => void) {
   await client.start();
   const clock = new TestClock();
   const sink = new RecordingSink();
-  closers.push(followInbox(client, "mac", sink, clock));
-  return { daemon, client, clock, sink };
+  const inbox = followInbox(client, "mac", sink, clock);
+  closers.push(inbox);
+  return { daemon, client, clock, sink, inbox };
 }
 
 type Sections = { sections: { key: string; ids: string[] }[] };
@@ -408,18 +409,13 @@ describe("inbox settling", () => {
   });
 
   test("a thread settled from Select asks, is answered, and stays in the Inbox as the daemon unsettled it", async () => {
-    const { client, daemon, sink, clock } = await following((seed) =>
+    const { client, daemon, sink, clock, inbox } = await following((seed) =>
       finished(seed, "notes", "Notes"),
     );
     await until(() => sectionOf(sink, "notes") === "done", "done");
-    // The phone's own settle, shown before the daemon confirms it.
-    const follow = closers.at(-1) as unknown as InboxFollow;
-    await inboxRequests(
-      client,
-      follow.organizer,
-      clock,
-      sink,
-    )({ type: "inbox.bulk", action: "settle", threadIds: ["notes"] }, "bulk");
+    // Select's settle, wired as the bridge wires it (`main.ts`): shown before the daemon confirms it.
+    const select = inboxRequests(client, inbox.organizer, clock, sink);
+    await select({ type: "inbox.bulk", action: "settle", threadIds: ["notes"] }, "bulk");
     await until(() => sectionOf(sink, "notes") === "settled", "settled");
 
     daemon.apply("notes", [facts.turn("root"), approval("root", "ask-1")]);
