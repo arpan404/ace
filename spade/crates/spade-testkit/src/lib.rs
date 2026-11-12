@@ -4,6 +4,7 @@
 //! [`FakeConnector`] stands in for an app's remote MCP server and its OAuth server.
 
 mod anthropic;
+pub mod client_document;
 pub mod connector;
 pub mod media;
 mod models;
@@ -25,6 +26,7 @@ use futures_util::stream;
 use serde_json::{Value, json};
 use tokio::net::TcpListener;
 
+pub use client_document::ClientDocument;
 pub use connector::FakeConnector;
 pub use media::FakeMedia;
 pub use models::FakeModelList;

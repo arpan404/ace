@@ -76,7 +76,8 @@ pub struct Callback {
     pub iss: Option<String>,
     #[serde(default)]
     pub error: Option<String>,
-    /// The connector whose callback address it came back to (the path, never the query).
+    /// The connector whose callback address it came back to (the path, never the query); `None`
+    /// at the shared address of sign-ins as Spade's metadata document.
     #[serde(skip)]
     pub connector: Option<String>,
 }
@@ -147,13 +148,11 @@ impl Connectors {
             return self.connect_open(target).await;
         };
         let keys = self.keys.clone().ok_or(ConnectError::NoKeychain)?;
-        // The connector's own callback address: ids are lower-case letters, digits and dashes.
-        let redirect = self
+        let callback = self
             .redirect
             .read()
             .unwrap_or_else(|p| p.into_inner())
             .clone()
-            .map(|base| format!("{base}/{}", target.id))
             .ok_or_else(|| ConnectError::Failed("Spade is not listening yet".into()))?;
         let resource = oauth::discover_resource(&net, &target.url, &challenge)
             .await
@@ -161,8 +160,8 @@ impl Connectors {
         let server = oauth::discover_server(&net, &resource.authorization_server)
             .await
             .map_err(from_oauth)?;
-        let client = self
-            .client_for(&net, &keys, &target, &request, &server, &redirect)
+        let (client, redirect) = self
+            .client_for(&net, &keys, &target, &request, &server, &callback)
             .await?;
         let random = self.random.as_ref();
         let attempt = Attempt {
@@ -209,8 +208,10 @@ impl Connectors {
         if self.now() - pending.started_ms >= SIGN_IN_WINDOW_MS {
             return Err(FinishError::Expired);
         }
-        // Back at another connector's address: an answer mixed up between servers.
-        if callback.connector.as_deref() != Some(pending.id.as_str()) {
+        // Back at another connector's address, or at the shared one when this sign-in has its
+        // own (or the reverse): an answer mixed up between servers.
+        let expected = (!pending.attempt.client.metadata_document).then_some(pending.id.as_str());
+        if callback.connector.as_deref() != expected {
             return Err(FinishError::WrongIssuer);
         }
         if !oauth::issuer_matches(&pending.attempt, callback.iss.as_deref()) {
@@ -447,8 +448,10 @@ impl Connectors {
             .unwrap_or_default()
     }
 
-    /// The OAuth client to sign in as: one the person gave, the one Spade registered before if
-    /// its redirect still matches, else a fresh registration.
+    /// The OAuth client to sign in as and the callback address it comes back to, in the MCP
+    /// spec's order: one the person gave (now, or before for this issuer); Spade's metadata
+    /// document where the server fetches them; the one Spade registered before if its redirect
+    /// still matches; else a fresh registration. `callback` is Spade's shared callback address.
     async fn client_for(
         &self,
         net: &oauth::Net,
@@ -456,8 +459,10 @@ impl Connectors {
         target: &Target,
         request: &ConnectRequest,
         server: &oauth::AuthServer,
-        redirect: &str,
-    ) -> Result<oauth::Client, ConnectError> {
+        callback: &str,
+    ) -> Result<(oauth::Client, String), ConnectError> {
+        // The connector's own callback address: ids are lower-case letters, digits and dashes.
+        let own = format!("{callback}/{}", target.id);
         if let Some(id) = request
             .client_id
             .as_deref()
@@ -470,31 +475,36 @@ impl Connectors {
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
                 .map(str::to_owned);
-            return Ok(oauth::preregistered(server, id, secret));
+            return Ok((oauth::preregistered(server, id, secret), own));
         }
-        if let Some(Record {
-            auth: Auth::Oauth(facts),
-            ..
-        }) = &target.existing
-            && facts.issuer == server.issuer
-            && facts
-                .registered_redirect
-                .as_deref()
-                .is_none_or(|r| r == redirect)
+        let document = self.client_metadata.as_deref();
+        let stored = match &target.existing {
+            Some(Record {
+                auth: Auth::Oauth(facts),
+                ..
+            }) if facts.issuer == server.issuer && Some(facts.client_id.as_str()) != document => {
+                Some(facts)
+            }
+            _ => None,
+        };
+        // A client the person gave earlier: never registered by Spade.
+        if let Some(facts) = stored.filter(|f| f.registered_redirect.is_none()) {
+            return Ok((reused(keys, &target.id, facts).await?, own));
+        }
+        // The document lists only the shared loopback address, any port.
+        if let Some(document) = document
+            && oauth::cimd::usable(server)
+            && callback.starts_with("http://127.0.0.1:")
         {
-            let secret = secrets::get(keys, &target.id, secrets::CLIENT_SECRET)
-                .await
-                .map_err(ConnectError::Failed)?;
-            return Ok(oauth::Client {
-                id: facts.client_id.clone(),
-                secret,
-                auth_method: facts.client_auth.clone(),
-                registered_redirect: facts.registered_redirect.clone(),
-            });
+            return Ok((oauth::cimd::client(document), callback.to_owned()));
         }
-        oauth::register(net, server, redirect)
+        if let Some(facts) = stored.filter(|f| f.registered_redirect.as_deref() == Some(&own)) {
+            return Ok((reused(keys, &target.id, facts).await?, own));
+        }
+        let client = oauth::register(net, server, &own)
             .await
-            .map_err(from_oauth)
+            .map_err(from_oauth)?;
+        Ok((client, own))
     }
 
     async fn connect_with_token(
@@ -586,6 +596,24 @@ impl Connectors {
             }
         }
     }
+}
+
+/// A client stored with a connector, its secret read back from the keychain.
+async fn reused(
+    keys: &KeyStore,
+    id: &str,
+    facts: &OauthFacts,
+) -> Result<oauth::Client, ConnectError> {
+    let secret = secrets::get(keys, id, secrets::CLIENT_SECRET)
+        .await
+        .map_err(ConnectError::Failed)?;
+    Ok(oauth::Client {
+        id: facts.client_id.clone(),
+        secret,
+        auth_method: facts.client_auth.clone(),
+        registered_redirect: facts.registered_redirect.clone(),
+        metadata_document: false,
+    })
 }
 
 /// `mcp.example.com` → `mcp-example-com`.

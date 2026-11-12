@@ -25,12 +25,15 @@ pub(super) fn routes() -> Router<AppState> {
         .route("/agents/{id}/connectors", get(allowed).put(set_allowed))
 }
 
-/// The sign-in callback, open (the browser cannot carry Spade's token).
+/// The sign-in callbacks, open (the browser cannot carry Spade's token): each connector's own,
+/// and the shared one sign-ins as Spade's client ID metadata document come back to.
 pub(super) fn callback_route() -> Router<AppState> {
-    Router::new().route(
-        &format!("{}/{{connector}}", spade_connect::CALLBACK_PATH),
-        get(callback),
-    )
+    Router::new()
+        .route(
+            &format!("{}/{{connector}}", spade_connect::CALLBACK_PATH),
+            get(callback),
+        )
+        .route(spade_connect::CALLBACK_PATH, get(shared_callback))
 }
 
 fn hub(state: &AppState) -> Result<Arc<Connectors>, Box<Response>> {
@@ -212,7 +215,23 @@ async fn callback(
         connector: Some(connector),
         ..query
     };
-    let hub = match hub(&state) {
+    finish(&state, query).await
+}
+
+/// The `state` alone names the sign-in here; `finish` then insists on `iss`.
+async fn shared_callback(State(state): State<AppState>, Query(query): Query<Callback>) -> Response {
+    finish(
+        &state,
+        Callback {
+            connector: None,
+            ..query
+        },
+    )
+    .await
+}
+
+async fn finish(state: &AppState, query: Callback) -> Response {
+    let hub = match hub(state) {
         Ok(hub) => hub,
         Err(response) => return *response,
     };

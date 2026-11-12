@@ -274,6 +274,12 @@ async fn run() -> Result<(), Failure> {
         timeout: Duration::from_secs(60),
         relist: spade_connect::RELIST,
         addresses: spade_connect::Addresses::system(),
+        // Spade's client ID metadata document on acehq.dev (ADR 0136); another for development.
+        client_metadata: Some(
+            env("SPADE_CLIENT_METADATA_URL")
+                .filter(|v| !v.trim().is_empty())
+                .unwrap_or_else(|| spade_connect::CLIENT_METADATA_URL.to_owned()),
+        ),
     })
     .map_err(other)?;
     tools = tools.with_source(Arc::new(ConnectorSource::new(
