@@ -6,7 +6,6 @@
     "coverage",
     "fixtures",
     ".recordings",
-    "packages/markit/**",
     "spade/target/**",
     "**/routeTree.gen.ts",
     "**/*.gen.ts"

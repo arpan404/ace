@@ -6,6 +6,7 @@ import {
   stageTerminalGuardian,
 } from "./terminal-assets.ts";
 import { readFile, cp, writeFile } from "node:fs/promises";
+import { markitWasmFile } from "@ace/markit-web/assets";
 import { join, resolve } from "node:path";
 import { assertAsciiScripts } from "./ascii-output.ts";
 import { assertNoKoffi, daemonWithoutKoffi } from "./no-koffi.ts";
@@ -140,8 +141,8 @@ export async function bundleDaemon(
               // markit's engine ships beside the bundle (`markit_wasm_bg.wasm`).
               if (args.path.endsWith("/markit-web/src/document.ts"))
                 contents = contents.replace(
-                  '"../../markit/web/pkg/markit_wasm_bg.wasm"',
-                  '"./markit_wasm_bg.wasm"',
+                  'import.meta.resolve("@markit/web/pkg/markit_wasm_bg.wasm")',
+                  'new URL("./markit_wasm_bg.wasm", import.meta.url).href',
                 );
               // A Windows bundle's Windows binding loads the same addon a second time.
               if (target.startsWith("win32-") && args.path.endsWith("/workspace/src/descriptor.ts"))
@@ -288,10 +289,7 @@ export async function bundleDaemon(
   if ([...inputs].some((input) => input.endsWith("packages/workspace/src/descriptor.ts")))
     await cp(join(repo, "packages/workspace/dist/descriptor.node"), join(root, "descriptor.node"));
   if ([...inputs].some((input) => input.endsWith("packages/markit-web/src/document.ts")))
-    await cp(
-      join(repo, "packages/markit/web/pkg/markit_wasm_bg.wasm"),
-      join(root, "markit_wasm_bg.wasm"),
-    );
+    await cp(markitWasmFile(), join(root, "markit_wasm_bg.wasm"));
   // esbuild reports output paths relative to the working directory.
   await assertAsciiScripts(scripts.map((path) => resolve(path)));
   await assertNoKoffi(scripts.map((path) => resolve(path)));

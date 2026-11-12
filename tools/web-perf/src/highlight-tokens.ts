@@ -2,14 +2,15 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { markitPackageDirectory } from "@ace/markit-web/assets";
 
 /*
  * Tokenizer bake-off: Prism grammars (the previous highlighting engine) against the markit
  * Wasm tokenizer (the new one). Same inputs, same process, back to back. Report-only:
  * node src/highlight-tokens.ts [--runs N].
  *
- * Runs in either tree. The markit section is skipped when packages/markit is absent, so the
- * same command measures the previous engine on main and both engines on a markit branch.
+ * markit is the installed `@markit/web` package (prebuilt, from markit's release); its section is
+ * skipped when that install lacks the Wasm.
  * Inputs are real repo sources: salted per run so no session cache can answer, mirroring how
  * the app highlights each file once. Markit's default tokenizer bails to plain past its run
  * budget (large files); the app falls back to Prism there (runMarkitHighlight).
@@ -17,7 +18,7 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..", "..");
-const markitWeb = join(root, "packages", "markit", "web");
+const markitWeb = markitPackageDirectory();
 const runs = Number(process.env.HIGHLIGHT_RUNS ?? 10);
 
 interface Token {
@@ -83,7 +84,7 @@ async function timeMarkit(label: string, relativePath: string, repeats: number):
   const glue = join(markitWeb, "pkg", "markit_wasm.js");
   const unpack = join(markitWeb, "highlight.js");
   if (!existsSync(wasm) || !existsSync(glue) || !existsSync(unpack)) {
-    process.stdout.write(`markit ${label}: packages/markit web build absent, skipping\n`);
+    process.stdout.write(`markit ${label}: the @markit/web install has no Wasm, skipping\n`);
     return false;
   }
   const started = performance.now();

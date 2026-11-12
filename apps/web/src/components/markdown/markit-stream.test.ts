@@ -1,17 +1,15 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { markitWasmFile } from "@ace/markit-web/assets";
 import { MarkitRenderer } from "@ace/markit-web/react";
 
 /*
- * Agent prose streams through the markit pinned in `packages/markit`. A streaming answer must
+ * Agent prose streams through the markit ace pins (`@markit/web`, prebuilt from its release). A streaming answer must
  * only grow on screen: markup that is not finished yet (an open backtick, `[text](url` before
  * its `)`, a table header before its delimiter row) used to show as literal characters that
  * were taken back a moment later, which read as the transcript flickering.
  */
-const wasm = readFileSync(
-  join(import.meta.dirname, "../../../../../packages/markit/web/pkg/markit_wasm_bg.wasm"),
-);
+const wasm = readFileSync(markitWasmFile());
 
 const answer = `Starting the dedicated thread now. The web-test cleanup just found: \`rm -Rf\` with an empty **\`$TMPDIR\`** would delete from the root, see [the cleanup notes](https://example.com/cleanup).
 

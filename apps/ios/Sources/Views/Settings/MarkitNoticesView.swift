@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// markit's own licence notices, as its Swift package ships them (`Licenses` in its resource
-/// bundle, copied from packages/markit by `bun run markit`): its third-party notices, the
+/// bundle, in the released package `bun run markit` fetches): its third-party notices, the
 /// licences of its Rust dependencies, the math font and the LaTeX tables, each readable in full.
 struct MarkitNoticesView: View {
     private struct Notice: Identifiable {

@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { markitWasmFile } from "@ace/markit-web/assets";
 import { preloadMarkit } from "@ace/markit-web/react";
 import { cleanup, configure } from "@testing-library/react";
 import { afterEach } from "vitest";
@@ -32,9 +32,7 @@ if (typeof HTMLElement !== "undefined") {
    */
   preloadMarkit({
     worker: "inline",
-    wasm: readFileSync(
-      join(import.meta.dirname, "../../../../packages/markit/web/pkg/markit_wasm_bg.wasm"),
-    ),
+    wasm: readFileSync(markitWasmFile()),
   });
 }
 
