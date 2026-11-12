@@ -63,3 +63,15 @@ test("a machine that refused the client names the client that asked", () => {
     "mini asks for its machine code before this iPhone can open it.",
   );
 });
+
+test("a device judged against a machine that isn't answering says nothing about its networks", () => {
+  const away = { ...studio, own: { ...studio.own, online: false } };
+  const node = deviceNode(ipad, away, names, { name: "studio", here: "on studio" });
+  expect(node.tone).toBe("unknown");
+  expect(node.problem).toBe(undefined);
+  expect(node.wire?.kind).toBe("unknown");
+  // What it was paired for is still known.
+  expect(deviceNode({ ...ipad, expiresAt: 500 }, away, names).problem?.what).toBe(
+    "iPad's access has ended.",
+  );
+});

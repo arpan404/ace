@@ -335,7 +335,9 @@ export function deviceNode(
       problem: undefined,
     };
   }
-  if (input.enabled === false)
+  // What a machine last said about its networks says nothing while it isn't answering.
+  const away = !input.own.online;
+  if (!away && input.enabled === false)
     return {
       ...base,
       tone: "bad",
@@ -349,7 +351,7 @@ export function deviceNode(
       },
     };
   const networks = input.networks;
-  if (input.enabled === undefined || !networks)
+  if (away || input.enabled === undefined || !networks)
     return {
       ...base,
       tone: "unknown",
