@@ -384,7 +384,7 @@ export * from "./forge-reviewers.ts";
 export * from "./forge-review-rules.ts";
 export * from "./text-completions.ts";
 export * from "./forge-lifecycle-words.ts";
-export * from "./forge-milestones.ts";
+export * from "./new-pr-words.ts";
 export * from "./forge-inbox-writes.ts";
 export * from "./merge-run-words.ts";
 export * from "./start-from-rows.ts";
