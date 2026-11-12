@@ -24,10 +24,13 @@ export function useTellZone(clients: readonly (ClientApi | undefined)[]) {
       const zone = personZone();
       for (const client of clients) {
         if (!client || told.get(client) === zone) continue;
+        const before = told.get(client);
         told.set(client, zone);
         void setOversight(client, { time_zone: zone }).then(
           () => {
-            // Spade may have counted days in another zone until now.
+            // Only a change of zone moves what was counted by day; the first word doesn't
+            // (and refetching then would refresh every roster each time it is shown).
+            if (before === undefined) return;
             void cache.invalidateQueries({ queryKey: agentsKey });
             void cache.invalidateQueries({ queryKey: oversightKey });
             void cache.invalidateQueries({ queryKey: ["spade", "activity"] });
