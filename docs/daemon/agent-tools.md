@@ -332,7 +332,13 @@ that ace is absent.
 OpenCode also receives a credential-free native readiness plugin through its
 runtime configuration. Session admission waits for the actual native
 `ace_context` registration, because MCP connection status precedes the
-provider's debounced tool reload. The plugin carries no MCP authority, changes
+provider's debounced tool reload. OpenCode 2.2.7 activates plugins after a new
+location already answers requests, so its readiness RPC is briefly unregistered
+(`rpc.unavailable`); ace retries that within the same 10 s budget. If the RPC
+never registers, the session still opens, ace's tools stay unconfirmed, the
+daemon logs an `mcp-readiness-unconfirmed` warning, and each later send or model
+change makes one more readiness call (no retries) without registering ace again.
+Stop, task cancellation and interaction answers never wait on that check. The plugin carries no MCP authority, changes
 no user configuration files and is staged in standalone releases. See the
 [isolated CLI results](../research/providers/opencode-ace-tools.md).
 
