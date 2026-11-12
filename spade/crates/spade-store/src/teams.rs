@@ -400,6 +400,42 @@ impl Store {
         Ok(())
     }
 
+    /// Asks open in the outbox now.
+    pub fn open_outbox_count(&self) -> Result<usize> {
+        let count: i64 = self.lock()?.query_row(
+            "SELECT COUNT(*) FROM outbox WHERE state IN ('queued', 'sent')",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(usize::try_from(count).unwrap_or(usize::MAX))
+    }
+
+    /// Forgets outbox entries that ended before `before_ms`.
+    pub fn prune_outbox(&self, before_ms: i64) -> Result<usize> {
+        Ok(self.lock()?.execute(
+            "DELETE FROM outbox WHERE state NOT IN ('queued', 'sent') AND updated_ms < ?1",
+            params![before_ms],
+        )?)
+    }
+
+    /// Asks `from_host` delivered here since `since_ms`.
+    pub fn inbox_count_since(&self, from_host: &str, since_ms: i64) -> Result<usize> {
+        let count: i64 = self.lock()?.query_row(
+            "SELECT COUNT(*) FROM inbox WHERE from_host = ?1 AND created_ms >= ?2",
+            params![from_host, since_ms],
+            |row| row.get(0),
+        )?;
+        Ok(usize::try_from(count).unwrap_or(usize::MAX))
+    }
+
+    /// Forgets asks delivered before `before_ms`; a retry of one that old is no longer expected.
+    pub fn prune_inbox(&self, before_ms: i64) -> Result<usize> {
+        Ok(self.lock()?.execute(
+            "DELETE FROM inbox WHERE created_ms < ?1",
+            params![before_ms],
+        )?)
+    }
+
     pub fn inbox(&self, from_host: &str, key: &str) -> Result<Option<InboxEntry>> {
         Ok(self
             .lock()?

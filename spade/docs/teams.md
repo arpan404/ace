@@ -104,14 +104,29 @@ An ask to a bot of another machine is stored in the outbox first, with a key the
 (`<sender host id>.<ask id>`), then sent. The outbox delivers it, then reads its answer by key
 with long polls, and survives restarts. While the machine can't be reached the ask is queued
 (backoff 2 s doubling to 5 minutes, for up to 7 days); a group shows `group_queued`, `bot_message`
-keeps waiting. Stop withdraws a queued ask before it is sent, and sends `stop` for one already
+keeps waiting. At most 500 asks wait at once (more are refused until some end); ended entries
+are kept 30 days. Stop withdraws a queued ask before it is sent, and sends `stop` for one already
 delivered.
 
 ### Receiving (inbox)
 
 `POST /v1/inbox`. Only the local daemon reaches it: it forwards machine calls from the person's
-other machines (op `spade`, below) and stamps `x-ace-from-host` (the calling machine's host id)
-and `x-ace-from-name`. A request without both headers is refused with `403`. Bodies:
+other machines (op `spade`, below) and stamps them:
+
+- `x-ace-from-host`: the pairing id the call authenticated with on this daemon (never the host
+  id the caller claims), the sender every key belongs to;
+- `x-ace-from-name`: the calling machine's name, percent-encoded UTF-8;
+- `x-ace-inbox-time`: milliseconds since the epoch;
+- `x-ace-inbox-proof`: lowercase hex HMAC-SHA256, keyed with the daemon's local token
+  (`<ace home>/daemon-token`), of `ace-spade-inbox/1\n<time>\n<from-host>\n<from-name as
+sent>\n<hex SHA-256 of the body>`.
+
+Spade reads the daemon's token from ace's home on each request and refuses (`403`) anything
+unsigned, signed with another key, or signed more than 5 minutes from its clock; Spade's own
+bearer token alone never reaches the inbox. Without ace's home it answers `503`. Bounds: one
+sender may deliver 500 asks a day (`429` past that), keys are kept 30 days, names are cut to one
+line (a bot's to 40 characters, a group's to 60), and an ask must name the bot (`from`) or the
+group it came through: words from another machine are never the person's own (`400`). Bodies:
 
 | `op`     | Fields                                                                      | Answer                                       |
 | -------- | --------------------------------------------------------------------------- | -------------------------------------------- |
@@ -140,8 +155,10 @@ status: "online"|"offline"}]}`: the linked machines this daemon can call.
     `refused` (that machine said no), `forbidden`.
 - **Between daemons:** machine call op `{op: "spade", request: <JSON object, at most 512 KiB>}`.
   The target admits it under the Agents grant (ADR 0105): `bots` and `answer` need Read, `ask`
-  and `stop` need Read and act. It forwards the request to its Spade as `POST /v1/inbox` with the
-  stamps and answers `{status, body}`. With Spade off there it refuses `unavailable`.
+  and `stop` need Read and act. A pairing made from a time-limited link is a guest and is refused
+  (`machine_forbidden`). It forwards the request to its Spade as `POST /v1/inbox` with the
+  stamps and signature above and answers `{status, body}`. With Spade off there it refuses
+  `unavailable`.
 - `spade.http` and the desktop's direct path refuse `/v1/inbox` (`invalid_path`).
 
 ## Templates

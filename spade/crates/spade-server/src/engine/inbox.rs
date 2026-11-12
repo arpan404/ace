@@ -19,6 +19,21 @@ use crate::teams::Outcome;
 const LONGEST_WAIT_MS: u64 = 25_000;
 /// The longest context a group ask may carry, in characters.
 const LONGEST_CONTEXT: usize = 16_000;
+const DAY_MS: i64 = 24 * 60 * 60_000;
+/// Delivered keys are kept this long: a retry is never that late (the sender gives up at 7 days).
+const KEEP_KEYS_MS: i64 = 30 * DAY_MS;
+
+/// `value` as one short line, at most `most` characters.
+fn short(value: Option<&Value>, most: usize, otherwise: &str) -> String {
+    let text = value.and_then(Value::as_str).unwrap_or(otherwise);
+    let line: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let line: String = line.chars().take(most).collect();
+    if line.is_empty() {
+        otherwise.to_owned()
+    } else {
+        line
+    }
+}
 
 /// The machine a request came from, as its daemon stamped it.
 #[derive(Debug, Clone)]
@@ -88,7 +103,27 @@ impl Engine {
         if text.is_empty() || text.chars().count() > self.limits.longest_message {
             return refuse(400, "the message is empty or too long");
         }
-        let depth = body["depth"].as_u64().unwrap_or(1).max(1) as u32;
+        let now = self.now_ms();
+        let _ = self.store.prune_inbox(now - KEEP_KEYS_MS);
+        match self.store.inbox_count_since(&sender.host, now - DAY_MS) {
+            Ok(count) if count >= self.limits.remote_asks_per_day => {
+                return refuse(
+                    429,
+                    "that machine sent too many asks today; try again tomorrow",
+                );
+            }
+            Ok(_) => {}
+            Err(error) => return refuse(500, &error.to_string()),
+        }
+        // Words from another machine are never the person's own here: an ask names the bot that
+        // sent it or the group it came through.
+        if !body["from"].is_object() && !body["group"].is_object() {
+            return refuse(400, "an ask names the bot or the group it comes from");
+        }
+        let depth = body["depth"]
+            .as_u64()
+            .unwrap_or(1)
+            .clamp(1, u64::from(MOST_HOPS) + 1) as u32;
         if depth > MOST_HOPS {
             return refuse(
                 409,
@@ -104,16 +139,8 @@ impl Engine {
             return refuse(404, "no such bot on this machine");
         };
         let from_agent = body["from"].as_object().map(|from| FromAgent {
-            id: from
-                .get("id")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_owned(),
-            name: from
-                .get("name")
-                .and_then(Value::as_str)
-                .unwrap_or("A bot")
-                .to_owned(),
+            id: short(from.get("id"), 128, "bot"),
+            name: short(from.get("name"), crate::engine::NAME_CHARS, "A bot"),
             depth,
             machine: Some(sender.name.clone()),
         });
@@ -122,21 +149,13 @@ impl Engine {
             .map(|c| c.chars().take(LONGEST_CONTEXT).collect::<String>());
         let from_group = body["group"].as_object().map(|group| {
             Box::new(FromGroup {
-                id: group
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_owned(),
-                name: group
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .unwrap_or("a group")
-                    .to_owned(),
-                run: group
-                    .get("run")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_owned(),
+                id: short(group.get("id"), 128, "group"),
+                name: short(
+                    group.get("name"),
+                    crate::engine::GROUP_NAME_CHARS,
+                    "a group",
+                ),
+                run: short(group.get("run"), 128, "run"),
                 ask: key.to_owned(),
                 machine: Some(sender.name.clone()),
                 // What came from another machine's group is not the person's own words here.

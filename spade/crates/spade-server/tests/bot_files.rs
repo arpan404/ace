@@ -237,3 +237,47 @@ async fn an_export_holds_no_secrets_and_importing_it_elsewhere_recreates_the_bot
     assert_eq!(status, 400);
     Ok(())
 }
+
+#[tokio::test]
+async fn a_hostile_bot_file_is_bounded_and_checked() -> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    let routine = |i: usize| {
+        json!({ "kind": "routine", "name": format!("R{i}"), "instruction": "Go.",
+                "trigger": { "kind": "schedule", "schedule": "daily at 9:00" },
+                "time_zone": "UTC" })
+    };
+    let file = |name: &str| {
+        json!({
+            "format": "spade-bot", "version": 1, "name": name, "task": "t",
+            "avatar": { "kind": "image", "data": "data:image/png;base64,bm90IGFuIGltYWdl" },
+            "model": "nowhere/model",
+            "routines": (0..400).map(routine).collect::<Vec<_>>(),
+            "notes": (0..300).map(|i| format!("note {i}")).collect::<Vec<_>>(),
+            "connectors": { "all": false, "connectors": (0..300).map(|i| format!("c{i}")).collect::<Vec<_>>() },
+        })
+    };
+    let (status, _) = spade
+        .post("/v1/agents/import", file(&"N".repeat(5_000)))
+        .await?;
+    assert_eq!(status, 400, "a name past 40 characters is refused");
+
+    let (status, made) = spade.post("/v1/agents/import", file("Flood")).await?;
+    assert_eq!(status, 201, "{made}");
+    let agent = &made["agent"];
+    assert_eq!(
+        agent["avatar"]["kind"], "generated",
+        "a bad picture becomes initials"
+    );
+    assert_ne!(
+        agent["model"], "nowhere/model",
+        "an unknown model falls back"
+    );
+    assert_eq!(
+        routines(&spade, &id(agent)).await?.len(),
+        50,
+        "at most a bot's routines"
+    );
+    let left_out = made["left_out"].as_array().map_or(0, Vec::len);
+    assert!(left_out <= 20, "{left_out} lines left out");
+    Ok(())
+}

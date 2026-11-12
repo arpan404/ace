@@ -25,7 +25,7 @@ mod types;
 pub use agents::{BOT, MAIN, NAME_CHARS, TASK_CHARS};
 pub use bots::MOST_HOPS;
 pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput};
-pub use groups::{GroupError, GroupInput, GroupLast, GroupView, MemberRef};
+pub use groups::{GROUP_NAME_CHARS, GroupError, GroupInput, GroupLast, GroupView, MemberRef};
 pub use inbox::{InboxAnswer, Sender as InboxSender};
 pub use maintenance::MaintenanceState;
 pub use memory::{MemoryCall, NoteError, NoteScope, note_json};
