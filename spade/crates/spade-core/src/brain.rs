@@ -393,7 +393,11 @@ mod tests {
         assert!(first.instructions.contains("spade_call"));
         // The bridge is the only way to act; the answer goes in the reply, not a plan.
         assert!(!first.instructions.contains("ace's own tools"));
-        assert!(first.instructions.contains("Write your answer to the person as your reply"));
+        assert!(
+            first
+                .instructions
+                .contains("Write your answer to the person as your reply")
+        );
         assert!(!first.changed);
         assert_eq!(first.message, "Hello");
         events.push(step(first.seen));
