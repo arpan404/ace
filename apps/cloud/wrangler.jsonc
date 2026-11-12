@@ -72,8 +72,9 @@
         { "pattern": "relay.acehq.dev", "custom_domain": true },
       ],
       "vars": {
-        // Where sign-in pages and WorkOS and app makers' redirects come back to.
+        // Canonical broker callbacks, and the exact origins serving account sign-in.
         "ACE_ACCOUNT_PUBLIC_URL": "https://cloud.acehq.dev",
+        "ACE_ACCOUNT_PUBLIC_ORIGINS": "https://cloud.acehq.dev,https://relay.acehq.dev",
         "ACE_ACCOUNT_ALLOWED_ORIGINS": "https://app.acehq.dev,app://ace",
       },
       "durable_objects": {

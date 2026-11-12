@@ -35,6 +35,7 @@ const PreviousGrantKey = z
 
 export const AccountConfig = z.object({
   publicUrl: AceAccountOrigin,
+  publicOrigins: z.array(AceAccountOrigin).min(1).optional(),
   // Dashboard pastes often carry a trailing newline or space.
   clientId: z.string().trim().startsWith("client_").min(8),
   apiKey: z.string().trim().min(1),
@@ -66,7 +67,13 @@ const required = [
 ] as const;
 
 export type AccountEnv = {
-  [Key in (typeof required)[number] | "WORKOS_API_URL" | "ACE_GRANT_PREVIOUS_KEY"]?: string;
+  [
+    Key in
+      | (typeof required)[number]
+      | "WORKOS_API_URL"
+      | "ACE_GRANT_PREVIOUS_KEY"
+      | "ACE_ACCOUNT_PUBLIC_ORIGINS"
+  ]?: string;
 };
 
 export function readAccountSetup(env: AccountEnv): AccountSetup {
@@ -74,6 +81,7 @@ export function readAccountSetup(env: AccountEnv): AccountSetup {
   const allowed = env.ACE_ACCOUNT_ALLOWED_ORIGINS;
   const parsed = AccountConfig.safeParse({
     publicUrl: env.ACE_ACCOUNT_PUBLIC_URL,
+    publicOrigins: env.ACE_ACCOUNT_PUBLIC_ORIGINS?.split(",").map((value) => value.trim()),
     clientId: env.WORKOS_CLIENT_ID,
     apiKey: env.WORKOS_API_KEY,
     workosUrl: env.WORKOS_API_URL || "https://api.workos.com",

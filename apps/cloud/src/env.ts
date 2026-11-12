@@ -24,6 +24,8 @@ export interface Env {
    */
   SPADE_CLOUD_APPS?: string;
   ACE_ACCOUNT_PUBLIC_URL?: string;
+  /** Exact account sign-in origins served by this Worker; independent of app CORS origins. */
+  ACE_ACCOUNT_PUBLIC_ORIGINS?: string;
   ACE_ACCOUNT_ALLOWED_ORIGINS?: string;
   WORKOS_CLIENT_ID?: string;
   WORKOS_API_KEY?: string;

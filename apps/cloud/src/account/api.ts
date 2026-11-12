@@ -49,14 +49,21 @@ export function accountApi(
   const reader = sessionReader({ store: sessions, provider, now });
   const picture = pictureRoute({ sessions, fetch: deps.fetch, now });
   const logins = loginStore(deps.db, seal);
-  const login = loginRoutes({
-    config,
-    logins,
-    sessions,
-    provider,
-    now,
-    random,
-  });
+  const loginFor = (publicUrl: string) => {
+    const selected = { ...config, publicUrl };
+    return loginRoutes({
+      config: selected,
+      logins,
+      sessions,
+      provider: workos(selected, deps.fetch),
+      now,
+      random,
+    });
+  };
+  // The canonical URL still serves deployments with a single public address. Multi-host
+  // deployments select only configured origins, never a caller-supplied Host or Origin.
+  const canonicalLogin = loginFor(config.publicUrl);
+  const hostLogins = new Map(config.publicOrigins?.map((origin) => [origin, loginFor(origin)]));
   const directory = directoryRoutes({
     sessions: reader,
     machines: machineStore(deps.db),
@@ -66,7 +73,11 @@ export function accountApi(
     now,
   });
 
-  async function route(request: Request, url: URL): Promise<Response> {
+  async function route(
+    request: Request,
+    url: URL,
+    login: ReturnType<typeof loginRoutes>,
+  ): Promise<Response> {
     const { pathname } = url;
     const method = request.method;
     if (pathname === "/v1/keys" && method === "GET") return directory.keys();
@@ -99,11 +110,15 @@ export function accountApi(
     sweep: () => logins.sweep(now()),
     /** `limited` is the caller's rate-limit verdict for this client address. */
     async handle(request: Request, limited: boolean): Promise<Response> {
+      const url = new URL(request.url);
+      const login = config.publicOrigins ? hostLogins.get(url.origin) : canonicalLogin;
+      if (!login) return secure(fail(403, "origin_denied"), undefined);
+      const publicUrl = config.publicOrigins ? url.origin : config.publicUrl;
       const origin = request.headers.get("Origin") ?? undefined;
       // The continue form comes only from the backend's own sign-in page: another site cannot
       // post a login id it holds into the person's browser and on to WorkOS.
-      if (request.method === "POST" && new URL(request.url).pathname === continuePath) {
-        if (origin !== config.publicUrl) return secure(fail(403, "origin_denied"), undefined);
+      if (request.method === "POST" && url.pathname === continuePath) {
+        if (origin !== publicUrl) return secure(fail(403, "origin_denied"), undefined);
         if (limited) return secure(fail(429, "rate_limited"), undefined);
         try {
           return secure(await login.continue(request), undefined);
@@ -122,7 +137,7 @@ export function accountApi(
       }
       if (request.url.length > 4096) return secure(fail(414, "invalid_request"), origin);
       try {
-        return secure(await route(request, new URL(request.url)), origin);
+        return secure(await route(request, url, login), origin);
       } catch {
         return secure(fail(503, "account_unavailable"), origin);
       }

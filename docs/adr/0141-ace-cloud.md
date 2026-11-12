@@ -80,7 +80,10 @@ The owner, 2026-11-12:
   accounts and the broker together; the release job smoke-tests both hostnames.
 - Before the first deploy with this change, WorkOS needs
   `https://cloud.acehq.dev/v1/account/callback` as a redirect URI, because the account
-  backend's public URL becomes cloud.acehq.dev.
+  backend's canonical public URL becomes cloud.acehq.dev. Keep
+  `https://relay.acehq.dev/v1/account/callback` registered too. The configured account-origin
+  allowlist serves sign-in on either host, with login links, continue checks, WorkOS redirects
+  and host-only browser cookies staying on the request's hostname.
 - The broker shares the Worker's blast radius: a compromise of the Worker exposes the vendor
   secrets as well as the grant signing key it already held.
 - Sign-ins in progress survive a deploy or isolate restart, which the in-memory Rust broker

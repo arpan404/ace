@@ -56,12 +56,17 @@ By hand, from `apps/cloud`:
 The production Worker keeps its script name, `ace-relay`: its relay Durable Objects belong to
 that name (ADR 0141). The first deploy with ace cloud adds the `cloud.acehq.dev` custom domain
 beside `relay.acehq.dev`, the `SignInObject` class (migration `v2`) and two rate limits, and
-moves `ACE_ACCOUNT_PUBLIC_URL` to `https://cloud.acehq.dev`. In order, from `apps/cloud`, with
+sets `ACE_ACCOUNT_PUBLIC_URL` to `https://cloud.acehq.dev` for broker callbacks and
+`ACE_ACCOUNT_PUBLIC_ORIGINS` to `https://cloud.acehq.dev,https://relay.acehq.dev` for account
+sign-in. Account requests select their own origin from that allowlist, keeping login links,
+continue forms, WorkOS callbacks and host-only browser cookies on the same hostname.
+Unlisted hosts are refused. Single-host deployments can omit the allowlist and keep using
+`ACE_ACCOUNT_PUBLIC_URL`. In order, from `apps/cloud`, with
 `XDG_CONFIG_HOME=~/.ace-cloudflare` so wrangler uses ace's Cloudflare login:
 
 1. In WorkOS, add `https://cloud.acehq.dev/v1/account/callback` as a redirect of the AuthKit
-   application. Keep the relay.acehq.dev one: a sign-in started just before the deploy returns
-   there.
+   application. Keep `https://relay.acehq.dev/v1/account/callback` registered too: existing
+   apps and sign-in pages opened before the deploy continue on that hostname.
 2. `bunx wrangler d1 migrations apply ACCOUNTS --remote --env production` (none are new, but it
    is the release job's order).
 3. `bunx wrangler deploy --env production`. Wrangler creates the `cloud.acehq.dev` custom domain
