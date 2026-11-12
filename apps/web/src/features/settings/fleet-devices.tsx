@@ -11,9 +11,8 @@ import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx"
 import { HairlineRow, RowAction, RowGroup, RowTile } from "@/components/hairline-row.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useNow } from "@/lib/time.ts";
-import { deviceKind } from "./data/device-kind.ts";
+import { deviceKind, type FleetDevice } from "@ace/ui-core/fleet-map";
 import { cancelPairing, deviceLifetimes, revokeDevice } from "./data/fleet.ts";
-import type { FleetDevice } from "./data/fleet-links.ts";
 import type { Fleet } from "./data/use-fleet.ts";
 import { deviceScopeLabels } from "./device-scopes.ts";
 

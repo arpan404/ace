@@ -5,7 +5,7 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { MachineCodePrompt } from "@/features/ace-account/index.ts";
 import { useMachinePool } from "@/lib/machine-pool.ts";
 import type { Machine } from "@/lib/machines.ts";
-import type { FleetDevice } from "./data/fleet-links.ts";
+import type { FleetDevice } from "@ace/ui-core/fleet-map";
 import type { MapFix, MapNode } from "./data/fleet-map-types.ts";
 import { settingKeys } from "./data/setting-keys.ts";
 import type { FleetMapData } from "./data/use-fleet-map.ts";

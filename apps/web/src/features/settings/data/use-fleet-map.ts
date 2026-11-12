@@ -6,7 +6,7 @@ import { hostedRelayUrl } from "@/boot/account-config.ts";
 import { useAccountMachines } from "@/features/ace-account/index.ts";
 import { useMachinePool } from "@/lib/machine-pool.ts";
 import { useNow } from "@/lib/time.ts";
-import { reach } from "./fleet-links.ts";
+import { reach } from "@ace/ui-core/fleet-map";
 import { fleetMapFacts } from "./fleet-map-facts.ts";
 import { hostOf } from "./fleet-map-networks.ts";
 import type { AccountOpening, FleetMap, FleetMapInput } from "./fleet-map-types.ts";

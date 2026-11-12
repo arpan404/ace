@@ -1,6 +1,6 @@
 import { DeviceId, HostId, type Device, type FleetLink } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { fleetDevices, linkDeviceIds, linkGaps, reach, unlinkedWith } from "./fleet-links.ts";
+import { fleetDevices, linkDeviceIds, linkGaps, reach, unlinkedWith } from "./links.ts";
 
 function link(to: string, extra: Partial<FleetLink> = {}): FleetLink {
   return {

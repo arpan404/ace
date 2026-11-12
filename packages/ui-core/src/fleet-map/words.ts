@@ -4,8 +4,8 @@ import type {
   MachinePathKind,
   RemoteNetworks,
 } from "@ace/protocol";
-import type { MachineStatus } from "@/lib/machines.ts";
-import { listNames } from "@ace/ui-core";
+import type { MachineStatus } from "./machine.ts";
+import { listNames } from "../list-names.ts";
 
 /*
  * The sentences Settings › Fleet says, from what the machines report. Pure: the page passes in

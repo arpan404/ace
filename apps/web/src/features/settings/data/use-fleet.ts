@@ -15,7 +15,7 @@ import {
   linkGaps,
   type FleetMachineFacts,
   type LinkGap,
-} from "./fleet-links.ts";
+} from "@ace/ui-core/fleet-map";
 import type { PairedDevice } from "./fleet.ts";
 import { useFleetUpdate } from "./use-fleet-update.ts";
 

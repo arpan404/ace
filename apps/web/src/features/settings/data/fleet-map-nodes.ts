@@ -1,5 +1,5 @@
 import { formatAgo, listNames } from "@ace/ui-core";
-import { deviceKind, machineKind } from "./device-kind.ts";
+import { deviceKind, machineKind } from "@ace/ui-core/fleet-map";
 import { directWayOf, hostOf, pairedWays, serving } from "./fleet-map-networks.ts";
 import {
   relayEnd,

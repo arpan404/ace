@@ -5,7 +5,7 @@ import { HairlineList, HairlineRow, RowAction, StateWords } from "@/components/h
 import { SettingDisclosure } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
-import { addressWords } from "./data/fleet-words.ts";
+import { addressWords } from "@ace/ui-core/fleet-map";
 import { listNames } from "@ace/ui-core";
 import { settingKeys } from "./data/setting-keys.ts";
 import { useRemoteStatus, useSettingControl } from "./data/use-settings.ts";

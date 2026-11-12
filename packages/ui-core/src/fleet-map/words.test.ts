@@ -9,7 +9,7 @@ import {
   pathWordsFor,
   reachedThrough,
   transferLine,
-} from "./fleet-words.ts";
+} from "./words.ts";
 
 const off = { state: "off" } as const;
 const networks = (on: Partial<Record<keyof RemoteNetworks, string>>): RemoteNetworks => ({

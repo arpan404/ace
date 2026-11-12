@@ -11,7 +11,7 @@ import {
   useThisMachineAccount,
 } from "@/features/ace-account/index.ts";
 import type { Machine } from "@/lib/machines.ts";
-import { accountLine, directLine, type DirectNetwork } from "./data/fleet-words.ts";
+import { accountLine, directLine, type DirectNetwork } from "@ace/ui-core/fleet-map";
 import { listNames } from "@ace/ui-core";
 import { settingKeys } from "./data/setting-keys.ts";
 import { useRemoteStatus, useSettingControl } from "./data/use-settings.ts";
