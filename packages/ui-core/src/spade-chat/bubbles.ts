@@ -2,6 +2,7 @@ import type { SpadeReplyEntry } from "./fold.ts";
 import type { SpadeRememberedNote } from "./notes.ts";
 import type { SpadeImageRef } from "./wire.ts";
 import type { SpadeView } from "./view.ts";
+import { spadeCapSentence } from "./oversight.ts";
 
 /*
  * A conversation as a chat (ADR 0127): the person's messages and the bot's, nothing of how the
@@ -31,7 +32,11 @@ export type SpadeBubble =
       /** How the reply ended when it didn't finish on its own. */
       end: "stopped" | "failed" | "interrupted" | undefined;
       error: string | undefined;
+      /** Workspace files a tool kept since the bot's last bubble: chips that open each. */
+      files?: readonly string[];
     }
+  /** Files a tool kept with no reply after them yet: chips on the bot's side. */
+  | { kind: "files"; key: string; paths: readonly string[] }
   /** "Remembered: …": a note the bot saved or rewrote, which the person may open to edit. */
   | { kind: "remembered"; key: string; note: SpadeRememberedNote }
   /** `name`: the tool it asks to use, for `spadeApprovalSentence` with the bot's name. */
@@ -43,6 +48,8 @@ export type SpadeBubble =
       sentence: string;
       /** What the call would do, as the bot sent it: shown on request before the answer. */
       arguments: unknown;
+      /** Why the model review asked the person: "Asked you because: …". */
+      reason: string | undefined;
     };
 
 /** What a bot answers a heartbeat when nothing needs the person (`spade_core::routine::QUIET`). */
@@ -55,6 +62,8 @@ export function isSpadeQuiet(text: string): boolean {
 
 export function spadeBubbles(view: SpadeView): SpadeBubble[] {
   const bubbles: SpadeBubble[] = [];
+  // Files kept since the bot's last bubble, for its next one.
+  const held: Held = { paths: [], key: undefined };
   // Since the last reply ended: whether anything arrived, and whether all of it was a heartbeat.
   // A quiet answer only to heartbeats shows as nothing, like the heartbeats themselves (ADR 0129;
   // `silent_replies` in spade-core); one that also answers anything else always shows.
@@ -64,6 +73,17 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
     if (entry.kind === "job") {
       inputs = true;
       onlyBeats = false;
+      hold(held, entry.key, entry.files);
+    }
+    if (entry.kind === "cap") {
+      pushBot(bubbles, held, {
+        key: entry.key,
+        text: spadeCapSentence(entry.scope, entry.capMicros),
+        live: false,
+        end: undefined,
+        error: undefined,
+      });
+      continue;
     }
     if (entry.kind === "user") {
       inputs = true;
@@ -111,8 +131,12 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
       inputs = false;
       onlyBeats = true;
     }
-    if (!quiet) replyBubbles(entry, bubbles);
+    if (!quiet) replyBubbles(entry, bubbles, held);
+    else
+      for (const part of entry.parts) if (part.kind === "files") hold(held, part.key, part.paths);
   }
+  if (held.key !== undefined && held.paths.length)
+    bubbles.push({ kind: "files", key: `files:${held.key}`, paths: held.paths });
   for (const approval of view.approvals)
     bubbles.push({
       kind: "ask",
@@ -121,6 +145,7 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
       name: approval.name,
       arguments: approval.arguments,
       sentence: approval.sentence,
+      reason: approval.reason,
     });
   return bubbles;
 }
@@ -129,15 +154,14 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
  * A reply's bubbles: its words, split where it remembered a note or asked a question. The first
  * run keeps the reply's key, so a bubble keeps its place as the reply grows.
  */
-function replyBubbles(entry: SpadeReplyEntry, bubbles: SpadeBubble[]) {
+function replyBubbles(entry: SpadeReplyEntry, bubbles: SpadeBubble[], held: Held) {
   let words: string[] = [];
   let runs = 0;
   const flush = () => {
     const text = words.join("\n\n").trim();
     words = [];
     if (!text) return;
-    bubbles.push({
-      kind: "bot",
+    pushBot(bubbles, held, {
       key: runs++ ? `${entry.key}:${runs}` : entry.key,
       text,
       live: false,
@@ -154,6 +178,9 @@ function replyBubbles(entry: SpadeReplyEntry, bubbles: SpadeBubble[]) {
       flush();
       words.push(part.text);
       flush();
+    } else if (part.kind === "files") {
+      flush();
+      hold(held, part.key, part.paths);
     }
   }
   if (entry.live) words.push(entry.live);
@@ -161,12 +188,35 @@ function replyBubbles(entry: SpadeReplyEntry, bubbles: SpadeBubble[]) {
   const end = entry.end && entry.end.kind !== "finished" ? entry.end.kind : undefined;
   // A reply with nothing more to say yet shows only as the working line.
   if (!text && !end) return;
-  bubbles.push({
-    kind: "bot",
+  pushBot(bubbles, held, {
     key: runs ? `${entry.key}:${runs + 1}` : entry.key,
     text,
     live: entry.end === undefined,
     end,
     error: entry.end?.kind === "failed" ? entry.end.error : undefined,
   });
+}
+
+interface Held {
+  paths: string[];
+  /** The first holder's key, which a standalone chip bubble takes. */
+  key: string | undefined;
+}
+
+function hold(held: Held, key: string, paths: readonly string[]) {
+  if (!paths.length) return;
+  held.key ??= key;
+  for (const path of paths) if (!held.paths.includes(path)) held.paths.push(path);
+}
+
+/** A bubble of the bot's, carrying the files kept since its last one. */
+function pushBot(
+  bubbles: SpadeBubble[],
+  held: Held,
+  bubble: Omit<Extract<SpadeBubble, { kind: "bot" }>, "kind" | "files">,
+) {
+  const files = held.paths.length ? { files: held.paths.slice() } : {};
+  held.paths.length = 0;
+  held.key = undefined;
+  bubbles.push({ kind: "bot", ...bubble, ...files });
 }

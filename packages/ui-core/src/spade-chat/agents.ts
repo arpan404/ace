@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { initials } from "../profile.ts";
 import { spadeJson, spadeRecord } from "./json.ts";
+import { parseSpadeReview, parseSpadeSpending, type SpadeSpending } from "./oversight.ts";
 
 /*
  * Spade's agents (ADR 0126, 0127): Spade itself, the main bot, and the person's bots, each a name,
@@ -80,6 +81,10 @@ export interface SpadeAgent {
   /** A few words on what it is doing now, while it works. */
   status: string | undefined;
   lastMessage: SpadeLastMessage | undefined;
+  /** Its spend and caps (ADR 0135); undefined from a Spade before them. */
+  spending: SpadeSpending | undefined;
+  /** Its own model review switch; undefined follows the default. */
+  review: boolean | undefined;
   /** The agent as Spade sent it, fields this client doesn't know included. */
   raw: Record<string, unknown>;
 }
@@ -160,6 +165,8 @@ export function parseSpadeAgentValue(raw: unknown): SpadeAgent | undefined {
     lastMessage: last
       ? { from: last.from, text: last.text, at: last.at, fromAgent: last.from_agent ?? undefined }
       : undefined,
+    spending: parseSpadeSpending(record.spending),
+    review: parseSpadeReview(record.review),
     raw: record,
   };
 }

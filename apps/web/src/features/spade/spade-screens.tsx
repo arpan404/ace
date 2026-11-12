@@ -1,25 +1,21 @@
 import { spadeStateLine } from "@ace/ui-core/spade-chat";
-import { Link, Navigate, useNavigate } from "@tanstack/react-router";
+import { Link, Navigate } from "@tanstack/react-router";
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { MenuItem } from "@/components/ui/menu.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { readingColumn } from "@/features/thread/index.ts";
 import { useMachines } from "@/lib/machines.ts";
-import { EditBotDialog } from "./spade-bot-dialog.tsx";
-import { MemoryDialog, type MemoryOpen } from "./spade-memory-dialog.tsx";
+import { SpadeActivity } from "./spade-activity.tsx";
+import { BotScreen, useOpenBot, type BotView } from "./spade-bot-screen.tsx";
 import { SpadeChat, type ChatBot } from "./spade-chat.tsx";
 import { SpadeComposer } from "./spade-composer.tsx";
-import { SpadeFace } from "./spade-face.tsx";
 import { SpadeFiles } from "./spade-files.tsx";
 import { SpadeKeySetup } from "./spade-key-setup.tsx";
 import { SpadeMachineScope, spadeMachineKey } from "./spade-machine.tsx";
 import { SpadeRoutines } from "./spade-routines.tsx";
 import { SpadeStateStrip } from "./spade-state.tsx";
-import { useDeleteBot } from "./use-bot-actions.ts";
 import { useSpadeConversation } from "./use-spade-conversation.ts";
 import { useSpadeEnabled } from "./use-spade-enabled.ts";
 import { useSpadeRoster, type RosterBot } from "./use-spade-roster.ts";
@@ -105,13 +101,15 @@ export function SpadeHomeScreen() {
 
 /**
  * `/spade/<agent id>` (with `on` when the bot runs on another machine): its conversation, or with
- * `files` its files, or with `view=routines` its routines and heartbeat.
+ * `files` its files (and `file` open), or with `view` its routines or its activity.
  */
 export function SpadeAgentScreen(props: {
   agentId: string;
   machine: string | undefined;
   files?: string | undefined;
-  view?: "routines" | undefined;
+  /** With `files`, a file in it opened. */
+  file?: string | undefined;
+  view?: BotView | undefined;
 }) {
   const line = useSpadeLine();
   const roster = useSpadeRoster(line.ready);
@@ -168,11 +166,15 @@ export function SpadeAgentScreen(props: {
     >
       {props.files !== undefined ? (
         <BotScreen bot={bot} files>
-          <FilesOf bot={bot} folder={props.files === "." ? "" : props.files} />
+          <FilesOf bot={bot} folder={props.files === "." ? "" : props.files} file={props.file} />
         </BotScreen>
       ) : props.view === "routines" ? (
         <BotScreen bot={bot} view="routines">
           <SpadeRoutines key={`${bot.machine.key}/${bot.id}`} bot={bot} />
+        </BotScreen>
+      ) : props.view === "activity" ? (
+        <BotScreen bot={bot} view="activity">
+          <SpadeActivity key={`${bot.machine.key}/${bot.id}`} bot={bot} />
         </BotScreen>
       ) : (
         <Conversation key={`${bot.machine.key}/${bot.id}`} bot={bot} roster={roster.bots} />
@@ -181,109 +183,19 @@ export function SpadeAgentScreen(props: {
   );
 }
 
-/** Where a bot's screen goes: its conversation, or a folder of its files. */
-function useOpenBot(bot: RosterBot) {
-  const navigate = useNavigate();
-  return (files: string | undefined) =>
-    void navigate({
-      to: "/spade/$agentId",
-      params: { agentId: bot.id },
-      search: {
-        ...(bot.machine.primary ? {} : { on: bot.machine.key }),
-        ...(files === undefined ? {} : { files: files || "." }),
-      },
-    });
-}
-
-function FilesOf(props: { bot: RosterBot; folder: string }) {
+function FilesOf(props: { bot: RosterBot; folder: string; file: string | undefined }) {
   const openBot = useOpenBot(props.bot);
   return (
     <div className="h-full min-h-0 overflow-y-auto [scrollbar-gutter:stable_both-edges]">
       {/* A new bot, machine or folder starts fresh: no file left open, no question left asked. */}
       <SpadeFiles
-        key={`${props.bot.machine.key}/${props.bot.id}/${props.folder}`}
+        key={`${props.bot.machine.key}/${props.bot.id}/${props.folder}/${props.file ?? ""}`}
         bot={props.bot}
         folder={props.folder}
-        onFolder={openBot}
+        file={props.file}
+        onFolder={(files) => openBot({ files })}
       />
     </div>
-  );
-}
-
-/**
- * The screen's frame for one bot: its face and name in the top bar; Files (or back to the
- * conversation), Routines (likewise), Memory, Edit and Delete in ⋯. `children` may open the
- * Memory dialog itself (a "Remembered" line).
- */
-function BotScreen(props: {
-  bot: RosterBot;
-  files?: boolean;
-  view?: "routines" | undefined;
-  children: ReactNode | ((openMemory: (open: MemoryOpen) => void) => ReactNode);
-}) {
-  const { bot } = props;
-  const [editing, setEditing] = useState(false);
-  const [memory, setMemory] = useState<MemoryOpen>();
-  const [confirming, setConfirming] = useState<Confirming>();
-  const remove = useDeleteBot();
-  const navigate = useNavigate();
-  const openBot = useOpenBot(bot);
-  const main = bot.kind === "main";
-  return (
-    <Screen
-      title={props.files ? `${bot.name} · Files` : bot.name}
-      mark={<SpadeFace avatar={bot.avatar} size={20} />}
-      menu={
-        bot.away || bot.unavailable ? undefined : (
-          <>
-            {props.files ? (
-              <MenuItem onClick={() => openBot(undefined)}>Conversation</MenuItem>
-            ) : (
-              <MenuItem onClick={() => openBot("")}>Files</MenuItem>
-            )}
-            <MenuItem
-              onClick={() =>
-                void navigate({
-                  to: "/spade/$agentId",
-                  params: { agentId: bot.id },
-                  search: {
-                    ...(bot.machine.primary ? {} : { on: bot.machine.key }),
-                    ...(props.view === "routines" ? {} : { view: "routines" as const }),
-                  },
-                })
-              }
-            >
-              {props.view === "routines" ? "Conversation" : "Routines"}
-            </MenuItem>
-            <MenuItem onClick={() => setMemory({ shared: false })}>Memory</MenuItem>
-            <MenuItem onClick={() => setEditing(true)}>{main ? "Edit Spade" : "Edit bot"}</MenuItem>
-            {!main && (
-              <MenuItem
-                danger
-                onClick={() =>
-                  setConfirming({
-                    title: `Delete ${bot.name}?`,
-                    body: `This deletes ${bot.name} and its whole conversation.`,
-                    confirm: "Delete bot",
-                    run: () =>
-                      void remove(bot).then((done) => {
-                        if (done) void navigate({ to: "/spade", replace: true });
-                      }),
-                  })
-                }
-              >
-                Delete bot
-              </MenuItem>
-            )}
-          </>
-        )
-      }
-    >
-      {typeof props.children === "function" ? props.children(setMemory) : props.children}
-      {editing && <EditBotDialog bot={bot} onClose={() => setEditing(false)} />}
-      {memory && <MemoryDialog bot={bot} open={memory} onClose={() => setMemory(undefined)} />}
-      <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />
-    </Screen>
   );
 }
 
@@ -294,6 +206,7 @@ function Conversation(props: { bot: RosterBot; roster: readonly RosterBot[] }) {
   const line = spadeStateLine(useSpadeStatus(), true);
   const toast = useToast();
   const skills = useSkillProposals(bot.id, view);
+  const openBot = useOpenBot(bot);
   const [stopping, setStopping] = useState(false);
   // Stopping lasts until nothing is open: the reply and its background jobs.
   if (stopping && !view.busy) setStopping(false);
@@ -337,6 +250,9 @@ function Conversation(props: { bot: RosterBot; roster: readonly RosterBot[] }) {
                 stopping={stopping}
                 onStop={stop}
                 onRemembered={(note) => openMemory({ shared: note.shared, note: note.id })}
+                onOpenFile={(path) =>
+                  openBot({ files: path.split("/").slice(0, -1).join("/"), file: path })
+                }
                 proposals={skills.proposals}
                 onProposal={(id, save) =>
                   skills.answer(id, save).then(
