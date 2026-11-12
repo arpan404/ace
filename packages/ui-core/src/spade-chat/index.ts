@@ -6,3 +6,4 @@ export * from "./words.ts";
 export * from "./requests.ts";
 export * from "./follow.ts";
 export * from "./settings.ts";
+export * from "./start.ts";
