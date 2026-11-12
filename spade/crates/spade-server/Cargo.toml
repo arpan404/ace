@@ -47,6 +47,7 @@ rmcp = { version = "3.9.0", default-features = false, features = [
   "transport-streamable-http-server",
 ] }
 spade-testkit = { path = "../spade-testkit" }
+spade-docs = { path = "../spade-docs" }
 url = "2"
 tokio-util = "0.7"
 # Fake daemon WebSockets: routines' ace events, and the skill library shared with spade-ace's

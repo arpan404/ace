@@ -300,6 +300,17 @@ impl Spade {
         .await
     }
 
+    /// Like `start_with`, with a whole toolbox (tools and live sources).
+    pub async fn start_toolbox(
+        scripts: Vec<Script>,
+        tools: Toolbox,
+        options: Options,
+    ) -> Result<Self> {
+        let fake = FakeProvider::start_sequence(scripts).await?;
+        let dir = Arc::new(tempfile::tempdir()?);
+        Self::serve_toolbox(fake, dir, tools, options).await
+    }
+
     async fn serve(
         fake: FakeProvider,
         dir: Arc<tempfile::TempDir>,
