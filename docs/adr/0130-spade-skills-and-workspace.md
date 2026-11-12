@@ -47,16 +47,20 @@ only effects are web reads, ace's tools and messages to other bots.
 6. **A shell in the folder.** `shell {command, timeout_s?}` runs the command in the bot's folder
    with `sh -c` on macOS and Linux and `cmd /C` on Windows (one platform branch, in one module). It
    runs in its own process group (on Windows, its process tree), is killed with the whole group
-   on timeout (default 60 s, at most 600 s), and its output is capped. The
+   on timeout (default 60 s, at most 110 s, inside the harness's 120 s tool limit), and its output
+   is capped. The
    environment is built, not inherited: `PATH`, `HOME` (the workspace), `LANG`, `TERM=dumb` and the
    platform's few required variables. Spade's token, endpoint keys and the ace grant never reach it.
 7. **Risk.** File reads, lists and searches are reads. Writes and edits are writes. A shell command
    is a write, so it asks, unless it is in a short built-in allowlist of read-only commands (`ls`,
    `cat`, `head`, `tail`, `wc`, `grep`, `find` without `-exec`/`-delete`, `pwd`, `echo`, `date`,
-   `stat`, `du`, `file`, `sort`, `uniq`, `diff`, `git status|log|diff|show`) with no shell syntax
-   that could do more (redirection, `;`, `&`, `|`, backticks, `$(`), or the person answered an
-   earlier one with "Always" for that bot. A turn that read untrusted output asks for every
-   write, as before (harness.md). Shell output counts as untrusted.
+   `stat`, `du`, `diff`, `tree`, `git status|log|diff|show`, without the options that write)
+   with no shell syntax that could do more (redirection, `;`, `&`, `|`, backticks, `$`) and no
+   argument that reaches outside the folder (absolute, `~`, `..`), or the person answered an
+   earlier one with "Always" for that bot. On Windows every command asks. A turn that read
+   untrusted output asks for every write and every command not on the allowlist, as before
+   (harness.md). Workspace files and shell output count as trusted: the folder holds only what
+   the bot wrote or ran with the person's leave.
 8. **Large output becomes a file.** A result over 16,000 characters (a shell's output, a search) is
    written to `.spade/outputs/<call>.txt` in the workspace and the model gets its head and tail and
    the path, which it can page through with `workspace_read`.
@@ -76,6 +80,8 @@ only effects are web reads, ace's tools and messages to other bots.
 - A bot can do real work on files and with commands without the person's machine being open to
   it: one folder, a clean environment, and the person asked for anything but plain reads.
 - The allowlist is short on purpose; most commands ask until the person allows them always.
+- Text a bot saved from the web in one turn reads as trusted in a later one. The person approved
+  the write that saved it; marking file reads untrusted would make every later write ask.
 - The workspace is not a sandbox: an allowed command runs with the person's user rights. Process
   isolation is left for later.
 - Proposals and notes are files in Spade's data folder, not database rows, so no migration is

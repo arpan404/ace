@@ -6,10 +6,12 @@ pub mod config;
 pub mod engine;
 pub mod home;
 pub mod images;
+pub mod learning;
 pub mod presets;
 pub mod proof;
 pub mod startup;
 pub mod tools;
+pub mod workspace;
 
 use std::future::Future;
 

@@ -177,7 +177,21 @@ pub(super) async fn update(
 
 pub(super) async fn delete(State(state): State<AppState>, Path(id): Path<String>) -> Response {
     match state.engine.delete_agent(&id).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Ok(()) => {
+            // Its workspace and proposals go with it (ADR 0130).
+            let (workspaces, learning) = (state.workspaces.clone(), state.learning.clone());
+            let forgotten = tokio::task::spawn_blocking(move || {
+                if let Some(learning) = learning {
+                    learning.forget(&id);
+                }
+                workspaces.map(|all| all.remove(&id))
+            })
+            .await;
+            if let Ok(Some(Err(error))) = forgotten {
+                tracing::warn!(%error, "a deleted bot's workspace was not removed");
+            }
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(error) => agent_problem(&error),
     }
 }

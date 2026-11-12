@@ -24,7 +24,7 @@ spade-fetch = { path = "../spade-fetch" }
 spade-search = { path = "../spade-search" }
 spade-store = { path = "../spade-store" }
 thiserror.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["process", "io-util"] }
 tokio-stream.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

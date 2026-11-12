@@ -11,11 +11,14 @@ use spade_server::config::Config;
 use spade_server::engine::{Engine, Limits, Setup};
 use spade_server::home::{DEFAULT_SEARCH, Home, HomeError, new_token};
 use spade_server::images::ImageStore;
+use spade_server::learning::{Learning, SkillFeedback, SkillPropose};
 use spade_server::presets;
 use spade_server::tools::{
-    AceLink, AceTarget, Retry, SkillLibrary, SkillLoad, SkillSearch, Todo, Tool, ToolSource,
-    Toolbox, WebFetch, WebSearch,
+    AceLink, AceTarget, EngineHandle, Retry, SkillLibrary, SkillLoad, SkillSearch, Todo, Tool,
+    ToolSource, Toolbox, WebFetch, WebSearch,
 };
+use spade_server::workspace::shell::Shell;
+use spade_server::workspace::{Workspaces, workspace_tools};
 use spade_store::Store;
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
@@ -150,12 +153,37 @@ async fn run() -> Result<(), Failure> {
         Arc::new(WebFetch(Arc::new(fetcher))),
         Arc::new(Todo),
     ];
+    // Tools that find the calling bot through the engine, set once it exists (ADR 0130).
+    let bots = EngineHandle::default();
+    let workspaces = Workspaces::new(home.dir.join("workspace"));
+    core.extend(workspace_tools(
+        workspaces.clone(),
+        bots.clone(),
+        Shell::system(),
+    ));
     let mut skills: Option<Arc<dyn SkillLibrary>> = None;
+    let mut learning: Option<Arc<Learning>> = None;
     if let Some(link) = &ace {
         let library: Arc<dyn SkillLibrary> = link.clone();
+        let learned = Arc::new(Learning::new(
+            home.dir.join("skills"),
+            Arc::new(SystemClock),
+            library.clone(),
+        ));
         core.push(Arc::new(SkillSearch(library.clone())));
-        core.push(Arc::new(SkillLoad(library.clone())));
+        core.push(Arc::new(
+            SkillLoad::new(library.clone()).with_notes(learned.clone(), bots.clone()),
+        ));
+        core.push(Arc::new(SkillPropose {
+            learning: learned.clone(),
+            bots: bots.clone(),
+        }));
+        core.push(Arc::new(SkillFeedback {
+            learning: learned.clone(),
+            bots: bots.clone(),
+        }));
         skills = Some(library);
+        learning = Some(learned);
     }
     let mut tools = Toolbox::new(core);
     if let Some(link) = &ace {
@@ -177,6 +205,7 @@ async fn run() -> Result<(), Failure> {
         keychain: keychain.clone(),
     })
     .map_err(other)?;
+    bots.set(&engine);
     let token = new_token();
     home.write_token(&token).map_err(other)?;
     let listener = TcpListener::bind(config.listen).await.map_err(other)?;
@@ -196,6 +225,8 @@ async fn run() -> Result<(), Failure> {
         token: token.into(),
         keys: keychain,
         ace,
+        workspaces: Some(workspaces),
+        learning,
     };
     let stopping = async move {
         shutdown_signal().await;

@@ -4,6 +4,7 @@
 mod agents;
 mod body;
 mod endpoints;
+mod workspace;
 
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -44,6 +45,10 @@ pub struct AppState {
     pub keys: Option<KeyStore>,
     /// The connection to ace, when Spade knows where ace lives.
     pub ace: Option<Arc<AceLink>>,
+    /// Each bot's workspace folder (ADR 0130).
+    pub workspaces: Option<crate::workspace::Workspaces>,
+    /// Skill proposals and notes, when Spade has a skill library.
+    pub learning: Option<Arc<crate::learning::Learning>>,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -93,6 +98,7 @@ pub fn router(state: AppState) -> Router {
                 .post(begin_maintenance)
                 .delete(end_maintenance),
         )
+        .merge(workspace::routes())
         .route_layer(middleware::from_fn_with_state(state.clone(), authorize))
         .with_state(state.clone());
     let open = Router::new()

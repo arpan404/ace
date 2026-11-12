@@ -154,6 +154,10 @@ pub struct Options {
     pub keychain_delete_gate: Option<Gate>,
     /// Writes to the database before Spade first opens it.
     pub seed: Option<fn(&Store) -> spade_store::Result<()>>,
+    /// Bots' workspaces, for the API (ADR 0130).
+    pub workspaces: Option<spade_server::workspace::Workspaces>,
+    /// Skill proposals, for the API (ADR 0130).
+    pub learning: Option<Arc<spade_server::learning::Learning>>,
 }
 
 /// A keychain prompt: reads wait until [`Gate::open`]. A gated delete can also be made to panic
@@ -210,6 +214,8 @@ impl Default for Options {
             seed: None,
             keychain_delete_gate: None,
             keychain_gate_for: None,
+            workspaces: None,
+            learning: None,
         }
     }
 }
@@ -359,6 +365,8 @@ impl Spade {
             token: TOKEN.into(),
             keys: Some(keys.clone()),
             ace: ace.clone(),
+            workspaces: options.workspaces.clone(),
+            learning: options.learning.clone(),
         };
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let base = format!("http://{}", listener.local_addr()?);

@@ -67,7 +67,7 @@ fn skill_tools(library: &Arc<Library>) -> Vec<Arc<dyn Tool>> {
     let library: Arc<dyn SkillLibrary> = library.clone();
     vec![
         Arc::new(SkillSearch(library.clone())),
-        Arc::new(SkillLoad(library)),
+        Arc::new(SkillLoad::new(library)),
     ]
 }
 

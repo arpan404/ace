@@ -61,7 +61,8 @@ pub(super) async fn handle_calls(
                 }
                 Some(def) => {
                     let always = transcript.always_allowed.iter().any(|t| t == &name);
-                    match gate::decide(def.risk, always, untrusted) {
+                    let risk = call_risk(engine, &name, &arguments).unwrap_or(def.risk);
+                    match gate::decide(risk, always, untrusted) {
                         Decision::Run => runnable.push((pending.call, name, arguments)),
                         Decision::Ask => {
                             waiting = true;
@@ -121,6 +122,11 @@ pub(super) async fn handle_calls(
     Handled::Continue
 }
 
+/// The risk of this one call, when the tool judges it by its arguments.
+fn call_risk(engine: &Engine, name: &str, arguments: &Value) -> Option<Risk> {
+    engine.tools.get(name)?.risk_of(arguments)
+}
+
 /// A call's real tool and arguments: `call_tool` names its tool inside.
 fn resolve(call: &Call) -> (String, Value) {
     if call.name == CALL_TOOL
@@ -168,7 +174,7 @@ async fn run_tools(
             let def = engine.tools.registry().get(&name).cloned();
             let background = def.as_ref().is_some_and(|def| def.background);
             let risk = match &def {
-                Some(def) => Some(def.risk),
+                Some(def) => Some(call_risk(engine, &name, &arguments).unwrap_or(def.risk)),
                 None if name == TOOL_SEARCH => Some(Risk::Read),
                 None => None,
             };

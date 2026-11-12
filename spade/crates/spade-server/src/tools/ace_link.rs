@@ -14,7 +14,9 @@ use spade_core::skills::SkillEntry;
 use spade_keys::{KeyError, KeyStore};
 use tokio::sync::Notify;
 
-use super::{AceLibrary, LibraryFuture, SkillLibrary, Tool, ToolSource};
+use super::{
+    AceLibrary, LibraryFuture, SkillLibrary, SkillSource, Tool, ToolSource, WriteError, WriteFuture,
+};
 
 /// ace's `wait` can block for up to ten minutes; the engine's own limits still apply.
 const CALL_TIMEOUT: Duration = Duration::from_secs(11 * 60);
@@ -430,6 +432,27 @@ impl SkillLibrary for AceLink {
         match self.library() {
             Some(library) => library.read(id),
             None => Box::pin(async { Err(AWAY.to_owned()) }),
+        }
+    }
+
+    fn source(&self, name: &str) -> LibraryFuture<Option<SkillSource>> {
+        match self.library() {
+            Some(library) => library.source(name),
+            None => Box::pin(async { Err(AWAY.to_owned()) }),
+        }
+    }
+
+    fn create(&self, name: &str, description: &str, body: &str) -> WriteFuture {
+        match self.library() {
+            Some(library) => library.create(name, description, body),
+            None => Box::pin(async { Err(WriteError::Unavailable(AWAY.to_owned())) }),
+        }
+    }
+
+    fn edit(&self, base: &SkillSource, description: &str, body: &str) -> WriteFuture {
+        match self.library() {
+            Some(library) => library.edit(base, description, body),
+            None => Box::pin(async { Err(WriteError::Unavailable(AWAY.to_owned())) }),
         }
     }
 }

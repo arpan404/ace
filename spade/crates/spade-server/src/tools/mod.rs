@@ -19,7 +19,10 @@ use spade_core::tools::{Registry, ToolDef};
 
 pub use ace_link::{AceLink, AceTarget, GrantError, Retry, grant_slot};
 pub use bots::{BotMessage, BotsList, EngineHandle};
-pub use skills::{AceLibrary, LibraryFuture, SkillLibrary, SkillLoad, SkillSearch};
+pub use skills::{
+    AceLibrary, LibraryFuture, SkillLibrary, SkillLoad, SkillSearch, SkillSource, WriteError,
+    WriteFuture, body_of,
+};
 pub use todo::Todo;
 pub use web_fetch::WebFetch;
 pub use web_search::WebSearch;
@@ -70,6 +73,11 @@ pub trait Tool: Send + Sync {
     /// retries and restarts: tools that change things pass it on as an idempotency key, so a
     /// repeated call cannot act twice.
     fn run(&self, key: &str, arguments: Value) -> ToolFuture;
+    /// This call's risk when it depends on the arguments (a shell command that only reads);
+    /// `None` keeps the definition's.
+    fn risk_of(&self, _arguments: &Value) -> Option<spade_core::tools::Risk> {
+        None
+    }
 }
 
 /// Tools whose list changes while Spade runs, such as ace's. Every one is offered deferred, so
