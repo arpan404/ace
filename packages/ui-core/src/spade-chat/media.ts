@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { formatBytes } from "../byte-size.ts";
+import { spadeJson } from "./json.ts";
 
 /*
  * What a message carries besides words (ADR 0134, spade/docs/media.md): images, documents and a
@@ -148,4 +149,12 @@ export function spadeModelCan(
   capability: SpadeMediaCapability,
 ): boolean {
   return model.capabilities.includes(capability);
+}
+
+const transcriptionShape = z.object({ text: z.string() });
+
+/** `POST /v1/transcriptions`' answer: the words; undefined when the body doesn't say. */
+export function parseSpadeTranscription(body: string): string | undefined {
+  const parsed = transcriptionShape.safeParse(spadeJson(body));
+  return parsed.success ? parsed.data.text : undefined;
 }

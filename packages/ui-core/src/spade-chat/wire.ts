@@ -82,9 +82,17 @@ const known = z.discriminatedUnion("type", [
     /** The result: JSON text from the memory tools, which the view reads (ADR 0128). */
     content: z.unknown().optional(),
     is_error: z.boolean().optional(),
-    /** What the call showed the person: images and documents in the reply's bubble (ADR 0134). */
-    shared_images: spadeImageList,
-    shared_documents: spadeDocumentList,
+  }),
+  /**
+   * Images and documents a tool showed the person, stored right after its `tool_finished`
+   * (ADR 0134): they show in the reply's bubble, after its words.
+   */
+  z.object({
+    type: z.literal("shared"),
+    reply,
+    call_id: z.string().optional(),
+    images: spadeImageList,
+    documents: spadeDocumentList,
   }),
   /** The bot asked the person and waits for their next message (ADR 0128). */
   z.object({

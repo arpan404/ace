@@ -115,11 +115,13 @@ describe("what a bot's tools show", () => {
       call_id: "c1",
       name: "image_generate",
       content: "Shown to the person: 1 image.",
-      shared_images: [
-        { sha256: hash("f"), media_type: "image/png", bytes: 81_234 },
-        { sha256: "short" },
-      ],
-      shared_documents: [{ ...report, name: "data.csv", pages: undefined }],
+    });
+    c.stored({
+      type: "shared",
+      reply: "r1",
+      call_id: "c1",
+      images: [{ sha256: hash("f"), media_type: "image/png", bytes: 81_234 }, { sha256: "short" }],
+      documents: [{ ...report, name: "data.csv", pages: undefined }],
     });
     c.stored({ type: "step_finished", reply: "r1", text: "Here it is." });
     c.stored({ type: "reply_finished", reply: "r1", text: "Here it is." });
@@ -137,21 +139,22 @@ describe("what a bot's tools show", () => {
     const c = conversation();
     c.stored({ type: "reply_started", reply: "r1" });
     c.stored({ type: "step_finished", reply: "r1", calls: [{ id: "c1", name: "share_file" }] });
+    c.stored({ type: "tool_finished", reply: "r1", call_id: "c1", name: "share_file" });
     c.stored({
-      type: "tool_finished",
+      type: "shared",
       reply: "r1",
       call_id: "c1",
-      name: "share_file",
-      shared_images: [{ sha256: hash("b"), media_type: "image/webp", bytes: 9 }],
+      images: [{ sha256: hash("b"), media_type: "image/webp", bytes: 9 }],
     });
     expect(c.bubbles()).toMatchObject([{ kind: "bot", text: "", images: [{ sha256: hash("b") }] }]);
   });
 
-  test("a tool that showed nothing adds nothing to the chat", () => {
+  test("a tool that showed nothing, or an empty shared event, adds nothing to the chat", () => {
     const c = conversation();
     c.stored({ type: "reply_started", reply: "r1" });
     c.stored({ type: "step_finished", reply: "r1", calls: [{ id: "c1", name: "web_fetch" }] });
     c.stored({ type: "tool_finished", reply: "r1", call_id: "c1", name: "web_fetch" });
+    c.stored({ type: "shared", reply: "r1", call_id: "c1", images: [], documents: [] });
     c.stored({ type: "reply_finished", reply: "r1", text: "" });
     expect(c.bubbles()).toEqual([]);
   });

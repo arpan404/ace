@@ -322,20 +322,16 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       state.running.delete(event.call_id);
       setCall(state, event.reply, event.call_id, event.name, event.is_error ? "failed" : "done");
       remembered(state, event.reply, key, event.name, event.content, event.is_error === true);
-      if (event.shared_images.length || event.shared_documents.length)
-        updateOpen(state, event.reply, (entry) => ({
-          ...entry,
-          parts: [
-            ...entry.parts,
-            {
-              kind: "shared",
-              key,
-              images: event.shared_images,
-              documents: event.shared_documents,
-            },
-          ],
-        }));
       return true;
+    case "shared":
+      if (!event.images.length && !event.documents.length) return false;
+      return updateOpen(state, event.reply, (entry) => ({
+        ...entry,
+        parts: [
+          ...entry.parts,
+          { kind: "shared", key, images: event.images, documents: event.documents },
+        ],
+      }));
     case "question_asked":
       if (state.open?.reply !== event.reply) return false;
       state.question = { reply: event.reply, callId: event.call_id };
