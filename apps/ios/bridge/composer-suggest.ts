@@ -9,7 +9,7 @@ import {
 } from "@ace/ui-core";
 import { z } from "zod";
 import type { PatchSink, Preview } from "./agents.ts";
-import { CatalogReads, staleRetries, staleRetry, type Target } from "./composer-catalog.ts";
+import { CatalogReads, type Target } from "./composer-catalog.ts";
 import { rowReference, suggestionRow, type RowSource } from "./composer-rows.ts";
 
 /*
@@ -244,19 +244,10 @@ export class ComposerSuggest {
     };
     show();
     const catalog = this.#catalogs.get(target.key);
+    // Discovery still running reads again shortly, in the one loop the Skills pages share.
     if (!catalog || catalog.failed || catalog.stale || this.#ports.now() - catalog.at > fresh)
-      void this.#catalogs.read(target).then(() => {
-        if (!current()) return;
-        show();
-        const read = this.#catalogs.get(target.key);
-        // Discovery still running: read again shortly while the list stays open.
-        if (read?.stale && read.retries < staleRetries) {
-          read.retries++;
-          const again = this.#ports.schedule(staleRetry, () => {
-            if (current()) this.#query(action);
-          });
-          if (!adding) this.#cancel = again;
-        }
+      void this.#catalogs.settle(target, () => {
+        if (current()) show();
       });
   }
 

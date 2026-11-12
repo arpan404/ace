@@ -440,7 +440,7 @@ async function start(json: string): Promise<void> {
     automations,
   );
   // A file the fork being written carries stays in its thread until the fork is sent or closed.
-  if (suggest) services.catalog = new CatalogPage(suggest.catalogs, scheduler.set);
+  if (suggest) services.catalog = new CatalogPage(suggest.catalogs);
   services.carried = (threadId) =>
     threadId === visit.threadId ? (visit.session?.carriedFiles() ?? new Set()) : new Set();
   workspace = new NativeWorkspace(pump, {

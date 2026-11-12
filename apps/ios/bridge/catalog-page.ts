@@ -6,7 +6,7 @@ import type { CatalogReads, ReadTarget } from "./composer-catalog.ts";
  * The Skills and commands pages (a thread's, and Settings' Available CLI skills) read the
  * catalog through the composer's reader, so an open thread's page and its `/` list share one
  * answer. The first read answers at once; a stale one says it is refreshing, and Swift asks
- * again with `settle`, which reads again on the composer's rule until discovery ends. Only an
+ * again with `settle`, which joins the target's one retry loop until discovery ends. Only an
  * answer still stale after that is shown as cached.
  */
 
@@ -30,7 +30,6 @@ export interface CatalogPageReply {
   refreshing: boolean;
   notice: string | null;
 }
-type Schedule = (delay: number, run: () => void) => () => void;
 
 /** The web composer's words while discovery refreshes the list. */
 const refreshingNotice = "Refreshing skills and commands…";
@@ -38,10 +37,8 @@ const cachedNotice = "Showing cached entries. Pull to refresh to read them again
 
 export class CatalogPage {
   readonly #reads: CatalogReads;
-  readonly #schedule: Schedule;
-  constructor(reads: CatalogReads, schedule: Schedule) {
+  constructor(reads: CatalogReads) {
     this.#reads = reads;
-    this.#schedule = schedule;
   }
 
   async answer(raw: NativeCatalogRequest, signal: AbortSignal): Promise<CatalogPageReply> {
@@ -55,7 +52,7 @@ export class CatalogPage {
     if (!target) throw new Error("A catalog page reads a thread or a project");
     if (!request.settle) await this.#reads.read(target);
     const catalog = request.settle
-      ? await this.#reads.settle(target, (delay) => this.#pause(delay, signal))
+      ? await untilClosed(this.#reads.settle(target), signal)
       : this.#reads.get(target.key);
     if (!catalog || (catalog.failed && !catalog.entries.length))
       throw new Error("The catalog couldn't be read");
@@ -67,21 +64,16 @@ export class CatalogPage {
       notice: refreshing ? refreshingNotice : catalog.stale ? cachedNotice : null,
     };
   }
+}
 
-  #pause(delay: number, signal: AbortSignal): Promise<void> {
-    return new Promise((resolve, reject) => {
-      if (signal.aborted) return reject(new Error("The page closed"));
-      const stop = () => {
-        cancel();
-        reject(new Error("The page closed"));
-      };
-      const cancel = this.#schedule(delay, () => {
-        signal.removeEventListener("abort", stop);
-        resolve();
-      });
-      signal.addEventListener("abort", stop, { once: true });
-    });
-  }
+/** The page stops waiting when it closes; the shared retry loop runs on for anyone else. */
+function untilClosed<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(new Error("The page closed"));
+  return new Promise((resolve, reject) => {
+    const closed = () => reject(new Error("The page closed"));
+    signal.addEventListener("abort", closed, { once: true });
+    work.then(resolve, reject).finally(() => signal.removeEventListener("abort", closed));
+  });
 }
 
 /** Kept apart from the composer's draft keys: a project read has no New thread draft. */

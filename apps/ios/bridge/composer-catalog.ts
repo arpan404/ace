@@ -28,14 +28,20 @@ export interface Catalog {
   failed: boolean;
   at: number;
   reading: Promise<void> | undefined;
-  /** Re-reads asked while discovery is still running. */
+  /** The retry loop running for this target, which every caller joins (`settle`). */
+  settling: Promise<void> | undefined;
+  /** Re-reads made by that loop while discovery is still running. */
   retries: number;
+  /** Told after each of the loop's reads, while their caller waits on it. */
+  watchers: Set<() => void>;
 }
 const quiet = { timeoutMs: 15_000 };
 
 export interface CatalogPorts {
   owner: Pick<ClientCore, "request">;
   now(): number;
+  /** The pause between a stale answer and the next read. */
+  schedule(delay: number, run: () => void): () => void;
   draft: { draftScope(workspaceId: string): Promise<string> };
 }
 
@@ -51,17 +57,8 @@ export class CatalogReads {
 
   /** Read the target's catalog; one read at a time per target. */
   read(target: ReadTarget): Promise<void> {
-    const known = this.#catalogs.get(target.key);
-    if (known?.reading) return known.reading;
-    const catalog: Catalog = known ?? {
-      entries: [],
-      stale: false,
-      failed: false,
-      at: 0,
-      reading: undefined,
-      retries: 0,
-    };
-    this.#catalogs.set(target.key, catalog);
+    const catalog = this.#entry(target.key);
+    if (catalog.reading) return catalog.reading;
     const read = async () => {
       try {
         const reply =
@@ -111,20 +108,56 @@ export class CatalogReads {
     return catalog.reading;
   }
 
-  /**
-   * Read the target's catalog, and while the answer is still stale read it again after each
-   * `pause`, up to `staleRetries` times. A failed read stops the retries.
-   */
-  async settle(target: ReadTarget, pause: (delay: number) => Promise<void>): Promise<Catalog> {
-    await this.read(target);
-    for (let tries = 0; tries < staleRetries; tries++) {
-      const known = this.#catalogs.get(target.key);
-      if (!known?.stale || known.failed) break;
-      await pause(staleRetry);
-      await this.read(target);
-    }
-    const catalog = this.#catalogs.get(target.key);
-    if (!catalog) throw new Error("catalog was never read");
+  #entry(key: string): Catalog {
+    const known = this.#catalogs.get(key);
+    if (known) return known;
+    const catalog: Catalog = {
+      entries: [],
+      stale: false,
+      failed: false,
+      at: 0,
+      reading: undefined,
+      settling: undefined,
+      retries: 0,
+      watchers: new Set(),
+    };
+    this.#catalogs.set(key, catalog);
     return catalog;
+  }
+
+  /**
+   * Read the target's catalog, and while the answer is still stale read it again every
+   * `staleRetry`, up to `staleRetries` times; a failed read stops the retries. One loop runs per
+   * target: a caller arriving while it runs joins it, and `onRead` hears each read from then on.
+   */
+  async settle(target: ReadTarget, onRead?: () => void): Promise<Catalog> {
+    const catalog = this.#entry(target.key);
+    if (onRead) catalog.watchers.add(onRead);
+    try {
+      catalog.settling ??= this.#retry(target, catalog);
+      await catalog.settling;
+    } finally {
+      if (onRead) catalog.watchers.delete(onRead);
+    }
+    return catalog;
+  }
+
+  async #retry(target: ReadTarget, catalog: Catalog): Promise<void> {
+    const told = () => {
+      for (const watcher of catalog.watchers) watcher();
+    };
+    try {
+      catalog.retries = 0;
+      await this.read(target);
+      told();
+      while (catalog.stale && !catalog.failed && catalog.retries < staleRetries) {
+        catalog.retries++;
+        await new Promise<void>((resolve) => this.#ports.schedule(staleRetry, resolve));
+        await this.read(target);
+        told();
+      }
+    } finally {
+      catalog.settling = undefined;
+    }
   }
 }

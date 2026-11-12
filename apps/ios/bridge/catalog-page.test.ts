@@ -4,7 +4,7 @@ import { facts, type FakeDaemon } from "@ace/fake-daemon";
 import type { ClientCore } from "@ace/client";
 import { CatalogPage } from "./catalog-page.ts";
 import { CatalogReads } from "./composer-catalog.ts";
-import { connect, fixture, reset, until } from "./thread-harness.ts";
+import { connect, fixture, reset, sent, until } from "./thread-harness.ts";
 
 /*
  * The Skills and commands pages read the catalog through the composer's reader: a cached
@@ -33,16 +33,19 @@ async function page(fake: FakeDaemon, paused: (pauses: number) => void = () => {
     new CatalogReads({
       owner: client,
       now: () => Date.now(),
+      schedule: (_delay, run) => {
+        paused(++pauses);
+        queueMicrotask(run);
+        return () => {};
+      },
       draft: { draftScope: async () => "draft" },
     }),
-    (_delay, run) => {
-      paused(++pauses);
-      queueMicrotask(run);
-      return () => {};
-    },
   );
 }
 const signal = () => new AbortController().signal;
+/** The catalog reads the client sent the daemon. */
+const reads = () =>
+  sent.filter((text) => (JSON.parse(text) as { type?: string }).type === "catalog.list").length;
 
 test("a cached first answer is read again until discovery ends, then shows fresh entries", async () => {
   const fake = daemon();
@@ -95,4 +98,24 @@ test("a project's catalog for one coding agent reads fresh without a pause", asy
   expect(first).toMatchObject({ stale: false, refreshing: false, notice: null });
   expect(first.entries.length).toBeGreaterThan(0);
   expect(pauses).toBe(0);
+});
+
+test("a page reopened while its catalog settles joins that retry loop and its answer", async () => {
+  const fake = daemon();
+  discovering(fake, true);
+  const settle = { type: "catalog.page", threadId: "here", settle: true } as const;
+  let reopened: ReturnType<CatalogPage["answer"]> | undefined;
+  const catalog = await page(fake, (pauses) => {
+    // The page is closed and opened again three retries into the first settle.
+    if (pauses === 3) reopened = catalog.answer(settle, signal());
+  });
+  const before = reads();
+
+  const first = await catalog.answer(settle, signal());
+  const second = await reopened;
+
+  // One read, then at most the six retries: never a second loop beside it.
+  expect(reads() - before).toBeLessThanOrEqual(7);
+  expect(second).toEqual(first);
+  expect(first).toMatchObject({ stale: true, refreshing: false });
 });
