@@ -27,35 +27,71 @@ pub fn secret_name(name: &str) -> bool {
     .any(|word| name.contains(word))
 }
 
-/// `text` with every run shaped like a key or a bearer token replaced by [`HIDDEN`].
+/// `text` with secrets replaced by [`HIDDEN`]: first what a name says is secret (a URL's
+/// `?token=…`, `PASSWORD=…`, `--api-key …`, `password: …`, `Bearer …`), then every run shaped
+/// like a key.
 pub fn text(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut word = String::new();
-    // The previous word was "Bearer" (or "token"), so the next one is the secret.
-    let mut after_bearer = false;
-    let flush = |word: &mut String, out: &mut String, after_bearer: &mut bool| {
-        if word.is_empty() {
-            return;
-        }
-        let lower = word.to_ascii_lowercase();
-        if *after_bearer || looks_like_key(word) {
-            out.push_str(HIDDEN);
-        } else {
-            out.push_str(word);
-        }
-        *after_bearer = lower == "bearer" || lower == "basic";
-        word.clear();
-    };
+    let mut state = Scan::default();
     for c in text.chars() {
         if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '+' | '/' | '=') {
             word.push(c);
         } else {
-            flush(&mut word, &mut out, &mut after_bearer);
+            state.flush(&mut word, &mut out);
+            // `password: hunter2`: a secret name, a colon, then its value. Anything but spaces
+            // and quotes between them (`,`, `}`, a new line) ends what the name covers.
+            let quiet = matches!(c, ' ' | '\t' | '"' | '\'');
+            if c == ':' && state.named_secret {
+                state.hide_next = true;
+            } else if !quiet {
+                state.hide_next = false;
+                state.named_secret = false;
+            }
             out.push(c);
         }
     }
-    flush(&mut word, &mut out, &mut after_bearer);
+    state.flush(&mut word, &mut out);
     out
+}
+
+/// What scanning has seen of the words before.
+#[derive(Default)]
+struct Scan {
+    /// The next word is a secret: it follows `Bearer`, `--token` or `password:`.
+    hide_next: bool,
+    /// The last word was a secret's name.
+    named_secret: bool,
+}
+
+impl Scan {
+    fn flush(&mut self, word: &mut String, out: &mut String) {
+        if word.is_empty() {
+            return;
+        }
+        let lower = word.to_ascii_lowercase();
+        let flag = word.starts_with('-');
+        if self.hide_next && !word.starts_with("--") {
+            out.push_str(HIDDEN);
+        } else if let Some((name, value)) = word.split_once('=')
+            && !value.is_empty()
+            && secret_name(name.trim_start_matches('-'))
+        {
+            // `TOKEN=…`, `--password=…`, a query's `api_key=…`.
+            out.push_str(name);
+            out.push('=');
+            out.push_str(HIDDEN);
+        } else if looks_like_key(word) {
+            out.push_str(HIDDEN);
+        } else {
+            out.push_str(word);
+        }
+        let bare = word.trim_start_matches('-');
+        let named = !word.contains('=') && secret_name(bare);
+        self.hide_next = lower == "bearer" || lower == "basic" || (flag && named);
+        self.named_secret = named;
+        word.clear();
+    }
 }
 
 /// Whether one word looks like a credential.
@@ -187,6 +223,27 @@ mod tests {
         }
         assert!(!text(cases[0]).contains("abc.def-123"));
         assert!(text(cases[0]).contains("https://api.example.com"));
+    }
+
+    #[test]
+    fn values_a_name_marks_as_secret_are_hidden_however_they_are_written() {
+        let cases = [
+            ("https://api.example.com/cb?token=sk-123&page=2", "sk-123"),
+            ("curl 'https://x.dev/a?api_key=short1&q=rust'", "short1"),
+            ("PASSWORD=short-secret ./run.sh", "short-secret"),
+            ("export GITHUB_TOKEN=abc123", "abc123"),
+            ("deploy --password hunter2 --verbose", "hunter2"),
+            ("deploy --api-key=xyz --verbose", "xyz"),
+            ("login with password: hunter2", "hunter2"),
+            ("Cookie: session=abcdef", "abcdef"),
+        ];
+        for (case, secret) in cases {
+            let shown = text(case);
+            assert!(!shown.contains(secret), "{case} -> {shown}");
+            assert!(shown.contains(HIDDEN), "{case} -> {shown}");
+        }
+        assert!(text(cases[0].0).contains("page=2"), "other parameters stay");
+        assert!(text(cases[4].0).contains("--verbose"));
     }
 
     #[test]
