@@ -4,6 +4,7 @@ import {
   parseSpadeEndpoint,
   parseSpadeLiveModels,
   parseSpadeModels,
+  parseSpadeTranscription,
   type SpadeAgent,
   type SpadeAvatarColor,
   type SpadeEndpoint,
@@ -150,4 +151,23 @@ export async function setKey(target: SpadeTarget, endpoint: string, key: string)
 
 export async function removeKey(target: SpadeTarget, endpoint: string): Promise<void> {
   await spadeHttp(target, "DELETE", `/v1/keys/${segment(endpoint)}`);
+}
+
+/** `endpoint/model` that turns recordings into words; null clears it (ADR 0134). */
+export async function setTranscriptionModel(
+  target: SpadeTarget,
+  model: string | null,
+): Promise<void> {
+  await spadeHttp(target, "PUT", "/v1/settings", { body: { transcription_model: model } });
+}
+
+/** A recording's words, from the transcription model's endpoint. */
+export async function transcribe(
+  target: SpadeTarget,
+  recording: { data: string; mediaType: string },
+): Promise<string> {
+  const body = await spadeHttp(target, "POST", "/v1/transcriptions", {
+    body: { data: recording.data, media_type: recording.mediaType },
+  });
+  return sure(parseSpadeTranscription(body), "transcription");
 }

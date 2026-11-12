@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { ConversationFollow, type FollowDeps } from "./conversation-follow.ts";
-import type { SpadeMessage } from "./spade-images.ts";
+import type { SpadeMessage } from "./spade-attachments.ts";
 import { segment, spadeBody, spadeHttp, SpadeRequestError } from "./spade-requests.ts";
 import { agentsKey } from "./use-spade-roster.ts";
 import { spadeTransport } from "./spade-transport.ts";
@@ -47,7 +47,14 @@ export function useSpadeConversation(conversation: string) {
     async send(message: SpadeMessage): Promise<void> {
       const key = `local-${crypto.randomUUID()}`;
       const { text, images } = message;
-      follow.apply({ kind: "sent", key, text, images: images.map((image) => image.ref) });
+      follow.apply({
+        kind: "sent",
+        key,
+        text,
+        images: images.map((image) => image.ref),
+        documents: (message.documents ?? []).map((document) => document.ref),
+        ...(message.voice ? { voice: message.voice.ref } : {}),
+      });
       try {
         await spadeHttp(client, "POST", `${path}/messages`, { body: spadeBody(message) });
         listChanged();

@@ -98,11 +98,28 @@ export async function spadeBlob(
   return new Blob([bytes], { type });
 }
 
-/** A message's body as Spade takes it: images as `{data}` with their base64. */
-export function spadeBody(message: { text: string; images: readonly { data: string }[] }) {
+/** A message's body as Spade takes it: images as `{data}`, documents as `{name, data}`, a voice
+ * recording with its transcript (the message's words). */
+export function spadeBody(message: {
+  text: string;
+  images: readonly { data: string }[];
+  documents?: readonly { name: string; data: string }[] | undefined;
+  voice?: { data: string; mediaType: string } | undefined;
+}) {
+  const documents = message.documents ?? [];
   return {
     text: message.text,
     ...(message.images.length ? { images: message.images.map(({ data }) => ({ data })) } : {}),
+    ...(documents.length ? { files: documents.map(({ name, data }) => ({ name, data })) } : {}),
+    ...(message.voice
+      ? {
+          voice: {
+            data: message.voice.data,
+            media_type: message.voice.mediaType,
+            transcript: message.text,
+          },
+        }
+      : {}),
   };
 }
 
