@@ -63,6 +63,10 @@ extension ThreadScreenModel {
             if attachments != files { attachments = files }
             if attachmentsLocked != locked { attachmentsLocked = locked }
         case .annotations(let items): if annotations != items { annotations = items }
+        case .quotes(let items, let full, let kept):
+            if quotes != items { quotes = items }
+            if quotesFull != full { quotesFull = full }
+            if keptQuotes != kept { keptQuotes = kept }
         case .pill(let row, let goal, let left):
             if pill != row { pill = row }
             if leftRunning != left { leftRunning = left }

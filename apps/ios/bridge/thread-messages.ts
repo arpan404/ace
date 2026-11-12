@@ -22,7 +22,7 @@ import { preview } from "./presentation.ts";
 /*
  * What the phone's message rows show beyond an item's text, from the same `@ace/ui-core`
  * decisions the web draws: the person's bubble (its words, code runs, mention chips, the long
- * fold, how it was sent), an event's one row (`eventView`), a thought's header and whether an
+ * fold, how it was sent, the passages it replies to), an event's one row (`eventView`), a thought's header and whether an
  * answer still streams. Swift draws these as given. Display text is bounded.
  */
 
@@ -82,6 +82,8 @@ export function bubbleOf(item: Item) {
   const origin = messageOrigin(item)?.kind ?? "";
   return {
     segments,
+    // What it replies to, drawn above the words; each passage bounded as the bubble is.
+    quotes: (content.quotes ?? []).map((quote) => ({ text: preview(quote.text, 1024) })),
     readable: content.readable,
     long: isLongMessage(content.text),
     origin: origins.has(origin) ? origin : "",

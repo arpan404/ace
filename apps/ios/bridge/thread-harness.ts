@@ -6,6 +6,7 @@ import { DeviceId, HostId } from "@ace/protocol";
 import { PatchPump, followThread } from "./patches.ts";
 import { ThreadSession } from "./thread-session.ts";
 import type { SubagentRetries } from "./subagent-retries.ts";
+import type { QuoteShelf } from "./thread-quotes.ts";
 import type { ChunkReader } from "./thread-attachments.ts";
 
 /*
@@ -191,6 +192,7 @@ export function open(
   chunks?: ChunkReader,
   retries?: SubagentRetries,
   keptSteps?: TurnStepsStore,
+  quotes?: QuoteShelf,
 ): ThreadSession {
   lease = owner.thread(threadId);
   stop = followThread(lease.store, threadId, 1, pump);
@@ -206,6 +208,7 @@ export function open(
     undefined,
     retries,
     keptSteps,
+    quotes,
   );
   return session;
 }

@@ -76,6 +76,12 @@ struct ThreadView: View {
     private var screen: ThreadScreenModel { thread.screen }
     /// An archived thread opens read-only (from the archive browser) until it's unarchived.
     private var archived: Bool { (model.inbox[thread.id] ?? metadata)?.archivedAt != nil }
+    /// Reply can put an agent's words on the next message: this composer is here to send them, and
+    /// one more quote fits. A fork or a new thread being started takes no quotes.
+    private var canQuote: Bool {
+        model.canOperate && !archived && screen.controls?.guest == nil && screen.fork == nil
+            && screen.controls?.continues != true && !screen.quotesFull
+    }
     /// The question above the composer, whose card the composer's words may answer.
     private var asking: ApprovalRow? {
         guard let request = thread.approvals.first, request.kind == "question" else { return nil }
@@ -166,6 +172,12 @@ struct ThreadView: View {
                              openThread: { child in agentRoute = nil; openThread(child) })
             }
             .environment(\.focusComposer) { composerFocus += 1 }
+            // Reply quotes what the agent said into this composer, caret in it to write the reply.
+            .environment(\.replyToMessage, canQuote ? MessageReply(threadId: thread.id) { text, start, end in
+                model.addQuote(text, start: start, end: end)
+                composerFocus += 1
+            } : nil)
+            .keepsThreadQuotes(model: model, thread: thread)
             .environment(\.openChanges) { path in
                 changesFile = path
                 open(.changes)
@@ -400,6 +412,10 @@ struct ThreadView: View {
         if archived {
             ArchivedNote(canOperate: model.canOperate) { await model.unarchive(thread.id) }
                 .modifier(ComposerFrame(padding: EdgeInsets(top: AceDesign.Space.related, leading: AceDesign.Space.margin, bottom: AceDesign.Space.related, trailing: AceDesign.Space.margin)))
+        } else if let guest = screen.controls?.guest {
+            GuestSessionNote(line: guest.line, canStop: model.canOperate && screen.controls?.canStop == true,
+                             stopping: screen.stopping) { model.stopTree() }
+                .modifier(ComposerFrame(padding: EdgeInsets(top: AceDesign.Space.related, leading: AceDesign.Space.margin, bottom: AceDesign.Space.related, trailing: AceDesign.Space.margin)))
         } else if model.canOperate {
             ComposerView(controls: screen.controls, stopping: screen.stopping, placeholder: placeholder,
                          send: { text, alternate, references in
@@ -419,7 +435,7 @@ struct ThreadView: View {
                              }
                          },
                          recall: { older in await model.sentText(thread.id, older: older) },
-                         files: screen.attachments.count, chips: screen.annotations.count + (model.sheets.chip?.count ?? 0),
+                         files: screen.attachments.count, chips: screen.annotations.count + screen.quotes.count + (model.sheets.chip?.count ?? 0),
                          draftKey: forkKey ?? model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) },
                          suggester: suggester, suggestionHeight: max(AceDesign.Size.tap * 2, height * (request == nil ? 0.4 : 0.22)),
                          run: runComposerAction, focusRequest: composerFocus) {
