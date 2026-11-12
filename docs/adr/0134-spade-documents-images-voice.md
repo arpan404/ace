@@ -58,13 +58,13 @@ the bot, as a web page can.
 
 4. **Extraction runs in a child process, with limits.** The server re-runs its own binary as
    `spade-server extract-document`, hands it the bytes on stdin and reads one JSON answer from
-   stdout, at most 8 MB. The child is killed after 20 seconds, and at most two run at once. Inside
+   stdout, at most 20 MB. The child is killed after 20 seconds, and at most two run at once. Inside
    it, before any parser sees the file: a ZIP may hold at most 10,000 entries, and every entry the
    reader will open is first inflated through a counter that refuses the file past 64 MB from one
    entry, 256 MB in all, or an expansion of more than 200 times its compressed size; every PDF
    stream is inflated the same way, layer by layer, under the same caps. A PDF may have at most
    2,000 pages, a spreadsheet at most 1,000,000 cells. The text kept is at most 4 million
-   characters; past that it is cut and marked as cut. Crates: `pdf-extract` on `lopdf` for PDF,
+   characters or 8 MB; past that it is cut and marked as cut. Crates: `pdf-extract` on `lopdf` for PDF,
    `zip` and `quick-xml` with Spade's own readers for DOCX and XLSX (paragraphs, tables, tabs and
    line breaks; cells as tab-separated rows under each sheet's name), `csv` for CSV and TSV. All are
    MIT or MIT/Unlicense, pure Rust, and none touches the network. Tests run the same extraction in

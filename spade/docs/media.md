@@ -17,11 +17,12 @@ calls) and `spade-server` (`media/`, `api/media.rs`). Extends [chat-core.md](cha
 | Entries in a ZIP (DOCX, XLSX)        | 10,000                                                     |
 | One ZIP entry or PDF stream inflated | 64 MB, and at most 200 times its compressed size           |
 | Everything inflated in one file      | 256 MB                                                     |
-| Text kept from one document          | 4,000,000 characters (cut past that, and marked)           |
+| Text kept from one document          | 4,000,000 characters or 8 MB (cut past that, and marked)   |
 | Trimmed view in the prompt           | 6,000 characters                                           |
 | One `document_read` window           | 20,000 characters                                          |
 | Extraction time                      | 20 s, then the child is killed; two children at most       |
-| Child's answer                       | 8 MB                                                       |
+| Child's answer                       | 20 MB                                                      |
+| Message body                         | 400 MB (`413` past it)                                     |
 | Voice recording                      | 25 MB; WebM, Ogg, MP4/M4A, MP3 or WAV                      |
 | A shared workspace image             | 3.75 MB (PNG, JPEG, GIF, WebP); other files 32 MB          |
 | Native PDF input                     | at most 100 pages, and under 200 characters a page of text |
@@ -106,17 +107,16 @@ model is told `Shown to the person: 1 image (sha256 …).` and does not see the 
 image store, any other file to the document store (extracted like an attachment, so it opens as
 text too).
 
-Both record what they showed on their `tool_finished` event:
+Both record what they showed as a `shared` event, stored together with the call's
+`tool_finished`; the model never reads it:
 
 ```json
 {
-  "type": "tool_finished",
+  "type": "shared",
   "reply": "r1",
   "call_id": "c1",
-  "name": "image_generate",
-  "content": "Shown to the person: 1 image.",
-  "shared_images": [{ "sha256": "…", "media_type": "image/png", "bytes": 81234 }],
-  "shared_documents": []
+  "images": [{ "sha256": "…", "media_type": "image/png", "bytes": 81234 }],
+  "documents": []
 }
 ```
 
@@ -167,8 +167,8 @@ Events: `user_message` gains
 "voice": { "sha256": "…", "media_type": "audio/webm", "bytes": 81234 }
 ```
 
-`sheets` replaces `pages` for a spreadsheet; both are absent for text. `tool_finished` gains
-`shared_images` and `shared_documents` (above).
+`sheets` replaces `pages` for a spreadsheet; both are absent for text. A `shared` event (above)
+carries what a tool showed the person.
 
 | Route                                            | Answers                                                                  |
 | ------------------------------------------------ | ------------------------------------------------------------------------ |
@@ -188,7 +188,7 @@ marked; the child process answers like in-process extraction and a hung child is
 `spade-fetch`: a PDF page is read and paged; without an extractor it is refused.
 `spade-server` (fake endpoints): an attachment is stored once however often it is sent, saved in
 the workspace, shown as a view and read by window; a turn with a document is untrusted;
-`image_generate` exists only with a capable model, stores by hash and shows on `tool_finished`;
+`image_generate` exists only with a capable model, stores by hash and records a `shared` event;
 `share_file` shows a workspace chart; a transcript reaches the bot and the audio is stored.
 Web: attaching a document sends it, chips and bot images render, the mic is hidden without a way
 to transcribe, and Read aloud speaks the reply.
