@@ -89,10 +89,14 @@ struct ForgeNewPrCompare: Decodable, Sendable, Equatable {
 
 /// A create's outcome: the pull request opened (or the one the branches already had).
 struct ForgeNewPrCreated: Decodable, Sendable, Equatable {
+    /// What the person hears once it opened (`prCreateNotice`): the branches' existing pull
+    /// request, or a warning that GitHub didn't take all of its details.
+    struct Notice: Decodable, Sendable, Equatable { let title: String; let detail: String?; let warning: Bool }
     let ok: Bool
     let message: String
     let uncertain: Bool
     let number: Int?
+    var notice: Notice? = nil
 }
 
 extension ClientModel {
