@@ -63,27 +63,31 @@ as the command, and the gate looks for an `approval_answered` with `always` whos
 untrusted content asks for every command, `always` or not; since shell output is untrusted, that
 includes a second command in the same turn.
 
-### Taint
+### Trust
 
-A bot's untrusted files are recorded in `<data folder>/workspace/.taint/<bot id>.json`, outside its
-folder, as paths (with the hash they had and their source) and as content hashes (SHA-256). The
-engine passes each call what the turn has read (`TurnFacts.untrusted`, from
+Trust is an allowlist. A bot's trusted files are recorded in
+`<data folder>/workspace/.trust/<bot id>.json`, outside its folder, as path → SHA-256 of the content
+Spade wrote there. The engine passes each call what the turn has read (`TurnFacts.untrusted`, from
 `spade_core::context::untrusted_sources`), and:
 
-- `workspace_write` in an untrusted turn marks the path and hash; in a clean turn it unmarks the
-  path (its old content's hash stays known). `workspace_edit` keeps a marked file marked.
-- After every shell run, each file whose modification, creation or status-change time is at or
-  after the run's start is marked, with the source "the output of `<command>`". Kept outputs are
-  marked too.
-- `workspace_read` of a marked path, or of content whose hash is marked, `workspace_search` that
-  quotes such a file, and `workspace_list` of a folder holding one answer with
-  `tool_finished.untrusted: true`, which makes the rest of the turn untrusted like `web_fetch`.
+- `workspace_write` in a clean turn records the path and hash; in a tainted turn it removes the
+  path. `workspace_edit` records the new hash only in a clean turn and only when the file was
+  trusted before (its old hash matched); otherwise it removes the path.
+- Nothing else ever adds to the record: not the shell, not kept outputs, not the API.
+- A file is trusted when its path is recorded with its current content's hash and it is a regular
+  file reached through real folders only (no link on the way, not a link itself).
+- `workspace_read` of a file that isn't trusted, `workspace_list` of a folder unless every entry
+  shown is a trusted file (any folder or link entry makes it untrusted; an empty folder reached
+  through real folders is trusted), and `workspace_search` unless every file it quotes is trusted
+  answer with `tool_finished.untrusted: true`, which makes the rest of the turn untrusted like
+  `web_fetch`.
 - A `skill_feedback` note written in an untrusted turn keeps its `source`; `skill_load` showing it
   answers untrusted.
 
-`tool_finished.untrusted` is new and absent when false; `untrusted_sources` names each source
-("https://example.com/page", `a web search for "…"`, "a message from Research", "the file
-notes.md", "the output of `npm test`").
+There is nothing to mark when a command runs, is stopped or times out, and no scan of the folder:
+whatever a command made is simply not on the list. `tool_finished.untrusted` is absent when false;
+`untrusted_sources` names each source ("https://example.com/page", `a web search for "…"`, "a
+message from Research", "the file notes.md", "the output of `npm test`").
 
 ### Large output
 
@@ -125,8 +129,10 @@ answer (unreachable, timed out) leaves the attempt: the next Save or Discard fir
 library and, when a skill of that name holds the proposal's description and body (compared
 without trailing whitespace), settles the proposal as saved without writing; otherwise a new
 skill is written again only if the name is still free, an edit only if the skill still has the
-base hash (else `409`). The daemon request has no idempotency key; this reconciliation stands in
-for one.
+base hash. When the library holds something else under that name, or the edited skill is gone,
+Save answers `409` ("Spade can't confirm the earlier save: …") and Discard still settles the
+proposal as discarded, whatever the library says or even when it can't be reached. The daemon
+request has no idempotency key; this reconciliation stands in for one.
 
 ## API
 

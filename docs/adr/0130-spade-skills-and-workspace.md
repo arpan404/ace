@@ -6,7 +6,8 @@ bots learn from the work they do and each has a place to work). Builds on
 (Spade's service and data folder), [ADR 0126](0126-spade-agents.md) and
 [ADR 0127](0127-spade-main-bot-and-chat.md) (bots, one conversation each, shown as a chat). Revised
 the same day after review, by the owner's decisions: no read-only command allowlist, "always"
-per exact command, and taint that persists in files.
+per exact command, and trust in files as an allowlist (a second review replaced marking untrusted
+files, which could miss some, with it).
 
 ## Context
 
@@ -64,16 +65,20 @@ note?}` stores the bot's latest verdict on a skill. `skill_load` shows the bot i
    command asks, even one that only reads, unless the person answered that exact command (the same
    string, for that bot) with **Always allow this command**; "always" never covers a command's
    shape or every command. Reading without asking goes through the file tools only.
-8. **Taint persists.** A turn that read untrusted content (the web, another bot, any shell
-   output, an untrusted file, a skill note written in such a turn) asks for every write, "always"
-   or not, as before (harness.md). Beyond the turn:
-   - Files written in such a turn, and every file a shell command changes (its output is
-     untrusted), are recorded as untrusted by path and content hash, outside the bot's folder, with
-     what they came from. Kept outputs inherit it.
-   - Reading such a file (by its path, or the same content anywhere) marks that one result
-     untrusted (`tool_finished.untrusted`), which taints the turn that read it. A file rewritten
-     whole in a clean turn is trusted again.
-   - A skill note written in such a turn taints the turn that loads the skill; a proposal made in
+8. **Trust is an allowlist.** A turn that read untrusted content (the web, another bot, any shell
+   output, an untrusted workspace entry, a skill note written in such a turn) asks for every write,
+   "always" or not, as before (harness.md). In the workspace:
+   - A file is trusted only if Spade's own file tools (`workspace_write`, `workspace_edit` of a
+     trusted file) wrote it in a turn that had read nothing untrusted, and its content still has
+     the hash recorded then. The record (path and hash) is kept outside the bot's folder.
+   - Everything else is untrusted: whatever a command made or changed, anything moved, copied or
+     brought in, files Spade never wrote, kept outputs, and every folder and link itself; so is a
+     file reached through a link. Nothing is ever marked untrusted, so nothing can be missed: no
+     timestamps, no scan limits, nothing to do when a command is stopped.
+   - A listing is trusted only if every entry it shows is a trusted file; a search only if every
+     file it quotes is. Reading or listing anything untrusted marks that result untrusted
+     (`tool_finished.untrusted`), which taints the turn.
+   - A skill note written in a tainted turn taints the turn that loads the skill; a proposal made in
      one records the source and the app shows it beside Save ("Written after reading …").
 9. **Large output becomes a file.** A result over 16,000 characters (a shell's output, a search) is
    written to `.spade/outputs/<call>.txt` in the workspace and the model gets its head and tail and
@@ -81,8 +86,9 @@ note?}` stores the bot's latest verdict on a skill. `skill_load` shows the bot i
 10. **A Save is reconciled.** Before writing, the proposal records the attempt. If the library's
     answer never comes, the proposal stays open with the attempt; the next Save or Discard first
     looks in the library for the skill with the proposal's content (or the edit's base hash) and
-    settles from that instead of writing twice. One answer to a proposal runs at a time, claimed
-    before its state is read.
+    settles from that instead of writing twice. If the library holds something else under that name
+    (or the edited skill is gone), Save answers that Spade can't confirm the earlier save, and
+    Discard still works. One answer to a proposal runs at a time, claimed before its state is read.
 
 ### In the app
 
@@ -102,11 +108,12 @@ note?}` stores the bot's latest verdict on a skill. `skill_load` shows the bot i
   it: one folder, a clean environment, and the person asked before any command they have not
   allowed by its exact text.
 - Shell output taints its turn, so a second command in the same turn asks even when allowed
-  always; "always" saves a question at the start of later turns. Files a command changed stay
-  untrusted until rewritten whole in a clean turn, so work that leans on commands asks more.
+  always; "always" saves a question at the start of later turns. Files a command made, and every
+  folder, are untrusted, so listing a folder that holds one, or reading what a command made,
+  taints the turn and later writes in it ask. Work that leans on commands asks more.
 - The workspace is not a sandbox: an allowed command runs with the person's user rights and can
   reach the whole machine. Process isolation is left for later.
-- Proposals, notes and taint records are files in Spade's data folder, not database rows, so no
+- Proposals, notes and trust records are files in Spade's data folder, not database rows, so no
   migration is needed.
 
 ## Tests
@@ -118,7 +125,11 @@ note?}` stores the bot's latest verdict on a skill. `skill_load` shows the bot i
 - A program planted in the workspace is never found by name; `PATH` holds no `.`, empty entry or
   workspace folder.
 - A file with another hard link is never written; nothing lands outside through a link.
-- A file written after reading a page, or changed by a command, taints the turn that reads it.
+- A file written after reading a page taints the turn that reads it; so do a file a command made,
+  a folder moved in from elsewhere (however old its files), a link's name and a file read through
+  it, every file of a 6,000-file tree a command made, and a file a stopped command wrote. A
+  listing of only trusted files stays trusted.
+- After a lost Save, when the library's copy changed, Save can't confirm and Discard works.
 - Output read before a lingering process held a pipe is kept.
 - Output over the limit is stored as a file and the model gets the path.
 - A saved proposal reaches the skill library (a fake daemon receives `create`/`edit`); a discarded

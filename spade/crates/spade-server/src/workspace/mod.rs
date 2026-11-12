@@ -9,8 +9,8 @@
 
 mod files;
 pub mod shell;
-pub mod taint;
 mod tools;
+pub mod trust;
 
 use std::path::{Component, Path, PathBuf};
 
@@ -19,19 +19,19 @@ use cap_std::ambient_authority;
 use cap_std::fs::Dir;
 
 pub use files::{Entry, EntryKind, FileView, Listing};
-pub use taint::Taint;
 pub use tools::{
     ShellTool, WorkspaceEdit, WorkspaceList, WorkspaceRead, WorkspaceSearch, WorkspaceWrite,
     tools as workspace_tools,
 };
+pub use trust::Trust;
 
 /// Results longer than this are kept as a file and the model gets the head, the tail and the path.
 pub const LARGE_OUTPUT_CHARS: usize = 16_000;
 /// Where large outputs go, inside a workspace.
 pub const OUTPUTS: &str = ".spade/outputs";
-/// Where each bot's taint record is kept, inside the workspaces' root (outside every bot's own
+/// Where each bot's trust record is kept, inside the workspaces' root (outside every bot's own
 /// folder; bot ids never start with a dot).
-const TAINT_DIR: &str = ".taint";
+const TRUST_DIR: &str = ".trust";
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum PathError {
@@ -68,15 +68,15 @@ impl From<std::io::Error> for PathError {
 #[derive(Debug, Clone)]
 pub struct Workspaces {
     root: PathBuf,
-    /// Held while a taint record is read and written.
-    taint_lock: std::sync::Arc<std::sync::Mutex<()>>,
+    /// Held while a trust record is read and written.
+    trust_lock: std::sync::Arc<std::sync::Mutex<()>>,
 }
 
 impl Workspaces {
     pub fn new(root: impl Into<PathBuf>) -> Self {
         Self {
             root: root.into(),
-            taint_lock: std::sync::Arc::default(),
+            trust_lock: std::sync::Arc::default(),
         }
     }
 
@@ -92,17 +92,17 @@ impl Workspaces {
         Ok(Workspace {
             root: self.root.clone(),
             bot: bot.to_owned(),
-            taint: Taint::new(
-                self.root.join(TAINT_DIR).join(format!("{bot}.json")),
-                self.taint_lock.clone(),
+            trust: Trust::new(
+                self.root.join(TRUST_DIR).join(format!("{bot}.json")),
+                self.trust_lock.clone(),
             ),
         })
     }
 
-    /// Deletes the bot's workspace, everything in it and its taint record.
+    /// Deletes the bot's workspace, everything in it and its trust record.
     pub fn remove(&self, bot: &str) -> Result<(), PathError> {
         let workspace = self.of(bot)?;
-        workspace.taint.forget();
+        workspace.trust.forget();
         let root = match Dir::open_ambient_dir(&self.root, ambient_authority()) {
             Ok(root) => root,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -122,7 +122,7 @@ impl Workspaces {
 pub struct Workspace {
     root: PathBuf,
     bot: String,
-    taint: Taint,
+    trust: Trust,
 }
 
 impl Workspace {
@@ -151,23 +151,20 @@ impl Workspace {
         clean(relative).map(|path| shown(&path))
     }
 
-    /// What this bot's workspace knows about untrusted content.
-    pub fn taint(&self) -> &Taint {
-        &self.taint
+    /// Which of this bot's files are trusted.
+    pub fn trust(&self) -> &Trust {
+        &self.trust
     }
 
     /// Keeps a long result as a file and answers what the model is shown instead: the head, the
-    /// tail and the file's path. Short text comes back as it is. A kept file marked with
-    /// `untrusted` carries that source.
-    pub fn keep_large(&self, name: &str, text: &str, untrusted: Option<&str>) -> String {
+    /// tail and the file's path. Short text comes back as it is. A kept file is never trusted.
+    pub fn keep_large(&self, name: &str, text: &str) -> String {
         let count = text.chars().count();
         if count <= LARGE_OUTPUT_CHARS {
             return text.to_owned();
         }
         let file = format!("{OUTPUTS}/{name}.txt");
-        let kept = self.write(&file, text).map(|_| {
-            self.taint.record_write(&file, text.as_bytes(), untrusted);
-        });
+        let kept = self.write(&file, text).map(|_| ());
         let part = LARGE_OUTPUT_CHARS * 3 / 8;
         let head: String = text.chars().take(part).collect();
         let tail: String = text.chars().skip(count - part).collect();
@@ -232,7 +229,7 @@ mod tests {
         let all = Workspaces::new("/tmp/nowhere");
         assert!(all.of("../a_1").is_err());
         assert!(all.of("a/b").is_err());
-        assert!(all.of(".taint").is_err());
+        assert!(all.of(".trust").is_err());
         assert!(all.of("a_1").is_ok());
     }
 }

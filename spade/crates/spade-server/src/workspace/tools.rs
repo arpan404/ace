@@ -11,7 +11,7 @@ use spade_core::tools::{Risk, ToolDef};
 use spade_models::ToolSpec;
 
 use super::shell::{Ran, Shell};
-use super::{PathError, Workspace, Workspaces, taint};
+use super::{PathError, Workspace, Workspaces};
 use crate::tools::{EngineHandle, Tool, ToolFuture, ToolOutput, TurnFacts, parse};
 
 /// The shell's deadline when the model names none, and the longest it may name: inside the
@@ -109,13 +109,9 @@ struct ListArgs {
     path: String,
 }
 
-/// A result, marked untrusted when it shows content from `source`.
-fn marked(output: ToolOutput, source: Option<String>) -> ToolOutput {
-    if source.is_some() {
-        output.untrusted()
-    } else {
-        output
-    }
+/// A result, marked untrusted unless everything it shows is trusted.
+fn marked(output: ToolOutput, trusted: bool) -> ToolOutput {
+    if trusted { output } else { output.untrusted() }
 }
 
 impl Tool for WorkspaceList {
@@ -136,10 +132,10 @@ impl Tool for WorkspaceList {
         };
         blocking(&self.0, key, move |workspace| {
             let listing = workspace.list(&args.path)?;
-            // Names of untrusted files are untrusted too.
-            let source = workspace.taint().any_under(&listing.path);
+            // Names are content too: trusted only when every entry shown is a trusted file.
+            let trusted = workspace.listing_trusted(&listing);
             if listing.entries.is_empty() {
-                return Ok(ToolOutput::ok("The folder is empty."));
+                return Ok(marked(ToolOutput::ok("The folder is empty."), trusted));
             }
             let mut lines: Vec<String> = listing
                 .entries
@@ -153,7 +149,7 @@ impl Tool for WorkspaceList {
             if listing.truncated {
                 lines.push(format!("[Only the first {} shown.]", lines.len()));
             }
-            Ok(marked(ToolOutput::ok(lines.join("\n")), source))
+            Ok(marked(ToolOutput::ok(lines.join("\n")), trusted))
         })
     }
 }
@@ -192,16 +188,14 @@ impl Tool for WorkspaceRead {
         blocking(&self.0, key, move |workspace| {
             let path = workspace.normal(&args.path)?;
             let text = workspace.text(&path)?;
-            let source = workspace
-                .taint()
-                .source_of(&path, &taint::hash(text.as_bytes()));
+            let trusted = workspace.file_trusted(&path, text.as_bytes());
             let window = super::files::window(
                 &path,
                 &text,
                 args.offset.unwrap_or(1),
                 args.limit.unwrap_or(super::files::READ_LINES),
             );
-            Ok(marked(ToolOutput::ok(window), source))
+            Ok(marked(ToolOutput::ok(window), trusted))
         })
     }
 }
@@ -239,12 +233,13 @@ impl Tool for WorkspaceSearch {
         let name = output_name(key);
         blocking(&self.0, key, move |workspace| {
             let found = workspace.search(&args.path, &args.text, args.ignore_case)?;
-            let source = found
-                .files
-                .iter()
-                .find_map(|(path, hash)| workspace.taint().source_of(path, hash));
-            let shown = workspace.keep_large(&name, &found.text, source.as_deref());
-            Ok(marked(ToolOutput::ok(shown), source))
+            let start = workspace.normal(&args.path)?;
+            let trusted = workspace.plain_folder(&start)
+                && found.files.iter().all(|(path, hash)| {
+                    workspace.plain_file(path) && workspace.trust().trusted(path, hash)
+                });
+            let shown = workspace.keep_large(&name, &found.text);
+            Ok(marked(ToolOutput::ok(shown), trusted))
         })
     }
 }
@@ -285,7 +280,7 @@ impl Tool for WorkspaceWrite {
             let path = workspace.normal(&args.path)?;
             let bytes = workspace.write(&path, &args.content)?;
             workspace
-                .taint()
+                .trust()
                 .record_write(&path, args.content.as_bytes(), untrusted.as_deref());
             Ok(ToolOutput::ok(format!("Wrote {bytes} bytes to {path}.")))
         })
@@ -329,7 +324,7 @@ impl Tool for WorkspaceEdit {
         blocking(&self.0, key, move |workspace| {
             let path = workspace.normal(&args.path)?;
             let (before, after) = workspace.edit(&path, &args.old, &args.new)?;
-            workspace.taint().record_edit(
+            workspace.trust().record_edit(
                 &path,
                 before.as_bytes(),
                 after.as_bytes(),
@@ -365,8 +360,8 @@ impl Tool for ShellTool {
                                     "timeout_s": { "type": "integer", "minimum": 1, "maximum": 110 } },
                     "required": ["command"] }),
             Risk::Write,
-            // A command can bring in anything: its output, and every file it changes, is
-            // untrusted.
+            // A command can bring in anything: its output is untrusted, and so is every file it
+            // makes or changes (only Spade's file tools make trusted files).
             true,
         )
     }
@@ -403,9 +398,7 @@ impl Tool for ShellTool {
                 .timeout_s
                 .map_or(SHELL_TIMEOUT, Duration::from_secs)
                 .clamp(Duration::from_secs(1), LONGEST_SHELL);
-            let started = std::time::SystemTime::now();
             let ran = shell.run(&dir, &args.command, timeout).await;
-            let source = format!("the output of `{}`", args.command);
             let failed = ran
                 .as_ref()
                 .map_or(true, |ran| ran.timed_out || ran.code != Some(0));
@@ -413,15 +406,10 @@ impl Tool for ShellTool {
                 Ok(ran) => describe(ran, timeout),
                 Err(error) => error.clone(),
             };
-            // Everything the command changed holds whatever it brought in.
-            let shown = tokio::task::spawn_blocking(move || {
-                for (path, hash) in workspace.changed_since(started) {
-                    workspace.taint().mark(&path, &hash, &source);
-                }
-                workspace.keep_large(&name, &text, Some(&source))
-            })
-            .await
-            .unwrap_or_else(|_| "The output could not be read.".to_owned());
+            // Nothing a command makes is trusted, so nothing needs marking here.
+            let shown = tokio::task::spawn_blocking(move || workspace.keep_large(&name, &text))
+                .await
+                .unwrap_or_else(|_| "The output could not be read.".to_owned());
             if failed {
                 ToolOutput::error(shown)
             } else {

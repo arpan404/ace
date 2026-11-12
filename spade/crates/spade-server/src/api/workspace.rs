@@ -182,7 +182,9 @@ async fn answer(
         Err(error) => {
             let status = match &error {
                 AnswerError::NotFound => StatusCode::NOT_FOUND,
-                AnswerError::Answered | AnswerError::Busy => StatusCode::CONFLICT,
+                AnswerError::Answered | AnswerError::Busy | AnswerError::Unconfirmed(_) => {
+                    StatusCode::CONFLICT
+                }
                 AnswerError::Library(WriteError::Conflict(_) | WriteError::Exists(_)) => {
                     StatusCode::CONFLICT
                 }

@@ -3,13 +3,12 @@
 
 use std::io::{Read, Write};
 use std::path::Path;
-use std::time::SystemTime;
 
 use cap_fs_ext::{FollowSymlinks, MetadataExt, OpenOptionsFollowExt};
 use cap_std::fs::{Dir, OpenOptions};
 use serde::Serialize;
 
-use super::{PathError, Workspace, clean, shown, taint};
+use super::{PathError, Workspace, clean, shown, trust};
 
 /// Most entries one listing returns.
 pub const MOST_ENTRIES: usize = 500;
@@ -351,13 +350,13 @@ impl Workspace {
                     lines.push(format!("{full}:{}: {shown}", number + 1));
                     if lines.len() == MOST_MATCHES {
                         lines.push(format!("[Stopped at {MOST_MATCHES} matches.]"));
-                        files.push((full.to_owned(), taint::hash(&bytes)));
+                        files.push((full.to_owned(), trust::hash(&bytes)));
                         return false;
                     }
                 }
             }
             if quoted {
-                files.push((full.to_owned(), taint::hash(&bytes)));
+                files.push((full.to_owned(), trust::hash(&bytes)));
             }
             true
         })?;
@@ -369,39 +368,58 @@ impl Workspace {
         Ok(Found { text, files })
     }
 
-    /// Every file changed (written, created, moved or linked) at or after `since`, with its
-    /// content's hash.
-    pub fn changed_since(&self, since: SystemTime) -> Vec<(String, String)> {
-        let mut changed = Vec::new();
-        let _ = self.walk("", |at, name, full| {
-            let Ok(meta) = at.symlink_metadata(name) else {
-                return true;
+    /// Whether `relative` names a regular file reached through real folders only: no link on
+    /// the way, and not a link itself.
+    pub fn plain_file(&self, relative: &str) -> bool {
+        self.plain(relative, true)
+    }
+
+    /// Whether every component of `relative` is a real folder (the workspace itself counts).
+    pub fn plain_folder(&self, relative: &str) -> bool {
+        self.plain(relative, false)
+    }
+
+    fn plain(&self, relative: &str, file: bool) -> bool {
+        let (Ok(cleaned), Ok(dir)) = (clean(relative), self.dir()) else {
+            return false;
+        };
+        let parts: Vec<_> = cleaned.components().collect();
+        let mut at = std::path::PathBuf::new();
+        for (index, part) in parts.iter().enumerate() {
+            at.push(part);
+            let Ok(meta) = dir.symlink_metadata(&at) else {
+                return false;
             };
-            let touched = |time: std::io::Result<cap_std::time::SystemTime>| {
-                time.ok().is_some_and(|t| t.into_std() >= since)
+            let last = index + 1 == parts.len();
+            let fits = if last && file {
+                meta.is_file()
+            } else {
+                meta.is_dir()
             };
-            #[cfg(unix)]
-            let status_changed = {
-                use cap_std::fs::MetadataExt as _;
-                let seconds = u64::try_from(meta.ctime()).unwrap_or(0);
-                let at = std::time::UNIX_EPOCH + std::time::Duration::from_secs(seconds);
-                // ctime has whole seconds here; a change in the same second counts.
-                at + std::time::Duration::from_secs(1) > since
-            };
-            #[cfg(not(unix))]
-            let status_changed = false;
-            if touched(meta.modified()) || touched(meta.created()) || status_changed {
-                let mut bytes = Vec::new();
-                if let Ok(mut file) = at.open(name) {
-                    let _ = Read::by_ref(&mut file)
-                        .take(LARGEST_TEXT)
-                        .read_to_end(&mut bytes);
-                }
-                changed.push((full.to_owned(), taint::hash(&bytes)));
+            if meta.file_type().is_symlink() || !fits {
+                return false;
             }
-            true
-        });
-        changed
+        }
+        !(file && parts.is_empty())
+    }
+
+    /// Whether the file at `relative`, holding `bytes`, is trusted: Spade's tools wrote exactly
+    /// this there in a clean turn, and it is a plain file.
+    pub fn file_trusted(&self, relative: &str, bytes: &[u8]) -> bool {
+        self.plain_file(relative) && self.trust.trusted(relative, &trust::hash(bytes))
+    }
+
+    /// Whether a listing is trusted: every entry it shows is a trusted file (a folder or a link
+    /// never is), in a folder reached through real folders only.
+    pub fn listing_trusted(&self, listing: &Listing) -> bool {
+        self.plain_folder(&listing.path)
+            && listing.entries.iter().all(|entry| {
+                entry.kind == EntryKind::File
+                    && entry.size <= LARGEST_WRITE as u64
+                    && self
+                        .read_file(&entry.path, LARGEST_WRITE as u64)
+                        .is_ok_and(|bytes| self.file_trusted(&entry.path, &bytes))
+            })
     }
 
     /// The file at `relative` for the app: its text when it can be read as such.

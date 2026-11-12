@@ -2,7 +2,8 @@
 //! with the local token, `starting` then `welcome`, and `skills.request` `list`, `read`, `create`
 //! and `edit` (writes are recorded; `review-code` exists, and an edit must name hash `aaa…`;
 //! created skills are listed and read from then on; a create named `lost-…` is written but never
-//! answered, as when an answer is lost). A
+//! answered, as when an answer is lost; one named `lost-changed-…` then lists with another body,
+//! as if changed since). A
 //! wrong token gets an `unauthorized` error and close 4001, as the daemon does. Reads answer
 //! late so concurrent requests come back out of order; `skl_…silent` reads never answer.
 
@@ -325,7 +326,14 @@ fn created(writes: &[Value]) -> Vec<(Value, String)> {
         .iter()
         .filter(|op| op["op"] == "create" && op["name"] != "review-code")
         .map(|op| {
-            let result = write_result(op);
+            let mut op = op.clone();
+            if op["name"]
+                .as_str()
+                .is_some_and(|name| name.starts_with("lost-changed-"))
+            {
+                op["body"] = json!("Changed by someone else.\n");
+            }
+            let result = write_result(&op);
             (
                 result["entry"].clone(),
                 result["text"].as_str().unwrap_or_default().to_owned(),

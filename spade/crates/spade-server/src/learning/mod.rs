@@ -115,6 +115,12 @@ pub enum AnswerError {
     Answered,
     #[error("this proposal is being answered")]
     Busy,
+    /// An earlier Save's answer was lost and the library no longer holds what it would have
+    /// written, so Spade cannot tell whether it was saved. Discard still works.
+    #[error(
+        "Spade can't confirm the earlier save: {0}. Discard this, or ask the bot to propose it again."
+    )]
+    Unconfirmed(String),
     /// The library refused; the proposal stays open.
     #[error("{0}")]
     Library(WriteError),
@@ -245,13 +251,21 @@ impl Learning {
         save: bool,
     ) -> Result<Proposal, AnswerError> {
         // An earlier Save may have reached the library without its answer coming back.
-        let already = match &proposal.attempt {
-            Some(_) => self.reconcile(&proposal).await?,
-            None => None,
-        };
-        if let Some(skill) = already {
-            proposal.skill_id = Some(skill);
-            return self.settle(proposal, ProposalState::Saved);
+        if proposal.attempt.is_some() {
+            match self.reconcile(&proposal).await {
+                Ok(Some(skill)) => {
+                    proposal.skill_id = Some(skill);
+                    return self.settle(proposal, ProposalState::Saved);
+                }
+                Ok(None) => {}
+                // Whatever the library says, or if it can't be asked, Discard is the person's
+                // own choice about this proposal and always works.
+                Err(_) if !save => return self.settle(proposal, ProposalState::Discarded),
+                Err(AnswerError::Library(WriteError::Conflict(why) | WriteError::Refused(why))) => {
+                    return Err(AnswerError::Unconfirmed(why));
+                }
+                Err(error) => return Err(error),
+            }
         }
         if !save {
             return self.settle(proposal, ProposalState::Discarded);
@@ -317,10 +331,10 @@ impl Learning {
             (None, None) => Ok(None),
             (Some(skill), Some(base)) if skill.hash == base.hash => Ok(None),
             (Some(_), _) => Err(AnswerError::Library(WriteError::Conflict(
-                "the skill changed".to_owned(),
+                "the skill in your library has changed since".to_owned(),
             ))),
             (None, Some(_)) => Err(AnswerError::Library(WriteError::Refused(
-                "the skill is no longer in the library".to_owned(),
+                "the skill is no longer in your library".to_owned(),
             ))),
         }
     }

@@ -357,3 +357,41 @@ async fn a_note_written_after_reading_a_page_taints_the_turn_that_loads_it() -> 
     assert_eq!(loaded["untrusted"], true, "{loaded}");
     Ok(())
 }
+
+#[tokio::test]
+async fn after_a_lost_save_of_a_skill_that_changed_save_cannot_confirm_and_discard_still_works()
+-> Result {
+    let mut lost = release_notes();
+    lost["name"] = json!("lost-changed-notes");
+    let setup = start_with(
+        vec![
+            Script::reply("").call("c1", "skill_propose", lost),
+            Script::reply("Proposed."),
+        ],
+        Duration::from_millis(500),
+    )
+    .await?;
+    let (bot, _, _) = proposed(&setup).await?;
+    let id = proposals(&setup.spade, &bot).await?[0]["id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let path = format!("/v1/agents/{bot}/skill-proposals/{id}");
+    let (status, _) = setup.spade.post(&path, json!({ "save": true })).await?;
+    assert_eq!(status, 503, "the answer was lost");
+
+    let (status, refused) = setup.spade.post(&path, json!({ "save": true })).await?;
+    assert_eq!(status, 409, "{refused}");
+    assert!(
+        refused["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("can't confirm")),
+        "{refused}"
+    );
+    assert_eq!(setup.daemon.writes().len(), 1, "never written again");
+
+    let (status, discarded) = setup.spade.post(&path, json!({ "save": false })).await?;
+    assert_eq!(status, 200, "{discarded}");
+    assert_eq!(discarded["proposal"]["state"], "discarded");
+    Ok(())
+}
