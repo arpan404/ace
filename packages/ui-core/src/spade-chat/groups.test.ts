@@ -119,25 +119,37 @@ describe("a group's chat", () => {
     expect(g.view()).toMatchObject({ busy: false, status: undefined, working: undefined });
   });
 
-  test("the member waiting for the person is the one the status names, not the latest open ask", () => {
+  test("the member waiting for the person is the one the server names, not the latest open ask", () => {
     const g = group();
     g.stored({ type: "group_asked", run: "u1", ask: "a1", by: null, to: spade, depth: 1 });
     g.stored({ type: "group_asked", run: "u1", ask: "a2", by: spade, to: research, depth: 2 });
     g.stored({ type: "group_asked", run: "u1", ask: "a3", by: spade, to: studio, depth: 2 });
-    g.frame("status", { state: "working", status: "Research is waiting for you" });
+    g.frame("status", { state: "working", status: "Research is answering" });
     expect(spadeGroupWaiting(g.view(), [])).toBeUndefined();
-    g.frame("status", { state: "waiting", status: "Research is waiting for you" });
+    g.frame("status", {
+      state: "waiting",
+      status: "Research is waiting for you",
+      waiting_member: { id: "research", name: "Research", machine: null },
+    });
     expect(g.view().working).toEqual(studio);
-    expect(spadeGroupWaiting(g.view(), [])).toEqual(research);
+    expect(spadeGroupWaiting(g.view(), [spade, research, studio])).toEqual(research);
   });
 
-  test("a waiting member with no open ask is found among the group's members by name", () => {
+  test("the waiting member is found by id and machine, whatever the status words say", () => {
     const g = group();
     g.stored({ type: "group_asked", run: "u1", ask: "a1", by: null, to: spade, depth: 1 });
-    g.frame("status", { state: "waiting", status: "Writer is waiting for you" });
+    // Words in another language, or a renamed bot: only the id counts.
+    g.frame("status", {
+      state: "waiting",
+      status: "Writer wartet auf dich",
+      waiting_member: { id: "writer", name: "Old name", machine: "studio-host" },
+    });
     expect(spadeGroupWaiting(g.view(), [spade, research, studio])).toEqual(studio);
-    g.frame("status", { state: "waiting", status: "Nobody is waiting for you" });
+    // Words alone name no one.
+    g.frame("status", { state: "waiting", status: "Research is waiting for you" });
     expect(spadeGroupWaiting(g.view(), [spade, research, studio])).toBeUndefined();
+    g.frame("status", { state: "idle", status: null });
+    expect(g.view().waitingMember).toBeUndefined();
   });
 
   test("an event seen twice after a reconnect shows once", () => {

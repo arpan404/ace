@@ -128,7 +128,8 @@ test("Open <bot> on a group's status opens the member that waits for the person,
     to: { id: "writer", name: "Writer", machine: "studio" },
     depth: 2,
   });
-  spade.teams.status(trips, "waiting", "Research is waiting for you");
+  // The server names the waiting member by id; the words could say anything.
+  spade.teams.status(trips, "waiting", "Research wartet auf dich", researchBot);
   await userEvent.click(await chat.findByRole("button", { name: "Open Research" }));
   await screen.findByRole("feed", { name: "Conversation with Research" });
 });
