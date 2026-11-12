@@ -1,3 +1,4 @@
+import type { ArchiveStopsQuestion } from "@ace/ui-core";
 import { perWindow } from "@/lib/per-window.ts";
 
 export interface DeleteRequest {
@@ -7,13 +8,26 @@ export interface DeleteRequest {
 }
 
 /** Archiving a thread whose tree still works or waits on the person: stop it too, or not. */
-export interface ArchiveRequest {
+export interface ArchiveRunningRequest {
+  kind: "running";
   title: string;
   /** What is still going on: "2 subagents and 1 background command are still running." */
   running: string;
   stopAndArchive(): void;
   archive(): void;
 }
+
+/**
+ * Archiving done threads that left commands running, which archiving stops (ADR 0109): archive
+ * anyway, or keep them. `question` comes from `archiveStopsQuestion`.
+ */
+export interface ArchiveStopsRequest {
+  kind: "stops";
+  question: ArchiveStopsQuestion;
+  archive(): void;
+}
+
+export type ArchiveRequest = ArchiveRunningRequest | ArchiveStopsRequest;
 
 /** One question a thread action waits on, asked by a dialog the app shell hosts. */
 class Confirmation<Request> {

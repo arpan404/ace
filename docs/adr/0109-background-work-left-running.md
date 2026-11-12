@@ -85,7 +85,8 @@ a TCP port.
 5. **One owner for cleanup.** Released work lives in the provider's process. A done thread with
    work still running no longer starts the idle window, so the server isn't killed five minutes
    after the reply; settling or archiving the thread releases the provider at once, as before,
-   which ends its process group. A wake the provider does send later (a Claude server crashing or
+   which ends its process group. Archiving asks first while commands are left running ("Archiving
+   stops 2 commands it left running."), since the row reads Done and Undo can't restart them. A wake the provider does send later (a Claude server crashing or
    reaching its cap) starts a new turn, and the delegation edge revives as it does for any later
    work.
 

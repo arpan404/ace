@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { ThreadStatus } from "@ace/protocol";
+import { BackgroundTaskId, type ThreadStatus } from "@ace/protocol";
 import {
+  archiveStopsQuestion,
   deleteQuestion,
+  leftRunningCommands,
   runningWork,
   stopAndDeleteQuestion,
   threadMenu,
@@ -79,5 +81,48 @@ describe("running work", () => {
     expect(runningWork({ status: { state: "needs_you", interactions: 1 } })).toBe(
       "It's waiting for you.",
     );
+  });
+});
+
+describe("archiving stops what was left running", () => {
+  const relay = { id: BackgroundTaskId.parse("relay"), title: "bun run dev:relay" };
+  it("counts commands only a done thread left running", () => {
+    expect(leftRunningCommands({ status: done, live: { watching: [relay, relay] } })).toBe(2);
+    expect(leftRunningCommands({ status: done })).toBe(0);
+    expect(
+      leftRunningCommands({
+        status: { state: "waiting", on: "background_task" },
+        live: { watching: [relay] },
+      }),
+    ).toBe(0);
+  });
+
+  it.each([
+    [[{ title: "A", leftRunning: 0 }], undefined],
+    [
+      [{ title: "A", leftRunning: 1 }],
+      { title: "Archive thread?", message: "Archiving stops 1 command it left running." },
+    ],
+    [
+      [{ title: "A", leftRunning: 2 }],
+      { title: "Archive thread?", message: "Archiving stops 2 commands it left running." },
+    ],
+    [
+      [
+        { title: "A", leftRunning: 1 },
+        { title: "B", leftRunning: 0 },
+        { title: "C", leftRunning: 2 },
+      ],
+      { title: "Archive 3 threads?", message: "Archiving stops 3 commands they left running." },
+    ],
+    [
+      [
+        { title: "A", leftRunning: 0 },
+        { title: "B", leftRunning: 0 },
+      ],
+      undefined,
+    ],
+  ])("asks before archiving %j only when it would stop a command", (threads, question) => {
+    expect(archiveStopsQuestion(threads)).toEqual(question);
   });
 });
