@@ -184,3 +184,79 @@ async fn an_endpoint_asking_for_an_absurd_wait_is_waited_only_what_the_budget_al
     assert_eq!(streamed(&spade), 2);
     Ok(())
 }
+
+/// An endpoint that answers each request `200` with a streaming body, then drops the connection
+/// before any of it: answered, maybe billed. Counts the model calls it got.
+async fn answers_then_drops() -> Result<(String, std::sync::Arc<std::sync::atomic::AtomicUsize>)> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let root = format!("http://{}/v1/", listener.local_addr()?);
+    let count = std::sync::Arc::new(AtomicUsize::new(0));
+    let seen = count.clone();
+    tokio::spawn(async move {
+        while let Ok((mut socket, _)) = listener.accept().await {
+            let seen = seen.clone();
+            tokio::spawn(async move {
+                let mut request = [0u8; 64 * 1024];
+                let read = socket.read(&mut request).await.unwrap_or(0);
+                // Model calls only: adding the endpoint may also list its models.
+                if request[..read].starts_with(b"POST") {
+                    seen.fetch_add(1, Ordering::SeqCst);
+                }
+                let head = "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\n\
+                            transfer-encoding: chunked\r\n\r\n5\r\nda";
+                let _ = socket.write_all(head.as_bytes()).await;
+                let _ = socket.shutdown().await;
+            });
+        }
+    });
+    Ok((root, count))
+}
+
+#[tokio::test]
+async fn a_reply_cut_after_the_endpoint_answered_is_not_sent_again_and_is_paid_for() -> Result {
+    let spade =
+        Spade::start_with(vec![title()], Vec::new(), retry(Duration::from_millis(10))).await?;
+    let (root, requests) = answers_then_drops().await?;
+    let (status, body) = spade
+        .post(
+            "/v1/endpoints",
+            json!({ "preset": "fake", "name": "Dropper", "base_url": root, "needs_key": false }),
+        )
+        .await?;
+    assert_eq!(status, 201, "{body}");
+    let endpoint = body["endpoint"]["id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let (status, agent) = spade
+        .post(
+            "/v1/agents",
+            json!({ "name": "Cut", "model": format!("{endpoint}/m") }),
+        )
+        .await?;
+    assert_eq!(status, 201, "{agent}");
+    let id = agent["agent"]["conversation"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    // Titles on the fake, so every call the dropper gets is the reply's.
+    spade
+        .put("/v1/settings", json!({ "fast_model": "fake/m" }))
+        .await?;
+    spade.say(&id, "Hello").await?;
+    spade.wait_for(&id, "reply_failed").await?;
+    spade.wait_for(&id, "renamed").await?;
+    assert_eq!(
+        requests.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "an answered call is never resent"
+    );
+    // More than the title's 92 micros: the cut step is paid for as an estimate.
+    let spent = bot(&spade, &id).await?["spending"]["today_micros"]
+        .as_u64()
+        .unwrap_or(0);
+    assert!(spent > 92, "{spent}");
+    Ok(())
+}

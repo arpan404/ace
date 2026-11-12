@@ -354,7 +354,12 @@ async fn model_step(
             return Step::Paused;
         }
         super::retry::Opened::Failed(error) => {
-            admitted.settle_if(error.usage());
+            // Unanswered, it was never billed; answered and then cut, it may have been.
+            match error.usage() {
+                Some(usage) => admitted.settle(&usage),
+                None if error.may_have_billed() => admitted.settle(&partly("")),
+                None => 0,
+            };
             return Step::Failed(String::new(), error.to_string());
         }
     };

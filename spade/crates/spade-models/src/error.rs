@@ -73,6 +73,16 @@ impl ModelError {
         )
     }
 
+    /// Whether the endpoint may have billed the call: it answered (or failed in a way that
+    /// can't rule that out). A request never sent, refused before any answer, or missing its
+    /// key or model was never billed.
+    pub fn may_have_billed(&self) -> bool {
+        matches!(
+            self,
+            Self::Provider { .. } | Self::Empty { .. } | Self::Shape { .. }
+        )
+    }
+
     /// How long the endpoint asked to wait before sending again (`retry-after`).
     pub fn retry_after(&self) -> Option<Duration> {
         match self {

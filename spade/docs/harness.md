@@ -55,7 +55,9 @@ turn's total.
   of that). The
   status line reads "Retrying" meanwhile; Stop and a pause end the wait. A refused request was
   never billed, so it costs nothing; only the call that answered is paid for. Once anything has
-  streamed the step is never sent again: a cut stream fails or is interrupted as below. Other
+  streamed, or the endpoint answered at all (a `200` whose body was then cut or unreadable), the
+  step is never sent again: it may have been billed, so it is paid for as an estimate and fails
+  or is interrupted as below. Other
   refusals (`400`, `401`, a missing model) fail at once.
 - **Stop** cancels the model stream and running tools; calls left without a result are answered
   "not run" in later prompts.
