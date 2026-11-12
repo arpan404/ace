@@ -2486,6 +2486,14 @@
           "maxItems": 8,
           "type": "array"
         },
+        "framing": {
+          "items": {
+            "maxLength": 32,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "type": "array"
+        },
         "grant": {
           "maxLength": 2048,
           "minLength": 1,

@@ -16,6 +16,10 @@
  *   next to page-controlled titles and text);
  * - frames, stream pieces (pictures and video) and file bytes are already compressed and go as they are.
  *
+ * A packed frame (`frame-holder.ts`) is compressed as one message, so only messages this list
+ * allows share one: none carries a credential, so sharing a context exposes nothing new. A
+ * message left out goes in a frame of its own.
+ *
  * An allowlist, so a new message type stays uncompressed until someone decides it is safe.
  */
 const compressible = new Set<string>([

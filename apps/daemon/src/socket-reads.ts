@@ -135,7 +135,7 @@ export function readCore(message: SocketMessage, reader: CoreReader): boolean {
     case "entities.page": {
       if (
         !authorize("read") ||
-        !options.store.getThread(message.threadId) ||
+        !options.store.readThread(message.threadId) ||
         options.canReadThread?.(device, message.threadId) === false
       ) {
         fail("read_denied", "Thread is not readable", false, { requestId: message.requestId });
@@ -165,7 +165,7 @@ export function readCore(message: SocketMessage, reader: CoreReader): boolean {
         break;
       }
       if (
-        !options.store.getThread(message.threadId) ||
+        !options.store.readThread(message.threadId) ||
         options.canReadThread?.(device, message.threadId) === false
       ) {
         fail("read_denied", "Thread is not readable", false, { requestId: message.requestId });

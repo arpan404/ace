@@ -25,6 +25,8 @@ const events = z.coerce.number().int().min(100).max(100000).parse(argument("even
 const windows = z.coerce.number().int().min(1).max(20).parse(argument("windows", "3"));
 const subscribers = z.coerce.number().int().min(0).max(32).parse(argument("subscribers", "1"));
 const cpuProfile = argument("cpu-prof", "");
+// `--framing=none` subscribes as a client that reads one message per frame.
+const framing = z.enum(["lines", "none"]).parse(argument("framing", "lines"));
 const home = await mkdtemp(join(tmpdir(), "ace-alloc-"));
 const child = fork(resolve(argument("entry", join(import.meta.dirname, "entry.ts"))), [], {
   execPath: resolve(argument("node", bunBinary())),
@@ -83,10 +85,15 @@ async function subscriber(endpoint: string, token: string, threadId: string, nam
   await once(socket, "open");
   const subscribed = Promise.withResolvers<void>();
   let received = 0;
+  let frames = 0;
   let target = Infinity;
   let reached = Promise.withResolvers<void>();
   socket.on("message", (bytes: Buffer) => {
-    const message = ServerMessage.parse(JSON.parse(bytes.toString()));
+    frames++;
+    for (const line of bytes.toString().split("\n")) receive(line);
+  });
+  const receive = (text: string) => {
+    const message = ServerMessage.parse(JSON.parse(text));
     if (message.type === "welcome")
       socket.send(
         JSON.stringify({
@@ -101,10 +108,21 @@ async function subscriber(endpoint: string, token: string, threadId: string, nam
       if (event.payload.type === "item.delta")
         received += event.payload.append.trim().split("\n").length;
     if (received >= target) reached.resolve();
-  });
-  socket.send(JSON.stringify({ type: "hello", protocolVersion: 1, deviceId: name, token }));
+  };
+  socket.send(
+    JSON.stringify({
+      type: "hello",
+      protocolVersion: 1,
+      deviceId: name,
+      token,
+      ...(framing === "lines" ? { framing: ["lines"] } : {}),
+    }),
+  );
   await subscribed.promise;
   return {
+    get frames() {
+      return frames;
+    },
     expect(count: number) {
       target = received + count;
       reached = Promise.withResolvers<void>();
@@ -135,12 +153,14 @@ async function main() {
   const results = [];
   for (let window = 0; window <= windows; window++) {
     const received = Promise.all(clients.map((client) => client.expect(events)));
+    const framesBefore = clients.reduce((sum, client) => sum + client.frames, 0);
     windowLog = "";
     await request({ op: "meter-start" });
     const started = performance.now();
     await request({ op: "emit", thread, count: events });
     await Promise.race([received, failed.promise]);
     const wallMs = performance.now() - started;
+    const frames = clients.reduce((sum, client) => sum + client.frames, 0) - framesBefore;
     const meter = (await request({ op: "meter-stop" })).meter;
     if (!meter) throw new Error("No meter reading");
     let allocation = windowAllocation(windowLog);
@@ -159,6 +179,8 @@ async function main() {
       allocatedPer1000: (allocation.mainBytes / events) * 1000,
       workerAllocatedPer1000: (allocation.workerBytes / events) * 1000,
       cpuMsPer1000: (cpuMs / events) * 1000,
+      // WebSocket frames each subscriber received.
+      framesPer1000: clients.length ? (frames / clients.length / events) * 1000 : 0,
     });
   }
   for (const client of clients) await client.close();
@@ -166,12 +188,14 @@ async function main() {
     entry: argument("entry", "source"),
     events,
     subscribers,
+    framing,
     windows: results,
     allocatedPer1000: median(results.map((r) => r.allocatedPer1000)),
     workerAllocatedPer1000: median(results.map((r) => r.workerAllocatedPer1000)),
     collectionsPer1000: median(results.map((r) => (r.mainCollections / events) * 1000)),
     transactionsPer1000: median(results.map((r) => (r.transactions / events) * 1000)),
     cpuMsPer1000: median(results.map((r) => r.cpuMsPer1000)),
+    framesPer1000: median(results.map((r) => r.framesPer1000)),
     peakHeapUsed: median(results.map((r) => r.peakHeapUsed)),
     eventsPerSecond: median(results.map((r) => (events / r.wallMs) * 1000)),
   };

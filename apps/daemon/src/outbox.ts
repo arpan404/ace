@@ -1,10 +1,11 @@
 import type { PluginServerMessage } from "@ace/protocol/plugins";
-import { systemDeliveryRuntime } from "./delivery-runtime.ts";
+import { systemDeliveryRuntime, type DeliveryRuntime } from "./delivery-runtime.ts";
 import { WebSocket } from "ws";
 import type { MainSocket } from "./main-socket.ts";
 import type { DeliveryEvent, ServerMessage } from "@ace/protocol";
 import { WireEncoder, eventFrameBytes } from "./wire-encoder.ts";
 import { mayCompress } from "./compression-policy.ts";
+import { FrameHolder, isDelta, mayHold } from "./frame-holder.ts";
 
 export const RESYNC_CLOSE_CODE = 4009;
 // Service envelopes can contain a 1 MiB artifact plus metadata. Events have a smaller budget.
@@ -64,6 +65,8 @@ interface SerializedFrame {
   encoded: string;
   /** Whether per-message deflate may compress it (`compression-policy.ts`). */
   compress: boolean;
+  /** Whether it may wait briefly to share a frame (`frame-holder.ts`). */
+  hold: boolean;
 }
 interface FragmentStream {
   type: "stream";
@@ -87,16 +90,32 @@ export class Outbox {
   private socket: MainSocket;
   private now: () => number;
   private encoder: WireEncoder;
+  private delay: DeliveryRuntime["delay"];
+  /** Set once the client's hello says it unpacks frames (`framing: ["lines"]`). */
+  private holder: FrameHolder | undefined;
   constructor(
     socket: MainSocket,
     options: PressureOptions,
     now = systemDeliveryRuntime.now,
     encoder = new WireEncoder(),
+    delay = systemDeliveryRuntime.delay,
   ) {
     this.now = now;
     this.socket = socket;
     this.options = options;
     this.encoder = encoder;
+    this.delay = delay;
+  }
+  /**
+   * From now on pack streamed deltas into shared frames, each held at most `frameHoldMs`; the
+   * client said it reads several messages per frame. Order and content stay exactly as sent.
+   */
+  /** Send what the frame holder holds now: a write past the outbox is about to go. */
+  releaseHeld(): void {
+    this.holder?.release();
+  }
+  packFrames(): void {
+    this.holder ??= new FrameHolder((text) => this.transmit(text, true), this.delay);
   }
   send(message: ServerMessage | PluginServerMessage): void {
     if (message.type === "events") {
@@ -190,13 +209,16 @@ export class Outbox {
       encoded,
       chargedBytes: charge,
       compress: mayCompress(message.type),
+      hold: mayHold(message),
     });
     this.bytes += charge;
     this.flush();
     this.tick();
   }
   private admit(bytes: number): boolean {
-    if (this.bytes + this.socket.bufferedAmount + bytes <= this.options.maxQueuedBytes) return true;
+    const held = this.holder?.bytes ?? 0;
+    if (this.bytes + held + this.socket.bufferedAmount + bytes <= this.options.maxQueuedBytes)
+      return true;
     this.resync();
     return false;
   }
@@ -240,18 +262,35 @@ export class Outbox {
                 throughSeq: frame.throughSeq,
                 events: frame.events,
               });
-      if (Buffer.byteLength(encoded) > replyFrameBytes) {
+      const bytes = Buffer.byteLength(encoded);
+      if (bytes > replyFrameBytes) {
         this.resync();
         return;
       }
-      if (!this.admit(Buffer.byteLength(encoded))) return;
+      if (!this.admit(bytes)) return;
       // Event batches and snapshot fragments are transcript streams; replies follow the policy.
       const compress = frame.type !== "serialized" || frame.compress;
-      this.socket.send(encoded, { compress }, (error) => {
-        if (error) this.socket.terminate();
-        else this.flush();
-      });
+      const holder = this.holder;
+      if (!holder) this.transmit(encoded, compress);
+      else if (compress) {
+        const hold =
+          frame.type === "serialized"
+            ? frame.hold
+            : frame.type === "events" && frame.events.every(isDelta);
+        holder.add(encoded, bytes, hold);
+      } else {
+        // Never share a frame with what the compression policy keeps uncompressed.
+        holder.release();
+        this.transmit(encoded, compress);
+      }
     }
+  }
+  private transmit(encoded: string, compress: boolean): void {
+    if (this.socket.readyState !== WebSocket.OPEN) return;
+    this.socket.send(encoded, { compress }, (error) => {
+      if (error) this.socket.terminate();
+      else this.flush();
+    });
   }
   tick(now = this.now()): void {
     if (this.socket.bufferedAmount > this.options.hardLimit) {
@@ -261,6 +300,7 @@ export class Outbox {
     if (this.socket.bufferedAmount <= this.options.softLimit) this.flush();
   }
   private resync(): void {
+    this.holder?.clear();
     this.pending.clear();
     this.bytes = 0;
     this.tail = 0;
@@ -269,6 +309,7 @@ export class Outbox {
     this.socket.close(RESYNC_CLOSE_CODE, "Reconnect with afterSeq");
   }
   clear(): void {
+    this.holder?.clear();
     this.pending.clear();
     this.bytes = 0;
     this.tail = 0;

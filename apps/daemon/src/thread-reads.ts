@@ -13,6 +13,7 @@ import type { HistoryIndex } from "./history-index.ts";
 import type { StatusStore } from "./status-store.ts";
 import type { ThreadReadCache } from "./thread-read-cache.ts";
 import { loadThreadSnapshot } from "./thread-snapshot.ts";
+import type { FrozenThread } from "./thread-cache.ts";
 import { readHistoryBlob } from "./history-storage.ts";
 import { boundedItemPage } from "./bounded-item-page.ts";
 
@@ -25,6 +26,8 @@ interface ThreadReadSource {
   flush(): void;
   headSeq(): number;
   getThread(id: ThreadId): Thread | undefined;
+  /** The shared frozen thread, for reads that only look (no copy). */
+  readThread(id: ThreadId): FrozenThread | undefined;
   inTransaction(): boolean;
   report(error: unknown): void;
 }
@@ -111,7 +114,7 @@ export class ThreadReads {
     limit: number,
   ): EntitiesPage {
     this.source.flush();
-    const thread = this.source.getThread(threadId);
+    const thread = this.source.readThread(threadId);
     if (!thread) throw new Error("Unknown thread");
     // Built here from entity rows read in this build's shape (`entity-shape.ts`): not parsed again.
     return this.source.cache.read(
@@ -127,7 +130,7 @@ export class ThreadReads {
   }
   readItems(threadId: ThreadId, before: number, limit: number) {
     this.source.flush();
-    if (!this.source.getThread(threadId)) throw new Error("Unknown thread");
+    if (!this.source.readThread(threadId)) throw new Error("Unknown thread");
     return this.source.cache.read(JSON.stringify(["items", threadId, before, limit]), () => ({
       ...this.source.payloads.page(threadId, before, limit),
       seq: this.source.headSeq(),
@@ -138,7 +141,7 @@ export class ThreadReads {
   }
   readItemPage(threadId: ThreadId, before: number, limit: number, byteLimit = 1024 * 1024) {
     this.source.flush();
-    if (!this.source.getThread(threadId)) throw new Error("Unknown thread");
+    if (!this.source.readThread(threadId)) throw new Error("Unknown thread");
     return this.source.cache.read(
       JSON.stringify(["wireItems", threadId, before, limit, byteLimit]),
       () => ({
@@ -150,7 +153,7 @@ export class ThreadReads {
   /** `readItemPage` for agents and previews: one oversized item never fails the page. */
   readBoundedItemPage(threadId: ThreadId, before: number, limit: number, byteLimit: number) {
     this.source.flush();
-    if (!this.source.getThread(threadId)) throw new Error("Unknown thread");
+    if (!this.source.readThread(threadId)) throw new Error("Unknown thread");
     const payloads = this.source.payloads;
     return this.source.cache.read(
       JSON.stringify(["boundedItems", threadId, before, limit, byteLimit]),
@@ -193,7 +196,7 @@ export class ThreadReads {
     byteLimit = 1024 * 1024,
   ) {
     this.source.flush();
-    if (!this.source.getThread(threadId)) throw new Error("Unknown thread");
+    if (!this.source.readThread(threadId)) throw new Error("Unknown thread");
     return this.source.history.page(threadId, through, before, limit, byteLimit);
   }
   /** `readHistoricalItemPage` for agents: one oversized item never fails the page. */
@@ -205,7 +208,7 @@ export class ThreadReads {
     byteLimit: number,
   ) {
     this.source.flush();
-    if (!this.source.getThread(threadId)) throw new Error("Unknown thread");
+    if (!this.source.readThread(threadId)) throw new Error("Unknown thread");
     const history = this.source.history;
     return boundedItemPage(
       {
@@ -245,7 +248,7 @@ export class ThreadReads {
     return this.source.payloads.readOutput(streamId, offset, limit);
   }
   readHistoryBlob(threadId: ThreadId, id: string, offset: number, limit: number) {
-    if (!this.source.getThread(threadId)) throw new Error("Unknown thread");
+    if (!this.source.readThread(threadId)) throw new Error("Unknown thread");
     return readHistoryBlob(this.source.db, threadId, id, offset, limit);
   }
   /** Threads a reader holds open right now, such as a client's thread subscription. */
