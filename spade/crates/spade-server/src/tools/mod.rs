@@ -102,7 +102,9 @@ pub trait Tool: Send + Sync {
 /// What the engine knows about the turn a call runs in.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TurnFacts {
-    /// The turn has read untrusted content: what, in a few words ("https://example.com").
+    /// The prompt the call was made from shows untrusted content (this turn's, an earlier
+    /// turn's since the last compaction, or a tainted summary): what, in a few words
+    /// ("https://example.com"). `None` when it shows none.
     pub untrusted: Option<String>,
 }
 

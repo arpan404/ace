@@ -554,6 +554,33 @@ pub fn untrusted_sources(events: &[Event], registry: &Registry) -> Vec<String> {
         .collect()
 }
 
+/// Untrusted content still in the model's view, in a few words each, oldest first: every
+/// untrusted event since the last compaction (the prompt shows them all, from earlier turns too),
+/// and the summary when it was drawn from untrusted content. What a bot keeps (a trusted file, a
+/// note) must not be made from a prompt that shows any of these (ADR 0130).
+pub fn untrusted_in_view(events: &[Event], registry: &Registry) -> Vec<String> {
+    let from = events
+        .iter()
+        .rev()
+        .find_map(|event| match event {
+            Event::Known(Known::ContextCompacted { keep_from, .. }) => Some(*keep_from),
+            _ => None,
+        })
+        .unwrap_or(0)
+        .min(events.len());
+    let mut sources: Vec<String> = Vec::new();
+    if untrusted_summary(events) {
+        sources.push("the summary of earlier turns".to_owned());
+    }
+    sources.extend(
+        events[from..]
+            .iter()
+            .filter(|event| untrusted_event(event, registry))
+            .map(|event| describe_event(events, event)),
+    );
+    sources
+}
+
 /// Whether the summary the prompt shows was drawn from untrusted content (ADR 0128). Its facts
 /// may be planted, so a note written while it is in view asks first, like one written after
 /// reading a page.

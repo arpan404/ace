@@ -49,7 +49,9 @@ note?}` stores the bot's latest verdict on a skill. `skill_load` shows the bot i
    through the folder's opened directory handle, one component at a time relative to it (`cap-std`),
    so no path, symlink or folder swapped mid-operation reaches outside. Writes go to a new file
    beside the target and are renamed over it, never truncated in place, and a file with more than
-   one hard link is never written. The same holds for kept outputs (9).
+   one hard link is never written. The same holds for kept outputs (9). Files are opened without
+   blocking and read only when the opened handle is a regular file: a pipe, socket or device is
+   refused, never waited on.
 6. **A shell in the folder.** `shell {command, timeout_s?}` runs the command in the bot's folder
    with `/bin/sh -c` on macOS and Linux and `cmd.exe /C` on Windows (one platform branch, in one
    module). On macOS and Linux it runs in its own process group; on Windows in a job object set to
@@ -69,8 +71,11 @@ note?}` stores the bot's latest verdict on a skill. `skill_load` shows the bot i
    output, an untrusted workspace entry, a skill note written in such a turn) asks for every write,
    "always" or not, as before (harness.md). In the workspace:
    - A file is trusted only if Spade's own file tools (`workspace_write`, `workspace_edit` of a
-     trusted file) wrote it in a turn that had read nothing untrusted, and its content still has
-     the hash recorded then. The record (path and hash) is kept outside the bot's folder.
+     trusted file) wrote it from a prompt that showed nothing untrusted (no untrusted event since
+     the last compaction, from this turn or an earlier one, and no summary drawn from untrusted
+     content: the same view memory's gate uses), and its content still has the hash recorded
+     then. The record (path and hash) is kept outside the bot's folder. Notes and proposals take
+     their source from the same view.
    - Everything else is untrusted: whatever a command made or changed, anything moved, copied or
      brought in, files Spade never wrote, kept outputs, and every folder and link itself; so is a
      file reached through a link. Nothing is ever marked untrusted, so nothing can be missed: no

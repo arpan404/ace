@@ -285,6 +285,46 @@ fn one_untrusted_result_of_a_trusted_tool_taints_the_turn_and_names_its_source()
     assert!(untrusted_turn(&events, &registry));
 }
 
+#[test]
+fn untrusted_content_stays_in_view_across_turns_until_compaction_leaves_it_out() {
+    let registry = Registry::new([]);
+    let compacted = |untrusted: bool, keep_from: usize| {
+        Event::Known(Known::ContextCompacted {
+            summary: "Earlier turns.".into(),
+            keep_from,
+            tokens_before: 0,
+            images_left_out: None,
+            untrusted,
+        })
+    };
+    let mut events = vec![
+        Event::user_message("Read this page"),
+        Event::reply_started("r1", "m"),
+        step("r1", "", &[("c1", "web_fetch")]),
+        result("r1", "c1", "web_fetch", "page text"),
+        step("r1", "Read it.", &[]),
+        Event::reply_ended(ReplyEnd::Stopped, "r1", "Read it."),
+        Event::user_message("Save that"),
+        Event::reply_started("r2", "m"),
+    ];
+    assert!(
+        !untrusted_turn(&events, &registry),
+        "this turn read nothing"
+    );
+    assert_eq!(
+        untrusted_in_view(&events, &registry).len(),
+        1,
+        "but the page is in view"
+    );
+    // Compacted away with a clean summary: out of view.
+    let mut clean = events.clone();
+    clean.push(compacted(false, 6));
+    assert!(untrusted_in_view(&clean, &registry).is_empty());
+    // A summary drawn from it keeps it in view.
+    events.push(compacted(true, 6));
+    assert_eq!(untrusted_in_view(&events, &registry).len(), 1);
+}
+
 fn job_done(job: &str, name: &str, content: &str) -> Event {
     Event::Known(Known::JobFinished {
         job: job.into(),

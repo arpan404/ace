@@ -42,10 +42,12 @@ pub(super) async fn handle_calls(
 ) -> Handled {
     let registry = engine.tools.registry();
     let transcript = Transcript::fold(events);
-    let sources = context::untrusted_sources(events, &registry);
-    let untrusted = !sources.is_empty();
+    let untrusted = context::untrusted_turn(events, &registry);
+    // What a tool keeps (a trusted file, a note, a proposal's source) answers to everything the
+    // prompt shows, not just this turn: untrusted text from an earlier turn is still in view.
+    let in_view = context::untrusted_in_view(events, &registry);
     let facts = TurnFacts {
-        untrusted: (!sources.is_empty()).then(|| sources.join(", ")),
+        untrusted: (!in_view.is_empty()).then(|| in_view.join(", ")),
     };
     // A note outlives the turn: one written while a tainted summary is in view asks too.
     let untrusted_memory = untrusted || context::untrusted_summary(events);

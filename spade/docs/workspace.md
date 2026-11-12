@@ -18,6 +18,10 @@ target and is renamed over it (a link at the target is replaced, never written t
 with more than one hard link is refused. Kept outputs (`.spade/outputs`) are written the same
 way.
 
+Files are opened with `O_NONBLOCK` and read only when the opened handle is a regular file; a
+folder, FIFO, socket or device is refused (`422` from the API), so a read, search, edit or download
+never waits on one. Searches skip anything but regular files without opening it.
+
 ### Tools
 
 | Tool               | Arguments                   | Risk  | What it does                                                                              |
@@ -70,8 +74,13 @@ Trust is an allowlist. A bot's trusted files are recorded in
 Spade wrote there. The engine passes each call what the turn has read (`TurnFacts.untrusted`, from
 `spade_core::context::untrusted_sources`), and:
 
-- `workspace_write` in a clean turn records the path and hash; in a tainted turn it removes the
-  path. `workspace_edit` records the new hash only in a clean turn and only when the file was
+- "Clean" here means the prompt the call was made from shows nothing untrusted:
+  `TurnFacts.untrusted` comes from `spade_core::context::untrusted_in_view`, every untrusted event
+  since the last `context_compacted` (`keep_from`), this turn's or an earlier one's, plus the
+  summary when it was drawn from untrusted content. "Save that result" a turn after reading a
+  page is therefore not clean. Notes and proposals take their `source` from the same view.
+- `workspace_write` from a clean prompt records the path and hash; otherwise it removes the
+  path. `workspace_edit` records the new hash only from a clean prompt and only when the file was
   trusted before (its old hash matched); otherwise it removes the path.
 - Nothing else ever adds to the record: not the shell, not kept outputs, not the API.
 - A file is trusted when its path is recorded with its current content's hash and it is a regular

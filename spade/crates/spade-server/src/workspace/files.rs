@@ -71,6 +71,40 @@ pub struct Found {
     pub files: Vec<(String, String)>,
 }
 
+/// `O_NONBLOCK`, so opening a FIFO (or any special file) never waits for a writer.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+const NONBLOCK: i32 = 0o4000;
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
+const NONBLOCK: i32 = 0x0004;
+
+/// Opens `path` under `at` for reading without ever blocking, and answers it only when the
+/// opened handle is a regular file: a folder, FIFO, socket or device is refused, so reading,
+/// searching or downloading can never hang a worker.
+fn open_regular(at: &Dir, path: &Path, relative: &str) -> Result<cap_std::fs::File, PathError> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use cap_std::fs::OpenOptionsExt;
+        options.custom_flags(NONBLOCK);
+    }
+    let file = at
+        .open_with(path, &options)
+        .map_err(|error| PathError::at(relative, error))?;
+    let kind = file.metadata()?.file_type();
+    if kind.is_dir() {
+        return Err(PathError::Io(format!(
+            "{relative} is a folder; list it with workspace_list"
+        )));
+    }
+    if !kind.is_file() {
+        return Err(PathError::Io(format!(
+            "{relative} is not a regular file (a pipe, socket or device), so it is not read"
+        )));
+    }
+    Ok(file)
+}
+
 /// The folder at `cleaned` (the workspace itself when empty).
 fn folder(dir: &Dir, cleaned: &Path, relative: &str) -> Result<Dir, PathError> {
     if cleaned.as_os_str().is_empty() {
@@ -137,16 +171,8 @@ impl Workspace {
         if cleaned.as_os_str().is_empty() {
             return Err(PathError::Io("that is the workspace itself".to_owned()));
         }
-        let mut file = self
-            .dir()?
-            .open(&cleaned)
-            .map_err(|error| PathError::at(relative, error))?;
+        let mut file = open_regular(&self.dir()?, &cleaned, relative)?;
         let meta = file.metadata()?;
-        if meta.is_dir() {
-            return Err(PathError::Io(format!(
-                "{relative} is a folder; list it with workspace_list"
-            )));
-        }
         if meta.len() > largest {
             return Err(PathError::Io(format!(
                 "{relative} is {} bytes; files are read up to {largest} bytes",
@@ -296,6 +322,10 @@ impl Workspace {
                     folders.push(full);
                     continue;
                 }
+                // Pipes, sockets and devices are never opened.
+                if !meta.is_file() {
+                    continue;
+                }
                 opened += 1;
                 if opened > MOST_WALKED || !visit(&at, &name, &full) {
                     return Ok(());
@@ -324,7 +354,7 @@ impl Workspace {
         let mut lines = Vec::new();
         let mut files = Vec::new();
         self.walk(relative, |at, name, full| {
-            let Ok(mut file) = at.open(name) else {
+            let Ok(mut file) = open_regular(at, Path::new(name), full) else {
                 return true;
             };
             if file.metadata().map(|m| m.len()).unwrap_or(u64::MAX) > LARGEST_SEARCHED {
@@ -431,6 +461,11 @@ impl Workspace {
             .map_err(|error| PathError::at(relative, error))?;
         if meta.is_dir() {
             return Err(PathError::Io(format!("{relative} is a folder")));
+        }
+        if !meta.is_file() {
+            return Err(PathError::Io(format!(
+                "{relative} is not a regular file (a pipe, socket or device)"
+            )));
         }
         let (text, unreadable) = if meta.len() > LARGEST_TEXT {
             (None, Some("too_large"))
