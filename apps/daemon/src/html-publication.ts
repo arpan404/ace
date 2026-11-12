@@ -1,7 +1,6 @@
 import { createTextRedactor } from "@ace/redaction";
 import { htmlToolkit, type HtmlLayoutPort, type HtmlPublicationPort } from "@ace/mcp-server";
 import { ItemId } from "@ace/protocol";
-import { resolveHtmlMode, styleKitVersion } from "@ace/html";
 import type { ContextService } from "@ace/context";
 import type { Store } from "./store.ts";
 import { toolAttachment } from "./tool-result-content.ts";
@@ -23,6 +22,9 @@ export function htmlPublication(runtime: {
     .run();
   const port: HtmlPublicationPort = {
     async publish(caller, input, signal) {
+      // Loaded before the checks below so no await falls between the live-thread check and the
+      // append; parse5 loads on the first page, not at daemon start.
+      const { resolveHtmlMode, styleKitVersion } = await import("@ace/html");
       signal.throwIfAborted();
       const context = runtime.context();
       if (!context || !runtime.store.hasLiveThread(caller.threadId))
