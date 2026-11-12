@@ -8,12 +8,15 @@ struct ThreadPageBody: View {
     let title: String
     /// The file Changes opens at, when one was named.
     var changesFile: String? = nil
+    /// The scope Changes shows, when one was asked for, and forgetting it once shown.
+    var changesScope: String? = nil
+    var scopeShown: (() -> Void)? = nil
     /// The composer block's height: the page's content ends above it.
     let barHeight: CGFloat
     let openChat: () -> Void
 
     var body: some View {
-        ChangesSheet(model: model, title: title, initial: changesFile).id(changesFile)
+        ChangesSheet(model: model, title: title, initial: changesFile, scope: changesScope, scopeShown: scopeShown).id(changesFile)
             // A screen that is a sheet elsewhere drops its own stack and close here (`threadPage`,
             // declared beside ChangesSheet); its Esc goes to Chat.
             .environment(\.panelHost, PanelHost(hide: openChat))

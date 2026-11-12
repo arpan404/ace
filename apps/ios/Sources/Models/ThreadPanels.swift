@@ -5,7 +5,7 @@ import SwiftUI
 /// A tool the iPad's side panel can hold. Each is an existing screen of the app, shown in the
 /// panel instead of over the thread (`Views/Workspace/PanelContent.swift`).
 enum PanelTool: String, CaseIterable, Sendable {
-    case changes, files, terminal, browser, agents
+    case changes, files, terminal, browser, summary, agents
     /// Run and preview (`ProjectScriptsView`), as the shared rules name it.
     case preview
 

@@ -667,6 +667,8 @@ import QuartzCore
                 }
             case .agents(let id, let epoch, let sheet):
                 if thread?.id == id, thread?.epoch == epoch { sheets.agents = sheet; ThreadOpenTrace.shared.sheetFilled("agents") }
+            case .summary(let id, let epoch, let summary):
+                if thread?.id == id, thread?.epoch == epoch, sheets.summary != summary { sheets.summary = summary }
             case .logs(let id, let epoch, let logs):
                 if thread?.id == id, thread?.epoch == epoch, sheets.logs != logs { sheets.logs = logs }
             case .logsCopy(let id, let text): sheets.copies[id] = text

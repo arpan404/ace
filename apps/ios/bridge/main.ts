@@ -162,6 +162,7 @@ const sheets = new Sheets(pump, preview, {
   kept: new ChangesKept(keptValue("review"), scheduler),
   now: () => host.now(),
   id: () => host.uuid(),
+  scheduler,
 });
 /** Subagent retries asked from this phone, kept across visits to their threads. */
 const retries = new SubagentRetries();
@@ -178,7 +179,7 @@ const visit = new ThreadVisit(
       transfers?.follow(undefined);
     },
     opened(threadId, epoch, store) {
-      if (client) sheets.follow({ owner: client, store, threadId, epoch });
+      if (client) sheets.follow({ owner: client, store, threadId, epoch, reads: client });
       browser?.probe(threadId, epoch);
       transfers?.follow({ threadId, epoch, store });
     },
@@ -654,7 +655,9 @@ function action(json: string): void {
         const store = visit.store;
         const threadId = visit.threadId;
         const thread =
-          store && threadId ? { owner: client, store, threadId, epoch: visit.epoch } : undefined;
+          store && threadId
+            ? { owner: client, store, threadId, epoch: visit.epoch, reads: client }
+            : undefined;
         if (!sheets.action(thread, value.action)) error();
         break;
       }

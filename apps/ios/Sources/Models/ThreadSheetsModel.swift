@@ -5,6 +5,7 @@ import Observation
 /// rows arrive shaped, and git outcomes are correlated by request id.
 @MainActor @Observable final class ThreadSheetsModel {
     var agents: AgentSheet?
+    var summary: ThreadSummarySheet?
     var logs: LogsSheet?
     /// Logs Copy answers, by request.
     var copies: [String: String] = [:]
@@ -38,7 +39,7 @@ import Observation
         agents = nil; changes = nil; tree = []; files = [:]; pages = [:]; wholeLines = [:]
         review = nil; replies = nil; notices = [:]; awaitingNotices = []; replyTexts = [:]; ready = nil; chip = nil; outcomes = [:]; draft = nil
         work = nil; branches = nil; workResults = [:]
-        logs = nil; copies = [:]
+        logs = nil; copies = [:]; summary = nil
     }
 
     /// A review request went out; its notice answers it.

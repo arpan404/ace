@@ -30,6 +30,8 @@ struct ThreadView: View {
     @State private var agentRoute: SubagentRoute?
     /// The file Changes opens at, when something named one (the review sheet's file rows).
     @State private var changesFile: String?
+    /// The scope the Changes page opens on next, when the Summary asked for one.
+    @State private var changesScope: String?
     @State private var media: TranscriptRow?
     @State private var fullMessage: TranscriptRow?
     @State private var showTools = false
@@ -130,6 +132,7 @@ struct ThreadView: View {
                     feed
                 } else {
                     ThreadPageBody(model: model, title: metadata?.title ?? "", changesFile: changesFile,
+                                   changesScope: changesScope, scopeShown: { changesScope = nil },
                                    barHeight: barHeight, openChat: { select(.chat) })
                 }
             }
@@ -166,7 +169,8 @@ struct ThreadView: View {
             .background { ThreadKeysPublisher(model: model, thread: thread, open: open, leave: leave) }
             .threadSheets(model: model, thread: thread, work: $showWork, logs: $showLogs)
             .modifier(ThreadPushedTools(model: model, thread: thread, pushed: $pushedTool, openThread: openThread,
-                                        openAgent: { agentRoute = $0 }, mention: model.canOperate ? { mention = $0 } : nil))
+                                        openAgent: { agentRoute = $0 }, openChanges: { changesScope = "all"; open(.changes) },
+                                        mention: model.canOperate ? { mention = $0 } : nil))
             .navigationDestination(item: $agentRoute) { route in
                 SubagentView(route: route, model: model, thread: thread, push: { agentRoute = $0 },
                              openThread: { child in agentRoute = nil; openThread(child) })
@@ -178,6 +182,8 @@ struct ThreadView: View {
                 composerFocus += 1
             } : nil)
             .keepsThreadQuotes(model: model, thread: thread)
+            // A scope the Summary asked for is this thread's only.
+            .onChange(of: thread.id) { _, _ in changesScope = nil }
             .environment(\.openChanges) { path in
                 changesFile = path
                 open(.changes)
@@ -521,7 +527,7 @@ struct ThreadView: View {
         case .tools: showTools = true
         case .logs: showLogs = true
         // Pages: with the side panel they opened as its tabs above.
-        case .changes, .files, .terminal, .browser, .agents: break
+        case .changes, .files, .terminal, .browser, .agents, .summary: break
         }
     }
     /// The title menu's actions, by the shared menu rules (`threadMenu`) for this thread's row.
