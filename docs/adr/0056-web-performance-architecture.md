@@ -257,3 +257,7 @@ Both workers outgrew the 102 KB budget for a worker with the chunks it loads lat
 The owner chose to reset the worker budgets to today's sizes plus a little headroom: a worker with its later chunks 135 KB, a worker's eager script 87 KB. Both a worker's eager script and its total stay budgeted: the first guards a worker's startup, the second keeps moving bytes behind `import()` from passing the check. The bundle report now also prints each worker's later chunks alone, without a budget of its own.
 
 Initial JS (335 KB), first screen (680 KB), routes (345 KB) and CSS (30 KB) stay as they are. Initial JS is 30 KB over and the first screen 15 KB over; moving startup code into the thread route can't close both, as that route has only 15 KB left, so the round that follows removes code from startup rather than relocating it, starting with the classic Zod schemas startup still reaches.
+
+## Amendment (2026-11-12): round budgets
+
+The owner asked for round bundle budgets, and whole kilobytes in the report: initial JS 350 KB, first screen 700 KB, route 350 KB, CSS 30 KB, a worker's eager script 90 KB, a worker with its later chunks 140 KB. They replace the numbers above (335, 680, 345, 30, 87 and 135). The check still compares exact sizes. The first screen (693 KB) now passes; initial JS (364 KB) stays over until startup code comes out.
