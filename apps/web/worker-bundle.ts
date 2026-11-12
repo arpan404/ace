@@ -1,6 +1,7 @@
 import { basename, join, relative } from "node:path";
 import type { Plugin } from "vite";
 import { initialChunk } from "./initial-preloads.ts";
+import { pieceModule } from "./protocol-pieces.ts";
 
 const entries = ["client-worker", "machine-worker"].map((name) =>
   join(import.meta.dirname, `src/boot/${name}.ts`),
@@ -17,6 +18,17 @@ export const forbiddenEagerWorkerModules = [
   "/packages/client-worker/src/mirror.ts",
   "/zod/v4/mini/schemas.js",
 ];
+
+/** Rendered bytes per source module, a split protocol module's pieces counted as one. */
+function moduleBytes(modules: Record<string, { renderedLength: number }>) {
+  const bytes = new Map<string, number>();
+  for (const [id, module] of Object.entries(modules)) {
+    if (!module.renderedLength) continue;
+    const source = relative(import.meta.dirname, pieceModule(id));
+    bytes.set(source, (bytes.get(source) ?? 0) + module.renderedLength);
+  }
+  return [...bytes].map(([id, size]) => ({ id, bytes: size }));
+}
 
 /** Guard the actual worker graph; optionally emit Rolldown's retained-module breakdown. */
 export function workerBundle(): Plugin {
@@ -69,9 +81,9 @@ export function workerBundle(): Plugin {
         for (const imported of chunk.imports) visit(imported);
         for (const [id, module] of Object.entries(chunk.modules)) {
           if (!module.renderedLength) continue;
-          if (forbiddenEagerWorkerModules.some((suffix) => id.endsWith(suffix)))
+          if (forbiddenEagerWorkerModules.some((suffix) => pieceModule(id).endsWith(suffix)))
             this.error(
-              `Forbidden eager client worker module: ${relative(import.meta.dirname, id)} (${file})`,
+              `Forbidden eager client worker module: ${relative(import.meta.dirname, pieceModule(id))} (${file})`,
             );
         }
       };
@@ -85,16 +97,7 @@ export function workerBundle(): Plugin {
                 eager: eager.has(chunk.fileName),
                 imports: chunk.imports,
                 dynamicImports: chunk.dynamicImports,
-                modules: Object.entries(chunk.modules).flatMap(([id, module]) =>
-                  module.renderedLength
-                    ? [
-                        {
-                          id: relative(import.meta.dirname, id),
-                          bytes: module.renderedLength,
-                        },
-                      ]
-                    : [],
-                ),
+                modules: moduleBytes(chunk.modules),
               },
             ]
           : [],

@@ -15,6 +15,7 @@ import {
   zodWithoutUnusedMethods,
 } from "../../zod-methods.ts";
 import { zodPureSchemas } from "../../zod-pure-schemas.ts";
+import { protocolPieces } from "../../protocol-pieces.ts";
 import { workerJsonZod } from "../../worker-json-zod.ts";
 import { pageZod, workerZod } from "../../worker-zod.ts";
 import { protocolCorpus, type ProtocolCorpus } from "./protocol-corpus.ts";
@@ -401,6 +402,8 @@ beforeAll(async () => {
   ]);
   const workerCode = await bundle(
     [
+      // As in the worker build: every protocol module split into one module per declaration.
+      protocolPieces(),
       workerZodWithoutJsonSchema(),
       workerJsonZod(),
       zodWithoutMetadata(),
