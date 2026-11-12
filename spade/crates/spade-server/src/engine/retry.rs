@@ -21,7 +21,7 @@ pub struct Retry {
     pub tries: u32,
     /// The wait before the first retry; each later one waits three times longer.
     pub first_wait: Duration,
-    /// The most the waits may add up to. An endpoint asking for longer is not waited for.
+    /// The most the waits may add up to. An endpoint asking for longer waits only this long.
     pub longest: Duration,
 }
 
@@ -36,8 +36,8 @@ impl Default for Retry {
 }
 
 /// How long to wait before try number `next` (2 is the first retry), after `waited` in earlier
-/// waits, honouring the endpoint's `hint`. `None`: no try is left, or the wait would pass the
-/// budget.
+/// waits: the endpoint's `hint`, else the backoff, never past what is left of the budget.
+/// `None`: no try or no time is left.
 pub(super) fn wait(
     policy: &Retry,
     next: u32,
@@ -50,8 +50,8 @@ pub(super) fn wait(
     let backoff = policy
         .first_wait
         .saturating_mul(3u32.saturating_pow(next - 2));
-    let wait = hint.unwrap_or(backoff);
-    (waited.saturating_add(wait) <= policy.longest).then_some(wait)
+    let left = policy.longest.saturating_sub(waited);
+    (!left.is_zero()).then(|| hint.unwrap_or(backoff).min(left))
 }
 
 pub(super) type Deltas = Pin<Box<dyn Stream<Item = Result<Delta, ModelError>> + Send>>;
@@ -134,13 +134,20 @@ mod tests {
     }
 
     #[test]
-    fn the_endpoints_wait_is_honoured_unless_it_passes_the_budget() {
+    fn the_endpoints_wait_is_honoured_up_to_what_is_left_of_the_budget() {
         let policy = Retry::default();
         assert_eq!(
             wait(&policy, 2, Duration::ZERO, Some(5 * SECOND)),
             Some(5 * SECOND)
         );
-        assert_eq!(wait(&policy, 2, Duration::ZERO, Some(60 * SECOND)), None);
-        assert_eq!(wait(&policy, 3, 15 * SECOND, Some(6 * SECOND)), None);
+        assert_eq!(
+            wait(&policy, 2, Duration::ZERO, Some(60 * SECOND)),
+            Some(20 * SECOND)
+        );
+        assert_eq!(
+            wait(&policy, 3, 15 * SECOND, Some(6 * SECOND)),
+            Some(5 * SECOND)
+        );
+        assert_eq!(wait(&policy, 3, 20 * SECOND, None), None);
     }
 }

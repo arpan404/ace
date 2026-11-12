@@ -4,7 +4,9 @@
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use futures_util::StreamExt;
+use std::panic::AssertUnwindSafe;
+
+use futures_util::{FutureExt, StreamExt};
 use spade_core::checkpoint::Checkpoints;
 use spade_core::context::{self, SYSTEM};
 use spade_core::event::{Call, Known, ReplyEnd, Tokens};
@@ -16,6 +18,9 @@ use tokio::sync::watch;
 
 use super::calls::{Handled, handle_calls};
 use super::{Engine, Frame, Snapshot};
+
+/// The reason a reply failed when its turn panicked.
+const PANICKED: &str = "Spade ran into an internal error";
 
 /// How a turn ended, other than finishing normally (which `finish_unless_steered` records).
 enum Ended {
@@ -49,7 +54,15 @@ pub(super) async fn run(
     // is taken before the first stop check, so a Stop that arrives at once still closes it.
     // It is the one `spawn_turn` read, so closing it never depends on another read succeeding.
     let mut driven: Option<String> = Some(reply);
-    let ended = drive(&engine, &id, stop_rx, &mut pause_rx, &mut driven).await;
+    // A panic anywhere in the turn (a tool, a parser) must not leave the reply open and the
+    // conversation marked running forever: it closes the reply as failed like any error.
+    let ended = AssertUnwindSafe(drive(&engine, &id, stop_rx, &mut pause_rx, &mut driven))
+        .catch_unwind()
+        .await
+        .unwrap_or_else(|_| {
+            tracing::error!(conversation = %id, "a turn panicked; closing its reply as failed");
+            Ended::Failed(String::new(), PANICKED.to_owned())
+        });
     let paused = matches!(ended, Ended::Paused);
     // Decided from the reply this worker drove, not from a fresh read: a read that fails now must
     // not release the reply still open. Whether it is still open is checked as it is closed.

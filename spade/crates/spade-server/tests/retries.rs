@@ -152,3 +152,35 @@ async fn an_endpoint_that_keeps_failing_is_tried_three_times_then_the_reply_fail
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn an_endpoint_asking_for_an_absurd_wait_is_waited_only_what_the_budget_allows() -> Result {
+    let spade = Spade::start_with(
+        vec![
+            Script::failing(429).retry_after("9999999999999999999999999"),
+            Script::reply("Made it."),
+            title(),
+        ],
+        Vec::new(),
+        Options {
+            model_retry: Some(Retry {
+                tries: 3,
+                first_wait: Duration::from_millis(10),
+                longest: Duration::from_millis(200),
+            }),
+            ..Options::default()
+        },
+    )
+    .await?;
+    let id = spade.ask("Hello").await?;
+    let events = spade.wait_for(&id, "reply_finished").await?;
+    assert!(
+        events
+            .iter()
+            .any(|e| e["type"] == "reply_finished" && e["text"] == "Made it."),
+        "{events:?}"
+    );
+    // The whole budget went on the one wait; the retry it allowed answered.
+    assert_eq!(streamed(&spade), 2);
+    Ok(())
+}

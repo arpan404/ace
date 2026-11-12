@@ -81,19 +81,28 @@ fn transient_status(status: StatusCode) -> bool {
         || status.is_server_error()
 }
 
-/// The wait an endpoint asked for: `retry-after-ms`, else `retry-after` in seconds. A date or
-/// anything unreadable is no hint.
+/// The longest wait read from an endpoint. Anything longer means the same to a caller (too long
+/// to wait for); capping it keeps any number an endpoint sends a valid duration.
+const LONGEST_HINT: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// The wait an endpoint asked for: `retry-after-ms`, else `retry-after` in seconds, at most
+/// [`LONGEST_HINT`]. A date or anything unreadable is no hint.
 fn retry_after(headers: &HeaderMap) -> Option<Duration> {
-    let number = |name: &str| {
+    let seconds = |name: &str, scale: f64| {
         headers
             .get(name)
             .and_then(|value| value.to_str().ok())
             .and_then(|value| value.trim().parse::<f64>().ok())
             .filter(|value| value.is_finite() && *value >= 0.0)
+            .map(|value| value / scale)
     };
-    number("retry-after-ms")
-        .map(|ms| Duration::from_secs_f64(ms / 1000.0))
-        .or_else(|| number("retry-after").map(Duration::from_secs_f64))
+    let wait = seconds("retry-after-ms", 1000.0).or_else(|| seconds("retry-after", 1.0))?;
+    // Never `from_secs_f64`, which panics on a number too big for a duration.
+    Some(
+        Duration::try_from_secs_f64(wait)
+            .unwrap_or(LONGEST_HINT)
+            .min(LONGEST_HINT),
+    )
 }
 
 #[cfg(test)]
@@ -151,6 +160,14 @@ mod tests {
             None
         );
         assert_eq!(wait(&[("retry-after", "-1")]), None);
+        // Numbers too big for a duration are the longest wait, never a panic.
+        for huge in [
+            &[("retry-after", "1e20")][..],
+            &[("retry-after", "9999999999999999999999999")],
+            &[("retry-after-ms", "1e300")],
+        ] {
+            assert_eq!(wait(huge), Some(LONGEST_HINT), "{huge:?}");
+        }
     }
 
     #[test]

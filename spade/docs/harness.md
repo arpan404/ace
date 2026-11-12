@@ -51,7 +51,8 @@ turn's total.
 - **Sending a step again:** a model step that fails before anything streamed, because the
   request could not be sent or the endpoint answered `408`, `429` or `5xx`, is sent again: three
   tries in all, waiting 2 s and then 6 s, or the endpoint's `retry-after` when it gives one, and
-  never more than 20 s of waiting in all (an endpoint asking for longer is not waited for). The
+  never more than 20 s of waiting in all (an endpoint asking for longer waits only what is left
+  of that). The
   status line reads "Retrying" meanwhile; Stop and a pause end the wait. A refused request was
   never billed, so it costs nothing; only the call that answered is paid for. Once anything has
   streamed the step is never sent again: a cut stream fails or is interrupted as below. Other
