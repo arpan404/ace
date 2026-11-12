@@ -17,6 +17,10 @@ maker's own documentation on the date the file records (`source` names the page)
 | `oauth_client` | Sign in, with a client ID (and secret) the person registered with the maker    |
 | `token`        | A token or API key the person made in the app, sent as `Authorization: Bearer` |
 
+An entry Spade ships its own client ID for (`config/connector-apps.json`, see Spade's own apps
+below) gets `oauth` first. Entries that stay on `oauth_client` say in their notes why: the maker
+requires a client secret, which Spade never ships.
+
 Servers that accept only clients the maker approved are left out: Figma, and Vercel, which takes
 client ID metadata documents but doesn't name itself in its answers (see Client below). Any other
 server is added by URL.
@@ -36,8 +40,10 @@ Spade follows the MCP authorization spec (2026-07-28):
    `/.well-known/openid-configuration/t`, `/t/.well-known/openid-configuration`); without a path,
    the OAuth then OpenID Connect root documents. The metadata's `issuer` must be the one asked
    about, and `code_challenge_methods_supported` must include `S256`, or Spade refuses.
-4. **Client.** In the MCP spec's order ([ADR 0136](../../docs/adr/0136-spade-client-id-metadata-document.md)):
-   a client ID the person gave, now or earlier for this issuer; else Spade's client ID metadata
+4. **Client.** In the MCP spec's order ([ADR 0136](../../docs/adr/0136-spade-client-id-metadata-document.md),
+   [ADR 0137](../../docs/adr/0137-spade-public-connector-apps.md)):
+   a client ID the person gave, now or earlier for this issuer; else Spade's own registered app for
+   this issuer (see Spade's own apps below); else Spade's client ID metadata
    document, `https://acehq.dev/oauth/spade.json`
    ([`apps/marketing/public/oauth/spade.json`](../../apps/marketing/public/oauth/spade.json)),
    when the metadata has `client_id_metadata_document_supported: true` and either
@@ -79,6 +85,32 @@ as `local: true`) may reach local addresses, or `http` on loopback; DNS never de
 catalogue servers never are. The server's own address is checked the same way before anything is
 sent to it. Sign-in requests give up after 60 seconds;
 answers stop at 256 KB as they arrive.
+
+## Spade's own apps
+
+`config/connector-apps.json` ([ADR 0137](../../docs/adr/0137-spade-public-connector-apps.md))
+lists apps the owner registered with a maker for Spade: the catalogue entry, the `issuer` the client
+ID belongs to, the `client_id` (empty until registered; such entries are ignored), the `grant`,
+optional `scopes`, and the `source` page saying the grant needs no secret. They are public client
+IDs: the file is refused whole if anything in it is named like a secret, a connect request offering
+a `client_secret` for Spade's own app answers `400`, and these sign-ins send and keep no secret.
+An app is used only when the authorization server's metadata names its `issuer`. Which makers allow
+this, and how to register each, is in [connector-apps.md](connector-apps.md).
+
+- **`browser`:** the authorization code grant as above, with PKCE and no secret, back to
+  `http://127.0.0.1:<Spade's port>/v1/connectors/callback/<catalogue entry>`, registered with the
+  maker without a port.
+- **`device`:** the device authorization grant (RFC 8628). Spade posts `client_id`, `scope` and
+  `resource` to the server's `device_authorization_endpoint` and answers `202` with the code and the
+  maker's page (`verification_uri_complete` when given), held to the address rules above. It then
+  polls the token endpoint with `grant_type=urn:ietf:params:oauth:grant-type:device_code`, waiting
+  the server's `interval` (five seconds if none) and five more after each `slow_down`; the `error`
+  field decides whatever the HTTP status, since GitHub answers errors with `200`.
+  `authorization_pending` and network errors wait; `expired_token`, `access_denied`, any other
+  error, or the code's lifetime (900 seconds if unsaid) ends it. The connector's `device` then says
+  `expired`, `denied` or `failed` for ten minutes, and `POST /v1/connectors/{id}/connect` starts
+  again. The device code itself is never shown, stored or logged. Tokens are kept as for any
+  sign-in. Disconnecting stops the polling.
 
 ## Tokens
 
@@ -125,20 +157,21 @@ removes it from every list.
 
 All under `/v1` with Spade's bearer token, except the callback.
 
-| Method and path                      | Body                                                                                   | Answer                                                                                                                                                         |
-| ------------------------------------ | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /v1/connectors`                 |                                                                                        | `{catalogue: [entry], connectors: [connector]}`                                                                                                                |
-| `POST /v1/connectors`                | `{catalogue}` or `{url, name?, local?}`, plus `token?`, `client_id?`, `client_secret?` | `200 {connector}` when connected at once (a token, or no sign-in needed); `202 {id, sign_in_url}` to open in the browser                                       |
-| `GET /v1/connectors/{id}`            |                                                                                        | `{connector}`; `404`. Poll this after opening the sign-in                                                                                                      |
-| `POST /v1/connectors/{id}/connect`   | optional `{token?, client_id?, client_secret?}`                                        | As `POST /v1/connectors`: signs in again                                                                                                                       |
-| `DELETE /v1/connectors/{id}`         |                                                                                        | `204`; `404`. Deletes its secrets and its place in every allow list                                                                                            |
-| `GET /v1/agents/{id}/connectors`     |                                                                                        | `{all: bool, connectors: [id]}`                                                                                                                                |
-| `PUT /v1/agents/{id}/connectors`     | `{all?: bool, connectors?: [id]}`                                                      | The list as stored; `400` for an unknown connector, `404` for an unknown agent                                                                                 |
-| `GET /v1/connectors/callback[/{id}]` | query `code`, `state`, `iss`, `error`                                                  | An HTML page: "Connected to …" (`200`) or why not (`400`). Open, no token; `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, a CSP that loads nothing |
+| Method and path                      | Body                                                                                   | Answer                                                                                                                                                                                     |
+| ------------------------------------ | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /v1/connectors`                 |                                                                                        | `{catalogue: [entry], connectors: [connector]}`                                                                                                                                            |
+| `POST /v1/connectors`                | `{catalogue}` or `{url, name?, local?}`, plus `token?`, `client_id?`, `client_secret?` | `200 {connector}` when connected at once (a token, or no sign-in needed); `202 {id, sign_in_url}` to open in the browser; `202 {id, device: {code, url, expires_in}}` for a device sign-in |
+| `GET /v1/connectors/{id}`            |                                                                                        | `{connector}`; `404`. Poll this after opening the sign-in                                                                                                                                  |
+| `POST /v1/connectors/{id}/connect`   | optional `{token?, client_id?, client_secret?}`                                        | As `POST /v1/connectors`: signs in again                                                                                                                                                   |
+| `DELETE /v1/connectors/{id}`         |                                                                                        | `204`; `404`. Deletes its secrets and its place in every allow list                                                                                                                        |
+| `GET /v1/agents/{id}/connectors`     |                                                                                        | `{all: bool, connectors: [id]}`                                                                                                                                                            |
+| `PUT /v1/agents/{id}/connectors`     | `{all?: bool, connectors?: [id]}`                                                      | The list as stored; `400` for an unknown connector, `404` for an unknown agent                                                                                                             |
+| `GET /v1/connectors/callback[/{id}]` | query `code`, `state`, `iss`, `error`                                                  | An HTML page: "Connected to …" (`200`) or why not (`400`). Open, no token; `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, a CSP that loads nothing                             |
 
 A connector: `{id, name, url, catalogue, local, sign_in: "oauth"|"token"|"none", state, account, tools,
-problem}`, where `state` is `connected`, `connecting`, `unreachable`, `needs_reconnect` or
-`signing_in`. Errors are `{error}`, with `needs: "client_id"` (`409`, register a client with the
+problem, device?}`, where `state` is `connected`, `connecting`, `unreachable`, `needs_reconnect` or
+`signing_in`, and `device` is `{code, url, state: "waiting"|"expired"|"denied"|"failed",
+expires_at_ms}` during a device sign-in and for ten minutes after it ended without connecting. Errors are `{error}`, with `needs: "client_id"` (`409`, register a client with the
 maker) or `needs: "token"` (`422`, the server refused the token). `422` without `needs`: the
 server cannot be signed in to (no metadata, no PKCE). `502`: it could not be reached. `503`: no
 keychain.

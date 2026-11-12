@@ -3,7 +3,8 @@
 Status: accepted. Date: 2026-11-12. Decided by: the owner (2026-11-12: "fix all those", after
 being asked to host Spade's client ID metadata document on acehq.dev). Amends
 [ADR 0131](0131-spade-connectors.md), decision 2 (how Spade gets a client ID and where sign-ins
-come back to).
+come back to). Amended by [ADR 0137](0137-spade-public-connector-apps.md): Spade's own registered
+apps come before the document in the order of clients.
 
 ## Context
 
