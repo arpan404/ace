@@ -365,7 +365,8 @@ export class ThreadActor {
             live.flatMap((entry) => this.translateFrame(entry.frame, cursorSdk)),
             this.repo.requireState(this.id),
             // A Stop the person asked for always wins over a steer sent in the same stretch.
-            this.repo.queue.get(this.id).paused ? undefined : this.steerYield,
+            // Without a steer there is nothing to yield to, so the queue isn't read.
+            this.steerYield && !this.repo.queue.get(this.id).paused ? this.steerYield : undefined,
           ));
           const toolBoundary = facts.some(
             (fact) =>
@@ -449,7 +450,10 @@ export class ThreadActor {
       // The outer mailbox transaction commits provenance, offsets and facts together.
       this.repo.recovery.commit(this.id, decoded);
     }
-    const accountId = decoded.usageAccount?.id ?? this.repo.session(this.id).instanceId;
+    // Only a usage fact carries the account, so the session row is read only for a frame with one.
+    const accountId = facts.some((fact) => fact.type === "usage")
+      ? (decoded.usageAccount?.id ?? this.repo.session(this.id).instanceId)
+      : undefined;
     return facts.map((fact) =>
       attachmentEcho(
         fact.type === "usage" && accountId

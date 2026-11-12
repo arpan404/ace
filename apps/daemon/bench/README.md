@@ -90,6 +90,46 @@ Raw measurements are checked in beside this file. Single-run startup, throughput
 
 Long raw series are stored losslessly as `.json.gz`. Any measurement accepts `--output=FILE.json.gz`; stdout remains JSON. Read a checked-in series with `python3 -c 'import gzip,json; print(json.load(gzip.open("apps/daemon/bench/long-after.json.gz"))["retainedEnd"])'`. Small summaries remain plain JSON.
 
+## Allocation per streamed event
+
+`allocation-rate.ts` measures how much garbage the daemon makes per streamed delta: the bytes its
+main isolate allocates and the process CPU it spends per 1,000 deltas, with `--subscribers`
+WebSocket clients (default 1, `0` for none) subscribed to the streaming thread. It starts the bench
+entry (or a bundle with `--entry`) with the scripted provider, streams one warm-up window and then
+`--windows` windows (default 3) of `--events` deltas (default 5,000), each ending when every
+subscriber has received every delta, and reports each window and the medians.
+
+Allocation comes from JSC's own GC log (`BUN_JSC_logGC=1`, set for the child): every collection
+logs `ca=`, the bytes allocated since the last one. The entry forces a full collection on both
+sides of a window, so the window's collections plus the closing one's remainder are exactly its
+allocation ([allocation-meter.ts](allocation-meter.ts)). `process.memoryUsage().heapUsed` is no
+substitute on Bun: it misses most short-lived garbage (a 1.5 KB string made 20,000 times reads as
+34 B each). Worker isolates are counted apart, as `workerAllocatedPer1000`. CPU is raw
+`process.cpuUsage()` over the window, every thread included; `peakHeapUsed` is sampled every 10 ms.
+
+`allocation-compare.ts` runs several bundles interleaved (A B A B …), so host load lands on each
+alike, and prints the median of their per-run medians:
+
+```sh
+bun apps/daemon/bench/compile.ts --output=.ace-dev/alloc-before   # on the base commit
+bun apps/daemon/bench/compile.ts --output=.ace-dev/alloc-after    # on the change
+bun apps/daemon/bench/allocation-compare.ts --runs=3 --events=5000 \
+  .ace-dev/alloc-before/ace.mjs .ace-dev/alloc-after/ace.mjs
+```
+
+Measured on 2026-11-11 (this Mac, shared, load average about 46), main before the allocation
+work against after it, 5,000 deltas, one subscriber, medians of three interleaved runs: main
+isolate 34.6 -> 27.1 MB per 1,000 deltas, workers 5.8 -> 0.2 MB, CPU 322 -> 196 ms, about 49
+commits per 1,000 deltas on both. With four subscribers (3,000 deltas) the main isolate went
+46.8 -> 39.8 MB; each subscriber adds about 3.6 KB per delta, most of it Bun's native frame send.
+Peak `heapUsed` stays near 66 MB in both: a window this short is bounded by the eden size, not
+by the allocation rate.
+
+`--cpu-prof=<dir>` on `allocation-rate.ts` writes the daemon's CPU profile. To see which code
+allocates, V8's sampling heap profiler can keep collected objects
+(`HeapProfiler.startSampling` with `includeObjectsCollectedByMajorGC` and `…MinorGC`); the source
+daemon runs on Node for that. Its byte counts are V8's, so rank sources with it and measure on Bun.
+
 ## Long-thread acceptance
 
 `bun --expose-gc apps/daemon/bench/long-thread-reliability.ts` runs the fast acceptance workload: 10,000 initial items, 5,000 answered approvals followed by 5,000 pending approvals, 48 provider subagents, four large-gap reconnects, 64 KiB stdout bursts and a concurrent worker history publication. Pending approvals remain open through reconnects. It verifies item counts, exact committed text length, snapshot and frame budgets, retained memory and writes per delta, including a separate pending-approval write sample. Both write samples budget below 2,048 WAL bytes and one changed row per delta. `check:perf` includes this workload in the daemon gate.
