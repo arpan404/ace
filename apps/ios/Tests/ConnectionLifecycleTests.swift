@@ -9,7 +9,8 @@ import Testing
         await model.connect(target: try target("first"), directory: directory)
         let first = try #require(sessions.values.first)
         first.emit("ready")
-        await drain()
+        // Frames decode on their own queue, then apply on the main actor: wait for the state.
+        await settle { model.connection == "ready" }
         #expect(model.connection == "ready")
         model.open("old-thread")
         model.inboxLoaded = true
@@ -31,6 +32,8 @@ import Testing
         second.emit("ready")
         first.emit("offline")
         first.fail("Late old failure")
+        await settle { model.connection == "ready" }
+        // The retired runtime's late updates had their chance to land too; none may show.
         await drain()
         #expect(model.connection == "ready")
         #expect(model.error == "second")
@@ -100,6 +103,10 @@ import Testing
                          hostId: host, deviceId: "phone", pin: nil, credential: { "{}" })
     }
     private func drain() async { for _ in 0..<20 { await Task.yield() } }
+    /// Until `done`, for at most a second: what crosses the decoder's queue lands in its own time.
+    private func settle(_ done: () -> Bool) async {
+        for _ in 0..<500 where !done() { try? await Task.sleep(for: .milliseconds(2)) }
+    }
 }
 
 /// Only the uncontrolled VM/shutdown boundary is substituted. Model state uses its real decoder.
