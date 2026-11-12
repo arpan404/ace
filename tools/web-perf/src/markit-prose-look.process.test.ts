@@ -1,7 +1,8 @@
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { extname, join } from "node:path";
+import { extname, join, relative } from "node:path";
+import { markitPackageDirectory } from "@ace/markit-web/assets";
 import { chromium } from "@playwright/test";
 import { inject, expect, test } from "vitest";
 
@@ -16,6 +17,8 @@ const root = new URL("../../../", import.meta.url).pathname;
 const preflight = createRequire(join(root, "apps/web/package.json")).resolve(
   "tailwindcss/preflight.css",
 );
+/** markit's renderer as installed (prebuilt, from its release), served from inside the repository. */
+const markitIndex = `/${relative(root, join(markitPackageDirectory(), "index.js"))}`;
 const types: Record<string, string> = {
   ".js": "text/javascript",
   ".css": "text/css",
@@ -58,7 +61,7 @@ const pageFor = (
 <link rel="stylesheet" href="/apps/web/src/components/markdown/markit-ace.css"></head>
 <body>${wrapper}
 <script type="module">
-import { MarkitRenderer } from "/packages/markit/web/index.js";
+import { MarkitRenderer } from "${markitIndex}";
 const renderer = new MarkitRenderer(document.getElementById("answer"), {
   workerURL: "/apps/web/public/markit/worker.js",
   flavor: "agent",

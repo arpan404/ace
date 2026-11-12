@@ -9,11 +9,11 @@ options:
   bundleIdPrefix: app.ace
   deploymentTarget:
     iOS: "18.0"
-# markit renders Markdown, math and code (packages/markit, Rust behind a Swift package). Its core,
-# `Artifacts/MarkitCore.xcframework`, and licence notices are built by `bun run markit`.
+# markit renders Markdown, math and code (Rust behind a Swift package). `bun run markit` puts its
+# released Swift package, with the prebuilt `MarkitCore.xcframework` and licence notices, in Vendor.
 packages:
   Markit:
-    path: ../../packages/markit/platforms/ios
+    path: Vendor/Markit
 settings:
   base:
     SWIFT_VERSION: "6.0"

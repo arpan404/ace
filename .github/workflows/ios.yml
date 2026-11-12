@@ -4,7 +4,7 @@ on:
   pull_request:
     paths:
       - "apps/ios/**"
-      - "packages/markit"
+      - "packages/markit-web/**"
       - "packages/ui-core/**"
       - "packages/client/**"
       - "packages/protocol/**"
@@ -20,7 +20,7 @@ on:
     branches: [main]
     paths:
       - "apps/ios/**"
-      - "packages/markit"
+      - "packages/markit-web/**"
       - "packages/ui-core/**"
       - "packages/client/**"
       - "packages/protocol/**"
@@ -93,16 +93,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-bun-${{ steps.bun.outputs.bun-version }}-
 
-      - name: Rust for markit's iOS core
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-ios, aarch64-apple-ios-sim
-
-      - name: Cache markit's Rust build
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: packages/markit
-
       # The root postinstall builds native and Wasm parts the iOS app never uses.
       - name: Install dependencies
         run: bun install --frozen-lockfile --ignore-scripts
@@ -110,7 +100,7 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
-      - name: Generate the project (theme, bridge bundle, markit core, Xcode project)
+      - name: Generate the project (theme, bridge bundle, released markit package, Xcode project)
         run: bun run --cwd apps/ios generate
 
       - name: Pick an iPhone simulator

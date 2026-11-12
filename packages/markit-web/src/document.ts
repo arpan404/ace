@@ -6,9 +6,9 @@ import { z } from "zod";
  * markit's parsed document, outside the browser: the daemon reads what an answer links with the
  * same parser and flavour the web renders answers with, so the two agree on every link. The
  * Wasm loads on first use. The release bundle ships `markit_wasm_bg.wasm` beside the code and
- * rewrites the path below (tools/release/src/bundle.ts).
+ * rewrites where it is read from below (tools/release/src/bundle.ts).
  */
-const wasm = new URL("../../markit/web/pkg/markit_wasm_bg.wasm", import.meta.url);
+const wasm = new URL(import.meta.resolve("@markit/web/pkg/markit_wasm_bg.wasm"));
 
 const Span = z.object({
   start: z.number().int().nonnegative(),
@@ -27,7 +27,7 @@ type Render = (source: string, flavor: MarkitFlavor) => string;
 let engine: Promise<Render> | undefined;
 function load(): Promise<Render> {
   engine ??= Promise.all([
-    import("../../markit/web/pkg/markit_wasm.js"),
+    import("@markit/web/pkg/markit_wasm.js"),
     readFile(fileURLToPath(wasm)),
   ]).then(
     ([glue, bytes]) => {

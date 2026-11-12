@@ -1,3 +1,0 @@
-[submodule "packages/markit"]
-	path = packages/markit
-	url = https://github.com/arpan404/markit.git

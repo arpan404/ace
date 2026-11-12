@@ -7,13 +7,15 @@
   "exports": {
     ".": "./src/index.ts",
     "./react": "./src/react.ts",
-    "./document": "./src/document.ts"
+    "./document": "./src/document.ts",
+    "./assets": "./src/assets.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",
     "sync-assets": "node scripts/sync-assets.mjs"
   },
   "dependencies": {
+    "@markit/web": "https://github.com/arpan404/markit/releases/download/v0.1.0/markit-web-0.1.0.tgz",
     "zod": "^4.6.5"
   },
   "peerDependencies": {

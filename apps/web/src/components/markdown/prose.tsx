@@ -51,8 +51,8 @@ function useMarkitLoaded(): boolean {
  * Agent prose as markdown, with readable live text while the renderer loads. `stream`
  * names a message whose text grows while `streaming`.
  *
- * All prose renders through markit, the shared Rust renderer in `packages/markit`
- * (code, math, tables, streaming).
+ * All prose renders through markit, the shared Rust renderer (`@markit/web`, installed prebuilt
+ * from its release; code, math, tables, streaming).
  */
 export function Prose(props: {
   text: string;

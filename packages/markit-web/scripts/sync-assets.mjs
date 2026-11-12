@@ -7,76 +7,23 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { execFileSync } from "node:child_process";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { gitForWindowsBash } from "../src/git-for-windows-bash.ts";
+import { markitPackageDirectory } from "../src/assets.ts";
 
 /*
- * Builds markit's Wasm worker from the packages/markit submodule and copies the web assets to
- * apps/web/public/markit. The build reruns whenever the submodule commit, its local edits or
- * MARKIT_FEATURES change, so a submodule bump never ships a stale Wasm file.
- *
- * Needs Rust with the wasm32-unknown-unknown target and wasm-bindgen-cli matching the
- * wasm-bindgen version in packages/markit/Cargo.lock. On Windows the build script runs on Git for
- * Windows' bash, which is not on PATH there by default.
+ * Copies markit's web assets to apps/web/public/markit. markit is installed prebuilt from its
+ * GitHub release (`@markit/web` in this package's dependencies, pinned with its integrity in
+ * bun.lock), so this builds nothing and needs no Rust.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..", "..");
-const markit = join(root, "packages", "markit");
-const web = join(markit, "web");
+const web = markitPackageDirectory();
 const out = join(root, "apps", "web", "public", "markit");
-const wasm = join(web, "pkg", "markit_wasm_bg.wasm");
-const stampFile = join(web, "pkg", ".ace-build");
-
-if (!existsSync(join(markit, "Cargo.toml"))) {
-  process.stderr.write(
-    "packages/markit is empty: run `git submodule update --init --recursive` first.\n",
-  );
+if (!existsSync(join(web, "pkg", "markit_wasm_bg.wasm"))) {
+  process.stderr.write(`markit's Wasm is missing from ${web}: run \`bun install\`.\n`);
   process.exit(1);
-}
-
-const git = (...args) => execFileSync("git", ["-C", markit, ...args], { encoding: "utf8" });
-const stamp = JSON.stringify({
-  head: git("rev-parse", "HEAD").trim(),
-  edits: git("status", "--porcelain", "--untracked-files=no"),
-  features: process.env.MARKIT_FEATURES ?? "",
-});
-/**
- * The bash that runs markit's build script. On Windows it is Git for Windows' own
- * (src/git-for-windows-bash.ts): a bare `bash` there is usually missing from PATH, or is WSL's
- * System32 launcher, which cannot run a Windows toolchain.
- */
-function bash() {
-  if (process.platform !== "win32") return "bash";
-  const found = gitForWindowsBash({
-    env: process.env,
-    execPath: (env) => execFileSync("git", ["--exec-path"], { encoding: "utf8", env }),
-    exists: existsSync,
-  });
-  if (found.ok) return found.bash;
-  process.stderr.write(`Building markit's Wasm needs Git for Windows' bash: ${found.error}.\n`);
-  process.exit(1);
-}
-
-const built = existsSync(stampFile) ? readFileSync(stampFile, "utf8") : undefined;
-
-if (!existsSync(wasm) || built !== stamp) {
-  try {
-    execFileSync(bash(), [join(markit, "scripts", "build-web.sh")], {
-      cwd: markit,
-      stdio: "inherit",
-    });
-  } catch (error) {
-    process.stderr.write(
-      "\nBuilding markit's Wasm failed. It needs Rust with the wasm32-unknown-unknown target " +
-        "(`rustup target add wasm32-unknown-unknown`) and wasm-bindgen-cli at the version in " +
-        "packages/markit/Cargo.lock (`cargo install wasm-bindgen-cli --version <v> --locked`).\n",
-    );
-    throw error;
-  }
-  writeFileSync(stampFile, stamp);
 }
 
 rmSync(out, { recursive: true, force: true });
@@ -86,18 +33,13 @@ mkdirSync(out, { recursive: true });
 for (const file of ["worker.js", "render-core.js"]) {
   if (existsSync(join(web, file))) cpSync(join(web, file), join(out, file));
 }
-cpSync(join(web, "pkg"), join(out, "pkg"), {
-  recursive: true,
-  filter: (source) => !source.endsWith(".ace-build"),
-});
+cpSync(join(web, "pkg"), join(out, "pkg"), { recursive: true });
 // The license tree is hundreds of files; installed updaters refuse archives over
 // their entry budget (`releaseArchiveLimits` in `@ace/service`), and nothing loads
 // these files at runtime, so they ship as one consolidated notice.
 const licenseRoot = join(web, "licenses");
 if (!existsSync(licenseRoot)) {
-  process.stderr.write(
-    "markit licenses missing: expected a licenses tree in packages/markit/web.\n",
-  );
+  process.stderr.write(`markit licenses missing: expected a licenses tree in ${web}.\n`);
   process.exit(1);
 }
 const noticePaths = [];

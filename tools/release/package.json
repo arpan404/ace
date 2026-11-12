@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@ace/daemon": "workspace:*",
+    "@ace/markit-web": "workspace:*",
     "@ace/models": "workspace:*",
     "@ace/notify": "workspace:*",
     "@ace/protocol": "workspace:*",

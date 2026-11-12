@@ -11,12 +11,10 @@ and native pairing flows for iOS and Android.
 
 ## Run
 
-From this directory, with dependencies installed at the repository root, the markit
-submodule checked out and Rust's iOS targets added (`generate` builds markit's core):
+From this directory, with dependencies installed at the repository root (`generate` downloads
+markit's released Swift package, so no Rust is needed):
 
 ```sh
-git submodule update --init --recursive
-rustup target add aarch64-apple-ios aarch64-apple-ios-sim
 bun run generate
 bun run spike:daemon
 ```
@@ -258,10 +256,11 @@ thought's header (`thoughtLabel`); event blocks carry the web's own event decisi
 divider), re-read when the order around them changes; answer blocks say whether they still
 stream. A truncated finished answer reads its whole text in place (`native.message`).
 
-Markdown, math and code colours are drawn natively by markit (`packages/markit`, Rust behind
-its Swift package; `bun run generate` builds its `MarkitCore.xcframework` from the submodule
-with `bun run markit`, which needs Rust with the `aarch64-apple-ios` and `aarch64-apple-ios-sim`
-targets). `Views/Markdown/AceMarkdown.swift` wraps `MarkitInline` in ace's look
+Markdown, math and code colours are drawn natively by markit (Rust behind its Swift package;
+`bun run generate` runs `bun run markit`, which downloads markit's released Swift package with the
+prebuilt `MarkitCore.xcframework` into `Vendor/Markit`, checked against the SHA-256 pinned in
+`scripts/fetch-markit.ts`, so the build needs no Rust; `ACE_MARKIT_IOS_ZIP` points it at a local
+zip from markit's `scripts/release.sh`). `Views/Markdown/AceMarkdown.swift` wraps `MarkitInline` in ace's look
 (`AceMarkdownTheme`): code blocks with Copy and a fold past 22 lines, diff fences, tables and
 math typeset as images without a web view. A streaming answer reaches markit 10 to 20 times a
 second (`Models/StreamPace.swift`); finished text shows at once. An image an answer names draws

@@ -73,7 +73,7 @@ function discover(root: string): Workspace[] {
     for (const entry of readdirSync(join(root, top), { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
       const directory = join(root, top, entry.name);
-      // Not a workspace (the packages/markit submodule has no package.json at its root).
+      // Not a workspace: a folder with no package.json.
       if (!existsSync(join(directory, "package.json"))) continue;
       const manifest = manifestSchema.parse(
         JSON.parse(readFileSync(join(directory, "package.json"), "utf8")),
