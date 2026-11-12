@@ -1,4 +1,5 @@
-import type { Icon as PhosphorIcon } from "@phosphor-icons/react";
+import type { IconProps, Icon as PhosphorIcon } from "@phosphor-icons/react";
+import { forwardRef } from "react";
 import { cn } from "@/lib/cn.ts";
 // The build keeps only these weights in each icon (icon-weights.ts); others would draw nothing.
 import type { UsedIconWeight } from "../../icon-weights.ts";
@@ -29,4 +30,20 @@ export function Icon(props: {
       {...(props.label ? { "aria-label": props.label, role: "img" } : { "aria-hidden": true })}
     />
   );
+}
+
+/**
+ * A glyph table's icon, drawn only in `weights`: the asked weight when it is one of them, else
+ * the first. The build keeps only these weights in an icon that glyph tables alone draw
+ * (`glyphTables` in `icon-weights.ts`), so no caller can ask for one it dropped.
+ */
+export function pinnedGlyph(Glyph: IconGlyph, weights: readonly UsedIconWeight[]): IconGlyph {
+  const [first = "regular"] = weights;
+  const Pinned = forwardRef<SVGSVGElement, IconProps>(function Pinned(props, ref) {
+    const asked = props.weight;
+    const weight = weights.find((kept) => kept === asked) ?? first;
+    return <Glyph {...props} ref={ref} weight={weight} />;
+  });
+  Pinned.displayName = Glyph.displayName ?? "Glyph";
+  return Pinned;
 }
