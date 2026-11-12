@@ -13,7 +13,14 @@ export type ListAction =
   | { kind: "manual"; href: string; label: string }
   | { kind: "prerequisite"; href: string; name: string }
   | { kind: "turn-on" }
-  | { kind: "run"; action: InstallAction; label: string; cancelled: boolean }
+  | {
+      kind: "run";
+      action: InstallAction;
+      label: string;
+      /** The version an update brings, said after the label where there's room. */
+      to?: string | undefined;
+      cancelled: boolean;
+    }
   | { kind: "sign-in"; label: string }
   | { kind: "none" };
 
@@ -39,7 +46,7 @@ const failedNames: Record<InstallAction, string> = {
   uninstall: "Removal failed",
 };
 
-const live = ["planning", "running", "verifying"];
+const live = new Set(["planning", "running", "verifying"]);
 
 /** The installer's plan, from a plan reply or the job it started. */
 export function installPlan(view: InstallView): ProviderInstallPlan | undefined {
@@ -66,7 +73,7 @@ export function listAction(input: ListActionInput): ListAction {
   const progress = view.kind === "progress" ? view.progress : undefined;
   const plan = installPlan(view);
   const action: InstallAction = missing ? "install" : "update";
-  if (view.kind === "loading" || (progress && live.includes(progress.state))) {
+  if (view.kind === "loading" || (progress && live.has(progress.state))) {
     const words =
       progress?.state === "running"
         ? progress.action === "update"
@@ -138,8 +145,8 @@ export function listAction(input: ListActionInput): ListAction {
       kind: "run",
       action,
       cancelled,
-      label:
-        action === "install" ? "Install" : input.latest ? `Update to ${input.latest}` : "Update",
+      label: action === "install" ? "Install" : "Update",
+      to: action === "update" ? input.latest : undefined,
     };
   if (needsSignIn)
     return { kind: "sign-in", label: readiness?.primary ? "Sign in again" : "Sign in" };

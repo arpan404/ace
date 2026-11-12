@@ -24,7 +24,6 @@ function missing(provider: ProviderKind, method: InstallMethod = "npm") {
   );
   return app;
 }
-const codexRow = () => screen.getByRole("group", { name: "Codex" });
 
 async function expectSignedIn(app: ReturnType<typeof harness>, provider: ProviderKind) {
   expect(

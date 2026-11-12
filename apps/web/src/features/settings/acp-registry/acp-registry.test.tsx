@@ -45,7 +45,7 @@ test("the first few agents show, Show all lists every one and Show fewer folds t
   await userEvent.click(more);
   expect(names(hub)).toHaveLength(total + 1);
   // What can't install here sorts last and says why, in words, without an Install.
-  const last = within(hub).getByRole("group", { name: names(hub).at(-1) });
+  const last = within(hub).getByRole("group", { name: names(hub).at(-1) ?? "" });
   expect(last.textContent).toMatch(
     /Not built for this computer|Ships in a format ace can't install/,
   );

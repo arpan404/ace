@@ -311,8 +311,17 @@ function Action(props: {
       return (
         <>
           {action.cancelled && <span className="text-xs text-muted-foreground">Cancelled</span>}
-          <Button size="sm" variant="secondary" onClick={() => props.onRun(action.action)}>
-            {action.label}
+          <Button
+            size="sm"
+            variant="secondary"
+            aria-label={action.to ? `${action.label} to ${action.to}` : undefined}
+            onClick={() => props.onRun(action.action)}
+          >
+            {/* One text run, so the words space as words; the version where there's room. */}
+            <span>
+              {action.label}
+              {action.to && <span className="hidden sm:inline"> to {action.to}</span>}
+            </span>
           </Button>
         </>
       );
