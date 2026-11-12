@@ -32,6 +32,7 @@ function daemon(defaultAccount: string) {
     engine: () => ({
       targetInstance: () => defaultAccount,
       discardRecovery: () => {},
+      liveWork: () => ({ agentsRunning: 0, operationsRunning: 0 }),
       internalHandler: {
         handle(command: Command) {
           sent.push(command.payload);

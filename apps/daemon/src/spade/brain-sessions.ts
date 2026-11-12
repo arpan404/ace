@@ -35,6 +35,8 @@ export interface SpadeBrainsDeps {
         flush?(): Promise<void>;
         /** Drops a thread's hold and continuation (nothing then resumes it by itself). */
         discardRecovery(id: ThreadId): void;
+        /** What still runs in a thread's tree. */
+        liveWork(id: ThreadId): { agentsRunning: number; operationsRunning: number };
       }
     | undefined;
   /** Spade's project, from its host thread; undefined while Spade is off. */
@@ -42,7 +44,14 @@ export interface SpadeBrainsDeps {
   /** The model roster the `models` tool shows, as Spade's host thread sees it. */
   roster(): AgentModelRoster | undefined;
   id(): string;
+  /** How long a finished turn waits for the session's other work to settle; 2 minutes. */
+  settleMs?: number;
 }
+
+const defaultSettleMs = 120_000;
+const settlePollMs = 250;
+/** Thread states with nothing left running: every agent idle, no background task or queue. */
+const settledStates = new Set(["done", "failed", "limited", "new"]);
 
 /** Device the brain service's commands are recorded under. */
 const device = "ace-agent";
@@ -146,7 +155,8 @@ export class SpadeBrains {
       };
       // Turns every event stored so far into frames; returns how many frames went out.
       const pump = () => {
-        for (let event = queued.shift(); event && !watch.ended; event = queued.shift()) {
+        for (let event = queued.shift(); event; event = queued.shift()) {
+          if (watch.ended) continue;
           const frames = watch.next(event.payload);
           // ace held the turn's message after failing to deliver it: let go of it, so nothing
           // sends it later behind Spade's back, and leave the session unheld for the next turn.
@@ -161,22 +171,52 @@ export class SpadeBrains {
             frames.some((frame) => frame.type === "failed" && frame.reason === "needs_permission")
           )
             this.interrupt(engine.internalHandler, threadId);
-          for (const frame of frames) send(frame);
+          for (const frame of frames) {
+            // The root's run ended; the turn is done once nothing else in the session runs.
+            if (frame.type === "finished") settling = frame;
+            else send(frame);
+          }
         }
         return sent;
       };
+      let settling: Extract<SpadeBrainFrame, { type: "finished" }> | undefined;
+      const settleBy = Date.now() + (this.deps.settleMs ?? defaultSettleMs);
       send({ type: "session", thread: threadId, fresh });
       this.live.set(threadId, pump);
       try {
-        while (!watch.ended) {
+        for (;;) {
           if (signal.aborted) {
             this.interrupt(engine.internalHandler, threadId);
             return;
           }
           pump();
-          if (watch.ended) break;
+          if (watch.ended && !settling) break;
+          if (settling) {
+            const work = engine.liveWork(threadId);
+            const status = this.deps.store.getThread(threadId)?.status?.state;
+            if (
+              settledStates.has(status ?? "done") &&
+              work.agentsRunning === 0 &&
+              work.operationsRunning === 0
+            ) {
+              send(settling);
+              break;
+            }
+            if (Date.now() >= settleBy) {
+              // Background work outlived the turn: the tree stops before Spade hears so.
+              this.interrupt(engine.internalHandler, threadId);
+              send({
+                type: "failed",
+                reason: "failed",
+                message: `${providerNames[request.provider]} left background work running; it was stopped.`,
+              });
+              break;
+            }
+          }
           await new Promise<void>((resolve) => {
             wake = resolve;
+            // Work can settle without a new event (a process exits): look again soon.
+            if (settling) setTimeout(resolve, settlePollMs).unref();
           });
           wake = undefined;
         }

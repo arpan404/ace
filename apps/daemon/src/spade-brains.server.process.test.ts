@@ -231,6 +231,18 @@ test("subscriptions list the providers this daemon has installed and signed in, 
       const names = (await client.listTools()).tools.map((tool) => tool.name);
       expect(names).toEqual(expect.arrayContaining(["spade_tools", "spade_call"]));
       expect(names).not.toContain("ask");
+      // Nothing that starts, steers or schedules other agents: their work would run ungated.
+      for (const withheld of [
+        "delegate",
+        "thread_start",
+        "agent_message",
+        "thread_control",
+        "thread_fork",
+        "transfer",
+        "automation_put",
+        "automation_run",
+      ])
+        expect(names, withheld).not.toContain(withheld);
       const called = await client.callTool({
         name: "spade_call",
         arguments: { tool: "remember", arguments: { note: "milk" } },
@@ -463,5 +475,32 @@ test("a bot's session takes commands only from the brain service: not agents, no
     );
     expect(own.isError).toBeFalsy();
     expect(f.h.attempts.filter((a) => a.threadId === thread)).toHaveLength(1);
+  });
+}, 30_000);
+
+test("a turn finishes only once the session's background work has settled", async () => {
+  await withSpade(async (f, grant) => {
+    const turn = sendTurn(f.daemon, grant, { instructions: "Rules", message: "Run the check" });
+    const thread = ThreadId.parse((await until(() => sessionOf(turn.frames), "session")).thread);
+    await until(() => f.h.inputs.get(thread)?.length === 1, "the message to arrive");
+    provide(
+      f,
+      thread,
+      {
+        type: "background.started",
+        agent: "root",
+        task: "bg1",
+        kind: "shell",
+        title: "make check",
+        stoppable: true,
+      },
+      reply("Started the check; I'll report back."),
+      ended,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(turn.frames.some((frame) => frame.type === "finished")).toBe(false);
+    provide(f, thread, { type: "background.ended", task: "bg1", status: "completed" });
+    await turn.done;
+    expect(turn.frames.at(-1)).toMatchObject({ type: "finished" });
   });
 }, 30_000);
