@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { readFamily, writeFamilies } from "./read-policy.ts";
+import { eventFamilies, readFamily, writeFamilies } from "./read-policy.ts";
 
 /* What the phone's skill and plugin requests keep, and what they put out of date. */
 
@@ -33,4 +33,16 @@ test("looking for installed CLIs again puts providers, the catalog and settings 
   const rediscover = { type: "providers.request", operation: "refresh" };
   expect(readFamily(rediscover)).toBeUndefined();
   expect(writeFamilies(rediscover)).toEqual(["providers", "catalog", "settings", "settings-page"]);
+});
+
+test("a Verify run moving reads the merge strip again, not the pull request lists", () => {
+  const strip = { type: "forge.merge-run", project: "ace", picked: [], rows: [] };
+  const family = readFamily(strip);
+  expect(family).toBeDefined();
+  expect(eventFamilies("verify.changed")).toContain(family);
+  expect(eventFamilies("verify.changed")).not.toContain(readFamily({ type: "forge.pulls" }));
+  // Starting or stopping a run reads both again: what merged leaves the list.
+  expect(writeFamilies({ type: "forge.merge-run.write" })).toEqual(
+    expect.arrayContaining([family, readFamily({ type: "forge.pulls" })]),
+  );
 });

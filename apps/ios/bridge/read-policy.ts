@@ -19,6 +19,8 @@ export type ReadFamily =
   | "prompts"
   | "catalog"
   | "forge"
+  /** A project's Verify runs (`forge.merge-run`), out of date with each `verify.changed`. */
+  | "verify"
   | "host"
   | "providers"
   | "skills";
@@ -124,6 +126,8 @@ export function readFamily(request: unknown): ReadFamily | undefined {
     case "forge.pull.stack":
     case "forge.pull.work":
       return "forge";
+    case "forge.merge-run":
+      return "verify";
     default:
       return undefined;
   }
@@ -192,6 +196,8 @@ export function writeFamilies(request: unknown): readonly ReadFamily[] {
     case "forge.stack":
     case "forge.worktree":
       return ["forge"];
+    case "forge.merge-run.write":
+      return ["verify", "forge"];
     default:
       return [];
   }
@@ -218,6 +224,8 @@ export function eventFamilies(type: string): readonly ReadFamily[] {
       return ["catalog", "settings-page", "providers"];
     case "forge.pr.updated":
       return ["forge"];
+    case "verify.changed":
+      return ["verify"];
     case "machineUpdate.changed":
       return ["host"];
     default:

@@ -22,6 +22,13 @@ import type { ShownBodies } from "./forge-conversation.ts";
 import { ProjectListRefused, readProjects } from "./project-list.ts";
 import { ForgeReviewRequest, writeReview } from "./forge-review-write.ts";
 import {
+  ForgeMergeRunRequest,
+  ForgeMergeRunWriteRequest,
+  MergeRunMemory,
+  readMergeRun,
+  writeMergeRun,
+} from "./forge-merge-run.ts";
+import {
   ForgeInboxRequest,
   ForgeInboxWriteRequest,
   readInbox,
@@ -105,6 +112,8 @@ export const ForgeRequest = z.intersection(
     ForgeWorktreeRequest,
     ForgeCommitsRequest,
     ForgeFileSidesRequest,
+    ForgeMergeRunRequest,
+    ForgeMergeRunWriteRequest,
   ]),
   z.object({ fresh: z.boolean().default(false) }),
 );
@@ -129,6 +138,8 @@ export class ForgeService {
   #logs = new LogPages();
   /** Each project's last Mark all read, which GitHub may still be applying. */
   #readAll: ReadAllSent = new Map();
+  /** Each project's merge run started here and the ones dismissed from the strip. */
+  #mergeRuns = new MergeRunMemory();
 
   /**
    * `stamp` is the kept forge reads' stamp (`NativeReads.stamp`), so both memories agree;
@@ -246,6 +257,10 @@ export class ForgeService {
           return await readWork(this.#owner, reads, request, this.#preview);
         case "forge.worktree":
           return await writeWorktree(this.#owner, reads, request);
+        case "forge.merge-run":
+          return await readMergeRun(this.#owner, this.#mergeRuns, request);
+        case "forge.merge-run.write":
+          return await writeMergeRun(this.#owner, this.#mergeRuns, request);
       }
     } catch (error) {
       const code =
