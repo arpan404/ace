@@ -23,7 +23,7 @@ export function AccessDefaultRow() {
   return (
     <SettingRow
       {...settingRow("access.defaultMode")}
-      description="Applies to new threads. A project's own default comes first."
+      description="A project's own default wins."
     >
       <DaemonSlot control={{ loaded: value !== undefined, offline, pending }}>
         <SegmentedControl<AccessMode>

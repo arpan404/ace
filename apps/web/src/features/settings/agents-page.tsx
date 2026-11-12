@@ -83,7 +83,7 @@ function ThreadListSettings() {
       </SettingRow>
       <SettingRow
         {...settingRow("threads.autoSettleAfter")}
-        description="Move finished threads out of the active list after this delay. Threads that need you stay active."
+        description="Threads that need you stay."
       >
         <DaemonSlot control={autoSettle}>
           <Select

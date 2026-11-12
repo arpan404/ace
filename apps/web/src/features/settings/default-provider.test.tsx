@@ -100,7 +100,5 @@ test("with no default picked, Settings shows the installed provider new threads 
     scope: {},
   });
   expect(reply.entries[0]?.provenance).toBe("defaults");
-  expect(
-    screen.getByText("The provider new threads start with. You can choose another in each thread."),
-  ).toBeTruthy();
+  expect(screen.getByText("Each thread can switch.")).toBeTruthy();
 });
