@@ -1,5 +1,5 @@
 import { parseSpadeNote, parseSpadeNotes, type SpadeNote } from "@ace/ui-core/spade-chat";
-import { segment, spadeHttp, type SpadeTarget } from "./spade-requests.ts";
+import { segment, spadeHttp, SpadeRequestError, type SpadeTarget } from "./spade-requests.ts";
 
 /*
  * Spade's notes (ADR 0128, spade/docs/memory.md): a bot's own under `/v1/agents/{id}/notes`,
@@ -37,8 +37,29 @@ export async function addNote(
   return sure(parseSpadeNote(body), "new note");
 }
 
-export async function editNote(target: SpadeTarget, id: string, text: string): Promise<SpadeNote> {
-  const body = await spadeHttp(target, "PATCH", `/v1/notes/${segment(id)}`, { body: { text } });
+/**
+ * Rewrites a note. `updatedAt`: the version the new text was written from; Spade refuses with
+ * 409 (`isNoteConflict`) when the note has changed since, and changes nothing.
+ */
+export async function editNote(
+  target: SpadeTarget,
+  id: string,
+  text: string,
+  updatedAt?: number,
+): Promise<SpadeNote> {
+  const body = await spadeHttp(target, "PATCH", `/v1/notes/${segment(id)}`, {
+    body: updatedAt === undefined ? { text } : { text, updated_at: updatedAt },
+  });
+  return sure(parseSpadeNote(body), "note");
+}
+
+/** The note changed on Spade since the version an edit started from. */
+export const isNoteConflict = (error: unknown) =>
+  error instanceof SpadeRequestError && error.status === 409;
+
+/** Keeps a suggested note: the bot sees it from now on. Dismissing one is `deleteNote`. */
+export async function acceptNote(target: SpadeTarget, id: string): Promise<SpadeNote> {
+  const body = await spadeHttp(target, "POST", `/v1/notes/${segment(id)}/accept`);
   return sure(parseSpadeNote(body), "note");
 }
 

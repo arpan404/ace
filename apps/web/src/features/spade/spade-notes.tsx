@@ -1,15 +1,22 @@
 import { spadeNoteMax, type SpadeNote } from "@ace/ui-core/spade-chat";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { SettingList, SettingListItem, SettingRow } from "@/components/setting-row.tsx";
+import { useEffect, useId, useState } from "react";
+import {
+  SettingList,
+  SettingListItem,
+  SettingNote,
+  SettingRow,
+} from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import {
+  acceptNote,
   addNote,
   deleteNote,
   editNote,
+  isNoteConflict,
   readNotes,
   type SpadeNotesScope,
 } from "./spade-notes-api.ts";
@@ -21,10 +28,18 @@ export const notesKey = ["spade", "notes"] as const;
 const scopeKey = (scope: SpadeNotesScope) => (scope.kind === "agent" ? scope.agent : "shared");
 const fault = (error: unknown) => (error instanceof Error ? error.message : "Try again.");
 
+/** How a save went; `changed`: the note moved on Spade first, nothing was written. */
+type Saved =
+  | { kind: "saved" }
+  | { kind: "failed" }
+  | { kind: "changed"; note: SpadeNote | undefined };
+
 /**
  * What a bot remembers, or what every bot knows about the person (ADR 0128), as a list edited
  * in place: a note's text opens it for editing, Delete removes it, the last row adds one.
- * `editing`: a note to open for editing at once (from a "Remembered" line). Put it in a card.
+ * Notes compaction suggested from untrusted content wait above, under Suggested, to be kept or
+ * dismissed. `editing`: a note to open for editing at once (from a "Remembered" line). Put it
+ * in a card.
  */
 export function SpadeNotes(props: {
   scope: SpadeNotesScope;
@@ -41,7 +56,23 @@ export function SpadeNotes(props: {
     queryKey: key,
     queryFn: ({ signal }) => readNotes(client, props.scope, { signal }),
   });
-  const [editing, setEditing] = useState(props.editing);
+  const [editing, setEditing] = useState<string | undefined>();
+  // A note being opened: the field shows once the notes are read again, so it never starts
+  // from cached text the bot has since changed.
+  const [opening, setOpening] = useState(props.editing);
+  const { refetch } = notes;
+  useEffect(() => {
+    if (opening === undefined) return;
+    let live = true;
+    void refetch().then(() => {
+      if (!live) return;
+      setEditing(opening);
+      setOpening(undefined);
+    });
+    return () => {
+      live = false;
+    };
+  }, [opening, refetch]);
   /** Runs a change, then reads the list again; says why when it fails. */
   const change = async (title: string, run: () => Promise<unknown>) => {
     try {
@@ -53,6 +84,22 @@ export function SpadeNotes(props: {
       return false;
     }
   };
+  const save = async (id: string, text: string, from: number): Promise<Saved> => {
+    try {
+      await editNote(client, id, text, from);
+      await cache.invalidateQueries({ queryKey: key });
+      return { kind: "saved" };
+    } catch (error) {
+      if (!isNoteConflict(error)) {
+        toast.error({ title: "Couldn't change the note", description: fault(error) });
+        return { kind: "failed" };
+      }
+      toast.error({ title: "Changed since you opened it" });
+      await cache.invalidateQueries({ queryKey: key });
+      const current = cache.getQueryData<SpadeNote[]>(key)?.find((note) => note.id === id);
+      return { kind: "changed", note: current };
+    }
+  };
   if (notes.isPending) return <ListSkeleton label="notes" shape="row" rows={2} />;
   if (notes.isError)
     return (
@@ -62,24 +109,38 @@ export function SpadeNotes(props: {
         </Button>
       </SettingRow>
     );
+  const suggested = notes.data.filter((note) => note.suggested);
+  const kept = notes.data.filter((note) => !note.suggested);
   return (
     <>
-      {notes.data.length > 0 && (
+      {suggested.length > 0 && (
+        <Suggested
+          notes={suggested}
+          onKeep={(id) => void change("Couldn't keep the note", () => acceptNote(client, id))}
+          onDismiss={(id) => void change("Couldn't dismiss the note", () => deleteNote(client, id))}
+        />
+      )}
+      {kept.length > 0 && (
         <SettingList aria-label={props.label}>
-          {notes.data.map((note) => (
-            <NoteRow
-              key={note.id}
-              note={note}
-              editing={editing === note.id}
-              onEdit={(open) => setEditing(open ? note.id : undefined)}
-              onSave={(text) =>
-                change("Couldn't change the note", () => editNote(client, note.id, text))
-              }
-              onDelete={() =>
-                void change("Couldn't delete the note", () => deleteNote(client, note.id))
-              }
-            />
-          ))}
+          {kept.map((note) =>
+            editing === note.id ? (
+              <NoteEditor
+                key={note.id}
+                note={note}
+                onSave={(text, from) => save(note.id, text, from)}
+                onDone={() => setEditing(undefined)}
+              />
+            ) : (
+              <NoteRow
+                key={note.id}
+                note={note}
+                onEdit={() => setOpening(note.id)}
+                onDelete={() =>
+                  void change("Couldn't delete the note", () => deleteNote(client, note.id))
+                }
+              />
+            ),
+          )}
         </SettingList>
       )}
       <AddNote
@@ -90,35 +151,54 @@ export function SpadeNotes(props: {
   );
 }
 
-function NoteRow(props: {
-  note: SpadeNote;
-  editing: boolean;
-  onEdit(open: boolean): void;
-  onSave(text: string): Promise<boolean>;
-  onDelete(): void;
+/** Notes waiting for the person: Keep lets the bot see one, Dismiss deletes it. */
+function Suggested(props: {
+  notes: SpadeNote[];
+  onKeep(id: string): void;
+  onDismiss(id: string): void;
 }) {
+  const id = useId();
+  return (
+    <>
+      <SettingNote id={id}>Suggested</SettingNote>
+      <SettingList aria-labelledby={id}>
+        {props.notes.map((note) => (
+          <SettingListItem key={note.id}>
+            <span className="min-w-0 flex-1 text-ui wrap-anywhere text-foreground">
+              {note.text}
+            </span>
+            <Button
+              size="xs"
+              variant="ghost"
+              aria-label={`Keep: ${note.text}`}
+              onClick={() => props.onKeep(note.id)}
+            >
+              Keep
+            </Button>
+            <Button
+              size="xs"
+              variant="ghost"
+              aria-label={`Dismiss: ${note.text}`}
+              className="-mr-2.5"
+              onClick={() => props.onDismiss(note.id)}
+            >
+              Dismiss
+            </Button>
+          </SettingListItem>
+        ))}
+      </SettingList>
+    </>
+  );
+}
+
+function NoteRow(props: { note: SpadeNote; onEdit(): void; onDelete(): void }) {
   const { note } = props;
-  if (props.editing)
-    return (
-      <SettingListItem>
-        <NoteField
-          initial={note.text}
-          label="Note"
-          action="Save"
-          onDone={() => props.onEdit(false)}
-          onSubmit={async (text) => {
-            if (text === note.text) return true;
-            return props.onSave(text);
-          }}
-        />
-      </SettingListItem>
-    );
   return (
     <SettingListItem>
       <button
         type="button"
         aria-label={`Edit: ${note.text}`}
-        onClick={() => props.onEdit(true)}
+        onClick={props.onEdit}
         className="min-w-0 flex-1 rounded-sm text-left text-ui wrap-anywhere text-foreground focus-ring"
       >
         {note.text}
@@ -136,20 +216,55 @@ function NoteRow(props: {
   );
 }
 
+/**
+ * A note open for editing. The draft starts from one version of the note (`base`): while it's
+ * untouched it follows the note as Spade changes it; once typed in it stays, and Save names
+ * that version so Spade refuses rather than overwrite a newer note.
+ */
+function NoteEditor(props: {
+  note: SpadeNote;
+  onSave(text: string, from: number): Promise<Saved>;
+  onDone(): void;
+}) {
+  const { note } = props;
+  const [base, setBase] = useState(note);
+  const [text, setText] = useState(note.text);
+  if (note.updatedAt !== base.updatedAt && text === base.text) {
+    setBase(note);
+    setText(note.text);
+  }
+  return (
+    <SettingListItem>
+      <NoteField
+        value={text}
+        onChange={setText}
+        label="Note"
+        action="Save"
+        onDone={props.onDone}
+        onSubmit={async (value) => {
+          if (value === base.text) return true;
+          const saved = await props.onSave(value, base.updatedAt);
+          if (saved.kind === "changed" && saved.note) setBase(saved.note);
+          return saved.kind === "saved";
+        }}
+      />
+    </SettingListItem>
+  );
+}
+
 function AddNote(props: { placeholder: string; onAdd(text: string): Promise<boolean> }) {
-  // Keyed by each add so the field empties once a note goes in.
-  const [round, setRound] = useState(0);
+  const [text, setText] = useState("");
   return (
     <div data-setting-slot="" className="flex min-h-(--setting-row-height) items-center gap-2">
       <NoteField
-        key={round}
-        initial=""
+        value={text}
+        onChange={setText}
         label={props.placeholder}
         placeholder={props.placeholder}
         action="Add"
-        onSubmit={async (text) => {
-          const added = await props.onAdd(text);
-          if (added) setRound((value) => value + 1);
+        onSubmit={async (value) => {
+          const added = await props.onAdd(value);
+          if (added) setText("");
           return added;
         }}
       />
@@ -159,20 +274,20 @@ function AddNote(props: { placeholder: string; onAdd(text: string): Promise<bool
 
 /** One line of text with its action: Enter does it, Escape gives up (`onDone`, when given). */
 function NoteField(props: {
-  initial: string;
+  value: string;
+  onChange(text: string): void;
   label: string;
   placeholder?: string;
   action: "Save" | "Add";
   onSubmit(text: string): Promise<boolean>;
   onDone?(): void;
 }) {
-  const [text, setText] = useState(props.initial);
   const [saving, setSaving] = useState(false);
-  const ready = text.trim() !== "" && !saving;
+  const ready = props.value.trim() !== "" && !saving;
   const submit = async () => {
     if (!ready) return;
     setSaving(true);
-    const done = await props.onSubmit(text.trim());
+    const done = await props.onSubmit(props.value.trim());
     setSaving(false);
     if (done) props.onDone?.();
   };
@@ -186,11 +301,11 @@ function NoteField(props: {
     >
       <Input
         aria-label={props.label}
-        value={text}
+        value={props.value}
         maxLength={spadeNoteMax}
         placeholder={props.placeholder}
         autoFocus={props.onDone !== undefined}
-        onChange={(event) => setText(event.target.value)}
+        onChange={(event) => props.onChange(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === "Escape" && props.onDone) {
             event.stopPropagation();

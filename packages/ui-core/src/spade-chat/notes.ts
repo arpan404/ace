@@ -16,6 +16,11 @@ export interface SpadeNote {
   agent: string | undefined;
   /** Who wrote it: the person, a bot's memory tool, or compaction. */
   source: "person" | "bot" | "compaction" | "unknown";
+  /**
+   * Compaction drew it from untrusted content (a web page, an email, another bot): the bot
+   * doesn't see it until the person keeps it.
+   */
+  suggested: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -30,6 +35,7 @@ const noteShape = z.object({
   scope: z.enum(["agent", "shared"]).catch("agent"),
   agent: z.string().nullish().catch(undefined),
   source: z.enum(["person", "bot", "compaction", "unknown"]).catch("unknown"),
+  suggested: z.boolean().catch(false).default(false),
   created_at: time.default(0),
   updated_at: time.default(0),
 });
@@ -45,6 +51,7 @@ export function parseSpadeNoteValue(raw: unknown): SpadeNote | undefined {
     scope: note.scope,
     agent: note.agent ?? undefined,
     source: note.source,
+    suggested: note.suggested,
     createdAt: note.created_at,
     updatedAt: note.updated_at,
   };
