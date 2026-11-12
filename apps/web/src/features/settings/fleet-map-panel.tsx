@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { primaryMachineId } from "@/lib/machines.ts";
 import { cn } from "@/lib/cn.ts";
-import type { FleetMap, MapNode, MapTone } from "./data/fleet-map-types.ts";
+import type { FleetMap, MapNode, MapTone } from "@ace/ui-core/fleet-map";
 import type { FleetMapData } from "./data/use-fleet-map.ts";
 import { MapFixes } from "./fleet-map-fixes.tsx";
 import type { AccountOpenings } from "./fleet-map-openings.ts";

@@ -1,12 +1,5 @@
-import { hostOf, serving, subnetOf, tailnetOf } from "./fleet-map-networks.ts";
-import {
-  accountNode,
-  deviceNode,
-  machineNode,
-  ownNode,
-  plural,
-  type NameOf,
-} from "./fleet-map-nodes.ts";
+import { hostOf, serving, subnetOf, tailnetOf } from "./networks.ts";
+import { accountNode, deviceNode, machineNode, ownNode, plural, type NameOf } from "./map-nodes.ts";
 import {
   relayEnd,
   type FleetMap,
@@ -14,7 +7,7 @@ import {
   type MapNode,
   type MapZone,
   type ZoneId,
-} from "./fleet-map-types.ts";
+} from "./map-types.ts";
 
 /** The Fleet map's facts from the fleet's: see `fleet-map-types.ts`. Pure. */
 

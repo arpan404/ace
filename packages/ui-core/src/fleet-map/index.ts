@@ -6,3 +6,7 @@ export * from "./kinds.ts";
 export * from "./links.ts";
 export * from "./machine.ts";
 export * from "./words.ts";
+export * from "./map-facts.ts";
+export * from "./map-nodes.ts";
+export * from "./map-types.ts";
+export * from "./networks.ts";

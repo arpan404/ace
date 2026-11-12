@@ -5,7 +5,7 @@ import {
   type AccountMachineConnection,
   type AccountMachineState,
 } from "@/features/ace-account/index.ts";
-import type { AccountOpening } from "./data/fleet-map-types.ts";
+import type { AccountOpening } from "@ace/ui-core/fleet-map";
 
 /**
  * Opening machines on the ace account from the Fleet map, each through ace's relay as its row
