@@ -4,12 +4,14 @@ import {
   parseSpadeEndpoint,
   parseSpadeLiveModels,
   parseSpadeModels,
+  parseSpadeSubscriptions,
   type SpadeAgent,
   type SpadeAvatarColor,
   type SpadeEndpoint,
   type SpadeFormat,
   type SpadeModelInfo,
   type SpadeModels,
+  type SpadeSubscription,
 } from "@ace/ui-core/spade-chat";
 import { segment, spadeHttp, type SpadeTarget } from "./spade-requests.ts";
 
@@ -69,6 +71,15 @@ export async function setMainHosted(target: SpadeTarget, enabled: boolean): Prom
 
 export async function readModels(target: SpadeTarget, options: Signal = {}): Promise<SpadeModels> {
   return sure(parseSpadeModels(await spadeHttp(target, "GET", "/v1/models", options)), "models");
+}
+
+/** The person's subscriptions a bot can think with, as ace lists them (ADR 0133). */
+export async function readSubscriptions(
+  target: SpadeTarget,
+  options: Signal = {},
+): Promise<{ providers: SpadeSubscription[]; error: string | undefined }> {
+  const body = await spadeHttp(target, "GET", "/v1/subscriptions", options);
+  return sure(parseSpadeSubscriptions(body), "subscriptions");
 }
 
 /** What the endpoint itself lists now. */

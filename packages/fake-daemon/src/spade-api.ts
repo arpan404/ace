@@ -25,6 +25,8 @@ export interface FakeSpadeAgent {
   state: "idle" | "working" | "waiting";
   waiting_for: "approval" | "question" | null;
   status: string | null;
+  /** Why its latest reply on a subscription failed (ADR 0133). */
+  problem?: string | null;
   last_message: {
     from: "person" | "agent";
     text: string;
@@ -56,6 +58,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
   keyFailure: number | undefined;
   /** `PUT /v1/main`: false leaves the main agent out of the list, as Spade does. */
   mainEnabled = true;
+  /** The person's subscriptions as ace lists them (ADR 0133), in Spade's JSON. */
+  subscriptions: Json[] = [];
   /** What each endpoint lists live, by endpoint id; a number answers with that status. */
   liveModels = new Map<string, Json[] | number>();
   /** Each agent's workspace files (ADR 0130), by path relative to it; folders are implied. */
@@ -241,6 +245,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
         fast_model: this.fastModel,
         keychain: this.keychain,
       });
+    if (root === "subscriptions" && request.method === "GET")
+      return reply({ providers: this.subscriptions, error: null });
     if (root === "endpoints") return this.endpointRoute(request.method, id, sub, body, query);
     if (root === "keys" && id) return this.keyRoute(request.method, id);
     if (root === "settings" && request.method === "PUT") {

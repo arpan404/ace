@@ -23,6 +23,8 @@ export function rosterLine(bot: RosterBot): { text: string; tone?: "working" | "
     return { text: "Asked you a question", tone: "needs-you" };
   if (bot.state === "waiting") return { text: bot.status ?? "Waiting for you", tone: "needs-you" };
   if (bot.state === "working") return { text: bot.status ?? "Working", tone: "working" };
+  // A subscription that couldn't run (signed out, out of quota) until a later reply works.
+  if (bot.problem) return { text: bot.problem, tone: "needs-you" };
   const last = bot.lastMessage;
   if (!last?.text) return { text: "No messages yet" };
   if (last.from === "agent") return { text: last.text };
