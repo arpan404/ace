@@ -358,6 +358,7 @@ impl Engine {
             context: None,
             images,
             from_agent: None,
+            from_routine: None,
         }))
     }
 
