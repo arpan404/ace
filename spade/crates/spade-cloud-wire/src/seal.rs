@@ -277,7 +277,10 @@ mod tests {
             let spade_key = hex(&case.spade_private_key);
             let spade = OneTimeKey::generate(&FixedSliceRandom { bytes: &spade_key })?;
             assert_eq!(spade.public_key(), case.spade_public_key);
-            assert_eq!(spade.open(&case.sealed, context)?, case.plaintext.as_bytes());
+            assert_eq!(
+                spade.open(&case.sealed, context)?,
+                case.plaintext.as_bytes()
+            );
         }
         Ok(())
     }

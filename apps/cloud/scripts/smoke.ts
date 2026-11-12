@@ -1,9 +1,10 @@
 /**
- * Checks a deployed hosted relay without an account and without leaving anything behind:
- * the Worker answers, grant keys are published, a sign-in can start (and is cancelled), and
- * relay upgrades without a grant are refused.
+ * Checks a deployed ace cloud without an account and without leaving anything behind: the
+ * Worker answers, grant keys are published, a sign-in can start (and is cancelled), relay
+ * upgrades without a grant are refused, and Spade's sign-in broker refuses a request without a
+ * cloud credential. Run it against each of its hostnames.
  *
- *   node apps/cloud/scripts/smoke.ts https://relay.example.com
+ *   node apps/cloud/scripts/smoke.ts https://cloud.acehq.dev
  */
 import { WebSocket } from "ws";
 import { GrantKeySet } from "@ace/account-grant";
@@ -11,7 +12,7 @@ import { hostId, keyPair } from "@ace/secure-channel";
 import { aceAccountClient } from "@ace/client/ace-account";
 
 const argument = process.argv[2];
-if (!argument) throw new Error("Usage: smoke.ts https://relay.example.com");
+if (!argument) throw new Error("Usage: smoke.ts https://cloud.example.com");
 const origin = new URL(argument).origin;
 const signal = AbortSignal.timeout(15_000);
 let failed = false;
@@ -45,7 +46,7 @@ function refusedUpgrade(path: string): Promise<number> {
 await check("the Worker answers", async () => {
   const response = await fetch(origin, { signal });
   const text = await response.text();
-  if (!response.ok || !text.startsWith("ace relay")) throw new Error(`status ${response.status}`);
+  if (!response.ok || !text.startsWith("ace cloud")) throw new Error(`status ${response.status}`);
 });
 await check("grant keys are published", async () => {
   const response = await fetch(`${origin}/v1/keys`, { signal });
@@ -65,5 +66,16 @@ await check("a daemon without a grant is refused", async () => {
 await check("a client without a grant is refused", async () => {
   const status = await refusedUpgrade(`/client?hostId=${someHost}`);
   if (status !== 401) throw new Error(`status ${status}, expected 401`);
+});
+await check("the sign-in broker wants a cloud credential", async () => {
+  const response = await fetch(`${origin}/v1/oauth/asana/start`, { method: "POST", signal });
+  const body: unknown = await response.json();
+  if (response.status !== 401 || JSON.stringify(body) !== '{"error":"unauthorized"}')
+    throw new Error(`status ${response.status}, expected 401 unauthorized`);
+});
+await check("a callback naming no sign-in is turned away", async () => {
+  const response = await fetch(`${origin}/v1/oauth/callback/asana?state=none&code=x`, { signal });
+  await response.body?.cancel();
+  if (response.status !== 400) throw new Error(`status ${response.status}, expected 400`);
 });
 process.exitCode = failed ? 1 : 0;
