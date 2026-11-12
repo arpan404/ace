@@ -18,6 +18,8 @@ export type SpadeBubble =
       /** Not stored by Spade yet. */
       sending: boolean;
     }
+  /** One of the bot's routines fired: a small label, `Daily briefing · 9:00`. */
+  | { kind: "routine"; key: string; name: string; label: string }
   /** A message another bot sent into this conversation, labelled with the name it had. */
   | { kind: "other"; key: string; agent: { id: string; name: string }; text: string }
   | {
@@ -43,10 +45,39 @@ export type SpadeBubble =
       arguments: unknown;
     };
 
+/** What a bot answers a heartbeat when nothing needs the person (`spade_core::routine::QUIET`). */
+export const spadeQuiet = "[quiet]";
+
+/** Whether a reply's text is the quiet answer (case and a trailing full stop ignored). */
+export function isSpadeQuiet(text: string): boolean {
+  return text.trim().replace(/\.+$/, "").trim().toLowerCase() === spadeQuiet;
+}
+
 export function spadeBubbles(view: SpadeView): SpadeBubble[] {
   const bubbles: SpadeBubble[] = [];
+  // Since the last reply ended: whether anything arrived, and whether all of it was a heartbeat.
+  // A quiet answer only to heartbeats shows as nothing, like the heartbeats themselves (ADR 0129;
+  // `silent_replies` in spade-core); one that also answers anything else always shows.
+  let inputs = false;
+  let onlyBeats = true;
   for (const entry of view.entries) {
+    if (entry.kind === "job") {
+      inputs = true;
+      onlyBeats = false;
+    }
     if (entry.kind === "user") {
+      inputs = true;
+      onlyBeats &&= entry.fromRoutine?.heartbeat === true;
+      if (entry.fromRoutine) {
+        if (!entry.fromRoutine.heartbeat)
+          bubbles.push({
+            kind: "routine",
+            key: entry.key,
+            name: entry.fromRoutine.name,
+            label: entry.fromRoutine.label,
+          });
+        continue;
+      }
       bubbles.push(
         entry.fromAgent
           ? { kind: "other", key: entry.key, agent: entry.fromAgent, text: entry.text }
@@ -60,7 +91,27 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
       );
       continue;
     }
-    if (entry.kind === "reply") replyBubbles(entry, bubbles);
+    if (entry.kind !== "reply") continue;
+    // The whole reply, every step's words: hidden only if all it said was [quiet], and it left
+    // nothing else to show (a note it remembered, a question for the person).
+    const whole = [
+      ...entry.parts.flatMap((part) => (part.kind === "text" ? [part.text] : [])),
+      ...(entry.live ? [entry.live] : []),
+    ]
+      .join("\n\n")
+      .trim();
+    const quiet =
+      inputs &&
+      onlyBeats &&
+      entry.parts.every((part) => part.kind !== "remembered" && part.kind !== "question") &&
+      (entry.end === undefined
+        ? spadeQuiet.startsWith(whole.toLowerCase())
+        : entry.end.kind === "finished" && isSpadeQuiet(whole));
+    if (entry.end !== undefined) {
+      inputs = false;
+      onlyBeats = true;
+    }
+    if (!quiet) replyBubbles(entry, bubbles);
   }
   for (const approval of view.approvals)
     bubbles.push({

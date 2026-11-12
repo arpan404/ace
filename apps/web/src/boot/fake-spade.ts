@@ -118,6 +118,38 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     from_agent: null,
   };
 
+  // Inbox's routines (ADR 0129): its morning sweep fired today, then the person wrote.
+  here.store(inbox.conversation, {
+    type: "user_message",
+    text: "Sweep the inbox and tell me what needs me today.",
+    from_routine: { id: "rt-sweep", name: "Morning sweep", run: "run-1", label: "8:30" },
+  });
+  here.reply(
+    inbox,
+    "Two things need you: the landlord asked about the plumber, and the dentist moved you to Friday.",
+  );
+  for (const routine of [
+    {
+      name: "Morning sweep",
+      instruction: "Sweep the inbox and tell me what needs me today.",
+      trigger: { kind: "schedule", schedule: "weekdays at 8:30" },
+    },
+    {
+      name: "Follow up on finished work",
+      instruction: "Tell me what the thread changed.",
+      trigger: { kind: "event", event: "thread_done" },
+    },
+  ])
+    here.routines.agentRoute("POST", "inbox", "routines", routine);
+  here.routines.heartbeats.set("inbox", {
+    enabled: true,
+    every_minutes: 30,
+    checklist: "Anything from the bank or the landlord?",
+    quiet: { start: "22:00", end: "07:00" },
+    time_zone: "Europe/Lisbon",
+    next_run: now + 12 * 60_000,
+    last_run: null,
+  });
   here.store(inbox.conversation, {
     type: "user_message",
     text: "Reply to the landlord that Thursday works for the plumber, any time after 2.",

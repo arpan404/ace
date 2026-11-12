@@ -377,6 +377,7 @@ mod tests {
                 context: Some(context.into()),
                 images: Vec::new(),
                 from_agent: None,
+                from_routine: None,
             })
         };
         let events = vec![

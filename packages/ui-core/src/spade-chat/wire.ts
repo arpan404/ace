@@ -32,6 +32,16 @@ const known = z.discriminatedUnion("type", [
       .object({ id: z.string(), name: z.string().catch("") })
       .nullish()
       .catch(undefined),
+    /** One of the bot's routines or its heartbeat fired it (ADR 0129). */
+    from_routine: z
+      .object({
+        id: z.string(),
+        name: z.string().catch(""),
+        label: z.string().catch(""),
+        heartbeat: z.boolean().catch(false).default(false),
+      })
+      .nullish()
+      .catch(undefined),
     // An image this client can't read is left out; the message still shows.
     images: z
       .array(z.unknown())

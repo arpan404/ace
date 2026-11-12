@@ -287,6 +287,7 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
                 context,
                 images: attached,
                 from_agent,
+                from_routine,
             } => {
                 let mut text = match context {
                     Some(context) => format!("<context>\n{context}\n</context>\n\n{text}"),
@@ -297,6 +298,9 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
                         "<bot_message from=\"{}\" id=\"{}\">\n{text}\n</bot_message>",
                         from.name, from.id
                     );
+                }
+                if let Some(from) = from_routine {
+                    text = crate::routine::framed(from, &text);
                 }
                 let mut shown = Vec::new();
                 for image in attached {
@@ -562,6 +566,11 @@ pub fn untrusted_event(event: &Event, registry: &Registry) -> bool {
             from_agent: Some(_),
             ..
         }) => true,
+        // A routine fired by an ace event carries that event's text (a thread's title).
+        Event::Known(Known::UserMessage {
+            from_routine: Some(from),
+            ..
+        }) if from.event.is_some() => true,
         Event::Known(Known::ToolFinished { name, .. } | Known::JobFinished { name, .. }) => {
             // A tool no longer listed (ace switched it off, or its list is not back yet after a
             // restart) cannot vouch for its output.

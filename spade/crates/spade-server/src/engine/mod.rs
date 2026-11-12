@@ -14,6 +14,7 @@ mod jobs;
 mod maintenance;
 mod memory;
 pub mod roster;
+mod routines;
 mod turn;
 mod types;
 
@@ -108,6 +109,8 @@ pub struct Engine {
     endpoint_lock: Mutex<()>,
     /// Endpoints being deleted: no agent may be moved onto one meanwhile.
     retiring: Mutex<std::collections::HashSet<String>>,
+    /// Routines' timer and settings (ADR 0129, `crate::routines`).
+    routines: crate::routines::Shared,
 }
 
 /// What `starting` says until setup has run long enough to say more.
@@ -129,6 +132,7 @@ impl Engine {
         for tool in MemoryTool::all(&handle) {
             tools = tools.with_tool(tool);
         }
+        let tools = crate::routines::with_tools(tools, &handle);
         let engine = Arc::new(Self {
             store: setup.store,
             models: setup.models,
@@ -156,6 +160,7 @@ impl Engine {
             starting: Mutex::new(STARTING),
             endpoint_lock: Mutex::default(),
             retiring: Mutex::default(),
+            routines: crate::routines::Shared::default(),
         });
         handle.set(&engine);
         engine.sync_endpoints()?;
@@ -364,6 +369,7 @@ impl Engine {
             context: None,
             images,
             from_agent: None,
+            from_routine: None,
         }))
     }
 

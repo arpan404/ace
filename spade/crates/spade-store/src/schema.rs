@@ -85,6 +85,42 @@ const MIGRATIONS: &[Migration] = &[
         sql: crate::notes::SCHEMA,
         backfill: None,
     },
+    Migration {
+        // ADR 0129: routines and heartbeats, each owned by one agent, and their runs.
+        sql: "
+    CREATE TABLE routines (
+        id TEXT PRIMARY KEY,
+        agent_id TEXT NOT NULL REFERENCES agents (id) ON DELETE CASCADE,
+        kind TEXT NOT NULL,
+        name TEXT NOT NULL,
+        instruction TEXT NOT NULL,
+        trigger TEXT NOT NULL,
+        time_zone TEXT NOT NULL,
+        paused INTEGER NOT NULL,
+        secret TEXT,
+        next_due_ms INTEGER,
+        created_by TEXT NOT NULL,
+        created_ms INTEGER NOT NULL,
+        updated_ms INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX one_heartbeat ON routines (agent_id) WHERE kind = 'heartbeat';
+    CREATE INDEX routines_by_agent ON routines (agent_id, created_ms);
+    CREATE INDEX routines_due ON routines (next_due_ms) WHERE paused = 0 AND next_due_ms IS NOT NULL;
+    CREATE TABLE routine_runs (
+        id TEXT PRIMARY KEY,
+        routine_id TEXT NOT NULL REFERENCES routines (id) ON DELETE CASCADE,
+        slot_ms INTEGER,
+        at_ms INTEGER NOT NULL,
+        cause TEXT NOT NULL,
+        outcome TEXT NOT NULL,
+        seq INTEGER,
+        detail TEXT
+    );
+    CREATE INDEX routine_runs_by_routine ON routine_runs (routine_id, at_ms DESC);
+    CREATE INDEX routine_runs_pending ON routine_runs (outcome) WHERE outcome = 'pending';
+",
+        backfill: None,
+    },
 ];
 
 /// The schema version this build brings a database up to.

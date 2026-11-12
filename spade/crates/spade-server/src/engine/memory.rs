@@ -84,12 +84,14 @@ pub(super) fn question(arguments: &Value) -> Result<String, ToolOutput> {
     Ok(question.to_owned())
 }
 
-/// A message from the person reaches a turn waiting on them at once.
+/// A message from the person reaches a turn waiting on them at once. A routine's message is not
+/// the person answering.
 pub(super) fn wake_on_message(engine: &Engine, id: &str, event: &Event) {
     if matches!(
         event,
         Event::Known(Known::UserMessage {
             from_agent: None,
+            from_routine: None,
             ..
         })
     ) {
@@ -98,14 +100,16 @@ pub(super) fn wake_on_message(engine: &Engine, id: &str, event: &Event) {
 }
 
 /// The person's message with the notes most relevant to it fixed in its per-turn context,
-/// leaving out notes the prompt already shows. Unchanged when nothing matches or memory cannot
-/// be read: recall never stops a message.
+/// leaving out notes the prompt already shows. A routine's message (the person's own instruction)
+/// recalls too. Unchanged when nothing matches or memory cannot be read: recall never stops a
+/// message.
 pub(super) fn with_recall(engine: &Engine, id: &str, event: Event) -> Event {
     let Event::Known(Known::UserMessage {
         text,
         context: None,
         images,
         from_agent: None,
+        from_routine,
     }) = event
     else {
         return event;
@@ -119,6 +123,7 @@ pub(super) fn with_recall(engine: &Engine, id: &str, event: Event) -> Event {
         context,
         images,
         from_agent: None,
+        from_routine,
     })
 }
 

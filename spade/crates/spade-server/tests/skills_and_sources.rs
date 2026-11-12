@@ -206,6 +206,9 @@ async fn a_tool_that_arrives_later_is_found_and_run_without_changing_the_offered
             "memory_save",
             "memory_search",
             "memory_update",
+            "routine_delete",
+            "routine_save",
+            "routines_list",
             "tool_search",
             "call_tool"
         ],

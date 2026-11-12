@@ -384,6 +384,9 @@ async fn a_deferred_tool_is_found_with_tool_search_and_run_through_call_tool() -
             "memory_save",
             "memory_search",
             "memory_update",
+            "routine_delete",
+            "routine_save",
+            "routines_list",
             "tool_search",
             "call_tool"
         ],

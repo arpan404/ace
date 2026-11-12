@@ -14,6 +14,7 @@
 
 mod config;
 mod discovery;
+pub mod events;
 mod secret;
 pub mod skills;
 pub mod tools;

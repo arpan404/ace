@@ -187,6 +187,15 @@ async fn run() -> Result<(), Failure> {
         startup.set_aside,
         spade_server::startup::SETTLE_DEADLINE,
     );
+    // Routines (ADR 0129): new ones default to the machine's zone; slots and ace's thread
+    // events wake bots from here on.
+    if let Some(zone) = jiff::tz::TimeZone::system().iana_name() {
+        spade_server::routines::set_default_zone(&engine, zone);
+    }
+    spade_server::routines::start(&engine);
+    if let Some(link) = ace.clone() {
+        spade_server::routines::watch_ace(&engine, move || link.daemon_socket());
+    }
     home.write_server_json(address, std::process::id())
         .map_err(other)?;
     tracing::info!(%address, "spade listening");
