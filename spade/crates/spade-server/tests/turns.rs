@@ -33,16 +33,17 @@ async fn a_message_gets_a_reply_that_is_stored_costed_and_titled() -> Result {
         vec![
             "user_message",
             "reply_started",
+            "memory_indexed",
             "step_finished",
             "reply_finished",
             "renamed"
         ]
     );
-    let finished = &events[3];
+    let finished = &events[4];
     assert_eq!(finished["text"], "Hello there!");
     // 11 input × $2/M + 7 output × $10/M = 22 + 70 = 92 micros.
     assert_eq!(finished["cost_micros"], 92);
-    assert_eq!(events[4]["title"], "Saying hello");
+    assert_eq!(events[5]["title"], "Saying hello");
     Ok(())
 }
 
@@ -62,10 +63,11 @@ async fn a_read_tool_runs_and_its_result_reaches_the_next_model_call() -> Result
     let events = spade.wait_for(&id, "reply_finished").await?;
 
     assert_eq!(
-        types(&events)[..7],
+        types(&events)[..8],
         [
             "user_message",
             "reply_started",
+            "memory_indexed",
             "step_finished",
             "tool_started",
             "tool_finished",

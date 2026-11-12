@@ -184,6 +184,10 @@ pub enum Known {
         /// at the end. Missing on events from before it was stored.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         images_left_out: Option<usize>,
+        /// What it summarised (with any earlier summary it folded in) held untrusted content, so
+        /// facts drawn from it are only suggested to the person (ADR 0128).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        untrusted: bool,
     },
 }
 

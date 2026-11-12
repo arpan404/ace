@@ -19,9 +19,11 @@ A note is one short fact, stored in Spade's SQLite (`notes`, searched through th
 | `created_at`   | ms since the epoch                                                           |
 | `updated_at`   | ms since the epoch                                                           |
 | `last_used_at` | when a prompt last showed it or a search returned it, else `null`            |
+| `suggested`    | `true` while it waits for the person to keep it (see Compaction)             |
 
 A bot sees its own notes and the shared ones, never another bot's. A scope holds at most 1,000
-notes. Deleting a bot deletes its notes with it.
+notes. Deleting a bot deletes its notes with it. Checking for the same note, checking the bound and
+storing happen in one transaction, so concurrent saves never duplicate a note or pass the bound.
 
 ### Ranking
 
@@ -37,7 +39,8 @@ changing callers.
   compaction, Spade stores a `memory_indexed {text}` event: the shared notes, then the bot's own,
   most used and most recent first, up to 3,000 characters, each as `- [id] text`. The prompt's
   system part ends with the latest one. Between compactions it never changes, so the top stays
-  byte-identical; with no notes the text is empty and adds nothing.
+  byte-identical. It is stored even when empty, so the top is fixed before the first model call
+  and a note added while that call is paused cannot change the resumed prompt.
 - **Recall, at the tail.** When the person's message is stored, up to 5 notes ranked for its text
   are fixed in the message's `context`, leaving out notes the latest index or an earlier message
   since the last compaction already showed. Showing a note marks it used.
@@ -90,18 +93,26 @@ conversation. Each is saved with source `compaction` into the bot's scope, unles
 already has the same note; shared notes are only ever saved by the person or by `memory_save`
 with `about_person`. Then the next prompt stores a fresh `memory_indexed`.
 
+Facts are only as trustworthy as what they came from. When what the compaction summarised holds
+untrusted content (a result of a tool marked untrusted, such as a web page or email, or another
+bot's message, since the last compaction or folded into its summary), each fact is stored as a
+suggestion (`suggested: true`): the person keeps it (`POST /notes/{note}/accept`) or dismisses it
+(`DELETE`), and until kept no bot sees it in its index, recall or search. The compaction event
+records `untrusted: true`, so a later summary that folds it in stays untrusted.
+
 ## API
 
 All under `/v1`, with the bearer token. Bodies are JSON; errors are `{"error": "…"}`.
 
-| Request                   | Body       | Answer                                                 |
-| ------------------------- | ---------- | ------------------------------------------------------ |
-| `GET /agents/{id}/notes`  |            | `{"notes": [note…]}`, newest change first; `?q=` ranks |
-| `POST /agents/{id}/notes` | `{"text"}` | `201` and the note, source `person`                    |
-| `GET /notes`              |            | The shared notes, as above                             |
-| `POST /notes`             | `{"text"}` | `201` and a shared note                                |
-| `PATCH /notes/{note}`     | `{"text"}` | The changed note                                       |
-| `DELETE /notes/{note}`    |            | `204`                                                  |
+| Request                     | Body                      | Answer                                                                                              |
+| --------------------------- | ------------------------- | --------------------------------------------------------------------------------------------------- |
+| `GET /agents/{id}/notes`    |                           | `{"notes": [note…]}`, newest change first; `?q=` ranks                                              |
+| `POST /agents/{id}/notes`   | `{"text"}`                | `201` and the note, source `person`; `200` and the existing note when one already says the same     |
+| `GET /notes`                |                           | The shared notes, as above                                                                          |
+| `POST /notes`               | `{"text"}`                | `201` and a shared note, or `200` as above                                                          |
+| `PATCH /notes/{note}`       | `{"text", "updated_at"?}` | The changed note; with `updated_at`, `409 {"error", "note"}` if the note changed since that version |
+| `POST /notes/{note}/accept` |                           | The kept suggestion, `suggested: false`                                                             |
+| `DELETE /notes/{note}`      |                           | `204`                                                                                               |
 
 `400` for text that is empty or too long, `404` for an unknown agent or note, `409` when the scope
 already holds 1,000 notes.

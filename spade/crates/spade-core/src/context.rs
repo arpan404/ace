@@ -537,7 +537,15 @@ pub fn untrusted_turn(events: &[Event], registry: &Registry) -> bool {
         .iter()
         .rposition(ends_reply)
         .map_or(0, |at| at + 1);
-    events[from..].iter().any(|event| match event {
+    events[from..]
+        .iter()
+        .any(|event| untrusted_event(event, registry))
+}
+
+/// Whether `event` carries text that may hold instructions from strangers: another bot's message,
+/// or output of a tool marked untrusted (or no longer listed, which cannot vouch for it).
+pub fn untrusted_event(event: &Event, registry: &Registry) -> bool {
+    match event {
         // Another bot's message can carry text it read anywhere: treated like untrusted output,
         // whether it started the turn or steered it.
         Event::Known(Known::UserMessage {
@@ -553,7 +561,7 @@ pub fn untrusted_turn(events: &[Event], registry: &Registry) -> bool {
             }
         }
         _ => false,
-    })
+    }
 }
 
 fn ends_reply(event: &Event) -> bool {

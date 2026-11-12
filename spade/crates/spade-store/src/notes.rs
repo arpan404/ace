@@ -18,7 +18,8 @@ pub(crate) const SCHEMA: &str = "
         created_ms INTEGER NOT NULL,
         updated_ms INTEGER NOT NULL,
         used_ms INTEGER,
-        uses INTEGER NOT NULL DEFAULT 0
+        uses INTEGER NOT NULL DEFAULT 0,
+        suggested INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX notes_by_scope ON notes (agent_id, updated_ms DESC);
     CREATE VIRTUAL TABLE notes_search USING fts5 (
@@ -58,6 +59,40 @@ pub struct StoredNote {
     pub updated_ms: i64,
     pub used_ms: Option<i64>,
     pub uses: u32,
+    /// Extracted from a span with untrusted content: waits for the person to keep it, and no
+    /// bot sees it meanwhile.
+    pub suggested: bool,
+}
+
+/// A note to store. `text` is already cleaned.
+#[derive(Debug, Clone, Copy)]
+pub struct NewNote<'a> {
+    pub id: &'a str,
+    /// The bot it belongs to; `None` for a shared note.
+    pub agent: Option<&'a str>,
+    pub text: &'a str,
+    pub source: memory::Source,
+    pub suggested: bool,
+    pub now_ms: i64,
+}
+
+/// What saving a note did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Saved {
+    New(StoredNote),
+    /// A note the scope can see already says this (a suggestion counts).
+    Exists(StoredNote),
+    /// The scope is full.
+    Full,
+}
+
+/// What rewriting a note did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Updated {
+    Changed(StoredNote),
+    /// It changed since the version the caller started from; this is the note now.
+    Moved(StoredNote),
+    Missing,
 }
 
 impl StoredNote {
@@ -90,7 +125,8 @@ impl Notes<'_> {
         match self {
             Self::Own(_) => "n.agent_id = ?1",
             Self::Shared => "n.agent_id IS NULL AND ?1 IS NULL",
-            Self::VisibleTo(_) => "(n.agent_id = ?1 OR n.agent_id IS NULL)",
+            // What a bot sees: never a suggestion the person has not kept.
+            Self::VisibleTo(_) => "(n.agent_id = ?1 OR n.agent_id IS NULL) AND n.suggested = 0",
         }
     }
 
@@ -110,7 +146,7 @@ pub struct HistoryMatch {
 }
 
 const COLUMNS: &str = "n.id, n.agent_id, n.text, n.source, n.created_ms, n.updated_ms, n.used_ms, \
-                       n.uses";
+                       n.uses, n.suggested";
 
 fn note(row: &Row<'_>) -> rusqlite::Result<StoredNote> {
     let source: String = row.get(3)?;
@@ -123,6 +159,7 @@ fn note(row: &Row<'_>) -> rusqlite::Result<StoredNote> {
         updated_ms: row.get(5)?,
         used_ms: row.get(6)?,
         uses: u32::try_from(row.get::<_, i64>(7)?).unwrap_or(0),
+        suggested: row.get::<_, i64>(8)? != 0,
     })
 }
 
@@ -173,38 +210,90 @@ impl Store {
         Ok(usize::try_from(count).unwrap_or(0))
     }
 
-    /// Stores a new note. `text` is already cleaned.
-    pub fn add_note(
+    /// Saves a note in one transaction: unless a note its scope can see already says the same
+    /// (`same` decides), and only while the scope holds fewer than `most`. Concurrent saves can
+    /// neither duplicate a note nor pass the bound.
+    pub fn save_note(
         &self,
-        id: &str,
-        agent: Option<&str>,
-        text: &str,
-        source: memory::Source,
-        now_ms: i64,
-    ) -> Result<StoredNote> {
-        let connection = self.lock()?;
-        connection.execute(
-            "INSERT INTO notes (id, agent_id, text, source, created_ms, updated_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
-            params![id, agent, text, source.name(), now_ms],
+        new: NewNote<'_>,
+        same: fn(&str, &str) -> bool,
+        most: usize,
+    ) -> Result<Saved> {
+        let mut connection = self.lock()?;
+        let tx = connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let existing = {
+            let mut statement = tx.prepare(&format!(
+                "SELECT {COLUMNS} FROM notes n
+                 WHERE n.agent_id IS ?1 OR (?1 IS NOT NULL AND n.agent_id IS NULL)"
+            ))?;
+            let rows = statement.query_map(params![new.agent], note)?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        if let Some(found) = existing.into_iter().find(|n| same(&n.text, new.text)) {
+            return Ok(Saved::Exists(found));
+        }
+        let count: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM notes WHERE agent_id IS ?1",
+            params![new.agent],
+            |row| row.get(0),
         )?;
-        Ok(connection.query_row(
+        if usize::try_from(count).unwrap_or(usize::MAX) >= most {
+            return Ok(Saved::Full);
+        }
+        tx.execute(
+            "INSERT INTO notes (id, agent_id, text, source, created_ms, updated_ms, suggested)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6)",
+            params![
+                new.id,
+                new.agent,
+                new.text,
+                new.source.name(),
+                new.now_ms,
+                i64::from(new.suggested)
+            ],
+        )?;
+        let saved = tx.query_row(
             &format!("SELECT {COLUMNS} FROM notes n WHERE n.id = ?1"),
-            params![id],
+            params![new.id],
             note,
-        )?)
+        )?;
+        tx.commit()?;
+        Ok(Saved::New(saved))
     }
 
-    /// Rewrites a note's text; `None` if there is no such note.
-    pub fn update_note(&self, id: &str, text: &str, now_ms: i64) -> Result<Option<StoredNote>> {
+    /// Rewrites a note's text. With `expected`, only if the note was last changed then: a note
+    /// that moved since is left as it is and returned.
+    pub fn update_note(
+        &self,
+        id: &str,
+        text: &str,
+        expected: Option<i64>,
+        now_ms: i64,
+    ) -> Result<Updated> {
         let connection = self.lock()?;
         let changed = connection.execute(
-            "UPDATE notes SET text = ?2, updated_ms = ?3 WHERE id = ?1",
-            params![id, text, now_ms],
+            "UPDATE notes SET text = ?2, updated_ms = MAX(?3, updated_ms + 1)
+             WHERE id = ?1 AND (?4 IS NULL OR updated_ms = ?4)",
+            params![id, text, now_ms, expected],
         )?;
-        if changed == 0 {
-            return Ok(None);
-        }
+        let current = connection
+            .query_row(
+                &format!("SELECT {COLUMNS} FROM notes n WHERE n.id = ?1"),
+                params![id],
+                note,
+            )
+            .optional()?;
+        Ok(match (changed, current) {
+            (_, None) => Updated::Missing,
+            (0, Some(note)) => Updated::Moved(note),
+            (_, Some(note)) => Updated::Changed(note),
+        })
+    }
+
+    /// Keeps a suggested note: from now on its bot sees it. `None` if there is no such note.
+    pub fn accept_note(&self, id: &str) -> Result<Option<StoredNote>> {
+        let connection = self.lock()?;
+        connection.execute("UPDATE notes SET suggested = 0 WHERE id = ?1", params![id])?;
         Ok(connection
             .query_row(
                 &format!("SELECT {COLUMNS} FROM notes n WHERE n.id = ?1"),
@@ -212,6 +301,33 @@ impl Store {
                 note,
             )
             .optional()?)
+    }
+
+    /// At most `limit` of the conversation's events from position `from` on, in order; only
+    /// those are read.
+    pub fn events_window(
+        &self,
+        conversation: &str,
+        from: i64,
+        limit: usize,
+    ) -> Result<Vec<crate::StoredEvent>> {
+        let connection = self.lock()?;
+        let mut statement = connection.prepare(
+            "SELECT seq, at_ms, body FROM events
+             WHERE conversation_id = ?1 AND seq >= ?2 ORDER BY seq LIMIT ?3",
+        )?;
+        let limit = i64::try_from(limit).unwrap_or(i64::MAX);
+        let rows = statement.query_map(params![conversation, from, limit], |row| {
+            let body: String = row.get(2)?;
+            Ok(crate::StoredEvent {
+                seq: row.get(0)?,
+                at_ms: row.get(1)?,
+                event: Event::from_json(
+                    serde_json::from_str(&body).unwrap_or(serde_json::Value::String(body)),
+                ),
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
     /// Deletes a note; whether there was one.
@@ -240,7 +356,7 @@ impl Store {
         ))?;
         let limit = i64::try_from(limit).unwrap_or(i64::MAX);
         let rows = statement.query_map(params![which.agent(), query, limit], |row| {
-            Ok((note(row)?, row.get::<_, f64>(8)?))
+            Ok((note(row)?, row.get::<_, f64>(9)?))
         })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }

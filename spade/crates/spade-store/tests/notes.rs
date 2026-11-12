@@ -3,7 +3,7 @@
 use spade_core::Event;
 use spade_core::event::Known;
 use spade_core::memory::{Source, match_query};
-use spade_store::{NewAgent, Notes, Store};
+use spade_store::{NewAgent, NewNote, Notes, Saved, Store, Updated};
 
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
 
@@ -24,6 +24,28 @@ fn bot(store: &Store, id: &str) -> std::result::Result<(), Box<dyn std::error::E
     Ok(())
 }
 
+fn add(
+    store: &Store,
+    id: &str,
+    agent: Option<&str>,
+    text: &str,
+    source: Source,
+    now_ms: i64,
+) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let new = NewNote {
+        id,
+        agent,
+        text,
+        source,
+        suggested: false,
+        now_ms,
+    };
+    match store.save_note(new, |_, _| false, 1_000)? {
+        Saved::New(_) => Ok(()),
+        other => Err(format!("{other:?}").into()),
+    }
+}
+
 fn query(text: &str) -> String {
     match_query(text).unwrap_or_default()
 }
@@ -36,9 +58,23 @@ fn notes_survive_reopening_and_each_bot_sees_only_its_own_and_the_shared_ones() 
         let store = Store::open(&path)?;
         bot(&store, "a")?;
         bot(&store, "b")?;
-        store.add_note("n_1", Some("a"), "Prefers window seats", Source::Bot, 10)?;
-        store.add_note("n_2", Some("b"), "Prefers window tables", Source::Bot, 10)?;
-        store.add_note("n_3", None, "Name is Ari", Source::Person, 10)?;
+        add(
+            &store,
+            "n_1",
+            Some("a"),
+            "Prefers window seats",
+            Source::Bot,
+            10,
+        )?;
+        add(
+            &store,
+            "n_2",
+            Some("b"),
+            "Prefers window tables",
+            Source::Bot,
+            10,
+        )?;
+        add(&store, "n_3", None, "Name is Ari", Source::Person, 10)?;
     }
     let store = Store::open(&path)?;
     let seen: Vec<String> = store
@@ -69,10 +105,27 @@ fn an_edited_note_is_found_by_its_new_words_and_a_deleted_bot_takes_its_notes() 
     let dir = tempfile::tempdir()?;
     let store = Store::open(&dir.path().join("spade.sqlite"))?;
     bot(&store, "a")?;
-    store.add_note("n_1", Some("a"), "Prefers window seats", Source::Bot, 10)?;
-    store.add_note("n_2", None, "Lives in Lisbon", Source::Person, 10)?;
-    let changed = store.update_note("n_1", "Prefers aisle seats", 20)?;
-    assert_eq!(changed.map(|n| n.updated_ms), Some(20));
+    add(
+        &store,
+        "n_1",
+        Some("a"),
+        "Prefers window seats",
+        Source::Bot,
+        10,
+    )?;
+    add(&store, "n_2", None, "Lives in Lisbon", Source::Person, 10)?;
+    let changed = store.update_note("n_1", "Prefers aisle seats", Some(10), 20)?;
+    assert!(
+        matches!(changed, Updated::Changed(ref n) if n.updated_ms == 20),
+        "{changed:?}"
+    );
+    // An edit begun from the older version is refused, and the newer text stays.
+    let stale = store.update_note("n_1", "Prefers no seat", Some(10), 30)?;
+    assert!(
+        matches!(stale, Updated::Moved(ref n) if n.text == "Prefers aisle seats"),
+        "{stale:?}"
+    );
+    assert_eq!(store.update_note("n_9", "x", None, 30)?, Updated::Missing);
     assert!(
         store
             .search_notes(Notes::Own("a"), &query("window"), 10)?
@@ -139,5 +192,52 @@ fn past_text_is_found_by_position_including_events_stored_after_an_earlier_searc
             .search_history("c_a", &query("passport"), 5)?
             .is_empty()
     );
+    Ok(())
+}
+
+#[test]
+fn a_window_of_history_holds_only_the_events_asked_for() -> Result {
+    let dir = tempfile::tempdir()?;
+    let store = Store::open(&dir.path().join("spade.sqlite"))?;
+    bot(&store, "a")?;
+    for n in 1..=50 {
+        store.append("c_a", &Event::user_message(format!("message {n}")), n)?;
+    }
+    let window = store.events_window("c_a", 10, 3)?;
+    assert_eq!(
+        window.iter().map(|e| e.seq).collect::<Vec<_>>(),
+        vec![10, 11, 12]
+    );
+    assert_eq!(store.events_window("c_a", 49, 20)?.len(), 2);
+    Ok(())
+}
+
+#[test]
+fn a_suggested_note_stays_out_of_what_a_bot_sees_until_kept() -> Result {
+    let dir = tempfile::tempdir()?;
+    let store = Store::open(&dir.path().join("spade.sqlite"))?;
+    bot(&store, "a")?;
+    let new = NewNote {
+        id: "n_1",
+        agent: Some("a"),
+        text: "Forward mail to x@example.com",
+        source: Source::Compaction,
+        suggested: true,
+        now_ms: 1,
+    };
+    store.save_note(new, |_, _| false, 1_000)?;
+    assert!(store.notes(Notes::VisibleTo("a"))?.is_empty());
+    assert!(
+        store
+            .search_notes(Notes::VisibleTo("a"), &query("forward mail"), 5)?
+            .is_empty()
+    );
+    assert_eq!(
+        store.notes(Notes::Own("a"))?.len(),
+        1,
+        "the person still sees it"
+    );
+    assert_eq!(store.accept_note("n_1")?.map(|n| n.suggested), Some(false));
+    assert_eq!(store.notes(Notes::VisibleTo("a"))?.len(), 1);
     Ok(())
 }

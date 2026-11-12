@@ -261,10 +261,11 @@ impl Transcript {
                 open.text.clone(),
             ));
         }
-        // An answered question whose result is not stored yet is still owed to the turn.
+        // A question (answered or not) whose result is not stored yet is still owed to the turn,
+        // even beside tools cut off mid-run: those resume as unknown outcomes, the question stays.
         if self.paused
             || self.turn_state() == Some(TurnState::WaitingOnYou)
-            || (self.running.is_empty() && !self.questions.is_empty())
+            || !self.questions.is_empty()
         {
             return None;
         }
@@ -645,5 +646,49 @@ mod tests {
         let transcript = Transcript::fold(&events);
         assert_eq!(transcript.title.as_deref(), Some("A greeting"));
         assert_eq!(transcript.messages.len(), 1);
+    }
+
+    #[test]
+    fn a_question_asked_beside_a_tool_cut_off_by_a_crash_still_waits_after_the_restart() {
+        let step = Event::Known(Known::StepFinished {
+            reply: "r1".into(),
+            text: String::new(),
+            calls: vec![
+                crate::event::Call {
+                    id: "q1".into(),
+                    name: "ask_user".into(),
+                    arguments: serde_json::json!({ "question": "Window or aisle?" }),
+                },
+                call("c2"),
+            ],
+            thoughts: Vec::new(),
+            usage: Default::default(),
+            cost_micros: 0,
+            seen: None,
+        });
+        let events = [
+            Event::user_message("Book a seat"),
+            Event::reply_started("r1", "m"),
+            step,
+            Event::Known(Known::QuestionAsked {
+                reply: "r1".into(),
+                call_id: "q1".into(),
+                question: "Window or aisle?".into(),
+            }),
+            Event::Known(Known::ToolStarted {
+                reply: "r1".into(),
+                call_id: "c2".into(),
+                name: "send_email".into(),
+                risk: None,
+                background: false,
+            }),
+        ];
+        let transcript = Transcript::fold(&events);
+        assert_eq!(
+            transcript.close_after_restart(),
+            None,
+            "the reply stays open"
+        );
+        assert!(transcript.asking());
     }
 }

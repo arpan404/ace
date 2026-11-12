@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use spade_core::Transcript;
 use spade_core::event::{Event, Known};
 use spade_core::memory::{self, MOST_NOTES, RECALLED, Source};
-use spade_store::{Notes, StoreError, StoredNote};
+use spade_store::{NewNote, Notes, Saved, StoreError, StoredNote, Updated};
 
 use super::Engine;
 use crate::tools::ToolOutput;
@@ -37,15 +37,11 @@ pub enum NoteError {
     Invalid,
     #[error("this set of notes is full ({MOST_NOTES}); delete some first")]
     Full,
+    /// It changed since the version the edit started from; this is the note now.
+    #[error("the note changed since it was opened")]
+    Moved(Box<StoredNote>),
     #[error(transparent)]
     Store(#[from] StoreError),
-}
-
-/// What saving a note did.
-enum Saved {
-    New(StoredNote),
-    /// A note in the same scope already says this.
-    Exists(StoredNote),
 }
 
 /// The memory tools, which [`Engine::memory_call`] runs for the calling bot.
@@ -165,6 +161,8 @@ pub(super) fn index_if_due(engine: &Arc<Engine>, id: &str, events: &[Event]) -> 
         Ok(None) => Ok(Vec::new()),
         Err(error) => Err(error),
     };
+    // Stored even when empty, so the top is fixed before the first model call: notes added while
+    // that call is cut off (a pause) cannot change a prompt the cache already holds.
     let text = match notes {
         Ok(notes) => memory::index(&notes.iter().map(StoredNote::as_note).collect::<Vec<_>>()),
         Err(error) => {
@@ -173,10 +171,6 @@ pub(super) fn index_if_due(engine: &Arc<Engine>, id: &str, events: &[Event]) -> 
             String::new()
         }
     };
-    // Nothing to show and nothing older to replace: the prompt stays as it is.
-    if text.is_empty() && memory::latest_index(events).is_none_or(str::is_empty) {
-        return false;
-    }
     match engine.record(id, &Event::Known(Known::MemoryIndexed { text })) {
         Ok(_) => true,
         Err(error) => {
@@ -187,8 +181,9 @@ pub(super) fn index_if_due(engine: &Arc<Engine>, id: &str, events: &[Event]) -> 
 }
 
 /// Saves the notes a compaction extracted into the bot's own scope, each unless a note it can
-/// see already says it.
-pub(super) fn keep_extracted(engine: &Engine, id: &str, notes: &[String]) {
+/// see already says it. From a span with untrusted content they are only suggested: the person
+/// keeps or dismisses each, and no bot sees one meanwhile.
+pub(super) fn keep_extracted(engine: &Engine, id: &str, notes: &[String], untrusted: bool) {
     if notes.is_empty() {
         return;
     }
@@ -197,7 +192,12 @@ pub(super) fn keep_extracted(engine: &Engine, id: &str, notes: &[String]) {
         _ => return,
     };
     for text in notes {
-        match engine.save(Some(&agent.id), text, Source::Compaction) {
+        let saved = if untrusted {
+            engine.suggest(&agent.id, text)
+        } else {
+            engine.save(Some(&agent.id), text, Source::Compaction)
+        };
+        match saved {
             Ok(_) | Err(NoteError::Invalid) => {}
             Err(error) => {
                 tracing::warn!(%error, "could not keep a note from compaction");
@@ -218,6 +218,7 @@ pub fn note_json(note: &StoredNote) -> Value {
         "created_at": note.created_ms,
         "updated_at": note.updated_ms,
         "last_used_at": note.used_ms,
+        "suggested": note.suggested,
     })
 }
 
@@ -227,14 +228,6 @@ fn tool_note(note: &StoredNote) -> Value {
 }
 
 impl Engine {
-    /// Refuses a new note in a scope that already holds [`MOST_NOTES`].
-    fn room_for(&self, agent: Option<&str>) -> Result<(), NoteError> {
-        if self.store.count_notes(agent)? >= MOST_NOTES {
-            return Err(NoteError::Full);
-        }
-        Ok(())
-    }
-
     fn scope_agent(&self, scope: &NoteScope) -> Result<Option<String>, NoteError> {
         match scope {
             NoteScope::Shared => Ok(None),
@@ -278,26 +271,36 @@ impl Engine {
         Ok(found.into_iter().map(|(n, _)| n).collect())
     }
 
-    /// The person adds a note to one scope.
-    pub fn add_note(&self, scope: &NoteScope, text: &str) -> Result<StoredNote, NoteError> {
+    /// The person adds a note to one scope: the new note and `true`, or the note that already
+    /// says the same and `false`.
+    pub fn add_note(&self, scope: &NoteScope, text: &str) -> Result<(StoredNote, bool), NoteError> {
         let agent = self.scope_agent(scope)?;
-        let text = memory::clean(text).ok_or(NoteError::Invalid)?;
-        self.room_for(agent.as_deref())?;
-        Ok(self.store.add_note(
-            &self.ids.next("n"),
-            agent.as_deref(),
-            &text,
-            Source::Person,
-            self.now_ms(),
-        )?)
+        match self.save(agent.as_deref(), text, Source::Person)? {
+            Saved::New(note) => Ok((note, true)),
+            Saved::Exists(note) => Ok((note, false)),
+            Saved::Full => Err(NoteError::Full),
+        }
     }
 
-    /// The person rewrites a note.
-    pub fn change_note(&self, id: &str, text: &str) -> Result<StoredNote, NoteError> {
+    /// The person rewrites a note. With `expected` (the `updated_at` the edit started from), a
+    /// note changed since is left as it is: [`NoteError::Moved`].
+    pub fn change_note(
+        &self,
+        id: &str,
+        text: &str,
+        expected: Option<i64>,
+    ) -> Result<StoredNote, NoteError> {
         let text = memory::clean(text).ok_or(NoteError::Invalid)?;
-        self.store
-            .update_note(id, &text, self.now_ms())?
-            .ok_or(NoteError::NotFound)
+        match self.store.update_note(id, &text, expected, self.now_ms())? {
+            Updated::Changed(note) => Ok(note),
+            Updated::Moved(note) => Err(NoteError::Moved(Box::new(note))),
+            Updated::Missing => Err(NoteError::NotFound),
+        }
+    }
+
+    /// The person keeps a suggested note.
+    pub fn accept_note(&self, id: &str) -> Result<StoredNote, NoteError> {
+        self.store.accept_note(id)?.ok_or(NoteError::NotFound)
     }
 
     /// The person deletes a note.
@@ -309,22 +312,35 @@ impl Engine {
         }
     }
 
-    /// Saves a note into `agent`'s scope (shared with `None`), unless a note visible there
-    /// already says the same.
+    /// Saves a note into `agent`'s scope (shared with `None`), unless a note there already says
+    /// the same; checked and stored as one, so concurrent saves never duplicate or overfill.
     fn save(&self, agent: Option<&str>, text: &str, source: Source) -> Result<Saved, NoteError> {
+        self.store_note(agent, text, source, false)
+    }
+
+    /// Stores a fact from untrusted text as a suggestion in `agent`'s own scope.
+    fn suggest(&self, agent: &str, text: &str) -> Result<Saved, NoteError> {
+        self.store_note(Some(agent), text, Source::Compaction, true)
+    }
+
+    fn store_note(
+        &self,
+        agent: Option<&str>,
+        text: &str,
+        source: Source,
+        suggested: bool,
+    ) -> Result<Saved, NoteError> {
         let text = memory::clean(text).ok_or(NoteError::Invalid)?;
-        let visible = match agent {
-            Some(agent) => self.store.notes(Notes::VisibleTo(agent))?,
-            None => self.store.notes(Notes::Shared)?,
+        let id = self.ids.next("n");
+        let new = NewNote {
+            id: &id,
+            agent,
+            text: &text,
+            source,
+            suggested,
+            now_ms: self.now_ms(),
         };
-        if let Some(existing) = visible.into_iter().find(|n| memory::same(&n.text, &text)) {
-            return Ok(Saved::Exists(existing));
-        }
-        self.room_for(agent)?;
-        let note = self
-            .store
-            .add_note(&self.ids.next("n"), agent, &text, source, self.now_ms())?;
-        Ok(Saved::New(note))
+        Ok(self.store.save_note(new, memory::same, MOST_NOTES)?)
     }
 
     /// Runs a memory tool for the bot whose conversation is `caller`.
@@ -367,23 +383,30 @@ impl Engine {
         let scope = (!shared).then_some(agent);
         Ok(match self.save(scope, text, Source::Bot)? {
             Saved::New(note) => ToolOutput::ok(json!({ "saved": tool_note(&note) }).to_string()),
+            // A suggestion the person has not kept stays out of the bot's sight.
+            Saved::Exists(note) if note.suggested => {
+                ToolOutput::ok("A note like this waits for the person to keep it.")
+            }
             Saved::Exists(note) => {
                 ToolOutput::ok(json!({ "exists": tool_note(&note) }).to_string())
             }
+            Saved::Full => return Err(NoteError::Full),
         })
     }
 
     /// A note `agent` may change: its own or a shared one.
     fn visible_note(&self, agent: &str, id: &str) -> Result<StoredNote, NoteError> {
         match self.store.note(id.trim())? {
-            Some(note) if note.agent.as_deref().is_none_or(|a| a == agent) => Ok(note),
+            Some(note) if !note.suggested && note.agent.as_deref().is_none_or(|a| a == agent) => {
+                Ok(note)
+            }
             _ => Err(NoteError::NotFound),
         }
     }
 
     fn tool_update(&self, agent: &str, id: &str, text: &str) -> Result<ToolOutput, NoteError> {
         let note = self.visible_note(agent, id)?;
-        let changed = self.change_note(&note.id, text)?;
+        let changed = self.change_note(&note.id, text, None)?;
         Ok(ToolOutput::ok(
             json!({ "updated": tool_note(&changed) }).to_string(),
         ))
@@ -436,9 +459,9 @@ impl Engine {
             .and_then(Value::as_u64)
             .map_or(10, |c| usize::try_from(c).unwrap_or(MOST_READ))
             .clamp(1, MOST_READ);
-        let events = self.store.events(caller, from - 1)?;
+        let events = self.store.events_window(caller, from, count)?;
         let mut out = String::new();
-        for stored in events.iter().take(count) {
+        for stored in &events {
             if let Some(text) = memory::searchable(&stored.event) {
                 out.push_str(&format!("[position {}] {text}\n\n", stored.seq));
             }

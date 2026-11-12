@@ -10,7 +10,7 @@ mod schema;
 
 pub use agents::{AVATAR_COLORS, Agent, NewAgent, generated_color};
 pub use endpoints::{StoredEndpoint, StoredModel};
-pub use notes::{HistoryMatch, Notes, StoredNote};
+pub use notes::{HistoryMatch, NewNote, Notes, Saved, StoredNote, Updated};
 
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};

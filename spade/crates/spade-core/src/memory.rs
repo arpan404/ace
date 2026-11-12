@@ -220,6 +220,24 @@ pub fn latest_index(events: &[Event]) -> Option<&str> {
     })
 }
 
+/// Whether what a compaction now would summarise holds untrusted content: the events since the
+/// last compaction, or that compaction's own summary. Facts drawn from it are only suggestions.
+pub fn untrusted_span(events: &[Event], registry: &crate::tools::Registry) -> bool {
+    let last = events.iter().rev().find_map(|event| match event {
+        Event::Known(Known::ContextCompacted {
+            keep_from,
+            untrusted,
+            ..
+        }) => Some((*keep_from, *untrusted)),
+        _ => None,
+    });
+    let (from, folded) = last.unwrap_or((0, false));
+    folded
+        || events[from.min(events.len())..]
+            .iter()
+            .any(|event| crate::context::untrusted_event(event, registry))
+}
+
 /// Whether the index may be (re)written now: the conversation has had no model call and no index
 /// since it began or last compacted, so the cached top is still free to take one. Afterwards it
 /// stays as it is until the next compaction.
@@ -368,6 +386,7 @@ mod tests {
                 keep_from: 2,
                 tokens_before: 0,
                 images_left_out: None,
+                untrusted: false,
             }),
             with("- [n_2] kept"),
             Event::Known(Known::MemoryIndexed {
