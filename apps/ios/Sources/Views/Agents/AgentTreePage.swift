@@ -105,7 +105,9 @@ struct AgentTreePage: View {
     }
 
     private func node(_ row: AgentSheet.Row, level: Int) -> some View {
-        let request = (row.requests ?? []).lazy.compactMap { thread.interactions[$0] }.first { $0.state == "pending" }
+        // A lost child answers its parent's request about it, wherever that request opened.
+        let asks = (row.lost.map { [$0.interactionId] } ?? []) + (row.requests ?? [])
+        let request = asks.lazy.compactMap { thread.interactions[$0] }.first { $0.state == "pending" }
         return Button { open(row) } label: {
             AgentTreeNode(row: row, level: level, provider: provider, request: request,
                           canAnswer: model.canOperate && request.map { model.approvalSubmissions[$0.id] == nil } == true,
