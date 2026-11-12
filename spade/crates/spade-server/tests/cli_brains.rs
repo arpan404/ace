@@ -517,3 +517,32 @@ async fn a_turn_paused_after_a_call_resumes_on_the_cli_and_is_never_recorded_as_
     assert!(resumed.contains("cut off"), "{resumed}");
     Ok(())
 }
+
+#[tokio::test]
+async fn a_call_without_its_place_in_the_turn_is_not_run() -> Result {
+    let note = FakeTool::new("note_down", Risk::Memory, "noted");
+    let notes = note.calls();
+    let (spade, daemon, _) = start(vec![Arc::new(note)], vec![vec![Act::Hang]]).await?;
+    let (bot, chat) = cli_bot(&spade, "").await?;
+    spade.say(&chat, "Wait here").await?;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while requests(&daemon).is_empty() && tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    // A call ace didn't stamp with how many lines of the turn came before it.
+    let (status, answer) = spade
+        .post(
+            &format!("/v1/agents/{bot}/mcp"),
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                    "params": { "name": "note_down", "arguments": { "text": "sneaky" } } }),
+        )
+        .await?;
+    assert_eq!(status, 200);
+    assert_eq!(answer["result"]["isError"], true);
+    let text = answer["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or_default();
+    assert!(text.starts_with("Not run"), "{text}");
+    assert_eq!(notes.lock().map(|n| n.len()).unwrap_or(0), 0);
+    Ok(())
+}

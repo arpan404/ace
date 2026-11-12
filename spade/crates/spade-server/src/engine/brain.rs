@@ -108,12 +108,19 @@ impl Engine {
                 "Not run: this bot has no turn running on its subscription.",
             ));
         };
+        // Without its place in the turn's answer the call can't be ordered after what the CLI
+        // read before it (it could dodge a taint): it never runs.
+        let Some(after) = after else {
+            return Some(ToolOutput::error(
+                "Not run: the call came without its place in the turn; ace stamps every call.",
+            ));
+        };
         let (answer, answered) = oneshot::channel();
         if sender
             .send(BrainCall {
                 name,
                 arguments,
-                after: after.unwrap_or(0),
+                after,
                 answer,
             })
             .await
