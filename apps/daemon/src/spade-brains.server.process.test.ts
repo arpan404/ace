@@ -427,9 +427,10 @@ test("a bot's session runs read-only even when the person chose another native m
     expect(f.h.contexts.get(thread)?.permissionMode).toBe("plan");
     expect(f.daemon.store.getThread(thread)?.permission?.effective).toBe("read-only");
     // The adapter is told it runs a bot: the gated bridge and ace's reads run without a prompt.
-    expect(f.h.contexts.get(thread)?.spadeBot?.allowAceTools).toEqual(
-      expect.arrayContaining(["spade_tools", "spade_call", "context"]),
-    );
+    const allowed = f.h.contexts.get(thread)?.spadeBot?.allowAceTools;
+    expect(allowed).toEqual(expect.arrayContaining(["spade_tools", "spade_call", "models"]));
+    // Only the allow-list: nothing that reads outside text, such as `context`.
+    expect(allowed).not.toContain("context");
     expect(f.h.contexts.get(f.caller.threadId)?.spadeBot).toBeUndefined();
     provide(f, thread, reply("Hi."), ended);
     await turn.done;
