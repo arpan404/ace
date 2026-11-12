@@ -43,6 +43,9 @@ const Input = z.object({
   prompt: z.string().max(maxMessageBytes),
   worktree: z.boolean(),
 });
+/** Where a run still going sorts in `automation_finished`: after every real finish time. */
+const notFinished = Number.MAX_SAFE_INTEGER;
+
 export class AutomationStore {
   private catalogCache: z.infer<typeof CatalogMetadata>[] | undefined;
   private db: DatabaseSync;
@@ -69,6 +72,16 @@ export class AutomationStore {
       this.db.exec(`INSERT OR IGNORE INTO automation_state SELECT id,state FROM automation_jobs;
         UPDATE automation_jobs SET state='{}' WHERE state<>'{}';
         INSERT OR IGNORE INTO automation_revisions SELECT id,1 FROM automation_jobs;`);
+      // Each run's finish time in its own column, backfilled once from runs saved before it, so
+      // the inbox leaves out settled runs by an index instead of reading every run's record.
+      const columns = this.db.prepare("PRAGMA table_info(automation_runs)").all();
+      if (!columns.some((column) => column.name === "finished_at"))
+        this.db.exec(`ALTER TABLE automation_runs ADD COLUMN finished_at INTEGER;
+          UPDATE automation_runs SET finished_at=json_extract(body,'$.finishedAt');`);
+      // Runs still going sort after every finish, so "finished after T, or still going" is one range.
+      this.db.exec(
+        `CREATE INDEX IF NOT EXISTS automation_finished ON automation_runs(coalesce(finished_at, ${notFinished}))`,
+      );
     });
   }
   close(): void {
@@ -378,7 +391,7 @@ export class AutomationStore {
     });
     if (trigger === "file" && status === "skipped") return { run, admitted: false, created: false };
     this.sql(
-      "INSERT INTO automation_runs(id,automation_id,event_key,status,body,input) VALUES(?,?,?,?,?,?)",
+      "INSERT INTO automation_runs(id,automation_id,event_key,status,body,input,finished_at) VALUES(?,?,?,?,?,?,?)",
     ).run(
       id,
       automation.id,
@@ -386,6 +399,7 @@ export class AutomationStore {
       status,
       JSON.stringify(run),
       input ? JSON.stringify(input) : null,
+      run.finishedAt ?? null,
     );
     this.prune(automation.id);
     return { run, admitted, created: true };
@@ -479,8 +493,8 @@ export class AutomationStore {
         result: reason,
       });
       this.sql(
-        "UPDATE automation_runs SET status='skipped',body=? WHERE id=? AND status='queued'",
-      ).run(JSON.stringify(run), String(row.id));
+        "UPDATE automation_runs SET status='skipped',body=?,finished_at=? WHERE id=? AND status='queued'",
+      ).run(JSON.stringify(run), now, String(row.id));
       return run;
     });
   }
@@ -499,11 +513,9 @@ export class AutomationStore {
         ...outcome,
         finishedAt: now,
       });
-      this.sql("UPDATE automation_runs SET status=?,body=? WHERE id=? AND status='running'").run(
-        run.status,
-        JSON.stringify(run),
-        id,
-      );
+      this.sql(
+        "UPDATE automation_runs SET status=?,body=?,finished_at=? WHERE id=? AND status='running'",
+      ).run(run.status, JSON.stringify(run), now, id);
       // A finished run's cancellation, if it had one, is done with.
       this.sql("DELETE FROM automation_cancellations WHERE run_id=?").run(id);
       this.prune(run.automationId);
@@ -534,14 +546,18 @@ export class AutomationStore {
       values.push(automationId);
     }
     if (finishedAfter !== undefined) {
-      // Runs still going have no finish time yet, and stay in.
-      where.push(
-        "(json_extract(body,'$.finishedAt') IS NULL OR json_extract(body,'$.finishedAt') > ?)",
-      );
+      // Runs still going have no finish time yet, and stay in: one range of `automation_finished`.
+      where.push(`coalesce(finished_at, ${notFinished}) > ?`);
       values.push(finishedAfter);
     }
+    // With a finish time, read only the runs past it and those going, however long the history:
+    // left to itself the planner walks seq backwards over every settled run.
+    const from =
+      finishedAfter === undefined
+        ? "automation_runs"
+        : "automation_runs INDEXED BY automation_finished";
     const rows = this.sql(
-      `SELECT seq,body FROM automation_runs WHERE ${where.join(" AND ")} ORDER BY seq DESC LIMIT ?`,
+      `SELECT seq,body FROM ${from} WHERE ${where.join(" AND ")} ORDER BY seq DESC LIMIT ?`,
     ).all(...values, limit + 1);
     const page = rows.slice(0, limit);
     return AutomationInbox.parse({

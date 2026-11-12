@@ -1,6 +1,7 @@
 import { expect, test, vi } from "vitest";
+import { DatabaseSync } from "node:sqlite";
 import { definition, deferred, harness, start } from "./service-test-support.ts";
-import type { GhResponse } from "./index.ts";
+import { AutomationStore, type GhResponse } from "./index.ts";
 
 const github = () =>
   definition({
@@ -163,4 +164,25 @@ test("the inbox can leave out runs that finished by a time, keeping runs still g
   h.now = start + 5_000;
   await h.finish(0);
   expect(read(start + 2_000)?.runs.map((run) => run.eventKey)).toEqual(["long-0"]);
+});
+
+test("runs saved before finish times had their own column are still left out by finish time", async () => {
+  const h = harness();
+  h.service.put(definition({ prompt: "Review" }));
+  for (let index = 0; index < 3; index++) {
+    h.now = start + index * 1_000;
+    h.service.trigger("triage", { key: `old-${index}`, variables: {} });
+    await h.finish(index);
+  }
+  h.service.stop();
+  // The store as an older build left it: no finish-time column or its index.
+  const db = new DatabaseSync(h.storePath);
+  db.exec("DROP INDEX IF EXISTS automation_finished");
+  db.exec("ALTER TABLE automation_runs DROP COLUMN finished_at");
+  db.close();
+  const reopened = new AutomationStore(h.storePath);
+  expect(
+    reopened.inbox(50, undefined, undefined, start + 500).runs.map((run) => run.eventKey),
+  ).toEqual(["old-2", "old-1"]);
+  reopened.close();
 });
