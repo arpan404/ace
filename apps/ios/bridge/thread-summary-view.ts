@@ -52,7 +52,7 @@ export interface SummaryPlan {
 
 export interface SummaryFacts {
   threadId: string;
-  thread: Pick<Thread, "status" | "details">;
+  thread: Pick<Thread, "status" | "details" | "workspaceId">;
   forest: AgentForest;
   works: ReadonlyMap<string, ThreadWork>;
   turn: TurnSummary | undefined;
@@ -71,6 +71,8 @@ export interface SummaryFacts {
 type Tone = "plain" | "needs-you" | "failed";
 
 export interface SummaryView {
+  /** The thread's project, where its pull requests open. */
+  workspaceId: string;
   now: {
     say: string;
     lead: string;
@@ -89,9 +91,8 @@ export interface SummaryView {
     title: string;
     line: string;
     url: string;
-    owner: string;
-    name: string;
     number: number;
+    repository: { forge: string; host: string; owner: string; name: string };
   }[];
   prFold: string | null;
   files: { title: string; detail: string; conflicts: string[] } | null;
@@ -196,6 +197,7 @@ export function summaryView(facts: SummaryFacts, preview: Preview): SummaryView 
   // A main agent alone says nothing Now hasn't: the tree shows once there is a tree.
   const tree = roots.some((root) => root.children.length > 0) || roots.length > 1;
   return {
+    workspaceId: facts.thread.workspaceId,
     now: nowView(facts, prs, preview),
     catchUp: facts.catchUp
       ? catchUpLines(facts.catchUp).map((line) => ({
@@ -209,9 +211,13 @@ export function summaryView(facts: SummaryFacts, preview: Preview): SummaryView 
       title: preview(pr.title ?? `#${pr.number}`, 256),
       line: summaryPrLine(pr, linkedChecks(pr)),
       url: pr.url,
-      owner: pr.repo.owner,
-      name: pr.repo.name,
       number: pr.number,
+      repository: {
+        forge: pr.repo.forge,
+        host: pr.repo.host,
+        owner: pr.repo.owner,
+        name: pr.repo.name,
+      },
     })),
     prFold: fold ?? null,
     files: filesView(facts, preview),

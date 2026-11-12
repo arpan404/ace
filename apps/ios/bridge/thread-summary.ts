@@ -290,7 +290,12 @@ export class ThreadSummary {
         this.#preview,
       );
       this.#schedule(summary.now.span !== null && summary.now.lead === "Working", now);
-      return { type: "thread.summary", threadId: this.#threadId, epoch: this.#epoch, summary };
+      return {
+        type: "thread.summary",
+        threadId: this.#threadId,
+        epoch: this.#epoch,
+        sheet: summary,
+      };
     });
   }
 

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { facts, type FakeDaemon } from "@ace/fake-daemon";
 import type { Fact } from "@ace/core";
-import { ThreadId } from "@ace/protocol";
+import { ThreadId, type Thread } from "@ace/protocol";
 import { Sheets } from "./sheets.ts";
 import { ThreadSummary } from "./thread-summary.ts";
 import type { SummaryView } from "./thread-summary-view.ts";
@@ -24,10 +24,21 @@ const timers = {
   },
 };
 
-async function opened(threadId: string, seed: Fact[], before?: (daemon: FakeDaemon) => void) {
+async function opened(
+  threadId: string,
+  seed: Fact[],
+  before?: (daemon: FakeDaemon) => void,
+  details?: Thread["details"],
+) {
   const { daemon, client } = sheetFixture();
   closers.push(() => client.close());
-  daemon.createThread({ id: threadId, workspaceId: "ace", title: "Summary", provider: "codex" });
+  daemon.createThread({
+    id: threadId,
+    workspaceId: "ace",
+    title: "Summary",
+    provider: "codex",
+    ...(details ? { details } : {}),
+  });
   daemon.apply(threadId, seed);
   before?.(daemon);
   await client.start();
@@ -51,7 +62,7 @@ function view(sink: RecordingSink): SummaryView | undefined {
   const patch = sink.read("thread:summary");
   if (!patch) return undefined;
   expect(patch.type).toBe("thread.summary");
-  return patch.summary as SummaryView;
+  return patch.sheet as SummaryView;
 }
 
 const shell = (agent: string, item: string, command: string, exitCode: number): Fact[] => [
@@ -150,6 +161,35 @@ describe("the phone's Summary", () => {
     // The failed push isn't a check: it is counted once, apart from the failed tests.
     expect(view(sink)?.commands).toEqual({ ran: "2 commands ran", failed: "1 failed" });
     expect(view(sink)?.now.lead).toBe("Done");
+  });
+
+  test("linked pull requests list in review first, with closed ones folded into one line", async () => {
+    const repo = { forge: "github", host: "github.com", owner: "acme", name: "app" } as const;
+    const linked = (number: number, state: "open" | "closed", checks?: "passed") => ({
+      number,
+      repo,
+      url: `https://github.com/acme/app/pull/${number}`,
+      state,
+      title: `Change ${number}`,
+      updatedAt: number,
+      ...(checks ? { checks } : {}),
+    });
+    const { sink, follow } = await opened(
+      "prs",
+      [facts.rootAgent("codex"), facts.turn("root"), facts.endTurn("root")],
+      undefined,
+      { linkedPrs: [linked(7, "closed"), linked(9, "open", "passed")] },
+    );
+    const summary = follow();
+    await until(() => (view(sink)?.prs.length ?? 0) > 0, "pull requests");
+    expect(view(sink)?.prs.map((pr) => `${pr.title}: ${pr.line}`)).toEqual([
+      "Change 9: #9 · In review · Checks passed",
+    ]);
+    expect(view(sink)?.prFold).toBe("1 earlier pull request, closed");
+    expect(view(sink)?.workspaceId).toBe("ace");
+    summary.closedPrs(true);
+    expect(view(sink)?.prs.map((pr) => pr.number)).toEqual([9, 7]);
+    expect(view(sink)?.now.sub).toBe("#9 is ready for review");
   });
 
   test("the plan counts its done items and words each item's state", async () => {
