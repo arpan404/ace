@@ -252,3 +252,90 @@ async fn a_non_loopback_url_never_becomes_a_skills_config() {
         .is_err()
     );
 }
+
+#[tokio::test]
+async fn a_new_skill_is_created_as_a_personal_skill_for_every_agent() {
+    let daemon = FakeDaemon::start().await;
+    let skills = client(&daemon, LOCAL_TOKEN, Duration::from_secs(5));
+    let created = skills
+        .create(spade_ace::NewSkill {
+            name: "release-notes",
+            description: "Write release notes from merged PRs",
+            body: "# Release notes\n\nList the merged PRs first.\n",
+            agents: &spade_ace::ALL_AGENTS,
+            manual: false,
+        })
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(created.skill.name, "release-notes");
+    assert!(created.text.contains("List the merged PRs first."));
+    let writes = daemon.writes();
+    assert_eq!(writes.len(), 1);
+    assert_eq!(writes[0]["op"], json!("create"));
+    assert_eq!(writes[0]["scope"], json!({ "kind": "personal" }));
+    assert_eq!(
+        writes[0]["agents"],
+        json!(["claude", "codex", "opencode", "cursor", "pi"])
+    );
+    assert_eq!(writes[0]["manual"], json!(false));
+}
+
+#[tokio::test]
+async fn an_edit_names_the_hash_it_was_made_against_and_a_stale_one_is_a_conflict() {
+    let daemon = FakeDaemon::start().await;
+    let skills = client(&daemon, LOCAL_TOKEN, Duration::from_secs(5));
+    let edit = |hash: &'static str| spade_ace::SkillEdit {
+        id: REVIEW,
+        expected_hash: hash,
+        description: "Review code, tests first",
+        body: "Read the tests first.\n",
+        manual: false,
+    };
+    let current = "a".repeat(64);
+    let edited = skills
+        .edit(spade_ace::SkillEdit {
+            expected_hash: &current,
+            ..edit("")
+        })
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(edited.skill.description, "Review code, tests first");
+    assert_eq!(daemon.writes()[0]["expectedHash"], json!(current));
+
+    let stale = skills.edit(edit("0000")).await;
+    assert!(
+        matches!(
+            stale,
+            Err(SkillsError::Daemon {
+                code: SkillErrorCode::Conflict,
+                ..
+            })
+        ),
+        "{stale:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_name_already_taken_is_refused_as_existing() {
+    let daemon = FakeDaemon::start().await;
+    let skills = client(&daemon, LOCAL_TOKEN, Duration::from_secs(5));
+    let taken = skills
+        .create(spade_ace::NewSkill {
+            name: "review-code",
+            description: "Again",
+            body: "Again.\n",
+            agents: &spade_ace::ALL_AGENTS,
+            manual: false,
+        })
+        .await;
+    assert!(
+        matches!(
+            taken,
+            Err(SkillsError::Daemon {
+                code: SkillErrorCode::Exists,
+                ..
+            })
+        ),
+        "{taken:?}"
+    );
+}

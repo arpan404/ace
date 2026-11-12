@@ -25,6 +25,9 @@ pub use discovery::{
     next_retry_between,
 };
 pub use secret::Secret;
-pub use skills::{AceSkills, Skill, SkillErrorCode, SkillList, SkillScope, SkillText, SkillsError};
+pub use skills::{
+    ALL_AGENTS, AceSkills, NewSkill, Skill, SkillEdit, SkillErrorCode, SkillList, SkillScope,
+    SkillText, SkillsError,
+};
 pub use tools::{AceTool, AceToolResult, AceTools, Part, Risk, ToolsError};
 pub use url::{LoopbackUrl, UrlError, UrlKind};

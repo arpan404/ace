@@ -42,7 +42,7 @@ impl fmt::Debug for Hello<'_> {
     }
 }
 
-/// Mirrors `SkillsRequest` and the `list` and `read` arms of `SkillOperation` in
+/// Mirrors `SkillsRequest` and the `list`, `read`, `create` and `edit` arms of `SkillOperation` in
 /// `packages/protocol/src/skill-library.ts`.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -67,7 +67,39 @@ pub(crate) enum Operation<'a> {
         #[serde(skip_serializing_if = "Option::is_none")]
         workspace_id: Option<&'a str>,
     },
+    /// A personal skill, linked for `agents`.
+    Create {
+        name: &'a str,
+        description: &'a str,
+        body: &'a str,
+        scope: PersonalScope,
+        agents: &'a [&'a str],
+        manual: bool,
+    },
+    #[serde(rename_all = "camelCase")]
+    Edit {
+        id: &'a str,
+        expected_hash: &'a str,
+        description: &'a str,
+        body: &'a str,
+        manual: bool,
+    },
 }
+
+impl Operation<'_> {
+    /// Only reads may be sent again after a dropped socket.
+    pub(crate) fn reads_only(&self) -> bool {
+        matches!(self, Self::List { .. } | Self::Read { .. })
+    }
+}
+
+/// The `personal` arm of the create scope: `{"kind": "personal"}`.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub(crate) struct PersonalScope {
+    pub kind: &'static str,
+}
+
+pub(crate) const PERSONAL: PersonalScope = PersonalScope { kind: "personal" };
 
 /// The server messages Spade reads, by `type`: `welcome` and `error` from `ServerMessage` in
 /// `packages/protocol/src/wire-core.ts`, `skills.result` (`SkillsResult`) from

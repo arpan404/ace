@@ -1,5 +1,6 @@
 //! A stand-in for the daemon's loopback WebSocket that speaks just enough of the protocol: `hello`
-//! with the local token, `starting` then `welcome`, and `skills.request` `list` and `read`. A
+//! with the local token, `starting` then `welcome`, and `skills.request` `list`, `read`, `create`
+//! and `edit` (writes are recorded; `review-code` exists, and an edit must name hash `aaa…`). A
 //! wrong token gets an `unauthorized` error and close 4001, as the daemon does. Reads answer
 //! late so concurrent requests come back out of order; `skl_…silent` reads never answer.
 
@@ -30,6 +31,7 @@ pub struct FakeDaemon {
     connections: Arc<AtomicUsize>,
     drop_all: broadcast::Sender<()>,
     saw_close: Arc<AtomicBool>,
+    writes: Arc<Mutex<Vec<Value>>>,
 }
 
 impl FakeDaemon {
@@ -54,7 +56,9 @@ impl FakeDaemon {
         let connections = Arc::new(AtomicUsize::new(0));
         let (drop_all, _) = broadcast::channel(4);
         let saw_close = Arc::new(AtomicBool::new(false));
+        let writes = Arc::new(Mutex::new(Vec::new()));
         let accept = (hellos.clone(), connections.clone(), drop_all.clone());
+        let recorded = writes.clone();
         let closes = saw_close.clone();
         tokio::spawn(async move {
             while let Ok((stream, _)) = listener.accept().await {
@@ -65,7 +69,12 @@ impl FakeDaemon {
                 if deaf {
                     tokio::spawn(serve_deaf(socket, closes.clone()));
                 } else {
-                    tokio::spawn(serve(socket, accept.0.clone(), accept.2.subscribe()));
+                    tokio::spawn(serve(
+                        socket,
+                        accept.0.clone(),
+                        accept.2.subscribe(),
+                        recorded.clone(),
+                    ));
                 }
             }
         });
@@ -75,7 +84,13 @@ impl FakeDaemon {
             connections,
             drop_all,
             saw_close,
+            writes,
         }
+    }
+
+    /// Every `create` and `edit` operation received, in order.
+    pub fn writes(&self) -> Vec<Value> {
+        lock(&self.writes).clone()
     }
 
     /// A deaf daemon found the client's side of its socket closed.
@@ -105,6 +120,7 @@ async fn serve(
     socket: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
     hellos: Arc<Mutex<Vec<Value>>>,
     mut drop_all: broadcast::Receiver<()>,
+    writes: Arc<Mutex<Vec<Value>>>,
 ) {
     let (mut sink, mut stream) = socket.split();
     let (out, mut outgoing) = mpsc::unbounded_channel::<Message>();
@@ -194,6 +210,14 @@ async fn serve(
                     );
                 });
             }
+            Some("create") | Some("edit") => {
+                lock(&writes).push(operation.clone());
+                let result = write_result(operation);
+                send(
+                    &out,
+                    json!({ "type": "skills.result", "requestId": request_id, "result": result }),
+                );
+            }
             _ => send(
                 &out,
                 json!({ "type": "error", "code": "invalid_message", "message": "Message does not match the protocol", "requestId": request_id }),
@@ -240,6 +264,38 @@ async fn serve_deaf(
             return;
         }
     }
+}
+
+/// What the daemon answers a `create` or `edit`.
+fn write_result(operation: &Value) -> Value {
+    let creating = operation["op"] == "create";
+    if creating && operation["name"] == "review-code" {
+        return json!({ "kind": "error", "code": "exists", "message": "You already have a skill called review-code." });
+    }
+    if !creating && operation["expectedHash"] != json!("a".repeat(64)) {
+        return json!({ "kind": "error", "code": "conflict", "message": "This skill changed elsewhere. Reload it before saving." });
+    }
+    let id = if creating {
+        "skl_3333333333333333333333333333333333333333"
+    } else {
+        operation["id"].as_str().unwrap_or(REVIEW)
+    };
+    let name = if creating {
+        operation["name"].as_str().unwrap_or("new")
+    } else {
+        "review-code"
+    };
+    let mut written = entry(REVIEW);
+    written["id"] = json!(id);
+    written["name"] = json!(name);
+    written["description"] = operation["description"].clone();
+    written["hash"] = json!("b".repeat(64));
+    let text = format!(
+        "---\nname: {name}\ndescription: {}\n---\n{}",
+        operation["description"].as_str().unwrap_or(""),
+        operation["body"].as_str().unwrap_or("")
+    );
+    json!({ "kind": "skill", "entry": written, "text": text })
 }
 
 pub fn text_of(id: &str) -> String {
