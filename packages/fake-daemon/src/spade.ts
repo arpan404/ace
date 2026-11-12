@@ -19,6 +19,8 @@ interface Conversation {
   /** The open reply, while one runs. */
   answering: string | undefined;
   waitingOnYou: boolean;
+  /** The client key of the start that made it. */
+  clientKey: string | null;
 }
 
 /** `GET /v1/models` as a test stages it, in Spade's own shape (`needs_key`, `key_set`, …). */
@@ -46,6 +48,8 @@ const conversationPath = /^\/v1\/conversations\/([^/?]+)(\/[^?]*)?(?:\?(.*))?$/;
 export class FakeSpade {
   status: SpadeStatus = { state: "off" };
   models: FakeSpadeModels = { endpoints: [], roles: {}, keychain: true };
+  /** Spade keeps start keys (`client_key`); false plays a Spade older than keys, which lists none. */
+  keepsKeys = true;
   /** The keychain: endpoint id → key. */
   readonly keys = new Map<string, string>();
   /** Every `spade.http` the daemon received, without its body. */
@@ -134,6 +138,7 @@ export class FakeSpade {
       events: [],
       answering: undefined,
       waitingOnYou: false,
+      clientKey: null,
     });
     if (title) this.store(id, { type: "renamed", title });
     for (const event of events) this.store(id, event);
@@ -217,20 +222,29 @@ export class FakeSpade {
         200,
         [...this.conversations.values()]
           .toSorted((a, b) => b.updatedAt - a.updatedAt)
-          .map((row) => ({
-            id: row.id,
-            title: row.title,
-            updated_at: row.updatedAt,
-            answering: row.answering !== undefined,
-            jobs: 0,
-            waiting_on_you: row.waitingOnYou,
-          })),
+          .map((row) => {
+            const listed: Record<string, unknown> = {
+              id: row.id,
+              title: row.title,
+              updated_at: row.updatedAt,
+              answering: row.answering !== undefined,
+              jobs: 0,
+              waiting_on_you: row.waitingOnYou,
+            };
+            if (this.keepsKeys) listed.client_key = row.clientKey;
+            return listed;
+          }),
       );
     if (method === "POST" && path === "/v1/conversations") {
       const text = typeof body?.text === "string" ? body.text : "";
       if (!text.trim()) return answer(400, { error: "A message needs words." });
+      const key = this.keepsKeys && typeof body?.client_key === "string" ? body.client_key : null;
+      // The same start again, by its key: the conversation it made, and nothing sent twice.
+      const made = key && [...this.conversations.values()].find((row) => row.clientKey === key);
+      if (made) return answer(200, { id: made.id });
       const id = `c${this.next}`;
       this.seed(id, "");
+      this.conversation(id).clientKey = key;
       this.store(id, { type: "user_message", text });
       return answer(201, { id });
     }
