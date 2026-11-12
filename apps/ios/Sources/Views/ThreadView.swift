@@ -400,6 +400,10 @@ struct ThreadView: View {
         if archived {
             ArchivedNote(canOperate: model.canOperate) { await model.unarchive(thread.id) }
                 .modifier(ComposerFrame(padding: EdgeInsets(top: AceDesign.Space.related, leading: AceDesign.Space.margin, bottom: AceDesign.Space.related, trailing: AceDesign.Space.margin)))
+        } else if let guest = screen.controls?.guest {
+            GuestSessionNote(line: guest.line, canStop: model.canOperate && screen.controls?.canStop == true,
+                             stopping: screen.stopping) { model.stopTree() }
+                .modifier(ComposerFrame(padding: EdgeInsets(top: AceDesign.Space.related, leading: AceDesign.Space.margin, bottom: AceDesign.Space.related, trailing: AceDesign.Space.margin)))
         } else if model.canOperate {
             ComposerView(controls: screen.controls, stopping: screen.stopping, placeholder: placeholder,
                          send: { text, alternate, references in
