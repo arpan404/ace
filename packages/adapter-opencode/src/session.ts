@@ -352,12 +352,12 @@ export class OpenCodeSession implements ProviderSession {
       await new Promise<void>((resolve, reject) => this.waiters.add({ resolve, reject }));
     }
     this.controller.signal.throwIfAborted();
-    await this.aceLocations?.ensure(this.directory());
   }
   /**
-   * Before new input or a model change, an unconfirmed location looks once more for ace's
-   * tools. Stop, task cancellation and interaction answers use `barrier` alone, so a readiness
-   * check can never delay or fail them.
+   * Before new input or a model change, ace's tools are set up in the session's location (or,
+   * if unconfirmed, looked for once more). Stop, task cancellation and interaction answers use
+   * `barrier` alone: they need none of ace's tools, so MCP set-up can never delay or fail them,
+   * even in a location ace has not set up yet (after a move or a rebuild).
    */
   private async admissionBarrier(): Promise<void> {
     await this.barrier();
