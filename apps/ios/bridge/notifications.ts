@@ -146,13 +146,8 @@ export class NotificationBridge {
       );
     if (now)
       this.#runs = new RunWatch(
-        async () => {
-          const reply = await client.request(
-            { type: "automation.inbox", limit: runInboxLimit },
-            { timeoutMs: 15_000 },
-          );
-          return reply.ok ? (reply.inbox?.runs ?? []) : [];
-        },
+        () =>
+          client.request({ type: "automation.inbox", limit: runInboxLimit }, { timeoutMs: 15_000 }),
         schedule,
         now,
         (alert) => this.#run(alert),

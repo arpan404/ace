@@ -26,8 +26,19 @@ export interface RunAlert {
 
 type Schedule = (delayMs: number, run: () => void) => () => void;
 
+/** One `automation.inbox` answer: only an `ok` one with its inbox is a reading. */
+export interface InboxReply {
+  ok: boolean;
+  inbox?: { runs: readonly AutomationRun[] } | undefined;
+}
+
+/** The runs a reply read, or undefined when it read nothing: refused, or no inbox. */
+function reading(reply: InboxReply | undefined): readonly AutomationRun[] | undefined {
+  return reply?.ok && reply.inbox ? reply.inbox.runs : undefined;
+}
+
 export class RunWatch {
-  readonly #read: () => Promise<readonly AutomationRun[]>;
+  readonly #read: () => Promise<InboxReply>;
   readonly #schedule: Schedule;
   readonly #now: () => number;
   readonly #say: (alert: RunAlert) => void;
@@ -40,7 +51,8 @@ export class RunWatch {
   #run = 0;
 
   constructor(
-    read: () => Promise<readonly AutomationRun[]>,
+    /** Reads the inbox; a refusal or a rejection is a failed read, which changes nothing. */
+    read: () => Promise<InboxReply>,
     schedule: Schedule,
     now: () => number,
     say: (alert: RunAlert) => void,
@@ -90,7 +102,7 @@ export class RunWatch {
   }
 
   async #tick(run: number): Promise<void> {
-    const runs = await this.#read().catch(() => undefined);
+    const runs = reading(await this.#read().catch(() => undefined));
     if (run !== this.#run) return;
     if (runs) this.#see(runs);
     this.#cancel = this.#schedule(historyPollMs(runs ?? []), () => void this.#tick(run));

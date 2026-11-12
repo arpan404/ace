@@ -23,12 +23,21 @@ async function settle() {
   for (let i = 0; i < 4; i++) await Promise.resolve();
 }
 
-function watch(inbox: (at: number) => AutomationRun[]) {
+/** What one read of the inbox gets: its runs, the machine's refusal, or no answer at all. */
+type Read = AutomationRun[] | "refused" | "lost";
+
+function watch(inbox: (at: number) => Read) {
   let now = start;
   const timers: { at: number; run: () => void }[] = [];
   const said: RunAlert[] = [];
   const runs = new RunWatch(
-    async () => inbox(now),
+    async () => {
+      const read = inbox(now);
+      if (read === "lost") throw new Error("socket closed");
+      return read === "refused"
+        ? { ok: false, error: "unavailable" }
+        : { ok: true, inbox: { runs: read } };
+    },
     (delay, go) => {
       const timer = { at: now + delay, run: go };
       timers.push(timer);
@@ -118,4 +127,16 @@ test("a run that finished while its alerts were turned off is never said later",
   phone.runs.start();
   await phone.settle();
   expect(phone.said).toEqual([]);
+});
+
+test("a read the machine refuses or never answers says nothing again, then or later", async () => {
+  const done = run("r1", { status: "succeeded", finishedAt: start + 1 });
+  const reads: Read[] = [[done], "refused", "lost", [done]];
+  const phone = watch(() => reads.shift() ?? [done]);
+  phone.runs.start();
+  await phone.settle();
+  expect(phone.said.map((alert) => alert.key)).toEqual(["r1"]);
+  for (let i = 0; i < 3; i++) await phone.next();
+  // Still the one alert: a failed read is no reading, so it forgets nothing it said.
+  expect(phone.said.map((alert) => alert.key)).toEqual(["r1"]);
 });
