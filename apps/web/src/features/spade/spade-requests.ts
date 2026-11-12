@@ -38,8 +38,11 @@ export type SpadeTarget = ClientApi | SpadeTransport;
 const transportOf = (target: SpadeTarget) =>
   target instanceof SpadeTransport ? target : spadeTransport(target);
 
-/** Uploads with images may be tens of megabytes: give them the time a slow link needs. */
-const uploadTimeoutMs = 5 * 60_000;
+/**
+ * Uploads with documents may be hundreds of megabytes: five minutes, and a second more for
+ * every megabyte, the time a slow link needs.
+ */
+const uploadTimeoutMs = (length: number) => 5 * 60_000 + Math.ceil(length / 1_000_000) * 1_000;
 
 /** One exchange, resolving with Spade's answer on 2xx (in its encoding) and throwing otherwise. */
 async function spadeAnswer(
@@ -47,10 +50,10 @@ async function spadeAnswer(
   exchange: SpadeExchange,
   signal: AbortSignal | undefined,
 ): Promise<{ body: SpadeBody; contentType: string | undefined }> {
-  const large = (exchange.body?.length ?? 0) > maxSpadeRequestBytes;
+  const length = exchange.body?.length ?? 0;
   const answer = await transportOf(target).exchange(exchange, {
     signal,
-    ...(large ? { timeoutMs: uploadTimeoutMs } : {}),
+    ...(length > maxSpadeRequestBytes ? { timeoutMs: uploadTimeoutMs(length) } : {}),
   });
   if (answer.kind === "error") throw new SpadeRequestError(answer.message, undefined, answer.code);
   if (answer.status < 200 || answer.status > 299)
