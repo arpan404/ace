@@ -12,10 +12,12 @@ const countNodes = `(() => {
 
 /**
  * Extensions get no Memory domain (ADR 0084); the snapshot and text-wait size guards count the
- * document's nodes instead. Every other command passes through.
+ * document's nodes instead. Those counts are per document, never shared by a process, so the
+ * session names no isolate and is counted on its own. Every other command passes through.
  */
 export function countingDomNodes(send: BrowserCdp["send"]): BrowserCdp["send"] {
   return async (method, params) => {
+    if (method === "Runtime.getIsolateId") throw new Error("Counters here are per document");
     if (method !== "Memory.getDOMCounters") return send(method, params);
     const counted = Counted.parse(
       await send("Runtime.evaluate", { expression: countNodes, returnByValue: true }),

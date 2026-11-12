@@ -30,8 +30,7 @@ function staleFrame(error: unknown): never {
   throw error;
 }
 import { maskSecretFields, secretFieldNodes } from "./secret-values.ts";
-
-const DomCounters = z.object({ nodes: z.number() });
+import { pageDomNodes } from "./page-dom-nodes.ts";
 
 /** About 1.5k tokens: a default snapshot stays cheaper than a 1536 px screenshot. */
 export const defaultSnapshotNodes = 120;
@@ -155,9 +154,7 @@ export class SnapshotRefs {
     const scope = options.scope === undefined ? undefined : this.refs.get(options.scope);
     if (options.scope !== undefined && !scope) throw this.unknownRef();
     const frames = await this.listFrames();
-    let domNodes = 0;
-    for (const cdp of new Set(frames.map((frame) => frame.cdp)))
-      domNodes += DomCounters.parse(await cdp.send("Memory.getDOMCounters")).nodes;
+    const domNodes = await pageDomNodes(frames.map((frame) => frame.cdp));
     // Reading a huge page's whole tree takes seconds and tens of megabytes: outline it.
     if (!scope && domNodes > outlineDomNodes) return this.outline(frames, epoch, options);
     const excluded = await this.excluded();
