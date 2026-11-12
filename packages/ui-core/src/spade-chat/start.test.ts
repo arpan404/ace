@@ -53,6 +53,14 @@ function spade(
       asked.push(`POST ${path}`);
       const sent = body as Record<string, unknown>;
       posted.push(sent);
+      // As Spade answers a start sent again by a key it keeps: the conversation that key made.
+      const made = conversations.find(
+        (row) => row.client_key !== undefined && row.client_key === sent.client_key,
+      );
+      if (made) {
+        made.first ||= String(sent.text);
+        return JSON.stringify({ id: made.id });
+      }
       return post(conversations, sent);
     },
     back: async () => back,
@@ -170,6 +178,19 @@ test("a lost start is found by its key, past a newer conversation with the same 
     kind: "started",
     id: "mine",
   });
+});
+
+test("a lost start whose key is listed still goes again by it, so a message a crash cut off is delivered", async () => {
+  const { link, posted } = spade(
+    [],
+    // Spade kept the conversation and its key, then stopped before keeping the message.
+    makesThenLoses({ id: "mine", updated_at: 2, first: "", client_key: key }),
+  );
+  expect(await spadeStart(link, { text: "Hi" }, words("Hi"), key)).toEqual({
+    kind: "started",
+    id: "mine",
+  });
+  expect(posted.map((body) => body.client_key)).toEqual([key, key]);
 });
 
 test("an identical start that overlaps isn't claimed: this one goes again by its key and gets its own", async () => {

@@ -9,8 +9,9 @@ import {
 /*
  * Starting a conversation, safely when its answer is lost. Each start carries the client's own
  * key (`client_key`, a fresh UUID per start). Spade keeps it with the conversation it makes and
- * answers the same start again with that conversation (spade/docs/chat-core.md), so a start whose
- * answer never came is found by its key, or sent again with it, and never makes a second one.
+ * answers the same start again with that conversation, delivering its message if a crash kept the
+ * key without it (spade/docs/chat-core.md). So a start whose answer never came is sent again with
+ * its key, and never makes a second conversation or loses its message.
  *
  * A Spade older than keys ignores the key and lists none, so nothing proves which start made a
  * conversation. A lost start there is never claimed: when a new conversation opens with its
@@ -90,9 +91,9 @@ async function settle(link: SpadeStartLink, lost: Lost): Promise<SpadeStartResul
   } catch {
     return unknown;
   }
-  const mine = rows.find((row) => row.clientKey === lost.key);
-  if (mine) return { kind: "started", id: mine.id };
-  // A Spade that keeps keys and lists none of this one's: the start goes again with its key.
+  // A Spade that keeps keys: the start goes again with its key, even when the key is listed. A
+  // crash may have kept the key but not the message, and sending again delivers it; otherwise
+  // Spade answers with the conversation unchanged.
   if (rows.some((row) => row.clientKey !== undefined)) return again(link, lost.keyed);
   return byContent(link, rows, lost);
 }

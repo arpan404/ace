@@ -352,6 +352,22 @@ test("a start whose answer was lost opens the conversation Spade made, and makes
   expect(rows(patches.flush()).map((row) => row.text)).toEqual(["What's on today?"]);
 });
 
+test("a lost start a crash cut off before its message was kept gets the message, once", async () => {
+  const { daemon, spade, patches, ask } = await phone();
+  daemon.spade.holding = (request) => request.method === "POST";
+  const started = ask({ type: "spade.start", text: "What's on today?" });
+  await until(() => daemon.spade.waiting === 1);
+  // Spade keeps the conversation and its key, crashes before the message, and the socket drops.
+  daemon.spade.cutThrough();
+  daemon.disconnectAll();
+  const outcome = await started;
+  expect(outcome).toMatchObject({ ok: true });
+  const id = "id" in outcome ? String(outcome.id) : "";
+  spade.handle({ type: "spade.open", conversationId: id });
+  await until(() => rows(patches.flush()).length === 1);
+  expect(rows(patches.flush()).map((row) => row.text)).toEqual(["What's on today?"]);
+});
+
 test("an identical start from elsewhere, seen first, doesn't take this lost start's place", async () => {
   const { daemon, spade, patches, ask } = await phone();
   daemon.spade.holding = (request) => request.method === "POST";

@@ -64,7 +64,8 @@ Live stream frames (`event:` name, JSON `data:`):
 
 `client_key` is the client's own key for one start (a UUID; 1 to 128 letters, digits, `-` or
 `_`, else `400`). A client whose start got no answer sends it again with the same key and gets the
-conversation it made, never a second one. Spade before this ignores the field and lists no key.
+conversation it made, never a second one; if a crash kept the key but not the message, that
+repeat delivers it. Spade before this ignores the field and lists no key.
 
 A client loads `events`, opens `live` with the last `seq`, and appends. After a reconnect it does the
 same; `snapshot` restores any reply text newer than the last checkpoint.
