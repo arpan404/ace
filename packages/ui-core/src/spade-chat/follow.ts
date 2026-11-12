@@ -2,7 +2,7 @@ import type { SpadeLiveEnd, SpadeLiveSink } from "@ace/client/spade-live";
 import { emptySpadeConversation, foldSpade, type SpadeFoldInput } from "./fold.ts";
 import { SpadeRequestError } from "./requests.ts";
 import { spadeView, type SpadeView } from "./view.ts";
-import { parseSpadeEvents, parseSpadeLiveFrame } from "./wire.ts";
+import { parseSpadeEvents, parseSpadeLiveFrame, type SpadeImageRef } from "./wire.ts";
 
 /**
  * The way to Spade a follow uses: its live streams, and `read` for a page of history, which
@@ -118,6 +118,30 @@ export class SpadeConversationFollow {
   apply(input: SpadeFoldInput): void {
     if (foldSpade(this.state, input)) this.publish();
     this.settleSends(false);
+  }
+
+  /**
+   * Send a message from here: it shows at once and `post` delivers it. When no answer came back
+   * Spade may have it, so it stays if Spade's copy arrives; only a message Spade never stored
+   * leaves the conversation, and the error is thrown for the composer to keep the words.
+   */
+  async send(
+    message: { key: string; text: string; images?: readonly SpadeImageRef[] },
+    post: () => Promise<unknown>,
+  ): Promise<void> {
+    this.apply({ kind: "sent", ...message });
+    try {
+      await post();
+    } catch (error) {
+      if (
+        error instanceof SpadeRequestError &&
+        error.unanswered &&
+        (await this.reached(message.key))
+      )
+        return;
+      this.apply({ kind: "refused", key: message.key });
+      throw error;
+    }
   }
 
   /**

@@ -5,3 +5,4 @@ export * from "./view.ts";
 export * from "./words.ts";
 export * from "./requests.ts";
 export * from "./follow.ts";
+export * from "./settings.ts";

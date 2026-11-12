@@ -22,3 +22,8 @@ export function spadeRefusal(status: number, body: string): string {
   if (status === 402) return "Today's spending cap is reached. Spade will answer again tomorrow.";
   return spadeProblem(body) ?? `Spade answered ${status}.`;
 }
+
+/** A Stop refused with 404 found nothing answering by the time it arrived: what Stop wanted. */
+export function spadeStopAnswered(error: unknown): boolean {
+  return error instanceof SpadeRequestError && error.status === 404;
+}

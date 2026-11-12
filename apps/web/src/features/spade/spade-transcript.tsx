@@ -1,6 +1,9 @@
 import {
   spadeCallLine,
+  spadeCallShown,
+  spadeCompactedLine,
   spadeJobEndLine,
+  spadeReplyEndLine,
   type SpadeEntry,
   type SpadeImageRef,
   type SpadeReplyEntry,
@@ -91,7 +94,7 @@ const Entry = memo(function Entry(props: { entry: SpadeEntry; conversation: stri
     case "compacted":
       return (
         <p role="note" className="text-center text-meta text-muted-foreground">
-          Earlier messages are summarized for Spade
+          {spadeCompactedLine}
         </p>
       );
     case "job":
@@ -152,9 +155,6 @@ function SentImage(props: { image: SpadeImageRef }) {
   );
 }
 
-/** Calls that read in the transcript: ones with an outcome. */
-const settled = new Set(["done", "failed", "declined", "skipped"]);
-
 function Reply(props: { entry: SpadeReplyEntry; conversation: string }) {
   const { entry } = props;
   const stream = `spade/${props.conversation}/${entry.key}`;
@@ -165,7 +165,7 @@ function Reply(props: { entry: SpadeReplyEntry; conversation: string }) {
           <div key={part.key} className={answerText} data-quotable="">
             <Prose text={part.text} />
           </div>
-        ) : settled.has(part.state) ? (
+        ) : spadeCallShown(part.state) ? (
           <p key={part.key} className={cn(quiet, part.state === "failed" && "text-status-failed")}>
             {spadeCallLine(part.name, part.state)}
           </p>
@@ -176,29 +176,19 @@ function Reply(props: { entry: SpadeReplyEntry; conversation: string }) {
           <Prose text={entry.live} stream={stream} streaming />
         </div>
       )}
-      {entry.end && entry.end.kind !== "finished" && <ReplyEnd end={entry.end} />}
+      <ReplyEnd end={entry.end} />
     </div>
   );
 }
 
-function ReplyEnd(props: {
-  end: Exclude<SpadeReplyEntry["end"], undefined | { kind: "finished" }>;
-}) {
-  const { end } = props;
-  if (end.kind === "failed")
+function ReplyEnd(props: { end: SpadeReplyEntry["end"] }) {
+  const line = spadeReplyEndLine(props.end);
+  if (!line) return null;
+  if (line.alert)
     return (
       <p role="alert" className="text-ui text-status-failed">
-        {end.error ? `Spade couldn't finish. ${capitalised(end.error)}` : "Spade couldn't finish."}
+        {line.text}
       </p>
     );
-  return (
-    <p className={quiet}>
-      {end.kind === "stopped" ? "Stopped" : "Interrupted when Spade restarted"}
-    </p>
-  );
+  return <p className={quiet}>{line.text}</p>;
 }
-
-const capitalised = (text: string) => {
-  const sentence = text.charAt(0).toUpperCase() + text.slice(1);
-  return /[.!?]$/.test(sentence) ? sentence : `${sentence}.`;
-};

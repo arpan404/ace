@@ -1,5 +1,6 @@
 import type { SpadeStatus } from "@ace/protocol";
-import type { SpadeCallState } from "./fold.ts";
+import { formatAge } from "../time.ts";
+import type { SpadeCallState, SpadeReplyEnd } from "./fold.ts";
 
 /*
  * Spade's states and tools in words. Tool names are Spade's own (`web_search`) or an ace tool
@@ -193,3 +194,58 @@ export function spadeJobEndLine(name: string, outcome: "done" | "failed" | "stop
   const words = spadeToolWords(name);
   return failed ? `Couldn't ${words.base} in the background` : `${words.done} in the background`;
 }
+
+/** Calls that read in the transcript: ones with an outcome. The Working line names the rest. */
+export function spadeCallShown(state: SpadeCallState): boolean {
+  return state === "done" || state === "failed" || state === "declined" || state === "skipped";
+}
+
+/** The quiet line where the model began reading a summary of what came before. */
+export const spadeCompactedLine = "Earlier messages are summarized for Spade";
+
+/** How a reply ended, when it didn't finish; `alert` when it failed. */
+export function spadeReplyEndLine(
+  end: SpadeReplyEnd | undefined,
+): { text: string; alert: boolean } | undefined {
+  if (!end || end.kind === "finished") return undefined;
+  if (end.kind === "failed")
+    return {
+      text: end.error ? `Spade couldn't finish. ${sentence(end.error)}` : "Spade couldn't finish.",
+      alert: true,
+    };
+  return {
+    text: end.kind === "stopped" ? "Stopped" : "Interrupted when Spade restarted",
+    alert: false,
+  };
+}
+
+const sentence = (text: string) => {
+  const capital = text.charAt(0).toUpperCase() + text.slice(1);
+  return /[.!?]$/.test(capital) ? capital : `${capital}.`;
+};
+
+/** An approval's call arguments for Details; undefined when there is nothing to show. */
+export function spadeApprovalDetails(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "object" && !Array.isArray(value) && !Object.keys(value).length)
+    return undefined;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return undefined;
+  }
+}
+
+/** A list row's trailing words: Approve, Working, or how long ago it last changed. */
+export function spadeRowLabel(
+  row: { answering: boolean; jobs: number; waitingOnYou: boolean; updatedAt: number },
+  now: number,
+): { tone: "needs-you" | "working" | "idle"; label: string } {
+  const tone = spadeRowState(row);
+  if (tone === "needs-you") return { tone, label: "Approve" };
+  if (tone === "working") return { tone, label: "Working" };
+  return { tone, label: formatAge(row.updatedAt, now) };
+}
+
+/** A conversation's name before Spade gives it one. */
+export const spadeUntitled = "New conversation";

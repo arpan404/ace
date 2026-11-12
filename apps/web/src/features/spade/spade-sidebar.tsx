@@ -1,5 +1,4 @@
-import { formatAge } from "@ace/ui-core";
-import { spadeRowState, spadeStateLine } from "@ace/ui-core/spade-chat";
+import { spadeRowLabel, spadeStateLine, spadeUntitled } from "@ace/ui-core/spade-chat";
 import { NotePencilIcon } from "@phosphor-icons/react";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { StatusLabel } from "@/components/status-label.tsx";
@@ -51,31 +50,32 @@ export function SpadeSidebar() {
           <p className="px-2.5 pt-2 text-ui text-subtle-foreground">No conversations yet</p>
         ) : (
           <ul className="flex flex-col gap-px">
-            {list.data.map((row) => (
-              <li key={row.id}>
-                <Link
-                  to="/spade/$conversationId"
-                  params={{ conversationId: row.id }}
-                  aria-current={open === row.id ? "page" : undefined}
-                  {...panelRow()}
-                >
-                  <PanelRowBody
-                    title={row.title || "New conversation"}
-                    trailing={
-                      spadeRowState(row) === "needs-you" ? (
-                        <StatusLabel tone="needs-you" label="Approve" />
-                      ) : spadeRowState(row) === "working" ? (
-                        <StatusLabel tone="working" label="Working" />
-                      ) : (
-                        <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">
-                          {formatAge(row.updatedAt, now)}
-                        </span>
-                      )
-                    }
-                  />
-                </Link>
-              </li>
-            ))}
+            {list.data.map((row) => {
+              const label = spadeRowLabel(row, now);
+              return (
+                <li key={row.id}>
+                  <Link
+                    to="/spade/$conversationId"
+                    params={{ conversationId: row.id }}
+                    aria-current={open === row.id ? "page" : undefined}
+                    {...panelRow()}
+                  >
+                    <PanelRowBody
+                      title={row.title || spadeUntitled}
+                      trailing={
+                        label.tone === "idle" ? (
+                          <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">
+                            {label.label}
+                          </span>
+                        ) : (
+                          <StatusLabel tone={label.tone} label={label.label} />
+                        )
+                      }
+                    />
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         )}
       </nav>
