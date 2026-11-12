@@ -238,6 +238,9 @@ async fn a_keychain_that_never_answers_delays_work_only_until_the_deadline_then_
     // With no endpoint set up yet, that reply fails; waited for before the keychain answers,
     // so a slow machine can't reach the model only after setup finished.
     spade.wait_for(&conversation, "reply_failed").await?;
+    // The failed turn is then named, from its first message while no endpoint is set up; were
+    // it named after the keychain answered, the title would take the reply's model answer.
+    spade.wait_for(&conversation, "renamed").await?;
 
     // The keychain answers: setup finishes by itself, no restart.
     gate.0.open();
@@ -254,7 +257,7 @@ async fn a_keychain_that_never_answers_delays_work_only_until_the_deadline_then_
             .filter(|e| e["type"] == "reply_finished")
             .count()
     };
-    let before = finished(&spade.wait_for(&conversation, "reply_failed").await?);
+    let before = finished(&spade.events(&conversation).await?);
     spade.say(&conversation, "Now?").await?;
     let events = spade
         .wait_for_count(&conversation, "reply_finished", before + 1)
