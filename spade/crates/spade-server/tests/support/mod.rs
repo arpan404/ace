@@ -166,6 +166,8 @@ pub struct Options {
     pub connectors: bool,
     /// With `connectors`: the client ID metadata document Spade signs in as.
     pub client_metadata: Option<String>,
+    /// With `connectors`: Spade's own registered apps (ADR 0137).
+    pub apps: Vec<spade_connect::App>,
     /// The engine's clock; the machine's when absent.
     pub clock: Option<Arc<dyn Clock>>,
     /// The engine's ids; counting from 1 when absent.
@@ -265,6 +267,7 @@ impl Default for Options {
             learning: None,
             connectors: false,
             client_metadata: None,
+            apps: Vec::new(),
             clock: None,
             ids: None,
             brains: None,
@@ -441,6 +444,9 @@ impl Spade {
                 relist: Duration::from_secs(600),
                 addresses: spade_connect::Addresses::system(),
                 client_metadata: options.client_metadata.clone(),
+                apps: options.apps.clone(),
+                // A device sign-in's seconds pass in milliseconds here.
+                tick: Duration::from_millis(1),
             })?;
             let source = spade_server::tools::ConnectorSource::new(
                 hub.clone(),

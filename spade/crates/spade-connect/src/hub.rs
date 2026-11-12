@@ -6,6 +6,7 @@ use serde::Deserialize;
 use spade_keys::KeyStore;
 use spade_mcp::{McpClient, McpConfig, Secret, ToolsError};
 
+use crate::apps::{self, App, Grant};
 use crate::oauth::{self, Attempt, OauthError, pkce, wellknown};
 use crate::records::{self, Access, Auth, OauthFacts, Record};
 use crate::{Connectors, SIGN_IN_WINDOW_MS, View, lock, secrets};
@@ -43,6 +44,14 @@ pub enum Started {
     Connected(View),
     /// Open `url` in the person's browser; the callback finishes the sign-in.
     SignIn { id: String, url: String },
+    /// A device sign-in (RFC 8628): the person enters `code` at `url`; Spade polls meanwhile and
+    /// the connector's view follows.
+    Device {
+        id: String,
+        code: String,
+        url: String,
+        expires_in: u64,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -111,17 +120,37 @@ pub(crate) struct Pending {
     pub started_ms: i64,
     /// Where this sign-in's requests may go, fixed when it started.
     pub net: oauth::Net,
+    /// The connector segment its callback address ends in; `None` for the shared address.
+    pub back_to: Option<String>,
+    /// Signed in with one of Spade's own registered apps.
+    pub shipped: bool,
+}
+
+/// A finished sign-in, ready to keep: the same for a callback and a device sign-in.
+pub(crate) struct SignedIn {
+    pub id: String,
+    pub name: String,
+    pub url: String,
+    pub catalogue: Option<String>,
+    pub local: bool,
+    pub issuer: String,
+    pub token_endpoint: String,
+    pub resource: String,
+    pub client: oauth::Client,
+    pub shipped: bool,
+    pub scopes: Vec<String>,
+    pub tokens: oauth::Tokens,
 }
 
 /// Which server a request is about.
-struct Target {
-    id: String,
-    name: String,
-    url: url::Url,
-    catalogue: Option<String>,
+pub(crate) struct Target {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) url: url::Url,
+    pub(crate) catalogue: Option<String>,
     /// Marked local by the person (see [`ConnectRequest::local`]).
-    local: bool,
-    existing: Option<Record>,
+    pub(crate) local: bool,
+    pub(crate) existing: Option<Record>,
 }
 
 impl Connectors {
@@ -160,16 +189,42 @@ impl Connectors {
         let server = oauth::discover_server(&net, &resource.authorization_server)
             .await
             .map_err(from_oauth)?;
-        let (client, redirect) = self
-            .client_for(&net, &keys, &target, &request, &server, &callback)
-            .await?;
+        let shipped = self.shipped_app(&target, &request, &server)?;
+        if let Some(app) = shipped.filter(|app| app.grant == Grant::Device) {
+            return self.start_device(net, target, resource, server, app).await;
+        }
+        oauth::require_pkce(&server).map_err(from_oauth)?;
+        let (client, redirect) = match shipped {
+            // Spade's own app: public, PKCE, its catalogue entry's callback on any loopback port.
+            Some(app) => (
+                oauth::Client {
+                    id: app.client_id.clone(),
+                    secret: None,
+                    auth_method: "none".into(),
+                    registered_redirect: None,
+                    metadata_document: false,
+                },
+                format!("{callback}/{}", app.connector),
+            ),
+            None => {
+                self.client_for(&net, &keys, &target, &request, &server, &callback)
+                    .await?
+            }
+        };
+        let back_to = redirect
+            .strip_prefix(&format!("{callback}/"))
+            .map(str::to_owned);
+        let scopes = match shipped.and_then(|app| app.scopes.clone()) {
+            Some(scopes) => scopes,
+            None => oauth::with_offline_access(resource.scopes, &server),
+        };
         let random = self.random.as_ref();
         let attempt = Attempt {
             state: pkce::random_value(random).map_err(ConnectError::Failed)?,
             verifier: pkce::random_value(random).map_err(ConnectError::Failed)?,
             redirect,
             resource: resource.resource,
-            scopes: oauth::with_offline_access(resource.scopes, &server),
+            scopes,
             server,
             client,
         };
@@ -178,6 +233,7 @@ impl Connectors {
         let mut pending = lock(&self.pending);
         // One sign-in per connector: a newer one replaces an older one, and stale ones go.
         pending.retain(|_, p| p.id != target.id && now - p.started_ms < SIGN_IN_WINDOW_MS);
+        self.drop_device(&target.id);
         pending.insert(
             attempt.state.clone(),
             Pending {
@@ -189,6 +245,8 @@ impl Connectors {
                 attempt,
                 started_ms: now,
                 net,
+                back_to,
+                shipped: shipped.is_some(),
             },
         );
         Ok(Started::SignIn {
@@ -210,8 +268,7 @@ impl Connectors {
         }
         // Back at another connector's address, or at the shared one when this sign-in has its
         // own (or the reverse): an answer mixed up between servers.
-        let expected = (!pending.attempt.client.metadata_document).then_some(pending.id.as_str());
-        if callback.connector.as_deref() != expected {
+        if callback.connector != pending.back_to {
             return Err(FinishError::WrongIssuer);
         }
         if !oauth::issuer_matches(&pending.attempt, callback.iss.as_deref()) {
@@ -224,10 +281,9 @@ impl Connectors {
             .code
             .filter(|c| !c.is_empty())
             .ok_or_else(|| FinishError::Failed("the sign-in came back without a code".into()))?;
-        let keys = self
-            .keys
-            .clone()
-            .ok_or_else(|| FinishError::Failed(ConnectError::NoKeychain.to_string()))?;
+        if self.keys.is_none() {
+            return Err(FinishError::Failed(ConnectError::NoKeychain.to_string()));
+        }
         let tokens = oauth::exchange(&pending.net, &pending.attempt, &code)
             .await
             .map_err(|error| {
@@ -243,40 +299,69 @@ impl Connectors {
                     .into(),
                 )
             })?;
-        let id = pending.id.clone();
-        let failed = |e: String| FinishError::Failed(e);
-        // A disconnect while the code was exchanged wins: nothing is written.
-        let _writing = self.writes.lock().await;
-        if self.epoch(&id) != epoch {
-            return Err(FinishError::Failed(
-                "the app was disconnected meanwhile".into(),
-            ));
-        }
-        secrets::put(&keys, &id, secrets::ACCESS, Some(tokens.access.clone()))
-            .await
-            .map_err(failed)?;
-        secrets::put(&keys, &id, secrets::REFRESH, tokens.refresh.clone())
-            .await
-            .map_err(failed)?;
-        let client = &pending.attempt.client;
-        secrets::put(&keys, &id, secrets::CLIENT_SECRET, client.secret.clone())
-            .await
-            .map_err(failed)?;
-        let existing = self.record(&id);
-        let record = Record {
-            id: id.clone(),
+        let client = pending.attempt.client.clone();
+        let signed = SignedIn {
+            id: pending.id,
             name: pending.name,
             url: pending.url,
             catalogue: pending.catalogue,
             local: pending.local,
+            issuer: pending.attempt.server.issuer,
+            token_endpoint: pending.attempt.server.token_endpoint,
+            resource: pending.attempt.resource,
+            client,
+            shipped: pending.shipped,
+            scopes: pending.attempt.scopes,
+            tokens,
+        };
+        self.keep_sign_in(signed, epoch)
+            .await
+            .map_err(FinishError::Failed)
+    }
+
+    /// Keeps a finished sign-in: its secrets in the keychain, the rest in the record, then a new
+    /// session. A disconnect since `epoch` wins, and nothing is written.
+    pub(crate) async fn keep_sign_in(
+        self: &Arc<Self>,
+        signed: SignedIn,
+        epoch: u64,
+    ) -> Result<View, String> {
+        let keys = self
+            .keys
+            .clone()
+            .ok_or_else(|| ConnectError::NoKeychain.to_string())?;
+        let id = signed.id.clone();
+        let _writing = self.writes.lock().await;
+        if self.epoch(&id) != epoch {
+            return Err("the app was disconnected meanwhile".into());
+        }
+        let tokens = signed.tokens;
+        secrets::put(&keys, &id, secrets::ACCESS, Some(tokens.access.clone())).await?;
+        secrets::put(&keys, &id, secrets::REFRESH, tokens.refresh.clone()).await?;
+        let client = signed.client;
+        // A shipped app is public: it has no secret, and any kept from an earlier client goes.
+        let secret = if signed.shipped {
+            None
+        } else {
+            client.secret.clone()
+        };
+        secrets::put(&keys, &id, secrets::CLIENT_SECRET, secret).await?;
+        let existing = self.record(&id);
+        let record = Record {
+            id: id.clone(),
+            name: signed.name,
+            url: signed.url,
+            catalogue: signed.catalogue,
+            local: signed.local,
             auth: Auth::Oauth(OauthFacts {
-                issuer: pending.attempt.server.issuer.clone(),
-                token_endpoint: pending.attempt.server.token_endpoint.clone(),
-                resource: pending.attempt.resource.clone(),
+                issuer: signed.issuer,
+                token_endpoint: signed.token_endpoint,
+                resource: signed.resource,
                 client_id: client.id.clone(),
                 client_auth: client.auth_method.clone(),
                 registered_redirect: client.registered_redirect.clone(),
-                scopes: pending.attempt.scopes.clone(),
+                shipped: signed.shipped,
+                scopes: signed.scopes,
                 expires_at_ms: tokens.expires_in.map(|s| self.now() + seconds_ms(s)),
             }),
             account: tokens
@@ -285,10 +370,10 @@ impl Connectors {
             needs_reconnect: false,
             added_ms: existing.map_or_else(|| self.now(), |r| r.added_ms),
         };
-        self.put_record(record).map_err(FinishError::Failed)?;
+        self.put_record(record)?;
         self.restart_session(&id);
         self.get(&id)
-            .ok_or_else(|| FinishError::Failed("the connector went away".into()))
+            .ok_or_else(|| "the connector went away".to_owned())
     }
 
     /// Forgets a connector: its session, its secrets, and every bot's permission for it.
@@ -300,7 +385,7 @@ impl Connectors {
             let before = pending.len();
             pending.retain(|_, p| p.id != id);
             before != pending.len()
-        };
+        } | self.drop_device(id);
         let removed = {
             let mut records = lock(&self.records);
             let next: Vec<Record> = records.iter().filter(|r| r.id != id).cloned().collect();
@@ -372,7 +457,10 @@ impl Connectors {
 
     fn target(&self, request: &ConnectRequest) -> Result<Target, ConnectError> {
         if let Some(id) = &request.id {
-            let existing = self.record(id).ok_or(ConnectError::NotFound)?;
+            let Some(existing) = self.record(id) else {
+                // A device sign-in that ended before it connected is tried again from its row.
+                return self.device_target(id).ok_or(ConnectError::NotFound);
+            };
             let url = wellknown::checked(&existing.url).map_err(ConnectError::Invalid)?;
             return Ok(Target {
                 id: existing.id.clone(),
@@ -482,7 +570,10 @@ impl Connectors {
             Some(Record {
                 auth: Auth::Oauth(facts),
                 ..
-            }) if facts.issuer == server.issuer && Some(facts.client_id.as_str()) != document => {
+            }) if facts.issuer == server.issuer
+                && !facts.shipped
+                && Some(facts.client_id.as_str()) != document =>
+            {
                 Some(facts)
             }
             _ => None,
@@ -505,6 +596,45 @@ impl Connectors {
             .await
             .map_err(from_oauth)?;
         Ok((client, own))
+    }
+
+    /// Spade's own app for this sign-in, unless the person brings their own client (now, or
+    /// before for this issuer). A client secret sent for Spade's app is refused: it is public.
+    fn shipped_app(
+        &self,
+        target: &Target,
+        request: &ConnectRequest,
+        server: &oauth::AuthServer,
+    ) -> Result<Option<&App>, ConnectError> {
+        let Some(app) = apps::for_issuer(&self.apps, &server.issuer) else {
+            return Ok(None);
+        };
+        let given = |value: &Option<String>| {
+            value
+                .as_deref()
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(str::to_owned)
+        };
+        let (client_id, secret) = (given(&request.client_id), given(&request.client_secret));
+        if secret.is_some() && client_id.as_deref().is_none_or(|id| id == app.client_id) {
+            return Err(ConnectError::Invalid(format!(
+                "Spade's own sign-in for {} is public and takes no client secret",
+                target.name
+            )));
+        }
+        if client_id.is_some() {
+            return Ok(None);
+        }
+        let own_before = matches!(
+            &target.existing,
+            Some(Record { auth: Auth::Oauth(facts), .. })
+                if facts.issuer == server.issuer
+                    && !facts.shipped
+                    && facts.registered_redirect.is_none()
+                    && Some(facts.client_id.as_str()) != self.client_metadata.as_deref()
+        );
+        Ok((!own_before).then_some(app))
     }
 
     async fn connect_with_token(
@@ -635,7 +765,7 @@ pub(crate) fn seconds_ms(seconds: u64) -> i64 {
     i64::try_from(seconds.saturating_mul(1000)).unwrap_or(i64::MAX)
 }
 
-fn from_oauth(error: OauthError) -> ConnectError {
+pub(crate) fn from_oauth(error: OauthError) -> ConnectError {
     match error {
         OauthError::NeedsClient => ConnectError::NeedsClient,
         OauthError::Unsupported(why) => ConnectError::Unsupported(why),

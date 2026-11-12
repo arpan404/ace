@@ -37,6 +37,22 @@ pub fn spade_with_document(document: &str) -> Result<Spade> {
 }
 
 fn spade_with(relist: Duration, client_metadata: Option<String>) -> Result<Spade> {
+    spade_with_apps(relist, client_metadata, Vec::new())
+}
+
+/// How long a second of a device sign-in's polling interval lasts in these tests.
+pub const TICK: Duration = Duration::from_millis(20);
+
+/// Spade shipping `apps` as its own registered apps (ADR 0137).
+pub fn spade_shipping(apps: Vec<spade_connect::App>) -> Result<Spade> {
+    spade_with_apps(Duration::from_secs(600), None, apps)
+}
+
+fn spade_with_apps(
+    relist: Duration,
+    client_metadata: Option<String>,
+    apps: Vec<spade_connect::App>,
+) -> Result<Spade> {
     let dir = tempfile::tempdir()?;
     let database = dir.path().join("spade.sqlite");
     let store: Arc<CredentialStore> = mock::Store::new()?;
@@ -51,6 +67,8 @@ fn spade_with(relist: Duration, client_metadata: Option<String>) -> Result<Spade
         relist,
         addresses: spade_connect::Addresses::system(),
         client_metadata,
+        apps,
+        tick: TICK,
     })?;
     connectors.set_listening("127.0.0.1:4555".parse()?);
     Ok(Spade {

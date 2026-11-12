@@ -44,6 +44,20 @@ pub fn shipped() -> Vec<Entry> {
     entries
 }
 
+/// The catalogue with Spade's registered apps applied: an entry Spade ships a client ID for signs
+/// in with one click, so `oauth` leads its ways in. The person's own client ID stays offered.
+pub fn with_apps(mut entries: Vec<Entry>, apps: &[crate::apps::App]) -> Vec<Entry> {
+    for entry in &mut entries {
+        let shipped = apps
+            .iter()
+            .any(|app| app.connector == entry.id && !app.client_id.is_empty());
+        if shipped && !entry.sign_in.contains(&SignIn::Oauth) {
+            entry.sign_in.insert(0, SignIn::Oauth);
+        }
+    }
+    entries
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -67,5 +81,29 @@ mod tests {
             assert!(entry.source.starts_with("https://"), "{}", entry.id);
             assert!(!entry.sign_in.is_empty(), "{}", entry.id);
         }
+    }
+
+    #[test]
+    fn an_entry_signs_in_with_one_click_once_spade_ships_its_client_id() -> Result<(), String> {
+        let apps = crate::apps::parse(
+            r#"{"checked":"2026-11-12","apps":[
+              {"connector":"github","issuer":"https://github.com/login/oauth","client_id":"Ov23li","grant":"device","source":"https://docs.github.com"},
+              {"connector":"asana","issuer":"https://app.asana.com","client_id":"","grant":"browser","source":"https://developers.asana.com"}]}"#,
+        )?;
+        let entries = with_apps(shipped(), &apps);
+        let ways = |id: &str| {
+            entries
+                .iter()
+                .find(|e| e.id == id)
+                .map(|e| e.sign_in.clone())
+                .unwrap_or_default()
+        };
+        assert_eq!(
+            ways("github"),
+            [SignIn::Oauth, SignIn::Token, SignIn::OauthClient]
+        );
+        assert_eq!(ways("asana"), [SignIn::OauthClient], "no client ID yet");
+        assert_eq!(ways("linear"), [SignIn::Oauth, SignIn::Token]);
+        Ok(())
     }
 }

@@ -5,6 +5,7 @@
 
 pub mod challenge;
 pub mod cimd;
+pub mod device;
 pub mod net;
 pub mod pkce;
 pub mod wellknown;
@@ -68,6 +69,9 @@ pub struct AuthServer {
     /// The server fetches a client's metadata from an `https` client ID ([`cimd`]).
     #[serde(default)]
     pub client_id_metadata_document_supported: Option<bool>,
+    /// Where a device sign-in starts (RFC 8628), when the server offers one.
+    #[serde(default)]
+    pub device_authorization_endpoint: Option<String>,
 }
 
 /// A client Spade signs in as.
@@ -205,8 +209,8 @@ pub async fn discover_resource(
     })
 }
 
-/// Reads the authorization server's metadata from the well-known paths in order, checks its
-/// issuer is the server asked about, and refuses one without PKCE S256.
+/// Reads the authorization server's metadata from the well-known paths in order and checks its
+/// issuer is the server asked about. Browser sign-ins also need [`require_pkce`].
 pub async fn discover_server(net: &Net, issuer: &str) -> Result<AuthServer, OauthError> {
     let issuer_url = wellknown::checked(issuer).map_err(OauthError::Unsupported)?;
     for candidate in wellknown::authorization_server_metadata(&issuer_url) {
@@ -227,24 +231,37 @@ pub async fn discover_server(net: &Net, issuer: &str) -> Result<AuthServer, Oaut
         for endpoint in [&server.authorization_endpoint, &server.token_endpoint] {
             net.check(endpoint).await?;
         }
-        if let Some(registration) = &server.registration_endpoint {
-            net.check(registration).await?;
-        }
-        let pkce = server
-            .code_challenge_methods_supported
-            .as_ref()
-            .is_some_and(|methods| methods.iter().any(|m| m == "S256"));
-        if !pkce {
-            return Err(OauthError::Unsupported(
-                "the authorization server does not support PKCE, so Spade will not sign in there"
-                    .into(),
-            ));
+        for endpoint in [
+            &server.registration_endpoint,
+            &server.device_authorization_endpoint,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            net.check(endpoint).await?;
         }
         return Ok(server);
     }
     Err(OauthError::Unsupported(
         "the authorization server publishes no metadata".into(),
     ))
+}
+
+/// Refuses a server without PKCE S256 before any browser sign-in there. A device sign-in
+/// (RFC 8628) sends no code through the browser, so it has nothing for PKCE to guard.
+pub fn require_pkce(server: &AuthServer) -> Result<(), OauthError> {
+    let pkce = server
+        .code_challenge_methods_supported
+        .as_ref()
+        .is_some_and(|methods| methods.iter().any(|m| m == "S256"));
+    if pkce {
+        Ok(())
+    } else {
+        Err(OauthError::Unsupported(
+            "the authorization server does not support PKCE, so Spade will not sign in there"
+                .into(),
+        ))
+    }
 }
 
 /// Registers Spade as a public client (RFC 7591) with `redirect`.
@@ -432,8 +449,35 @@ async fn token_request(
     net: &Net,
     endpoint: &str,
     client: &Client,
-    mut form: Vec<(&'static str, String)>,
+    form: Vec<(&'static str, String)>,
 ) -> Result<Tokens, OauthError> {
+    let (status, answer) = post_token_form(net, endpoint, client, form).await?;
+    if !status.is_success() {
+        let code = answer.get("error").and_then(Value::as_str).unwrap_or("");
+        let why = described(&answer);
+        return Err(
+            if status == StatusCode::BAD_REQUEST || status == StatusCode::UNAUTHORIZED {
+                if code.is_empty() {
+                    OauthError::Refused(format!("HTTP {status}"))
+                } else {
+                    OauthError::Refused(format!("{code}{why}"))
+                }
+            } else {
+                OauthError::Network(format!("the sign-in server answered HTTP {status}"))
+            },
+        );
+    }
+    tokens_from(&answer)
+}
+
+/// Posts `form` to a token endpoint as `client`: a secret by the client's method, else the bare
+/// client ID (a public client). Returns the status and the JSON answer, whatever they are.
+async fn post_token_form(
+    net: &Net,
+    endpoint: &str,
+    client: &Client,
+    mut form: Vec<(&'static str, String)>,
+) -> Result<(StatusCode, Value), OauthError> {
     let (http, endpoint) = net.client(endpoint).await?;
     let mut request = http.post(endpoint).header("accept", "application/json");
     match (&client.secret, client.auth_method.as_str()) {
@@ -453,22 +497,11 @@ async fn token_request(
         ))
     })?;
     let status = response.status();
-    let answer = read_json(response).await?;
-    if !status.is_success() {
-        let code = answer.get("error").and_then(Value::as_str).unwrap_or("");
-        let why = described(&answer);
-        return Err(
-            if status == StatusCode::BAD_REQUEST || status == StatusCode::UNAUTHORIZED {
-                if code.is_empty() {
-                    OauthError::Refused(format!("HTTP {status}"))
-                } else {
-                    OauthError::Refused(format!("{code}{why}"))
-                }
-            } else {
-                OauthError::Network(format!("the sign-in server answered HTTP {status}"))
-            },
-        );
-    }
+    Ok((status, read_json(response).await?))
+}
+
+/// The tokens in a token endpoint's successful answer.
+fn tokens_from(answer: &Value) -> Result<Tokens, OauthError> {
     let access = answer
         .get("access_token")
         .and_then(Value::as_str)
@@ -613,6 +646,7 @@ mod tests {
             token_endpoint_auth_methods_supported: None,
             authorization_response_iss_parameter_supported: iss_supported,
             client_id_metadata_document_supported: None,
+            device_authorization_endpoint: None,
         }
     }
 
