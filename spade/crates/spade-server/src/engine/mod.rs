@@ -433,7 +433,7 @@ impl Engine {
             let admitted = self.admission.load(Ordering::SeqCst);
             let (start, stored) =
                 if quiet || !admitted || Transcript::fold(&events).open_reply().is_some() {
-                    (false, self.append_as(id, &[event.clone()], ask)?)
+                    (false, self.append_as(id, std::slice::from_ref(event), ask)?)
                 } else {
                     // Stored together, so a crash can never keep the input without its reply.
                     let model = self.reply_model(id);
