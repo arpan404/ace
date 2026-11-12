@@ -308,7 +308,10 @@ fn an_encrypted_scan_with_no_user_password_reads_and_its_huge_image_costs_nothin
     doc.encrypt(&state)?;
     let mut bytes = Vec::new();
     doc.save_to(&mut bytes)?;
-    assert!(Document::load_mem(&bytes)?.is_encrypted(), "the test file must be encrypted");
+    assert!(
+        Document::load_mem(&bytes)?.was_encrypted(),
+        "the test file must be encrypted"
+    );
     let read = read(&bytes, "statement.pdf")?;
     assert!(read.text.contains("Statement for May"), "{}", read.text);
     Ok(())
