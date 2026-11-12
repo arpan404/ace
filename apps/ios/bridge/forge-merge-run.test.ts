@@ -187,3 +187,22 @@ test("Start with a pick whose head moved since starts nothing and says to pick i
   });
   expect(daemon.services.verify.started).toEqual([]);
 });
+
+test("Start with a pick whose row left the list starts nothing and says to pick it again", async () => {
+  const { ask, daemon } = await connected();
+  const [first, second] = await ready(ask);
+  if (!first?.mergePick || !second?.mergePick) throw new Error("no ready rows");
+  // #233 was filtered out of the list after it was picked; only #224 is on show.
+  const reply = await write(ask, {
+    kind: "start",
+    method: "squash",
+    prs: [first.mergePick, second.mergePick],
+    rows: [{ key: second.key, base: "main", headSha: second.mergePick.headSha }],
+  });
+  expect(reply).toEqual({
+    type: "forge.write",
+    ok: false,
+    message: "#233 is no longer in the list. Pick it again to merge it.",
+  });
+  expect(daemon.services.verify.started).toEqual([]);
+});

@@ -14,6 +14,7 @@ import {
   mergeRunMethods,
   mergeRunRefusal,
   mergeSelection,
+  mergeStartRefusal,
   runWords,
   shownMergeRun,
 } from "@ace/ui-core";
@@ -69,7 +70,7 @@ export const ForgeMergeRunWriteRequest = z.object({
       kind: z.literal("start"),
       method: z.enum(["squash", "merge", "rebase"]),
       prs: z.array(MergePick).min(1).max(verifyMergeLimit),
-      /** The ready rows on show at the press: a pick whose head moved since starts nothing. */
+      /** The ready rows on show at the press: a pick whose head moved, or whose row left, starts nothing. */
       rows: z.array(ReadyRow).max(500).optional(),
     }),
     z.object({ kind: z.enum(["stop", "again", "dismiss"]), runId }),
@@ -238,8 +239,9 @@ export async function writeMergeRun(
   };
   try {
     if (op.kind === "start") {
-      const moved = op.rows ? mergeSelection(op.prs, op.rows).notice : undefined;
-      if (moved) return done(false, moved);
+      // A pick whose head moved, or whose row left the list, is picked again first.
+      const refused = op.rows ? mergeStartRefusal(op.prs, op.rows) : undefined;
+      if (refused) return done(false, refused);
       return await start({
         kind: "merge",
         method: op.method,
