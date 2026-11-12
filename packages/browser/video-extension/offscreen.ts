@@ -1,4 +1,9 @@
-import { EncodePacer, EncoderWatchdog } from "../src/video-pacing.ts";
+import {
+  EncodePacer,
+  EncoderWatchdog,
+  FirstPicture,
+  refreshPictureMs,
+} from "../src/video-pacing.ts";
 import { affordsSettleKey, QuantizerControl } from "../src/quantizer-control.ts";
 import { TabAudio } from "./audio.ts";
 
@@ -56,6 +61,10 @@ interface Capture {
   /** A tab capture's track and its frames; absent for a capture fed pushed pictures. */
   track: MediaStreamTrack | undefined;
   reader: FrameReader | undefined;
+  /** A tab capture's watch for its first picture; absent for pushed pictures. */
+  first: FirstPicture | undefined;
+  /** Ends the extra sink asking for a picture (`refreshPicture`) while one is open. */
+  probe: (() => void) | undefined;
   /** Pushed pictures: one decodes at a time, and only the newest waiting one is kept. */
   decoding: boolean;
   waiting: Uint8Array<ArrayBuffer> | undefined;
@@ -251,6 +260,7 @@ const busy = (entry: Encoder) => (entry.encoder?.encodeQueueSize ?? 0) > 2;
 
 /** A new captured frame: each encode takes it as its pacer says. The capture keeps it. */
 function feed(capture: Capture, frame: VideoFrame): void {
+  capture.first?.arrived();
   capture.last?.close();
   capture.last = frame;
   capture.lastAt = now();
@@ -288,12 +298,53 @@ function stop(id: string): void {
     if (entry.encoder?.state !== "closed") entry.encoder?.close();
   }
   capture.encoders.clear();
+  // The probe's clone holds the tab as much as the track does: a capture opened next on the
+  // same tab would be refused while it lives.
+  capture.probe?.();
   void capture.reader?.cancel().catch(() => {});
   capture.track?.stop();
   capture.waiting = undefined;
   capture.audio?.stop();
   capture.last?.close();
   capture.last = undefined;
+}
+
+/**
+ * Asks a tab capture for a picture now. Chrome sends a fresh picture to every sink of a capture
+ * when a sink is added, so a short-lived extra sink on a clone of the track brings one to the
+ * capture's own reader. The extra sink's pictures are closed unread: the encoders only ever
+ * take the reader's, in the order they come. The capture owns the probe: it ends with the
+ * first picture it sees, after `refreshPictureMs`, before the next one, or when the capture
+ * stops, whichever is first.
+ */
+function refreshPicture(capture: Capture, track: MediaStreamTrack): void {
+  capture.probe?.();
+  const clone = track.clone();
+  let reader: FrameReader | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const close = () => {
+    if (capture.probe === close) capture.probe = undefined;
+    clearTimeout(timer);
+    void reader?.cancel().catch(() => {});
+    clone.stop();
+  };
+  try {
+    reader = new MediaStreamTrackProcessor({ track: clone }).readable.getReader();
+  } catch {
+    clone.stop();
+    return;
+  }
+  capture.probe = close;
+  timer = setTimeout(close, refreshPictureMs);
+  void reader
+    .read()
+    .then(
+      ({ value }) => value?.close(),
+      () => {},
+    )
+    .finally(() => {
+      if (capture.probe === close) close();
+    });
 }
 
 /** Decodes a pushed-picture capture's newest waiting picture until none waits. */
@@ -319,10 +370,19 @@ async function decodePictures(capture: Capture): Promise<void> {
   }
 }
 
-// Owed keyframes on a still page, its sharper last picture, and encoders that stopped answering.
+// A tab capture still owed its first picture, owed keyframes on a still page, its sharper last
+// picture, and encoders that stopped answering.
 setInterval(() => {
   const at = now();
-  for (const capture of captures.values())
+  for (const capture of captures.values()) {
+    const step = capture.first?.step(at);
+    if (step === "refresh" && capture.track) refreshPicture(capture, capture.track);
+    if (step === "failed") {
+      // Not a picture in all that time: the daemon opens another capture.
+      stop(capture.id);
+      emit({ t: "ended", capture: capture.id, reason: "The tab capture sent no picture" });
+      continue;
+    }
     for (const entry of capture.encoders.values()) {
       if (entry.watchdog.stalled(at)) {
         void configure(capture, entry, "The encoder stopped producing output");
@@ -340,6 +400,7 @@ setInterval(() => {
         }
       }
     }
+  }
 }, 50);
 
 Object.assign(globalThis, {
@@ -406,6 +467,8 @@ Object.assign(globalThis, {
         id,
         track,
         reader: new MediaStreamTrackProcessor({ track }).readable.getReader(),
+        first: new FirstPicture(now()),
+        probe: undefined,
         decoding: false,
         waiting: undefined,
         last: undefined,
@@ -433,6 +496,8 @@ Object.assign(globalThis, {
         id,
         track: undefined,
         reader: undefined,
+        first: undefined,
+        probe: undefined,
         decoding: false,
         waiting: undefined,
         last: undefined,

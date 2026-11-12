@@ -6,7 +6,7 @@ mod support;
 
 use serde_json::{Value, json};
 use spade_testkit::connector::tool;
-use spade_testkit::{FakeConnector, Script};
+use spade_testkit::{ClientDocument, FakeConnector, Script};
 use support::{Options, Result, Spade};
 
 async fn with_connectors(scripts: Vec<Script>) -> Result<Spade> {
@@ -46,6 +46,50 @@ async fn main_conversation(spade: &Spade) -> Result<String> {
         .and_then(|a| a.iter().find(|a| a["kind"] == "main"))
         .ok_or("no main agent")?;
     Ok(main["conversation"].as_str().unwrap_or_default().to_owned())
+}
+
+#[tokio::test]
+async fn a_sign_in_as_spades_client_document_ends_at_the_shared_callback() -> Result {
+    let document = ClientDocument::start().await;
+    document.serve(&json!({
+        "client_id": document.url(),
+        "client_name": "Spade",
+        "redirect_uris": ["http://127.0.0.1/v1/connectors/callback"],
+        "token_endpoint_auth_method": "none",
+    }));
+    let app = FakeConnector::start(app_tools()).await;
+    app.fetch_client_documents();
+    let spade = Spade::start_with(
+        Vec::new(),
+        Vec::new(),
+        Options {
+            connectors: true,
+            client_metadata: Some(document.url()),
+            ..Options::default()
+        },
+    )
+    .await?;
+    let (status, started) = spade
+        .post(
+            "/v1/connectors",
+            json!({ "url": app.url(), "name": "Fake", "local": true }),
+        )
+        .await?;
+    assert_eq!(status, 202, "{started}");
+    let id = started["id"].as_str().unwrap_or_default().to_owned();
+    let back = app
+        .approve(started["sign_in_url"].as_str().unwrap_or_default())
+        .await;
+    assert!(
+        back.starts_with(&format!("{}/v1/connectors/callback?", spade.base)),
+        "{back}"
+    );
+    assert_eq!(app.registrations(), 0);
+    let page = reqwest::get(&back).await?;
+    assert_eq!(page.status().as_u16(), 200);
+    assert!(page.text().await?.contains("Connected to Fake"));
+    wait_connected(&spade, &id).await?;
+    Ok(())
 }
 
 #[tokio::test]

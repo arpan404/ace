@@ -14,6 +14,7 @@ import {
   type BrowserFailure,
 } from "@ace/ui-core";
 import type { ReactNode } from "react";
+import { emptyGlyphs } from "@/components/empty-glyphs.ts";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
@@ -160,7 +161,7 @@ export function LoadFailed(props: {
       role="alert"
       className="mx-auto flex w-full max-w-[520px] flex-col items-start px-8 pt-20 pb-10"
     >
-      <Icon icon={WarningCircleIcon} size={36} empty className="mb-4 text-muted-foreground" />
+      <Icon icon={emptyGlyphs.warning} size={36} className="mb-4 text-muted-foreground" />
       <h2 className="text-md font-medium text-foreground">{props.failure.title}</h2>
       <p className="mt-1 text-ui text-muted-foreground">{addressHost(props.url) ?? props.url}</p>
       <p className="mt-3 text-ui leading-normal text-muted-foreground">{props.failure.detail}</p>

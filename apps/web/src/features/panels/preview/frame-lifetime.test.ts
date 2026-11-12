@@ -7,7 +7,6 @@ import { memoryStorage } from "@/boot/client.ts";
 import { daemonPreview } from "./daemon-preview.ts";
 import { heldDecoder, playsH264 } from "./video-test-support.ts";
 
-const ignoreMessage = () => {};
 const clients: Client[] = [];
 afterEach(async () => {
   await Promise.all(clients.splice(0).map((client) => client.close()));
@@ -38,11 +37,16 @@ async function setup() {
   clients.push(client);
   await client.start();
   await waitFor(() => expect(client.state).toBe("ready"));
-  let receive: (message: ServerMessage) => void = ignoreMessage;
+  // Every listener the preview adds (its own, and the browsing watch's), so a message handed in
+  // reaches whichever one reads it.
+  const listeners: ((message: ServerMessage) => void)[] = [];
+  const receive = (message: ServerMessage) => {
+    for (const listener of listeners) listener(message);
+  };
   let quiet = false;
   const onMessage = client.onMessage.bind(client);
   client.onMessage = (listener) => {
-    receive = listener;
+    listeners.push(listener);
     return onMessage((message) => {
       if (!quiet || message.type !== "browser.state") listener(message);
     });

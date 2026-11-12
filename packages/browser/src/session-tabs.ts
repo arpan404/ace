@@ -69,6 +69,31 @@ export class SessionTabs {
     if (!runtime) throw new BrowserActionError("tab_not_found");
     return runtime;
   }
+  /**
+   * What a command must wait for before it is routed: the tab it would run on is listed, but the
+   * backend is still setting it up, so the session has no runtime for it yet. Undefined once that
+   * tab is ready (routing stays synchronous). A tab the backend no longer lists fails as not
+   * found instead of reaching the runtime it had.
+   */
+  setup(actor: Actor, tabId?: string): Promise<void> | undefined {
+    const tabs = this.backend().tabs;
+    if (!tabs?.ready) return undefined;
+    const listed = new Set(tabs.list().map((tab) => tab.tabId));
+    const id = tabId ?? this.selectedId(actor, listed);
+    if (!listed.has(id))
+      return this.runtimes.has(id)
+        ? Promise.reject(new BrowserActionError("tab_not_found"))
+        : undefined;
+    return this.runtimes.has(id) ? undefined : tabs.ready(id);
+  }
+  /** The tab `resolve` will pick once the session mirrors the backend's list. */
+  private selectedId(actor: Actor, listed: ReadonlySet<string>): string {
+    if (actor.kind === "agent") {
+      const cursor = this.cursors.get(actor.agentId);
+      if (cursor !== undefined && listed.has(cursor)) return cursor;
+    }
+    return this.viewedId();
+  }
   /** Prepare metadata for a tab the backend is about to report. */
   expect(tabId: string, meta: TabMeta): void {
     this.pending.set(tabId, meta);

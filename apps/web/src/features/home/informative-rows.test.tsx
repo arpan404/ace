@@ -4,12 +4,27 @@ import {
   waitingOnSubagents,
   watchingRelay,
   runningTests,
+  type Scenario,
 } from "@ace/fake-daemon";
 import { screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import { rowText } from "@/test/row-text.ts";
+
+/**
+ * The relay left running by a turn that then failed: the thread still waits on it. (A turn that
+ * replies is done with its commands left running, ADR 0116.)
+ */
+function relayAfterFailedTurn(): Scenario {
+  const scenario = watchingRelay();
+  for (const step of scenario.steps)
+    if (step.kind === "facts")
+      step.facts = step.facts.map((fact) =>
+        fact.type === "turn.ended" ? facts.endTurn("root", "failed") : fact,
+      );
+  return scenario;
+}
 
 function task(app: ReturnType<typeof harness>, id: string, title: string) {
   app.daemon.createThread({
@@ -73,7 +88,12 @@ test("a question draws its amber icon named Has a question and keeps the full ex
 
 test.each([
   [waitingOnSubagents, "agents", "Waiting for 2 subagents", "Waiting on 2 agents"],
-  [watchingRelay, "background", "Running in background bun run dev:relay", "Running in background"],
+  [
+    relayAfterFailedTurn,
+    "background",
+    "Running in background bun run dev:relay",
+    "Running in background",
+  ],
   [runningTests, "working", "Working · running tests", "Working"],
 ])(
   "a live Active row shows its time with its icon, the full wording in its name and hover card: %s",

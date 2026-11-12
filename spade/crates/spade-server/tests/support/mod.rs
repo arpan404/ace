@@ -164,6 +164,8 @@ pub struct Options {
     pub learning: Option<Arc<spade_server::learning::Learning>>,
     /// Sets up connectors (ADR 0131), with the mock keychain.
     pub connectors: bool,
+    /// With `connectors`: the client ID metadata document Spade signs in as.
+    pub client_metadata: Option<String>,
     /// The engine's clock; the machine's when absent.
     pub clock: Option<Arc<dyn Clock>>,
     /// The engine's ids; counting from 1 when absent.
@@ -262,6 +264,7 @@ impl Default for Options {
             workspaces: None,
             learning: None,
             connectors: false,
+            client_metadata: None,
             clock: None,
             ids: None,
             brains: None,
@@ -437,6 +440,7 @@ impl Spade {
                 timeout: Duration::from_secs(5),
                 relist: Duration::from_secs(600),
                 addresses: spade_connect::Addresses::system(),
+                client_metadata: options.client_metadata.clone(),
             })?;
             let source = spade_server::tools::ConnectorSource::new(
                 hub.clone(),

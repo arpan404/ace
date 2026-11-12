@@ -96,6 +96,16 @@ then never produced a chunk, without an error. The encoder therefore has a watch
 that has had frames for a second without output is replaced by the next configuration
 (hardware, then software, then the next codec).
 
+Tab capture sends one picture when it starts and then only when the page paints. Under load that
+first picture can be lost, and a still page then sends nothing, so no keyframe can be made and
+the viewer's video stays blank with no error. A tab capture with no picture yet asks Chrome for
+one every 0.5 s (a short-lived extra sink on a clone of its track, whose own pictures are
+dropped, and ended with the capture), and one with still none after 5 s ends with that reason.
+The daemon then opens another, waiting 5 s before it and doubling the wait with each capture in a
+row that fails before its first chunk, up to a minute. Meanwhile `browser.state` carries
+`video: { status: "retrying", reason, attempts }`; it goes once a chunk arrives or another tab is
+shown.
+
 Rejected:
 
 - **ffmpeg on the daemon fed by the JPEG screencast.** A second lossy step, a large binary to

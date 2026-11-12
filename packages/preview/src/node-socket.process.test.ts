@@ -76,6 +76,20 @@ function pattern(length: number, seed = 0) {
   return bytes;
 }
 
+/**
+ * Vitest's `toEqual` walks a Buffer byte by byte (about a second per 600 KB, over ten seconds
+ * for the 8 MiB upload), so compare natively and report only where the bytes part.
+ */
+function expectSameBytes(actual: Buffer, expected: Buffer) {
+  if (actual.equals(expected)) return;
+  let at = 0;
+  while (at < actual.byteLength && actual[at] === expected[at]) at++;
+  expect({ length: actual.byteLength, firstDifference: at }).toEqual({
+    length: expected.byteLength,
+    firstDifference: expected.byteLength,
+  });
+}
+
 test("a socket read larger than a window reaches the relay in order, one window at a time", async () => {
   const { raw, client } = await connectedPair();
   // Bun reads up to 512 KiB at once; put such a read back at the head of the socket.
@@ -87,7 +101,7 @@ test("a socket read larger than a window reaches the relay in order, one window 
   await read.ended;
 
   expect(read.pieces.every((piece) => piece.byteLength <= windowSize)).toBe(true);
-  expect(Buffer.concat(read.pieces)).toEqual(Buffer.concat([big, Buffer.from([7, 7, 7])]));
+  expectSameBytes(Buffer.concat(read.pieces), Buffer.concat([big, Buffer.from([7, 7, 7])]));
   expect(read.endedAfter()).toBe(read.pieces.length);
 });
 
@@ -103,7 +117,7 @@ test(
     const read = readLikeTheMux(raw);
     await read.ended;
 
-    expect(Buffer.concat(read.pieces)).toEqual(last);
+    expectSameBytes(Buffer.concat(read.pieces), last);
     expect(read.endedAfter()).toBe(read.pieces.length);
     // The close that follows reaches the relay after the end, not before it.
     raw.end();
@@ -129,7 +143,7 @@ test("data that arrives while bytes are held queues behind them", { timeout: 10_
   await read.ended;
 
   expect(read.pieces.every((piece) => piece.byteLength <= windowSize)).toBe(true);
-  expect(Buffer.concat(read.pieces)).toEqual(Buffer.concat([first, small, second]));
+  expectSameBytes(Buffer.concat(read.pieces), Buffer.concat([first, small, second]));
   expect(read.endedAfter()).toBe(read.pieces.length);
 });
 
@@ -175,7 +189,7 @@ test(
     });
     await read.ended;
 
-    expect(Buffer.concat(read.pieces)).toEqual(Buffer.concat([first, second, upload]));
+    expectSameBytes(Buffer.concat(read.pieces), Buffer.concat([first, second, upload]));
     expect(read.endedAfter()).toBe(read.pieces.length);
     expect(whileHeld).toHaveLength(2);
     // While held, the adapter stops taking bytes: what it holds settles instead of growing.

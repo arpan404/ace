@@ -19,6 +19,9 @@ const preflight = createRequire(join(root, "apps/web/package.json")).resolve(
 );
 /** markit's renderer as installed (prebuilt, from its release), served from inside the repository. */
 const markitIndex = `/${relative(root, join(markitPackageDirectory(), "index.js"))}`;
+/** markit's own stylesheet as installed, where the app's build resolves `@ace/markit-web/style.css`. */
+const markitStyle = `/${relative(root, join(markitPackageDirectory(), "style.css"))}`;
+const proseSheet = "/apps/web/src/components/markdown/markit-ace.css";
 const types: Record<string, string> = {
   ".js": "text/javascript",
   ".css": "text/css",
@@ -58,7 +61,7 @@ const pageFor = (
   wrapper = '<div class="markit-ace"><div id="answer"></div></div>',
 ) => `<!doctype html><html><head><meta charset="utf-8">
 <link rel="stylesheet" href="/preflight.css">
-<link rel="stylesheet" href="/apps/web/src/components/markdown/markit-ace.css"></head>
+<link rel="stylesheet" href="${proseSheet}"></head>
 <body>${wrapper}
 <script type="module">
 import { MarkitRenderer } from "${markitIndex}";
@@ -81,7 +84,14 @@ async function serve(page: string) {
     if (path === "/") return response.writeHead(200, { "content-type": "text/html" }).end(page);
     const file = path === "/preflight.css" ? preflight : join(root, path);
     try {
-      const body = readFileSync(file);
+      // The prose sheet imports markit's by package name, which only the app's build resolves.
+      const body =
+        path === proseSheet
+          ? readFileSync(file, "utf8").replace(
+              '@import "@ace/markit-web/style.css";',
+              `@import "${markitStyle}";`,
+            )
+          : readFileSync(file);
       response.writeHead(200, {
         "content-type": types[extname(file)] ?? "application/octet-stream",
       });

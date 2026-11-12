@@ -5,121 +5,17 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::Duration;
 
-use keyring_core::{CredentialStore, mock};
 use spade_connect::{
     Access, CallError, Callback, ConnectError, ConnectRequest, Connectors, FinishError, OsRandom,
-    Setup, Started, View,
+    Setup, Started,
 };
-use spade_keys::{KeyStore, SERVICE};
 use spade_mcp::{Part, Risk};
 use spade_store::Store;
 use spade_testkit::FakeConnector;
 use spade_testkit::connector::tool;
 
-type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
-
-struct Spade {
-    connectors: Arc<Connectors>,
-    keys: KeyStore,
-    database: std::path::PathBuf,
-    _dir: tempfile::TempDir,
-}
-
-fn spade() -> Result<Spade> {
-    spade_relisting(Duration::from_secs(600))
-}
-
-/// Spade reading each server's tool list again every `relist`.
-fn spade_relisting(relist: Duration) -> Result<Spade> {
-    let dir = tempfile::tempdir()?;
-    let database = dir.path().join("spade.sqlite");
-    let store: Arc<CredentialStore> = mock::Store::new()?;
-    let keys = KeyStore::with_store(store, SERVICE);
-    let connectors = Connectors::open(Setup {
-        store: Store::open(&database)?,
-        keys: Some(keys.clone()),
-        clock: spade_connect::system_clock(),
-        random: Arc::new(OsRandom),
-        catalogue: spade_connect::catalogue::shipped(),
-        timeout: Duration::from_secs(5),
-        relist,
-        addresses: spade_connect::Addresses::system(),
-    })?;
-    connectors.set_listening("127.0.0.1:4555".parse()?);
-    Ok(Spade {
-        connectors,
-        keys,
-        database,
-        _dir: dir,
-    })
-}
-
-fn app_tools() -> Vec<rmcp::model::Tool> {
-    vec![
-        tool("echo", Some(true), None),
-        tool("create_issue", None, None),
-        tool("delete_project", None, Some(true)),
-    ]
-}
-
-/// The fake app by its address, marked as a server on the person's own machine, which it is.
-fn by_url(url: &str) -> ConnectRequest {
-    ConnectRequest {
-        url: Some(url.to_owned()),
-        name: Some("Fake".into()),
-        local: true,
-        ..ConnectRequest::default()
-    }
-}
-
-/// Reads the redirect the browser would follow into the callback's query.
-fn callback(location: &str) -> Result<Callback> {
-    let url = url::Url::parse(location)?;
-    let mut callback = Callback {
-        // As Spade's route does: the connector is the path's last part.
-        connector: url
-            .path_segments()
-            .and_then(|mut s| s.next_back())
-            .map(str::to_owned),
-        ..Callback::default()
-    };
-    for (key, value) in url.query_pairs() {
-        match key.as_ref() {
-            "code" => callback.code = Some(value.into_owned()),
-            "state" => callback.state = Some(value.into_owned()),
-            "iss" => callback.iss = Some(value.into_owned()),
-            "error" => callback.error = Some(value.into_owned()),
-            _ => {}
-        }
-    }
-    Ok(callback)
-}
-
-async fn sign_in_url(spade: &Spade, request: ConnectRequest) -> Result<String> {
-    match spade.connectors.connect(request).await? {
-        Started::SignIn { url, .. } => Ok(url),
-        other => Err(format!("expected a sign-in, got {other:?}").into()),
-    }
-}
-
-/// Connects through the whole sign-in and waits for the tools to be listed.
-async fn signed_in(spade: &Spade, app: &FakeConnector) -> Result<View> {
-    let url = sign_in_url(spade, by_url(&app.url())).await?;
-    let back = app.approve(&url).await;
-    let view = spade.connectors.finish(callback(&back)?).await?;
-    wait_for(|| spade.connectors.get(&view.id).is_some_and(|v| v.tools > 0)).await?;
-    Ok(view)
-}
-
-async fn wait_for(check: impl Fn() -> bool) -> Result {
-    for _ in 0..250 {
-        if check() {
-            return Ok(());
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    Err("timed out waiting".into())
-}
+mod support;
+use support::*;
 
 fn text(result: &spade_mcp::McpToolResult) -> String {
     result
@@ -706,6 +602,7 @@ async fn connectors_survive_a_restart_and_reopen_from_the_keychain() -> Result {
         timeout: Duration::from_secs(5),
         relist: Duration::from_secs(600),
         addresses: spade_connect::Addresses::system(),
+        client_metadata: None,
     })?;
     again.start();
     wait_for(|| {

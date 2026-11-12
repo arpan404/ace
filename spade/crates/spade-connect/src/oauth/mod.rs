@@ -1,9 +1,10 @@
 //! OAuth 2.1 for remote MCP servers, as the MCP authorization spec (2026-07-28) asks of clients:
 //! protected-resource metadata, authorization-server metadata (OAuth, then OpenID Connect),
-//! dynamic client registration, PKCE with S256, `state`, the `resource` indicator, the RFC 9207
+//! client ID metadata documents ([`cimd`]), dynamic client registration, PKCE with S256, `state`, the `resource` indicator, the RFC 9207
 //! issuer check, code exchange and refresh. Errors never quote a token.
 
 pub mod challenge;
+pub mod cimd;
 pub mod net;
 pub mod pkce;
 pub mod wellknown;
@@ -64,6 +65,9 @@ pub struct AuthServer {
     pub token_endpoint_auth_methods_supported: Option<Vec<String>>,
     #[serde(default)]
     pub authorization_response_iss_parameter_supported: Option<bool>,
+    /// The server fetches a client's metadata from an `https` client ID ([`cimd`]).
+    #[serde(default)]
+    pub client_id_metadata_document_supported: Option<bool>,
 }
 
 /// A client Spade signs in as.
@@ -76,6 +80,9 @@ pub struct Client {
     pub auth_method: String,
     /// The redirect address the client was registered with, when Spade registered it.
     pub registered_redirect: Option<String>,
+    /// The client ID is Spade's metadata document ([`cimd`]): the same for every server, so
+    /// every answer must name its issuer.
+    pub metadata_document: bool,
 }
 
 /// Tokens from a token endpoint. The caller puts them in the keychain at once.
@@ -255,6 +262,8 @@ pub async fn register(
         "grant_types": ["authorization_code", "refresh_token"],
         "response_types": ["code"],
         "token_endpoint_auth_method": "none",
+        // The MCP spec asks for it: OpenID servers default to "web", which refuses loopback.
+        "application_type": "native",
     });
     let (http, endpoint) = net.client(endpoint).await?;
     let response = http
@@ -296,6 +305,7 @@ pub async fn register(
         secret,
         auth_method,
         registered_redirect: Some(redirect.to_owned()),
+        metadata_document: false,
     })
 }
 
@@ -315,6 +325,7 @@ pub fn preregistered(server: &AuthServer, id: &str, secret: Option<String>) -> C
         secret,
         auth_method: auth_method.to_owned(),
         registered_redirect: None,
+        metadata_document: false,
     }
 }
 
@@ -372,15 +383,19 @@ pub fn with_offline_access(mut scopes: Vec<String>, server: &AuthServer) -> Vec<
     scopes
 }
 
-/// The RFC 9207 check on the callback's `iss`, by the spec's table.
+/// The RFC 9207 check on the callback's `iss`, by the spec's table. A sign-in as Spade's
+/// metadata document needs `iss` whatever the server advertises: that client ID and its callback
+/// address are the same at every server, so only `iss` tells their answers apart (the document
+/// draft, section 7, makes it mandatory).
 pub fn issuer_matches(attempt: &Attempt, iss: Option<&str>) -> bool {
     match iss {
         Some(iss) => iss == attempt.server.issuer,
         None => {
-            attempt
-                .server
-                .authorization_response_iss_parameter_supported
-                != Some(true)
+            !attempt.client.metadata_document
+                && attempt
+                    .server
+                    .authorization_response_iss_parameter_supported
+                    != Some(true)
         }
     }
 }
@@ -597,6 +612,7 @@ mod tests {
             scopes_supported: Some(vec!["read".into(), "offline_access".into()]),
             token_endpoint_auth_methods_supported: None,
             authorization_response_iss_parameter_supported: iss_supported,
+            client_id_metadata_document_supported: None,
         }
     }
 
@@ -657,6 +673,13 @@ mod tests {
         let quiet = attempt(None);
         assert!(issuer_matches(&quiet, None));
         assert!(!issuer_matches(&quiet, Some("https://evil.example.com")));
+        let mut document = attempt(None);
+        document.client = cimd::client("https://acehq.dev/oauth/spade.json");
+        assert!(
+            !issuer_matches(&document, None),
+            "a metadata-document sign-in needs iss even where none is advertised"
+        );
+        assert!(issuer_matches(&document, Some("https://auth.example.com")));
         assert!(
             !issuer_matches(&quiet, Some("https://AUTH.example.com")),
             "compared as plain strings"

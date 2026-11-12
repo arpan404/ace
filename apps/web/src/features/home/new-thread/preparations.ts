@@ -1,5 +1,5 @@
 import { AccessMode, ProviderKind, WorktreeBase } from "@ace/protocol";
-import { readJson, type KeyValueStorage } from "@ace/ui-core";
+import { readJson, withoutMarkerCharacters, type KeyValueStorage } from "@ace/ui-core";
 import { useSyncExternalStore } from "react";
 import { z } from "zod";
 import { Choices } from "./choices.ts";
@@ -34,6 +34,14 @@ export type Preparation = z.infer<typeof Preparation>;
 const Records = z.array(z.tuple([z.string(), Preparation]));
 const storageKey = (host: string) => `ace.preparations:${host}`;
 export const preparationKey = newThreadDraftKey;
+
+/**
+ * A draft row's title: the first line of its words, without the marker each file leaves in
+ * them (a chip, never words), or `fallback` when no words are left.
+ */
+export function preparationTitle(text: string, fallback: string): string {
+  return withoutMarkerCharacters(text).trim().split("\n")[0]?.trim().slice(0, 100) || fallback;
+}
 
 // Notifications and failed-write notices stay in memory; durable rows remain the authority.
 const listeners = new Set<() => void>();

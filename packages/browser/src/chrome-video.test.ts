@@ -18,7 +18,13 @@ function driver(options: {
   /** The extension's targets now; they change when it is installed again. */
   targets?: () => { worker: string; offscreen: string };
   uninstall?: () => void;
+  /**
+   * The extension's targets start paused, as Chrome starts a target it auto-attaches: an
+   * evaluate on one never answers until `Runtime.runIfWaitingForDebugger` lets it run.
+   */
+  paused?: boolean;
 }) {
+  const resumed = new Set<string>();
   const targets = options.targets ?? (() => ({ worker: "worker", offscreen: "offscreen" }));
   const connection = new CdpConnection({
     write: () => {},
@@ -48,7 +54,10 @@ function driver(options: {
             return { sessionId: `${targets().offscreen}-document` };
           throw new Error("Unknown target");
         }
-        if (method === "Runtime.runIfWaitingForDebugger") return {};
+        if (method === "Runtime.runIfWaitingForDebugger") {
+          if (sessionId) resumed.add(sessionId);
+          return {};
+        }
         if (method === "Runtime.addBinding") return {};
         if (method === "Runtime.evaluate") {
           const globals = sessionId?.endsWith("-worker")
@@ -57,6 +66,8 @@ function driver(options: {
               ? options.offscreenGlobals
               : undefined;
           if (!globals) return {};
+          if (options.paused && sessionId && !resumed.has(sessionId))
+            return new Promise<never>(() => {});
           const expression = String(params?.["expression"]);
           try {
             let value: unknown = runInNewContext(expression, globals);
@@ -83,65 +94,61 @@ async function directory(): Promise<{ path: string; cleanup: () => Promise<void>
   return { path, cleanup: () => rm(path, { recursive: true, force: true }) };
 }
 
-test.runIf(process.platform === "win32")(
-  "on Windows, supported waits for the extension scripts before calling their exports",
-  async () => {
-    const dir = await directory();
-    try {
-      const workerGlobals: Globals = {};
-      const offscreenGlobals: Globals = {};
-      let delays = 0;
-      const connection = driver({ workerGlobals, offscreenGlobals });
-      const video = new ChromeVideo({
-        connection,
-        targets: { keep: () => {} },
-        directory: dir.path,
-        delay: async () => {
-          delays++;
-          if (delays === 2)
-            workerGlobals.aceVideo = {
-              ready: async () => {},
-              open: async () => ({ streamId: "stream-1" }),
-            };
-          if (delays === 4)
-            offscreenGlobals.aceVideo = {
-              supported: async (codecs: readonly string[]) =>
-                codecs.filter((codec) => codec === "vp8"),
-            };
-        },
-      });
-      await expect(video.supported(["vp8"], 320, 200)).resolves.toEqual(["vp8"]);
-    } finally {
-      await dir.cleanup();
-    }
-  },
-);
+test("the encoder waits for the extension's paused scripts to run before calling their exports", async () => {
+  const dir = await directory();
+  try {
+    const workerGlobals: Globals = {};
+    const offscreenGlobals: Globals = {};
+    let delays = 0;
+    // Under load Chrome attaches the worker and document before their scripts ran, on any
+    // platform: an export called then throws, or never answers while the target is paused.
+    const connection = driver({ workerGlobals, offscreenGlobals, paused: true });
+    const video = new ChromeVideo({
+      connection,
+      targets: { keep: () => {} },
+      directory: dir.path,
+      delay: async () => {
+        delays++;
+        if (delays === 2)
+          workerGlobals.aceVideo = {
+            ready: async () => {},
+            open: async () => ({ streamId: "stream-1" }),
+          };
+        if (delays === 4)
+          offscreenGlobals.aceVideo = {
+            supported: async (codecs: readonly string[]) =>
+              codecs.filter((codec) => codec === "vp8"),
+          };
+      },
+    });
+    await expect(video.supported(["vp8"], 320, 200)).resolves.toEqual(["vp8"]);
+  } finally {
+    await dir.cleanup();
+  }
+});
 
-test.runIf(process.platform === "win32")(
-  "on Windows, supported rejects bounded when the extension scripts never define their exports",
-  async () => {
-    const dir = await directory();
-    try {
-      const delays: number[] = [];
-      const connection = driver({ workerGlobals: {}, offscreenGlobals: {} });
-      const video = new ChromeVideo({
-        connection,
-        targets: { keep: () => {} },
-        directory: dir.path,
-        delay: async (milliseconds: number) => {
-          delays.push(milliseconds);
-        },
-      });
-      await expect(video.supported(["vp8"], 320, 200)).rejects.toThrow(
-        "The video extension did not start",
-      );
-      expect(delays.length).toBeLessThanOrEqual(50);
-      expect(delays.every((milliseconds) => milliseconds === 100)).toBe(true);
-    } finally {
-      await dir.cleanup();
-    }
-  },
-);
+test("the encoder fails in bounded time when the extension's scripts never define their exports", async () => {
+  const dir = await directory();
+  try {
+    const delays: number[] = [];
+    const connection = driver({ workerGlobals: {}, offscreenGlobals: {} });
+    const video = new ChromeVideo({
+      connection,
+      targets: { keep: () => {} },
+      directory: dir.path,
+      delay: async (milliseconds: number) => {
+        delays.push(milliseconds);
+      },
+    });
+    await expect(video.supported(["vp8"], 320, 200)).rejects.toThrow(
+      "The video extension did not start",
+    );
+    expect(delays.length).toBeLessThanOrEqual(50);
+    expect(delays.every((milliseconds) => milliseconds === 100)).toBe(true);
+  } finally {
+    await dir.cleanup();
+  }
+});
 
 /**
  * Chrome's tab capture as the video extension meets it, one tab per window: a stream id works

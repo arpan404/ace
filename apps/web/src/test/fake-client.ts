@@ -1,12 +1,15 @@
 import { Client } from "@ace/client";
 import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
 import { DeviceId, HostId } from "@ace/protocol";
+import { cleanup } from "@testing-library/react";
 import { afterEach } from "vitest";
 import { memoryStorage } from "@/boot/client.ts";
 
 type ClientStorage = ReturnType<typeof memoryStorage>;
 const running: Client[] = [];
+// Unmount first: a client closed under a mounted app has its views subscribe to a closed client.
 afterEach(async () => {
+  cleanup();
   await Promise.all(running.splice(0).map((client) => client.close()));
 });
 

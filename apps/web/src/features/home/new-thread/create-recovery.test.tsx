@@ -2,6 +2,7 @@ import { workbench } from "@ace/fake-daemon";
 import { act, configure, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
+import { composerWords, typeAtEnd } from "@/test/composer-text.ts";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 import { memoryStorage } from "@/boot/client.ts";
 
@@ -91,7 +92,7 @@ test("a refusal after composer remount joins the current prompt and retains the 
   await waitFor(() =>
     expect(screen.queryByRole("progressbar", { name: "Uploading original.txt" })).toBeNull(),
   );
-  await userEvent.type(await screen.findByRole("combobox", { name: "Message" }), "Original prompt");
+  await typeAtEnd(await screen.findByRole("combobox", { name: "Message" }), "Original prompt");
   await waitFor(() =>
     expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).not.toBe(
       "true",
@@ -108,15 +109,15 @@ test("a refusal after composer remount joins the current prompt and retains the 
   await userEvent.type(screen.getByRole("combobox", { name: "Message" }), "Newer prompt");
   await act(async () => gate.resolve());
   await waitFor(() =>
-    expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
-      "Newer prompt\n\nOriginal prompt",
+    expect(composerWords(screen.getByRole("combobox", { name: "Message" }))).toBe(
+      "Newer prompt\n\n[original.txt]Original prompt",
     ),
   );
   expect(screen.getByRole("button", { name: "Remove original.txt" })).toBeTruthy();
   cleanup();
   await made.open("/new?project=relay");
-  expect((await screen.findByRole("combobox", { name: "Message" })).textContent).toBe(
-    "Newer prompt\n\nOriginal prompt",
+  expect(composerWords(await screen.findByRole("combobox", { name: "Message" }))).toBe(
+    "Newer prompt\n\n[original.txt]Original prompt",
   );
   expect(screen.getByRole("button", { name: "Remove original.txt" })).toBeTruthy();
 });
@@ -146,7 +147,7 @@ test("a new thread whose outbox cannot save restores its draft across reload", a
   await waitFor(() =>
     expect(screen.queryByRole("progressbar", { name: "Uploading notes.txt" })).toBeNull(),
   );
-  await userEvent.type(field, "Restore the failed thread start");
+  await typeAtEnd(field, "Restore the failed thread start");
   await waitFor(() =>
     expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).not.toBe(
       "true",
@@ -155,8 +156,8 @@ test("a new thread whose outbox cannot save restores its draft across reload", a
   fail = true;
   await userEvent.keyboard("{Enter}");
   await waitFor(() =>
-    expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
-      "Restore the failed thread start",
+    expect(composerWords(screen.getByRole("combobox", { name: "Message" }))).toBe(
+      "[notes.txt]Restore the failed thread start",
     ),
   );
   expect(await screen.findByRole("button", { name: "Remove notes.txt" })).toBeTruthy();
@@ -165,8 +166,8 @@ test("a new thread whose outbox cannot save restores its draft across reload", a
   const again = harness({ storage, outbox });
   for (const scenario of workbench()) again.play(scenario).runUntilBlocked();
   await again.open("/new?project=relay");
-  expect((await screen.findByRole("combobox", { name: "Message" })).textContent).toBe(
-    "Restore the failed thread start",
+  expect(composerWords(await screen.findByRole("combobox", { name: "Message" }))).toBe(
+    "[notes.txt]Restore the failed thread start",
   );
 });
 
@@ -199,7 +200,7 @@ test("a rejected new-thread save preserves both prompts and the original file th
   await waitFor(() =>
     expect(screen.queryByRole("progressbar", { name: "Uploading original.txt" })).toBeNull(),
   );
-  await userEvent.type(field, "Original prompt");
+  await typeAtEnd(field, "Original prompt");
   await waitFor(() =>
     expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).not.toBe(
       "true",
@@ -211,8 +212,8 @@ test("a rejected new-thread save preserves both prompts and the original file th
   saving.resolve();
   await screen.findByText("This device couldn't save the new thread. Try again.");
   await waitFor(() =>
-    expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
-      "Second draft\n\nOriginal prompt",
+    expect(composerWords(screen.getByRole("combobox", { name: "Message" }))).toBe(
+      "Second draft\n\n[original.txt]Original prompt",
     ),
   );
   expect(screen.getByRole("button", { name: "Remove original.txt" })).toBeTruthy();
@@ -220,8 +221,8 @@ test("a rejected new-thread save preserves both prompts and the original file th
   // Reload the page against the same daemon, which still owns the uploaded bytes.
   hold = false;
   await first.open("/new?project=relay");
-  expect((await screen.findByRole("combobox", { name: "Message" })).textContent).toBe(
-    "Second draft\n\nOriginal prompt",
+  expect(composerWords(await screen.findByRole("combobox", { name: "Message" }))).toBe(
+    "Second draft\n\n[original.txt]Original prompt",
   );
   expect(await screen.findByRole("button", { name: "Remove original.txt" })).toBeTruthy();
   await waitFor(() =>

@@ -29,7 +29,11 @@ export const VideoEncoderEvent = z.discriminatedUnion("t", [
     age: z.number().finite().min(0).max(60_000),
   }),
   z.object({ t: z.literal("failed"), capture: z.string().max(256), encode: z.string().max(256) }),
-  z.object({ t: z.literal("ended"), capture: z.string().max(256) }),
+  z.object({
+    t: z.literal("ended"),
+    capture: z.string().max(256),
+    reason: z.string().max(2048).optional(),
+  }),
 ]);
 export type VideoEncoderEvent = z.infer<typeof VideoEncoderEvent>;
 
@@ -47,7 +51,7 @@ export function deliverVideoEvent(
   if (!events) return;
   if (event.t === "ended") {
     captures.delete(event.capture);
-    events.ended();
+    events.ended(event.reason);
     return;
   }
   if (event.t === "failed") return events.failed(event.encode);

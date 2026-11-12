@@ -2,10 +2,19 @@ import { openEffortControl, chooseEffort, chooseSpeed } from "@/test/model-contr
 import { openProfileView, openThreads } from "@/test/navigation.ts";
 import { workbench } from "@ace/fake-daemon";
 import { CatalogModel } from "@ace/protocol";
-import { configure, act, cleanup, screen, waitFor, within } from "@testing-library/react";
+import {
+  configure,
+  act,
+  cleanup,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
+import { composerWords } from "@/test/composer-text.ts";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 import {
   chooseModel,
@@ -223,7 +232,7 @@ test("Shift+Enter writes a new line instead of sending", async () => {
   await made.open("/new");
   const field = await prompt();
   await userEvent.type(field, "First line{Shift>}{Enter}{/Shift}second line");
-  expect((field as HTMLDivElement).textContent).toBe("First line\nsecond line");
+  expect(composerWords(field)).toBe("First line\nsecond line");
   expect(listed(made)).toHaveLength(workbench().length);
 });
 
@@ -532,7 +541,15 @@ test("Enter opens the new thread at once with the message as its first bubble, e
   act(() => made.daemon.refuseConnections(true));
   await waitFor(() => expect(made.client.state).not.toBe("ready"));
 
-  await userEvent.type(field, "Trace the **reconnect** storm @src/relay.ts{Enter}");
+  // Pasted, so the Markdown goes as written: typed, the composer carries the bold past "**".
+  fireEvent.paste(field, {
+    clipboardData: {
+      files: [],
+      items: [],
+      getData: () => "Trace the **reconnect** storm @src/relay.ts",
+    },
+  });
+  await userEvent.type(field, "{Enter}", { skipClick: true });
   // The header reads the provisional title; the message is the first bubble, on its way.
   await screen.findByRole("heading", { level: 1, name: "Trace the reconnect storm" });
   const feed = screen.getByRole("feed", { name: "Transcript" });

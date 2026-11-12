@@ -2,6 +2,7 @@ import { longHistory } from "@ace/fake-daemon";
 import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
+import { typeAtEnd } from "@/test/composer-text.ts";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 import { memoryStorage } from "@/boot/client.ts";
 import { resetDismissed } from "./composer/dismissed-sends.ts";
@@ -101,7 +102,7 @@ test("Retry preserves an uploaded attachment after a failed save and reload", as
     expect(screen.queryByRole("progressbar", { name: "Uploading notes.txt" })).toBeNull(),
   );
   fail = true;
-  await userEvent.type(screen.getByRole("combobox", { name: "Message" }), "Keep the file{Enter}");
+  await typeAtEnd(screen.getByRole("combobox", { name: "Message" }), "Keep the file{Enter}");
   await screen.findByRole("button", { name: "Retry" });
   cleanup();
   await first.client.close();

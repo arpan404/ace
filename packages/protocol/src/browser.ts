@@ -384,6 +384,16 @@ export const BrowserOriginBlock = z.object({
   reason: z.enum(["approval_required", "timeout", "invalid_origin"]),
 });
 export type BrowserOriginBlock = z.infer<typeof BrowserOriginBlock>;
+/**
+ * The live video can't start (ADR 0088): the shown tab's capture keeps failing before its first
+ * picture, and is tried again, waiting longer each time. `attempts` counts the failures in a row.
+ */
+export const BrowserVideoStatus = z.object({
+  status: z.enum(["retrying"]),
+  reason: z.string().max(2048),
+  attempts: z.number().int().positive(),
+});
+export type BrowserVideoStatus = z.infer<typeof BrowserVideoStatus>;
 export const BrowserState = z.object({
   threadId: ThreadId,
   url: z.string().max(8192),
@@ -415,6 +425,8 @@ export const BrowserState = z.object({
    * cursors are drawn in the page itself, so clients draw none over frames. Unknown names are kept.
    */
   features: z.array(z.string().max(64)).max(32).optional(),
+  /** Set while the live video can't start and is being retried; absent once video plays. */
+  video: BrowserVideoStatus.optional(),
 });
 export type BrowserState = z.infer<typeof BrowserState>;
 export const BrowserFrame = z.object({

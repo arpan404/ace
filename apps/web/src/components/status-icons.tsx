@@ -9,10 +9,11 @@ import {
   TerminalWindowIcon,
   WarningCircleIcon,
   type Icon,
-  type IconWeight,
 } from "@phosphor-icons/react";
 import type { RowStatusIconKind, RowStatusTone } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
+// Typed to the weights the build keeps (icon-weights.ts), so `weight={entry.weight}` is one of them.
+import type { UsedIconWeight } from "../../icon-weights.ts";
 import { WaitingCountMark } from "./waiting-count-mark.tsx";
 
 /*
@@ -22,7 +23,10 @@ import { WaitingCountMark } from "./waiting-count-mark.tsx";
  * through `StatusIcon`. Nothing animates.
  */
 
-const glyphs: Record<Exclude<RowStatusIconKind, "agents">, { icon: Icon; weight: IconWeight }> = {
+const glyphs: Record<
+  Exclude<RowStatusIconKind, "agents">,
+  { icon: Icon; weight: UsedIconWeight }
+> = {
   model: { icon: SparkleIcon, weight: "fill" },
   approve: { icon: HandPalmIcon, weight: "fill" },
   question: { icon: QuestionIcon, weight: "fill" },
