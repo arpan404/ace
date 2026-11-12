@@ -9,6 +9,9 @@ import { useSpadeClient } from "./spade-machine.tsx";
 import { SpadeModelPicker } from "./spade-model-picker.tsx";
 import { modelsKey } from "./use-spade-models.ts";
 
+/** What the transcription row says under its title, also while it loads. */
+export const transcriptionWords = "Turns voice messages into words when this device can't.";
+
 /**
  * The transcription model (ADR 0134), which turns voice messages into words where the device
  * can't: any model on one of the person's endpoints, picked as a bot's model is. Picking one
@@ -37,7 +40,7 @@ export function TranscriptionRow(props: { models: SpadeModels }) {
   return (
     <SettingRow
       title="Transcription"
-      description="Turns voice messages into words when this device can't."
+      description={transcriptionWords}
       htmlFor={id}
       density="compact"
     >

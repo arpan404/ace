@@ -4,12 +4,12 @@ import { useId, useState } from "react";
 import { SettingAddRow, SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
-import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { AddConnectorDialog } from "./spade-add-connector.tsx";
 import { connectHere, connectInBrowser } from "./spade-connect-flow.ts";
 import { connectorsKey, disconnect, reconnect, useSpadeConnectors } from "./spade-connector-api.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
+import { LoadingRows } from "./spade-settings-loading.tsx";
 
 const fault = (error: unknown) => (error instanceof Error ? error.message : "Try again.");
 
@@ -17,10 +17,15 @@ const fault = (error: unknown) => (error instanceof Error ? error.message : "Try
  * Settings › Spade › Connectors (ADR 0131): the apps Spade is connected to, each with its state
  * and what it needs (reconnect when its sign-in ended), and Connect an app.
  */
-export function ConnectorSettings() {
-  const connectors = useSpadeConnectors();
+export function ConnectorSettings(props: { ready: boolean }) {
+  const connectors = useSpadeConnectors(props.ready);
   const [adding, setAdding] = useState(false);
-  if (connectors.isPending) return <ListSkeleton label="connectors" shape="row" rows={2} />;
+  if (connectors.isPending)
+    return (
+      <SettingSection label="Connectors">
+        <LoadingRows label="Connectors" rows={1} />
+      </SettingSection>
+    );
   if (connectors.isError)
     return (
       <SettingSection label="Connectors">

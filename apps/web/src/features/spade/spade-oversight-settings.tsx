@@ -10,6 +10,7 @@ import { oversightKey, readOversight, setOversight } from "./spade-oversight-api
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import { useSpadeRoster } from "./use-spade-roster.ts";
 import { useTellZone } from "./use-spade-zone.ts";
+import { LoadingRows } from "./spade-settings-loading.tsx";
 
 const fault = (error: unknown) => (error instanceof Error ? error.message : "Try again.");
 
@@ -18,16 +19,17 @@ const fault = (error: unknown) => (error instanceof Error ? error.message : "Try
  * service's daily cap (read only) and what every bot spent together, then one line per bot with
  * its spend and caps. Each bot's own caps and review are in its edit form.
  */
-export function OversightSettings() {
+export function OversightSettings(props: { ready: boolean }) {
   const client = useSpadeClient();
   const machine = useSpadeMachine().key;
   const cache = useQueryClient();
   const toast = useToast();
   const id = useId();
-  useTellZone(useMemo(() => [client], [client]));
+  useTellZone(useMemo(() => (props.ready ? [client] : []), [client, props.ready]));
   const oversight = useQuery({
     queryKey: [...oversightKey, machine],
     queryFn: ({ signal }) => readOversight(client, signal),
+    enabled: props.ready,
   });
   const roster = useSpadeRoster(true);
   const bots = roster.bots.filter((bot) => bot.machine.key === machine);
@@ -37,10 +39,15 @@ export function OversightSettings() {
       (error: unknown) =>
         toast.error({ title: `Couldn't change ${what}`, description: fault(error) }),
     );
-  if (oversight.isPending) return null;
+  if (oversight.isPending)
+    return (
+      <SettingSection label="Spending and review" anchor="spending">
+        <LoadingRows label="Spending and review" rows={3} />
+      </SettingSection>
+    );
   if (oversight.isError)
     return (
-      <SettingSection label="Spending and review">
+      <SettingSection label="Spending and review" anchor="spending">
         <SettingRow title="Couldn't read Spade's spending" description={oversight.error.message}>
           <Button size="sm" onClick={() => void oversight.refetch()}>
             Try again
