@@ -100,7 +100,11 @@ export function SpadeRoutines(props: { bot: RosterBot }) {
               </Button>
             </SettingRow>
           ) : (
-            <SettingRow title="Heartbeat" description={heartbeatFacts(heartbeat.data, now)} inline>
+            <SettingRow
+              title={heartbeat.data.checklist.split("\n")[0]?.trim() || "No checklist yet"}
+              description={heartbeatFacts(heartbeat.data, now)}
+              inline
+            >
               <div className="flex items-center gap-2">
                 <Button
                   size="sm"
