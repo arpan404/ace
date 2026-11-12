@@ -134,6 +134,7 @@
         "@types/ws": "^8.18.1",
         "image-size": "^2.0.2",
         "jsqr": "1.4.0",
+        "smol-toml": "^1.4.2",
       },
     },
     "apps/desktop": {

@@ -8,6 +8,7 @@ import { openCursorMcp } from "./cursor-mcp.ts";
 import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
 import { AgentId } from "@ace/protocol";
 import { withDaemonMcp, withShippedSkills } from "./provider-mcp.ts";
+import { withNativeTools } from "./native-tools.ts";
 import { acpEngineOptions } from "../acp-engine.ts";
 import { ManagedWorktrees } from "../managed-worktrees.ts";
 import { daemonClaudeAdapter } from "./claude.ts";
@@ -101,8 +102,20 @@ export async function startEngine(context: ServiceContext): Promise<void> {
         createInstance({ ...defaultInstance, provider: "cursor", label: "Cursor" }),
       );
   };
+  const nativeTools = {
+    // Read at each launch: settings may start after the engine.
+    get settings() {
+      return services.settings;
+    },
+    log,
+    env: options.accounts?.env ?? process.env,
+  };
   const bindProvider = (source: ProviderAdapter) => {
-    const adapter = configuredAdapter(source, services.providerConfigurations);
+    // Innermost, so the person's tool setup applies to whichever account is chosen (ADR 0128).
+    const adapter = withNativeTools(
+      nativeTools,
+      configuredAdapter(source, services.providerConfigurations),
+    );
     if (!accounts || !accountRegistry || !AccountProvider.safeParse(adapter.provider).success)
       return withDaemonMcp(context, {
         ...adapter,
