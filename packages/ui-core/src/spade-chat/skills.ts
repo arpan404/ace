@@ -84,8 +84,8 @@ export function withProposals(
     if (entry.kind !== "reply") return;
     for (const part of entry.parts) if (part.kind === "call") callAt.set(part.key, index);
   });
-  const placed = [...proposals]
-    .sort((a, b) => a.createdAt - b.createdAt)
+  const placed = proposals
+    .toSorted((a, b) => a.createdAt - b.createdAt)
     .map((proposal) => ({ proposal, at: callAt.get(proposal.callId) ?? Infinity }));
   const items: SpadeChatItem[] = [];
   const drop = (upTo: number) => {
