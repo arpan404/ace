@@ -75,9 +75,9 @@ function ClaudeChromeRow(props: { tool: NativeToolStatus }) {
       id={row.id}
       title={props.tool.label}
       description={
-        <span className={cn("inline-flex items-center gap-1.5", look.className)}>
-          <StatusGlyph state={look.glyph} size={12} />
-          {props.tool.reason ?? look.words}
+        <span className={cn("flex items-start gap-1.5", look.className)}>
+          <StatusGlyph state={look.glyph} size={12} className="mt-[3px]" />
+          <span>{props.tool.reason ?? look.words}</span>
         </span>
       }
       inline

@@ -145,7 +145,9 @@ function FolderDialog(props: {
             <Button type="button" variant="ghost" onClick={() => close(false)}>
               Cancel
             </Button>
-            <Button type="submit">Use folder</Button>
+            <Button type="submit" variant="primary">
+              Use folder
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>
