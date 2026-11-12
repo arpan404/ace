@@ -39,7 +39,7 @@ native/screen-helper-windows/target/
 /.claude/*
 !/.claude/skills/
 
-# Markit web worker + Wasm are built from the packages/markit submodule.
+# markit's web worker and Wasm, copied from the installed @markit/web by bun install.
 apps/web/public/markit/
 
 # Per-file test timings from scripts/test-run.ts (bun run test, test:fast, ...).
