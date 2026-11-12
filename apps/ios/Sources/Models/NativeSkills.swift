@@ -142,6 +142,8 @@ struct PluginAgents: Decodable, Identifiable, Equatable {
     struct Agent: Decodable, Identifiable, Equatable { let id: String; let name: String; let on: Bool }
     let name: String
     let version: String
+    /// The repository and branch it was installed from, when the machine recorded them.
+    let source: String?
     let on: Bool
     let enabled: Bool
     let summary: String
@@ -150,3 +152,29 @@ struct PluginAgents: Decodable, Identifiable, Equatable {
 }
 struct PluginAgentsList: Decodable { let plugins: [PluginAgents] }
 struct PluginAgentsChanged: Decodable { let plugin: PluginAgents }
+
+/// What a repository's marketplace offers (`bridge/skill-plugins.ts` `find`). `manual`: it
+/// couldn't be read, so the plugin's name is typed, starting from `picked`.
+struct PluginMarketplace: Decodable, Equatable {
+    struct Listing: Decodable, Identifiable, Equatable {
+        let name: String
+        let version: String?
+        let description: String?
+        var id: String { name }
+    }
+    let repository: String
+    let ref: String
+    let from: String
+    let plugins: [Listing]
+    let picked: String?
+    let manual: Bool
+    let note: String?
+}
+/// The chosen plugin, checked and written as `plugins.prepare` takes it.
+struct PluginSourceChecked: Decodable {
+    struct Prepare: Decodable { let type: String; let repository: String; let ref: String; let name: String }
+    let prepare: Prepare
+    var operation: [String: Any] {
+        ["type": prepare.type, "repository": prepare.repository, "ref": prepare.ref, "name": prepare.name]
+    }
+}
