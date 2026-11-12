@@ -86,9 +86,12 @@ a TCP port.
    work still running no longer starts the idle window, so the server isn't killed five minutes
    after the reply; settling or archiving the thread releases the provider at once, as before,
    which ends its process group. Archiving asks first while commands are left running ("Archiving
-   stops 2 commands it left running."), since the row reads Done and Undo can't restart them. A wake the provider does send later (a Claude server crashing or
-   reaching its cap) starts a new turn, and the delegation edge revives as it does for any later
-   work.
+   stops 2 commands it left running."), since the row reads Done and Undo can't restart them. After
+   a daemon restart no provider session is left to reach them, so work still marked running reads
+   `unknown` (lost track of, possibly running), the end a provider exit gives it, and the row and
+   the archive question no longer count it. A wake the provider does send later (a Claude server
+   crashing or reaching its cap) starts a new turn, and the delegation edge revives as it does for
+   any later work.
 
 6. **Delegation settles on thread status**, unchanged: a child whose only live work was released
    reads `done`, so its edge settles and the parent receives the result.
