@@ -342,7 +342,11 @@ test("in the Inbox, finished work follows running and waiting work", async () =>
   expect(before("Dedupe thread events after reconnect", "Bump Codex app-server to 0.48")).toBe(
     true,
   );
-  expect(before("Backpressure on broadcast fan-out", "Bump Codex app-server to 0.48")).toBe(true);
+  // Waiting on the person. (The fan-out replied with its soak test left running: it is done,
+  // finished work like the bump, ADR 0116.)
+  expect(before("Retry budget for app-server restarts", "Bump Codex app-server to 0.48")).toBe(
+    true,
+  );
 });
 
 test("Up and Down (and j and k) move between the Inbox's rows, across projects", async () => {

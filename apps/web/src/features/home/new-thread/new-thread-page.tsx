@@ -64,6 +64,7 @@ import {
   retirePreparationScope,
   retainPromotedPreparation,
   preparationKey,
+  preparationTitle,
   savePreparation,
   type Preparation,
   usePreparationsChanged,
@@ -452,8 +453,7 @@ function PreparationPage(props: {
               (scope.draftId === undefined && !claimed(scopeId.current))
             ? scopeId.current
             : undefined,
-      title:
-        previous?.title ?? content?.text.trim().split("\n")[0]?.slice(0, 100) ?? "New preparation",
+      title: previous?.title ?? (content ? preparationTitle(content.text, "") : "New preparation"),
       ...patch,
     });
     metadataSaveRefused.current = !saved;
@@ -593,13 +593,13 @@ function PreparationPage(props: {
     if (landed) composer.current?.submit(landed.opposite);
   }, [landed]);
   const keepCarried = useEffectEvent(() =>
-    remember({ title: carried?.trim().split("\n")[0]?.slice(0, 100) || "New preparation" }),
+    remember({ title: preparationTitle(carried ?? "", "New preparation") }),
   );
   useEffect(() => {
     if (carried) keepCarried();
   }, [carried]);
   const keepHanded = useEffectEvent((text: string) => {
-    remember({ title: text.trim().split("\n")[0]?.slice(0, 100) || "New preparation" });
+    remember({ title: preparationTitle(text, "New preparation") });
     if (source) forgetHandedNewThreadText(source, text);
   });
   useEffect(() => {
@@ -910,7 +910,7 @@ function PreparationPage(props: {
                   return;
                 }
                 remember({
-                  title: content.text.trim().split("\n")[0]?.slice(0, 100) || "Attached files",
+                  title: preparationTitle(content.text, "Attached files"),
                 });
               }}
               initialText={
@@ -978,9 +978,7 @@ function PreparationPage(props: {
                             }
                             contentSaveRefused.current = false;
                             remember({
-                              title:
-                                content.text.trim().split("\n")[0]?.slice(0, 100) ||
-                                "New preparation",
+                              title: preparationTitle(content.text, "New preparation"),
                             });
                           }}
                         >

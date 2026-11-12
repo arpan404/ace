@@ -126,8 +126,8 @@ export function oneTurnWork(id = "thread-one-turn"): Scenario {
 }
 
 /**
- * A turn that built the app in the background (that finished) and left the dev relay running:
- * the thread watches the relay.
+ * A turn that built the app in the background (that finished), left the dev relay running and
+ * replied: the thread is done, the relay still listed as running (ADR 0116).
  */
 export function watchingRelay(id = "thread-watching-relay"): Scenario {
   return {

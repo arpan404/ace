@@ -131,8 +131,8 @@ test("Archive takes effect on the daemon at once and Undo unarchives it", async 
   };
   const menu = await rightClick(/Backpressure/);
   await userEvent.click(within(menu).getByRole("menuitem", { name: "Archive" }));
-  // It is still working, so it asks first.
-  await userEvent.click(await screen.findByRole("button", { name: "Archive, keep running" }));
+  // It replied with its soak test left running, so it reads done and archives without asking
+  // (ADR 0116).
   await waitFor(() => expect(card(/Backpressure/)).toBeNull());
   expect(await screen.findByText("Archived · Backpressure on broadcast fan-out")).toBeTruthy();
   await waitFor(() => expect(archivedAt()).toBeDefined());
