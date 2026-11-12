@@ -1,23 +1,31 @@
-import {
-  emptySpadeConversation,
-  foldSpade,
-  parseSpadeEvents,
-  parseSpadeLiveFrame,
-  spadeView,
-  type SpadeFoldInput,
-  type SpadeView,
-} from "@ace/ui-core/spade-chat";
-import { segment, spadeHttp, SpadeRequestError } from "./spade-requests.ts";
-import type { LiveEnd, SpadeTransport } from "./spade-transport.ts";
+import type { SpadeLiveEnd, SpadeLiveSink } from "@ace/client/spade-live";
+import { emptySpadeConversation, foldSpade, type SpadeFoldInput } from "./fold.ts";
+import { SpadeRequestError, spadeUnanswered } from "./requests.ts";
+import { spadeView, type SpadeView } from "./view.ts";
+import { parseSpadeEvents, parseSpadeLiveFrame, type SpadeImageRef } from "./wire.ts";
+
+/**
+ * The way to Spade a follow uses: its live streams, and `read` for a page of history, which
+ * resolves with Spade's text on 2xx and rejects otherwise (a `SpadeRequestError` with Spade's
+ * status when it answered). The web's transport, or the daemon's `spade.*` family on a phone.
+ */
+export interface SpadeFollowLink {
+  /** Whether a live stream can open now; a false answer is followed by `onOpenable`. */
+  canOpen(): boolean;
+  onOpenable(listener: () => void): () => void;
+  /** Opens a live stream (a `/v1/.../live?after=N` path); returns its close. */
+  open(path: string, sink: SpadeLiveSink): () => void;
+  read(path: string): Promise<string>;
+}
 
 /** What the shell can't control: the frame clock and timers. */
-export interface FollowDeps {
+export interface SpadeFollowDeps {
   /** Run `callback` before the next paint; frames that arrive together render once. */
   frame(callback: () => void): void;
   later(delay: number, callback: () => void): () => void;
 }
 
-export interface FollowSnapshot {
+export interface SpadeFollowSnapshot {
   view: SpadeView;
   /** Why the conversation can't be followed live, in words; undefined while it can. */
   problem: string | undefined;
@@ -27,18 +35,21 @@ export interface FollowSnapshot {
 const pageSize = 200;
 
 /** Ends after which a new stream picks up where the last left off, after a pause. */
-const resumable = new Set<LiveEnd>(["restarted", "closed", "unavailable", "limit"]);
+const resumable = new Set<SpadeLiveEnd>(["restarted", "closed", "unavailable", "limit"]);
+
+/** A path segment from an id Spade gave us. */
+const segment = (id: string) => encodeURIComponent(id);
 
 /**
- * One conversation followed live, straight from Spade or through the daemon (`SpadeTransport`).
+ * One conversation followed live, by whichever way the client reaches Spade (`SpadeFollowLink`).
  * Every stream asks for events after the last `seq` already folded, and the fold drops any it
  * has seen, so a reconnect, a socket move, a switch between the two ways or a Spade restart
  * never repeats or loses a message. A new stream opens when the transport can open one and
  * Spade is ready (`setReady`).
  */
-export class ConversationFollow {
+export class SpadeConversationFollow {
   private state = emptySpadeConversation();
-  private snapshot: FollowSnapshot;
+  private snapshot: SpadeFollowSnapshot;
   private listeners = new Set<() => void>();
   private stops: (() => void)[] = [];
   /** The open stream; ended or closed streams are never this. */
@@ -53,18 +64,18 @@ export class ConversationFollow {
   private sends: { key: string; resolve(reached: boolean): void; cancel(): void }[] = [];
   private retryTimer: (() => void) | undefined;
   private retries = 0;
-  private readonly link: SpadeTransport;
+  private readonly link: SpadeFollowLink;
   private readonly conversation: string;
-  private readonly deps: FollowDeps;
+  private readonly deps: SpadeFollowDeps;
 
-  constructor(link: SpadeTransport, conversation: string, deps: FollowDeps) {
+  constructor(link: SpadeFollowLink, conversation: string, deps: SpadeFollowDeps) {
     this.link = link;
     this.conversation = conversation;
     this.deps = deps;
     this.snapshot = { view: spadeView(this.state), problem: undefined };
   }
 
-  get = (): FollowSnapshot => this.snapshot;
+  get = (): SpadeFollowSnapshot => this.snapshot;
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -107,6 +118,25 @@ export class ConversationFollow {
   apply(input: SpadeFoldInput): void {
     if (foldSpade(this.state, input)) this.publish();
     this.settleSends(false);
+  }
+
+  /**
+   * Send a message from here: it shows at once and `post` delivers it. When no answer came back
+   * Spade may have it, so it stays if Spade's copy arrives; only a message Spade never stored
+   * leaves the conversation, and the error is thrown for the composer to keep the words.
+   */
+  async send(
+    message: { key: string; text: string; images?: readonly SpadeImageRef[] },
+    post: () => Promise<unknown>,
+  ): Promise<void> {
+    this.apply({ kind: "sent", ...message });
+    try {
+      await post();
+    } catch (error) {
+      if (spadeUnanswered(error) && (await this.reached(message.key))) return;
+      this.apply({ kind: "refused", key: message.key });
+      throw error;
+    }
   }
 
   /**
@@ -171,9 +201,7 @@ export class ConversationFollow {
       const after = this.state.lastSeq;
       let body: string;
       try {
-        body = await spadeHttp(
-          this.link,
-          "GET",
+        body = await this.link.read(
           `/v1/conversations/${segment(this.conversation)}/events?after=${after}&limit=${pageSize}`,
         );
       } catch (error) {
@@ -207,7 +235,7 @@ export class ConversationFollow {
     this.settleSends(input?.kind === "caught_up");
   }
 
-  private ended(reason: LiveEnd, status: number | undefined) {
+  private ended(reason: SpadeLiveEnd, status: number | undefined) {
     if (reason === "unsubscribed") return;
     // The way it went is gone: open again at once, the other way or when this one is back.
     if (reason === "dropped") return this.open();

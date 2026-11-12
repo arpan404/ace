@@ -156,7 +156,8 @@ async fn list(State(state): State<AppState>) -> Response {
                 .map(|(c, activity)| {
                     json!({ "id": c.id, "title": c.title, "updated_at": c.updated_ms,
                             "answering": activity.answering, "jobs": activity.jobs,
-                            "waiting_on_you": activity.waiting_on_you })
+                            "waiting_on_you": activity.waiting_on_you,
+                            "client_key": c.client_key })
                 })
                 .collect::<Vec<_>>(),
         )
@@ -189,13 +190,50 @@ impl Text {
     }
 }
 
-async fn create(State(state): State<AppState>, Json(body): Json<Text>) -> Response {
-    let images = match body.images() {
+#[derive(Deserialize)]
+struct Start {
+    #[serde(flatten)]
+    message: Text,
+    /// The client's key for this start (a UUID): the same key again gets the same conversation.
+    #[serde(default)]
+    client_key: Option<String>,
+}
+
+/// A client key is a plain token: 1 to 128 ASCII letters, digits, `-` or `_`.
+fn plain_key(key: &str) -> bool {
+    (1..=128).contains(&key.len())
+        && key
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+}
+
+async fn create(State(state): State<AppState>, Json(body): Json<Start>) -> Response {
+    if body
+        .client_key
+        .as_deref()
+        .is_some_and(|key| !plain_key(key))
+    {
+        return problem(
+            StatusCode::BAD_REQUEST,
+            "client_key must be 1 to 128 letters, digits, - or _",
+        );
+    }
+    let images = match body.message.images() {
         Ok(images) => images,
         Err(response) => return *response,
     };
-    match state.engine.start_conversation(&body.text, &images) {
-        Ok(id) => (StatusCode::CREATED, Json(json!({ "id": id }))).into_response(),
+    match state
+        .engine
+        .start_conversation(&body.message.text, &images, body.client_key.as_deref())
+    {
+        Ok(started) => {
+            let status = if started.created {
+                StatusCode::CREATED
+            } else {
+                StatusCode::OK
+            };
+            (status, Json(json!({ "id": started.id }))).into_response()
+        }
         Err(error) => send_problem(&error),
     }
 }

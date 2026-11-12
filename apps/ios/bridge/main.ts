@@ -65,6 +65,7 @@ import { NativeTransfers, TransferAction } from "./transfers.ts";
 import { NativeAutomations } from "./automations.ts";
 import { localTimeZone, projectRepository } from "@ace/ui-core/automations";
 import { NativeWorkspace, WorkspaceAction } from "./workspace.ts";
+import { NativeSpade, NativeSpadeAction } from "./spade.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -148,6 +149,8 @@ let access: ComputerAccess | undefined;
 /** Outside apps' pending sign-ins and screen use on this machine (`outside-clients.ts`). */
 let outside: OutsideWatch | undefined;
 let workspace: NativeWorkspace | undefined;
+/** Spade on this machine, through its daemon (`spade.ts`). */
+let spade: NativeSpade | undefined;
 const pump = new PatchPump();
 const deviceStats = new DeviceStats(pump);
 const trust = new TrustMonitor();
@@ -441,6 +444,13 @@ async function start(json: string): Promise<void> {
   // A file the fork being written carries stays in its thread until the fork is sent or closed.
   services.carried = (threadId) =>
     threadId === visit.threadId ? (visit.session?.carriedFiles() ?? new Set()) : new Set();
+  spade?.stop();
+  spade = new NativeSpade(client, pump, {
+    now: () => host.now(),
+    id: () => host.uuid(),
+    later: (delay, callback) => scheduler.set(delay, callback),
+  });
+  services.spade = spade;
   workspace = new NativeWorkspace(pump, {
     load: () => call("storage.workspace.load"),
     save: async (value) => {
@@ -506,6 +516,12 @@ function action(json: string): void {
     const panel = WorkspaceAction.safeParse(raw);
     if (panel.success) {
       if (workspace) void workspace.handle(panel.data).catch(error);
+      else error();
+      return;
+    }
+    const spadeAction = NativeSpadeAction.safeParse(raw);
+    if (spadeAction.success) {
+      if (spade) spade.handle(spadeAction.data);
       else error();
       return;
     }

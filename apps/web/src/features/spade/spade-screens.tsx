@@ -1,5 +1,5 @@
 import { useClient } from "@ace/client-react";
-import { parseSpadeCreated, spadeStateLine } from "@ace/ui-core/spade-chat";
+import { spadeStart, spadeStartWords, spadeStateLine } from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
@@ -9,9 +9,10 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { Screen, useViewFrame } from "@/features/shell/index.ts";
 import { readingColumn } from "@/features/thread/index.ts";
 import { SpadeApprovalStrip } from "./spade-approval-strip.tsx";
-import { SpadeComposer } from "./spade-composer.tsx";
+import { SpadeComposer, SpadeWordsKept } from "./spade-composer.tsx";
 import type { SpadeMessage } from "./spade-images.ts";
-import { spadeBody, spadeHttp } from "./spade-requests.ts";
+import { spadeBody, startLink } from "./spade-requests.ts";
+import { spadeTransport } from "./spade-transport.ts";
 import { SpadeStateStrip } from "./spade-state.tsx";
 import { SpadeTranscript } from "./spade-transcript.tsx";
 import { useSpadeConversation } from "./use-spade-conversation.ts";
@@ -69,12 +70,26 @@ export function SpadeNewScreen() {
   const line = useSpadeLine();
   // The panel says Spade's state while it shows; the page says it only when the panel doesn't.
   const panelShown = useViewFrame().sidebarShown;
+  // A start Spade may have made: its words stay in the composer under this note.
+  const [note, setNote] = useState<string | undefined>();
   const start = async (message: SpadeMessage) => {
-    const id = parseSpadeCreated(
-      await spadeHttp(client, "POST", "/v1/conversations", { body: spadeBody(message) }),
+    setNote(undefined);
+    const started = await spadeStart(
+      startLink(spadeTransport(client)),
+      spadeBody(message),
+      {
+        text: message.text,
+        images: message.images.length,
+      },
+      crypto.randomUUID(),
     );
-    if (!id) throw new Error("Spade started the conversation but didn't say where it is.");
     void cache.invalidateQueries({ queryKey: conversationsKey });
+    if (started.kind === "unknown") {
+      // Never sent again on its own: the person checks Spade's list and decides.
+      setNote(spadeStartWords("unknown").note);
+      throw new SpadeWordsKept();
+    }
+    const { id } = started;
     // After the composer has heard the send went, so it clears its saved draft before it unmounts.
     setTimeout(
       () => void navigate({ to: "/spade/$conversationId", params: { conversationId: id } }),
@@ -87,6 +102,13 @@ export function SpadeNewScreen() {
         {!line.ready && !panelShown && (
           <div className={readingColumn}>
             <SpadeStateStrip line={line} className="flex items-center gap-2 px-1 pb-3 text-ui" />
+          </div>
+        )}
+        {note && (
+          <div className={readingColumn}>
+            <p role="status" className="px-1 pb-3 text-ui text-muted-foreground">
+              {note}
+            </p>
           </div>
         )}
         <SpadeComposer

@@ -38,6 +38,20 @@ pub struct Conversation {
     pub title: Option<String>,
     pub created_ms: i64,
     pub updated_ms: i64,
+    /// The key the client sent with the start that made it, if it sent one.
+    pub client_key: Option<String>,
+}
+
+const CONVERSATION_COLUMNS: &str = "id, title, created_ms, updated_ms, client_key";
+
+fn conversation_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Conversation> {
+    Ok(Conversation {
+        id: row.get(0)?,
+        title: row.get(1)?,
+        created_ms: row.get(2)?,
+        updated_ms: row.get(3)?,
+        client_key: row.get(4)?,
+    })
 }
 
 pub struct Store {
@@ -102,33 +116,63 @@ impl Store {
     }
 
     pub fn create_conversation(&self, id: &str, now_ms: i64) -> Result<()> {
+        self.create_keyed_conversation(id, None, now_ms).map(|_| ())
+    }
+
+    /// Makes conversation `id`, remembering the client's `key` for its start. When a
+    /// conversation already has that key, nothing is made and its id is returned instead, so a
+    /// start sent again is answered with the one it made. One lock covers the look and the
+    /// write, and the key's unique index backs it.
+    pub fn create_keyed_conversation(
+        &self,
+        id: &str,
+        key: Option<&str>,
+        now_ms: i64,
+    ) -> Result<Option<String>> {
         let connection = self.lock()?;
+        if let Some(key) = key {
+            let existing = connection
+                .query_row(
+                    "SELECT id FROM conversations WHERE client_key = ?1",
+                    params![key],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?;
+            if existing.is_some() {
+                return Ok(existing);
+            }
+        }
         let inserted = connection.execute(
-            "INSERT OR IGNORE INTO conversations (id, title, created_ms, updated_ms)
-             VALUES (?1, NULL, ?2, ?2)",
-            params![id, now_ms],
+            "INSERT OR IGNORE INTO conversations (id, title, created_ms, updated_ms, client_key)
+             VALUES (?1, NULL, ?2, ?2, ?3)",
+            params![id, now_ms, key],
         )?;
         if inserted == 0 {
             return Err(StoreError::Exists(id.to_owned()));
         }
-        Ok(())
+        Ok(None)
+    }
+
+    /// The conversation a start with `key` made, if any.
+    pub fn conversation_by_key(&self, key: &str) -> Result<Option<String>> {
+        let connection = self.lock()?;
+        Ok(connection
+            .query_row(
+                "SELECT id FROM conversations WHERE client_key = ?1",
+                params![key],
+                |row| row.get(0),
+            )
+            .optional()?)
     }
 
     /// Every conversation, most recently updated first.
     pub fn conversations(&self) -> Result<Vec<Conversation>> {
         let connection = self.lock()?;
-        let mut statement = connection.prepare(
-            "SELECT id, title, created_ms, updated_ms FROM conversations
-             ORDER BY updated_ms DESC, id DESC",
-        )?;
-        let rows = statement.query_map([], |row| {
-            Ok(Conversation {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                created_ms: row.get(2)?,
-                updated_ms: row.get(3)?,
-            })
-        })?;
+        let mut statement = connection.prepare(&format!(
+            "SELECT {CONVERSATION_COLUMNS} FROM conversations
+             ORDER BY updated_ms DESC, id DESC"
+        ))?;
+        let rows = statement.query_map([], conversation_row)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
@@ -136,16 +180,9 @@ impl Store {
         let connection = self.lock()?;
         Ok(connection
             .query_row(
-                "SELECT id, title, created_ms, updated_ms FROM conversations WHERE id = ?1",
+                &format!("SELECT {CONVERSATION_COLUMNS} FROM conversations WHERE id = ?1"),
                 params![id],
-                |row| {
-                    Ok(Conversation {
-                        id: row.get(0)?,
-                        title: row.get(1)?,
-                        created_ms: row.get(2)?,
-                        updated_ms: row.get(3)?,
-                    })
-                },
+                conversation_row,
             )
             .optional()?)
     }

@@ -114,7 +114,7 @@ The iPhone app speaks the same language with native iOS 26 grammar.
 
 ### Structure
 
-- **Tab bar:** Threads · Chats · Search, plus the round compose button. Spade's tab is hidden until it launches; it comes back in its slot between Chats and Search (`HomeTabs.showsSpade`), never as a "coming soon" screen.
+- **Tab bar:** Threads · Chats · Spade · Search, plus the round compose button. Spade's tab (`HomeTabs.showsSpade`) is the web's Spade place: its state while it isn't running, its conversations, and a conversation with the request strip and composer the thread uses. Never a "coming soon" screen.
 - **Compose:** on iOS 27 the tab bar's prominent detached button. On iOS 26, where the detached button belongs to the search tab, Search takes it and compose is a round glass button in the Threads and Chats headers.
 - **Header:** large title that collapses on scroll; the scope or a connection problem shows under it only while it applies. On the right, one glass capsule: the scope menu (machine, project, sort, Select) and compose. The system's title menu is not used: it draws no chevron beside a large title. Threads has Inbox · Snoozed · Settled under the title; Chats is its own tab.
 - **Avatar:** at the leading edge of the header's bar, ahead of the title, with the glass capsule alone on the right (owner, 2026-11-11). The person's avatar as a bare round button, as Apple's apps that lead with the account draw it: the ace account's picture, else their initials on a quiet fill, else a person glyph. It opens one system menu, as the web's account menu: the person first (name, and the account's email or "Not signed in"), opening Profile; then Archived threads and Settings. Signing in and out lives on Profile. Settings stays among Search's Places too.

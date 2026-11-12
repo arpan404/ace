@@ -1,7 +1,8 @@
 import type { ClientApi } from "@ace/client";
 import { expect, test } from "vitest";
-import { ConversationFollow } from "./conversation-follow.ts";
+import { SpadeConversationFollow } from "@ace/ui-core/spade-chat";
 import type { DesktopSpade, DirectAnswer, DirectLiveEvent } from "./desktop-spade.ts";
+import { followLink } from "./spade-requests.ts";
 import { SpadeTransport } from "./spade-transport.ts";
 
 const selection = <T>(value: T) => ({ getSnapshot: () => value, subscribe: () => () => {} });
@@ -109,7 +110,7 @@ const ids = (() => {
   return () => `id-${++next}`;
 })();
 const transport = (client: ClientApi, desktop?: DesktopSpade) =>
-  new SpadeTransport(client, desktop, { id: ids, now: () => 0 });
+  followLink(new SpadeTransport(client, desktop, { id: ids, now: () => 0 }));
 const deps = {
   frame: (callback: () => void) => callback(),
   later: () => () => {},
@@ -120,7 +121,7 @@ const subscribes = (sent: { type: string; requestId?: string; path?: string }[])
 
 test("a conversation closed while its history loads never opens a live stream", async () => {
   const { client, sent, reads } = fakeClient();
-  const follow = new ConversationFollow(transport(client), "c1", deps);
+  const follow = new SpadeConversationFollow(transport(client), "c1", deps);
   follow.start();
   follow.setReady(true);
   await flush();
@@ -132,7 +133,7 @@ test("a conversation closed while its history loads never opens a live stream", 
 
 test("the live stream opens after the history, and closes when the conversation does", async () => {
   const { client, sent, reads } = fakeClient();
-  const follow = new ConversationFollow(transport(client), "c1", deps);
+  const follow = new SpadeConversationFollow(transport(client), "c1", deps);
   follow.start();
   follow.setReady(true);
   await flush();
@@ -147,7 +148,7 @@ test("the live stream opens after the history, and closes when the conversation 
 /** A follow with its history read and its live stream open. */
 async function following() {
   const fake = fakeClient();
-  const follow = new ConversationFollow(transport(fake.client), "c1", deps);
+  const follow = new SpadeConversationFollow(transport(fake.client), "c1", deps);
   follow.start();
   follow.setReady(true);
   await flush();
@@ -200,7 +201,7 @@ test("after the daemon socket drops, the stream resumes after the last message o
 test("in the desktop app the conversation is read and followed straight from Spade", async () => {
   const fake = fakeClient();
   const spade = fakeDesktop(() => text([stored(1)]));
-  const follow = new ConversationFollow(transport(fake.client, spade.desktop), "c1", deps);
+  const follow = new SpadeConversationFollow(transport(fake.client, spade.desktop), "c1", deps);
   follow.start();
   follow.setReady(true);
   await flush();
@@ -223,7 +224,7 @@ test("in the desktop app the conversation is read and followed straight from Spa
 test("when Spade isn't at its address, the stream falls back to the daemon where it left off", async () => {
   const fake = fakeClient();
   const spade = fakeDesktop(() => text([]));
-  const follow = new ConversationFollow(transport(fake.client, spade.desktop), "c1", deps);
+  const follow = new SpadeConversationFollow(transport(fake.client, spade.desktop), "c1", deps);
   follow.start();
   follow.setReady(true);
   await flush();
@@ -241,7 +242,7 @@ test("when Spade isn't at its address, the stream falls back to the daemon where
 test("a request Spade can't be reached for directly goes through the daemon", async () => {
   const fake = fakeClient();
   const spade = fakeDesktop(() => ({ kind: "unreachable" }));
-  const follow = new ConversationFollow(transport(fake.client, spade.desktop), "c1", deps);
+  const follow = new SpadeConversationFollow(transport(fake.client, spade.desktop), "c1", deps);
   follow.start();
   follow.setReady(true);
   await flush();

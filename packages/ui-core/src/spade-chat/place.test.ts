@@ -3,9 +3,15 @@ import {
   parseSpadeConversations,
   parseSpadeEvents,
   parseSpadeModels,
+  spadeApprovalDetails,
   spadeApprovalSentence,
   spadeCallLine,
+  spadeCallShown,
   spadeJobEndLine,
+  spadeKeyLine,
+  spadeModelRoles,
+  spadeReplyEndLine,
+  spadeRowLabel,
   spadeRowState,
   spadeRowWorking,
   spadeStateLine,
@@ -153,4 +159,67 @@ test("a background job's end reads in words, agents' work as the agents'", () =>
   expect(spadeJobEndLine("research", "failed")).toBe("Couldn't research in the background");
   expect(spadeJobEndLine("delegate", "stopped")).toBe("Stopped the agents");
   expect(spadeJobEndLine("research", "stopped")).toBe("Stopped researching");
+});
+
+test("a row says Approve, then Working, else its age", () => {
+  const row = { answering: false, jobs: 0, waitingOnYou: false, updatedAt: 0 };
+  const now = 3 * 60_000;
+  expect(spadeRowLabel({ ...row, waitingOnYou: true, answering: true }, now)).toEqual({
+    tone: "needs-you",
+    label: "Approve",
+  });
+  expect(spadeRowLabel({ ...row, jobs: 1 }, now)).toEqual({ tone: "working", label: "Working" });
+  expect(spadeRowLabel(row, now).tone).toBe("idle");
+  expect(spadeRowLabel(row, now).label).not.toBe(spadeRowLabel(row, 2 * 86_400_000).label);
+});
+
+test("a reply that didn't finish says how it ended, a failure as an alert with its reason", () => {
+  expect(spadeReplyEndLine({ kind: "finished" })).toBeUndefined();
+  expect(spadeReplyEndLine(undefined)).toBeUndefined();
+  expect(spadeReplyEndLine({ kind: "failed", error: "the endpoint refused the key" })).toEqual({
+    text: "Spade couldn't finish. The endpoint refused the key.",
+    alert: true,
+  });
+  expect(spadeReplyEndLine({ kind: "stopped" })).toEqual({ text: "Stopped", alert: false });
+  expect(spadeReplyEndLine({ kind: "interrupted" })?.text).toBe("Interrupted when Spade restarted");
+});
+
+test("only calls with an outcome read as lines in the transcript", () => {
+  expect(spadeCallShown("done")).toBe(true);
+  expect(spadeCallShown("declined")).toBe(true);
+  expect(spadeCallShown("running")).toBe(false);
+  expect(spadeCallShown("waiting")).toBe(false);
+});
+
+test("an approval shows its arguments as Details only when there are some", () => {
+  expect(spadeApprovalDetails({ to: "a@b.c" })).toBe('{\n  "to": "a@b.c"\n}');
+  expect(spadeApprovalDetails({})).toBeUndefined();
+  expect(spadeApprovalDetails(null)).toBeUndefined();
+});
+
+test("a model a role uses names the role; others name none", () => {
+  const roles = { main: "openai/gpt", fast: "openai/gpt", deep: "anthropic/opus" };
+  expect(spadeModelRoles(roles, "openai", "gpt")).toBe("Spade's Main, Fast model");
+  expect(spadeModelRoles(roles, "openai", "mini")).toBeUndefined();
+});
+
+test("a key can be saved only where the machine has a keychain, and removed only from it", () => {
+  const endpoint = {
+    id: "openai",
+    name: "OpenAI",
+    needsKey: true,
+    keySet: false,
+    keySource: undefined,
+    models: [],
+  };
+  expect(spadeKeyLine(endpoint, false)).toMatchObject({ canSave: false, canRemove: false });
+  expect(spadeKeyLine(endpoint, true)).toMatchObject({
+    canSave: true,
+    canRemove: false,
+    placeholder: "Paste key",
+  });
+  const saved = { ...endpoint, keySet: true, keySource: "keychain" as const };
+  expect(spadeKeyLine(saved, true)).toMatchObject({ canRemove: true, placeholder: "Replace key" });
+  const fromEnvironment = { ...endpoint, keySet: true, keySource: "environment" as const };
+  expect(spadeKeyLine(fromEnvironment, true)).toMatchObject({ canSave: true, canRemove: false });
 });

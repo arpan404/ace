@@ -1,20 +1,9 @@
-import type { SpadeView } from "@ace/ui-core/spade-chat";
+import { spadeApprovalDetails, type SpadeView } from "@ace/ui-core/spade-chat";
 import { useId, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { StripSurface } from "@/features/thread/index.ts";
 
 type Approval = SpadeView["approvals"][number];
-
-function argumentsText(value: unknown): string | undefined {
-  if (value === undefined || value === null) return undefined;
-  if (typeof value === "object" && !Array.isArray(value) && !Object.keys(value).length)
-    return undefined;
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return undefined;
-  }
-}
 
 /**
  * The oldest approval Spade waits on, in the composer's strip: one sentence ("Spade wants to send
@@ -32,7 +21,7 @@ export function SpadeApprovalStrip(props: {
   const [sending, setSending] = useState(false);
   const [open, setOpen] = useState(false);
   const details = useId();
-  const args = argumentsText(approval.arguments);
+  const args = spadeApprovalDetails(approval.arguments);
   const answer = (allowed: boolean, always: boolean) => {
     setSending(true);
     // A taken answer keeps the buttons off until Spade stores it and the strip moves on.

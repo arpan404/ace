@@ -3,7 +3,7 @@ import SwiftUI
 /// The tools each paired machine offers, reached from Settings › Tools on that machine's own
 /// connection.
 enum SettingsTool: String, Hashable, CaseIterable {
-    case agents, projects, automations, usage, skills, providers, sourceControl, prompts, computer, devices
+    case agents, projects, automations, usage, skills, providers, sourceControl, prompts, computer, devices, spade
 
     var title: String {
         switch self {
@@ -17,6 +17,7 @@ enum SettingsTool: String, Hashable, CaseIterable {
         case .prompts: "Prompts"
         case .computer: "Computer use"
         case .devices: "Simulators and devices"
+        case .spade: "Spade"
         }
     }
     var symbol: String {
@@ -31,6 +32,7 @@ enum SettingsTool: String, Hashable, CaseIterable {
         case .prompts: "text.alignleft"
         case .computer: "macwindow"
         case .devices: "iphone"
+        case .spade: "suit.spade"
         }
     }
     /// The tool's glyph in More, as the approved mockup draws them.
@@ -46,6 +48,7 @@ enum SettingsTool: String, Hashable, CaseIterable {
         case .prompts: .textAlignLeft
         case .computer: .aceComputerUse
         case .devices: .deviceMobile
+        case .spade: .smiley
         }
     }
     /// The tool's name in More, shorter where the mockup shortens it.
@@ -78,6 +81,7 @@ enum SettingsTool: String, Hashable, CaseIterable {
         case .prompts: PromptsView(model: model)
         case .computer: RemoteScreenView(model: model)
         case .devices: DevicesScreen(model: model, threadId: nil)
+        case .spade: SpadeSettingsView(model: model)
         }
     }
 }

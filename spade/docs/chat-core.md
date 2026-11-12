@@ -45,15 +45,15 @@ Local HTTP on `SPADE_LISTEN` (loopback). Every request except `/health` carries
 `Authorization: Bearer <token>`; the token is in `<data dir>/token` (mode 0600), written at
 startup, so only processes that can read the person's files can talk to Spade.
 
-| Method and path                             | Body     | Answer                                                                              |
-| ------------------------------------------- | -------- | ----------------------------------------------------------------------------------- |
-| `GET /health`                               |          | `{"ok":true,"version","api"}`; `api` is the HTTP API version (1)                    |
-| `GET /v1/conversations`                     |          | `[{id, title, updated_at, answering}]`, newest first                                |
-| `POST /v1/conversations`                    | `{text}` | `201 {id}`; the message is sent and a reply starts                                  |
-| `GET /v1/conversations/{id}/events?after=N` |          | `[{seq, at, event}]` after `seq` N                                                  |
-| `POST /v1/conversations/{id}/messages`      | `{text}` | `202`; while a reply is open the message steers it; `402` when today's cap is spent |
-| `POST /v1/conversations/{id}/stop`          |          | `202`; `404` when nothing is answering                                              |
-| `GET /v1/conversations/{id}/live?after=N`   |          | Server-sent events, below                                                           |
+| Method and path                             | Body                  | Answer                                                                                                                             |
+| ------------------------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /health`                               |                       | `{"ok":true,"version","api"}`; `api` is the HTTP API version (1)                                                                   |
+| `GET /v1/conversations`                     |                       | `[{id, title, updated_at, answering, client_key}]`, newest first                                                                   |
+| `POST /v1/conversations`                    | `{text, client_key?}` | `201 {id}`; the message is sent and a reply starts. `200 {id}` when a conversation already has `client_key`: nothing is sent again |
+| `GET /v1/conversations/{id}/events?after=N` |                       | `[{seq, at, event}]` after `seq` N                                                                                                 |
+| `POST /v1/conversations/{id}/messages`      | `{text}`              | `202`; while a reply is open the message steers it; `402` when today's cap is spent                                                |
+| `POST /v1/conversations/{id}/stop`          |                       | `202`; `404` when nothing is answering                                                                                             |
+| `GET /v1/conversations/{id}/live?after=N`   |                       | Server-sent events, below                                                                                                          |
 
 Live stream frames (`event:` name, JSON `data:`):
 
@@ -61,6 +61,11 @@ Live stream frames (`event:` name, JSON `data:`):
 - `snapshot`: `{reply, text}` once at connect when a reply is open: everything received so far.
 - `delta`: `{reply, text}` each new piece of a reply. Not stored; checkpoints and the closing event
   are.
+
+`client_key` is the client's own key for one start (a UUID; 1 to 128 letters, digits, `-` or
+`_`, else `400`). A client whose start got no answer sends it again with the same key and gets the
+conversation it made, never a second one; if a crash kept the key but not the message, that
+repeat delivers it. Spade before this ignores the field and lists no key.
 
 A client loads `events`, opens `live` with the last `seq`, and appends. After a reconnect it does the
 same; `snapshot` restores any reply text newer than the last checkpoint.

@@ -197,3 +197,33 @@ fn a_database_from_a_newer_spade_is_refused_not_used() -> Result<()> {
     assert_eq!(version, 999, "left as it was");
     Ok(())
 }
+
+#[test]
+fn a_keyed_conversation_is_made_once_and_found_by_its_key() -> Result<()> {
+    let (_dir, path) = temp();
+    let store = Store::open(&path)?;
+    assert_eq!(store.create_keyed_conversation("a", Some("k1"), 1)?, None);
+    // The same key again names the conversation it made; nothing new is made.
+    assert_eq!(
+        store.create_keyed_conversation("b", Some("k1"), 2)?,
+        Some("a".to_owned())
+    );
+    assert_eq!(store.conversation_by_key("k1")?, Some("a".to_owned()));
+    // Starts without a key never collide.
+    assert_eq!(store.create_keyed_conversation("c", None, 3)?, None);
+    assert_eq!(store.create_keyed_conversation("d", None, 4)?, None);
+    let list: Vec<_> = store
+        .conversations()?
+        .into_iter()
+        .map(|c| (c.id, c.client_key))
+        .collect();
+    assert_eq!(
+        list,
+        vec![
+            ("d".to_owned(), None),
+            ("c".to_owned(), None),
+            ("a".to_owned(), Some("k1".to_owned())),
+        ]
+    );
+    Ok(())
+}

@@ -1,14 +1,18 @@
 import { useClient } from "@ace/client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { ConversationFollow, type FollowDeps } from "./conversation-follow.ts";
+import {
+  SpadeConversationFollow,
+  spadeStopAnswered,
+  type SpadeFollowDeps,
+} from "@ace/ui-core/spade-chat";
 import type { SpadeMessage } from "./spade-images.ts";
-import { segment, spadeBody, spadeHttp, SpadeRequestError } from "./spade-requests.ts";
+import { followLink, segment, spadeBody, spadeHttp } from "./spade-requests.ts";
 import { conversationsKey } from "./use-spade-conversations.ts";
 import { spadeTransport } from "./spade-transport.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
 
-const deps: FollowDeps = {
+const deps: SpadeFollowDeps = {
   frame: (callback) =>
     typeof requestAnimationFrame === "function"
       ? void requestAnimationFrame(callback)
@@ -28,7 +32,7 @@ export function useSpadeConversation(conversation: string) {
   const cache = useQueryClient();
   const ready = useSpadeStatus()?.state === "ready";
   const [follow] = useState(
-    () => new ConversationFollow(spadeTransport(client), conversation, deps),
+    () => new SpadeConversationFollow(followLink(spadeTransport(client)), conversation, deps),
   );
   useEffect(() => {
     follow.start();
@@ -45,29 +49,18 @@ export function useSpadeConversation(conversation: string) {
     retry: () => follow.retry(),
     /** Resolves false when Spade refused it; the message leaves the conversation then. */
     async send(message: SpadeMessage): Promise<void> {
-      const key = `local-${crypto.randomUUID()}`;
       const { text, images } = message;
-      follow.apply({ kind: "sent", key, text, images: images.map((image) => image.ref) });
-      try {
-        await spadeHttp(client, "POST", `${path}/messages`, { body: spadeBody(message) });
-        listChanged();
-      } catch (error) {
-        // No answer came back: Spade may have the message. It shows once it arrives; only a
-        // message Spade never stored comes back to the composer.
-        if (error instanceof SpadeRequestError && error.unanswered && (await follow.reached(key))) {
-          listChanged();
-          return;
-        }
-        follow.apply({ kind: "refused", key });
-        throw error;
-      }
+      await follow.send(
+        { key: `local-${crypto.randomUUID()}`, text, images: images.map((image) => image.ref) },
+        () => spadeHttp(client, "POST", `${path}/messages`, { body: spadeBody(message) }),
+      );
+      listChanged();
     },
     async stop(): Promise<void> {
       try {
         await spadeHttp(client, "POST", `${path}/stop`);
       } catch (error) {
-        // 404: nothing was answering by the time Stop arrived, which is what Stop wanted.
-        if (!(error instanceof SpadeRequestError && error.status === 404)) throw error;
+        if (!spadeStopAnswered(error)) throw error;
       }
     },
     answer(callId: string, allowed: boolean, always: boolean): Promise<string> {

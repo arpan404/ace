@@ -37,7 +37,7 @@ import XCTest
         let threads = app.buttons["sidebar.threads"], chats = app.buttons["sidebar.chats"]
         XCTAssertTrue(threads.reachable)
         XCTAssertTrue(threads.isSelected)
-        XCTAssertFalse(app.buttons["sidebar.spade"].exists)
+        XCTAssertTrue(app.buttons["sidebar.spade"].exists)
         // Chats shows its own list, and Threads comes back to its open thread.
         chats.tap()
         XCTAssertTrue(app.staticTexts["No chat open"].waitForExistence(timeout: 10))
