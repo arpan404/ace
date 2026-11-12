@@ -26,12 +26,12 @@ type Handler = (request: IncomingMessage, response: ServerResponse) => void;
 /** `/mcp` (with or without a query) to the daemon's MCP handler; everything else to `next`. */
 function mcpFirst(options: ServerOptions, next: Handler): Handler {
   // Read per request: Spade's service publishes its grant check after the server listens.
-  let spadeAccount: Handler | undefined;
+  let accountGrantHandler: Handler | undefined;
   const accountGrant = (): Handler | undefined => {
     const account = options.machineAccount;
     const dataDir = options.remoteConfig?.dataDir;
     if (!options.spadeGrantVerify || !account || !dataDir) return undefined;
-    return (spadeAccount ??= accountGrantHttp({
+    return (accountGrantHandler ??= accountGrantHttp({
       verify: (bearer) => options.spadeGrantVerify?.(bearer) ?? false,
       grant: machineGrantSource(account, dataDir),
     }));

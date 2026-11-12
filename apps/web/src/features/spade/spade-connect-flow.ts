@@ -17,6 +17,8 @@ export type ConnectOutcome =
   | { kind: "done" }
   /** The server needs a client ID registered with its maker (Spade answered 409). */
   | { kind: "needs_client"; message: string }
+  /** The app signs in through Spade Cloud, and this machine isn't signed in to ace. */
+  | { kind: "needs_ace_account"; message: string }
   | { kind: "failed"; message: string };
 
 /**
@@ -55,6 +57,8 @@ function outcome(error: unknown): ConnectOutcome {
   if (error instanceof NothingToOpen) return { kind: "done" };
   const message = error instanceof Error ? error.message : "Try again.";
   if (error instanceof SpadeRequestError && error.status === 409)
-    return { kind: "needs_client", message };
+    return error.needs === "ace_account"
+      ? { kind: "needs_ace_account", message }
+      : { kind: "needs_client", message };
   return { kind: "failed", message };
 }

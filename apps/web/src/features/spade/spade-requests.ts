@@ -1,7 +1,7 @@
 import type { ClientApi } from "@ace/client";
 import type { SpadeExchange } from "@ace/client/spade-http";
 import { maxSpadeRequestBytes, type SpadeMethod } from "@ace/protocol";
-import { spadeProblem } from "@ace/ui-core/spade-chat";
+import { spadeProblem, spadeProblemNeeds } from "@ace/ui-core/spade-chat";
 import { spadeTransport, SpadeTransport, type SpadeBody } from "./spade-transport.ts";
 
 /**
@@ -15,11 +15,14 @@ export class SpadeRequestError extends Error {
   readonly status: number | undefined;
   /** The daemon's code when it, not Spade, answered (`failed`: no answer came back). */
   readonly code: string | undefined;
-  constructor(message: string, status?: number, code?: string) {
+  /** What Spade said the request still needs, such as `client_id` or `ace_account`. */
+  readonly needs: string | undefined;
+  constructor(message: string, status?: number, code?: string, needs?: string) {
     super(message);
     this.name = "SpadeRequestError";
     this.status = status;
     this.code = code;
+    this.needs = needs;
   }
   /** The request may have reached Spade: no answer came back to say either way. */
   get unanswered(): boolean {
@@ -59,11 +62,15 @@ async function spadeAnswer(
     ...(length > maxSpadeRequestBytes ? { timeoutMs: uploadTimeoutMs(length) } : {}),
   });
   if (answer.kind === "error") throw new SpadeRequestError(answer.message, undefined, answer.code);
-  if (answer.status < 200 || answer.status > 299)
+  if (answer.status < 200 || answer.status > 299) {
+    const text = "text" in answer.body ? answer.body.text : "";
     throw new SpadeRequestError(
-      refusal(answer.status, "text" in answer.body ? answer.body.text : ""),
+      refusal(answer.status, text),
       answer.status,
+      undefined,
+      spadeProblemNeeds(text),
     );
+  }
   return answer;
 }
 

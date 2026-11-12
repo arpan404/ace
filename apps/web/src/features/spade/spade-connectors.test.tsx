@@ -328,3 +328,79 @@ test("a device code that expired or was declined says so, and Try again shows a 
     expect(await section.findByText("The sign-in was declined on GitHub.")).toBeTruthy();
     expect(section.getByRole("button", { name: "Try again" })).toBeTruthy();
   }));
+
+const asana = {
+  id: "asana",
+  name: "Asana",
+  url: "https://mcp.asana.com/v2/mcp",
+  sign_in: ["oauth", "oauth_client"],
+  via: "cloud",
+  notes: "Signs in through Spade Cloud with your ace account.",
+};
+
+test("an app through Spade Cloud signs in in the browser and its row says it signs in through the cloud", async () => {
+  const { spade } = await spadeApp("/settings/spade", (api) => {
+    seed(api);
+    api.connectors.catalogue.push(asana);
+    api.connectors.viaCloud.add("asana");
+  });
+  const tab = browserTab();
+  const dialog = await openCatalogue();
+  await userEvent.click(dialog.getByRole("button", { name: "Sign in for Asana" }));
+  await waitFor(() =>
+    expect(tab.location.replace).toHaveBeenCalledWith(
+      "https://auth.example/authorize?client=asana",
+    ),
+  );
+  spade.connectors.finishSignIn("asana", "me@example.com");
+  const section = await connectors();
+  expect(
+    await section.findByText("Connected as me@example.com · Signs in through Spade Cloud"),
+  ).toBeTruthy();
+});
+
+test("signed out of ace, an app through Spade Cloud says to sign in to ace instead of asking for a client ID", async () => {
+  const { spade } = await spadeApp("/settings/spade", (api) => {
+    seed(api);
+    api.connectors.catalogue.push(asana);
+    api.connectors.viaCloud.add("asana");
+    api.connectors.aceSignedOut = true;
+  });
+  const tab = browserTab();
+  const dialog = await openCatalogue();
+  await userEvent.click(dialog.getByRole("button", { name: "Sign in for Asana" }));
+  const alert = await dialog.findByRole("alert");
+  expect(alert.textContent).toContain(
+    "Sign in to your ace account on this machine to connect Asana through Spade Cloud.",
+  );
+  expect(tab.close).toHaveBeenCalled();
+  expect(dialog.queryByLabelText("Client ID for Asana")).toBeNull();
+  expect(spade.sent("POST", "/v1/connectors")).toEqual([{ catalogue: "asana" }]);
+  await userEvent.click(within(alert).getByRole("button", { name: "Sign in to ace" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+});
+
+test("an app through Spade Cloud that can't renew while signed out of ace says so, with Sign in to ace", async () => {
+  await spadeApp("/settings/spade", (api) => {
+    seed(api);
+    api.connectors.connectors.push({
+      id: "asana",
+      name: "Asana",
+      url: asana.url,
+      catalogue: "asana",
+      sign_in: "oauth",
+      state: "connected",
+      tools: 3,
+      via: "cloud",
+      notice: "ace_signed_out",
+    });
+  });
+  const section = await connectors();
+  expect(
+    await section.findByText(
+      "Connected · Sign in to ace to keep it signed in through Spade Cloud.",
+    ),
+  ).toBeTruthy();
+  await userEvent.click(section.getByRole("button", { name: "Sign in to ace" }));
+  expect(await screen.findByRole("heading", { name: "Profile" })).toBeTruthy();
+});

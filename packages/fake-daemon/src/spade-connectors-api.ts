@@ -23,7 +23,17 @@ export class FakeSpadeConnectors {
   readonly deviceSignIn = new Set<string>();
   /** Catalogue ids whose server offers no registration: connecting needs a client ID. */
   readonly needsClient = new Set<string>();
+  /** Catalogue ids that sign in through Spade Cloud (ADR 0139). */
+  readonly viaCloud = new Set<string>();
+  /** This machine isn't signed in to ace, so sign-ins through Spade Cloud are refused. */
+  aceSignedOut = false;
   private deviceCodes = 0;
+
+  /** Why a connector signed in through Spade Cloud can't renew now, or `undefined` once it can. */
+  setCloudNotice(id: string, notice: string | undefined): void {
+    const connector = this.connectors.find((candidate) => candidate.id === id);
+    if (connector) connector.notice = notice ?? null;
+  }
 
   /** Ends a sign-in as the person approving it in the browser would. */
   finishSignIn(id: string, account?: string): void {
@@ -90,6 +100,13 @@ export class FakeSpadeConnectors {
       return problem(409, "this app needs a client ID you register with its maker", {
         needs: "client_id",
       });
+    const cloud = !body.token && !body.client_id && this.viaCloud.has(id);
+    if (cloud && this.aceSignedOut)
+      return problem(
+        409,
+        "sign in to your ace account on this machine to connect this app through Spade Cloud",
+        { needs: "ace_account" },
+      );
     const connector: Json = existing ?? {
       id,
       name: entry?.name ?? body.name ?? id,
@@ -108,6 +125,7 @@ export class FakeSpadeConnectors {
       sign_in: "oauth",
       state: "signing_in",
       tools: connector.tools ?? 0,
+      ...(cloud ? { via: "cloud" } : {}),
     });
     if (this.deviceSignIn.has(id)) {
       const serial = (this.deviceCodes += 1);

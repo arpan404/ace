@@ -3,6 +3,7 @@ import {
   parseSpadeConnectStart,
   parseSpadeConnectorAccess,
   parseSpadeConnectors,
+  spadeCloudLine,
   spadeConnectorLine,
 } from "./connectors.ts";
 
@@ -112,4 +113,27 @@ test("a device sign-in reads its code and https page; any other page is refused"
   expect(github && spadeConnectorLine(github)).toBe("The code expired before it was entered.");
   expect(box?.device?.state).toBe("waiting");
   expect(box && spadeConnectorLine(box)).toBe("Enter X on Box's page to finish signing in.");
+});
+
+test("an app through Spade Cloud says so quietly, or why it can't renew; others say nothing", () => {
+  const read = parseSpadeConnectors(
+    JSON.stringify({
+      catalogue: [{ id: "asana", url: "https://mcp.asana.com/v2/mcp", via: "cloud" }],
+      connectors: [
+        { id: "asana", state: "connected", via: "cloud" },
+        { id: "box", state: "connected", via: "cloud", notice: "cloud_unreachable" },
+        { id: "canva", state: "connected", via: "cloud", notice: "ace_signed_out" },
+        { id: "hubspot", state: "connected", via: "cloud", notice: "solar_flare" },
+        { id: "linear", state: "connected", via: "carrier-pigeon" },
+      ],
+    }),
+  );
+  expect(read?.catalogue[0]?.via).toBe("cloud");
+  expect(read?.connectors.map(spadeCloudLine)).toEqual([
+    "Signs in through Spade Cloud",
+    "Spade Cloud can't be reached. It keeps working until its sign-in runs out.",
+    "Sign in to ace to keep it signed in through Spade Cloud.",
+    "Signs in through Spade Cloud",
+    undefined,
+  ]);
 });
