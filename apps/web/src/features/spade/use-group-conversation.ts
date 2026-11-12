@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { GroupFollow } from "./conversation-follow.ts";
 import type { SpadeMessage } from "./spade-attachments.ts";
-import { SpadeRequestError } from "./spade-requests.ts";
+import { spadeStopAnswered } from "@ace/ui-core/spade-chat";
 import { postGroupMessage, stopGroup } from "./spade-teams-api.ts";
 import { spadeTransport } from "./spade-transport.ts";
 import { followDeps } from "./use-spade-conversation.ts";
@@ -36,27 +36,19 @@ export function useGroupConversation(group: { id: string; conversation: string }
     async send(message: SpadeMessage): Promise<void> {
       const refused = groupRefusal(message);
       if (refused) throw new Error(refused);
-      const key = `local-${crypto.randomUUID()}`;
-      follow.apply({ kind: "sent", key, text: message.text });
-      try {
-        await postGroupMessage(client, group.id, message.text);
-        listChanged();
-      } catch (error) {
-        // No answer came back: Spade may have it. Only a message it never stored comes back.
-        if (error instanceof SpadeRequestError && error.unanswered && (await follow.reached(key))) {
-          listChanged();
-          return;
-        }
-        follow.apply({ kind: "refused", key });
-        throw error;
-      }
+      // No answer back: it stays if Spade's copy arrives. Only one never stored comes back.
+      await follow.send(
+        { kind: "sent", key: `local-${crypto.randomUUID()}`, text: message.text },
+        () => postGroupMessage(client, group.id, message.text),
+      );
+      listChanged();
     },
     async stop(): Promise<void> {
       try {
         await stopGroup(client, group.id);
       } catch (error) {
         // 404: nothing was running by the time Stop arrived, which is what Stop wanted.
-        if (!(error instanceof SpadeRequestError && error.status === 404)) throw error;
+        if (!spadeStopAnswered(error)) throw error;
       }
     },
   };
