@@ -128,12 +128,14 @@ pub fn next_turn(events: &[Event]) -> Option<Turn> {
                 images,
                 from_agent,
                 from_routine,
+                from_group,
             }) => {
                 let mut text = context::person_text(
                     text,
                     context.as_deref(),
                     from_agent.as_ref(),
                     from_routine.as_deref(),
+                    from_group.as_deref(),
                 );
                 if !images.is_empty() {
                     text.push_str(&format!(

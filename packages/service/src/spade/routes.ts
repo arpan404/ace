@@ -18,6 +18,7 @@ const allowedCharacters = /^[A-Za-z0-9\-._~/%?=&+,:@!$'()*;]+$/;
 /**
  * A path the daemon forwards to Spade: `/v1/` and onwards, no dot segments, empty segments,
  * fragments or encoded separators, so a client can never reach `/health` or leave the API.
+ * Never `/v1/inbox` or under it: that is for other machines, through machine calls.
  */
 export function checkSpadePath(path: string): PathCheck {
   if (path.length > 2048) return refuse("The path is too long.");
@@ -32,6 +33,9 @@ export function checkSpadePath(path: string): PathCheck {
     return refuse("The path has an empty segment.");
   if (segments.some((segment) => segment === "." || segment === ".."))
     return refuse("The path has a dot segment.");
+  // Only the daemon reaches the inbox, with the calling machine it stamps (ADR 0132).
+  if (decodeURIComponent(segments[1] ?? "").toLowerCase() === "inbox")
+    return refuse("Spade's inbox takes requests from other machines only.");
   return { ok: true, path };
 }
 

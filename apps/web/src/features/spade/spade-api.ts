@@ -44,7 +44,17 @@ export interface SpadeAgentDraft {
   avatar: SpadeAvatarChoice;
 }
 
-export async function createAgent(target: SpadeTarget, draft: SpadeAgentDraft) {
+/**
+ * A new bot. From a template (ADR 0132) the model may be left out (the template's kind picks
+ * it), and its routines are made in `time_zone`, an IANA zone.
+ */
+export type SpadeNewAgent = Omit<SpadeAgentDraft, "model"> & {
+  model?: string;
+  template?: string;
+  time_zone?: string;
+};
+
+export async function createAgent(target: SpadeTarget, draft: SpadeNewAgent) {
   const body = await spadeHttp(target, "POST", "/v1/agents", { body: draft });
   return sure(parseSpadeAgent(body), "new agent");
 }

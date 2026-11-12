@@ -99,6 +99,8 @@ export interface ComposerProps {
    * and `@` or `/` open no list.
    */
   filesOnly?: boolean | undefined;
+  /** With `filesOnly`: names `@` offers, inserted as plain text (a Spade group's members). */
+  mentionNames?: readonly string[] | undefined;
   /** The placeholder on a narrow composer, where `placeholder` would be cut short. */
   shortPlaceholder?: string | undefined;
   autoFocus?: boolean | undefined;

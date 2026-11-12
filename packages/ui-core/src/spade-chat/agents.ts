@@ -138,6 +138,11 @@ function avatarOf(raw: unknown, name: string, main: boolean): SpadeAvatar {
   };
 }
 
+/** A bot's face as Spade sent it anywhere (a group member's, say); unreadable reads as initials. */
+export function parseSpadeAvatar(raw: unknown, name: string): SpadeAvatar {
+  return avatarOf(raw, name, false);
+}
+
 /** One agent value; undefined when it has no id or no conversation. */
 export function parseSpadeAgentValue(raw: unknown): SpadeAgent | undefined {
   const parsed = agentShape.safeParse(raw);

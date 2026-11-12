@@ -34,6 +34,9 @@ import { MachineCaller } from "../machines/caller.ts";
 import { RemoteJobs, remoteJobPrefix } from "../machines/remote-jobs.ts";
 import { machineRequest } from "../machines/transport.ts";
 import { TransferClient, transferTransport } from "../transfers/client.ts";
+import { findHostThread } from "../spade/host-thread.ts";
+import { SpadeRemote } from "../spade/remote.ts";
+import { readLocalToken } from "../local-token.ts";
 import type { ServiceContext } from "./types.ts";
 
 /** The shell's timers for polls; nothing waits on them at exit. */
@@ -178,6 +181,15 @@ export function startMachines(context: ServiceContext): void {
     guests,
     grants,
     commandJobs: (session, jobIds) => commands.states(session, jobIds),
+    spade: () => services.spade?.ready()?.connection,
+    inboxKey: () => {
+      try {
+        return readLocalToken(config.dataDir);
+      } catch {
+        return undefined;
+      }
+    },
+    now,
     hosts: {
       devices,
       screen,
@@ -395,4 +407,19 @@ export function startMachines(context: ServiceContext): void {
     };
   }
   services.machines = { caller, children };
+  // Spade calls as its host thread, the parent of everything it starts (ADR 0121, 0132).
+  services.spadeRemote = new SpadeRemote({
+    directory,
+    origin: async () => {
+      const thread = findHostThread(store);
+      return {
+        hostId: HostId.parse(hostId),
+        hostName: ((await hostName()) || "ace").slice(0, 256),
+        threadId: thread?.threadId ?? ThreadId.parse("spade"),
+        threadTitle: "Spade",
+        ...(thread ? { agentId: thread.agentId } : {}),
+        ceiling: "operate",
+      };
+    },
+  });
 }

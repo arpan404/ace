@@ -1,10 +1,13 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { maxMessageBytes, type Device } from "@ace/protocol";
+import { maxMessageBytes, maxSpadeRequestBytes, type Device } from "@ace/protocol";
 import type { MachineTarget } from "./target.ts";
 
 type Listener = (request: IncomingMessage, response: ServerResponse) => void;
-/** A delegated task is as long as a message; the call's other fields fit in the rest. */
-const maxBody = maxMessageBytes + 64 * 1024;
+/**
+ * A delegated task is as long as a message, and a request for Spade's inbox as long as any
+ * request to Spade; the call's other fields fit in the rest.
+ */
+const maxBody = Math.max(maxMessageBytes, maxSpadeRequestBytes) + 64 * 1024;
 
 async function readBody(request: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];

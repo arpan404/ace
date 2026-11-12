@@ -107,6 +107,8 @@ export interface Services {
     request: import("node:http").IncomingMessage,
     response: import("node:http").ServerResponse,
   ) => void;
+  /** Spade's bots on the person's other machines (ADR 0132). */
+  spadeRemote?: import("../spade/remote.ts").SpadeRemote;
   commands?: CommandLibrary;
   files?: FilesService;
   supportFiles?: FilesService;

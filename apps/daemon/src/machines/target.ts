@@ -20,6 +20,8 @@ import type { TargetBrowser } from "./target-browser.ts";
 import type { GuestSessions } from "./guest-sessions.ts";
 import type { MachineGrantStore } from "./grant-store.ts";
 import type { CapabilityHost, HostedCapability } from "./capability-hosts.ts";
+import type { SpadeConnection } from "../spade/forward.ts";
+import { forwardToInbox, inboxRisk } from "./target-spade.ts";
 import {
   capabilityOf,
   decide,
@@ -44,6 +46,12 @@ export interface MachineTargetDeps {
   hosts: Partial<Record<HostedCapability, CapabilityHost>>;
   /** Whether the calling thread's session (if it has one) still runs these command jobs. */
   commandJobs(session: string | undefined, jobIds: readonly string[]): MachineCommandJobsResult;
+  /** This machine's Spade while it answers, for inbox requests from other machines (ADR 0132). */
+  spade(): SpadeConnection | undefined;
+  /** This daemon's local token, which signs inbox requests for Spade (ADR 0132). */
+  inboxKey(): string | undefined;
+  /** The time, for inbox signatures. */
+  now(): number;
   log(message: string, fields: Record<string, unknown>): void;
 }
 export interface MachineAnswer {
@@ -80,6 +88,8 @@ export function createMachineTarget(deps: MachineTargetDeps) {
       case "devices":
       case "screen":
         return deps.hosts[call.op]?.readOnly(call.tool, call.args) ? "read" : "operate";
+      case "spade":
+        return inboxRisk(call.request);
       default:
         return "operate";
     }
@@ -220,6 +230,16 @@ export function createMachineTarget(deps: MachineTargetDeps) {
         return hosted(device, origin, call, signal, ticket, known);
       case "command.jobs":
         return deps.commandJobs(deps.guests.existing(device, origin), call.jobIds);
+      case "spade":
+        return forwardToInbox(
+          deps.spade(),
+          deps.inboxKey(),
+          device,
+          origin,
+          call.request,
+          signal,
+          deps.now(),
+        );
     }
   }
   return {

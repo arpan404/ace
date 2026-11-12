@@ -45,6 +45,13 @@ fn task(raw: &str) -> Result<String, AgentError> {
 }
 
 impl Engine {
+    /// Whether a bot could be made or moved to `model` here: one of this machine's endpoints
+    /// serves it, or it is a well-formed subscription (ace says at its first turn whether the
+    /// CLI is there).
+    pub fn model_usable(&self, model: &str) -> bool {
+        self.check_model(model).is_ok()
+    }
+
     /// A model reference the person may pick: `endpoint/model` on one of their endpoints, or a
     /// subscription, `cli:<provider>[@<account>]/<model>` (ADR 0133), which ace checks when a turn
     /// runs on it.
@@ -259,6 +266,7 @@ impl Engine {
             .unwrap_or_else(|p| p.into_inner())
             .remove(&conversation);
         deleted?;
+        self.bot_left(id)?;
         Ok(())
     }
 

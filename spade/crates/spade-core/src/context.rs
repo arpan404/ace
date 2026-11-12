@@ -85,6 +85,7 @@ pub fn person_text(
     context: Option<&str>,
     from_agent: Option<&crate::event::FromAgent>,
     from_routine: Option<&crate::event::FromRoutine>,
+    from_group: Option<&crate::event::FromGroup>,
 ) -> String {
     let mut text = match context {
         Some(context) => format!("<context>\n{context}\n</context>\n\n{text}"),
@@ -98,6 +99,9 @@ pub fn person_text(
     }
     if let Some(from) = from_routine {
         text = crate::routine::framed(from, &text);
+    }
+    if let Some(from) = from_group {
+        text = crate::group::framed(from, &text);
     }
     text
 }
@@ -319,12 +323,14 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
                 images: attached,
                 from_agent,
                 from_routine,
+                from_group,
             } => {
                 let mut text = person_text(
                     text,
                     context.as_deref(),
                     from_agent.as_ref(),
                     from_routine.as_deref(),
+                    from_group.as_deref(),
                 );
                 let mut shown = Vec::new();
                 for image in attached {
@@ -626,6 +632,11 @@ pub fn untrusted_event(event: &Event, registry: &Registry) -> bool {
             from_agent: Some(_),
             ..
         }) => true,
+        // A group message that came with other bots' earlier messages (ADR 0132).
+        Event::Known(Known::UserMessage {
+            from_group: Some(from),
+            ..
+        }) if from.untrusted => true,
         // A routine fired by an ace event carries that event's text (a thread's title).
         Event::Known(Known::UserMessage {
             from_routine: Some(from),
@@ -658,6 +669,11 @@ fn describe_event(events: &[Event], event: &Event) -> String {
             from_agent: Some(agent),
             ..
         }) => format!("a message from {}", agent.name),
+        Event::Known(Known::UserMessage {
+            from_group: Some(group),
+            from_routine: None,
+            ..
+        }) => format!("other bots' messages in {}", group.name),
         Event::Known(Known::UserMessage { .. }) => "an ace event".to_owned(),
         Event::Known(Known::ToolFinished { name, call_id, .. }) => {
             describe_source(events, name, call_id)

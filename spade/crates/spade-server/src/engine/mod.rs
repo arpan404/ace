@@ -10,10 +10,14 @@ mod calls;
 mod compact;
 mod control;
 mod endpoints;
+mod group_run;
+mod groups;
+mod inbox;
 mod index;
 mod jobs;
 mod maintenance;
 mod memory;
+mod outbox;
 pub mod roster;
 mod routines;
 mod turn;
@@ -23,6 +27,8 @@ pub use agents::{BOT, MAIN, NAME_CHARS, TASK_CHARS};
 pub use bots::MOST_HOPS;
 pub use brain::BrainSource;
 pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput};
+pub use groups::{GROUP_NAME_CHARS, GroupError, GroupInput, GroupLast, GroupView, MemberRef};
+pub use inbox::{InboxAnswer, Sender as InboxSender};
 pub use maintenance::MaintenanceState;
 pub use memory::{MemoryCall, NoteError, NoteScope, note_json};
 pub use roster::{LastMessage, State};
@@ -115,6 +121,8 @@ pub struct Engine {
     routines: crate::routines::Shared,
     /// Turns on the person's subscriptions through ace (ADR 0133).
     brains: brain::Brains,
+    /// Groups and asks between machines (ADR 0132, `crate::teams`).
+    teams: crate::teams::Shared,
 }
 
 /// What `starting` says until setup has run long enough to say more.
@@ -137,6 +145,7 @@ impl Engine {
             tools = tools.with_tool(tool);
         }
         let tools = crate::routines::with_tools(tools, &handle);
+        let tools = crate::teams::with_tools(tools, &handle);
         let engine = Arc::new(Self {
             store: setup.store,
             models: setup.models,
@@ -166,6 +175,7 @@ impl Engine {
             retiring: Mutex::default(),
             routines: crate::routines::Shared::default(),
             brains: brain::Brains::default(),
+            teams: crate::teams::Shared::default(),
         });
         handle.set(&engine);
         engine.sync_endpoints()?;
@@ -194,6 +204,9 @@ impl Engine {
     /// use one finds it.
     pub fn open_for_work(self: &Arc<Self>) {
         self.end_maintenance();
+        if let Err(error) = self.resume_groups() {
+            tracing::error!(%error, "could not pick up the groups' open asks");
+        }
     }
 
     /// The setup that reads keys, which can block for a long time (a keychain prompt for a
@@ -359,6 +372,9 @@ impl Engine {
         if self.disabled_main(id)? {
             return Err(SendError::Disabled);
         }
+        if self.store.group_for_conversation(id)?.is_some() {
+            return Err(SendError::Group);
+        }
         let message = memory::with_recall(self, id, self.message(text, images)?);
         self.deliver(id, &message)?;
         Ok(())
@@ -376,6 +392,7 @@ impl Engine {
             images,
             from_agent: None,
             from_routine: None,
+            from_group: None,
         }))
     }
 
@@ -396,7 +413,18 @@ impl Engine {
     /// Stores something the model must read (a message, a job result): it steers the open turn,
     /// or starts one. Atomic against a turn finishing, so it is never left unanswered.
     fn deliver(self: &Arc<Self>, id: &str, event: &Event) -> Result<(), StoreError> {
-        let start = {
+        self.deliver_as(id, event, None).map(|_| ())
+    }
+
+    /// [`Engine::deliver`], recording `ask` (an ask from another machine) in the same write.
+    /// Returns the seq the event was stored at, or `None` when `ask` was already delivered.
+    fn deliver_as(
+        self: &Arc<Self>,
+        id: &str,
+        event: &Event,
+        ask: Option<&spade_store::InboxEntry>,
+    ) -> Result<Option<i64>, StoreError> {
+        let (start, seq) = {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
             if self.deleting(id) {
                 return Err(StoreError::NoConversation(id.to_owned()));
@@ -409,16 +437,19 @@ impl Engine {
                 _ => false,
             };
             let admitted = self.admission.load(Ordering::SeqCst);
-            if quiet || !admitted || Transcript::fold(&events).open_reply().is_some() {
-                self.append(id, event)?;
-                false
-            } else {
-                // Stored together, so a crash can never keep the input without its reply.
-                let model = self.reply_model(id);
-                let started = Event::reply_started(self.ids.next("r"), model);
-                self.append_events(id, &[event.clone(), started])?;
-                true
-            }
+            let (start, stored) =
+                if quiet || !admitted || Transcript::fold(&events).open_reply().is_some() {
+                    (false, self.append_as(id, std::slice::from_ref(event), ask)?)
+                } else {
+                    // Stored together, so a crash can never keep the input without its reply.
+                    let model = self.reply_model(id);
+                    let started = Event::reply_started(self.ids.next("r"), model);
+                    (true, self.append_as(id, &[event.clone(), started], ask)?)
+                };
+            let Some(stored) = stored else {
+                return Ok(None);
+            };
+            (start, stored.first().map(|e| e.seq))
         };
         if start {
             self.spawn_turn(id);
@@ -426,7 +457,7 @@ impl Engine {
             // A turn waiting on the person (an `ask_user` question) reads the message now.
             memory::wake_on_message(self, id, event);
         }
-        Ok(())
+        Ok(seq)
     }
 
     /// Live frames after `after`, with the stored backlog and the open reply's text so far.
@@ -445,8 +476,10 @@ impl Engine {
         };
         let backlog = self.store.events(id, after)?;
         let activity = self.activity(id)?;
-        let status = self.status_for(id, &activity);
-        let state = activity.state;
+        let (state, status) = match self.group_status_of(id) {
+            Some(group) => group,
+            None => (activity.state, self.status_for(id, &activity)),
+        };
         Ok(Some(Subscription {
             frames,
             backlog,
@@ -573,11 +606,27 @@ impl Engine {
     /// Stores `events` together and sends them to subscribers, in order; the caller holds
     /// `record_lock`. The only way events are written, so the activity cache stays true.
     fn append_events(&self, id: &str, events: &[Event]) -> Result<Vec<StoredEvent>, StoreError> {
-        let stored = self.store.append_all(id, events, self.now_ms());
+        self.append_as(id, events, None)?
+            .ok_or_else(|| StoreError::NoConversation(id.to_owned()))
+    }
+
+    /// [`Engine::append_events`], recording `ask` in the same transaction; `None` when that ask
+    /// was already delivered (nothing is stored).
+    fn append_as(
+        &self,
+        id: &str,
+        events: &[Event],
+        ask: Option<&spade_store::InboxEntry>,
+    ) -> Result<Option<Vec<StoredEvent>>, StoreError> {
+        let now = self.now_ms();
+        let stored = match ask {
+            Some(ask) => self.store.append_delivered(id, events, ask, now),
+            None => self.store.append_all(id, events, now).map(Some),
+        };
         // Dropped whether or not the write succeeded: a failed write may still have landed.
         self.forget_activity(id);
         let stored = stored?;
-        for event in &stored {
+        for event in stored.iter().flatten() {
             let _ = self.live(id).frames.send(Frame::Stored(event.clone()));
         }
         Ok(stored)

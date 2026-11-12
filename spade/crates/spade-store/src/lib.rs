@@ -8,11 +8,13 @@ mod endpoints;
 mod notes;
 mod routines;
 mod schema;
+mod teams;
 
 pub use agents::{AVATAR_COLORS, Agent, NewAgent, generated_color};
 pub use endpoints::{StoredEndpoint, StoredModel};
 pub use notes::{HistoryMatch, NewNote, Notes, Saved, StoredNote, Updated};
 pub use routines::{HEARTBEAT, ROUTINE, StoredRoutine, StoredRun};
+pub use teams::{InboxEntry, OutboxEntry, StoredGroup, StoredMember};
 
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};

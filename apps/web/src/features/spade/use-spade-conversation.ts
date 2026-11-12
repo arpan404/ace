@@ -8,7 +8,7 @@ import { spadeTransport } from "./spade-transport.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
 
-const deps: FollowDeps = {
+export const followDeps: FollowDeps = {
   frame: (callback) =>
     typeof requestAnimationFrame === "function"
       ? void requestAnimationFrame(callback)
@@ -28,7 +28,7 @@ export function useSpadeConversation(conversation: string) {
   const cache = useQueryClient();
   const ready = useSpadeStatus()?.state === "ready";
   const [follow] = useState(
-    () => new ConversationFollow(spadeTransport(client), conversation, deps),
+    () => new ConversationFollow(spadeTransport(client), conversation, followDeps),
   );
   useEffect(() => {
     follow.start();
