@@ -93,10 +93,11 @@ struct SkillFailure: LocalizedError {
 private struct SkillOutcome: Decodable { let ok: Bool; let code: String?; let message: String? }
 
 extension ClientModel {
-    /// One `skills.native` request; the reply decoded as `T`, or its refusal thrown.
-    func skills<T: Decodable>(_ operation: [String: Any], as type: T.Type) async throws -> T {
+    /// One `skills.native` request; the reply decoded as `T`, or its refusal thrown. `timeout`
+    /// bounds the wait: longer only where the machine fetches something first.
+    func skills<T: Decodable>(_ operation: [String: Any], as type: T.Type, timeout: Duration = .seconds(30)) async throws -> T {
         do {
-            let value = try await service(operation.merging(["type": "skills.native"]) { $1 }, as: ServiceValue.self)
+            let value = try await service(operation.merging(["type": "skills.native"]) { $1 }, as: ServiceValue.self, timeout: timeout)
             return try skillAnswer(value, as: type)
         } catch let failure as SkillFailure { throw failure }
         catch is CancellationError { throw CancellationError() }

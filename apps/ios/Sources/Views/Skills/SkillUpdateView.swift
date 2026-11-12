@@ -165,7 +165,10 @@ struct SkillUpdateReviewView: View {
 
     private func prepare() async {
         do {
-            review = try await model.skills(["op": "prepareUpdate", "id": skillId].merging(at) { $1 }, as: SkillUpdatePrepared.self).review
+            // The machine fetches the skill's repository first, which can be slow: wait as long
+            // as the bridge does (`bridge/skill-update.ts`), not the usual 30 seconds.
+            review = try await model.skills(["op": "prepareUpdate", "id": skillId].merging(at) { $1 }, as: SkillUpdatePrepared.self,
+                                            timeout: .seconds(300)).review
         } catch { if !Task.isCancelled { problem = error.localizedDescription } }
     }
     private func apply() async {
