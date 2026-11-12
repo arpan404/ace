@@ -55,7 +55,9 @@ server's own binary), writes the bytes to its stdin and reads one JSON answer fr
   counted; there the child's memory cap is the bound.
 - **Memory.** The child runs under the server binary's capped allocator (1 GiB unless the
   `Extractor` says otherwise), so an allocation past it fails and the child stops, on every
-  platform; on Unix `setrlimit` also caps its data segment and, on Linux, its address space.
+  platform; on Unix `setrlimit` also caps its data segment. The address space is not capped: it
+  counts every thread's malloc arena. The reader runs before the server builds any async runtime,
+  so it has no runtime threads.
   Windows has no process-memory limit reachable without unsafe code here, so the allocator is the
   bound there.
 
