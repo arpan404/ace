@@ -3054,6 +3054,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "spade-cloud"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "base64",
+ "reqwest",
+ "ring",
+ "serde",
+ "serde_json",
+ "spade-cloud-wire",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
+name = "spade-cloud-wire"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "ring",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "spade-connect"
 version = "0.1.0"
 dependencies = [
@@ -3735,6 +3764,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tracing-serde"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "704b1aeb7be0d0a84fc9828cae51dab5970fee5088f83d1dd7ee6f6246fc6ff1"
+dependencies = [
+ "serde",
+ "tracing-core",
+]
+
+[[package]]
 name = "tracing-subscriber"
 version = "0.3.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3744,12 +3783,15 @@ dependencies = [
  "nu-ansi-term",
  "once_cell",
  "regex-automata",
+ "serde",
+ "serde_json",
  "sharded-slab",
  "smallvec",
  "thread_local",
  "tracing",
  "tracing-core",
  "tracing-log",
+ "tracing-serde",
 ]
 
 [[package]]

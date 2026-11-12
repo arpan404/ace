@@ -1,0 +1,4 @@
+# The build context for crates/spade-cloud/Dockerfile.
+target
+**/node_modules
+**/.DS_Store
