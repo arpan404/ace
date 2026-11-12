@@ -380,13 +380,17 @@ export class RelayObject extends DurableObject<Env> {
     this.#attachments.set(ws, attachment);
   }
 
+  /**
+   * Close `ws` with its own code before releasing it: releasing closes its peer, and the peer's
+   * release would otherwise close `ws` first with the peer's "Peer closed".
+   */
   #close(ws: WebSocket, code: number, reason: string): void {
-    this.#release(ws);
     try {
       ws.close(code, reason);
     } catch {
       /* Already closed. */
     }
+    this.#release(ws);
   }
 
   /** Forget a socket once, closing what depended on it: its stream peer or waiting clients. */

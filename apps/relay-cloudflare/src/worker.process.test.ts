@@ -10,8 +10,9 @@ import { FLOW_WINDOW, hostId, keyPair } from "@ace/secure-channel";
 import type { KeyPair } from "@ace/secure-channel";
 import { connectClientViaRelay, connectHostToRelay } from "@ace/relay";
 import type { HostChannel } from "@ace/relay";
-import { address, CONTROL, deferred, initiate, openPeer } from "@ace/relay/testing";
+import { address, CONTROL, deferred, initiate, openPeer, STREAM } from "@ace/relay/testing";
 import { WebSocket } from "ws";
+import { PAIRED_MARKER } from "@ace/relay/wire";
 import { mint, startWorker, upgrade } from "./testing/harness.ts";
 
 let worker: Awaited<ReturnType<typeof startWorker>>;
@@ -63,7 +64,31 @@ async function host(
     server.authorize();
     return { client: opened, server };
   }
-  return { connection, hostKeys, connect, client };
+  /**
+   * A device that speaks the relay's wire itself, as the iPhone does: it reads every frame as it
+   * arrives with no queue limit and sends without pacing.
+   */
+  async function rawDevice() {
+    next = deferred<HostChannel>();
+    const url = address(worker.relayUrl, "/client", { hostId: connection.hostId });
+    const device = await openPeer(url, deviceProtocol(account));
+    cleanups.push(() => device.close());
+    expect([...(await device.next())]).toEqual([PAIRED_MARKER]);
+    const transport = await initiate(device, STREAM, keyPair(), connection.hostId);
+    const sendJson = (message: object) => {
+      const json = new TextEncoder().encode(JSON.stringify(message));
+      const plain = new Uint8Array(json.length + 1);
+      plain[0] = 1; // A JSON message's last (and only) fragment.
+      plain.set(json, 1);
+      return device.send(transport.send.encrypt(plain));
+    };
+    await sendJson({ type: "hello", protocolVersion: 1, deviceId: "phone", token: "t" });
+    const server = await next.promise;
+    expect(await server.receive()).toMatchObject({ type: "hello" });
+    server.authorize();
+    return { device, transport, sendJson, server };
+  }
+  return { connection, hostKeys, connect, client, rawDevice };
 }
 
 const deviceProtocol = (account: string) => [
@@ -301,5 +326,14 @@ it("a device that stops reading holds the daemon to one window instead of fillin
     const message = await client.receiveBinary();
     expect(new DataView(message.buffer, message.byteOffset).getUint32(0)).toBe(index);
   }
+  await Promise.all(sends);
+});
+
+it("a device that sends past the relay's frame budget is told it hit the rate limit", async () => {
+  const { rawDevice } = await host();
+  const { device, sendJson } = await rawDevice();
+  // The relay's per-socket budget is 2,000 frames at once; it can't pause a socket, so it closes.
+  const sends = Array.from({ length: 2_500 }, () => sendJson({ type: "ping" }).catch(() => {}));
+  expect(await device.closed).toBe(1008);
   await Promise.all(sends);
 });
