@@ -370,16 +370,17 @@ test("an identical start from elsewhere, seen first, doesn't take this lost star
   expect(rows(patches.flush()).map((row) => row.text)).toEqual(["What's on today?"]);
 });
 
-test("on a Spade older than keys, a lost start still opens the one conversation it made", async () => {
+test("on a Spade older than keys, a lost start keeps its words with the note, never claiming one", async () => {
   const { daemon, ask } = await phone((fake) => {
     fake.spade.keepsKeys = false;
   });
   daemon.spade.holding = (request) => request.method === "POST";
   const started = ask({ type: "spade.start", text: "Book the train" });
   await until(() => daemon.spade.waiting === 1);
+  // Spade made it, but without keys it can't be told from an identical start elsewhere.
   daemon.spade.letThrough(false);
   daemon.disconnectAll();
-  expect(await started).toMatchObject({ ok: true });
+  expect(await started).toEqual({ ok: false, unknown: true, note: spadeUnconfirmedNote });
 });
 
 test("a lost start that can't be checked keeps its words for the person, with the note", async () => {

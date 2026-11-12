@@ -12,10 +12,10 @@ import {
  * answers the same start again with that conversation (spade/docs/chat-core.md), so a start whose
  * answer never came is found by its key, or sent again with it, and never makes a second one.
  *
- * A Spade older than keys ignores the key and lists none. Its lost starts are settled by what it
- * lists: the one conversation that wasn't there before and opens with this message. When that
- * can't be told for sure (two match, images can't be compared, Spade is out of reach) the start
- * is `unknown`: its words stay with the person with a note, never sent again on their own.
+ * A Spade older than keys ignores the key and lists none, so nothing proves which start made a
+ * conversation. A lost start there is never claimed: when a new conversation opens with its
+ * message, or Spade is out of reach, it is `unknown`, and its words stay with the person with a
+ * note, never sent again on their own. Only with no such conversation can the words go again.
  */
 
 /** The way to Spade for a start: reads, the start itself, and waiting for the way back. */
@@ -113,28 +113,25 @@ async function again(
   }
 }
 
-/** A Spade older than keys: the one new conversation opening with this message, when sure. */
+/**
+ * A Spade older than keys: nothing proves which start made a conversation, so none is claimed.
+ * A new one opening with this message may be this start's, or an identical one from elsewhere,
+ * so the start is `unknown`; with none, Spade didn't get it and the words can go again.
+ */
 async function byContent(
   link: SpadeStartLink,
   rows: readonly SpadeConversationRow[],
   { before, message }: Lost,
 ): Promise<SpadeStartResult> {
-  const matches: string[] = [];
   try {
     for (const row of rows.filter((entry) => !before.has(entry.id)).slice(0, lookAt)) {
       const first = await opening(link, row.id);
-      if (first?.text === message.text.trim() && first.images === message.images)
-        matches.push(row.id);
+      if (first?.text === message.text.trim() && first.images === message.images) return unknown;
     }
   } catch {
     return unknown;
   }
-  const [only, ...others] = matches;
-  if (only === undefined)
-    throw new SpadeRequestError("The connection dropped before Spade got the message.");
-  // Two alike, or images Spade stores by hash and this side holds as bytes: not for sure ours.
-  if (others.length || message.images > 0) return unknown;
-  return { kind: "started", id: only };
+  throw new SpadeRequestError("The connection dropped before Spade got the message.");
 }
 
 async function list(link: SpadeStartLink) {

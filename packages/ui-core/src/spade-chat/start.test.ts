@@ -81,17 +81,15 @@ test("a start that answers opens its conversation", async () => {
   });
 });
 
-test("on a Spade older than keys, a lost start opens the conversation it made from it, not an older one", async () => {
+test("on a Spade older than keys, a lost start whose words show up is unknown, never claimed", async () => {
+  // It may be this start's, or an identical one from another device: nothing tells them apart.
   const { link } = spade(
     [earlier],
     makesThenLoses({ id: "new", updated_at: 2, first: "What's on today?" }),
   );
   expect(
     await spadeStart(link, { text: "What's on today?" }, words("What's on today?"), key),
-  ).toEqual({
-    kind: "started",
-    id: "new",
-  });
+  ).toEqual({ kind: "unknown" });
 });
 
 test.each([
