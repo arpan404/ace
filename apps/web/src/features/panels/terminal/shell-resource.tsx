@@ -52,7 +52,8 @@ const state = {
   completed: "Finished",
   failed: "Failed",
   stopped: "Stopped",
-  unknown: "Stopped",
+  // ace lost contact (a restart, ADR 0052): the shell may still be running.
+  unknown: "Lost contact",
 };
 
 /** Why Take over is unavailable: background shells aren't PTYs ace can attach a keyboard to. */
