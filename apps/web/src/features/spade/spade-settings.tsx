@@ -11,6 +11,7 @@ import { AddEndpointDialog } from "./spade-add-endpoint.tsx";
 import { ConnectorSettings } from "./spade-connector-settings.tsx";
 import { setFastModel } from "./spade-api.ts";
 import { EndpointSection } from "./spade-endpoint-settings.tsx";
+import { TranscriptionRow } from "./spade-transcription-row.tsx";
 import { SpadeNotes } from "./spade-notes.tsx";
 import { useSpadeEnabled } from "./use-spade-enabled.ts";
 import { modelsKey, useSpadeModels } from "./use-spade-models.ts";
@@ -48,6 +49,7 @@ export function SpadeSettings() {
           />
         </SettingRow>
         {models.data && <FastModelRow models={models.data} />}
+        {models.data && <TranscriptionRow models={models.data} />}
       </SettingSection>
       {line.ready && (
         <SettingSection label="About you" anchor="about-you">

@@ -50,6 +50,12 @@ export class FakeSpadeApi implements FakeSpadeServer {
   endpoints: Json[] = [];
   presets: Json[] = [];
   fastModel: string | null = null;
+  /** `endpoint/model` for voice messages (ADR 0134). */
+  transcriptionModel: string | null = null;
+  /** Stored images by hash with their media type; any other hash answers 404. */
+  images = new Map<string, string>();
+  /** What `POST /v1/transcriptions` answers. */
+  transcript = "";
   /** False: this machine has no keychain, so key writes answer 503. */
   keychain = true;
   /** A status every key write answers with, to stage a failure. */
@@ -239,12 +245,17 @@ export class FakeSpadeApi implements FakeSpadeServer {
         endpoints: this.endpoints,
         presets: this.presets,
         fast_model: this.fastModel,
+        transcription_model: this.transcriptionModel,
         keychain: this.keychain,
       });
     if (root === "endpoints") return this.endpointRoute(request.method, id, sub, body, query);
     if (root === "keys" && id) return this.keyRoute(request.method, id);
     if (root === "settings" && request.method === "PUT") {
-      this.fastModel = typeof body.fast_model === "string" ? body.fast_model : null;
+      if ("fast_model" in body)
+        this.fastModel = typeof body.fast_model === "string" ? body.fast_model : null;
+      if ("transcription_model" in body)
+        this.transcriptionModel =
+          typeof body.transcription_model === "string" ? body.transcription_model : null;
       return { status: 204 };
     }
     if (root === "main") {
@@ -253,7 +264,23 @@ export class FakeSpadeApi implements FakeSpadeServer {
     }
     if (root === "conversations" && id)
       return this.conversationRoute(request, id, sub, subId, query);
-    if (root === "images") return { status: 404, body: "" };
+    if (root === "images") {
+      const type = id ? this.images.get(id) : undefined;
+      return type
+        ? { status: 200, body: `bytes of ${id}`, contentType: type }
+        : { status: 404, body: "" };
+    }
+    if (root === "transcriptions" && request.method === "POST")
+      return this.transcriptionModel
+        ? reply({ text: this.transcript })
+        : problem(409, "No transcription model is set.");
+    // A stored document or recording: its bytes, as text here.
+    if ((root === "documents" || root === "audio") && id && request.method === "GET")
+      return {
+        status: 200,
+        body: `bytes of ${id}`,
+        contentType: root === "audio" ? "audio/webm" : "application/octet-stream",
+      };
     return problem(404, "Not found.");
   }
 
@@ -456,7 +483,11 @@ export class FakeSpadeApi implements FakeSpadeServer {
     }
     if (sub === "messages" && request.method === "POST") {
       const body = request.body ? (JSON.parse(request.body) as Json) : {};
-      this.store(id, { type: "user_message", text: body.text ?? "" });
+      this.store(id, {
+        type: "user_message",
+        text: body.text ?? "",
+        ...mediaOf(body),
+      });
       if (agent)
         agent.last_message = {
           from: "person",
@@ -489,4 +520,43 @@ export class FakeSpadeApi implements FakeSpadeServer {
     }
     return problem(404, "Not found.");
   }
+}
+
+/** Fake hashes in Spade's shape, one per value sent. */
+const fakeHash = (value: string, salt: string) => {
+  let hash = 0;
+  for (const char of `${salt}:${value}`) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return hash.toString(16).padStart(8, "0").repeat(8);
+};
+
+/** A sent message's documents and recording, stored as Spade stores them (ADR 0134). */
+function mediaOf(body: Json): Json {
+  const files = Array.isArray(body.files) ? (body.files as Json[]) : [];
+  const voice = body.voice as Json | undefined;
+  return {
+    ...(files.length
+      ? {
+          documents: files.map((file) => ({
+            sha256: fakeHash(String(file.data), "doc"),
+            name: String(file.name),
+            media_type: String(file.name).endsWith(".pdf")
+              ? "application/pdf"
+              : "application/octet-stream",
+            bytes: String(file.data).length,
+            chars: 0,
+            cut: false,
+            view: "",
+          })),
+        }
+      : {}),
+    ...(voice
+      ? {
+          voice: {
+            sha256: fakeHash(String(voice.data), "audio"),
+            media_type: String(voice.media_type),
+            bytes: String(voice.data).length,
+          },
+        }
+      : {}),
+  };
 }

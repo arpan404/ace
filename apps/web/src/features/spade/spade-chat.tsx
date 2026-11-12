@@ -5,19 +5,18 @@ import {
   withProposals,
   type SpadeAvatar,
   type SpadeChatItem,
-  type SpadeImageRef,
   type SpadeProposal,
   type SpadeRememberedNote,
   type SpadeView,
 } from "@ace/ui-core/spade-chat";
-import { memo, useEffect, useState } from "react";
+import { memo, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
 import { SpadeFace } from "./spade-face.tsx";
 import { SkillProposal } from "./spade-skill-bubble.tsx";
-import { holdSpadePicture } from "./spade-images.ts";
-import { useSpadeClient } from "./spade-machine.tsx";
+import { DocumentChips, Pictures, VoicePlay } from "./spade-media.tsx";
+import { canReadAloud, readAloud, stopReading, useReading } from "./spade-speech.ts";
 
 /** The bot whose conversation this is, and the faces of other bots that write into it. */
 export interface ChatBot {
@@ -134,10 +133,17 @@ const Bubble = memo(function Bubble(props: {
           aria-busy={item.sending || undefined}
           className={cn("flex flex-col items-end gap-1", item.sending && "opacity-70")}
         >
-          {item.images.length > 0 && <SentImages images={item.images} />}
+          {item.images.length > 0 && <Pictures images={item.images} side="person" />}
+          {item.documents.length > 0 && <DocumentChips documents={item.documents} side="person" />}
           {item.text && (
             <div className={cn(bubble, "bg-active")}>
               <SpadeBubbleText text={item.text} />
+              {/* A voice message: its transcript, and the recording to play. */}
+              {item.voice && (
+                <div className="-mx-2 mt-0.5 -mb-1 flex">
+                  <VoicePlay voice={item.voice} />
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -172,19 +178,27 @@ const Bubble = memo(function Bubble(props: {
     case "bot":
       return (
         <BotRow bot={bot} face={props.face}>
-          <div className={botBubble}>
-            {item.text && <SpadeBubbleText text={item.text} />}
-            {item.end && (
-              <p className={cn("text-ui text-muted-foreground", item.text && "mt-1")}>
-                {item.end === "stopped"
-                  ? "Stopped"
-                  : item.end === "failed"
-                    ? item.error
-                      ? `Couldn't finish: ${item.error}`
-                      : "Couldn't finish"
-                    : "Interrupted"}
-              </p>
+          <div className="group/reply flex min-w-0 flex-1 flex-col items-start gap-1">
+            {(item.text || item.end) && (
+              <div className={botBubble}>
+                {item.text && <SpadeBubbleText text={item.text} />}
+                {item.end && (
+                  <p className={cn("text-ui text-muted-foreground", item.text && "mt-1")}>
+                    {item.end === "stopped"
+                      ? "Stopped"
+                      : item.end === "failed"
+                        ? item.error
+                          ? `Couldn't finish: ${item.error}`
+                          : "Couldn't finish"
+                        : "Interrupted"}
+                  </p>
+                )}
+              </div>
             )}
+            {/* What its tools showed the person, after its words (ADR 0134). */}
+            {item.images.length > 0 && <Pictures images={item.images} side="bot" />}
+            {item.documents.length > 0 && <DocumentChips documents={item.documents} side="bot" />}
+            {item.text && !item.live && <ReadAloud replyKey={item.key} text={item.text} />}
           </div>
         </BotRow>
       );
@@ -341,46 +355,28 @@ export function callDetails(value: unknown): string | undefined {
   return text.length > maxDetailChars ? `${text.slice(0, maxDetailChars)}…` : text;
 }
 
-/** The person's images, right-aligned above their words, each read once and kept by hash. */
-function SentImages(props: { images: readonly SpadeImageRef[] }) {
+/**
+ * Under a bot's bubble, shown on hover or focus: Read aloud, which reads the reply in the
+ * system's voice and becomes Stop reading while it speaks. Nothing where the system can't speak.
+ */
+function ReadAloud(props: { replyKey: string; text: string }) {
+  const reading = useReading(props.replyKey);
+  if (!canReadAloud()) return null;
   return (
-    <div className="flex max-w-[80%] flex-wrap justify-end gap-1.5">
-      {/* The same image twice in one message is one picture shown twice: keyed by place. */}
-      {props.images
-        .map((image, place) => ({ hash: image.sha256, key: `${place}:${image.sha256}` }))
-        .map(({ hash, key }) => (
-          <SentImage key={key} hash={hash} />
-        ))}
-    </div>
-  );
-}
-
-function SentImage(props: { hash: string }) {
-  const client = useSpadeClient();
-  const [shown, setShown] = useState<{ hash: string; url?: string; failed?: true }>();
-  useEffect(() => {
-    let live = true;
-    const picture = holdSpadePicture(client, props.hash);
-    picture.url.then(
-      (url) => live && setShown({ hash: props.hash, url }),
-      () => live && setShown({ hash: props.hash, failed: true }),
-    );
-    return () => {
-      live = false;
-      picture.release();
-    };
-  }, [client, props.hash]);
-  const state = shown?.hash === props.hash ? shown : undefined;
-  if (state?.url)
-    return <img src={state.url} alt="" className="max-h-40 max-w-60 rounded-lg object-cover" />;
-  return (
-    <span
-      role={state?.failed ? "img" : undefined}
-      aria-label={state?.failed ? "An image that couldn't be loaded" : undefined}
-      aria-busy={state ? undefined : true}
-      className="grid h-24 w-32 place-items-center rounded-lg bg-bubble text-xs text-muted-foreground"
+    <div
+      className={cn(
+        "-mx-2 -mt-0.5 flex transition-opacity duration-(--motion-fast)",
+        !reading &&
+          "opacity-0 group-hover/reply:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100",
+      )}
     >
-      {state?.failed ? "Image" : null}
-    </span>
+      <Button
+        size="xs"
+        variant="ghost"
+        onClick={() => (reading ? stopReading() : readAloud(props.replyKey, props.text))}
+      >
+        {reading ? "Stop reading" : "Read aloud"}
+      </Button>
+    </div>
   );
 }
