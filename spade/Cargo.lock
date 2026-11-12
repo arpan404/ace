@@ -2674,6 +2674,7 @@ dependencies = [
  "getrandom 0.4.3",
  "keyring-core",
  "reqwest",
+ "rmcp",
  "serde",
  "serde_json",
  "sha2",
@@ -2824,9 +2825,14 @@ name = "spade-testkit"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64",
  "futures-util",
+ "rmcp",
  "serde_json",
+ "sha2",
  "tokio",
+ "tokio-util",
+ "tower",
 ]
 
 [[package]]

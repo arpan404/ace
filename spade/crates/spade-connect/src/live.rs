@@ -103,7 +103,10 @@ impl Connectors {
         }
         let (client, generation) = match self.client(&record).await {
             Ok(ready) => ready,
-            Err(Unready::NeedsReconnect) => return Err(CallError::NeedsReconnect(record.name)),
+            Err(Unready::NeedsReconnect) => {
+                self.expire(&record);
+                return Err(CallError::NeedsReconnect(record.name));
+            }
             Err(Unready::Other(why)) => return Err(CallError::NotRun(why)),
         };
         match client.call(tool, arguments).await {
@@ -114,7 +117,10 @@ impl Connectors {
                     "the sign-in to {} had expired and is renewed; it is safe to try again",
                     record.name
                 ))),
-                Err(Unready::NeedsReconnect) => Err(CallError::NeedsReconnect(record.name)),
+                Err(Unready::NeedsReconnect) => {
+                    self.expire(&record);
+                    Err(CallError::NeedsReconnect(record.name))
+                }
                 Err(Unready::Other(why)) => Err(CallError::NotRun(why)),
             },
             Err(ToolsError::NotRun(why) | ToolsError::Unavailable(why)) => Err(CallError::NotRun(
@@ -150,9 +156,8 @@ impl Connectors {
         {
             let mut live = self.live.write().unwrap_or_else(|p| p.into_inner());
             let session = live.entry(id.to_owned()).or_default();
-            if let Some(client) = session.client.take() {
-                client.close();
-            }
+            // Dropped, never closed: a call already holding it still goes out on it.
+            session.client = None;
             session.generation += 1;
             session.problem = None;
         }
@@ -169,9 +174,7 @@ impl Connectors {
         {
             let mut live = self.live.write().unwrap_or_else(|p| p.into_inner());
             let session = live.entry(id.to_owned()).or_default();
-            if let Some(old) = session.client.replace(Arc::new(client)) {
-                old.close();
-            }
+            session.client = Some(Arc::new(client));
             session.tools = tools;
             session.generation += 1;
             session.problem = None;
@@ -392,9 +395,7 @@ impl Connectors {
         let wake = {
             let mut live = self.live.write().unwrap_or_else(|p| p.into_inner());
             let session = live.entry(record.id.clone()).or_default();
-            if let Some(old) = session.client.take() {
-                old.close();
-            }
+            // The old client is dropped, not closed: a call on it still completes.
             session.generation += 1;
             let mut config = McpConfig::new(record.url.clone(), self.timeout);
             config = config.bearer(Secret::new(tokens.access));
@@ -431,9 +432,8 @@ impl Connectors {
     fn drop_client(&self, id: &str) {
         let mut live = self.live.write().unwrap_or_else(|p| p.into_inner());
         if let Some(session) = live.get_mut(id)
-            && let Some(client) = session.client.take()
+            && session.client.take().is_some()
         {
-            client.close();
             session.generation += 1;
         }
     }

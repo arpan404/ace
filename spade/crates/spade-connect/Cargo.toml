@@ -24,6 +24,7 @@ url = "2"
 
 [dev-dependencies]
 keyring-core.workspace = true
+rmcp = { version = "3.9.0", default-features = false, features = ["server"] }
 spade-testkit = { path = "../spade-testkit" }
 tempfile.workspace = true
 

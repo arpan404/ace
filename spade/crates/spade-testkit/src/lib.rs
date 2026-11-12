@@ -1,8 +1,10 @@
 //! Test-only helpers. `FakeProvider` stands in for a model endpoint: it answers OpenAI Chat
 //! Completions, OpenAI Responses and Anthropic Messages, plain or streamed, following a
 //! [`Script`] (or a sequence of them, one per request), and records every request it receives.
+//! [`FakeConnector`] stands in for an app's remote MCP server and its OAuth server.
 
 mod anthropic;
+pub mod connector;
 mod models;
 mod openai;
 mod responses;
@@ -22,6 +24,7 @@ use futures_util::stream;
 use serde_json::{Value, json};
 use tokio::net::TcpListener;
 
+pub use connector::FakeConnector;
 pub use models::FakeModelList;
 
 /// A tool call the fake makes.
