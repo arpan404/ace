@@ -231,13 +231,15 @@ async fn research_reads_no_more_pages_than_its_budget() -> Result {
 async fn research_stops_reading_at_its_time_budget_and_says_so() -> Result {
     let web = FakeWeb {
         hits: 10,
-        delay: Duration::from_millis(400),
+        delay: Duration::from_secs(2),
         ..FakeWeb::default()
     };
+    // The first four pages are back after 2 s, the next four could be only after 4 s: a 3 s
+    // budget leaves a slow machine a second for the plan and still ends before them.
     let setup = setup(
         web,
         Budget {
-            time_ms: 700,
+            time_ms: 3_000,
             ..budget(20)
         },
         &[PLAN, REPORT, CHECK],
@@ -245,7 +247,12 @@ async fn research_stops_reading_at_its_time_budget_and_says_so() -> Result {
     .await?;
     let started = std::time::Instant::now();
     let output = research(&setup, QUESTION).await;
-    assert!(started.elapsed() < Duration::from_secs(3));
+    // Reading all twenty pages would take 10 s.
+    assert!(
+        started.elapsed() < Duration::from_secs(8),
+        "{:?}",
+        started.elapsed()
+    );
     assert!(
         output.content.contains("reached the time budget"),
         "{}",
@@ -253,7 +260,7 @@ async fn research_stops_reading_at_its_time_budget_and_says_so() -> Result {
     );
     let path = output.files.first().cloned().unwrap_or_default();
     let report = setup.workspaces.of(&setup.agent)?.text(&path)?;
-    // Four pages came back in the first 400 ms; the time ran out before the next four.
+    // Four pages came back in the first 2 s; the time ran out before the next four.
     assert!(report.contains("## Sources\n\n1. "), "{report}");
     assert!(report.contains("stopped early: it reached the time budget"));
     Ok(())
