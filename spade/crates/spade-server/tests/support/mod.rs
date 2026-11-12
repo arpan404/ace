@@ -146,6 +146,8 @@ pub struct Options {
     pub keychain_gate: Option<Gate>,
     /// How long admission waits for setup.
     pub settle_deadline: Duration,
+    /// Writes to the database before Spade first opens it.
+    pub seed: Option<fn(&Store) -> spade_store::Result<()>>,
 }
 
 /// A keychain prompt: reads wait until [`Gate::open`].
@@ -186,6 +188,7 @@ impl Default for Options {
             keychain_delay: None,
             keychain_gate: None,
             settle_deadline: spade_server::startup::SETTLE_DEADLINE,
+            seed: None,
         }
     }
 }
@@ -293,6 +296,9 @@ impl Spade {
             spade_server::home::VERSION,
         )?;
         let store = Store::open(&dir.path().join("spade.sqlite"))?;
+        if let Some(seed) = options.seed {
+            seed(&store)?;
+        }
         // The endpoint is the person's now, kept in the database, and a restarted fake listens
         // on a new port. Moved here as a person cannot (the API refuses a key's host change).
         for mut endpoint in store.endpoints()? {

@@ -246,3 +246,103 @@ async fn a_keychain_that_never_answers_delays_work_only_until_the_deadline_then_
     );
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_model_save_goes_through_while_another_endpoints_key_read_is_stuck() -> Result {
+    let (spade, gate) = blocked(vec![Script::reply("unused")], Options::default()).await?;
+    for (name, url) in [
+        ("Stuck", "http://127.0.0.1:7"),
+        ("Free", "http://127.0.0.1:8"),
+    ] {
+        let (status, body) = spade
+            .post(
+                "/v1/endpoints",
+                json!({ "name": name, "format": "openai-chat", "base_url": url, "needs_key": false }),
+            )
+            .await?;
+        assert_eq!(status, 201, "{body}");
+    }
+    // Moving `stuck` to another host reads its key, and that read waits on the keychain.
+    let moving = {
+        let (http, base) = (spade.http.clone(), spade.base.clone());
+        tokio::spawn(async move {
+            http.patch(format!("{base}/v1/endpoints/stuck"))
+                .bearer_auth(support::TOKEN)
+                .json(&json!({ "base_url": "http://127.0.0.9:7" }))
+                .send()
+                .await
+                .map(|r| r.status().as_u16())
+        })
+    };
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let saved = tokio::time::timeout(
+        Duration::from_secs(2),
+        spade.post("/v1/endpoints/free/models", json!({ "id": "llama" })),
+    )
+    .await;
+    assert!(
+        matches!(&saved, Ok(Ok((200, _)))),
+        "the save waited on another endpoint's keychain read: {:?}",
+        saved.map(|r| r.map(|(s, _)| s))
+    );
+    gate.0.open();
+    assert_eq!(moving.await??, 200);
+    Ok(())
+}
+
+fn seed_keyed_endpoint(store: &spade_store::Store) -> spade_store::Result<()> {
+    // Stored, but its key is not set: the database alone cannot tell, so Spade's first model
+    // (picked before keys can be read) lands here and setup must correct it.
+    store.insert_endpoint(&spade_store::StoredEndpoint {
+        id: "keyed".into(),
+        name: "Keyed".into(),
+        format: "openai-chat".into(),
+        base_url: "http://127.0.0.1:9/".into(),
+        headers: Vec::new(),
+        session_header: None,
+        needs_key: true,
+        key_env: None,
+        preset: None,
+        created_ms: 1,
+        models: vec![spade_store::StoredModel {
+            id: "k".into(),
+            name: None,
+            context: None,
+            capabilities: None,
+            source: "typed".into(),
+        }],
+    })
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_refused_change_to_spades_model_leaves_the_placeholder_for_setup_to_correct() -> Result {
+    let (spade, gate) = blocked(
+        vec![Script::reply("unused")],
+        Options {
+            seed: Some(seed_keyed_endpoint),
+            ..Options::default()
+        },
+    )
+    .await?;
+    let (_, list) = spade.get("/v1/agents").await?;
+    let main = list["agents"][0].clone();
+    assert_eq!(main["model"], "keyed/k", "the placeholder");
+    let id = main["id"].as_str().unwrap_or_default().to_owned();
+    assert_eq!(
+        patch(
+            &spade,
+            &format!("/v1/agents/{id}"),
+            json!({ "model": "nowhere/x" })
+        )
+        .await?,
+        400
+    );
+    gate.0.open();
+    tokio::time::timeout(Duration::from_secs(10), spade.engine.settled()).await?;
+    let (_, list) = spade.get("/v1/agents").await?;
+    assert_eq!(
+        list["agents"][0]["model"], "fake/m",
+        "setup still gave Spade a usable model"
+    );
+    Ok(())
+}

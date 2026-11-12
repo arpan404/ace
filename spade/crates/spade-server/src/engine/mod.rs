@@ -101,8 +101,11 @@ pub struct Engine {
     settled: watch::Sender<bool>,
     /// Why setup is not done yet, while it is not (see [`Engine::starting`]).
     starting: Mutex<&'static str>,
-    /// Held while endpoints are written, by the person's changes and by setup alike.
+    /// Held while endpoints are written, by the person's changes and by setup alike. Never
+    /// held across keychain I/O, which can block on a prompt.
     endpoint_lock: Mutex<()>,
+    /// Endpoints being deleted: no agent may be moved onto one meanwhile.
+    retiring: Mutex<std::collections::HashSet<String>>,
 }
 
 /// What `starting` says until setup has run long enough to say more.
@@ -147,6 +150,7 @@ impl Engine {
             settled: watch::channel(false).0,
             starting: Mutex::new(STARTING),
             endpoint_lock: Mutex::default(),
+            retiring: Mutex::default(),
         });
         handle.set(&engine);
         engine.sync_endpoints()?;

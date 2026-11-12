@@ -59,6 +59,11 @@ impl Engine {
             ));
         }
         let endpoint = model.split_once('/').map_or("", |(e, _)| e);
+        if self.retiring(endpoint) {
+            return Err(AgentError::Invalid(format!(
+                "the endpoint {endpoint} is being deleted"
+            )));
+        }
         if self.models.endpoint(endpoint).is_none() {
             return Err(AgentError::Invalid(format!(
                 "there is no endpoint {endpoint}; add it first"
@@ -128,11 +133,14 @@ impl Engine {
     pub fn update_agent(&self, id: &str, change: AgentChange) -> Result<AgentView, AgentError> {
         // Read, merge and write as one, so a concurrent change is never overwritten.
         let _settings = self.agent_lock.lock().unwrap_or_else(|p| p.into_inner());
-        if change.model.is_some() && self.store.agent(id)?.is_some_and(|a| a.kind == MAIN) {
-            // The person chose Spade's model: setup never replaces it.
+        let chooses_model = change.model.is_some();
+        let view = self.update_agent_locked(id, change)?;
+        if chooses_model && view.agent.kind == MAIN {
+            // The person chose Spade's model (the same one counts): setup never replaces it. Only
+            // once the change went through, so a refused one leaves the placeholder to correct.
             self.store.set_setting(MAIN_PLACEHOLDER, None)?;
         }
-        self.update_agent_locked(id, change)
+        Ok(view)
     }
 
     /// [`Engine::update_agent`] with `agent_lock` held.
