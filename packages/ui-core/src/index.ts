@@ -30,6 +30,7 @@ export * from "./agents.ts";
 export * from "./remote-contact.ts";
 export * from "./agent-tally.ts";
 export * from "./agent-forest.ts";
+export * from "./forest-live.ts";
 export * from "./summary-now.ts";
 export * from "./lost-child.ts";
 export * from "./agent-runs.ts";

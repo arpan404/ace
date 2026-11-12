@@ -61,6 +61,19 @@ export function summaryPullRequests(linked: readonly LinkedPullRequest[]): Linke
     );
 }
 
+/**
+ * The pull request a thread's Summary leads with, from `summaryPullRequests`' order: the most
+ * recently updated open or draft one, else the latest merged. Closed ones never lead.
+ */
+export function primaryPullRequest(
+  prs: readonly LinkedPullRequest[],
+): LinkedPullRequest | undefined {
+  return (
+    prs.find((pr) => pr.state === "open" || pr.state === "draft") ??
+    prs.find((pr) => pr.state === "merged")
+  );
+}
+
 /** A report with each pull request URL shortened to its number: "Opened #1105". */
 const shortenPrUrls = (text: string) =>
   text.replace(prUrl, (_url, _host, _owner, _name, number: string) => `#${number}`);

@@ -14,7 +14,7 @@ export function checkout(options: {
   mode?: "worktree" | "local";
   ahead?: number;
   diff?: { files: number; additions: number; deletions: number };
-  pr?: { number: number; state: "open" | "closed" | "merged" };
+  pr?: { number: number; state: "open" | "closed" | "merged"; title?: string };
 }): NonNullable<Thread["details"]> {
   const repository = {
     forge: "github" as const,

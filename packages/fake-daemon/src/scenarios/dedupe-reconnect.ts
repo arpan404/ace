@@ -149,7 +149,7 @@ export function dedupeReconnect(id = "thread-dedupe"): Scenario {
         path: "/Users/dev/.ace/worktrees/ace-replay-dedupe",
         head: "e07b3d",
         ahead: 2,
-        pr: { number: 214, state: "open" },
+        pr: { number: 214, state: "open", title: "Dedupe thread events after reconnect" },
       }),
     },
     steps: [
@@ -228,6 +228,25 @@ export function dedupeReconnect(id = "thread-dedupe"): Scenario {
         "test-daemon",
         "bun run test apps/daemon",
         "✓ replay.spec.ts (11 tests)\n✓ cursor.spec.ts (4 tests)\n✓ resume.spec.ts (5 tests)\n\nTest Files  3 passed (3)\n     Tests  20 passed (20)\n",
+      ),
+      ...work(
+        6 * m + 50 * s,
+        1 * s,
+        tool("root", "dedupe-plan", {
+          kind: "todo",
+          title: "Update the plan",
+          detail: {
+            kind: "todo",
+            todos: [
+              { content: "Replay from lastAckedSeq", status: "completed" },
+              { content: "Keep the outbound buffer until resume", status: "completed" },
+              { content: "Cap cold-start replay at 200 events", status: "in_progress" },
+              { content: "Restart-mid-stream regression test", status: "pending" },
+              { content: "Audit the other reconnect paths", status: "pending" },
+            ],
+          },
+        }),
+        [toolDone("root", "dedupe-plan")],
       ),
       // The last step starts 4m 12s after the reasoning began (the work log spans step starts).
       ...shell(6 * m + 43 * s, 8 * s, "typecheck", "bun run typecheck", "tsc -b\n"),
