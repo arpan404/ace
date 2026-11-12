@@ -19,35 +19,45 @@ struct ThreadMcpView: View {
     @State private var address = ""
     @State private var busy = false
     var body: some View {
-        Form {
+        ScrollView {
+            VStack(alignment: .leading, spacing: AceDesign.Space.group) {
             ServiceProblem(message: problem)
             if let sources {
-                Section(sources.live ? "Connected session" : "Configured servers") {
+                QuietSection(sources.live ? "Connected session" : "Configured servers") {
                     ForEach(sources.servers) { server in
+                        QuietSectionRow {
                         VStack(alignment: .leading) {
-                            LabeledContent(server.name, value: server.status.replacingOccurrences(of: "_", with: " ").capitalized)
+                            QuietRowText(title: server.name, detail: server.status.replacingOccurrences(of: "_", with: " ").capitalized)
                             HStack {
                                 Button(server.status == "disabled" ? "Enable" : "Disable") { perform(server.status == "disabled" ? "mcp.enable" : "mcp.disable", name: server.name) }
                                     .accessibilityIdentifier("mcp.toggle.\(server.name)")
                                 Button("Reconnect") { perform("mcp.reconnect", name: server.name) }
-                            }.buttonStyle(.borderless).disabled(busy || !model.canOperate)
+                            }.buttonStyle(.textAction()).disabled(busy || !model.canOperate)
+                        }
                         }
                     }
                     if sources.servers.isEmpty { Text("No MCP servers configured.") }
                     if sources.appliesNextTurn { Text("Changes apply on the next turn.") }
                 }
                 if sources.canAdd && model.canOperate {
-                    Section("Add HTTP server") {
+                    QuietSection("Add HTTP server") {
+                        QuietSectionRow {
+                        VStack(alignment: .leading) {
                         TextField("Server name", text: $name).textInputAutocapitalization(.never).autocorrectionDisabled()
                         TextField("https://example.com/mcp", text: $address).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
                         Button("Add server") { perform("mcp.add", name: name, server: ["transport": "http", "url": address]) }
+                            .buttonStyle(.textAction(.prominent))
                             .disabled(name.isEmpty || address.isEmpty || busy)
+                        }
+                        }
                     }
                 }
             } else if problem == nil {
                 SkeletonRows(count: 3, label: "Reading servers").listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
             }
+            }.padding(.vertical, AceDesign.Space.related)
         }
+        .background(AceDesign.Surface.background)
         .navigationTitle("MCP servers").navigationBarTitleDisplayMode(.inline)
         .readWhenConnected(model) { await read() }.refreshable { await read() }
     }

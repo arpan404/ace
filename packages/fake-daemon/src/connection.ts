@@ -23,6 +23,8 @@ import { CommandFlights } from "./command-status.ts";
 const replayLimit = 5000;
 export interface Host {
   readonly hostId: HostId;
+  /** Names this run's event log in the welcome (ADR 0128). */
+  readonly databaseId?: string;
   readonly displayName?: string;
   readonly icon?: import("@ace/protocol").MachineIcon | undefined;
   readonly version?: string;
@@ -157,6 +159,7 @@ export class Connection {
         hostId: this.host.hostId,
         protocolVersion: 1,
         headSeq: this.host.head,
+        ...(this.host.databaseId ? { databaseId: this.host.databaseId } : {}),
       });
       return;
     }
@@ -354,15 +357,18 @@ export class Connection {
       return;
     }
     // Like the daemon (its replayLimit), a cursor too far behind gets a snapshot, not every event
-    // since: a client away for hours of streaming must not replay them all to paint.
-    if (
+    // since: a client away for hours of streaming must not replay them all to paint. A thread is
+    // judged by its own events, a list by the host's (ADR 0128).
+    const replay =
       afterSeq !== undefined &&
       afterSeq <= head &&
-      head - afterSeq <= replayLimit &&
+      (scope.kind === "thread" || head - afterSeq <= replayLimit) &&
       this.host.snapshot(scope)
-    ) {
+        ? this.host.replay(scope, afterSeq)
+        : undefined;
+    if (afterSeq !== undefined && replay && replay.length <= replayLimit) {
       this.subscriptions.set(id, { scope, cursor: head });
-      this.deliver(id, afterSeq, head, this.host.replay(scope, afterSeq));
+      this.deliver(id, afterSeq, head, replay);
     } else {
       const view = this.host.snapshot(scope);
       if (!view) {

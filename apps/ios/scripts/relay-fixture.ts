@@ -12,9 +12,21 @@ import type { ClientMessage } from "@ace/protocol";
  * Writes `{ "url", "hostId" }` to the path, then serves until killed. The stand-in answers like a
  * daemon whose machine code is 2468: a hello without it gets `machine_code_required`, a wrong one
  * `machine_code_wrong`; the right one gets `pong`, then a large deflated message when the hello
- * offered `deflate-raw`, then `pong` for every later message.
+ * offered `deflate-raw`, then `pong` for every later message. A hello that asks for credit gets
+ * flow control, as from the daemon; device `ios-stream` gets 8 MB of text instead of the deflated
+ * message, which arrives whole only if the phone returns credit.
  */
 const out = process.argv[2] ?? "/tmp/ace-relay-fixture.json";
+/** Text deflate can't shrink, so a stream really fills the flow window. */
+function noise(length: number): string {
+  let text = "";
+  let state = 1;
+  while (text.length < length) {
+    state = (state * 48271) % 2147483647;
+    text += state.toString(36);
+  }
+  return text.slice(0, length);
+}
 const relay = await startRelay({ bind: "127.0.0.1" });
 const hostKeys = keyPair();
 const host = await connectHostToRelay({
@@ -32,8 +44,20 @@ const host = await connectHostToRelay({
       return;
     }
     channel.authorize();
+    // As the daemon does: credit goes only to a hello that asked, its first before any reply.
+    if (first.flowControl?.includes("credit")) channel.flowControl?.();
     await channel.send({ type: "pong" });
-    if (first.compression?.includes("deflate-raw")) {
+    if (first.deviceId === "ios-stream") {
+      // Eight flow windows of text that won't deflate: it all arrives only if credit comes back.
+      for (let index = 0; index < 40; index++)
+        await channel.sendText(
+          JSON.stringify({
+            type: "error",
+            code: `fixture_stream_${index}`,
+            message: noise(200_000),
+          }),
+        );
+    } else if (first.compression?.includes("deflate-raw")) {
       channel.compress?.(() => true);
       await channel.send({
         type: "error",

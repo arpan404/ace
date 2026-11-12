@@ -5,11 +5,16 @@ struct ThreadToolsView: View {
     let thread: ThreadModel
     let openThread: (String) -> Void
     var body: some View {
-        List {
-            NavigationLink { TerminalView(model: model, threadId: thread.id) } label: { Label("Terminal", systemImage: "terminal") }
-            NavigationLink { ThreadCatalogView(model: model, threadId: thread.id) } label: { Label("Skills and commands", systemImage: "book") }
-            NavigationLink { ThreadMcpView(model: model, threadId: thread.id) } label: { Label("MCP servers", systemImage: "network") }
+        ScrollView {
+            QuietSection {
+            NavigationLink { TerminalView(model: model, threadId: thread.id) } label: { QuietSectionRow { QuietRowText(title: "Terminal"); RowCaret() } }
+            NavigationLink { ThreadCatalogView(model: model, threadId: thread.id) } label: { QuietSectionRow { QuietRowText(title: "Skills and commands"); RowCaret() } }
+            NavigationLink { ThreadMcpView(model: model, threadId: thread.id) } label: { QuietSectionRow { QuietRowText(title: "MCP servers"); RowCaret() } }
+            }.padding(.vertical, AceDesign.Space.related)
         }
+        .buttonStyle(.plain)
+        .background(AceDesign.Surface.background)
+        .toolbar { SheetClose() }
         .navigationTitle("Thread tools").navigationBarTitleDisplayMode(.inline)
     }
 }

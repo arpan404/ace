@@ -65,6 +65,7 @@ import { NativeTransfers, TransferAction } from "./transfers.ts";
 import { NativeAutomations } from "./automations.ts";
 import { localTimeZone, projectRepository } from "@ace/ui-core/automations";
 import { NativeWorkspace, WorkspaceAction } from "./workspace.ts";
+import { ReadAhead } from "./read-ahead.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -89,6 +90,8 @@ const Action = z.discriminatedUnion("type", [
   z.object({ type: z.literal("open"), threadId: z.string().min(1), warm: z.boolean().optional() }),
   z.object({ type: z.literal("back") }),
   z.object({ type: z.literal("network"), online: z.boolean() }),
+  /** Unmetered, unconstrained network and not Low Power Mode: reading ahead may run. */
+  z.object({ type: z.literal("readAhead"), allowed: z.boolean() }),
   z.object({
     type: z.literal("command"),
     payload: z.unknown(),
@@ -147,6 +150,10 @@ let filesActions: FilesActions | undefined;
 let access: ComputerAccess | undefined;
 /** Outside apps' pending sign-ins and screen use on this machine (`outside-clients.ts`). */
 let outside: OutsideWatch | undefined;
+/** The threads the person is likely to open, read ahead (`read-ahead.ts`). */
+let ahead: ReadAhead | undefined;
+/** Native's last word on whether the network and power allow reading ahead. */
+let readAheadAllowed = false;
 let workspace: NativeWorkspace | undefined;
 const pump = new PatchPump();
 const deviceStats = new DeviceStats(pump);
@@ -321,6 +328,19 @@ async function start(json: string): Promise<void> {
   outside?.stop();
   outside = new OutsideWatch(client, pump, preview, () => host.now());
   outside.start();
+  ahead?.stop();
+  const reading = client;
+  ahead = new ReadAhead({
+    list: () => reading.cachedThreads(),
+    observeList: (listener) => reading.cachedThreads()?.observe(listener) ?? (() => {}),
+    lease: (id) => reading.thread(id, { optional: true }),
+    held: (id) => reading.cachedThread(id) !== undefined,
+    open: () => visit.threadId,
+    schedule: scheduler.set,
+    now: () => host.now(),
+  });
+  ahead.start();
+  ahead.allow(readAheadAllowed);
   // Each project's mark, sent once and referenced by the rows (`project-looks.ts`).
   followProjectLooks(client, pump);
   followMachine(client, pump, trust);
@@ -552,6 +572,12 @@ function action(json: string): void {
       return;
     }
     const value = Action.parse(raw);
+    // Native's word on network and power holds across starts: kept even before a client exists.
+    if (value.type === "readAhead") {
+      readAheadAllowed = value.allowed;
+      ahead?.allow(value.allowed);
+      return;
+    }
     if (!client) {
       if (value.type === "command")
         pump.put(`admission:${value.requestId}`, () => ({

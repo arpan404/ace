@@ -32,9 +32,9 @@ struct ProjectScriptsView: View {
     @State private var started = 0
 
     var body: some View {
-        List {
+        QuietPage {
             if let previews, !previews.isEmpty, let openPreview {
-                Section {
+                QuietGroup {
                     ForEach(previews) { preview in
                         Button { openPreview(preview.url) } label: {
                             HStack {
@@ -51,9 +51,9 @@ struct ProjectScriptsView: View {
                         .accessibilityIdentifier("scripts.preview.\(preview.port)")
                     }
                 } header: { InsetHeader("Running now") } footer: { Text("Dev servers ace found in this thread. They open in its browser on the computer.") }
-                .insetRowBackground()
+
             }
-            Section {
+            QuietGroup {
                 if let scripts = reply?.scripts {
                     if scripts.isEmpty { Text("This project has no scripts in package.json, a Makefile, a justfile or a Procfile.").foregroundStyle(AceDesign.Ink.muted) }
                     ForEach(scripts) { script in
@@ -67,7 +67,7 @@ struct ProjectScriptsView: View {
                             if running == script.id { WorkingMark(label: "Running").frame(minWidth: AceDesign.Size.tap) }
                             else {
                                 Button(script.running ? "Show" : "Run") { Task { await run(script) } }
-                                    .buttonStyle(.borderless).rowButtonTarget()
+                                    .buttonStyle(.textAction())
                                     .disabled(!model.canOperate || running != nil)
                                     .accessibilityIdentifier("scripts.run.\(script.name)")
                             }
@@ -81,18 +81,18 @@ struct ProjectScriptsView: View {
                 }
                 if let problem { ServiceProblem(message: problem) }
             } header: { InsetHeader("Scripts") } footer: { Text("Each runs in a terminal in this thread's checkout, on the computer.") }
-            .insetRowBackground()
+
             if let files = reply?.files, !files.isEmpty {
-                Section {
+                QuietGroup {
                     ForEach(files, id: \.self) { file in
                         Button(file == "package.json" ? "Edit package.json scripts" : "Edit \(file)") { editing = FileTarget(path: file) }
                             .accessibilityIdentifier("scripts.edit.\(file)")
                     }
                 } header: { InsetHeader("Configure") }
-                .insetRowBackground()
+
             }
         }
-        .insetGroupedList()
+
         .smoothChange(reply?.scripts?.map(\.id))
         .smoothChange(previews?.map(\.port))
         .smoothChange(problem)

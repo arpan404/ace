@@ -17,17 +17,23 @@ struct SkillAgentsSheet: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                Section {
-                    SkillAgentToggles(agents: $draft)
-                } footer: {
-                    if draft.contains(where: { $0.locked && $0.on }) {
-                        Text("Agents that read the folder \(page.title) is saved in always see it.")
+            ScrollView {
+                VStack(alignment: .leading, spacing: AceDesign.Space.group) {
+                    QuietSection {
+                        SkillAgentToggles(agents: $draft)
+                        if draft.contains(where: { $0.locked && $0.on }) {
+                            QuietSectionRow {
+                                Text("Agents that read the folder \(page.title) is saved in always see it.")
+                                    .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                                    .foregroundStyle(AceDesign.Ink.muted)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
                     }
                 }
-                .insetRowBackground()
+                .padding(.top, AceDesign.Space.related).padding(.bottom, AceDesign.Space.group)
             }
-            .insetGroupedList()
+            .background(AceDesign.Surface.background)
             .sensoryFeedback(.selection, trigger: draft)
             .navigationTitle("Agents").navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -49,21 +55,24 @@ struct SkillAgentToggles: View {
     @Binding var agents: [SkillAgentChoice]
     var body: some View {
         ForEach($agents) { $agent in
-            Toggle(isOn: $agent.on.animation()) {
-                HStack(spacing: AceTheme.Spacing.md) {
-                    ProviderMark(provider: agent.id, size: AceDesign.Size.barIcon)
-                    VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                        Text(agent.name).aceFont(InsetStyle.label, relativeTo: .body)
-                        if agent.locked && agent.on {
-                            Text("Reads its folder").aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                                .foregroundStyle(AceTheme.Colours.mutedForeground)
+            QuietSectionRow {
+                Toggle(isOn: $agent.on.animation()) {
+                    HStack(spacing: AceDesign.Space.related) {
+                        ProviderMark(provider: agent.id, size: AceDesign.Size.barIcon)
+                        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                            Text(agent.name).aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+                                .foregroundStyle(AceDesign.Ink.primary)
+                            if agent.locked && agent.on {
+                                Text("Reads its folder").aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                                    .foregroundStyle(AceDesign.Ink.muted)
+                            }
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
+                .disabled(agent.locked && agent.on)
+                .accessibilityIdentifier("skill.agent.\(agent.id)")
             }
-            .disabled(agent.locked && agent.on)
-            .frame(minHeight: AceDesign.Size.tap)
-            .accessibilityIdentifier("skill.agent.\(agent.id)")
         }
     }
 }

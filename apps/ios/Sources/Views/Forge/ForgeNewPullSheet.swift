@@ -87,8 +87,7 @@ struct ForgeNewPullSheet: View {
                 }
                 .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
             }
-            .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
-            .tint(AceTheme.Colours.foreground).foregroundStyle(AceTheme.Colours.background)
+            .buttonStyle(.textAction(.prominent))
             .disabled(!canCreate)
             .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.sm)
             .background(AceTheme.Colours.background)

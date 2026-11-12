@@ -145,7 +145,9 @@ describe("The phone's page commands", () => {
     await offerDownload(daemon, sink, tabId(), "report", bytes);
     view.action({ kind: "save", downloadId: "report" });
     await until(() => sink.read("browser:saving:web:report")?.phase === "ready", "saved");
-    expect(Buffer.concat(written.map((write) => write.bytes))).toEqual(Buffer.from(bytes));
+    expect(Buffer.concat(written.map((write) => write.bytes)).equals(Buffer.from(bytes))).toBe(
+      true,
+    );
     // Each write is one chunk as it arrived, in order: the file is never held whole.
     expect(Math.max(...written.map((write) => write.bytes.length))).toBeLessThanOrEqual(256 * 1024);
     expect(written.map((write) => write.offset)).toEqual(

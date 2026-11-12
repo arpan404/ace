@@ -46,6 +46,99 @@ test("reload paints persisted messages while syncing and always reconciles from 
   await f.client.close();
 });
 
+test("a kept thread resumes from its cursor when the daemon names the database it was kept under", async () => {
+  const m = memory();
+  m.values.set(stored("thread:thread"), record(view("Cached", 10), "db-1"));
+  const f = harness(m.storage);
+  const lease = f.client.thread("thread");
+  await expect.poll(() => lease.store.thread?.title).toBe("Cached");
+  await f.start("db-1");
+  expect(f.wire("thread").afterSeq).toBe(10);
+  // Still unconfirmed until the daemon's replay lands: a copy never reads current on its own.
+  expect(lease.store.syncing).toBe(true);
+  lease.release();
+  await f.client.close();
+});
+
+test.each([
+  { name: "another database under the same host id", kept: "db-old", met: "db-new" },
+  { name: "a daemon that names no database", kept: "db-1", met: undefined },
+  { name: "a record kept before databases were named", kept: undefined, met: "db-1" },
+])("a kept thread reads afresh from $name", async ({ kept, met }) => {
+  const m = memory();
+  m.values.set(stored("thread:thread"), record(view("Cached", 10), kept));
+  const f = harness(m.storage);
+  const lease = f.client.thread("thread");
+  await expect.poll(() => lease.store.thread?.title).toBe("Cached");
+  await f.start(met);
+  expect(f.wire("thread").afterSeq).toBeUndefined();
+  lease.release();
+  await f.client.close();
+});
+
+test("a thread is kept with the database its cursor came from, and resumes there after a relaunch", async () => {
+  const m = memory();
+  const first = harness(m.storage);
+  const lease = first.client.thread("thread");
+  await first.start("db-1");
+  const wire = first.wire("thread");
+  first.deliver({
+    type: "snapshot",
+    subscriptionId: wire.subscriptionId,
+    seq: 12,
+    view: view("Live", 12),
+  });
+  await expect.poll(() => lease.store.cursor).toBe(12);
+  lease.release();
+  await first.client.close();
+  const again = harness(m.storage);
+  const reopened = again.client.thread("thread");
+  await expect.poll(() => reopened.store.thread?.title).toBe("Live");
+  await again.start("db-1");
+  expect(again.wire("thread").afterSeq).toBe(12);
+  reopened.release();
+  await again.client.close();
+});
+
+test("a kept copy saved again before its daemon answers keeps the database it came from", async () => {
+  const m = memory();
+  m.values.set(stored("thread:thread"), record(view("Cached", 10), "db-old"));
+  const first = harness(m.storage);
+  const lease = first.client.thread("thread");
+  await expect.poll(() => lease.store.thread?.title).toBe("Cached");
+  // A restored database: the cursor 10 belongs to the old one, whatever this daemon is called.
+  await first.start("db-new");
+  lease.release();
+  await first.client.close();
+  const again = harness(m.storage);
+  const reopened = again.client.thread("thread");
+  await expect.poll(() => reopened.store.thread?.title).toBe("Cached");
+  await again.start("db-new");
+  expect(again.wire("thread").afterSeq).toBeUndefined();
+  reopened.release();
+  await again.client.close();
+});
+
+test("a thread held in memory reads afresh after a reconnect meets another database", async () => {
+  const m = memory();
+  const f = harness(m.storage);
+  const lease = f.client.thread("thread");
+  await f.start("db-1");
+  const wire = f.wire("thread");
+  f.deliver({
+    type: "snapshot",
+    subscriptionId: wire.subscriptionId,
+    seq: 10,
+    view: view("Live", 10),
+  });
+  await expect.poll(() => lease.store.cursor).toBe(10);
+  await f.reconnect(10, "db-2");
+  expect(f.wire("thread").subscriptionId).not.toBe(wire.subscriptionId);
+  expect(f.wire("thread").afterSeq).toBeUndefined();
+  lease.release();
+  await f.client.close();
+});
+
 test("a cached thread restores in creation order and merges with the live snapshot by sequence", async () => {
   const m = memory();
   m.values.set(
@@ -89,6 +182,120 @@ test("a cached thread restores in creation order and merges with the live snapsh
   await f.client.close();
 });
 
+test("a kept copy from another database is replaced by the daemon's snapshot, never merged into it", async () => {
+  const m = memory();
+  m.values.set(
+    stored("thread:thread"),
+    record(
+      holding(
+        [
+          ["first", 3, "First"],
+          ["second", 5, "Second"],
+          ["third", 7, "Third (cached)"],
+        ],
+        { seq: 10, itemsBefore: 3 },
+      ),
+      "db-old",
+    ),
+  );
+  const f = harness(m.storage);
+  const lease = f.client.thread("thread");
+  await expect.poll(() => lease.store.order).toEqual(["first", "second", "third"]);
+  // A restored database under the same host id: sequences 3 and 5 are other events there.
+  await f.start("db-new");
+  f.deliver({
+    type: "snapshot",
+    subscriptionId: f.wire("thread").subscriptionId,
+    seq: 20,
+    view: holding(
+      [
+        ["third", 7, "Third (live)"],
+        ["fourth", 9, "Fourth"],
+      ],
+      { title: "Live", seq: 20, itemsBefore: 7 },
+    ),
+  });
+  await expect.poll(() => lease.store.thread?.title).toBe("Live");
+  expect(lease.store.order).toEqual(["third", "fourth"]);
+  await f.client.close();
+});
+
+test("a copy from another database that loads after the subscription is still replaced, not merged", async () => {
+  let resolve: ((value: unknown) => void) | undefined;
+  const f = harness({
+    get: () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+    set: async () => {},
+  });
+  await f.start("db-new");
+  const lease = f.client.thread("thread");
+  // The disk is slow: the subscription goes without the copy.
+  f.elapse(250);
+  const wire = await f.subscribed("thread");
+  resolve?.(
+    record(
+      holding(
+        [
+          ["first", 3, "First"],
+          ["second", 5, "Second"],
+          ["third", 7, "Third (cached)"],
+        ],
+        { seq: 10, itemsBefore: 3 },
+      ),
+      "db-old",
+    ),
+  );
+  await expect.poll(() => lease.store.order).toEqual(["first", "second", "third"]);
+  f.deliver({
+    type: "snapshot",
+    subscriptionId: wire.subscriptionId,
+    seq: 20,
+    view: holding(
+      [
+        ["third", 7, "Third (live)"],
+        ["fourth", 9, "Fourth"],
+      ],
+      { title: "Live", seq: 20, itemsBefore: 7 },
+    ),
+  });
+  await expect.poll(() => lease.store.thread?.title).toBe("Live");
+  expect(lease.store.order).toEqual(["third", "fourth"]);
+  await f.client.close();
+});
+
+test("a copy read back from disk is never seen confirmed, even by its first notification", async () => {
+  const m = memory();
+  m.values.set(stored("thread:thread"), record(view("Cached", 10), "db-1"));
+  const f = harness(m.storage);
+  const lease = f.client.thread("thread");
+  const seen: { cursor: number | undefined; unconfirmed: boolean | undefined }[] = [];
+  lease.store.observe(() =>
+    seen.push({ cursor: lease.store.cursor, unconfirmed: lease.store.unconfirmed }),
+  );
+  await expect.poll(() => lease.store.thread?.title).toBe("Cached");
+  expect(seen.length).toBeGreaterThan(0);
+  expect(seen.filter((state) => state.cursor !== undefined && !state.unconfirmed)).toEqual([]);
+  await f.client.close();
+});
+
+test("a thread opened once the daemon is connected waits for its kept copy and resumes from it", async () => {
+  const m = memory();
+  m.values.set(stored("thread:thread"), record(view("Cached", 10), "db-1"));
+  const f = harness(m.storage);
+  await f.start("db-1");
+  const lease = f.client.thread("thread");
+  await expect
+    .poll(() =>
+      f.sent.some((message) => message.type === "subscribe" && message.scope.kind === "thread"),
+    )
+    .toBe(true);
+  expect(f.wire("thread").afterSeq).toBe(10);
+  lease.release();
+  await f.client.close();
+});
+
 test("a cached view the live window does not reach is replaced, never joined across a hole", async () => {
   const m = memory();
   m.values.set(
@@ -122,6 +329,16 @@ test("a late disk read never overwrites an accepted live thread snapshot", async
   });
   const lease = f.client.thread("thread");
   await f.start();
+  // A disk that never answers holds the subscription back only briefly.
+  expect(
+    f.sent.some((message) => message.type === "subscribe" && message.scope.kind === "thread"),
+  ).toBe(false);
+  f.elapse(250);
+  await expect
+    .poll(() =>
+      f.sent.some((message) => message.type === "subscribe" && message.scope.kind === "thread"),
+    )
+    .toBe(true);
   f.deliver({
     type: "snapshot",
     subscriptionId: f.wire("thread").subscriptionId,

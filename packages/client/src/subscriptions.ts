@@ -25,6 +25,15 @@ interface Cached {
   binding: SnapshotBinding | undefined;
   /** What it weighed when its last holder let go; zero while held. */
   inactiveBytes: number;
+  /**
+   * The daemon database its cursor came from, when known: the one a live frame arrived under, or
+   * the one a disk copy was kept under. Kept with the record (ADR 0128).
+   */
+  database: string | undefined;
+  /** Its cursor came from disk and no live frame has confirmed it yet. */
+  restored: boolean;
+  /** Its kept record is still being read: it subscribes once that settles. */
+  loading: boolean;
 }
 export interface ThreadSubscription {
   store: ThreadStore;
@@ -45,6 +54,8 @@ export class Subscriptions {
   #persistence: Persistence | undefined;
   #starting = new Set<string>();
   #wires = new Map<string, Cached>();
+  /** The database the current connection's daemon named, if it named one. */
+  #database: string | undefined;
   #limits: Limits;
   #send: (message: ClientMessage) => boolean;
   #id: () => string;
@@ -101,8 +112,19 @@ export class Subscriptions {
         subscriptionId: undefined,
         binding: undefined,
         inactiveBytes: 0,
+        database: undefined,
+        restored: false,
+        loading: false,
       };
       entry.binding = this.#bind(entry);
+      if (entry.binding) {
+        const loading = entry;
+        loading.loading = true;
+        void loading.binding?.loaded.then(() => {
+          loading.loading = false;
+          this.#pump();
+        });
+      }
     }
     this.#cache.delete(threadId);
     this.#cache.set(threadId, entry);
@@ -227,13 +249,17 @@ export class Subscriptions {
       this.#persistence,
       `thread:${threadId}`,
       contentChanges((tap) => store.observe(tap)),
-      () => threadRecord(store.export()),
+      () => threadRecord(store.export(), entry.database),
       (value) => {
         const record = parseThreadRecord(value, threadId);
         if (!record || !store.restore(record.view, record.truncated)) return;
-        // The disk copy may be from another daemon run: never resume from its cursor. The
-        // subscription asks for a snapshot, which merges with it by sequence (ADR 0062).
-        entry.fresh = true;
+        // The disk copy resumes from its cursor only under the database it was kept under
+        // (`#resumable`); otherwise the subscription asks for a snapshot, which merges with it by
+        // sequence (ADR 0062, ADR 0128).
+        entry.restored = true;
+        entry.database = record.databaseId;
+        // Known to be another database's copy, however late it loaded: replace, never merge.
+        if (this.#mismatched(entry)) entry.store.replaceOnSnapshot();
         if (!entry.refs && this.#cache.get(threadId) === entry) this.#retain(entry);
       },
     );
@@ -273,7 +299,8 @@ export class Subscriptions {
     if (!this.#ready()) return;
     for (const [threadId, entry] of this.#cache) {
       if (!this.#ready() || this.#starting.size >= 4) break;
-      if (entry.refs && !entry.rejected && !entry.subscriptionId) this.#subscribe(threadId, entry);
+      if (entry.refs && !entry.rejected && !entry.subscriptionId && !entry.loading)
+        this.#subscribe(threadId, entry);
     }
   }
   #subscribe(threadId: string, entry: Cached): void {
@@ -289,8 +316,50 @@ export class Subscriptions {
       paced: true,
       subscriptionId: id,
       scope: { kind: "thread", threadId: ThreadId.parse(threadId) },
-      ...(entry.fresh || entry.store.cursor === undefined ? {} : { afterSeq: entry.store.cursor }),
+      ...(this.#resumable(entry) ? { afterSeq: entry.store.cursor } : {}),
     });
+  }
+  /**
+   * Whether `entry` may resume from its cursor: not after a gap there, and for a copy from disk,
+   * only under the database that copy was kept under.
+   */
+  #resumable(entry: Cached): boolean {
+    if (entry.fresh || entry.store.cursor === undefined) return false;
+    if (!entry.restored) return true;
+    if (entry.database !== undefined && entry.database === this.#database) return true;
+    // Known to be another database's: its sequences say nothing here, so nothing of it is kept.
+    if (this.#mismatched(entry)) entry.store.replaceOnSnapshot();
+    return false;
+  }
+  /** `entry` holds a copy known to come from another database than the daemon's. */
+  #mismatched(entry: Cached): boolean {
+    return (
+      entry.restored &&
+      entry.database !== undefined &&
+      this.#database !== undefined &&
+      entry.database !== this.#database
+    );
+  }
+  /**
+   * The daemon's welcome named `databaseId`. A cursor is a position in one database: past a
+   * change of database (a restore or reset under the same host id), every held cursor reads
+   * afresh.
+   */
+  database(databaseId: string | undefined): void {
+    const changed = this.#database !== undefined && this.#database !== databaseId;
+    this.#database = databaseId;
+    if (!changed) return;
+    for (const entry of this.#cache.values()) {
+      entry.fresh = true;
+      entry.database = undefined;
+      entry.restored = false;
+      entry.store.replaceOnSnapshot();
+    }
+  }
+  /** A live frame for `entry` landed: its cursor is now the current database's. */
+  #confirmed(entry: Cached): void {
+    entry.restored = false;
+    entry.database = this.#database;
   }
   reconnect(): void {
     this.#pump();
@@ -343,6 +412,7 @@ export class Subscriptions {
       if (message.view.thread.id !== entry.threadId) throw new ClientError("protocol");
       try {
         entry.store.snapshot(message.view);
+        this.#confirmed(entry);
         entry.store.setSyncing(false);
       } catch (error) {
         if (!(error instanceof ClientError) || error.code !== "limit") throw error;
@@ -359,7 +429,10 @@ export class Subscriptions {
     entry.snapshotAllowed = false;
     try {
       const result = entry.store.delivery(message);
-      if (result === "applied") entry.store.recover();
+      if (result === "applied") {
+        this.#confirmed(entry);
+        entry.store.recover();
+      }
       if (result !== "gap") return;
     } catch (error) {
       if (!(error instanceof ClientError) || error.code !== "limit") throw error;

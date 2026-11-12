@@ -52,6 +52,8 @@ import QuartzCore
 
 @MainActor @Observable final class ClientModel {
     private(set) var hostId: String?
+    /// The machine and pairing the current runtime reaches, whichever route it takes.
+    @ObservationIgnored private var scope: MachineScope?
     @ObservationIgnored let liveActivity: ThreadLiveActivity
     let inbox = InboxRowStore()
     var pending: [String: PendingRow] = [:]
@@ -198,8 +200,15 @@ import QuartzCore
         connectionEpoch += 1
         let epoch = connectionEpoch
         let closing = retireRuntime()
+        // Another route to the same machine (direct to relay and back, Wi-Fi to cellular) keeps
+        // the open thread on screen and the shelf's copies: the new runtime has never sent them,
+        // so each is read whole again behind its kept rows (`ThreadModel.beginSnapshot`).
+        let sameMachine = scope == target.scope
+        let keeping = sameMachine ? thread : nil
+        if sameMachine { shelf.needSnapshots(); keeping?.requiresSnapshot = true } else { shelf.clear() }
+        scope = target.scope
         hostId = target.scope.hostId
-        inbox.removeAll(); projectsVersion &+= 1; pending = [:]; thread = nil; shelf.clear(); inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
+        inbox.removeAll(); projectsVersion &+= 1; pending = [:]; thread = keeping; inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
         // Another machine's runtime: this one's saves and computer access no longer apply.
         browser.forgetSaves(); computerAccess.reset(); outside.reset()
         inboxLayout = .empty; chatLayout = .empty
@@ -235,6 +244,17 @@ import QuartzCore
         self.runtime = runtime
         // The restored inbox's sort, so the live list opens in the order already on screen.
         runtime.start(itemLimit: itemLimit, inboxSort: inboxLayout.sortBy)
+        if readAheadAllowed { action(["type": "readAhead", "allowed": true]) }
+        // The thread on screen (the kept one, or one tapped while the old runtime shut down) is
+        // visited on this runtime. Not the person opening it: its notifications stay delivered.
+        if let showing = thread {
+            // This runtime has sent none of it, however much is on screen: it reads whole.
+            showing.requiresSnapshot = true
+            let opened = onOpenThread
+            onOpenThread = nil
+            open(showing.id)
+            onOpenThread = opened
+        }
     }
     /// Outbox and cached views are bound to one host and device identity.
     nonisolated static func database(hostId: String, deviceId: String, in directory: URL) -> URL {
@@ -457,6 +477,7 @@ import QuartzCore
                 // An admitted connection needs no code, whatever an earlier attempt was asked.
                 if state == "ready" { machineCodeAsk = nil; machineCodeLockedUntil = nil }
                 if changed { onConnection?(state) }
+                if changed, state != "ready" { sheets.connectionLost() }
                 if let generation, generation > activityGeneration {
                     activityGeneration = generation
                     normalizeGenerations()
@@ -790,6 +811,11 @@ import QuartzCore
         return await admissions.wait(id: id) { command(["type": "background_task.stop", "taskId": taskId], requestId: id) }
     }
     func network(_ online: Bool) { action(["type": "network", "online": online]) }
+    /// Whether the network and power allow reading likely threads ahead (`bridge/read-ahead.ts`).
+    /// Sent again to every runtime this model starts.
+    var readAheadAllowed = false {
+        didSet { if readAheadAllowed != oldValue { action(["type": "readAhead", "allowed": readAheadAllowed]) } }
+    }
     func retry() { action(["type": "retry"]) }
     /// Send the typed machine code with the next connection. The phone keeps no copy.
     func enterMachineCode(_ code: String) {

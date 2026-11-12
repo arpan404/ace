@@ -116,9 +116,7 @@ struct ForgeTimelineView: View {
                 .focused($boxFocused)
                 .disabled(box.off != nil)
             Button("Comment") { send(desk) }
-                .fontWeight(.semibold)
-                .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
-                .tint(AceTheme.Colours.foreground).foregroundStyle(AceTheme.Colours.background)
+                .buttonStyle(.textAction(.prominent))
                 .frame(minHeight: AceDesign.Size.tap)
                 .disabled(box.off != nil || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !desk.ready)
                 .accessibilityIdentifier("forge.timeline.comment")

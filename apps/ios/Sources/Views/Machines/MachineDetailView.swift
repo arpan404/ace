@@ -13,6 +13,7 @@ struct MachineDetailView: View {
     @State private var renaming = false
     @State private var newName = ""
     @State private var removing = false
+    @State private var removalFailed = false
     @State private var notice: ProblemNotice?
     @State private var enteringCode = false
     @State private var code = ""
@@ -111,7 +112,11 @@ struct MachineDetailView: View {
                 }
                 .confirmationDialog("Forget \(facts.name)?", isPresented: $removing, titleVisibility: .visible) {
                     Button("Forget \(facts.name)", role: .destructive) {
-                        Task { await machines.remove(hostId); dismiss() }
+                        Task {
+                            await machines.remove(hostId)
+                            if machines.entry(hostId) == nil { dismiss() }
+                            else { removalFailed = true; notice = machines.problem ?? .unknown }
+                        }
                     }.accessibilityIdentifier("machine.remove.confirm")
                 } message: { Text("It leaves your ace account's list on every device.") }
                 .insetRowBackground()
@@ -130,7 +135,11 @@ struct MachineDetailView: View {
                 } message: { Text("The name is for this phone; the computer keeps its own.") }
                 .confirmationDialog("Remove \(facts.name)?", isPresented: $removing, titleVisibility: .visible) {
                     Button("Remove \(facts.name)", role: .destructive) {
-                        Task { await machines.remove(hostId); dismiss() }
+                        Task {
+                            await machines.remove(hostId)
+                            if machines.entry(hostId) == nil { dismiss() }
+                            else { removalFailed = true; notice = machines.problem ?? .unknown }
+                        }
                     }.accessibilityIdentifier("machine.remove.confirm")
                 } message: { Text("This phone forgets its access and unsent work for that computer.") }
                 .insetRowBackground()
@@ -146,7 +155,8 @@ struct MachineDetailView: View {
             Button("Cancel", role: .cancel) { code = "" }
             Button("Open") { let typed = code; code = ""; client?.enterMachineCode(typed) }
         } message: { Text(client?.machineCodeAsk?.message(lockedUntil: client?.machineCodeLockedUntil) ?? "") }
-        .alert("Couldn't rename", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
+        .alert("Couldn't update machine", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
+            if removalFailed { Button("Retry") { notice = nil; removing = true } }
             Button("OK") { notice = nil }
         } message: { Text(notice?.message ?? "") }
     }

@@ -19,6 +19,9 @@ struct ChangesTreeSheet: View {
                         .listRowInsets(EdgeInsets(top: AceTheme.Spacing.none, leading: AceDesign.Space.margin, bottom: AceTheme.Spacing.none, trailing: AceDesign.Space.margin))
                         .accessibilityIdentifier("tree.\(row.key)")
                 }
+                if (model.sheets.changes?.hidden ?? 0) > 0 {
+                    Button("Show more files") { model.sheet(["kind": "changes.files.more"]) }.buttonStyle(.textAction())
+                }
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
@@ -59,10 +62,10 @@ struct ChangesTreeSheet: View {
         let viewed = model.sheets.changes?.files.first { $0.path == row.key }?.viewed == true
         return HStack(spacing: AceTheme.Spacing.sm) {
             Color.clear.frame(width: CGFloat(row.depth) * AceDesign.Space.treeLevel, height: AceDesign.Size.hairline)
-            Image(systemName: "chevron.right").font(.caption2.weight(.semibold))
+            RowCaret()
                 .rotationEffect(.degrees(folder && !folded.contains(row.key) ? 90 : 0))
                 .foregroundStyle(AceTheme.Colours.decoration).frame(width: AceDesign.Size.caret).opacity(folder ? 1 : 0)
-            Text(row.name).aceFont(AceTheme.Typography.body, relativeTo: .body)
+            Text(row.name).aceMonospace(AceDesign.TextRole.rowTitle, relativeTo: .callout)
                 .foregroundStyle(folder || viewed ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground)
                 .lineLimit(1).truncationMode(.middle)
             if viewed { Text("Viewed").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.subtleForeground) }

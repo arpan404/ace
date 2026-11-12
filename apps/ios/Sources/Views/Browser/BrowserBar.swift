@@ -91,7 +91,7 @@ struct BrowserBar: View {
     private func barButton(_ label: String, _ icon: AceIcon.Name, enabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             AceIcon(icon, size: AceDesign.Size.barIcon, relativeTo: .subheadline)
-                .frame(width: AceDesign.Size.tap - AceDesign.Space.tight, height: AceDesign.Size.tap)
+                .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -153,7 +153,7 @@ struct BrowserAddressEditor: View {
                 .frame(minHeight: AceDesign.Size.tap)
                 .aceGlass(in: AceDesign.Shape.control)
                 Button("Cancel") { editing = false }
-                    .font(AceDesign.Typeface.body)
+                    .buttonStyle(.textAction())
                     .tint(AceDesign.Ink.accent)
             }
             .padding(.horizontal, AceDesign.Space.row)
@@ -212,7 +212,7 @@ struct BrowserFindBar: View {
             .disabled(text.isEmpty)
             .aceGlass(in: AceDesign.Shape.control, interactive: true)
             Button("Done") { finish() }
-                .font(AceDesign.Typeface.body).fontWeight(.semibold)
+                .buttonStyle(.textAction(.prominent))
         }
         .tint(AceDesign.Ink.accent)
         .padding(.horizontal, AceDesign.Space.row)

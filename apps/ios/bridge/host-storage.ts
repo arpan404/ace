@@ -200,6 +200,7 @@ export function compactionLine(result: StorageCompaction): string {
 export class HostStorage {
   #owner: ClientCore;
   #plans = new Map<string, StoragePlan>();
+  #writes: Promise<void> = Promise.resolve();
   constructor(owner: ClientCore) {
     this.#owner = owner;
   }
@@ -249,9 +250,18 @@ export class HostStorage {
           pendingId: compaction.state === "pending" ? compaction.id : null,
         };
       }
-      case "host.storage.set":
-        await this.#set(request.setting, signal);
-        return this.#page(signal);
+      case "host.storage.set": {
+        // Retention kinds share one settings value. Keep each read, write and reply in order.
+        const pending = this.#writes.then(async () => {
+          await this.#set(request.setting, signal);
+          return this.#page(signal);
+        });
+        this.#writes = pending.then(
+          () => {},
+          () => {},
+        );
+        return pending;
+      }
     }
   }
   async #page(signal: AbortSignal, force?: boolean) {

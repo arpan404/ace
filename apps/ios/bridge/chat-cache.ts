@@ -32,40 +32,54 @@ export interface ChatCacheHost {
   forgetSteps?(threadId: string): Promise<void>;
 }
 
-export function handleCacheAction(action: CacheAction, host: ChatCacheHost): Promise<void> {
-  switch (action.type) {
-    case "cache.read":
-      return publishUsage(host);
-    case "cache.clear":
-      return host.client
-        .clearReadSnapshots()
-        .catch(() => {})
-        .then(() => publishUsage(host));
-    case "cache.reload": {
-      const open = host.openThread() === action.threadId;
-      // The lease goes first so the store can be let go; the drop is asked before the reopen's
-      // read, so that read is a miss and the thread comes from the machine.
-      if (open) host.leave();
-      const forgotten = host.client.forgetThread(action.threadId).catch(() => {});
-      if (host.forgetSteps)
-        return forgotten
-          .then(() => host.forgetSteps?.(action.threadId).catch(() => {}))
-          .then(() => {
-            if (open) host.reopen(action.threadId);
-            return publishUsage(host);
-          });
-      if (open) host.reopen(action.threadId);
-      return forgotten.then(() => publishUsage(host));
+export async function handleCacheAction(action: CacheAction, host: ChatCacheHost): Promise<void> {
+  let problem: string | undefined;
+  try {
+    switch (action.type) {
+      case "cache.read":
+        break;
+      case "cache.clear":
+        await host.client.clearReadSnapshots();
+        break;
+      case "cache.reload": {
+        const open = host.openThread() === action.threadId;
+        if (open) host.leave();
+        try {
+          await host.client.forgetThread(action.threadId);
+          await host.forgetSteps?.(action.threadId);
+        } finally {
+          if (open) host.reopen(action.threadId);
+        }
+        break;
+      }
     }
+  } catch {
+    problem =
+      action.type === "cache.clear" ? "Couldn't clear cached chats." : "Couldn't reload this chat.";
   }
+  await publishUsage(host, action, problem);
 }
 
-async function publishUsage(host: ChatCacheHost): Promise<void> {
-  let usage: { threads: number; bytes: number };
+async function publishUsage(
+  host: ChatCacheHost,
+  action: CacheAction,
+  problem?: string,
+): Promise<void> {
+  let usage: { threads: number; bytes: number } = { threads: 0, bytes: 0 };
+  let measured = false;
   try {
     usage = await host.snapshots.usage();
+    measured = true;
   } catch {
-    return;
+    problem ??= "Couldn't read cached chats.";
   }
-  host.sink.put("cache.usage", () => ({ type: "cache.usage", ...usage }));
+  const retry = problem ? action.type : undefined;
+  host.sink.put("cache.usage", () => ({
+    type: "cache.usage",
+    ...usage,
+    measured,
+    problem,
+    retry,
+    ...(action.type === "cache.reload" ? { threadId: action.threadId } : {}),
+  }));
 }

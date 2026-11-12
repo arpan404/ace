@@ -72,7 +72,8 @@ test("a restored thread that was done never shows as done before the daemon conf
 
   // Meanwhile it started working again. This session paints from the saved records first.
   daemon.apply(threadId, turn("turn-2"));
-  const gate: Gate = { held: true, queue: [] };
+  // The thread resumes from its kept cursor (ADR 0128): hold its replay with the snapshots.
+  const gate: Gate = { held: true, queue: [], newWires: true };
   const app = harness({
     daemon,
     clock,

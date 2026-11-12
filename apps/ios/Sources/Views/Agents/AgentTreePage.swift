@@ -63,14 +63,14 @@ struct AgentTreePage: View {
     private func header(_ sheet: AgentSheet) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
             Text(sheet.summary?.text ?? (sheet.treeRunning ? "Working" : "Finished"))
-                .aceFont(AceDesign.TextRole.message, relativeTo: .body)
+                .aceFont(AceDesign.TextRole.header, relativeTo: .title3)
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityIdentifier("agents.summary")
             if model.canOperate && sheet.treeRunning {
                 Button(stop.saving ? "Stopping…" : "Stop all") { request(.tree(agents: sheet.totals.agents)) }
-                    .buttonStyle(StripTextButtonStyle())
+                    .buttonStyle(.textAction())
                     .disabled(stop.saving)
                     .padding(.trailing, -AceDesign.Space.related)
                     .accessibilityIdentifier("agents.stopAll")

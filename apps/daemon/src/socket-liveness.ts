@@ -25,7 +25,7 @@ export function isPing(data: RawData): boolean {
 const ordinary = new Set([1000, 1001, 1005]);
 
 /** Which kind of client a socket belongs to, from its User-Agent alone. Never an identity. */
-export type ClientAgent = "desktop" | "ios" | "android" | "browser" | "node" | "other";
+export type ClientAgent = "desktop" | "ios" | "android" | "browser" | "node" | "other" | "unknown";
 
 export function clientAgent(userAgent: string | undefined): ClientAgent {
   if (!userAgent) return "node";
@@ -44,6 +44,8 @@ export interface ClosePeer {
   /** A side channel (files, devices, browser, screen, provider_auth); absent for the main one. */
   channel?: string;
   remote: boolean;
+  /** The channel came through a relay, which carries no User-Agent (`client` is "unknown"). */
+  route?: "relay";
 }
 
 /**
@@ -60,7 +62,10 @@ export function closeRecord(
   | ({ code: number; reason: string; durationMs: number; authenticated: boolean } & ClosePeer)
   | undefined {
   // Unauthenticated drops are mostly probes and abandoned handshakes; keep the daemon's own.
-  if (ordinary.has(code) || (!authenticated && code < 4000)) return undefined;
+  // A relayed close is kept even when ordinary: the relay's "Peer closed" is all the daemon
+  // learns when the far end hangs up, and a device that keeps hanging up is worth seeing.
+  if (!authenticated && code < 4000) return undefined;
+  if (ordinary.has(code) && peer.route !== "relay") return undefined;
   return {
     code,
     reason: reason.toString("utf8").slice(0, 123),

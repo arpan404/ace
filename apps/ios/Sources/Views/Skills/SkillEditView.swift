@@ -34,27 +34,30 @@ struct SkillEditView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
-                SkillField(title: "Description") {
+            VStack(alignment: .leading, spacing: AceDesign.Space.group) {
+                QuietField("Description") {
                     TextField("What it does and when an agent should use it", text: $description, axis: .vertical)
                         .lineLimit(1...4).accessibilityIdentifier("skill.edit.description")
                 }
                 SkillRunsPicker(choices: page.runsChoices, manual: $manual)
                 if conflict || problem != nil {
-                    HStack(spacing: AceTheme.Spacing.sm) {
-                        ServiceProblem(message: conflict ? "This skill changed on the machine since you opened it." : problem)
-                        if conflict { Button("Reload") { Task { await reload() } }.buttonStyle(.bordered).buttonBorderShape(.capsule) }
+                    if conflict {
+                        QuietProblem(message: "This skill changed on the machine since you opened it.",
+                                     id: "skill.edit.conflict",
+                                     retry: { Task { await reload() } }, retryLabel: "Reload")
+                            .transition(.opacity)
+                    } else if let problem {
+                        QuietProblem(message: problem, id: "skill.edit.problem").transition(.opacity)
                     }
-                    .transition(.opacity)
                 }
-                InsetHeader("Instructions").padding(.horizontal, AceTheme.Spacing.lg)
+                QuietHeading("Instructions").padding(.horizontal, AceDesign.Space.margin)
                 SourceTextView(document: SourceDocument(key: "\(page.hash)|\(session)", text: page.body, language: nil, marks: [:]),
                                wrap: true, editable: !saving, line: nil, handle: handle, dirty: { bodyDirty = $0 })
                     .accessibilityIdentifier("skill.edit.body")
                     .ignoresSafeArea(.container, edges: .bottom)
             }
-            .padding(.top, AceTheme.Spacing.md)
-            .background(AceTheme.Colours.background)
+            .padding(.top, AceDesign.Space.related)
+            .background(AceDesign.Surface.background)
             .animation(.default, value: conflict)
             .animation(.default, value: problem)
             .navigationTitle("Edit \(page.title)").navigationBarTitleDisplayMode(.inline)
@@ -99,34 +102,17 @@ struct SkillEditView: View {
     }
 }
 
-/// A labelled text field on the quiet fill, in the field capsule.
-struct SkillField<Content: View>: View {
-    let title: String
-    @ViewBuilder var content: () -> Content
-    var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-            InsetHeader(title)
-            content()
-                .aceFont(InsetStyle.label, relativeTo: .body)
-                .padding(.horizontal, AceTheme.Spacing.md).padding(.vertical, AceTheme.Spacing.sm)
-                .frame(minHeight: AceDesign.Size.tap)
-                .background(AceTheme.Colours.fill, in: AceShape.field)
-        }
-        .padding(.horizontal, AceTheme.Spacing.lg)
-    }
-}
-
 /// Runs: "When it fits" or "Only when picked", on one glass capsule.
 struct SkillRunsPicker: View {
     let choices: [SkillRunsChoice]
     @Binding var manual: Bool
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-            InsetHeader("Runs")
+        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+            QuietHeading("Runs")
             GlassChoice(items: choices.map { GlassChoiceItem(id: $0.manual ? "manual" : "auto", label: $0.label) },
                         selection: manual ? "manual" : "auto", idPrefix: "skill.runs") { manual = $0 == "manual" }
         }
-        .padding(.horizontal, AceTheme.Spacing.lg)
+        .padding(.horizontal, AceDesign.Space.margin)
         .sensoryFeedback(.selection, trigger: manual)
     }
 }

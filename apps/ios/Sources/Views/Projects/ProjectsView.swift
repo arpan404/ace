@@ -39,15 +39,18 @@ struct ProjectsView: View {
         _loaded = State(initialValue: kept != nil)
     }
     var body: some View {
-        List {
+        QuietPage {
             if model.connection != "ready" { InboxConnectionBanner(connection: model.connection, retry: model.retry).listRowBackground(Color.clear) }
-            Section {
+            QuietGroup {
                 ForEach(projects.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || $0.path.localizedCaseInsensitiveContains(query) }) { project in
                     NavigationLink { ProjectDetailView(model: model, project: project) } label: {
-                        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                            Text(project.name).font(AceDesign.Typeface.body)
-                            Text(project.path).font(AceDesign.Typeface.code).foregroundStyle(AceDesign.Ink.muted).lineLimit(1).truncationMode(.middle)
-                        }.padding(.vertical, AceDesign.Space.tight)
+                        HStack {
+                            VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                                QuietRowText(title: project.name)
+                                Text(project.path).font(AceDesign.Typeface.code).foregroundStyle(AceDesign.Ink.muted).lineLimit(1).truncationMode(.middle)
+                            }
+                            RowCaret()
+                        }
                     }.accessibilityIdentifier("projects.row.\(project.id)")
                 }
                 if next != nil { Button("Show more projects") { Task { await read(more: true) } }.disabled(loading) }
@@ -56,23 +59,23 @@ struct ProjectsView: View {
                     Button("Retry") { Task { await read() } }
                 }
             }
-            .insetRowBackground()
+
             Group {
                 if loading, !loaded { SkeletonRows(count: 4, label: "Loading projects").listRowInsets(EdgeInsets()).listRowBackground(Color.clear) }
                 if loaded && !loading && projects.isEmpty && problem == nil { EmptyState(systemImage: "folder", title: "No projects") }
             }
             .listRowBackground(Color.clear)
             if query.isEmpty {
-                Section {
+                QuietGroup {
                     NavigationLink { ProjectFoldersView(model: model) } label: {
-                        InsetRow("Project folders", systemImage: "folder.badge.gearshape", subtitle: "Where ace may open projects")
+                        HStack { QuietRowText(title: "Project folders", detail: "Where ace may open projects"); RowCaret() }
                     }
                     .accessibilityIdentifier("projects.folders")
                 }
-                .insetRowBackground()
+
             }
         }
-        .insetGroupedList()
+
         .searchable(text: $query, prompt: "Search projects")
         .nativeTitle("Projects")
         .toolbar {

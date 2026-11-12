@@ -46,6 +46,12 @@ struct AddAccountView: View {
             if let started {
                 AccountSignInFlow(model: model, provider: provider, name: name, started: started)
                     .transition(.opacity)
+                    .safeAreaInset(edge: .bottom) {
+                        if let problem {
+                            VStack { ServiceProblem(message: problem); Button("Retry") { Task { await finish() } }.buttonStyle(.textAction()).disabled(busy) }
+                                .padding(AceDesign.Space.margin).background(AceDesign.Surface.background)
+                        }
+                    }
             } else { form.transition(.opacity) }
         }
         .animation(.default, value: started)
@@ -58,7 +64,7 @@ struct AddAccountView: View {
                         .disabled(busy || badgeProblem != nil || label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !model.canOperate)
                 }
             } else {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { Task { await finish() } } }
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { Task { await finish() } }.disabled(busy) }
             }
         }
         .sensoryFeedback(.success, trigger: started != nil)
@@ -108,11 +114,15 @@ struct AddAccountView: View {
     }
     /// The icon and colour join once the account exists; letters went with the add.
     private func finish() async {
+        guard !busy else { return }
+        busy = true; problem = nil
+        defer { busy = false }
         if let instance = started?.instance, draft.icon != nil || draft.colour != "neutral" {
             var payload = draft.payload
             payload["type"] = "accounts.screen.rename"; payload["provider"] = provider
             payload["instanceId"] = instance; payload["label"] = label
-            _ = try? await model.manage(payload, as: PlainAnswer.self)
+            do { _ = try await model.manage(payload, as: PlainAnswer.self) }
+            catch { problem = error.localizedDescription; return }
         }
         model.refreshMachine()
         dismiss()
@@ -153,6 +163,7 @@ struct AccountSignInSheet: View {
                             Button("Continue") { Task { await start() } }.disabled(busy)
                         } else if busy { SkeletonRows(count: 1, label: "Starting sign-in").listRowInsets(EdgeInsets()) }
                         ServiceProblem(message: problem)
+                        if problem != nil { Button("Retry") { Task { await start() } }.buttonStyle(.textAction()).disabled(busy) }
                     }
                     .insetRowBackground()
                 }

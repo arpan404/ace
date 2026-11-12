@@ -15,6 +15,11 @@ export interface FakeDaemonOptions {
   screenId?(): string;
   screenSchedule?(callback: () => void, delay: number): () => void;
   hostId?: string;
+  /**
+   * Names this run's event log in the welcome (ADR 0128). The log lives in memory, so each run is
+   * its own database; default: a new random id per fake daemon.
+   */
+  databaseId?: string;
   displayName?: string;
   version?: string;
   /** The OS host.identity reports; absent, as an older daemon's. */

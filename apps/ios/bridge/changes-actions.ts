@@ -14,6 +14,7 @@ const requestId = z.string().min(1).max(64);
 const line = z.number().int().positive().max(10_000_000);
 
 export const ChangesAction = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("changes.files.more") }),
   z.object({ kind: z.literal("changes.scope"), scope: z.string().min(1).max(128) }),
   z.object({ kind: z.literal("changes.open"), path, open: z.boolean() }),
   z.object({ kind: z.literal("changes.expand"), open: z.boolean() }),
@@ -82,6 +83,9 @@ export function changesAction(
       () => notice(sink, preview, session, action.kind, id, "Something went wrong: try again."),
     );
   switch (action.kind) {
+    case "changes.files.more":
+      session.moreFiles();
+      return true;
     case "changes.scope":
       session.scope(action.scope);
       return true;

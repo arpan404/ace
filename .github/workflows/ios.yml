@@ -151,6 +151,8 @@ jobs:
           xcodebuild test-without-building -project Ace.xcodeproj -scheme Ace -configuration Debug \
             -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}" \
             -derivedDataPath .build/DerivedData -only-testing:AceTests -parallel-testing-enabled NO \
+            -test-timeouts-enabled YES -default-test-execution-time-allowance 120 \
+            -maximum-test-execution-time-allowance 300 \
             -resultBundlePath .build/AceTests.xcresult > .build/test.log 2>&1 \
             && { grep -E "Test run with|Executed [0-9]+ tests" .build/test.log || true; exit 0; }
           grep -E "error:|✘|failed|Fatal|crash" .build/test.log | head -200

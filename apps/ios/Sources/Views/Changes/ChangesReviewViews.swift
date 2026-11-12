@@ -2,13 +2,18 @@ import SwiftUI
 
 extension ClientModel {
     /// A review action for the Changes sheet (`bridge/CHANGES-CONTRACT.md`); answers the request
-    /// id its `changes.notice` will carry, or nil when it couldn't be sent.
-    @discardableResult func reviewAction(_ kind: String, _ fields: [String: Any] = [:]) -> String? {
+    /// id its `changes.notice` will carry, including a local refusal when it cannot be sent.
+    @discardableResult func reviewAction(_ kind: String, _ fields: [String: Any] = [:]) -> String {
         let id = "review-\(UUID().uuidString.prefix(18))"
         var action = fields
         action["kind"] = kind
         action["requestId"] = id
-        return sheet(action) ? id : nil
+        if sheet(action) {
+            sheets.sent(id)
+        } else {
+            sheets.notices[id] = ChangesNotice(requestId: id, action: kind, ok: false, message: "Reconnect to send this request.")
+        }
+        return id
     }
 }
 
@@ -21,6 +26,11 @@ struct ReviewCommentCard: View {
     let edit: (ChangesReview.Draft) -> Void
     let replies: (ChangesReview.Draft) -> Void
     @State private var confirmDelete = false
+    @State private var request: String?
+    @State private var retryKind = ""
+    @State private var retryFields: [String: Any] = [:]
+    private var notice: ChangesNotice? { request.flatMap { model.sheets.notices[$0] } }
+    private var pending: Bool { request != nil && notice == nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
@@ -52,6 +62,11 @@ struct ReviewCommentCard: View {
             if let error = draft.error {
                 Text(error).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTheme.StatusText.failed)
             }
+            if pending { Text("Sending…").foregroundStyle(AceDesign.Ink.muted) }
+            if let notice, !notice.ok {
+                Text(notice.message).foregroundStyle(AceTheme.StatusText.failed)
+                Button("Retry") { perform(retryKind, retryFields) }.buttonStyle(.textAction())
+            }
             actions
         }
         .padding(.vertical, AceTheme.Spacing.md)
@@ -76,20 +91,20 @@ struct ReviewCommentCard: View {
             case "draft", "failed":
                 word(draft.state == "failed" ? "Retry" : "Send") { send() }
                 word("Edit") { edit(draft) }
-                if draft.suggestion != nil { word("Apply suggestion") { _ = model.reviewAction("review.apply", ["key": draft.key]) } }
+                if draft.suggestion != nil { word("Apply suggestion") { perform("review.apply", ["key": draft.key]) } }
                 word("Delete", tone: AceTheme.StatusText.failed) { confirmDelete = true }
             case "sent":
                 word("Reply") { replies(draft) }
-                word("Resolve") { _ = model.reviewAction("review.resolve", ["key": draft.key, "resolved": true]); UISelectionFeedbackGenerator().selectionChanged() }
-                if draft.suggestion != nil, !draft.applied { word("Apply suggestion") { _ = model.reviewAction("review.apply", ["key": draft.key]) } }
+                word("Resolve") { perform("review.resolve", ["key": draft.key, "resolved": true]) }
+                if draft.suggestion != nil, !draft.applied { word("Apply suggestion") { perform("review.apply", ["key": draft.key]) } }
             case "resolved":
                 if draft.sent { word("Replies") { replies(draft) } }
-                word("Reopen") { _ = model.reviewAction("review.resolve", ["key": draft.key, "resolved": false]) }
+                word("Reopen") { perform("review.resolve", ["key": draft.key, "resolved": false]) }
                 word("Delete", tone: AceTheme.StatusText.failed) { confirmDelete = true }
             default: EmptyView()
             }
         }
-        .disabled(!model.canOperate || draft.state == "sending" || draft.state == "resolving")
+        .disabled(!model.canOperate || pending || draft.state == "sending" || draft.state == "resolving")
     }
 
     private func word(_ title: String, tone: Color = AceTheme.Colours.foreground, _ action: @escaping () -> Void) -> some View {
@@ -99,6 +114,11 @@ struct ReviewCommentCard: View {
             .foregroundStyle(tone)
             .frame(minHeight: AceDesign.Size.tap)
             .accessibilityIdentifier("review.\(title.lowercased())")
+    }
+    private func perform(_ kind: String, _ fields: [String: Any]) {
+        retryKind = kind
+        retryFields = fields
+        request = model.reviewAction(kind, fields)
     }
     private func send() {
         model.reviewAction("review.send", ["keys": [draft.key]])
@@ -203,8 +223,8 @@ struct ReviewRepliesSheet: View {
     @Bindable var model: ClientModel
     let draft: ChangesReview.Draft
     @Environment(\.dismiss) private var dismiss
-    @State private var text = ""
-    @State private var request: String?
+    @State private var replyDraft = ReviewReplyDraft()
+    private var notice: ChangesNotice? { replyDraft.request.flatMap { model.sheets.notices[$0] } }
     private var replies: ChangesReplies? { model.sheets.replies?.key == draft.key ? model.sheets.replies : nil }
 
     var body: some View {
@@ -223,23 +243,36 @@ struct ReviewRepliesSheet: View {
             }
             .listStyle(.plain)
             .safeAreaInset(edge: .bottom) {
-                HStack(spacing: AceTheme.Spacing.sm) {
-                    TextField("Reply", text: $text, axis: .vertical).lineLimit(1...5)
-                        .padding(.horizontal, AceTheme.Spacing.md).padding(.vertical, AceTheme.Spacing.sm)
-                        .background(AceTheme.Colours.fill, in: AceShape.field)
-                    Button("Reply") {
-                        request = model.reviewAction("review.reply", ["key": draft.key, "text": String(text.prefix(4096))])
-                        text = ""
+                VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
+                    if replyDraft.tooLong {
+                        Text("Reply is too long. Shorten it before sending.").foregroundStyle(AceTheme.StatusText.failed)
+                    } else if let notice, !notice.ok {
+                        Text(notice.message).foregroundStyle(AceTheme.StatusText.failed)
+                    }
+                    HStack(spacing: AceTheme.Spacing.sm) {
+                        TextField("Reply", text: $replyDraft.text, axis: .vertical).lineLimit(1...5)
+                            .padding(.horizontal, AceTheme.Spacing.md).padding(.vertical, AceTheme.Spacing.sm)
+                            .background(AceTheme.Colours.fill, in: AceShape.field)
+                        Button(replyDraft.pending ? "Replying…" : notice?.ok == false ? "Retry" : "Reply") {
+                            replyDraft.begin(id: model.reviewAction("review.reply", ["key": draft.key, "text": replyDraft.text]))
                     }
                     .fontWeight(AceDesign.Typeface.strong)
-                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !model.canOperate)
+                    .disabled(!replyDraft.canSubmit || !model.canOperate)
                     .frame(minHeight: AceDesign.Size.tap)
+                    }
                 }
                 .padding(AceDesign.Space.margin)
                 .background(.bar)
             }
             .navigationTitle("Replies").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            // The words typed stay with the comment while the thread is open, so closing the
+            // sheet to look at the code doesn't lose them.
+            .onAppear { if replyDraft.text.isEmpty, let kept = model.sheets.replyTexts[draft.key] { replyDraft.text = kept } }
+            .onChange(of: replyDraft.text) { _, text in model.sheets.replyTexts[draft.key] = text.isEmpty ? nil : text }
+            .onChange(of: notice) { _, notice in
+                if let notice { replyDraft.finish(ok: notice.ok) }
+            }
             .onAppear { model.sheet(["kind": "review.replies", "key": draft.key]) }
         }
         .presentationDetents([.medium, .large])
@@ -331,6 +364,10 @@ struct ReviewCommentsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var editing: ChangesReview.Draft?
     @State private var replying: ChangesReview.Draft?
+    @State private var request: String?
+    @State private var status = "approved"
+    private var notice: ChangesNotice? { request.flatMap { model.sheets.notices[$0] } }
+    private var pending: Bool { request != nil && notice == nil }
     private var review: ChangesReview? { model.sheets.review }
 
     var body: some View {
@@ -361,19 +398,25 @@ struct ReviewCommentsSheet: View {
             .background(AceTheme.Colours.background)
             .refreshable { model.sheet(["kind": "review.refresh"]) }
             .safeAreaInset(edge: .bottom) {
-                HStack(spacing: AceTheme.Spacing.md) {
-                    Button("Request changes") { model.reviewAction("review.status", ["status": "changes-requested"]) }
-                        .buttonStyle(.bordered).buttonBorderShape(.capsule)
-                        .accessibilityIdentifier("review.requestChanges")
-                    Button("Approve") {
-                        model.reviewAction("review.status", ["status": "approved"])
-                        UINotificationFeedbackGenerator().notificationOccurred(.success)
+                VStack(alignment: .leading) {
+                    if let notice, !notice.ok {
+                        Text(notice.message).foregroundStyle(AceTheme.StatusText.failed)
+                        Button("Retry") { submitStatus(status) }.buttonStyle(.textAction())
                     }
-                    .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
+                    HStack(spacing: AceTheme.Spacing.md) {
+                        Button("Request changes") { submitStatus("changes-requested") }
+                            .buttonStyle(.textAction())
+                            .accessibilityIdentifier("review.requestChanges")
+                        Button("Approve") {
+                            submitStatus("approved")
+                    }
+                    .buttonStyle(.textAction(.prominent))
                     .accessibilityIdentifier("review.approve")
+                    }
+                    if pending { Text("Sending…").foregroundStyle(AceDesign.Ink.muted) }
                 }
                 .tint(AceTheme.Colours.foreground)
-                .disabled(!model.canOperate)
+                .disabled(!model.canOperate || pending)
                 .padding(AceTheme.Spacing.lg)
                 .frame(maxWidth: .infinity)
             }
@@ -393,6 +436,11 @@ struct ReviewCommentsSheet: View {
                                current: draft.suggestion ?? "", editing: draft)
             }
         }
+    }
+
+    private func submitStatus(_ value: String) {
+        status = value
+        request = model.reviewAction("review.status", ["status": value])
     }
 
     private var title: String {

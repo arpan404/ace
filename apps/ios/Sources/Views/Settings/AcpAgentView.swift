@@ -39,7 +39,11 @@ struct AcpAgentView: View {
     @State private var problem: String?
     @State private var install: InstallData?
     @State private var installProblem: String?
+    @State private var pollProblem: String?
+    @State private var failedCancellation = false
     @State private var copied = false
+    @State private var starting = false
+    @State private var pollAttempt = 0
     var body: some View {
         List {
             Group {
@@ -59,7 +63,7 @@ struct AcpAgentView: View {
         .animation(.default, value: install)
         .navigationTitle(name).navigationBarTitleDisplayMode(.inline)
         .readWhenConnected(model, id: agentId) { await read() }
-        .task(id: install?.session) { await follow() }
+        .task(id: "\(install?.session ?? "")/\(pollAttempt)") { await follow() }
         .sensoryFeedback(.success, trigger: install?.succeeded == true)
         .sensoryFeedback(.error, trigger: install.map { $0.finished && !$0.succeeded } == true)
         .sensoryFeedback(.success, trigger: copied) { _, now in now }
@@ -74,18 +78,25 @@ struct AcpAgentView: View {
             .padding(.vertical, AceDesign.Space.tight)
             if let standing = agent.standing { InsetRow("On this machine", systemImage: nil, value: standing) }
             if let install { progress(install) }
-            if let installProblem { ServiceProblem(message: installProblem) }
+            if let message = installProblem ?? pollProblem {
+                ServiceProblem(message: message)
+                Button("Retry") {
+                    if installProblem != nil {
+                        if failedCancellation, let install { Task { await cancel(install) } }
+                        else { Task { await start(agent) } }
+                    } else { pollProblem = nil; pollAttempt += 1 }
+                }.buttonStyle(.textAction()).disabled(starting)
+            }
         }
         if install == nil, let label = agent.actionLabel, model.canOperate {
             Section {
                 Button { Task { await start(agent) } } label: {
-                    Text(label).fontWeight(.semibold).frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
+                    Text(starting ? "Starting…" : label).fontWeight(.semibold).frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
                 }
-                .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
-                .tint(AceDesign.Ink.accent).foregroundStyle(AceDesign.Ink.onAccent)
+                .buttonStyle(.textAction(.prominent))
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets())
-                .disabled(agent.planProblem != nil)
+                .disabled(agent.planProblem != nil || starting)
             }
         }
         if !agent.facts.isEmpty || agent.planProblem != nil {
@@ -113,7 +124,7 @@ struct AcpAgentView: View {
         Section {
             if let run = agent.setup.run {
                 HStack {
-                    Text(run).font(.system(.callout, design: .monospaced)).textSelection(.enabled)
+                    Text(run).font(AceDesign.Typeface.codeBody).textSelection(.enabled)
                     Spacer()
                     Button(copied ? "Copied" : "Copy") {
                         UIPasteboard.general.string = run
@@ -132,13 +143,13 @@ struct AcpAgentView: View {
     }
     private func progress(_ install: InstallData) -> some View {
         HStack(spacing: AceDesign.Space.row) {
-            if !install.finished { WorkingMark(label: "Installing") }
+            if !install.finished && pollProblem == nil { WorkingMark(label: "Installing") }
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text(install.title)
+                Text(pollProblem == nil ? install.title : "Install status unavailable")
                     .foregroundStyle(install.finished && !install.succeeded ? AceTheme.StatusText.failed : AceDesign.Ink.primary)
                     .contentTransition(.opacity)
                 if let detail = install.detail {
-                    Text(detail).font(.system(.caption, design: .monospaced)).foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
+                    Text(detail).font(AceDesign.Typeface.code).foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
                 }
             }
             Spacer()
@@ -152,27 +163,46 @@ struct AcpAgentView: View {
     }
     private func read() async {
         do {
-            agent = try await model.manage(["type": "acp.registry.agent", "acpAgentId": agentId], as: AgentAnswer.self).agent
-            problem = nil
-        } catch { if !Task.isCancelled, agent == nil { problem = error.localizedDescription } }
+            guard let next = try await model.manage(["type": "acp.registry.agent", "acpAgentId": agentId], as: AgentAnswer.self).agent else {
+                throw ServiceFailure(message: "Couldn't read this agent.")
+            }
+            agent = next; problem = nil
+        } catch { if !Task.isCancelled { problem = error.localizedDescription } }
     }
     private func start(_ agent: RegistryAgentData) async {
-        guard let action = agent.action else { return }
-        installProblem = nil
+        guard let action = agent.action, !starting else { return }
+        starting = true
+        defer { starting = false }
+        installProblem = nil; pollProblem = nil; failedCancellation = false
         do {
-            install = try await model.manage(["type": "acp.registry.install", "acpAgentId": agent.id, "action": action], as: InstallAnswer.self).install
+            guard let next = try await model.manage(["type": "acp.registry.install", "acpAgentId": agent.id, "action": action], as: InstallAnswer.self).install else {
+                throw ServiceFailure(message: "Couldn't read the install status.")
+            }
+            install = next
         } catch { installProblem = error.localizedDescription }
     }
     private func cancel(_ install: InstallData) async {
-        _ = try? await model.manage(["type": "acp.registry.cancel", "session": install.session], as: InstallAnswer.self)
+        do {
+            guard let next = try await model.manage(["type": "acp.registry.cancel", "session": install.session], as: InstallAnswer.self).install else {
+                throw ServiceFailure(message: "Couldn't read the install status.")
+            }
+            self.install = next; installProblem = nil; failedCancellation = false
+        } catch { failedCancellation = true; installProblem = error.localizedDescription }
     }
     /// Polls the running install; when it finishes, the page and providers are read again.
     private func follow() async {
         while let current = install, !current.finished, !Task.isCancelled {
             try? await Task.sleep(for: .milliseconds(700))
             guard !Task.isCancelled else { return }
-            if let next = try? await model.manage(["type": "acp.registry.progress", "session": current.session], as: InstallAnswer.self).install {
-                install = next
+            do {
+                guard let next = try await model.manage(["type": "acp.registry.progress", "session": current.session], as: InstallAnswer.self).install else {
+                    throw ServiceFailure(message: "Couldn't read the install status.")
+                }
+                install = next; pollProblem = nil
+                if next.finished { installProblem = nil; failedCancellation = false }
+            } catch {
+                if !Task.isCancelled { pollProblem = error.localizedDescription }
+                return
             }
         }
         if install?.succeeded == true {

@@ -85,14 +85,29 @@ import Testing
         #expect(RelaySocket.channelClose(#"{"type":"error","code":4003}"#) == nil)
     }
 
-    @Test func theHelloOffersDeflateExceptOnSignInChannels() throws {
+    @Test func theHelloAsksForFlowControlAndOffersDeflateExceptOnSignInChannels() throws {
         let hello = #"{"type":"hello","protocolVersion":1,"deviceId":"ios-1","grant":"g"}"#
-        let offered = try #require(try JSONSerialization.jsonObject(with: Data(RelaySocket.offeringCompression(hello).utf8)) as? [String: Any])
+        let offered = try #require(try JSONSerialization.jsonObject(with: Data(RelaySocket.offering(hello).utf8)) as? [String: Any])
         #expect(offered["compression"] as? [String] == ["deflate-raw"])
+        #expect(offered["flowControl"] as? [String] == ["credit"])
         #expect(offered["grant"] as? String == "g")
         let signIn = #"{"type":"hello","channel":"provider_auth","grant":"g"}"#
-        #expect(RelaySocket.offeringCompression(signIn) == signIn)
+        let signInOffered = try #require(try JSONSerialization.jsonObject(with: Data(RelaySocket.offering(signIn).utf8)) as? [String: Any])
+        #expect(signInOffered["compression"] == nil)
+        #expect(signInOffered["flowControl"] as? [String] == ["credit"])
         let command = #"{"type":"command"}"#
-        #expect(RelaySocket.offeringCompression(command) == command)
+        #expect(RelaySocket.offering(command) == command)
+    }
+
+    @Test func aCreditFragmentFromTheDaemonIsReadAsCreditNotAMessage() throws {
+        var (phone, daemon) = try sessions()
+        let credit = try daemon.seal(plain: RelayFlow.creditFragment(262_144))
+        let received = try phone.receive(credit)
+        #expect(received == .credit(262_144))
+        // Data after it still arrives whole, so the cipher stayed in step.
+        #expect(try deliver(try daemon.seal(text: #"{"type":"pong"}"#), to: &phone) == [.text(#"{"type":"pong"}"#)])
+        // A credit past the window is malformed: the channel breaks.
+        let tooMuch = try daemon.seal(plain: RelayFlow.creditFragment(RelayFlow.window + 1))
+        #expect(throws: RelayFrameError.invalidFragment) { var reader = phone; _ = try reader.receive(tooMuch) }
     }
 }

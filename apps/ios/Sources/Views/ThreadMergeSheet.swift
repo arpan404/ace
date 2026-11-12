@@ -22,6 +22,17 @@ struct MergeSheet: View {
                         .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
                         .foregroundStyle(AceDesign.Ink.muted)
                         .padding(.horizontal, AceDesign.Space.margin)
+                    if let waits = screen.mergeDraft?.waits, !waits.isEmpty {
+                        Text(waits)
+                            .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                            .foregroundStyle(AceDesign.Ink.muted)
+                            .padding(.horizontal, AceDesign.Space.margin)
+                    }
+                    if let problem {
+                        Text(problem).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                            .foregroundStyle(AceTheme.StatusText.failed).accessibilityIdentifier("merge.problem")
+                            .padding(.horizontal, AceDesign.Space.margin)
+                    }
                     // The summary is the page: a quiet heading, the words on the page itself, a
                     // hairline under them. No filled box around the field.
                     VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
@@ -47,17 +58,6 @@ struct MergeSheet: View {
                             .accessibilityIdentifier("merge.code")
                         }
                     }
-                    if let waits = screen.mergeDraft?.waits, !waits.isEmpty {
-                        Text(waits)
-                            .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
-                            .foregroundStyle(AceDesign.Ink.muted)
-                            .padding(.horizontal, AceDesign.Space.margin)
-                    }
-                    if let problem {
-                        Text(problem).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
-                            .foregroundStyle(AceTheme.StatusText.failed).accessibilityIdentifier("merge.problem")
-                            .padding(.horizontal, AceDesign.Space.margin)
-                    }
                 }
                 .padding(.top, AceDesign.Space.related).padding(.bottom, AceDesign.Space.group)
             }
@@ -76,7 +76,12 @@ struct MergeSheet: View {
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
-        .onAppear { model.readMergeDraft() }
+        .task {
+            while !Task.isCancelled {
+                model.readMergeDraft()
+                do { try await Task.sleep(for: .seconds(3)) } catch { return }
+            }
+        }
         .onChange(of: screen.mergeDraft, initial: true) { _, draft in
             if !started, let draft { summary = draft.summary; started = true }
         }
