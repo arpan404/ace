@@ -100,12 +100,15 @@ async function answer(
       return { available: status === "available", status: updateStatusText[status] };
     }
     case "prepareUpdate": {
-      const [read, prepared] = await Promise.all([
-        skills(owner, { op: "read", id: request.id, ...at }, signal),
-        skills(owner, { op: "prepareUpdate", id: request.id, ...at }, signal),
-      ]);
-      const review = expect(prepared, "updateReview").review;
-      const { entry } = expect(read, "skill");
+      // Read first: once a review is staged, nothing after it may fail and leave it behind.
+      const { entry } = expect(
+        await skills(owner, { op: "read", id: request.id, ...at }, signal),
+        "skill",
+      );
+      const review = expect(
+        await prepareOwned(owner, request.id, at, signal),
+        "updateReview",
+      ).review;
       const files = changedFilesText(review.files.length);
       return {
         review: {
@@ -146,6 +149,35 @@ async function answer(
       return applied(expect(result, "skill").entry);
     }
   }
+}
+
+/** As long as a fetch for review may take; the daemon lets an abandoned review go after 30 min. */
+const preparing = { timeoutMs: 300_000 };
+/** For a request nobody can call off: it must be answered so its effect can be undone. */
+const unowned = new AbortController().signal;
+
+/**
+ * Prepare an update the bridge owns until the phone has its review. The daemon keeps a staged
+ * review, one of a few, until it is applied or cancelled, so the request isn't tied to the
+ * asker's signal: a review that arrives after the asker gave up (its sheet closed while the
+ * repository was fetched) is cancelled at once rather than dropped unseen.
+ */
+async function prepareOwned(
+  owner: SkillOwner,
+  id: string,
+  at: { workspaceId?: string },
+  signal: AbortSignal,
+) {
+  const reply = await owner.request(
+    { type: "skills.request", operation: { op: "prepareUpdate", id, ...at } },
+    preparing,
+  );
+  const result = reply.result;
+  if (!signal.aborted || result.kind !== "updateReview") return result;
+  await skills(owner, { op: "cancelUpdate", reviewId: result.review.id }, unowned).catch(
+    () => undefined,
+  );
+  throw new Refused("cancelled", "The update review was closed.");
 }
 
 /** The refusals a second send of an applied update gets: its review is gone, its hash moved. */

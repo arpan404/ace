@@ -22,16 +22,29 @@ interface Review {
   diff: { additions: number; deletions: number; rows: { kind: string; text: string }[] };
 }
 async function library() {
-  const { client } = sheetFixture();
+  const { daemon, client } = sheetFixture();
   close = () => client.close();
   await client.start();
   await until(() => client.connectionState().getSnapshot() === "ready", "connected");
   const skills = new NativeSkillLibrary(client, () => Date.parse("2026-10-27T12:00:00Z"));
-  const ask = async (request: Record<string, unknown>) =>
+  const ask = async (request: Record<string, unknown>, signal = new AbortController().signal) =>
     (await skills.answer(
       NativeSkillsRequest.parse({ type: "skills.native", ...request }),
-      new AbortController().signal,
+      signal,
     )) as Reply;
+  /**
+   * Asks for a review, and closes its sheet while the machine is still fetching the update:
+   * the phone's `service.cancel` aborts the bridge's signal then. The fetch finishes after.
+   */
+  const closeWhilePreparing = async (skill: string) => {
+    const hold = daemon.skills.holdUpdatePreparations();
+    const sheet = new AbortController();
+    const asked = ask({ op: "prepareUpdate", id: skill }, sheet.signal);
+    await until(() => hold.waiting() === 1, "preparing");
+    sheet.abort();
+    hold.release();
+    return asked;
+  };
   const listed = (await ask({ op: "library" })) as Reply & {
     groups: { rows: { id: string; name: string }[] }[];
   };
@@ -60,7 +73,7 @@ async function library() {
       folderHash: made.folderHash,
       retry,
     });
-  return { ask, id, page, review, apply };
+  return { ask, closeWhilePreparing, id, page, review, apply };
 }
 
 test("a skill from a repository says where it came from, and a check finds its update", async () => {
@@ -155,4 +168,13 @@ test("a cancelled review can't be applied any more", async () => {
   const made = await review(skill);
   expect(await ask({ op: "cancelUpdate", reviewId: made.id })).toEqual({ ok: true });
   expect(await apply(skill, made)).toMatchObject({ ok: false, code: "not_found" });
+});
+
+test("a review that arrives after its sheet closed is let go, so closed sheets use up none", async () => {
+  const { closeWhilePreparing, id, review } = await library();
+  const skill = id("frontend-design");
+  // The machine stages at most eight reviews; each closed sheet's would otherwise hold one.
+  for (let closed = 0; closed < 8; closed++)
+    expect(await closeWhilePreparing(skill)).toMatchObject({ ok: false });
+  expect(await review(skill)).toMatchObject({ title: "Update Frontend design" });
 });
