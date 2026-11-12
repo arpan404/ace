@@ -131,19 +131,3 @@ private struct SpadeGlyph: View {
         }
     }
 }
-
-/// The Spade tab before Spade launches: its mark and one quiet sentence, centred.
-struct SpadeSoonScreen: View {
-    var body: some View {
-        VStack(spacing: AceDesign.Space.margin) {
-            SpadeMark(size: AceDesign.Size.spade).foregroundStyle(AceTheme.Colours.foreground)
-            Text("Spade is coming soon.")
-                .aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
-                .accessibilityIdentifier("spade.soon")
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(AceTheme.Colours.background)
-        .accessibilityElement(children: .combine)
-    }
-}
