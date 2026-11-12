@@ -20,7 +20,12 @@ const places: Record<number, readonly { left: number; top: number }[]> = {
  * the panel's colour; an away member's dimmed. Decorative, like a bot's face: its row names it.
  */
 export function GroupFaces(props: {
-  members: readonly { agent: string; avatar: SpadeAvatar; away: boolean }[];
+  members: readonly {
+    agent: string;
+    machineKey?: string | undefined;
+    avatar: SpadeAvatar;
+    away: boolean;
+  }[];
   size: number;
   className?: string | undefined;
 }) {
@@ -50,7 +55,7 @@ export function GroupFaces(props: {
         const place = places[shown.length]?.[index] ?? { left: 0, top: 0 };
         return (
           <span
-            key={`${index}:${member.agent}`}
+            key={`${member.machineKey ?? ""}/${member.agent}`}
             className="absolute grid rounded-full shadow-[0_0_0_1.5px_var(--sidebar-panel)]"
             style={{ left: place.left * size, top: place.top * size }}
           >

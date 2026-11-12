@@ -282,15 +282,10 @@ function MemberOption(props: {
   checked: boolean;
   onChange(on: boolean): void;
 }) {
-  const id = useId();
   const { choice } = props;
   return (
-    <label
-      htmlFor={id}
-      className="flex h-9 items-center gap-2.5 rounded-md px-1.5 text-ui hover:bg-hover"
-    >
+    <div className="flex h-9 items-center gap-2.5 rounded-md px-1.5 text-ui">
       <Checkbox
-        id={id}
         checked={props.checked}
         onCheckedChange={(on) => props.onChange(on === true)}
         aria-label={props.other ? `${choice.name} on ${choice.machineName}` : choice.name}
@@ -300,6 +295,6 @@ function MemberOption(props: {
       {props.other && choice.machineName && (
         <span className="shrink-0 text-xs text-subtle-foreground">{choice.machineName}</span>
       )}
-    </label>
+    </div>
   );
 }

@@ -90,12 +90,13 @@ export function newGroupBody(
   };
 }
 
+const refKey = (ref: SpadeMemberRef) => `${ref.machine ?? ""}/${ref.agent}`;
+
 /** What changed for `PATCH /v1/groups/{id}`: only the fields that moved. */
 export function groupChange(
   before: { name: string; members: readonly SpadeMemberRef[]; lead: string },
   after: SpadeGroupDraft,
 ): Partial<SpadeGroupDraft> {
-  const refKey = (ref: SpadeMemberRef) => `${ref.machine ?? ""}/${ref.agent}`;
   const sameMembers =
     before.members.length === after.members.length &&
     before.members.every((ref, index) => {
