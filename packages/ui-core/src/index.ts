@@ -231,7 +231,12 @@ export * from "./transcript-groups.ts";
 export * from "./system-events.ts";
 export * from "./sent-by.ts";
 export * from "./bubble-markdown.ts";
-export { mergeReceipts, receiptEntry, receiptResults } from "./delegation-receipts.ts";
+export {
+  mergeReceipts,
+  receiptEntry,
+  receiptResults,
+  turnSubagents,
+} from "./delegation-receipts.ts";
 export * from "./handoff-marker.ts";
 export * from "./system-input.ts";
 export * from "./approvals.ts";
