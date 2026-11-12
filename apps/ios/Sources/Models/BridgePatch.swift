@@ -176,7 +176,11 @@ struct BubbleLine: Codable, Sendable, Equatable {
         /// A mention's catalog kind; empty for words and code.
         let mention: String
     }
+    /// A passage of an agent's message this one replies to, drawn above the words.
+    struct Quote: Codable, Sendable, Equatable { let text: String }
     let segments: [Segment]
+    /// Absent from older bridges.
+    var quotes: [Quote]? = nil
     let readable: Bool
     let long: Bool
     let origin: String
