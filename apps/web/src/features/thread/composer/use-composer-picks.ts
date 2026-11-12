@@ -119,6 +119,10 @@ export function useComposerPicks(args: {
     args.setAdding(false);
     const trigger = args.trigger;
     if (!trigger) return;
+    if (item.plain) {
+      edit(accept(text, trigger, item.insert));
+      return;
+    }
     const outcome = pickSuggestion(item, heldReferences(tokens));
     switch (outcome.kind) {
       case "refused":

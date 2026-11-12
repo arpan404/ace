@@ -112,6 +112,12 @@ import {
 } from "./command-library.ts";
 import { SkillsRequest, SkillsResult, SkillsUnsubscribe, SkillsChanged } from "./skill-library.ts";
 import { SpadeClientMessage, SpadeServerMessage } from "./spade.ts";
+import {
+  SpadeMachinesRequest,
+  SpadeMachinesResult,
+  SpadeRemoteRequest,
+  SpadeRemoteResult,
+} from "./spade-remote.ts";
 import { z } from "zod";
 import { CoreClientMessage, CoreServerMessage } from "./wire-core.ts";
 
@@ -276,6 +282,8 @@ export const ClientMessage = z.discriminatedUnion("type", [
   SkillsRequest,
   SkillsUnsubscribe,
   ...SpadeClientMessage.options,
+  SpadeMachinesRequest,
+  SpadeRemoteRequest,
   ...AccountsRequest.options,
   ...ProviderAccountsRequest.options,
   ...CursorAuthRequest.options,
@@ -387,6 +395,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
   SkillsResult,
   SkillsChanged,
   ...SpadeServerMessage.options,
+  SpadeMachinesResult,
+  SpadeRemoteResult,
   ...AccountsResponse.options,
   ProviderAccountsResult,
   ...CursorAuthEvent.options,

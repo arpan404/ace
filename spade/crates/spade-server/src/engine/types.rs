@@ -26,6 +26,10 @@ pub struct Limits {
     pub context_budget: u32,
     /// Longest a background job may run.
     pub job_timeout: Duration,
+    /// Asks one other machine may deliver here in a day (ADR 0132).
+    pub remote_asks_per_day: usize,
+    /// Asks to other machines that may wait in the outbox at once.
+    pub remote_asks_waiting: usize,
 }
 
 impl Default for Limits {
@@ -39,6 +43,8 @@ impl Default for Limits {
             longest_message: 100_000,
             context_budget: 200_000,
             job_timeout: Duration::from_secs(30 * 60),
+            remote_asks_per_day: 500,
+            remote_asks_waiting: 500,
         }
     }
 }
@@ -156,6 +162,8 @@ pub enum SendError {
     NotFound,
     #[error("Spade is switched off on this machine; it runs on another one")]
     Disabled,
+    #[error("this is a group's transcript; post with /v1/groups/{{id}}/messages")]
+    Group,
     #[error("the message is empty")]
     Empty,
     #[error("the message is too long")]

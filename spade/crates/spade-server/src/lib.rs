@@ -12,6 +12,7 @@ pub mod presets;
 pub mod proof;
 pub mod routines;
 pub mod startup;
+pub mod teams;
 pub mod tools;
 pub mod workspace;
 

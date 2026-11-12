@@ -1,7 +1,26 @@
 import { useState } from "react";
 import type { ThreadRef } from "../sources/index.ts";
 import { triggerAt, type Trigger } from "./draft.ts";
-import { useSuggestions } from "./suggestions.tsx";
+import { useSuggestions, type Suggestion, type Suggestions } from "./suggestions.tsx";
+
+/** The names matching what follows `@`: those starting with it first, then any containing it. */
+function nameSuggestions(names: readonly string[], query: string): Suggestions {
+  const typed = query.toLowerCase();
+  const items = names
+    .filter((name) => name.toLowerCase().includes(typed))
+    .toSorted(
+      (a, b) =>
+        Number(b.toLowerCase().startsWith(typed)) - Number(a.toLowerCase().startsWith(typed)),
+    )
+    .map((name): Suggestion => ({
+      insert: `@${name}`,
+      label: name,
+      kind: "mention",
+      group: "Members",
+      plain: true,
+    }));
+  return items.length ? { state: "ready", kind: "mention", items } : { state: "closed" };
+}
 
 /**
  * The suggestion list for the token at the caret (`@file`, a leading `/command`, or the + menu
@@ -15,6 +34,8 @@ export function useComposerSuggestions(
   recent: () => readonly string[],
   /** No project or commands to suggest (Spade): `@`, `/` and + open no list. */
   off = false,
+  /** While `off`: names `@` offers instead, inserted as plain text. */
+  names?: readonly string[],
 ) {
   "use no memo";
   const [dismissed, setDismissed] = useState<number>();
@@ -23,9 +44,11 @@ export function useComposerSuggestions(
   const found = adding
     ? { kind: "command" as const, query: "", start: caret, end: caret }
     : triggerAt(text, caret);
-  const trigger: Trigger | undefined =
-    !off && found && found.start !== dismissed ? found : undefined;
-  const suggestions = useSuggestions(thread, trigger, recent, adding);
+  const open = found && found.start !== dismissed ? found : undefined;
+  const named = off && names?.length && open?.kind === "mention" ? open : undefined;
+  const trigger: Trigger | undefined = off ? named : open;
+  const listed = useSuggestions(thread, named ? undefined : trigger, recent, adding);
+  const suggestions = named ? nameSuggestions(names ?? [], named.query) : listed;
   const items = suggestions.state === "ready" ? suggestions.items : [];
   // The highlight resets whenever the token being completed changes.
   const listKey = trigger ? `${trigger.kind}:${trigger.start}:${trigger.query}` : "";

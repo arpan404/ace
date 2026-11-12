@@ -184,8 +184,10 @@ async fn a_chain_of_bot_messages_deeper_than_three_is_refused() -> Result {
                     id: "a_x".into(),
                     name: "Far".into(),
                     depth: 3,
+                    machine: None,
                 }),
                 from_routine: None,
+                from_group: None,
             }),
             1,
         )?;
