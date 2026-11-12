@@ -41,7 +41,9 @@ const said = (entries: readonly SpadeEntry[]) =>
                 ? `[${part.name} ${part.state}]`
                 : part.kind === "remembered"
                   ? `[remembered ${part.note.text}]`
-                  : part.text,
+                  : part.kind === "shared"
+                    ? `[shared ${part.images.length + part.documents.length}]`
+                    : part.text,
             ),
             ...(entry.live ? [`${entry.live}…`] : []),
           ].join(" | ")}${entry.end ? ` (${entry.end.kind})` : ""}`

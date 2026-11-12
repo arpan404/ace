@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { spadeJson as json } from "./json.ts";
+import { spadeDocumentList, spadeImageList, spadeVoiceField } from "./media.ts";
 
 /*
  * Spade's own bodies, as its local API writes them (spade/docs/chat-core.md, harness.md). The
@@ -10,17 +11,7 @@ import { spadeJson as json } from "./json.ts";
 const text = z.string();
 const reply = z.string();
 
-/** An image the person attached, stored by Spade under its hash. */
-const imageRef = z.object({
-  sha256: z.string().regex(/^[0-9a-f]{64}$/),
-  media_type: z.string().default("image/png"),
-  bytes: z.number().int().nonnegative().default(0),
-});
-export interface SpadeImageRef {
-  sha256: string;
-  mediaType: string;
-  bytes: number;
-}
+export type { SpadeImageRef } from "./media.ts";
 
 /** The stored event types the person's view reads. Anything else is kept as `unknown`. */
 const known = z.discriminatedUnion("type", [
@@ -42,25 +33,11 @@ const known = z.discriminatedUnion("type", [
       })
       .nullish()
       .catch(undefined),
-    // An image this client can't read is left out; the message still shows.
-    images: z
-      .array(z.unknown())
-      .optional()
-      .default([])
-      .transform((images) =>
-        images.flatMap((image): SpadeImageRef[] => {
-          const parsed = imageRef.safeParse(image);
-          return parsed.success
-            ? [
-                {
-                  sha256: parsed.data.sha256,
-                  mediaType: parsed.data.media_type,
-                  bytes: parsed.data.bytes,
-                },
-              ]
-            : [];
-        }),
-      ),
+    // An image, document or recording this client can't read is left out; the message shows.
+    images: spadeImageList,
+    documents: spadeDocumentList,
+    /** A voice message's recording; `text` is its transcript (ADR 0134). */
+    voice: spadeVoiceField,
   }),
   z.object({ type: z.literal("reply_started"), reply, model: z.string().optional() }),
   z.object({ type: z.literal("reply_progress"), reply, text }),
@@ -105,6 +82,9 @@ const known = z.discriminatedUnion("type", [
     /** The result: JSON text from the memory tools, which the view reads (ADR 0128). */
     content: z.unknown().optional(),
     is_error: z.boolean().optional(),
+    /** What the call showed the person: images and documents in the reply's bubble (ADR 0134). */
+    shared_images: spadeImageList,
+    shared_documents: spadeDocumentList,
   }),
   /** The bot asked the person and waits for their next message (ADR 0128). */
   z.object({
