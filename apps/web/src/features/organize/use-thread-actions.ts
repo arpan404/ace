@@ -9,11 +9,16 @@ import { CommandRefused, failureMessage, stillAlive, waitingNote } from "@/lib/d
 import {
   deleteQuestion,
   isChatEntry,
+  leftRunningCommands,
   runningWork,
   stopAndDeleteQuestion,
   type OrganizePatch,
 } from "@ace/ui-core";
-import { useArchiveConfirmation, useDeleteConfirmation } from "./delete-confirmation.ts";
+import {
+  askBeforeArchive,
+  useArchiveConfirmation,
+  useDeleteConfirmation,
+} from "./delete-confirmation.ts";
 import { chatChoice } from "@/lib/chat-choice.ts";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
 import { useOrganizeOverlay, type OrganizeOverlay } from "./overlay.ts";
@@ -66,8 +71,15 @@ export interface ThreadActions {
   placeListed(placements: readonly PinPlacement[]): void;
   /** Pin (leading the group, in list order) or unpin several at once. */
   setPinnedMany(entries: readonly ThreadTarget[], pinned: boolean): void;
-  /** Archive several threads at once, with one Undo. */
-  archiveMany(entries: readonly ThreadTarget[]): void;
+  /**
+   * Archive several threads at once, with one Undo. When any left commands running, which
+   * archiving stops, it asks first; `archived` runs once the archive goes ahead (not on Cancel).
+   */
+  archiveMany(entries: readonly ThreadTarget[], archived?: () => void): void;
+  /** Archive several threads at once, with one Undo, without asking: the caller asked. */
+  archiveManyNow(entries: readonly ThreadTarget[]): void;
+  /** How many commands each thread left running, which archiving it would stop. */
+  leftRunning(entries: readonly ThreadTarget[]): { title: string; leftRunning: number }[];
   /** Delete several threads at once, for good: no Undo, so ask first. */
   removeMany(entries: readonly ThreadTarget[]): void;
   /** Move threads to another project, with one Undo back to where each was. */
@@ -76,7 +88,8 @@ export interface ThreadActions {
   rename(entry: ThreadTarget, title: string): void;
   /**
    * Archive with Undo, which opens the thread again. A thread still working or waiting on the
-   * person asks first: stop it too, or keep it running. `leave` runs once it is archived.
+   * person asks first: stop it too, or keep it running. A done thread that left commands
+   * running asks too, since archiving stops them. `leave` runs once it is archived.
    */
   archive(entry: ThreadTarget, leave?: () => void): void;
   /** Back from the archive to Home. */
@@ -315,6 +328,21 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
       return applied;
     });
   };
+  /** How many commands each thread left running, as the list has it now. */
+  const leftRunning = (entries: readonly ThreadTarget[]) => {
+    const lease = client.threads();
+    const counts = entries.map((entry) => {
+      const listed = lease.store.thread(entry.id);
+      return { title: entry.title, leftRunning: listed ? leftRunningCommands(listed) : 0 };
+    });
+    lease.release();
+    return counts;
+  };
+  const archiveManyNow = (entries: readonly ThreadTarget[]) =>
+    void reversibleAll(
+      entries.map((entry) => ({ entry, action: archive(entry), undo: unarchive(entry) })),
+      `Archived ${count(entries.length)}`,
+    );
   /** Stop the whole tree and the commands it watches, as Stop & archive promises. */
   const stopTree = (listed: ThreadListEntry) => {
     const runId = listed.live?.rootRunId ?? undefined;
@@ -458,11 +486,13 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
       }
       for (const entry of changing) void act(entry, unpin(entry));
     },
-    archiveMany: (entries) =>
-      void reversibleAll(
-        entries.map((entry) => ({ entry, action: archive(entry), undo: unarchive(entry) })),
-        `Archived ${count(entries.length)}`,
-      ),
+    archiveMany: (entries, archived) =>
+      askBeforeArchive(archiving, leftRunning(entries), () => {
+        archiveManyNow(entries);
+        archived?.();
+      }),
+    archiveManyNow,
+    leftRunning,
     removeMany: (entries) => removeAll(entries),
     moveMany: (entries, to) => {
       const moving = entries.filter((entry) => entry.workspaceId !== to.id);
@@ -507,8 +537,12 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
       const listed = lease.store.thread(entry.id);
       lease.release();
       const running = listed && runningWork(listed);
-      if (!listed || !running) return archiveNow();
+      if (!listed || !running) {
+        // Done, but with commands left running: Undo brings the thread back, not them.
+        return askBeforeArchive(archiving, leftRunning([entry]), archiveNow);
+      }
       archiving.open({
+        kind: "running",
         title: entry.title,
         running,
         archive: archiveNow,

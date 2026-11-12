@@ -55,7 +55,9 @@ test("a thread that replied with a command left running reads Done, its strip of
   expect(within(row).getByRole("img", { name: "Done" })).toBeTruthy();
   expect(within(row).queryByText("Working", { exact: true })).toBeNull();
   const spoken = row.getAttribute("aria-label") ?? "";
-  expect(spoken).toContain("Done · still running bun run dev:relay");
+  // Said once, right after the title: never "Done, Done · still running".
+  expect(spoken).toContain(". Done · still running bun run dev:relay");
+  expect(spoken.match(/Done/g)).toHaveLength(1);
   expect(spoken).not.toMatch(/\. Working|Running in background/);
   expect(await within(header).findByRole("button", { name: /^Thread details$/ })).toBeTruthy();
 });

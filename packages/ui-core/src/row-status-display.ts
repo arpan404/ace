@@ -190,3 +190,14 @@ export function rowStatusLook(
     }
   }
 }
+
+/**
+ * The status words a row's spoken name leads with: its state's meaning (`rowStatusLook`), then
+ * the card's fuller wording when that says more. A wording that already opens with the meaning
+ * ("Done · still running bun run dev") is said alone, so the word is never heard twice.
+ */
+export function spokenRowStatus(meaning: string, full: string): string[] {
+  if (!full || full === meaning || full.startsWith(`${meaning} · `))
+    return full ? [full] : [meaning];
+  return [meaning, full];
+}

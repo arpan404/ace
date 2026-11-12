@@ -81,7 +81,7 @@ Phosphor on desktop and web; SF Symbols matched to the same glyphs on iPhone. On
 
 ### Motion
 
-Confirm, don't entertain. Only transform and opacity animate. A haptic on send, approve and tab change (iPhone). Respect Reduce Motion. Nothing loops except a startup breath and an indeterminate progress bar while they last. On iPhone, motion is the system's own: navigation, sheets, lists and scroll-edge bars move as they do in Apple's apps, and anything else uses the system's default spring. ace adds motion only where the system has none. Desktop and web arrive with one spring and leave faster than they came.
+Confirm, don't entertain. Only transform and opacity animate. A haptic on send, approve and tab change (iPhone). Respect Reduce Motion. Nothing loops except a startup breath, an indeterminate progress bar, a live agent's provider mark (`.fx-alive`: that mark is the row's only status, so its breath is how work under way reads without a spinner or a timer glyph) and a working Spade bot's eyes (its face is its status, ADR 0127), each only while what it stands for lasts. On iPhone, motion is the system's own: navigation, sheets, lists and scroll-edge bars move as they do in Apple's apps, and anything else uses the system's default spring. ace adds motion only where the system has none. Desktop and web arrive with one spring and leave faster than they came.
 
 ### Voice
 

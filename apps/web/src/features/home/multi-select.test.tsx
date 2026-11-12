@@ -99,6 +99,35 @@ test("bulk Archive archives every picked thread without asking, and one Undo res
   await waitFor(() => expect(listed(app, "thread-pdf-locale")?.archivedAt).toBeUndefined());
 });
 
+test("bulk Archive with a thread that left a command running asks first, and Archive archives them all", async () => {
+  const app = await openHome();
+  // The fan-out replied with its soak test still running (ADR 0116): archiving stops it.
+  await pick(/^Backpressure on broadcast/, "{Meta>}");
+  await pick(/^Invoice PDF/, "{Meta>}");
+  await userEvent.click(within(bar()).getByRole("button", { name: "Archive 2 threads" }));
+
+  const ask = await screen.findByRole("dialog", { name: "Archive 2 threads?" });
+  expect(within(ask).getByText("Archiving stops 1 command they left running.")).toBeTruthy();
+  expect(listed(app, "thread-fan-out")?.archivedAt).toBeUndefined();
+  expect(listed(app, "thread-pdf-locale")?.archivedAt).toBeUndefined();
+
+  await userEvent.click(within(ask).getByRole("button", { name: "Archive" }));
+  await waitFor(() => expect(listed(app, "thread-fan-out")?.archivedAt).toBeDefined());
+  await waitFor(() => expect(listed(app, "thread-pdf-locale")?.archivedAt).toBeDefined());
+});
+
+test("cancelling a bulk Archive that would stop a command keeps every thread", async () => {
+  const app = await openHome();
+  await pick(/^Backpressure on broadcast/, "{Meta>}");
+  await pick(/^Invoice PDF/, "{Meta>}");
+  await userEvent.click(within(bar()).getByRole("button", { name: "Archive 2 threads" }));
+  const ask = await screen.findByRole("dialog", { name: "Archive 2 threads?" });
+  await userEvent.click(within(ask).getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(listed(app, "thread-fan-out")?.archivedAt).toBeUndefined();
+  expect(listed(app, "thread-pdf-locale")?.archivedAt).toBeUndefined();
+});
+
 test("cancelling a bulk Delete keeps every thread", async () => {
   const app = await openHome();
   await pick(/^Backpressure/, "{Meta>}");

@@ -1,4 +1,4 @@
-import { currentAttention, rowStatusLook } from "@ace/ui-core";
+import { currentAttention, rowStatusLook, spokenRowStatus } from "@ace/ui-core";
 import { DotsSixVerticalIcon } from "@phosphor-icons/react";
 import { Link, useLocation } from "@tanstack/react-router";
 import type { MachineIcon } from "@ace/protocol";
@@ -126,7 +126,9 @@ export function ThreadRow(props: {
   // approval"), then the card's own wording and the rest of its details.
   const { meaning } = rowStatusLook(attention, card);
   const details = threadDetails(card);
-  const spoken = details[0] === meaning ? details : [meaning, ...details];
+  // The details open with the card's status wording when it has one.
+  const rest = card.status.label ? details.slice(1) : details;
+  const spoken = [...spokenRowStatus(meaning, card.status.label), ...rest];
   const instance =
     (entry.switch?.state === "queued" ? entry.switch.selection.instanceId : undefined) ??
     entry.live?.account ??

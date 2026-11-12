@@ -554,7 +554,8 @@ export class RemoteClient implements ClientApi {
     return this.invoke<ServiceResponse<Q>>("request", [input, timeout(options)], options.signal);
   }
   onMessage(listener: (message: ServerMessage) => void): () => void {
-    if (this.closed || this.workerLost) throw new ClientError("offline");
+    // A closed client (or a lost worker, which never comes back) sends nothing more.
+    if (this.closed || this.workerLost) return () => {};
     if (this.messageListeners.size >= this.listeners) throw new ClientError("limit");
     if (this.messageListeners.size === 0) this.post({ t: "watchMessages" });
     this.messageListeners.add(listener);
@@ -564,7 +565,7 @@ export class RemoteClient implements ClientApi {
     };
   }
   onStream(listener: (message: StreamMessage) => void): () => void {
-    if (this.closed || this.workerLost) throw new ClientError("offline");
+    if (this.closed || this.workerLost) return () => {};
     if (this.streamListeners.size >= this.listeners) throw new ClientError("limit");
     if (this.streamListeners.size === 0) this.post({ t: "watchStreams" });
     this.streamListeners.add(listener);

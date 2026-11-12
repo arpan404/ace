@@ -32,6 +32,20 @@ type TaskFacts = Pick<BackgroundTask, "status" | "kind" | "internal" | "childAge
 function listedRunning(task: TaskFacts | undefined): number {
   return Number(task?.status === "running" && listedBackgroundWork(task));
 }
+/**
+ * A running background shell `live.watching` names and `live.watchingCount` counts: not ambient,
+ * and its command known. The daemon's one-time seed counts stored tasks with this too, so a
+ * task it counts is one whose end the live count takes back off.
+ */
+export function namedRunningShell(task: BackgroundTask): boolean {
+  return (
+    task.status === "running" && !task.ambient && shellCommandOf(task, undefined) !== undefined
+  );
+}
+
+function namedRunning(task: BackgroundTask | undefined): number {
+  return Number(task !== undefined && namedRunningShell(task));
+}
 /** A running task that stands for a subagent with no agent of its own yet. */
 function subagentRunning(task: TaskFacts | undefined): number {
   return Number(task?.status === "running" && standsForSubagent(task));
@@ -242,6 +256,12 @@ function applyChange(
       live.runningSubagentCount = Math.max(0, (live.runningSubagentCount ?? 0) + subagents);
     const id = payload.type === "background_task.started" ? payload.task.id : payload.taskId;
     const task = payload.type === "background_task.started" ? payload.task : previousTask;
+    // The exact count beside the shortened list, so nothing past the newest 8 goes uncounted.
+    const named =
+      (live.watchingCount ?? 0) +
+      namedRunning(task && { ...task, status: next.status }) -
+      namedRunning(previousTask);
+    put(live, "watchingCount", named > 0 ? named : undefined);
     // Only a shell is named, by its command.
     put(
       live,

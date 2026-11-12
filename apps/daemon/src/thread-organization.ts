@@ -4,7 +4,7 @@ export { organizationCommands } from "@ace/projection";
 import { ThreadId, type Command, type CommandResult, type ContentPart } from "@ace/protocol";
 import type { Store } from "./store.ts";
 import { oldestTitleInput } from "./engine/title-input.ts";
-import { provisionalTitle } from "./engine/thread-title.ts";
+import { provisionalTitle } from "@ace/ui-core/thread-title";
 
 export function organizeThread(
   store: Store,

@@ -1,7 +1,7 @@
 import { withoutPortableHandoff } from "@ace/projection";
 import type { ContentPart, ThreadId } from "@ace/protocol";
 import { generatedBranchSlug } from "@ace/workspace";
-import { provisionalTitle } from "./engine/thread-title.ts";
+import { provisionalTitle } from "@ace/ui-core/thread-title";
 import type { Store } from "./store.ts";
 
 /** The request goes in whole up to this many characters; titles need only its opening. */

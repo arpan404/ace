@@ -1,4 +1,4 @@
-import type { FakeDaemon } from "@ace/fake-daemon";
+import { ScenarioPlayer, watchingRelay, type FakeDaemon } from "@ace/fake-daemon";
 import { cleanup, configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test } from "vitest";
@@ -129,4 +129,54 @@ test("rows picked on both machines archive each on its own machine; Move waits f
   await user.click(within(bar).getByRole("button", { name: "Archive 2 threads" }));
   await waitFor(() => expect(thread(build, "thread-limits")?.archivedAt).toBeDefined());
   await waitFor(() => expect(thread(made.daemon, "thread-cache")?.archivedAt).toBeDefined());
+});
+
+/** A thread on `daemon` done with one command left running, named `title`. */
+function relay(daemon: FakeDaemon, id: string, title: string) {
+  const scenario = watchingRelay(id);
+  new ScenarioPlayer(daemon, {
+    ...scenario,
+    thread: { ...scenario.thread, title },
+  }).runUntilBlocked();
+}
+
+/** On each machine, a thread done with one command left running (ADR 0116), picked together. */
+async function pickRelaysOnBothMachines() {
+  const made = harness({ machines: [{ hostId: "build", name: "Build server" }] });
+  const build = made.machines.get("build");
+  if (!build) throw new Error("no build server");
+  relay(made.daemon, "thread-relay-here", "Relay here");
+  relay(build, "thread-relay-build", "Relay on build");
+  await made.open("/");
+  const user = userEvent.setup();
+  await user.keyboard("{Meta>}");
+  await user.click(await row(/^Relay here\./));
+  await user.click(await row(/^Relay on build\./));
+  await user.keyboard("{/Meta}");
+  const bar = await screen.findByRole("toolbar", { name: "Selected threads" });
+  await user.click(within(bar).getByRole("button", { name: "Archive 2 threads" }));
+  // One question for both machines, counting both commands.
+  const ask = await screen.findByRole("dialog", { name: "Archive 2 threads?" });
+  expect(within(ask).getByText("Archiving stops 2 commands they left running.")).toBeTruthy();
+  return { made, build, ask, user };
+}
+
+test("a bulk Archive across machines asks once, and Archive archives every picked thread", async () => {
+  const { made, build, ask, user } = await pickRelaysOnBothMachines();
+  await user.click(within(ask).getByRole("button", { name: "Archive" }));
+  await waitFor(() => expect(thread(made.daemon, "thread-relay-here")?.archivedAt).toBeDefined());
+  await waitFor(() => expect(thread(build, "thread-relay-build")?.archivedAt).toBeDefined());
+  expect(screen.queryByRole("dialog", { name: "Archive 2 threads?" })).toBeNull();
+});
+
+test("Cancel on a bulk Archive across machines archives none and keeps the selection", async () => {
+  const { made, build, ask, user } = await pickRelaysOnBothMachines();
+  await user.click(within(ask).getByRole("button", { name: "Cancel" }));
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog", { name: "Archive 2 threads?" })).toBeNull(),
+  );
+  const bar = await screen.findByRole("toolbar", { name: "Selected threads" });
+  expect(within(bar).getByText("2 selected")).toBeTruthy();
+  expect(thread(made.daemon, "thread-relay-here")?.archivedAt).toBeUndefined();
+  expect(thread(build, "thread-relay-build")?.archivedAt).toBeUndefined();
 });

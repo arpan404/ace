@@ -1,5 +1,5 @@
 import { AccessMode, ProviderKind, WorktreeBase } from "@ace/protocol";
-import { readJson, withoutMarkerCharacters, type KeyValueStorage } from "@ace/ui-core";
+import { provisionalTitle, readJson, type KeyValueStorage } from "@ace/ui-core";
 import { useSyncExternalStore } from "react";
 import { z } from "zod";
 import { Choices } from "./choices.ts";
@@ -36,11 +36,11 @@ const storageKey = (host: string) => `ace.preparations:${host}`;
 export const preparationKey = newThreadDraftKey;
 
 /**
- * A draft row's title: the first line of its words, without the marker each file leaves in
- * them (a chip, never words), or `fallback` when no words are left.
+ * A draft row's title: its words titled as the thread they start will be (plain words, without
+ * Markdown, mentions or the marker each file leaves), or `fallback` when no words are left.
  */
 export function preparationTitle(text: string, fallback: string): string {
-  return withoutMarkerCharacters(text).trim().split("\n")[0]?.trim().slice(0, 100) || fallback;
+  return provisionalTitle([{ type: "text", text }], fallback);
 }
 
 // Notifications and failed-write notices stay in memory; durable rows remain the authority.

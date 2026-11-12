@@ -264,6 +264,12 @@ export const ThreadRunMetadata = z.object({
     .max(8)
     .optional(),
   /**
+   * How many background shells `watching` would list without its limit of 8: the exact count of
+   * named shells still running, kept as each starts and ends. Archiving a done thread stops them
+   * (ADR 0109), so the question asked first counts these, not the shortened list.
+   */
+  watchingCount: z.number().int().nonnegative().optional(),
+  /**
    * Requests still waiting on the person, oldest first, at most the newest 8, with what each
    * asks for: "Waiting for your answer" rather than "Needs you".
    */

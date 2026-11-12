@@ -422,7 +422,12 @@ export {
 } from "./organization.ts";
 export type { SettlePolicy } from "./organization.ts";
 
-export { liveMetadata, boundedLiveModel, treeOnlyWaits } from "./live-metadata.ts";
+export {
+  liveMetadata,
+  boundedLiveModel,
+  namedRunningShell,
+  treeOnlyWaits,
+} from "./live-metadata.ts";
 export { isTestCommand } from "./step-purpose.ts";
 export {
   isInternalTask,
