@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { AgentId, ItemId, ToolCall, type AgentModelRoster } from "@ace/protocol";
+import { AgentId, ItemId, RunId, ThreadId, ToolCall, type AgentModelRoster } from "@ace/protocol";
 import { subscriptionsFrom } from "./brain-sessions.ts";
 import { BrainWatch, failureReason, startFailure } from "./brain-watch.ts";
 
@@ -55,6 +55,17 @@ test("a failed run is named by why: signed out, out of quota, rate-limited, or o
 test("a reply sent whole after it streamed adds only what is new, and a provider question ends the turn", () => {
   const root = AgentId.parse("01a1ceeb-4c59-77b0-b615-357c46c0000f");
   const watch = new BrainWatch(root, "codex");
+  watch.next({
+    type: "run.started",
+    run: {
+      id: RunId.parse("run-1"),
+      threadId: ThreadId.parse("6711171d-5874-4f4e-90ef-5fcc410e487a"),
+      agentId: root,
+      trigger: "user",
+      state: "active",
+      startedAt: 1,
+    },
+  });
   const item = (text: string) => ({
     id: ItemId.parse("i1"),
     agentId: root,
@@ -157,4 +168,45 @@ test("a provider that can't run read-only is unavailable, with the reason in one
     message: "Cursor has no read-only mode, which Spade's bots need. Choose another subscription.",
   });
   expect(startFailure("codex", "provider_unavailable").reason).toBe("not_installed");
+});
+
+test("only this turn's runs reach the reply: an earlier run's text is dropped, an early one waits for its run", () => {
+  const root = AgentId.parse("01a1ceeb-4c59-77b0-b615-357c46c0000f");
+  const watch = new BrainWatch(root, "codex");
+  const message = (id: string, run: string, text: string) => ({
+    type: "item.created" as const,
+    item: {
+      id: ItemId.parse(id),
+      agentId: root,
+      runId: RunId.parse(run),
+      createdAt: 1,
+      complete: true,
+      type: "message" as const,
+      role: "assistant" as const,
+      parts: [{ type: "text" as const, text }],
+      synthetic: false,
+      raw: [],
+    },
+  });
+  const started = (run: string) => ({
+    type: "run.started" as const,
+    run: {
+      id: RunId.parse(run),
+      threadId: ThreadId.parse("6711171d-5874-4f4e-90ef-5fcc410e487a"),
+      agentId: root,
+      trigger: "user" as const,
+      state: "active" as const,
+      startedAt: 1,
+    },
+  });
+  const texts = [
+    // The last turn's run is still ending when this turn is sent.
+    message("old-reply", "run-old", "Earlier answer"),
+    // This turn's reply arrives before its run is announced.
+    message("new-reply", "run-new", "This answer"),
+    started("run-new"),
+  ]
+    .flatMap((event) => watch.next(event))
+    .flatMap((frame) => (frame.type === "text" ? [frame.text] : []));
+  expect(texts).toEqual(["This answer"]);
 });

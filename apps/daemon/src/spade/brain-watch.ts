@@ -172,6 +172,8 @@ export class BrainWatch {
   private status: string | null = null;
   private usage = { input: 0, output: 0 };
   private readonly read = new Set<string>();
+  /** Root replies seen before the run they belong to started, by item id. */
+  private readonly early = new Map<string, Extract<Item, { type: "message" }>>();
   ended = false;
 
   constructor(root: AgentId, provider: ProviderKind) {
@@ -183,9 +185,19 @@ export class BrainWatch {
   next(payload: EventPayload): SpadeBrainFrame[] {
     if (this.ended) return [];
     switch (payload.type) {
-      case "run.started":
-        if (payload.run.agentId === this.root) this.runs.add(payload.run.id);
-        return [];
+      case "run.started": {
+        if (payload.run.agentId !== this.root) return [];
+        this.runs.add(payload.run.id);
+        // A reply that arrived before its run did (or before any run, with no run id) is this
+        // turn's now; one from a run that started before the turn was sent never is.
+        const frames: SpadeBrainFrame[] = [];
+        for (const [id, message] of this.early)
+          if (message.runId === undefined || message.runId === payload.run.id) {
+            this.early.delete(id);
+            frames.push(...this.reply(message));
+          }
+        return frames;
+      }
       case "item.created":
       case "item.updated":
         return this.item(payload.item);
@@ -243,10 +255,19 @@ export class BrainWatch {
       // Any agent's call can bring outside text in; only the root's sets the status line.
       return item.agentId === this.root ? [...this.setStatus(toolStatus(item)), ...read] : read;
     }
-    // Only the root agent's, and only what came after the turn was sent (the service feeds no
-    // earlier event); providers may report a reply before the run that holds it.
+    // Only the root agent's, and only from this turn's runs: the service feeds no event from
+    // before the turn was sent, and an earlier run still ending can't reach this reply.
     if (item.agentId !== this.root) return [];
     if (item.type !== "message" || item.role !== "assistant") return [];
+    const ours = item.runId === undefined ? this.runs.size > 0 : this.runs.has(item.runId);
+    if (!ours) {
+      this.early.set(item.id, item);
+      return [];
+    }
+    return this.reply(item);
+  }
+
+  private reply(item: Extract<Item, { type: "message" }>): SpadeBrainFrame[] {
     const full = messageText(item);
     const sent = this.sent.get(item.id) ?? 0;
     this.sent.set(item.id, Math.max(sent, full.length));
