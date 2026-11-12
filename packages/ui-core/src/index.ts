@@ -133,6 +133,8 @@ export * from "./project-repositories.ts";
 export * from "./project-repository-edit.ts";
 export * from "./review-sources.ts";
 export * from "./skill-library.ts";
+export * from "./skill-update.ts";
+export * from "./plugin-source.ts";
 export * from "./provider-slots.ts";
 export * from "./subagent-row.ts";
 export * from "./row-room.ts";

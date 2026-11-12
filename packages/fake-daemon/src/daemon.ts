@@ -94,6 +94,7 @@ import {
   type ThreadCommandOutcome,
 } from "./thread-commands.ts";
 import { holdOnLimit, isQueueCommand, queueCommand, queuePage } from "./queue-commands.ts";
+import type { FakeSkillLibrary } from "./skill-library.ts";
 import { limitSwitchEvents, switchEvents } from "./transitions.ts";
 import { forkThread, mergeFork, type ForkCommandHost } from "./fork-commands.ts";
 import { fakeCheckoutPath, fakeWorktreeBase } from "./worktree-base.ts";
@@ -379,8 +380,8 @@ export class FakeDaemon implements Host {
   > {
     return this.servicesWire.files;
   }
-  /** The skill library behind `skills.request`, for seeding skills. */
-  get skills(): Pick<import("./skill-library.ts").FakeSkillLibrary, "seed"> {
+  /** The skill library behind `skills.request`, for seeding skills and slowing updates. */
+  get skills(): Pick<FakeSkillLibrary, "seed" | "holdUpdatePreparations"> {
     return this.servicesWire.skills;
   }
   /** Providers' own MCP servers behind `mcp.provider.sources` and its controls. */

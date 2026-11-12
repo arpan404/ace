@@ -29,6 +29,15 @@ test("opening a skill on the computer, and its other lookups, put nothing out of
   expect(writeFamilies({ type: "skills.native", op: "edit" })).toEqual(["skills", "catalog"]);
 });
 
+test("checking a skill for an update puts nothing out of date; applying one does", () => {
+  for (const op of ["checkUpdate", "prepareUpdate", "cancelUpdate"])
+    expect(writeFamilies({ type: "skills.native", op })).toEqual([]);
+  expect(writeFamilies({ type: "skills.native", op: "applyUpdate" })).toEqual([
+    "skills",
+    "catalog",
+  ]);
+});
+
 test("looking for installed CLIs again puts providers, the catalog and settings out of date", () => {
   const rediscover = { type: "providers.request", operation: "refresh" };
   expect(readFamily(rediscover)).toBeUndefined();

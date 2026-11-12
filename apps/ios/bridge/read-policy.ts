@@ -48,8 +48,18 @@ const pluginLookups = new Set([
 /** The phone's skill-library requests that only read (`skill-library.ts`). */
 /** The phone's plugin requests that change a plugin (`skill-plugins.ts`); the rest only read. */
 const pluginChanges = new Set(["switch", "agent"]);
-/** Open on computer (`openers`, `open`) changes nothing the phone keeps. */
-const skillLookups = new Set(["library", "skill", "draft", "check", "openers", "open"]);
+/** Open on computer (`openers`, `open`) and an update's check or review change nothing kept. */
+const skillLookups = new Set([
+  "library",
+  "skill",
+  "draft",
+  "check",
+  "openers",
+  "open",
+  "checkUpdate",
+  "prepareUpdate",
+  "cancelUpdate",
+]);
 const projectReads = new Set(["workspace.list"]);
 const projectLookups = new Set([
   "workspace.list",
