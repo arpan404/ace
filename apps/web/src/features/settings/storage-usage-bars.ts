@@ -14,10 +14,11 @@ export function usageBars<Key>(entries: readonly UsageEntry<Key>[]): UsageBar<Ke
   const largest = Math.max(0, ...sized.map((entry) => entry.bytes ?? 0));
   const ordered = sized.toSorted((a, b) => (b.bytes ?? 0) - (a.bytes ?? 0));
   return [
-    ...ordered.map((entry) => ({
-      ...entry,
-      share: largest > 0 ? (entry.bytes ?? 0) / largest : 0,
+    ...ordered.map(({ key, bytes }) => ({
+      key,
+      bytes,
+      share: largest > 0 ? (bytes ?? 0) / largest : 0,
     })),
-    ...unsized.map((entry) => ({ ...entry, share: undefined })),
+    ...unsized.map(({ key, bytes }) => ({ key, bytes, share: undefined })),
   ];
 }
