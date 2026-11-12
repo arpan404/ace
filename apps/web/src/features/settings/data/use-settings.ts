@@ -19,6 +19,8 @@ import { accessSource } from "./access-source.ts";
 import { daemonSettingsBackend } from "./daemon-backend.ts";
 import { settingKeys, type SettingDef } from "./setting-keys.ts";
 import { useAllMachinesClients } from "./all-machines.ts";
+import { useDaemonSetting } from "@/lib/daemon-setting.ts";
+import type { SettingsKey, SettingsValues } from "@ace/protocol";
 
 const backends = new WeakMap<ClientApi, SettingsBackend>();
 type FakeAccessModule = typeof import("./access-fake.ts");
@@ -215,6 +217,28 @@ export function useSettingControl<T>(setting: SettingDef<T>, title: string): Set
     differs,
     pending: write.pending,
     set: (next) => write.run(() => set(next)),
+  };
+}
+
+/**
+ * A row's control for a daemon setting watched on its own key, outside the shared mirror (which
+ * holds at most 32 keys): loaded once the daemon answers, with the same reported write.
+ */
+export function useWatchedSettingControl<K extends SettingsKey>(
+  key: K,
+  title: string,
+): Omit<SettingControl<SettingsValues[K] | undefined>, "set"> & {
+  set(next: SettingsValues[K]): void;
+} {
+  const [value, set] = useDaemonSetting(key);
+  const write = useSettingWrite(title);
+  const offline = useConnectionState() !== "ready";
+  return {
+    value,
+    loaded: value !== undefined,
+    offline,
+    pending: write.pending,
+    set: (next: SettingsValues[K]) => write.run(() => set(next)),
   };
 }
 

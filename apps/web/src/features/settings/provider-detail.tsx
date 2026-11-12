@@ -44,6 +44,10 @@ const DeferredProviderMcpServers = deferredComponent(() =>
   import("./provider-mcp-servers.tsx").then((module) => module.ProviderMcpServers),
 );
 
+const DeferredProviderNativeTools = deferredComponent(() =>
+  import("./provider-native-tools.tsx").then((module) => module.ProviderNativeTools),
+);
+
 const DeferredProviderAccounts = deferredComponent(() =>
   import("./provider-accounts.tsx").then((module) => module.ProviderAccounts),
 );
@@ -61,7 +65,8 @@ const back = (
 
 /**
  * One provider's own page: a problem or a missing sign-in first, with the one button that fixes
- * it; then its accounts, the services it reaches (OpenCode, Pi), its models, an Advanced group
+ * it; then its accounts, the services it reaches (OpenCode, Pi), its models, its own tools
+ * (Codex computer use, Claude in Chrome), an Advanced group
  * (MCP servers, CLI path, turning it off, removing it) and its technical facts.
  */
 export function ProviderDetail(props: { id: string }) {
@@ -217,6 +222,15 @@ function ProviderPage(props: { entry: ProviderEntry }) {
             </Suspense>
           </SettingSection>
         )}
+        {usable && row?.nativeTools?.length ? (
+          <Suspense fallback={null}>
+            <DeferredProviderNativeTools.Component
+              provider={install.kind}
+              name={install.name}
+              row={row}
+            />
+          </Suspense>
+        ) : null}
         <SettingSection label="Advanced">
           {row && (
             <Suspense fallback={null}>
