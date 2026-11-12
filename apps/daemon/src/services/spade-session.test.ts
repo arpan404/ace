@@ -36,8 +36,26 @@ function session(scopes: readonly DeviceScope[]) {
     revocations++;
     return true;
   });
-  return { handle, sent, revocations: () => revocations };
+  return { handle, sent, spade, revocations: () => revocations };
 }
+
+test("while Spade is hidden the daemon says so and refuses every request with hidden", async () => {
+  const { handle, spade } = session(["read", "operate"]);
+  spade.setHidden(true);
+  expect(await handle({ type: "spade.status", requestId: "s" })).toMatchObject({
+    status: { state: "off", hidden: true },
+  });
+  expect(
+    await handle({ type: "spade.http", requestId: "h", method: "GET", path: "/v1/conversations" }),
+  ).toMatchObject({ result: { kind: "error", code: "hidden" } });
+  expect(
+    await handle({ type: "spade.live.subscribe", requestId: "l", path: "/v1/live" }),
+  ).toMatchObject({ type: "spade.live.ended", reason: "hidden" });
+  spade.setHidden(false);
+  expect(
+    await handle({ type: "spade.http", requestId: "h2", method: "GET", path: "/v1/conversations" }),
+  ).toMatchObject({ result: { kind: "error", code: "unavailable" } });
+});
 
 test("only an administrator can revoke Spade's grant", async () => {
   for (const [scopes, revoked] of [

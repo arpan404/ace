@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
@@ -12,6 +12,14 @@ import { fakeSpadeService } from "./__fixtures__/spade/fake-service.ts";
 import { aceMcpUrl, mcpStatus, spadeEnv, until as poll } from "./spade-test-support.ts";
 
 const pollMs = { waiting: 50, ready: 200 };
+
+/**
+ * Shows or hides Spade in `home`'s features.json, as `ace features show|hide spade` does, once
+ * the daemon has made the home.
+ */
+async function showSpade(home: string, shown: boolean): Promise<void> {
+  await writeFile(join(home, "features.json"), JSON.stringify({ spade: shown }));
+}
 
 const backlog = new WeakMap<Client, ServerMessage[]>();
 /** The first message that matches, in arrival order; others stay for later calls. */
@@ -78,6 +86,8 @@ test("the daemon forwards requests and live streams to the Spade service, follow
     spade: { service: service.control, pollMs },
   });
   onTestFinished(() => daemon.close());
+  await showSpade(home, true);
+  await poll(() => daemon.spade?.status().hidden !== true || undefined, "Spade to be shown");
   const token = await readFile(daemon.tokenPath, "utf8");
   const client = new Client(daemon.url);
   onTestFinished(() => client.close());
@@ -175,6 +185,31 @@ test("the daemon forwards requests and live streams to the Spade service, follow
     kind: "error",
     code: "unavailable",
   });
+
+  // Hidden in features.json while on: its service stops and requests are refused as hidden, but
+  // its data and the setting stay, so showing it again brings it back as it was.
+  enable(true, "on-again");
+  await poll(() => daemon.spade?.status().state === "ready" || undefined, "Spade on again");
+  await showSpade(home, false);
+  await poll(() => daemon.spade?.status().hidden === true || undefined, "Spade to hide");
+  await poll(() => !service.registered() && service.pid() === undefined, "Spade's service to stop");
+  client.send({
+    type: "spade.http",
+    requestId: "h7",
+    method: "GET",
+    path: "/v1/env",
+    encoding: "text",
+  });
+  expect((await until(client, reply("h7"))).result).toMatchObject({
+    kind: "error",
+    code: "hidden",
+  });
+  expect((await stat(join(home, "spade"))).isDirectory()).toBe(true);
+  await showSpade(home, true);
+  await poll(
+    () => (daemon.spade?.status().state === "ready" && service.registered()) || undefined,
+    "Spade to come back",
+  );
 }, 30_000);
 
 const sha256 = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
@@ -196,6 +231,8 @@ test("spade.http carries images back as base64 and streams a message with images
     spade: { service: service.control, pollMs },
   });
   onTestFinished(() => daemon.close());
+  await showSpade(home, true);
+  await poll(() => daemon.spade?.status().hidden !== true || undefined, "Spade to be shown");
   const token = await readFile(daemon.tokenPath, "utf8");
   const client = new Client(daemon.url);
   onTestFinished(() => client.close());

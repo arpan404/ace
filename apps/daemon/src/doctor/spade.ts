@@ -5,7 +5,7 @@ import {
   spadeServiceState,
   type SpadeServiceState,
 } from "@ace/service/spade-service";
-import { spadeDisabled } from "../spade/disabled.ts";
+import { loadFeatures } from "../spade/features-file.ts";
 import type { DoctorContext, DoctorFeature } from "./feature.ts";
 import { cliVersion } from "./install.ts";
 
@@ -72,7 +72,11 @@ const failure = (error: unknown, fix: string): Verdict => ({
   message: reason(error),
   fix,
 });
-const leftOut: Verdict = { status: "ok", message: "This build leaves Spade out.", fix: nothing };
+const hidden: Verdict = {
+  status: "ok",
+  message: "Spade is hidden on this machine (features.json).",
+  fix: nothing,
+};
 
 /**
  * `ace doctor`'s Spade checks (ADR 0123): its service, the way the install checks cover the
@@ -83,7 +87,8 @@ export function spadeFeature(ports: SpadePorts): DoctorFeature {
     id: "spade",
     checks(context) {
       const home = context.config.dataDir;
-      const off = spadeDisabled(context.env);
+      let shown: Promise<boolean> | undefined;
+      const isShown = () => (shown ??= loadFeatures(home).then((read) => read.flags.spade));
       let state: Promise<SpadeServiceState> | undefined;
       const read = () => (state ??= ports.state(home));
       return [
@@ -91,9 +96,12 @@ export function spadeFeature(ports: SpadePorts): DoctorFeature {
           id: "spade.service",
           fix: serviceFix,
           async run(): Promise<Verdict> {
-            if (off) return leftOut;
             try {
-              return spadeServiceVerdict(await read());
+              const found = await read();
+              // Hidden Spade has no service once the daemon has seen the flag; one still
+              // registered is checked as usual.
+              if (found === "absent" && !(await isShown())) return hidden;
+              return spadeServiceVerdict(found);
             } catch (error) {
               return failure(error, serviceFix);
             }
@@ -103,14 +111,14 @@ export function spadeFeature(ports: SpadePorts): DoctorFeature {
           id: "spade.binary",
           fix: binaryFix,
           async run(): Promise<Verdict> {
-            if (off) return leftOut;
+            const known = await read().catch(() => undefined);
+            if (known === "absent" && !(await isShown())) return hidden;
             let installed: string | undefined;
             try {
               installed = await ports.installed(home);
             } catch (error) {
               return failure(error, binaryFix);
             }
-            const known = await read().catch(() => undefined);
             return spadeBinaryVerdict(known, installed, await ports.aceVersion(context));
           },
         },

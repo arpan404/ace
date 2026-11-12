@@ -8,7 +8,16 @@ import { SettingsService } from "@ace/settings";
 import type { SpadeServiceState } from "../spade/rules.ts";
 import type { SpadeServiceControl } from "../spade/service-control.ts";
 import { parseArgs } from "./args.ts";
+import { featuresCommand } from "./features.ts";
 import { spadeCommand } from "./spade.ts";
+
+/** A home whose features.json shows Spade. */
+async function shownHome(onTestFinished: (run: () => Promise<void>) => void): Promise<string> {
+  const home = await mkdtemp(join(tmpdir(), "ace-spade-cli-"));
+  onTestFinished(() => rm(home, { recursive: true, force: true }));
+  await writeFile(join(home, "features.json"), '{"spade": true}');
+  return home;
+}
 
 /** A service manager that only records what it was asked to do. */
 function serviceManager() {
@@ -40,8 +49,7 @@ async function saved(home: string): Promise<unknown> {
 test("with no daemon running, ace spade on|off registers or removes Spade's service and saves the setting", async ({
   onTestFinished,
 }) => {
-  const home = await mkdtemp(join(tmpdir(), "ace-spade-cli-"));
-  onTestFinished(() => rm(home, { recursive: true, force: true }));
+  const home = await shownHome(onTestFinished);
   const printed = quietStdout(onTestFinished);
   const manager = serviceManager();
 
@@ -87,8 +95,7 @@ async function closedPort(): Promise<number> {
 test("a daemon-endpoint left by a daemon that is gone still lets ace spade act without it", async ({
   onTestFinished,
 }) => {
-  const home = await mkdtemp(join(tmpdir(), "ace-spade-cli-"));
-  onTestFinished(() => rm(home, { recursive: true, force: true }));
+  const home = await shownHome(onTestFinished);
   quietStdout(onTestFinished);
   await writeFile(join(home, "daemon-endpoint"), `http://127.0.0.1:${await closedPort()}`);
   await writeFile(join(home, "daemon-token"), "t".repeat(64));
@@ -101,8 +108,7 @@ test("a daemon-endpoint left by a daemon that is gone still lets ace spade act w
 test("a daemon that runs but doesn't answer is never worked around: ace spade fails and changes nothing", async ({
   onTestFinished,
 }) => {
-  const home = await mkdtemp(join(tmpdir(), "ace-spade-cli-"));
-  onTestFinished(() => rm(home, { recursive: true, force: true }));
+  const home = await shownHome(onTestFinished);
   quietStdout(onTestFinished);
   // A daemon still starting: it takes connections and answers none of them.
   const held: Socket[] = [];
@@ -130,4 +136,27 @@ test("ace spade refuses anything but on or off", async () => {
   await expect(
     spadeCommand(parseArgs(["spade", "maybe"]), "/nowhere", serviceManager().control),
   ).rejects.toThrow("ace spade on|off");
+});
+
+test("ace spade on is refused while Spade is hidden, and works once ace features shows it", async ({
+  onTestFinished,
+}) => {
+  const home = await mkdtemp(join(tmpdir(), "ace-spade-cli-"));
+  onTestFinished(() => rm(home, { recursive: true, force: true }));
+  const printed = quietStdout(onTestFinished);
+  const manager = serviceManager();
+  await expect(spadeCommand(parseArgs(["spade", "on"]), home, manager.control)).rejects.toThrow(
+    /hidden/,
+  );
+  expect(manager.asked).toEqual([]);
+
+  await featuresCommand(parseArgs(["features", "show", "spade"]), home);
+  await featuresCommand(parseArgs(["features"]), home);
+  expect(printed.at(-1)).toContain("Spade: shown");
+  await spadeCommand(parseArgs(["spade", "on"]), home, manager.control);
+  expect(manager.asked).toEqual(["installBinary", "register"]);
+
+  await featuresCommand(parseArgs(["features", "hide", "spade"]), home);
+  await featuresCommand(parseArgs(["features"]), home);
+  expect(printed.at(-1)).toContain("Spade: hidden");
 });
