@@ -34,11 +34,32 @@ test("every value in the recorded provider sessions reads as the zod record pars
   for (const value of values) expect(nativeRecord(value)).toStrictEqual(zodRecord(value));
 });
 
-test("arrays, class instances and primitives read as empty, and plain objects without a prototype as themselves", () => {
-  const bare = Object.assign(Object.create(null), { a: 1 });
+test("arrays, Maps, Dates and primitives read as empty, as zod's record parse read them", () => {
   for (const value of [[1], new Map([["a", 1]]), new Date(0), "text", 3, null, undefined])
     expect(nativeRecord(value)).toStrictEqual(zodRecord(value));
-  // zod copied it onto Object.prototype; the fields read the same.
-  expect(nativeRecord(bare)).toBe(bare);
-  expect(nativeRecord(bare)).toEqual(zodRecord(bare));
+});
+
+test("a plain object is read whole and as itself, never copied", () => {
+  const symbol = Symbol("native");
+  const hidden = Object.defineProperty({ shown: 1 }, "hidden", { value: 2, enumerable: false });
+  const proto: unknown = JSON.parse('{"__proto__":{"x":1},"a":2}');
+  const bare = Object.assign(Object.create(null), { a: 1 });
+  for (const value of [{ [symbol]: 1, a: 2 }, hidden, proto, bare])
+    expect(nativeRecord(value)).toBe(value);
+  // zod refused a symbol key and dropped non-enumerable fields and own __proto__ fields.
+  expect(Reflect.get(nativeRecord({ [symbol]: 1 }), symbol)).toBe(1);
+  expect(nativeRecord(hidden)["hidden"]).toBe(2);
+  expect(Object.hasOwn(nativeRecord(proto), "__proto__")).toBe(true);
+});
+
+test("a class instance reads as empty, whatever its own fields", () => {
+  class Native {
+    a = 1;
+    constructor() {
+      // zod treated an own undefined constructor as plain and copied the fields.
+      Object.defineProperty(this, "constructor", { value: undefined, enumerable: false });
+    }
+  }
+  expect(nativeRecord(new Native())).toStrictEqual({});
+  expect(Object.isFrozen(nativeRecord(new Native()))).toBe(true);
 });
