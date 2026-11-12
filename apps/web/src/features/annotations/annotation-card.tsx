@@ -2,7 +2,7 @@ import type { ParsedBrowserAnnotations } from "@ace/ui-core";
 import { ChatTeardropTextIcon } from "@phosphor-icons/react";
 import { displayAddress } from "@ace/ui-core";
 import { Disclosure } from "@/components/ui/disclosure.tsx";
-import { annotationCount, changeSummary } from "./annotation-chip.tsx";
+import { annotationCount, changeSummary } from "./annotation-words.ts";
 import { MarkerNumber, TagBadge } from "./marker.tsx";
 import { badgeFor, regionContents } from "./region-summary.ts";
 
