@@ -87,6 +87,8 @@ import type { InboxRequests } from "./inbox-manage.ts";
 import { NativeSkillLibrary, NativeSkillsRequest } from "./skill-library.ts";
 import { NativePluginsRequest, NativeSkillPlugins } from "./skill-plugins.ts";
 import { NativeAutomationRequest, type NativeAutomations } from "./automations.ts";
+import type { NativeSpade } from "./spade.ts";
+import { answerSpade, NativeSpadeRequest } from "./spade-requests.ts";
 
 // The SDK validates every request and reply. The native bridge exposes only these services;
 // mutations of threads continue to go through the SDK's durable command outbox.
@@ -150,6 +152,8 @@ export class NativeServices {
   readonly threadFiles = new ThreadFileIndex();
   /** The files the fork being written in a thread carries, which its list can't remove. */
   carried: (threadId: string) => ReadonlySet<string> = () => new Set();
+  /** Spade on this machine (`spade.ts`), set once the runtime has made it. */
+  spade: NativeSpade | undefined;
   readonly owner: ClientCore;
   readonly sink: PatchSink;
   readonly devices: NativeDevices | undefined;
@@ -273,6 +277,17 @@ export class NativeServices {
         } catch (error) {
           this.#reply(id, false, null, error instanceof Error ? error.message : "");
         }
+        return;
+      }
+      const spade = NativeSpadeRequest.safeParse(raw);
+      if (spade.success && this.spade) {
+        const deps = { id: () => host.uuid() };
+        this.#reply(
+          id,
+          true,
+          await answerSpade(this.owner, this.spade, spade.data, deps, controller.signal),
+          "",
+        );
         return;
       }
       const organizing = this.inbox?.(raw, id);
