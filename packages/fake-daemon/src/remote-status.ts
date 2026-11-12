@@ -1,6 +1,6 @@
 import type { RemoteAccessStatus, RemoteNetworkStatus } from "@ace/protocol";
 
-const hostedRelay = "wss://relay.acehq.dev";
+const hostedRelay = "wss://cloud.acehq.dev";
 
 const state = (on: boolean, address: string): RemoteNetworkStatus =>
   on ? { state: "on", address } : { state: "off" };

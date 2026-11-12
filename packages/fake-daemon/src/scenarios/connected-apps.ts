@@ -108,7 +108,7 @@ export function seedConnectedApps(daemon: FakeDaemon, now: number): void {
       on: true,
       problem: "This machine has no ts.net certificate yet. Turn on HTTPS in Tailscale.",
     },
-    { path: "relay", url: "https://relay.acehq.dev/m/host-studio/mcp", on: true },
+    { path: "relay", url: "https://cloud.acehq.dev/m/host-studio/mcp", on: true },
     { path: "custom", url: null, on: false },
   ];
   outside.ask({
