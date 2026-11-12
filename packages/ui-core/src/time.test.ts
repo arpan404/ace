@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import {
   formatAge,
   formatAgo,
@@ -73,4 +73,116 @@ test("a clock in the host's zone follows the person changing zone mid-session", 
     if (before === undefined) delete process.env.TZ;
     else process.env.TZ = before;
   }
+});
+
+/** Runs `body` with the host in each zone in turn, restoring the host's own zone after. */
+function inZones(body: (zone: (name: string) => void) => void) {
+  const before = process.env.TZ;
+  try {
+    body((name) => {
+      process.env.TZ = name;
+    });
+  } finally {
+    if (before === undefined) delete process.env.TZ;
+    else process.env.TZ = before;
+  }
+}
+
+test("zones that agree in winter and summer but not on the day still read their own clocks", () => {
+  // Casablanca drops to UTC during Ramadan (1 March 2026); Algiers stays an hour ahead.
+  const winter = Date.UTC(2026, 0, 15, 12, 0);
+  const ramadan = Date.UTC(2026, 2, 1, 12, 0);
+  inZones((zone) => {
+    zone("Africa/Casablanca");
+    expect(formatClock(winter, "en-GB")).toBe("13:00");
+    expect(formatShortClock(winter, "en-GB")).toBe("13:00");
+    expect(formatClock(ramadan, "en-GB")).toBe("12:00");
+    expect(formatShortClock(ramadan, "en-GB")).toBe("12:00");
+    zone("Africa/Algiers");
+    expect(formatClock(ramadan, "en-GB")).toBe("13:00");
+    expect(formatShortClock(ramadan, "en-GB")).toBe("13:00");
+    zone("Africa/Casablanca");
+    expect(formatClock(ramadan, "en-GB")).toBe("12:00");
+    expect(formatShortClock(ramadan, "en-GB")).toBe("12:00");
+  });
+});
+
+test("clocks read the right side of each daylight saving change", () => {
+  inZones((zone) => {
+    zone("America/New_York");
+    // Spring forward on 8 March 2026 at 07:00 UTC, fall back on 1 November at 06:00 UTC.
+    const instants = [
+      [Date.UTC(2026, 2, 8, 6, 59), "1:59 AM", "01:59"],
+      [Date.UTC(2026, 2, 8, 7, 0), "3:00 AM", "03:00"],
+      [Date.UTC(2026, 10, 1, 5, 59), "1:59 AM", "01:59"],
+      [Date.UTC(2026, 10, 1, 6, 0), "1:00 AM", "01:00"],
+    ] as const;
+    for (const [at, clock, short] of instants) {
+      expect(formatClock(at, "en-US")).toBe(clock);
+      expect(formatShortClock(at, "en-GB")).toBe(short);
+    }
+  });
+});
+
+/**
+ * A host whose default locale is whatever `current` returns, as an engine reads it from the
+ * system: every Intl service and Date's locale methods resolve an omitted locale to it.
+ */
+function hostLocale(current: () => string) {
+  const services = [
+    "DateTimeFormat",
+    "NumberFormat",
+    "ListFormat",
+    "PluralRules",
+    "Collator",
+    "RelativeTimeFormat",
+    "Segmenter",
+  ] as const;
+  const replaced: PropertyDescriptorMap = {};
+  for (const name of services) {
+    const System: new (locales?: Intl.LocalesArgument, options?: object) => object = Intl[name];
+    replaced[name] = {
+      value: class extends System {
+        constructor(locales?: Intl.LocalesArgument, options?: object) {
+          super(locales ?? current(), options);
+        }
+      },
+    };
+  }
+  vi.stubGlobal("Intl", Object.create(Intl, replaced));
+  for (const method of ["toLocaleString", "toLocaleDateString", "toLocaleTimeString"] as const) {
+    const system = Date.prototype[method];
+    vi.spyOn(Date.prototype, method).mockImplementation(function (
+      this: Date,
+      locales?: Intl.LocalesArgument,
+      options?: Intl.DateTimeFormatOptions,
+    ) {
+      return system.call(this, locales ?? current(), options);
+    });
+  }
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+test("clocks without a locale follow the host's default locale changing mid-session", () => {
+  const at = Date.UTC(2026, 0, 15, 13, 5);
+  let locale = "en-US";
+  hostLocale(() => locale);
+  inZones((zone) => {
+    zone("UTC");
+    expect(formatClock(at)).toBe("1:05 PM");
+    expect(formatShortClock(at)).toBe("13:05");
+    locale = "en-GB";
+    expect(formatClock(at)).toBe("13:05");
+    // The same language and region with another hour cycle or digits.
+    locale = "en-GB-u-hc-h12";
+    expect(formatClock(at)).toBe("1:05 PM");
+    locale = "ar-EG";
+    expect(formatShortClock(at)).toBe("١٣:٠٥");
+    locale = "ar-EG-u-nu-latn";
+    expect(formatShortClock(at)).toBe("13:05");
+  });
 });

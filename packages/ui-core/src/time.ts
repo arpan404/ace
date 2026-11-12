@@ -50,40 +50,52 @@ export function formatSpan(from: number, to: number): string {
 /*
  * Building an `Intl.DateTimeFormat` costs far more than formatting with one (about 170 µs
  * against 30 µs in V8, 44 µs against 1 µs in JavaScriptCore), and a transcript formats a clock
- * for every message row it mounts. Formatters are kept by locale, zone and options. One that
- * reads the host's own zone is keyed by that zone's UTC offsets too (at the moment formatted and
- * mid-winter and mid-summer), read afresh on every call: after the person changes zone the key
- * changes, so a clock never reads in the zone it was first built for.
+ * for every message row it mounts, so clock formatters are kept. A kept formatter must print
+ * exactly what a fresh one would, through a change of zone or locale mid-session:
+ *
+ * - Zone. These clocks print no zone name, so in the host's zone the text for an instant depends
+ *   only on the host's UTC offset at that instant, which `getTimezoneOffset` reads afresh and
+ *   cheaply. That wall time is formatted in UTC: one formatter serves every host zone, and two
+ *   zones print the same text exactly when their offsets at that instant agree. An explicit zone
+ *   keeps its own formatter, keyed by name.
+ * - Locale. Every call is keyed by the host's formatting defaults, read afresh: the default
+ *   locale (as `Intl.ListFormat` resolves it, about 1 µs; `Intl.DateTimeFormat` costs as much as
+ *   the formatter saved in V8) and the default time and date text of a fixed instant. That text
+ *   shows what the locale tag can leave out (hour cycle, digits, day-period words, the region's
+ *   date order), including preferences an engine applies beyond the tag, and both follow the
+ *   host's own setting changes. A call naming its locale is keyed by that name too.
  */
+const probe = new Date(Date.UTC(2026, 0, 15, 13, 5, 9));
+const hostDefaults = () =>
+  `${new Intl.ListFormat().resolvedOptions().locale}\u0000${probe.toLocaleTimeString()}\u0000${probe.toLocaleDateString()}`;
 const formatters = new Map<string, Intl.DateTimeFormat>();
 /** Locales and zones a session formats in are few; past this, start again rather than grow. */
 const formatterLimit = 32;
-const winter = Date.UTC(2026, 0, 15);
-const summer = Date.UTC(2026, 6, 15);
-const hostOffsets = (at: number) =>
-  `${new Date(at).getTimezoneOffset()},${new Date(winter).getTimezoneOffset()},${new Date(summer).getTimezoneOffset()}`;
+const minute = 60_000;
 
-function formatter(
+function clockText(
   kind: string,
   at: number,
   locale: string | undefined,
   options: Intl.DateTimeFormatOptions,
-): Intl.DateTimeFormat {
-  const zone = options.timeZone ?? `host:${hostOffsets(at)}`;
-  const key = `${kind}\u0000${locale ?? ""}\u0000${zone}`;
+  timeZone: string | undefined,
+): Intl.DateTimeFormatPart[] {
+  const zone = timeZone ?? "UTC";
+  const key = `${kind}\u0000${zone}\u0000${locale ?? ""}\u0000${hostDefaults()}`;
   let found = formatters.get(key);
   if (!found) {
     if (formatters.size >= formatterLimit) formatters.clear();
-    found = new Intl.DateTimeFormat(locale, options);
+    found = new Intl.DateTimeFormat(locale, { ...options, timeZone: zone });
     formatters.set(key, found);
   }
-  return found;
+  // The host's wall time at `at`, as a UTC instant: what the host zone would print.
+  const instant = timeZone === undefined ? at - new Date(at).getTimezoneOffset() * minute : at;
+  return found.formatToParts(instant);
 }
 
 /** "14:02" in the reader's locale. */
 export function formatClock(at: number, locale?: string, timeZone?: string): string {
-  return formatter("clock", at, locale, { hour: "numeric", minute: "2-digit", timeZone })
-    .formatToParts(at)
+  return clockText("clock", at, locale, { hour: "numeric", minute: "2-digit" }, timeZone)
     .map((part) => (part.type === "dayPeriod" ? part.value.toUpperCase() : part.value))
     .join("")
     .replace(/[\u202f\u00a0]/g, " ");
@@ -91,11 +103,14 @@ export function formatClock(at: number, locale?: string, timeZone?: string): str
 
 /** A bounded clock for row statuses: "14:02", without a day period or date. */
 export function formatShortClock(at: number, locale?: string): string {
-  return formatter("short", at, locale, {
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).format(at);
+  const parts = clockText(
+    "short",
+    at,
+    locale,
+    { hour: "2-digit", minute: "2-digit", hourCycle: "h23" },
+    undefined,
+  );
+  return parts.map((part) => part.value).join("");
 }
 
 /** "under a minute", "12m", "1h 27m", "3d 4h": the time left until a reset, rounded up. */
