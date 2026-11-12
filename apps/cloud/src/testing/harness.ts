@@ -20,15 +20,16 @@ export function mint(
 }
 
 /** The Worker under Miniflare with its bindings, for the Worker's own tests. */
-export async function startWorker(
-  options: { accounts?: boolean; workosUrl?: string; previousGrantKey?: string } = {},
-) {
+export async function startWorker(options: Parameters<typeof launchWorker>[0] = {}) {
   const { harness, ...started } = await launchWorker(options);
   const worker = harness.getWorker<Env>();
   const env = await worker.getEnv();
   return {
     ...started,
     db: env.ACCOUNTS,
+    env,
+    /** A request to the Worker at any address, such as `https://cloud.acehq.dev/…`. */
+    dispatch: (url: string, init?: RequestInit) => worker.fetch(url, init),
     /**
      * Evicts the relay object for `hostId` as the runtime does when it hibernates: its memory
      * is dropped, its sockets stay connected with their attachments, and the next event

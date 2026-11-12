@@ -18,7 +18,13 @@ export const publicUrl = "http://127.0.0.1";
  * with no account settings at all; `previousGrantKey` sets `ACE_GRANT_PREVIOUS_KEY`.
  */
 export async function launchWorker(
-  options: { accounts?: boolean; workosUrl?: string; previousGrantKey?: string } = {},
+  options: {
+    accounts?: boolean;
+    workosUrl?: string;
+    previousGrantKey?: string;
+    /** More Worker variables and secrets, such as the broker's apps and their clients. */
+    vars?: Record<string, string>;
+  } = {},
 ) {
   const secrets: Record<string, string> =
     options.accounts === false
@@ -33,6 +39,7 @@ export async function launchWorker(
           ACE_GRANT_KEY: `${grantKey.id}:${encodeBase64url(grantKey.privateKey)}`,
           ...(options.previousGrantKey ? { ACE_GRANT_PREVIOUS_KEY: options.previousGrantKey } : {}),
         };
+  Object.assign(secrets, options.vars);
   const harness = createTestHarness({
     workers: [{ configPath: fileURLToPath(import.meta.resolve("../../wrangler.jsonc")), secrets }],
   });
