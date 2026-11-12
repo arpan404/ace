@@ -53,7 +53,8 @@ impl State {
 /// The latest message: the person's (or another bot's) or the agent's reply text, never tool
 /// output, cut to [`PREVIEW`] characters of plain text.
 pub fn last_message(events: &[StoredEvent]) -> Option<LastMessage> {
-    // A heartbeat and its quiet answer are shown as nothing (ADR 0129).
+    // A routine's message is its label, not something the person said; a heartbeat and its quiet
+    // answer are shown as nothing (ADR 0129).
     let silent = spade_core::routine::silent_replies(events.iter().map(|e| &e.event));
     events.iter().rev().find_map(|stored| {
         let Event::Known(known) = &stored.event else {
@@ -61,9 +62,9 @@ pub fn last_message(events: &[StoredEvent]) -> Option<LastMessage> {
         };
         let (by_agent, text, from_agent) = match known {
             Known::UserMessage {
-                from_routine: Some(from),
+                from_routine: Some(_),
                 ..
-            } if from.heartbeat => return None,
+            } => return None,
             Known::ReplyFinished { reply, .. } if silent.contains(reply) => return None,
             Known::UserMessage {
                 text,

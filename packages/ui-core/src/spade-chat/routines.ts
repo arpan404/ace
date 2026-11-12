@@ -63,7 +63,7 @@ const trigger = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("event"), event: z.enum(spadeAceEvents) }),
   z.object({ kind: z.literal("webhook") }),
 ]);
-const run = z.object({
+const runShape = z.object({
   id: z.string(),
   at: time.catch(0),
   cause: z.string().catch(""),
@@ -81,7 +81,7 @@ const routine = z.object({
   time_zone: z.string().catch("UTC"),
   paused: z.boolean().catch(false),
   next_run: time.nullish().catch(undefined),
-  last_run: run.nullish().catch(undefined),
+  last_run: runShape.nullish().catch(undefined),
   webhook: z.object({ path: z.string(), secret: z.string() }).nullish().catch(undefined),
   created_by: z.enum(["person", "agent"]).catch("person"),
 });
@@ -92,10 +92,10 @@ const heartbeat = z.object({
   quiet: z.object({ start: z.string(), end: z.string() }).nullish().catch(undefined),
   time_zone: z.string().catch("UTC"),
   next_run: time.nullish().catch(undefined),
-  last_run: run.nullish().catch(undefined),
+  last_run: runShape.nullish().catch(undefined),
 });
 
-function runOf(raw: z.infer<typeof run> | null | undefined): SpadeRun | undefined {
+function runOf(raw: z.infer<typeof runShape> | null | undefined): SpadeRun | undefined {
   if (!raw) return undefined;
   return {
     id: raw.id,
@@ -201,8 +201,7 @@ export function spadeWhen(at: number, now: number, timeZone: string): string {
 
 function safeZone(zone: string): string {
   try {
-    new Intl.DateTimeFormat("en", { timeZone: zone });
-    return zone;
+    return new Intl.DateTimeFormat("en", { timeZone: zone }).resolvedOptions().timeZone;
   } catch {
     return "UTC";
   }

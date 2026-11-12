@@ -1,4 +1,5 @@
 import type { FakeSpade, FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
+import { FakeSpadeRoutines } from "./spade-routines.ts";
 
 /*
  * A stateful stand-in for Spade's local API (ADR 0126, 0127), in Spade's own JSON: agents with
@@ -61,10 +62,13 @@ export class FakeSpadeApi implements FakeSpadeServer {
   private sequence = 0;
   private readonly spade: FakeSpade;
   private readonly now: () => number;
+  /** Each bot's routines and heartbeat (ADR 0129). */
+  readonly routines: FakeSpadeRoutines;
 
   constructor(spade: FakeSpade, now: () => number = () => 1_000) {
     this.spade = spade;
     this.now = now;
+    this.routines = new FakeSpadeRoutines(now);
     spade.serve(this);
   }
 
@@ -175,7 +179,10 @@ export class FakeSpadeApi implements FakeSpadeServer {
     const parts = path.split("/").slice(2).map(decodeURIComponent);
     const body = request.body ? (JSON.parse(request.body) as Json) : {};
     const [root, id, sub, subId] = parts;
+    if (root === "agents" && id && (sub === "routines" || sub === "heartbeat"))
+      return this.routines.agentRoute(request.method, id, sub, body);
     if (root === "agents") return this.agentRoute(request.method, id, body);
+    if (root === "routines" && id) return this.routines.route(request.method, id, sub, body);
     if (root === "models" && request.method === "GET")
       return reply({
         endpoints: this.endpoints,

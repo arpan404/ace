@@ -15,6 +15,7 @@ import { SpadeComposer } from "./spade-composer.tsx";
 import { SpadeFace } from "./spade-face.tsx";
 import { SpadeKeySetup } from "./spade-key-setup.tsx";
 import { SpadeMachineScope, spadeMachineKey } from "./spade-machine.tsx";
+import { SpadeRoutines } from "./spade-routines.tsx";
 import { SpadeStateStrip } from "./spade-state.tsx";
 import { useDeleteBot } from "./use-bot-actions.ts";
 import { useSpadeConversation } from "./use-spade-conversation.ts";
@@ -99,8 +100,15 @@ export function SpadeHomeScreen() {
   );
 }
 
-/** `/spade/<agent id>` (with `on` when the bot runs on another machine): its conversation. */
-export function SpadeAgentScreen(props: { agentId: string; machine: string | undefined }) {
+/**
+ * `/spade/<agent id>` (with `on` when the bot runs on another machine): its conversation, or with
+ * `view=routines` its routines and heartbeat.
+ */
+export function SpadeAgentScreen(props: {
+  agentId: string;
+  machine: string | undefined;
+  view?: "routines" | undefined;
+}) {
   const line = useSpadeLine();
   const roster = useSpadeRoster(line.ready);
   const machines = useMachines();
@@ -154,13 +162,22 @@ export function SpadeAgentScreen(props: { agentId: string; machine: string | und
         </BotScreen>
       }
     >
-      <Conversation key={`${bot.machine.key}/${bot.id}`} bot={bot} roster={roster.bots} />
+      {props.view === "routines" ? (
+        <BotScreen bot={bot} view="routines">
+          <SpadeRoutines key={`${bot.machine.key}/${bot.id}`} bot={bot} />
+        </BotScreen>
+      ) : (
+        <Conversation key={`${bot.machine.key}/${bot.id}`} bot={bot} roster={roster.bots} />
+      )}
     </SpadeMachineScope>
   );
 }
 
-/** The screen's frame for one bot: its face and name in the top bar, Edit and Delete in ⋯. */
-function BotScreen(props: { bot: RosterBot; children: ReactNode }) {
+/**
+ * The screen's frame for one bot: its face and name in the top bar; Routines (or back to the
+ * conversation), Edit and Delete in ⋯.
+ */
+function BotScreen(props: { bot: RosterBot; view?: "routines" | undefined; children: ReactNode }) {
   const { bot } = props;
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState<Confirming>();
@@ -174,6 +191,20 @@ function BotScreen(props: { bot: RosterBot; children: ReactNode }) {
       menu={
         bot.away || bot.unavailable ? undefined : (
           <>
+            <MenuItem
+              onClick={() =>
+                void navigate({
+                  to: "/spade/$agentId",
+                  params: { agentId: bot.id },
+                  search: {
+                    ...(bot.machine.primary ? {} : { on: bot.machine.key }),
+                    ...(props.view === "routines" ? {} : { view: "routines" as const }),
+                  },
+                })
+              }
+            >
+              {props.view === "routines" ? "Conversation" : "Routines"}
+            </MenuItem>
             <MenuItem onClick={() => setEditing(true)}>{main ? "Edit Spade" : "Edit bot"}</MenuItem>
             {!main && (
               <MenuItem

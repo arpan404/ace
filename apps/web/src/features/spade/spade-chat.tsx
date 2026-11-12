@@ -111,6 +111,15 @@ const Bubble = memo(function Bubble(props: {
           )}
         </div>
       );
+    case "routine":
+      // A routine fired (ADR 0129): a small label in the middle, never the person's bubble.
+      return (
+        <div role="note" className="flex justify-center">
+          <span className="rounded-full bg-bubble px-2.5 py-0.5 text-xs text-muted-foreground">
+            {`${item.name} · ${item.label}`}
+          </span>
+        </div>
+      );
     case "other": {
       const avatar = bot.others.get(item.agent.id) ?? {
         kind: "generated" as const,
