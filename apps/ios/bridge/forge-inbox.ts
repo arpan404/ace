@@ -7,14 +7,17 @@ import {
   type ForgeInboxWrite,
 } from "@ace/protocol";
 import {
+  afterWrite,
   can,
   actionErrorText,
   inboxReasonWords,
   inboxTarget,
   inboxTypeWords,
   issueStateMark,
+  markAllReadWrites,
   prTone,
   prWords,
+  readAllApplying,
   type ForgeMark,
 } from "@ace/ui-core";
 import { z } from "zod";
@@ -25,9 +28,9 @@ import { ForgeRefusal, type ForgeOwner, type ForgeReads } from "./forge-reads.ts
 /*
  * The person's GitHub notifications on the phone, as the web's Inbox shows them: unread (or all)
  * newest first, one row per thread, each with its subject's state, why it arrived, and where it
- * opens: ace's own pull request or issue page, else GitHub. Mark read, done and unsubscribe go
- * through their own `gh`; each sets a state, so one GitHub didn't confirm is safe to send again,
- * but only when the person asks.
+ * opens: ace's own pull request or issue page, else GitHub. Mark read, done, unsubscribe and
+ * Mark all read go through their own `gh`; each sets a state, so one GitHub didn't confirm is
+ * safe to send again, but only when the person asks.
  */
 
 export const ForgeInboxRequest = z.object({
@@ -42,12 +45,26 @@ export const ForgeInboxRequest = z.object({
 });
 export type ForgeInboxRequest = z.infer<typeof ForgeInboxRequest>;
 
-export const ForgeInboxWriteRequest = z.object({
-  type: z.literal("forge.inbox.write"),
-  project: z.string().min(1).max(512),
-  action: z.enum(["read", "done", "unsubscribe"]),
-  id: ForgeInboxThreadId,
-});
+export const ForgeInboxWriteRequest = z.union([
+  z.object({
+    type: z.literal("forge.inbox.write"),
+    project: z.string().min(1).max(512),
+    action: z.enum(["read", "done", "unsubscribe"]),
+    id: ForgeInboxThreadId,
+  }),
+  /** Everything on show read: the list's filters and search say how far "everything" goes. */
+  z.object({
+    type: z.literal("forge.inbox.write"),
+    project: z.string().min(1).max(512),
+    action: z.literal("read-all"),
+    participating: z.boolean(),
+    reason: z.string().min(1).max(64).optional(),
+    /** The search field narrows the rows on show. */
+    searched: z.boolean(),
+    /** The unread rows on show, for a list GitHub can't mark read in one go. */
+    unread: z.array(ForgeInboxThreadId).max(1_000),
+  }),
+]);
 export type ForgeInboxWriteRequest = z.infer<typeof ForgeInboxWriteRequest>;
 
 export interface InboxRowView {
@@ -123,10 +140,18 @@ function rowView(row: ForgeInboxRow, page: ForgeInboxList, preview: Preview): In
   };
 }
 
+/**
+ * When each project's Mark all read last went out, by the bridge's clock: GitHub applies it in
+ * the background, so for one poll interval the rows keep it.
+ */
+export type ReadAllSent = Map<string, number>;
+
 export async function readInbox(
   reads: ForgeReads,
   request: ForgeInboxRequest,
   preview: Preview,
+  sent: ReadAllSent,
+  now: () => number,
 ): Promise<InboxReply> {
   if (!can(await capabilitySource(reads, request.project), "inbox"))
     throw new ForgeRefusal("forge_unsupported");
@@ -144,14 +169,18 @@ export async function readInbox(
       false,
     );
     if (value.resource !== "inboxList") throw new ForgeRefusal("forge_invalid_data");
-    for (const row of value.value.items) {
+    const readAt = sent.get(request.project);
+    const list =
+      readAt !== undefined && readAllApplying(readAt, now(), value.value.pollSeconds)
+        ? afterWrite(value.value, { kind: "read-all", before: readAt })
+        : value.value;
+    for (const row of list.items) {
       if (seen.has(row.id)) continue;
       seen.add(row.id);
       reasons.add(row.reason);
-      if (!request.reason || row.reason === request.reason)
-        rows.push(rowView(row, value.value, preview));
+      if (!request.reason || row.reason === request.reason) rows.push(rowView(row, list, preview));
     }
-    more = value.value.nextPage !== undefined;
+    more = list.nextPage !== undefined;
     if (!more) break;
   }
   if (request.reason) reasons.add(request.reason);
@@ -175,8 +204,33 @@ export async function writeInbox(
   owner: ForgeOwner,
   reads: ForgeReads,
   request: ForgeInboxWriteRequest,
+  sent: ReadAllSent,
+  now: () => number,
 ): Promise<InboxWriteReply> {
-  const input: ForgeInboxWrite = { action: request.action, id: request.id };
+  if (request.action !== "read-all") return send(owner, reads, request.project, request);
+  const at = now();
+  const writes = markAllReadWrites({
+    narrowed: request.participating || !!request.reason || request.searched,
+    unread: request.unread,
+    before: at,
+  });
+  let reply: InboxWriteReply = { type: "forge.write", ok: true, message: "", uncertain: false };
+  for (const input of writes) {
+    if (input.action === "read-all") sent.set(request.project, at);
+    reply = await send(owner, reads, request.project, input);
+    if (!reply.ok) return reply;
+  }
+  return reply;
+}
+
+async function send(
+  owner: ForgeOwner,
+  reads: ForgeReads,
+  project: string,
+  write: ForgeInboxWrite,
+): Promise<InboxWriteReply> {
+  const input: ForgeInboxWrite =
+    write.action === "read-all" ? write : { action: write.action, id: write.id };
   const unconfirmed: InboxWriteReply = {
     type: "forge.write",
     ok: false,
@@ -186,10 +240,10 @@ export async function writeInbox(
   try {
     const result = await owner.command({
       type: "forge.inbox.write",
-      workspaceId: WorkspaceId.parse(request.project),
+      workspaceId: WorkspaceId.parse(project),
       input,
     });
-    reads.forget(request.project);
+    reads.forget(project);
     if (result.ok) return { type: "forge.write", ok: true, message: "", uncertain: false };
     if (result.inboxAction?.state === "uncertain" || result.error === "action_outcome_uncertain")
       return unconfirmed;
@@ -200,7 +254,7 @@ export async function writeInbox(
       uncertain: false,
     };
   } catch {
-    reads.forget(request.project);
+    reads.forget(project);
     return unconfirmed;
   }
 }
