@@ -8,15 +8,36 @@ import { z } from "zod";
  * quiet hours. The daemon still decides what is an alert; this only decides how it shows. Pure.
  */
 
-export const phoneCategories = ["needsYou", "failures", "finished", "agentSays", "limits"] as const;
+export const phoneCategories = [
+  "needsYou",
+  "failures",
+  "finished",
+  "agentSays",
+  "limits",
+  "automations",
+] as const;
 export type PhoneCategory = (typeof phoneCategories)[number];
 
 const on = z.boolean().catch(true);
 /** Agent messages are opt-in on the phone: by default it alerts only for requests, failures and finishes. */
 const optIn = z.boolean().catch(false);
 const Categories = z
-  .object({ needsYou: on, failures: on, finished: on, agentSays: optIn, limits: on })
-  .catch({ needsYou: true, failures: true, finished: true, agentSays: false, limits: true });
+  .object({
+    needsYou: on,
+    failures: on,
+    finished: on,
+    agentSays: optIn,
+    limits: on,
+    automations: on,
+  })
+  .catch({
+    needsYou: true,
+    failures: true,
+    finished: true,
+    agentSays: false,
+    limits: true,
+    automations: true,
+  });
 const minute = z.number().int().min(0).max(1439);
 
 export const PhoneNotificationPrefs = z.object({
@@ -44,6 +65,8 @@ export function phoneCategory(status: string): PhoneCategory {
       return "agentSays";
     case "limits":
       return "limits";
+    case "automations":
+      return "automations";
     default:
       return "finished";
   }

@@ -115,3 +115,12 @@ export {
 } from "./thread-line.ts";
 
 export { ideas, type Idea } from "./ideas.ts";
+export {
+  batchRunAlerts,
+  batchRunAlertsBeyond,
+  finishedSince,
+  runAlertsShown,
+  runAlertTitle,
+  runStatusLine,
+  type RunAlertBatch,
+} from "./run-alerts.ts";

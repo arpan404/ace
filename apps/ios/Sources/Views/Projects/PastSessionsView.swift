@@ -7,6 +7,9 @@ private struct PastSession: Decodable, Identifiable {
     let provider: String
     let messageCount: Int
     let support: Support
+    /// Whether its provider can resume it, so Continue is offered; absent from older machines.
+    let continuation: Support?
+    var continuable: Bool { support.status == "supported" && continuation?.status == "supported" }
 }
 private struct PastSessionsReply: Decodable {
     struct Cursor: Codable { let lastActivity: Double; let id: String }
@@ -15,7 +18,8 @@ private struct PastSessionsReply: Decodable {
     let next: Cursor?
     let scan: Scan?
 }
-private struct HistoryImportReply: Decodable { let status: String; let threadId: String?; let reason: String? }
+/// `pastSessions.open` (`bridge/past-sessions.ts`): the thread to open, or the shared words for why not.
+private struct PastSessionOpened: Decodable { let threadId: String?; let problem: String? }
 
 struct PastSessionsView: View {
     let model: ClientModel
@@ -26,26 +30,37 @@ struct PastSessionsView: View {
     @State private var query = ""
     @State private var problem: String?
     @State private var importing: String?
+    @State private var continuing = false
     @State private var path: [String] = []
     @State private var loading = false
     var body: some View {
         QuietPage {
             QuietGroup {
                 ForEach(sessions) { session in
-                    Button {
-                        importing = session.id
-                        Task { await open(session) }
-                    } label: {
-                        HStack {
-                            VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-                                QuietRowText(title: session.title.isEmpty ? "Untitled session" : session.title, detail: "\(session.provider.capitalized) · \(session.messageCount) messages")
-                                if let reason = session.support.reason { Text(reason).font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.subtle) }
-                            }
-                            RowCaret()
+                    let title = session.title.isEmpty ? "Untitled session" : session.title
+                    HStack(spacing: AceDesign.Space.related) {
+                        Button {
+                            begin(session, action: "import")
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                                    QuietRowText(title: title, detail: "\(session.provider.capitalized) · \(session.messageCount) messages")
+                                    if let reason = session.support.reason { Text(reason).font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.subtle) }
+                                }
+                                Spacer(minLength: 0)
+                            }.contentShape(Rectangle())
                         }
-                    }.disabled(importing != nil || session.support.status != "supported" || !model.canOperate)
+                        .accessibilityLabel("Import \(title)")
+                        if session.continuable {
+                            // Imports it, then resumes it in its provider: the next message goes to the CLI's own session.
+                            Button("Continue") { begin(session, action: "continue") }
+                                .accessibilityLabel("Continue \(title)")
+                        }
+                        RowCaret()
+                    }
+                    .disabled(importing != nil || session.support.status != "supported" || !model.canOperate)
                 }
-                if loading || importing != nil { WorkingMark(label: importing == nil ? "Loading sessions" : "Opening session") }
+                if loading || importing != nil { WorkingMark(label: importing == nil ? "Loading sessions" : continuing ? "Continuing session" : "Opening session") }
                 ServiceProblem(message: problem)
                 if problem != nil { Button("Retry") { Task { await read() } } }
                 if ["scanning", "retrying"].contains(state) { Label("Reading CLI history", systemImage: "clock") }
@@ -82,11 +97,17 @@ struct PastSessionsView: View {
             problem = reply.scan?.error
         } catch { if !Task.isCancelled { problem = error.localizedDescription } }
     }
-    private func open(_ session: PastSession) async {
-        defer { importing = nil }
+    private func begin(_ session: PastSession, action: String) {
+        importing = session.id; continuing = action == "continue"; problem = nil
+        Task { await open(session, action: action) }
+    }
+    /// Import, or import and resume ("continue"), in the bridge; the words for a failure are the web's.
+    private func open(_ session: PastSession, action: String) async {
+        defer { importing = nil; continuing = false }
         do {
-            let reply = try await model.service(["type": "history.import", "sourceId": session.id, "workspaceId": project.id], as: HistoryImportReply.self)
-            guard reply.status == "imported", let id = reply.threadId else { throw ServiceFailure(message: reply.reason ?? "This session couldn't be imported.") }
+            let reply = try await model.service(["type": "pastSessions.open", "sourceId": session.id, "workspaceId": project.id, "action": action],
+                                                as: PastSessionOpened.self)
+            guard let id = reply.threadId else { problem = reply.problem; return }
             model.open(id); path = [id]
         } catch { problem = error.localizedDescription }
     }

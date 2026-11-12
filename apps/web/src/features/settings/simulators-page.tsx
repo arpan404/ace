@@ -1,4 +1,5 @@
 import { useConnectionState } from "@ace/client-react";
+import { devicesSwitch, simulatorToolIds } from "@ace/ui-core";
 import { useId, useState } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -40,7 +41,7 @@ export function SimulatorsSettings() {
       <ToolchainSection
         label="Tools"
         anchor="tools"
-        ids={["xcode", "serve-sim", "android"]}
+        ids={simulatorToolIds}
         fixes={
           own ? { "serve-sim": <DownloadDeviceTools done={() => void tools.refetch()} /> } : {}
         }
@@ -68,8 +69,8 @@ function SimulatorsSwitchRow() {
     <>
       <SettingRow
         id="devices.enabled"
-        title="Use simulators and emulators"
-        description="Watch and drive this machine's iOS Simulators and Android emulators from any thread, and let agents use them."
+        title={devicesSwitch.title}
+        description={devicesSwitch.description}
         htmlFor={id}
         inline
       >

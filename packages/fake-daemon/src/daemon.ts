@@ -353,8 +353,11 @@ export class FakeDaemon implements Host {
   get terminals(): FakeTerminals {
     return this.servicesWire.workspace.terminals;
   }
-  /** Past-session requests clients made: lists read provider history, releases end it. */
-  get pastSessions(): Pick<FakeHistory, "lists" | "releases"> {
+  /**
+   * Past-session requests clients made: lists read provider history, releases end it, and each
+   * continue carried out.
+   */
+  get pastSessions(): Pick<FakeHistory, "lists" | "releases" | "continued"> {
     return this.servicesWire.history;
   }
   /** "Pause new work" behind `admission.request`; `set("user", …)` is the desktop tray's pause. */

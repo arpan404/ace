@@ -229,9 +229,8 @@ import XCTest
         XCTAssertTrue(app.staticTexts["Accessibility"].exists)
         capture("computer-use", app)
         XCTAssertFalse(app.staticTexts["service.problem"].exists)
-        app.buttons["App access and device preferences"].tap()
+        app.buttons["App access"].tap()
         XCTAssertTrue(app.staticTexts["Apps agents can't use"].waitForExistence(timeout: 30))
-        XCTAssertTrue(app.switches["Show emulator window"].waitForExistence(timeout: 30))
         capture("app-access-preferences", app)
         XCTAssertFalse(app.staticTexts["service.problem"].exists)
     }

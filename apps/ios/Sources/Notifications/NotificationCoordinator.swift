@@ -31,7 +31,10 @@ struct SystemAuthorizer: NotificationAuthorizer {
         static let enabled = "ace.notifications.enabled", asked = "ace.notifications.asked"
         static let muted = "ace.notifications.mutedMachines"
         static let liveActivity = "ace.lockScreen.liveActivity"
+        static let bridgePosted = "ace.notifications.bridgePosted"
     }
+    /// The bridge notifications remembered per machine, newest last; older ones have long gone.
+    static let bridgePostedLimit = 256
 
     private(set) var enabled: Bool
     private(set) var permission: Permission = .unknown
@@ -75,8 +78,9 @@ struct SystemAuthorizer: NotificationAuthorizer {
     private(set) var liveActivity: Bool
     /// Each machine's sign-ins waiting for approval when it last said, by host.
     @ObservationIgnored var accessSeen: [String: Set<String>] = [:]
-    /// Usage-limit notifications posted for each machine, withdrawn with the machine's others.
-    @ObservationIgnored var limitPosted: [String: Set<String>] = [:]
+    /// Usage-limit and automation-run notifications posted for each machine, oldest first,
+    /// withdrawn with the machine's others. Kept across launches: Notification Center keeps them.
+    @ObservationIgnored var bridgePosted: [String: [String]] = [:]
     /// A tapped sign-in waiting for its machine's runtime (a cold launch).
     @ObservationIgnored var pendingAccess: (alert: AccessAlert, hostId: String?)?
     /// The person's name for a machine, for "Claude wants to sign in to studio".
@@ -97,6 +101,7 @@ struct SystemAuthorizer: NotificationAuthorizer {
         muted = Set(defaults.stringArray(forKey: Keys.muted) ?? [])
         phone = PhoneNotificationPrefs.load(defaults)
         liveActivity = defaults.object(forKey: Keys.liveActivity) as? Bool ?? true
+        bridgePosted = defaults.dictionary(forKey: Keys.bridgePosted) as? [String: [String]] ?? [:]
         self.lockScreen = LockScreenHub(edges: lockScreenEdges ?? .inert, now: { Date(timeIntervalSince1970: now() / 1000) }, sleep: sleep)
         self.lockScreen.allowed = liveActivity
         self.lockScreen.read = { [weak self] in self?.lockScreenInput() ?? ([], [:]) }
@@ -133,7 +138,7 @@ struct SystemAuthorizer: NotificationAuthorizer {
         model.notificationSink = nil
         feeds.removeValue(forKey: machines[index].hostId)?.forEach { $0.finish(false) }
         machines[index].notifier.invalidate()
-        withdrawLimits(machines[index].hostId)
+        withdrawBridgeAlerts(machines[index].hostId)
         machines.remove(at: index)
         model.liveActivity.onChange = nil
         model.liveActivity.onShow = nil
@@ -147,7 +152,7 @@ struct SystemAuthorizer: NotificationAuthorizer {
         // Alerts it already handed over don't land after the clear, whenever their task runs.
         for entry in machines where entry.hostId == hostId { entry.notifier.invalidate() }
         desk.clear(hostId: hostId)
-        withdrawLimits(hostId)
+        withdrawBridgeAlerts(hostId)
         approvals = approvals.filter { $0.value.hostId != hostId }
         approvalAlerts = approvalAlerts.filter { approvals[$0.value] != nil }
         if pendingLink?.hostId == hostId { pendingLink = nil }
@@ -169,9 +174,10 @@ struct SystemAuthorizer: NotificationAuthorizer {
             Task { await ledger.receive(alert) }
         case .limit(let alert):
             guard delivering(hostId), alert.delivery?.post != false else { return }
-            let content = AlertContent.limit(alert, hostId: hostId)
-            limitPosted[hostId, default: []].insert(content.identifier)
-            desk.post(content)
+            post(.limit(alert, hostId: hostId), from: hostId)
+        case .run(let alert):
+            guard delivering(hostId), alert.delivery?.post != false else { return }
+            post(.run(alert, hostId: hostId), from: hostId)
         case .feed(let cursor, let entries, let retracted):
             for alert in entries { note(alert, from: hostId) }
             forget(retracted, from: hostId)
@@ -192,9 +198,18 @@ struct SystemAuthorizer: NotificationAuthorizer {
             if outcome == .saved { outcomes[id]?.latest = outcome } else { outcomes.removeValue(forKey: id)?.finish(outcome) }
         }
     }
-    /// A machine turned off or gone: its usage-limit notifications go too, even one still queued.
-    func withdrawLimits(_ hostId: String) {
-        guard let ids = limitPosted.removeValue(forKey: hostId), !ids.isEmpty else { return }
+    /// A usage-limit or run notification the bridge decided, remembered so it goes with its machine.
+    private func post(_ content: AlertContent, from hostId: String) {
+        var ids = bridgePosted[hostId, default: []].filter { $0 != content.identifier }
+        ids.append(content.identifier)
+        bridgePosted[hostId] = Array(ids.suffix(Self.bridgePostedLimit))
+        defaults.set(bridgePosted, forKey: Keys.bridgePosted)
+        desk.post(content)
+    }
+    /// A machine turned off or gone: its usage-limit and run notifications go too, even one still queued.
+    func withdrawBridgeAlerts(_ hostId: String) {
+        guard let ids = bridgePosted.removeValue(forKey: hostId), !ids.isEmpty else { return }
+        defaults.set(bridgePosted, forKey: Keys.bridgePosted)
         desk.withdraw(ids.sorted())
     }
     var delivering: Bool { enabled && permission == .allowed }

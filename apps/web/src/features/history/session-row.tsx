@@ -1,11 +1,11 @@
 import type { HistorySession } from "@ace/protocol";
-import { formatAgo } from "@ace/ui-core";
+import { formatAgo, type PastSessionAction } from "@ace/ui-core";
 import { ArrowSquareInIcon, PlayIcon } from "@phosphor-icons/react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { ProviderIconTip } from "@/components/ui/provider-icons.tsx";
 import { useNow } from "@/lib/time.ts";
 
-export type SessionAction = (session: HistorySession, action: "import" | "continue") => void;
+export type SessionAction = (session: HistorySession, action: PastSessionAction) => void;
 
 export function SessionRow(props: { session: HistorySession; busy: boolean; open: SessionAction }) {
   const { session, busy, open } = props;

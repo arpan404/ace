@@ -13,6 +13,8 @@ struct PhoneNotificationPrefs: Codable, Equatable, Sendable {
         var agentSays = false
         /// An account near, at or back from its usage limit; on by default, as on the web.
         var limits = true
+        /// An automation run that finished or failed; on by default, as on the web.
+        var automations = true
         init() {}
         /// Each category as stored, or its default: preferences saved before a category existed
         /// keep everything else the person chose.
@@ -23,6 +25,7 @@ struct PhoneNotificationPrefs: Codable, Equatable, Sendable {
             finished = try box.decodeIfPresent(Bool.self, forKey: .finished) ?? true
             agentSays = try box.decodeIfPresent(Bool.self, forKey: .agentSays) ?? false
             limits = try box.decodeIfPresent(Bool.self, forKey: .limits) ?? true
+            automations = try box.decodeIfPresent(Bool.self, forKey: .automations) ?? true
         }
         subscript(_ key: String) -> Bool {
             get {
@@ -31,6 +34,7 @@ struct PhoneNotificationPrefs: Codable, Equatable, Sendable {
                 case "failures": failures
                 case "finished": finished
                 case "limits": limits
+                case "automations": automations
                 default: agentSays
                 }
             }
@@ -40,6 +44,7 @@ struct PhoneNotificationPrefs: Codable, Equatable, Sendable {
                 case "failures": failures = newValue
                 case "finished": finished = newValue
                 case "limits": limits = newValue
+                case "automations": automations = newValue
                 default: agentSays = newValue
                 }
             }
@@ -55,7 +60,7 @@ struct PhoneNotificationPrefs: Codable, Equatable, Sendable {
     /// The categories in the order Settings lists them, with the desktop's names.
     static let categories: [(key: String, title: String)] = [
         ("needsYou", "Needs you"), ("failures", "Failures"), ("finished", "Thread done"), ("agentSays", "Agent messages"),
-        ("limits", "Usage limits"),
+        ("limits", "Usage limits"), ("automations", "Automation finished"),
     ]
     static let defaultQuietHours = Window(start: 22 * 60, end: 7 * 60)
     static let storageKey = "ace.notifications.phone"

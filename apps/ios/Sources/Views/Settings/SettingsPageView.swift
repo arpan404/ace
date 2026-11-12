@@ -5,10 +5,12 @@ import SwiftUI
 /// place while nothing is kept yet. With several machines paired, the top says where changes go;
 /// "All machines" sends each change to every connected machine and names the ones that refused
 /// it or hold another value.
-struct SettingsPageView: View {
+struct SettingsPageView<Extra: View>: View {
     let model: ClientModel
     let page: String
     let fallbackTitle: String
+    /// Sections a page draws itself under the bridge's, such as Simulators' tools.
+    let extra: Extra
     @Environment(\.settingsScope) private var scope
     @State private var data: SettingsPageData?
     @State private var others: [String: SettingsPageData] = [:]
@@ -19,10 +21,11 @@ struct SettingsPageView: View {
     @State private var failed = 0
     @State private var picking: SettingsPageData.Row?
 
-    init(model: ClientModel, page: String, title: String) {
+    init(model: ClientModel, page: String, title: String, @ViewBuilder extra: () -> Extra) {
         self.model = model
         self.page = page
         self.fallbackTitle = title
+        self.extra = extra()
         _data = State(initialValue: model.kept(SettingsPageData.request(page), as: SettingsPageData.self))
     }
 
@@ -57,6 +60,7 @@ struct SettingsPageView: View {
                     }
                     .insetRowBackground()
                 }
+                extra
             } else if let problem {
                 Section {
                     ServiceProblem(message: problem)
@@ -200,5 +204,11 @@ private struct SettingsClearRow: View {
             Button(clear.ask?.confirm ?? clear.label, role: .destructive, action: run)
             Button("Cancel", role: .cancel) {}
         } message: { Text(clear.ask?.message ?? "") }
+    }
+}
+
+extension SettingsPageView where Extra == EmptyView {
+    init(model: ClientModel, page: String, title: String) {
+        self.init(model: model, page: page, title: title) { EmptyView() }
     }
 }
