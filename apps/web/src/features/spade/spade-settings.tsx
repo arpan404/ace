@@ -8,6 +8,7 @@ import { Select } from "@/components/ui/select.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { AddEndpointDialog } from "./spade-add-endpoint.tsx";
+import { ConnectorSettings } from "./spade-connector-settings.tsx";
 import { setFastModel } from "./spade-api.ts";
 import { EndpointSection } from "./spade-endpoint-settings.tsx";
 import { useSpadeEnabled } from "./use-spade-enabled.ts";
@@ -17,7 +18,8 @@ import { useSpadeClient } from "./spade-machine.tsx";
 
 /**
  * Settings › Spade: on or off and its state; the fast model; then each of the person's model
- * endpoints (its key, its saved models, removing it) and Add endpoint, from a preset or custom.
+ * endpoints (its key, its saved models, removing it) and Add endpoint, from a preset or custom;
+ * then the apps Spade is connected to (ADR 0131).
  */
 export function SpadeSettings() {
   const id = useId();
@@ -73,6 +75,7 @@ export function SpadeSettings() {
             )}
           </>
         ))}
+      {line.ready && <ConnectorSettings />}
     </>
   );
 }

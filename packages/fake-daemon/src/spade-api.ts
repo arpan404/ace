@@ -1,4 +1,5 @@
 import type { FakeSpade, FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
+import { FakeSpadeConnectors } from "./spade-connectors-api.ts";
 
 /*
  * A stateful stand-in for Spade's local API (ADR 0126, 0127), in Spade's own JSON: agents with
@@ -57,6 +58,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
   liveModels = new Map<string, Json[] | number>();
   /** Every request the app sent, in order. */
   readonly requests: FakeSpadeRequest[] = [];
+  /** The person's connected apps and each bot's allow list (ADR 0131). */
+  readonly connectors = new FakeSpadeConnectors();
   private readonly events = new Map<string, Stored[]>();
   private sequence = 0;
   private readonly spade: FakeSpade;
@@ -175,7 +178,13 @@ export class FakeSpadeApi implements FakeSpadeServer {
     const parts = path.split("/").slice(2).map(decodeURIComponent);
     const body = request.body ? (JSON.parse(request.body) as Json) : {};
     const [root, id, sub, subId] = parts;
+    if (root === "agents" && id && sub === "connectors") {
+      const agent = this.agents.find((candidate) => candidate.id === id);
+      if (!agent) return problem(404, "No such agent.");
+      return this.connectors.agentRoute(request.method, id, agent.kind === "main", body);
+    }
     if (root === "agents") return this.agentRoute(request.method, id, body);
+    if (root === "connectors") return this.connectors.route(request.method, id, sub, body);
     if (root === "models" && request.method === "GET")
       return reply({
         endpoints: this.endpoints,
