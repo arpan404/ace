@@ -4,6 +4,7 @@ import {
   networkOffQuestion,
   reachDependents,
   remoteOffLine,
+  type Dependents,
   type FleetDevice,
   type FleetMachineFacts,
   type NetworkOffQuestion,
@@ -14,8 +15,9 @@ import type { FleetMapPart } from "./fleet-map-part.ts";
 /*
  * How one machine is reached, as the web's reach rows say it for a machine other than this
  * computer: its ace account, Tailscale and the local network, each a dot, one sentence and one
- * action, or remote access off with the action to turn it on. Turning a network off asks first
- * while devices or machines reach the machine now. Pure.
+ * action, or remote access off with the action to turn it on. Turning a network off always asks
+ * first: this phone reaches the machine, and when what else does couldn't be read, the question
+ * says so. Pure.
  */
 
 export interface ReachAction {
@@ -50,13 +52,28 @@ const direct = [
   { id: "lan", title: "Local network", key: "remote.lan" },
 ] as const;
 
-export function machineReach(
-  id: string,
-  name: string,
-  part: FleetMapPart,
-  devices: readonly FleetDevice[],
-  machines: readonly FleetMachineFacts[],
-): FleetMachineReach {
+export interface MachineReachInput {
+  id: string;
+  name: string;
+  part: FleetMapPart;
+  devices: readonly FleetDevice[];
+  machines: readonly FleetMachineFacts[];
+  /** The machines whose paired devices were read. */
+  devicesRead: ReadonlySet<string>;
+  /** This phone, which reaches every machine it shows and so always depends on it. */
+  viewer: string;
+}
+
+/** This phone first, then the others that reach the machine; unknown stays unknown. */
+function dependentsOf(input: MachineReachInput): Dependents {
+  const found = reachDependents(input.id, input.devices, input.machines, input.devicesRead);
+  if (found === "unknown") return found;
+  const self = new Set(input.devices.filter((device) => device.self).map((device) => device.name));
+  return [input.viewer, ...found.filter((name) => !self.has(name))];
+}
+
+export function machineReach(input: MachineReachInput): FleetMachineReach {
+  const { id, name, part } = input;
   if (part.remote.enabled === false)
     return {
       id,
@@ -71,7 +88,7 @@ export function machineReach(
         },
       ],
     };
-  const dependents = reachDependents(id, devices, machines);
+  const dependents = dependentsOf(input);
   const account = accountReachLine(part.networks?.account, name);
   return {
     id,

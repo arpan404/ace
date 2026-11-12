@@ -158,7 +158,7 @@ test("the map lists each machine as the phone reaches it and each device with it
     value: false,
     confirm: {
       title: "Turn off Tailscale on studio?",
-      body: "iPhone 16 Pro and iPad Air may disconnect until they can reach studio another way.",
+      body: "This iPhone and iPad Air may disconnect until they can reach studio another way.",
       confirm: "Turn off",
     },
   });
@@ -248,4 +248,57 @@ test("the phone's connection reads as the web's machine states", () => {
     ["c", "Off on this device", []],
     ["d", "Connecting", []],
   ]);
+});
+
+test("a device on a machine that stopped answering isn't shown connected through it", async () => {
+  const studio = machine("studio", { "remote.enabled": true, "remote.tailscale": true });
+  const mini = machine("mini", { "remote.enabled": true, "remote.lan": true });
+  // Paired only with studio, which answered once and then dropped.
+  studio.access.completePairing("iPad Pro");
+  const view = combineFleetMap(
+    FleetMapCombineRequest.parse({
+      type: "fleetMap.combine",
+      machines: [
+        {
+          ...ready("studio", "wss://studio.tail1a2b.ts.net:4243", await part(studio)),
+          connection: "reconnecting",
+          problem: "unreachable",
+        },
+        ready("mini", "wss://192.168.1.30:4243", await part(mini)),
+      ],
+    }),
+    now,
+  );
+  expect(view.rows.find((entry) => entry.name === "studio")?.state).toBe("Can't connect");
+  // What studio said before it dropped isn't used: its own device isn't shown reached through
+  // it, and one on both machines is judged against mini, which answers.
+  expect(view.rows.find((entry) => entry.name === "iPad Pro")).toBe(undefined);
+  expect(view.rows.find((entry) => entry.name === "iPad Air")).toMatchObject({
+    token: "done",
+    line: "Paired · Tailscale or local network",
+    lines: expect.arrayContaining([{ label: "Opens", value: "mini, view only" }]),
+  });
+  // Its settings from before it dropped offer nothing to change.
+  expect(view.reach.map((entry) => entry.id)).toEqual(["mini"]);
+});
+
+test("turning a network off always asks, and says so when what reaches the machine couldn't be read", async () => {
+  const studio = machine("studio", { "remote.enabled": true, "remote.lan": true });
+  const read = await part(studio);
+  const lanOff = (devices: typeof read.devices) =>
+    combineFleetMap(
+      FleetMapCombineRequest.parse({
+        type: "fleetMap.combine",
+        machines: [ready("studio", "wss://192.168.1.20:4243", { ...read, devices })],
+      }),
+      now,
+    ).reach[0]?.rows.find((entry) => entry.id === "lan")?.action?.confirm;
+  expect(lanOff(null)?.body).toBe(
+    "Couldn't check what reaches studio. Devices and machines that reach it over Local network may disconnect until they can reach it another way.",
+  );
+  // Only this phone reaches it: it still asks, naming this iPhone once.
+  const own = (read.devices ?? []).filter((device) => device.id === read.selfId);
+  expect(lanOff(own)?.body).toBe(
+    "This iPhone may disconnect until they can reach studio another way.",
+  );
 });

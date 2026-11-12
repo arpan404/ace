@@ -217,33 +217,36 @@ const toneTokens: Record<MapTone, string> = {
 const byName = <T extends { name: string }>(a: T, b: T) => a.name.localeCompare(b.name);
 
 export function combineFleetMap(request: FleetMapCombineRequest, now: number): FleetMapView {
-  const machines = request.machines.map((machine) => ({
-    machine,
-    input: {
+  const machines = request.machines.map((machine) => {
+    const input: MapMachineInput = {
       id: machine.id,
       name: machine.name,
       icon: machine.icon,
       ...machineStatusOf(machine),
       via: viaOf(machine),
       working: machine.connection === "ready" ? (machine.working ?? 0) : undefined,
-    } satisfies MapMachineInput,
-  }));
-  const facts: FleetMachineFacts[] = machines.map(({ machine, input }) => ({
+    };
+    // A part read before the machine dropped says nothing about now.
+    return { machine, input, part: input.status === "online" ? machine.part : undefined };
+  });
+  const facts: FleetMachineFacts[] = machines.map(({ machine, input, part }) => ({
     id: machine.id,
     name: machine.name,
     online: input.status === "online",
-    links: machine.part?.links ?? undefined,
+    links: part?.links ?? undefined,
   }));
   // Each machine's paired devices, this phone marked where it's one of them.
   const paired = new Map<string, (Device & { self: boolean })[]>();
-  for (const machine of request.machines) {
+  for (const { machine, part } of machines) {
     const list: (Device & { self: boolean })[] = [];
-    for (const device of machine.part?.devices ?? [])
-      if (device.revokedAt === null)
-        list.push({ ...device, self: device.id === machine.part?.selfId });
+    for (const device of part?.devices ?? [])
+      if (device.revokedAt === null) list.push({ ...device, self: device.id === part?.selfId });
     paired.set(machine.id, list);
   }
   const devices = fleetDevices(paired, linkDeviceIds(facts));
+  const devicesRead = new Set(
+    machines.flatMap(({ machine, part }) => (part?.devices ? [machine.id] : [])),
+  );
   const names = (id: string) => machines.find((entry) => entry.machine.id === id)?.machine.name;
   const machineRows = machines
     .map(({ input }) => machineNode(input, inSentence))
@@ -253,7 +256,7 @@ export function combineFleetMap(request: FleetMapCombineRequest, now: number): F
     // Judged against the machine that answers with its networks, else the first it's on.
     const on = device.on.map((entry) => machines.find((each) => each.machine.id === entry.machine));
     const home =
-      on.find((entry) => entry?.input.status === "online" && entry.machine.part?.networks) ?? on[0];
+      on.find((entry) => entry?.input.status === "online" && entry.part?.networks) ?? on[0];
     const homeId = home?.machine.id ?? "";
     const input: FleetMapInput = {
       own: {
@@ -262,8 +265,8 @@ export function combineFleetMap(request: FleetMapCombineRequest, now: number): F
         online: home?.input.status === "online",
         working: undefined,
       },
-      enabled: home?.machine.part?.remote.enabled ?? undefined,
-      networks: home?.machine.part?.networks ?? undefined,
+      enabled: home?.part?.remote.enabled ?? undefined,
+      networks: home?.part?.networks ?? undefined,
       relayHost: undefined,
       machines: machines.filter((entry) => entry !== home).map((entry) => entry.input),
       account: [],
@@ -299,8 +302,20 @@ export function combineFleetMap(request: FleetMapCombineRequest, now: number): F
         : summaryLine(rows.length + (devices.some((device) => device.self) ? 0 : 1), problems),
     problems,
     rows,
-    reach: machines.flatMap(({ machine }) =>
-      machine.part ? [machineReach(machine.id, machine.name, machine.part, devices, facts)] : [],
+    reach: machines.flatMap(({ machine, part }) =>
+      part
+        ? [
+            machineReach({
+              id: machine.id,
+              name: machine.name,
+              part,
+              devices,
+              machines: facts,
+              devicesRead,
+              viewer,
+            }),
+          ]
+        : [],
     ),
   };
 }
