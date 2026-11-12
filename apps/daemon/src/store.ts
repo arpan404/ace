@@ -245,8 +245,10 @@ export class Store {
     this.status = new StatusStore(this.db, (sql) => this.statement(sql), this.entityTrust);
     try {
       this.db.exec(
-        // auto_vacuum only takes effect before a new file's first page or through VACUUM.
-        "PRAGMA auto_vacuum=INCREMENTAL; PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA cache_size=-2048; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA wal_autocheckpoint=0; PRAGMA journal_size_limit=16777216;",
+        // The busy wait comes first: on an existing file auto_vacuum writes the header, so it
+        // waits for another connection's write like every later statement. auto_vacuum only
+        // takes effect before a new file's first page or through VACUUM.
+        "PRAGMA busy_timeout=5000; PRAGMA auto_vacuum=INCREMENTAL; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA cache_size=-2048; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA wal_autocheckpoint=0; PRAGMA journal_size_limit=16777216;",
       );
       // Checkpoints run on their own connection; an in-memory or rollback-journal file has none.
       this.wal = new WalMaintenance({
