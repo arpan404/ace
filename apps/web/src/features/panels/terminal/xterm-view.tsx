@@ -222,6 +222,10 @@ export function XtermView(props: {
     if (terminal.current) terminal.current.options.disableStdin = props.readOnly;
   }, [props.readOnly]);
   const hint = `${useId()}-hint`;
+  // The box clips, so xterm's drawn size never reaches the panel's scroll area. Unclipped, a
+  // terminal a pixel too tall gave that area a classic (always shown) scrollbar, which shrank
+  // the box, so `fit` chose a smaller grid, the scrollbar went and the grid grew back: a resize
+  // every frame, and each resize wiped the WebGL canvas, so the terminal stayed blank.
   return (
     <div
       ref={box}
@@ -232,7 +236,7 @@ export function XtermView(props: {
         // Tabbing onto the wrapper moves on into xterm's own input.
         if (event.target === event.currentTarget) api.current?.focus();
       }}
-      className="min-h-0 flex-1 font-mono [&_.xterm-viewport]:!bg-transparent"
+      className="min-h-0 flex-1 overflow-hidden font-mono [&_.xterm-viewport]:!bg-transparent"
     >
       <span id={hint} hidden>
         Control+Backtick hides the terminal and returns focus.
