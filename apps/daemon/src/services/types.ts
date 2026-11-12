@@ -100,6 +100,8 @@ export interface Services {
   skillLibrary?: import("@ace/commands").SkillLibrary;
   /** Spade, ace's assistant: its own service, which the daemon reads and forwards to (ADR 0123). */
   spade?: import("../spade/link.ts").SpadeLink;
+  /** Spade's bots on the person's other machines (ADR 0132). */
+  spadeRemote?: import("../spade/remote.ts").SpadeRemote;
   commands?: CommandLibrary;
   files?: FilesService;
   supportFiles?: FilesService;

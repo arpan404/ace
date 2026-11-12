@@ -14,7 +14,7 @@ import { createMachineTarget } from "./target.ts";
 
 const cleanup: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
-  for (const step of cleanup.splice(0).reverse()) await step();
+  for (const step of cleanup.splice(0).toReversed()) await step();
 });
 
 interface Seen {
