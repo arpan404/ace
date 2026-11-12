@@ -352,6 +352,36 @@ test("a start whose answer was lost opens the conversation Spade made, and makes
   expect(rows(patches.flush()).map((row) => row.text)).toEqual(["What's on today?"]);
 });
 
+test("an identical start from elsewhere, seen first, doesn't take this lost start's place", async () => {
+  const { daemon, spade, patches, ask } = await phone();
+  daemon.spade.holding = (request) => request.method === "POST";
+  const started = ask({ type: "spade.start", text: "What's on today?" });
+  await until(() => daemon.spade.waiting === 1);
+  // Another device starts the same words; then this start's socket drops before Spade gets it.
+  daemon.spade.holding = false;
+  daemon.spade.seed("elsewhere", "", [{ type: "user_message", text: "What's on today?" }]);
+  daemon.disconnectAll();
+  const outcome = await started;
+  expect(outcome).toMatchObject({ ok: true });
+  const id = "id" in outcome ? String(outcome.id) : "";
+  expect(id).not.toBe("elsewhere");
+  spade.handle({ type: "spade.open", conversationId: id });
+  await until(() => rows(patches.flush()).length === 1);
+  expect(rows(patches.flush()).map((row) => row.text)).toEqual(["What's on today?"]);
+});
+
+test("on a Spade older than keys, a lost start still opens the one conversation it made", async () => {
+  const { daemon, ask } = await phone((fake) => {
+    fake.spade.keepsKeys = false;
+  });
+  daemon.spade.holding = (request) => request.method === "POST";
+  const started = ask({ type: "spade.start", text: "Book the train" });
+  await until(() => daemon.spade.waiting === 1);
+  daemon.spade.letThrough(false);
+  daemon.disconnectAll();
+  expect(await started).toMatchObject({ ok: true });
+});
+
 test("a lost start that can't be checked keeps its words for the person, with the note", async () => {
   const { daemon, timers, ask } = await phone();
   daemon.spade.holding = (request) => request.method === "POST";
