@@ -8,7 +8,7 @@ import type {
 } from "@ace/protocol";
 import type { ThreadState } from "@ace/core";
 import type { EngineRepository } from "./repository.ts";
-import { provisionalTitle } from "./thread-title.ts";
+import { provisionalTitle } from "@ace/ui-core/thread-title";
 import { inputOrigin, personInput } from "./input-journal.ts";
 
 export function syntheticInput(
