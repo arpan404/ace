@@ -166,3 +166,15 @@ import Observation
         belong(to: nil)
     }
 }
+
+/// The composer's words around a send that Spade refused.
+enum SpadeDraft {
+    /// `draft` once the refused `message` comes back: the refused words first, then whatever was
+    /// typed while it was out, so neither is lost.
+    static func restoring(_ message: String, into draft: String) -> String {
+        let typed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        if typed.isEmpty { return message }
+        if typed == message { return draft }
+        return "\(message)\n\n\(draft)"
+    }
+}

@@ -48,6 +48,13 @@ import Foundation
         #expect(model.spade.line?.ready == true)
     }
 
+    @Test func aRefusedMessageComesBackAheadOfWhatWasTypedSince() {
+        #expect(SpadeDraft.restoring("Book the train", into: "") == "Book the train")
+        #expect(SpadeDraft.restoring("Book the train", into: "And a taxi") == "Book the train\n\nAnd a taxi")
+        // Typed again in full while it was out: said once.
+        #expect(SpadeDraft.restoring("Book the train", into: "Book the train") == "Book the train")
+    }
+
     private func conversation(_ id: String, title: String) -> [String: Any] {
         ["type": "spade.conversation", "id": id, "title": title, "loaded": true, "problem": NSNull(), "busy": false,
          "answering": false, "working": NSNull(), "approval": NSNull()]
