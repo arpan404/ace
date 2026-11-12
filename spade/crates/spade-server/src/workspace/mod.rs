@@ -41,6 +41,8 @@ pub enum PathError {
     Parent,
     #[error("{0} leads outside the workspace")]
     Outside(String),
+    #[error("{0} is not a name this system can keep as a file")]
+    Unusable(String),
     #[error("{0} does not exist")]
     Missing(String),
     #[error("{0}")]
@@ -192,7 +194,12 @@ fn clean(relative: &str) -> Result<PathBuf, PathError> {
     let mut out = PathBuf::new();
     for component in path.components() {
         match component {
-            Component::Normal(part) => out.push(part),
+            Component::Normal(part) => {
+                if !usable(&part.to_string_lossy()) {
+                    return Err(PathError::Unusable(trimmed.to_owned()));
+                }
+                out.push(part);
+            }
             Component::CurDir => {}
             Component::ParentDir => return Err(PathError::Parent),
             Component::RootDir | Component::Prefix(_) => {
@@ -201,6 +208,34 @@ fn clean(relative: &str) -> Result<PathBuf, PathError> {
         }
     }
     Ok(out)
+}
+
+/// Whether `name` is one plain file name on this system. On Windows a device name (`CON`,
+/// `nul.txt`, `COM1`), a stream (`a.txt:hidden`), a trailing dot or space (Windows drops them,
+/// so `a.txt.` is `a.txt`) and the characters Windows refuses are not: each would reach a
+/// device, hide data in another file or name a file other than the one written down.
+fn usable(name: &str) -> bool {
+    if !cfg!(windows) {
+        return true;
+    }
+    const DEVICES: &[&str] = &["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", "CLOCK$"];
+    let stem = name.split('.').next().unwrap_or(name).trim_end_matches(' ');
+    let stem = stem.to_ascii_uppercase();
+    let numbered = ["COM", "LPT"].iter().any(|prefix| {
+        stem.strip_prefix(prefix).is_some_and(|rest| {
+            matches!(
+                rest,
+                "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
+            ) || matches!(rest, "\u{b9}" | "\u{b2}" | "\u{b3}")
+        })
+    });
+    !(DEVICES.contains(&stem.as_str())
+        || numbered
+        || name.ends_with('.')
+        || name.ends_with(' ')
+        || name
+            .chars()
+            .any(|c| c < ' ' || matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*')))
 }
 
 /// A cleaned path as the model and the person see it: relative, with `/`.
@@ -222,6 +257,66 @@ mod tests {
         assert_eq!(clean("a/../../x"), Err(PathError::Parent));
         assert!(matches!(clean("/etc/passwd"), Err(PathError::Absolute(_))));
         assert!(matches!(clean("~/.ssh"), Err(PathError::Absolute(_))));
+    }
+
+    #[test]
+    fn windows_paths_that_name_another_place_are_refused() {
+        if !cfg!(windows) {
+            return;
+        }
+        for absolute in [
+            r"C:\Windows\win.ini",
+            r"C:win.ini",
+            r"\\server\share\x",
+            r"\\?\C:\x",
+            r"\\.\pipe\x",
+            r"\Windows",
+        ] {
+            assert!(
+                matches!(clean(absolute), Err(PathError::Absolute(_))),
+                "{absolute}"
+            );
+        }
+        assert_eq!(clean(r"a\..\..\x"), Err(PathError::Parent));
+        assert_eq!(clean(r"a\b.txt"), Ok(PathBuf::from("a").join("b.txt")));
+        assert_eq!(shown(&clean(r"a\b.txt").unwrap_or_default()), "a/b.txt");
+    }
+
+    #[test]
+    fn windows_device_names_streams_and_aliases_are_refused() {
+        let refused = [
+            "CON",
+            "nul",
+            "nul.txt",
+            "Aux.tar.gz",
+            "a/COM1",
+            "lpt9.log",
+            "COM\u{b9}",
+            "conin$",
+            "notes.txt:hidden",
+            "notes.txt::$DATA",
+            "notes.txt.",
+            "notes.txt ",
+            "what?.txt",
+            "a*b",
+        ];
+        for name in refused {
+            let result = clean(name);
+            if cfg!(windows) {
+                assert!(matches!(result, Err(PathError::Unusable(_))), "{name}");
+            } else {
+                assert!(result.is_ok(), "{name} is a plain name off Windows");
+            }
+        }
+        for fine in [
+            "console.txt",
+            "nullable.rs",
+            "com10",
+            "a.b.c",
+            ".spade/outputs/x.txt",
+        ] {
+            assert!(clean(fine).is_ok(), "{fine}");
+        }
     }
 
     #[test]

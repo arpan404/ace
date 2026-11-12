@@ -326,3 +326,131 @@ async fn output_too_large_for_the_model_is_kept_as_a_file_it_can_read() -> Resul
     assert!(stored.contains(&big), "the file holds the whole output");
     Ok(())
 }
+
+/// Starts `ping` as a grandchild through PowerShell (a separate program, as a bot's command
+/// would start one), writing its pid to `child.pid`; then runs `after`.
+#[cfg(windows)]
+fn windows_grandchild(after: &str) -> String {
+    format!(
+        "powershell -NoProfile -NonInteractive -Command \"$p = Start-Process -FilePath ping.exe \
+         -ArgumentList '-n','60','127.0.0.1' -NoNewWindow -RedirectStandardOutput ping.out \
+         -PassThru; Set-Content -Path child.pid -Value $p.Id\"{after}"
+    )
+}
+
+/// Whether process `pid` is still running.
+#[cfg(windows)]
+fn alive(pid: &str) -> bool {
+    std::process::Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
+        .output()
+        .map(|out| String::from_utf8_lossy(&out.stdout).contains(&format!("\"{pid}\"")))
+        .unwrap_or(false)
+}
+
+#[cfg(windows)]
+async fn gone_soon(pid: &str) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while alive(pid) && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    !alive(pid)
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn a_command_past_its_deadline_is_killed_with_everything_it_started() -> Result {
+    let dir = tempfile::tempdir()?;
+    let started = Instant::now();
+    let ran = Shell::system()
+        .run(
+            dir.path(),
+            &windows_grandchild(" & ping -n 60 127.0.0.1 > nul"),
+            Duration::from_secs(10),
+        )
+        .await?;
+    assert!(ran.timed_out, "{ran:?}");
+    assert!(
+        started.elapsed() < Duration::from_secs(20),
+        "{:?}",
+        started.elapsed()
+    );
+    let child = std::fs::read_to_string(dir.path().join("child.pid"))?;
+    let child = child.trim();
+    assert!(!child.is_empty(), "{ran:?}");
+    assert!(
+        gone_soon(child).await,
+        "the grandchild {child} outlived the run"
+    );
+    Ok(())
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn a_finished_command_leaves_nothing_running_in_the_background() -> Result {
+    let dir = tempfile::tempdir()?;
+    let ran = Shell::system()
+        .run(dir.path(), &windows_grandchild(""), Duration::from_secs(30))
+        .await?;
+    assert!(!ran.timed_out, "{ran:?}");
+    assert_eq!(ran.code, Some(0), "{ran:?}");
+    let child = std::fs::read_to_string(dir.path().join("child.pid"))?;
+    let child = child.trim();
+    assert!(!child.is_empty(), "{ran:?}");
+    assert!(
+        gone_soon(child).await,
+        "the background {child} outlived the run"
+    );
+    Ok(())
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn a_command_that_starts_and_ends_with_quotes_runs_as_written() -> Result {
+    let dir = tempfile::tempdir()?;
+    let ran = Shell::system()
+        .run(
+            dir.path(),
+            r#""cmd.exe" /D /C echo one "two three""#,
+            Duration::from_secs(10),
+        )
+        .await?;
+    assert_eq!(ran.code, Some(0), "{ran:?}");
+    assert_eq!(ran.stdout.trim(), r#"one "two three""#, "{ran:?}");
+    Ok(())
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn a_program_the_bot_planted_in_its_folder_is_never_found_by_name() -> Result {
+    let dir = tempfile::tempdir()?;
+    std::fs::create_dir_all(dir.path().join("bin"))?;
+    for planted in ["hostname.bat", "hostname.cmd", "bin/hostname.bat"] {
+        std::fs::write(dir.path().join(planted), "@echo planted\r\n")?;
+    }
+    // Spade's own PATH, as a careless setup might have it: the current folder, an empty entry
+    // and a folder inside the workspace.
+    let workspace_bin = dir.path().join("bin").to_string_lossy().into_owned();
+    let env: spade_server::workspace::shell::Env = Arc::new(move |name: &str| match name {
+        "PATH" => Some(format!(".;{workspace_bin};;C:\\Windows\\System32")),
+        _ => std::env::var(name).ok(),
+    });
+    let shell = Shell::new(env);
+    let path = shell
+        .environment(dir.path())
+        .into_iter()
+        .find(|(name, _)| name == "PATH")
+        .map(|(_, value)| value)
+        .unwrap_or_default();
+    for part in path.split(';') {
+        assert!(part.as_bytes().get(1..3) == Some(b":\\"), "{path}");
+        assert!(!part.starts_with(&*dir.path().to_string_lossy()), "{path}");
+    }
+    let ran = shell
+        .run(dir.path(), "hostname", Duration::from_secs(10))
+        .await?;
+    assert_eq!(ran.code, Some(0), "{ran:?}");
+    assert!(!ran.stdout.contains("planted"), "{ran:?}");
+    assert!(!ran.stdout.trim().is_empty(), "{ran:?}");
+    Ok(())
+}
