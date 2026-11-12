@@ -154,11 +154,24 @@ pub struct Options {
     pub seed: Option<fn(&Store) -> spade_store::Result<()>>,
 }
 
-/// A keychain prompt: reads wait until [`Gate::open`].
+/// A keychain prompt: reads wait until [`Gate::open`]. A gated delete can also be made to panic
+/// once ([`Gate::panic_next`]), as a keychain library bug would.
 #[derive(Clone, Default)]
-pub struct Gate(Arc<(Mutex<bool>, std::sync::Condvar)>);
+pub struct Gate(
+    Arc<(Mutex<bool>, std::sync::Condvar)>,
+    Arc<std::sync::atomic::AtomicBool>,
+);
 
 impl Gate {
+    /// The next gated delete panics instead of waiting.
+    pub fn panic_next(&self) {
+        self.1.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    pub(crate) fn take_panic(&self) -> bool {
+        self.1.swap(false, std::sync::atomic::Ordering::SeqCst)
+    }
+
     pub fn open(&self) {
         let (open, wake) = &*self.0;
         if let Ok(mut open) = open.lock() {

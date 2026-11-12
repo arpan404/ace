@@ -460,12 +460,13 @@ impl Engine {
                 .insert(id.to_owned());
             row
         };
-        let done = self.retire_endpoint(&row);
-        self.retiring
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .remove(id);
-        done
+        // Released however the delete ends, a panic included, so the endpoint never stays
+        // blocked until a restart.
+        let _owned = Retiring {
+            set: &self.retiring,
+            id,
+        };
+        self.retire_endpoint(&row)
     }
 
     fn retire_endpoint(&self, row: &StoredEndpoint) -> Result<(), EndpointError> {
@@ -742,6 +743,21 @@ fn apply(stored: &mut StoredEndpoint, input: EndpointInput) -> Result<(), Endpoi
         stored.needs_key = needs_key;
     }
     Ok(())
+}
+
+/// A delete's hold on its endpoint id, released when dropped.
+struct Retiring<'a> {
+    set: &'a std::sync::Mutex<std::collections::HashSet<String>>,
+    id: &'a str,
+}
+
+impl Drop for Retiring<'_> {
+    fn drop(&mut self) {
+        self.set
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(self.id);
+    }
 }
 
 #[cfg(test)]

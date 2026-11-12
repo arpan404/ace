@@ -70,6 +70,7 @@ impl CredentialApi for GatedCred {
     }
 
     fn delete_credential(&self) -> Result<()> {
+        assert!(!self.gate.take_panic(), "the keychain library panicked");
         self.gate.wait();
         self.inner.delete_credential()
     }
