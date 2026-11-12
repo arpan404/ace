@@ -531,7 +531,9 @@ describe("the conversation as a chat", () => {
           ? `ask: ${bubble.sentence}`
           : bubble.kind === "other"
             ? `${bubble.agent.name}: ${bubble.text}`
-            : `${bubble.kind}: ${bubble.text}`,
+            : bubble.kind === "remembered"
+              ? `remembered: ${bubble.note.text}`
+              : `${bubble.kind}: ${bubble.text}`,
       ),
     ).toEqual([
       "person: Find me a flight",
