@@ -1,4 +1,4 @@
-import { formatAgo } from "@ace/ui-core";
+import { formatAgo, listNames } from "@ace/ui-core";
 import { deviceKind, machineKind } from "./device-kind.ts";
 import { directWayOf, hostOf, pairedWays, serving } from "./fleet-map-networks.ts";
 import {
@@ -14,7 +14,6 @@ import {
   type WireKind,
   type ZoneId,
 } from "./fleet-map-types.ts";
-import { listNames } from "./list-names.ts";
 
 /*
  * One node of the Fleet map per machine or device, from what it reports (`fleet-map-facts.ts`

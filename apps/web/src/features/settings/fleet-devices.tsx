@@ -4,7 +4,7 @@ import {
   DeviceTabletIcon,
   LinkSimpleIcon,
 } from "@phosphor-icons/react";
-import { formatAgo, formatCountdown } from "@ace/ui-core";
+import { formatAgo, formatCountdown, listNames } from "@ace/ui-core";
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
@@ -14,7 +14,6 @@ import { useNow } from "@/lib/time.ts";
 import { deviceKind } from "./data/device-kind.ts";
 import { cancelPairing, deviceLifetimes, revokeDevice } from "./data/fleet.ts";
 import type { FleetDevice } from "./data/fleet-links.ts";
-import { listNames } from "./data/list-names.ts";
 import type { Fleet } from "./data/use-fleet.ts";
 import { deviceScopeLabels } from "./device-scopes.ts";
 

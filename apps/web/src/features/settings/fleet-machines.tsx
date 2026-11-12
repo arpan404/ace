@@ -18,7 +18,7 @@ import {
 import { primaryMachineId, type Machine } from "@/lib/machines.ts";
 import { fleetProblem } from "./data/fleet.ts";
 import { machineGaps, reach, unlinkedWith, type LinkGap } from "./data/fleet-links.ts";
-import { summarizeNames } from "./data/list-names.ts";
+import { summarizeNames } from "@ace/ui-core";
 import { machineState, pathWordsFor } from "./data/fleet-words.ts";
 import type { Fleet } from "./data/use-fleet.ts";
 import { UpdateRowAction, UpdateWords } from "./fleet-software.tsx";

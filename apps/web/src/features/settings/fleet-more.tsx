@@ -6,7 +6,7 @@ import { SettingDisclosure } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { addressWords } from "./data/fleet-words.ts";
-import { listNames } from "./data/list-names.ts";
+import { listNames } from "@ace/ui-core";
 import { settingKeys } from "./data/setting-keys.ts";
 import { useRemoteStatus, useSettingControl } from "./data/use-settings.ts";
 import { DaemonSlot } from "./setting-control.tsx";

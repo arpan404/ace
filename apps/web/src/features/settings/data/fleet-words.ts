@@ -5,7 +5,7 @@ import type {
   RemoteNetworks,
 } from "@ace/protocol";
 import type { MachineStatus } from "@/lib/machines.ts";
-import { listNames } from "./list-names.ts";
+import { listNames } from "@ace/ui-core";
 
 /*
  * The sentences Settings › Fleet says, from what the machines report. Pure: the page passes in
