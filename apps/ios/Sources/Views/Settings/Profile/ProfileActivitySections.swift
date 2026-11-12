@@ -106,7 +106,8 @@ private struct ActivityGrid: View {
     private func colour(_ level: Int) -> Color {
         switch level {
         case ..<0: .clear
-        case 0: AceTheme.Colours.fill
+        // A faint step of the same accent: `fill` all but vanishes on the inset card in dark mode.
+        case 0: AceDesign.Ink.accent.opacity(0.08)
         case 1: AceDesign.Ink.accent.opacity(0.25)
         case 2: AceDesign.Ink.accent.opacity(0.45)
         case 3: AceDesign.Ink.accent.opacity(0.7)
