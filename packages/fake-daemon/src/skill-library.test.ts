@@ -165,3 +165,31 @@ test("a fake skill reads as up to date once its update is applied, and not befor
     await client.close();
   }
 });
+
+test("the fake holds eight update reviews at once, as the daemon does, until one is let go", async () => {
+  const client = await connect(new FakeDaemon({ clock: () => 1000 }));
+  const ask = async (operation: z.input<typeof SkillOperation>) =>
+    (await client.request({ type: "skills.request", operation })).result;
+  try {
+    const listed = await ask({ op: "list" });
+    if (listed.kind !== "list") throw new Error(listed.kind);
+    const entry = listed.entries.find((each) => each.source);
+    if (!entry) throw new Error("No skill from a source");
+    const reviews: string[] = [];
+    for (let made = 0; made < 8; made++) {
+      const prepared = await ask({ op: "prepareUpdate", id: entry.id });
+      if (prepared.kind !== "updateReview") throw new Error(prepared.kind);
+      reviews.push(prepared.review.id);
+    }
+    expect(await ask({ op: "prepareUpdate", id: entry.id })).toMatchObject({
+      kind: "error",
+      code: "limit",
+    });
+    await ask({ op: "cancelUpdate", reviewId: reviews[0] ?? "" });
+    expect(await ask({ op: "prepareUpdate", id: entry.id })).toMatchObject({
+      kind: "updateReview",
+    });
+  } finally {
+    await client.close();
+  }
+});

@@ -300,6 +300,9 @@ export class FakeSkillLibrary {
       return { kind: "updateStatus", id: operation.id, status, commit };
     }
     if (operation.op === "prepareUpdate") {
+      // The daemon stages at most eight reviews; one left open holds its place until let go.
+      if (this.reviews.size >= 8)
+        return error("limit", "Finish or cancel other update reviews first.");
       const id = `review-${++this.sequence}`;
       const after = `${frontmatter(seed)}\n## What's new\n\nA clearer checklist.\n`;
       this.reviews.set(id, { id, after });
