@@ -558,6 +558,30 @@ test("Undo after Delete brings the automation back under its own id", async () =
   });
 });
 
+test("an automation an agent made from a thread puts one line above that thread's composer, with Pause", async () => {
+  const { ask, daemon } = await fixture();
+  // The fake keeps an agent's automation only while the thread that made it exists.
+  daemon.createThread({ id: "planner", workspaceId: "ace", title: "Planner", provider: "claude" });
+  daemon.seedServices({ threadAutomations: [{ threadId: "planner", automation: base }] });
+  const reply = await ask({ type: "automations.threadLine", threadId: "planner" });
+  const line = reply.line as {
+    text: string;
+    actions: { label: string; write?: Record<string, unknown> }[];
+  } | null;
+  expect(line?.text).toContain("Nightly dependency check");
+  expect(line?.text).toContain("runs every day at");
+  const pause = line?.actions.find((action) => action.label === "Pause");
+  // Pause is the automations page's own write, addressed to the thread's store.
+  expect(pause?.write).toMatchObject({
+    type: "automation.setEnabled",
+    id: "nightly",
+    enabled: false,
+    source: "thread",
+  });
+  // Another thread has none: no line at all.
+  expect((await ask({ type: "automations.threadLine", threadId: "other" })).line).toBeNull();
+});
+
 test("a new automation offers the web's ideas as whole starting forms", async () => {
   const { ask } = await fixture();
   const opened = await ask({ type: "automations.form.open", workspace: "/w", zone });

@@ -861,8 +861,9 @@ private struct TurnKeys: View {
     let step: (Int) -> Void
     var body: some View {
         VStack {
-            Button("Previous turn") { step(-1) }.keyboardShortcut(.upArrow, modifiers: [.shift, .option, .command])
-            Button("Next turn") { step(1) }.keyboardShortcut(.downArrow, modifiers: [.shift, .option, .command])
+            // The web's keys by default; Settings › Keyboard can move them.
+            Button("Previous turn") { step(-1) }.phoneShortcut("previousTurn")
+            Button("Next turn") { step(1) }.phoneShortcut("nextTurn")
         }
         .opacity(0)
         .frame(width: 0, height: 0)

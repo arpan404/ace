@@ -426,6 +426,9 @@ struct ThreadView: View {
                 if let fork = screen.fork {
                     ForkStrip(fork: fork) { model.closeFork() }
                         .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .bottom)))
+                } else {
+                    // As the web's composer strip: the thread's automations, when nothing more urgent is there.
+                    ThreadAutomationStrip(model: model, threadId: thread.id)
                 }
                 ComposerAccessories(model: model, screen: screen, problem: attachProblem)
             } leading: { pick in

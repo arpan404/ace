@@ -1,4 +1,20 @@
 import { NativeTranscript, NativeTranscriptRequest } from "./native-transcript.ts";
+import {
+  FleetRunRequest,
+  FleetUpdatesRequest,
+  fleetRun,
+  fleetUpdates,
+  MachineUpdateStartRequest,
+  MachineUpdateStatusRequest,
+  readMachineUpdate,
+  startMachineUpdate,
+} from "./fleet-updates.ts";
+import {
+  combineProfile,
+  ProfileCombineRequest,
+  ProfilePartRequest,
+  readProfilePart,
+} from "./profile-report.ts";
 import type { ClientCore } from "@ace/client";
 import {
   AutomationRequest,
@@ -363,6 +379,40 @@ export class NativeServices {
       const part = UsagePartRequest.safeParse(raw);
       if (part.success) {
         this.#answer(id, raw, await readUsagePart(this.owner, part.data, controller.signal), read);
+        return;
+      }
+      if (MachineUpdateStatusRequest.safeParse(raw).success) {
+        this.#answer(id, raw, await readMachineUpdate(this.owner, controller.signal), read);
+        return;
+      }
+      const updateStart = MachineUpdateStartRequest.safeParse(raw);
+      if (updateStart.success) {
+        this.#reply(
+          id,
+          true,
+          await startMachineUpdate(this.owner, updateStart.data, controller.signal),
+          "",
+        );
+        return;
+      }
+      // The fleet's update decisions, in shared code; nothing here reaches this machine.
+      const updates = FleetUpdatesRequest.safeParse(raw);
+      if (updates.success) {
+        this.#reply(id, true, fleetUpdates(updates.data), "");
+        return;
+      }
+      const run = FleetRunRequest.safeParse(raw);
+      if (run.success) {
+        this.#reply(id, true, fleetRun(run.data), "");
+        return;
+      }
+      if (ProfilePartRequest.safeParse(raw).success) {
+        this.#answer(id, raw, await readProfilePart(this.owner, controller.signal), read);
+        return;
+      }
+      const profile = ProfileCombineRequest.safeParse(raw);
+      if (profile.success) {
+        this.#reply(id, true, combineProfile(profile.data), "");
         return;
       }
       // Sums other machines' parts in shared code; nothing here reaches this machine.

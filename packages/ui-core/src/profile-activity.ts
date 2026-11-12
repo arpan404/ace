@@ -157,3 +157,81 @@ export function shares(rows: readonly { key: string; tokens: number }[], limit: 
       percent: Math.max(1, Math.round((row.tokens / total) * 100)),
     }));
 }
+
+/** One reading's rows: tokens by key, and by provider and account. */
+export interface ProfileRows {
+  days: { key: string; tokens: number }[];
+  providers: { provider: string; account: string; tokens: number }[];
+  models: { key: string; tokens: number }[];
+  skills: { key: string; tokens: number }[];
+  roles: { key: string; tokens: number }[];
+}
+
+/** A provider account's share: `key` is the provider and account together. */
+export interface AccountShare extends Share {
+  provider: string;
+  /** The account's id; empty for usage recorded before accounts were. */
+  account: string;
+}
+
+export interface ProfileActivity {
+  stats: ProfileStats;
+  /** The most used provider accounts, each on its own. */
+  providers: AccountShare[];
+  models: Share[];
+  skills: { used: number; top: Share | undefined };
+  /** Percent of tokens subagents and child threads spent. */
+  delegatedPercent: number;
+}
+
+/** Rows with the same key, from any reading, added together. */
+function summed(rows: readonly { key: string; tokens: number }[]) {
+  const byKey = new Map<string, number>();
+  for (const row of rows) byKey.set(row.key, (byKey.get(row.key) ?? 0) + row.tokens);
+  return [...byKey].map(([key, tokens]) => ({ key, tokens }));
+}
+
+/**
+ * A year of work from one or more readings (one per machine): the profile's stats, its most
+ * used provider accounts and models, the skills used and the share delegated work spent.
+ */
+export function profileActivity(parts: readonly ProfileRows[], today: string): ProfileActivity {
+  const all = <K extends keyof Omit<ProfileRows, "providers">>(field: K) =>
+    summed(parts.flatMap((part) => part[field]));
+  const accounts = new Map<string, { provider: string; account: string }>();
+  const providers = summed(
+    parts.flatMap((part) =>
+      part.providers
+        .filter((row) => row.provider)
+        .map((row) => {
+          const key = `${row.provider}\n${row.account}`;
+          accounts.set(key, { provider: row.provider, account: row.account });
+          return { key, tokens: row.tokens };
+        }),
+    ),
+  );
+  const skills = all("skills").filter((row) => row.key && row.tokens > 0);
+  const roles = all("roles");
+  const roleTotal = roles.reduce((sum, row) => sum + row.tokens, 0);
+  const delegated = roles
+    .filter((row) => row.key === "subagent" || row.key === "delegated")
+    .reduce((sum, row) => sum + row.tokens, 0);
+  return {
+    stats: profileStats(
+      all("days").map((row) => ({ day: row.key, tokens: row.tokens })),
+      today,
+    ),
+    providers: shares(providers, 4).map((share) =>
+      Object.assign(share, {
+        provider: accounts.get(share.key)?.provider ?? "",
+        account: accounts.get(share.key)?.account ?? "",
+      }),
+    ),
+    models: shares(
+      all("models").filter((row) => row.key),
+      3,
+    ),
+    skills: { used: skills.length, top: shares(skills, 1)[0] },
+    delegatedPercent: roleTotal > 0 ? Math.round((delegated / roleTotal) * 100) : 0,
+  };
+}

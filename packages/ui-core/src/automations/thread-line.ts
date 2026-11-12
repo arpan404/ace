@@ -1,11 +1,18 @@
-import { formatAgo } from "@ace/ui-core";
-import {
-  dayOf,
-  describeTrigger,
-  describeWhen,
-  formatWhen,
-} from "@/features/automation-schedule/index.ts";
-import type { ThreadAutomation } from "./thread-automations-source.ts";
+import type { Automation, AutomationRun, AutomationTriggerError } from "@ace/protocol";
+import { formatAgo } from "../time.ts";
+import { dayOf, describeTrigger, describeWhen, formatWhen } from "./schedule.ts";
+
+/** An automation an agent made from a thread (`automation.list` with `includeThreads`). */
+export interface ThreadAutomation {
+  automation: Automation;
+  /** The thread that owns it; its runs are delegated under this thread. */
+  threadId: string;
+  /** Next scheduled start; undefined when paused, not on a schedule or not placed yet. */
+  nextRunAt: number | undefined;
+  revision: number | undefined;
+  triggerError: AutomationTriggerError | undefined;
+  lastRun: AutomationRun | undefined;
+}
 
 /** Mid-sentence, "Tonight" reads "tonight"; weekday and month names keep their capital. */
 const midSentence = (words: string) =>

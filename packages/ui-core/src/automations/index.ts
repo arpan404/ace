@@ -102,4 +102,16 @@ export {
   type SidebarGroup,
 } from "./sidebar-rows.ts";
 export { projectRepository } from "./project-repository.ts";
+export {
+  actionLabel,
+  automationLine,
+  lineText,
+  type AutomationLine,
+  type LineAction,
+  type LineFacts,
+  type LineSegment,
+  type LineTone,
+  type ThreadAutomation,
+} from "./thread-line.ts";
+
 export { ideas, type Idea } from "./ideas.ts";

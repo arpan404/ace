@@ -1,8 +1,7 @@
 import type { Automation, AutomationSchedule, AutomationTrigger } from "@ace/protocol";
-import { formatClock } from "@ace/ui-core";
+import { formatClock } from "../time.ts";
 import { expect, test } from "vitest";
-import { automationLine, lineText, type LineFacts } from "./automation-line.ts";
-import type { ThreadAutomation } from "./thread-automations-source.ts";
+import { automationLine, lineText, type LineFacts, type ThreadAutomation } from "./thread-line.ts";
 
 // 22:00 UTC on 21 Oct 2026: a 2:00 AM run is tonight's.
 const now = Date.UTC(2026, 9, 21, 22, 0);

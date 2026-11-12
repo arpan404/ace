@@ -24,6 +24,7 @@ export * from "./notice-text.ts";
  * TypeScript over @ace/protocol and @ace/client types; no React, DOM or platform APIs.
  */
 export * from "./accounts.ts";
+export * from "./profile-activity.ts";
 export * from "./antigravity-sign-in.ts";
 export * from "./account-threads.ts";
 export * from "./agents.ts";
