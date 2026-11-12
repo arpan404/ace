@@ -47,6 +47,8 @@ export function useFleet() {
     if (list) deviceLists.set(machine.id, list);
   }
   const joined = fleetDevices(deviceLists, linkIds);
+  /** The machines whose paired devices were read; what reaches the rest is unknown. */
+  const devicesRead: ReadonlySet<string> = new Set(deviceLists.keys());
 
   const byId = (id: string) => machines.find((machine) => machine.id === id);
   const refresh = (ids: readonly string[]) =>
@@ -112,6 +114,7 @@ export function useFleet() {
     update,
     gaps,
     joined,
+    devicesRead,
     link,
     unlink,
     refresh,

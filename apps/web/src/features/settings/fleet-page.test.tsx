@@ -155,6 +155,22 @@ test("each network turns on and off on this computer, asking before one that dev
   ).toBeTruthy();
 }, 30_000);
 
+test("on this computer's page, turning a network off still asks while its devices couldn't be read", async () => {
+  const app = harness();
+  // Devices, links and network status all fail, so nothing says what reaches this computer.
+  app.daemon.failRequests("fleet.request");
+  await app.open("/settings/remote/primary");
+  const reached = await region("How it's reached");
+  await userEvent.click(await ready(reached, "Turn off Tailscale"));
+  const dialog = await screen.findByRole("dialog", {
+    name: "Turn off Tailscale on this computer?",
+  });
+  expect(within(dialog).getByText(/^Couldn't check what reaches this computer\./)).toBeTruthy();
+  expect(app.daemon.services.settings.get("remote.tailscale")).toBe(true);
+  await userEvent.click(within(dialog).getByRole("button", { name: "Turn off" }));
+  await waitFor(() => expect(app.daemon.services.settings.get("remote.tailscale")).toBe(false));
+}, 30_000);
+
 test("a relay of your own is added under More options and named once it serves", async () => {
   const app = harness();
   await app.open("/settings/remote");

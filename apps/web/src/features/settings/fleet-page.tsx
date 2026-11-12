@@ -18,13 +18,7 @@ import { WorkingAcrossMachines } from "./fleet-working.tsx";
 /** What reaches this computer now: its paired devices and the machines linked to it. */
 function dependentsOf(fleet: Fleet): Dependents {
   const own = fleet.machines.find((machine) => machine.primary);
-  if (!own) return [];
-  const read = new Set(
-    fleet.machines
-      .filter((machine) => fleet.devices.get(machine.id)?.data)
-      .map((machine) => machine.id),
-  );
-  return reachDependents(own.id, fleet.joined, fleet.facts, read);
+  return own ? reachDependents(own.id, fleet.joined, fleet.facts, fleet.devicesRead) : [];
 }
 
 /**
