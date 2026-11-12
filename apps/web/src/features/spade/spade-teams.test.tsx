@@ -405,13 +405,15 @@ test("an imported bot opens on the machine it was sent to, even if Runs on moved
   await userEvent.click(await screen.findByRole("button", { name: "New bot" }));
   const form = within(await screen.findByRole("dialog", { name: "New bot" }));
   const file = new File(["{}"], "Scout.spade-bot.json", { type: "application/json" });
-  let finish: (text: string) => void = () => {};
-  vi.spyOn(file, "text").mockReturnValue(new Promise((resolve) => (finish = resolve)));
+  const read = Promise.withResolvers<string>();
+  vi.spyOn(file, "text").mockReturnValue(read.promise);
   await userEvent.upload(form.getByLabelText("Bot file"), file);
   // While the file is still being read, the person picks another machine.
   await userEvent.click(form.getByRole("combobox", { name: "Runs on" }));
   await userEvent.click(await screen.findByRole("option", { name: "Studio Mac" }));
-  finish(JSON.stringify({ format: "spade-bot", version: 1, name: "Scout", task: "Scout news" }));
+  read.resolve(
+    JSON.stringify({ format: "spade-bot", version: 1, name: "Scout", task: "Scout news" }),
+  );
   const done = within(await screen.findByRole("dialog", { name: "Scout is here" }));
   await userEvent.click(done.getByRole("button", { name: "Open Scout" }));
   await screen.findByRole("feed", { name: "Conversation with Scout" });

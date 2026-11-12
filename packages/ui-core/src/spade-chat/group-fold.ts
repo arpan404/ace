@@ -260,5 +260,7 @@ export function spadeGroupWaiting(
 ): SpadeGroupBot | undefined {
   if (view.state !== "waiting" || !view.status || !waitingWords.test(view.status)) return undefined;
   const name = view.status.replace(waitingWords, "");
-  return view.asked.findLast((bot) => bot.name === name) ?? members.find((bot) => bot.name === name);
+  return (
+    view.asked.findLast((bot) => bot.name === name) ?? members.find((bot) => bot.name === name)
+  );
 }
