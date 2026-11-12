@@ -102,13 +102,13 @@ test("Undo on the toast moves the thread back to its project", async () => {
 
 test("a move the daemon refuses puts the row back, with the daemon's reason", async () => {
   const app = await openApp();
-  // Its soak test still runs in the background, so the daemon won't move it yet.
+  // Its agent still works, so the daemon won't move it yet.
   app.client.networkOnline(false);
-  await openPicker(/Backpressure/);
-  await pickProject("docs");
+  await openPicker(/Rewrite the install page/);
+  await pickProject("relay");
   // Shown in the new project at once, while the command waits for the connection.
   await waitFor(() =>
-    expect(card(/^Backpressure on broadcast fan-out.*Project docs-site/)).toBeTruthy(),
+    expect(card(/^Rewrite the install page for the daemon.*Project relay/)).toBeTruthy(),
   );
 
   app.client.networkOnline(true);
@@ -119,10 +119,10 @@ test("a move the daemon refuses puts the row back, with the daemon's reason", as
     ),
   ).toBeTruthy();
   await waitFor(() =>
-    expect(card(/^Backpressure on broadcast fan-out.*Project relay/)).toBeTruthy(),
+    expect(card(/^Rewrite the install page for the daemon.*Project docs-site/)).toBeTruthy(),
   );
-  expect(listed(app, "thread-fan-out")?.workspaceId).toBe("relay");
-  await waitFor(() => expect(screen.queryByText("Moved to docs-site")).toBeNull());
+  expect(listed(app, "thread-install-page")?.workspaceId).toBe("docs-site");
+  await waitFor(() => expect(screen.queryByText("Moved to relay")).toBeNull());
 });
 
 test("a thread in its own worktree is refused with what to do instead", async () => {

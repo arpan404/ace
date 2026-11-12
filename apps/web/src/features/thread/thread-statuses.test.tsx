@@ -35,14 +35,15 @@ async function open(scenario: Scenario) {
 test("a background command appears once in the transcript while its row keeps the status", async () => {
   const { header, row, feed } = await open(watchingRelay());
   expect(within(feed).getAllByText("bun run dev:relay")).toHaveLength(1);
-  expect(row.getAttribute("aria-label")).toContain("Running in background bun run dev:relay");
+  // It replied: done, with the server it left running named (ADR 0116).
+  expect(row.getAttribute("aria-label")).toContain("Done · still running bun run dev:relay");
   expect(within(header).queryByRole("status")).toBeNull();
 });
 
 /** The strip above the composer, by what it says. */
 const strip = (name: string | RegExp) => screen.findByRole("status", { name });
 
-test("a thread whose turn ended with a background command shows its terminal icon, its strip offering Stop", async () => {
+test("a thread that replied with a command left running reads Done, its strip offering Stop", async () => {
   const { feed, header, row } = await open(watchingRelay());
   // No agent is doing a turn: no "Working for" timer; the strip says what is left running.
   expect(
@@ -50,14 +51,12 @@ test("a thread whose turn ended with a background command shows its terminal ico
   ).toBeNull();
   const waiting = await strip(/^Running bun run dev:relay/);
   expect(within(waiting).getByRole("button", { name: "Stop the background command" })).toBeTruthy();
-  // The row's terminal icon, named for what still runs; no status word.
-  const mark = within(row).getByRole("img", { name: /^Running in background/ });
-  expect(mark.querySelector("[data-icon]")?.getAttribute("data-tone")).toBe("background");
+  // The reply is the result (ADR 0116): the row's mark is Done, and it names what still runs.
+  expect(within(row).getByRole("img", { name: "Done" })).toBeTruthy();
   expect(within(row).queryByText("Working", { exact: true })).toBeNull();
-  expect(within(row).queryByText("Done", { exact: true })).toBeNull();
   const spoken = row.getAttribute("aria-label") ?? "";
-  expect(spoken).toContain("Running in background");
-  expect(spoken).not.toMatch(/\. Working|\. Done/);
+  expect(spoken).toContain("Done · still running bun run dev:relay");
+  expect(spoken).not.toMatch(/\. Working|Running in background/);
   expect(await within(header).findByRole("button", { name: /^Thread details$/ })).toBeTruthy();
 });
 
