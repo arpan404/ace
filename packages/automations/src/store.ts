@@ -518,17 +518,31 @@ export class AutomationStore {
         input: Input.parse(JSON.parse(String(row.input))),
       }));
   }
-  inbox(limit = 50, before?: number, automationId?: string): AutomationInbox {
+  inbox(
+    limit = 50,
+    before?: number,
+    automationId?: string,
+    finishedAfter?: number,
+  ): AutomationInbox {
     z.number().int().min(1).max(100).parse(limit);
     if (before !== undefined) z.number().int().positive().parse(before);
-    const rows =
-      automationId === undefined
-        ? this.sql(
-            "SELECT seq,body FROM automation_runs WHERE seq < ? ORDER BY seq DESC LIMIT ?",
-          ).all(before ?? Number.MAX_SAFE_INTEGER, limit + 1)
-        : this.sql(
-            "SELECT seq,body FROM automation_runs WHERE automation_id=? AND seq < ? ORDER BY seq DESC LIMIT ?",
-          ).all(automationId, before ?? Number.MAX_SAFE_INTEGER, limit + 1);
+    if (finishedAfter !== undefined) z.number().int().nonnegative().parse(finishedAfter);
+    const where = ["seq < ?"];
+    const values: (string | number)[] = [before ?? Number.MAX_SAFE_INTEGER];
+    if (automationId !== undefined) {
+      where.push("automation_id=?");
+      values.push(automationId);
+    }
+    if (finishedAfter !== undefined) {
+      // Runs still going have no finish time yet, and stay in.
+      where.push(
+        "(json_extract(body,'$.finishedAt') IS NULL OR json_extract(body,'$.finishedAt') > ?)",
+      );
+      values.push(finishedAfter);
+    }
+    const rows = this.sql(
+      `SELECT seq,body FROM automation_runs WHERE ${where.join(" AND ")} ORDER BY seq DESC LIMIT ?`,
+    ).all(...values, limit + 1);
     const page = rows.slice(0, limit);
     return AutomationInbox.parse({
       runs: page.map((row) => AutomationRun.parse(JSON.parse(String(row.body)))),

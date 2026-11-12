@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { definition, deferred, harness, start } from "./service-test-support.ts";
 import type { GhResponse } from "./index.ts";
 
@@ -113,4 +113,54 @@ test("renaming an automation preserves its poll failure until another check succ
   expect(list(h).schedules?.[0]?.lastPollError?.message).toBe("GitHub sign-in required");
   h.restart();
   expect(list(h).schedules?.[0]?.lastPollError?.message).toBe("GitHub sign-in required");
+});
+
+test("the inbox can leave out runs that finished by a time, keeping runs still going", async () => {
+  const h = harness();
+  h.service.put(definition({ prompt: "Review" }));
+  h.service.put(definition({ id: "long", prompt: "Review" }));
+  // The long run starts first and is still going while three short ones finish, a second apart.
+  h.service.trigger("long", { key: "long-0", variables: {} });
+  for (let index = 0; index < 3; index++) {
+    h.service.trigger("triage", { key: `short-${index}`, variables: {} });
+    await h.nextExecution(index + 1);
+    h.now = start + index * 1_000;
+    // `finish` waits for every run to settle; the long one is still going, so end this one alone.
+    h.completions[index + 1]?.resolve({
+      threadId: `t-${index}`,
+      status: "succeeded",
+      result: "Done",
+    });
+    await vi.waitFor(() =>
+      expect(h.service.inbox().runs.find((run) => run.eventKey === `short-${index}`)?.status).toBe(
+        "succeeded",
+      ),
+    );
+  }
+  const read = (finishedAfter: number, limit = 50, before?: number | null) =>
+    h.service.handle({
+      type: "automation.inbox",
+      requestId: `after-${finishedAfter}-${before ?? "top"}`,
+      limit,
+      finishedAfter,
+      ...(before ? { before } : {}),
+    }).inbox;
+  expect(read(start + 500)?.runs.map((run) => run.eventKey)).toEqual([
+    "short-2",
+    "short-1",
+    "long-0",
+  ]);
+  // Paged, it still leaves nothing out and repeats nothing.
+  const first = read(start + 500, 2);
+  const rest = read(start + 500, 2, first?.before);
+  expect([...(first?.runs ?? []), ...(rest?.runs ?? [])].map((run) => run.eventKey)).toEqual([
+    "short-2",
+    "short-1",
+    "long-0",
+  ]);
+  expect(rest?.before).toBeNull();
+  // The long run finishes last, so it is news after the newest short one.
+  h.now = start + 5_000;
+  await h.finish(0);
+  expect(read(start + 2_000)?.runs.map((run) => run.eventKey)).toEqual(["long-0"]);
 });
