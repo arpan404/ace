@@ -126,7 +126,7 @@ export class EntityWindow {
     return row ? Number(row.created_seq) : 1;
   }
   /** A page of `collection`'s entities created before `before`; `seq` is the reader's to add. */
-  page(thread: Thread, collection: EntityCollection, before: number, limit: number) {
+  page(thread: Pick<Thread, "id">, collection: EntityCollection, before: number, limit: number) {
     const page = { threadId: thread.id };
     // Each case narrows `collection`, so its entries are that collection's entities.
     switch (collection) {
@@ -142,7 +142,7 @@ export class EntityWindow {
   }
   /** At most 200 entries, the most a page holds, and at most 128 KiB unless one entry is more. */
   private entries<C extends EntityCollection>(
-    thread: Thread,
+    thread: Pick<Thread, "id">,
     collection: C,
     before: number,
     limit: number,
