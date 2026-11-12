@@ -1,5 +1,6 @@
-import { liveMetadata, boundedLiveModel } from "@ace/projection";
+import { liveMetadata, boundedLiveModel, namedRunningShell } from "@ace/projection";
 import type { DatabaseSync } from "node:sqlite";
+import { decodeStoredEntity } from "./stored-decode.ts";
 import { encodeThreadClient } from "./thread-columns.ts";
 import { Agent, BackgroundTask, ThreadId, type EventPayload, type Thread } from "@ace/protocol";
 
@@ -126,24 +127,27 @@ function seedRunningSubagents(db: DatabaseSync, read: (id: ThreadId) => Thread |
 
 /**
  * Threads stored before `live.watchingCount` get it once from their running background shells,
- * counted as `liveMetadata` counts them (not ambient, not bookkeeping, with a command), so a
- * done thread with more than 8 left running, or only older ones, still asks before an archive.
+ * counted by the same rule `liveMetadata` counts them with (`namedRunningShell`), so every task
+ * seeded here is one whose end the live count takes back off. SQL only narrows the rows to
+ * running shells; it never decides what counts.
  */
 function seedWatchingCount(db: DatabaseSync, read: (id: ThreadId) => Thread | undefined): void {
   if (db.prepare("SELECT id FROM client_thread_migration WHERE id=3").get()) return;
-  const running = db.prepare(`SELECT thread_id AS id, count(*) AS n FROM view_entities
-    WHERE collection='backgroundTasks' AND json_extract(value,'$.status')='running'
-      AND json_extract(value,'$.kind')='shell'
-      AND COALESCE(json_extract(value,'$.ambient'),0)=0
-      AND COALESCE(json_extract(value,'$.internal'),0)=0
-      AND trim(COALESCE(json_extract(value,'$.title'),''))!=''
-    GROUP BY thread_id`);
+  const counts = new Map<string, number>();
+  for (const row of db
+    .prepare(`SELECT thread_id AS id, value FROM view_entities
+      WHERE collection='backgroundTasks' AND json_extract(value,'$.status')='running'
+        AND json_extract(value,'$.kind')='shell'`)
+    .iterate()) {
+    const task = decodeStoredEntity("backgroundTasks", JSON.parse(String(row.value)));
+    if (namedRunningShell(task)) counts.set(String(row.id), (counts.get(String(row.id)) ?? 0) + 1);
+  }
   const write = db.prepare("UPDATE threads SET client=? WHERE id=?");
-  for (const row of running.iterate()) {
-    const thread = read(ThreadId.parse(row.id));
+  for (const [id, watchingCount] of counts) {
+    const thread = read(ThreadId.parse(id));
     if (!thread) continue;
     write.run(
-      encodeThreadClient({ ...thread, live: { ...thread.live, watchingCount: Number(row.n) } }),
+      encodeThreadClient({ ...thread, live: { ...thread.live, watchingCount } }),
       thread.id,
     );
   }

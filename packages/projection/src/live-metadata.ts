@@ -32,11 +32,19 @@ type TaskFacts = Pick<BackgroundTask, "status" | "kind" | "internal" | "childAge
 function listedRunning(task: TaskFacts | undefined): number {
   return Number(task?.status === "running" && listedBackgroundWork(task));
 }
-/** A running background shell `live.watching` names: not ambient, and its command known. */
-function namedRunning(task: BackgroundTask | undefined): number {
-  return Number(
-    task?.status === "running" && !task.ambient && shellCommandOf(task, undefined) !== undefined,
+/**
+ * A running background shell `live.watching` names and `live.watchingCount` counts: not ambient,
+ * and its command known. The daemon's one-time seed counts stored tasks with this too, so a
+ * task it counts is one whose end the live count takes back off.
+ */
+export function namedRunningShell(task: BackgroundTask): boolean {
+  return (
+    task.status === "running" && !task.ambient && shellCommandOf(task, undefined) !== undefined
   );
+}
+
+function namedRunning(task: BackgroundTask | undefined): number {
+  return Number(task !== undefined && namedRunningShell(task));
 }
 /** A running task that stands for a subagent with no agent of its own yet. */
 function subagentRunning(task: TaskFacts | undefined): number {
