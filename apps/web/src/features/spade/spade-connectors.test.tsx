@@ -117,6 +117,55 @@ test("an app whose sign-in ended reconnects from its row", async () => {
 /** Whether a switch is on, as assistive tech reads it. */
 const checked = (element: HTMLElement) => element.getAttribute("aria-checked") === "true";
 
+test("an app whose sign-in ends later shows it without a reload", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    const { spade } = await spadeApp("/settings/spade", (api) => {
+      seed(api);
+      api.connectors.connectors.push({
+        id: "linear",
+        name: "Linear",
+        url: linear.url,
+        sign_in: "oauth",
+        state: "connected",
+        tools: 3,
+      });
+    });
+    const section = await connectors();
+    expect(await section.findByText("Connected")).toBeTruthy();
+    // Spade finds the sign-in expired while the page stays open.
+    Object.assign(spade.connectors.connectors[0] ?? {}, { state: "needs_reconnect" });
+    await vi.advanceTimersByTimeAsync(31_000);
+    expect(await section.findByText("Signed out")).toBeTruthy();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+/** Whether a switch can't be used now. */
+const disabled = (element: HTMLElement) =>
+  element.hasAttribute("disabled") || element.getAttribute("aria-disabled") === "true";
+
+test("an app still signing in can't be given to a bot yet", async () => {
+  await spadeApp("/spade/garden", (api) => {
+    withApps(api);
+    api.connectors.connectors.push({
+      id: "sentry",
+      name: "Sentry",
+      url: "",
+      sign_in: "oauth",
+      state: "signing_in",
+      tools: 0,
+    });
+  });
+  await feed("Garden");
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Edit bot" }));
+  const dialog = within(await screen.findByRole("dialog", { name: "Edit Garden" }));
+  expect(disabled(await dialog.findByRole("switch", { name: "Sentry" }))).toBe(true);
+  expect(disabled(dialog.getByRole("switch", { name: "Linear" }))).toBe(false);
+});
+
 const feed = (name: string) => screen.findByRole("feed", { name: `Conversation with ${name}` });
 
 function withApps(api: FakeSpadeApi) {

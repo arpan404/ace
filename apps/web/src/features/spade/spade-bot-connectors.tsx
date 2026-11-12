@@ -76,6 +76,8 @@ export function ConnectorChoice(props: {
           <ConnectorSwitch
             key={connector.id}
             name={connector.name}
+            // Not signed in yet: nothing to give a bot until the sign-in finishes.
+            disabled={connector.state === "signing_in"}
             checked={current.connectors.includes(connector.id)}
             onChange={(on) =>
               choice.set({
@@ -91,15 +93,29 @@ export function ConnectorChoice(props: {
   );
 }
 
-function ConnectorSwitch(props: { name: string; checked: boolean; onChange(on: boolean): void }) {
+function ConnectorSwitch(props: {
+  name: string;
+  checked: boolean;
+  disabled: boolean;
+  onChange(on: boolean): void;
+}) {
   const id = useId();
-  return <SwitchRow id={id} label={props.name} checked={props.checked} onChange={props.onChange} />;
+  return (
+    <SwitchRow
+      id={id}
+      label={props.name}
+      checked={props.checked}
+      disabled={props.disabled}
+      onChange={props.onChange}
+    />
+  );
 }
 
 function SwitchRow(props: {
   id: string;
   label: string;
   checked: boolean;
+  disabled?: boolean;
   onChange(on: boolean): void;
 }) {
   return (
@@ -107,7 +123,12 @@ function SwitchRow(props: {
       <label htmlFor={props.id} className="text-ui text-foreground">
         {props.label}
       </label>
-      <Switch id={props.id} checked={props.checked} onCheckedChange={props.onChange} />
+      <Switch
+        id={props.id}
+        checked={props.checked}
+        disabled={props.disabled}
+        onCheckedChange={props.onChange}
+      />
     </li>
   );
 }

@@ -86,9 +86,16 @@ export async function setAccess(
 /** Every connectors read; one machine's under `[...connectorsKey, machine key]`. */
 export const connectorsKey = ["spade", "connectors"] as const;
 
+/** While one is signing in or connecting: its row follows the browser. */
+const followMs = 2_000;
+/** Otherwise, while connectors are shown: a sign-in that ends or a server that comes back shows. */
+const watchMs = 30_000;
+
 /**
  * The catalogue and the person's connectors on the machine in scope, read again every two
- * seconds while one is signing in or connecting, so its row follows the browser.
+ * seconds while one is signing in or connecting, and every thirty while any is connected, so a
+ * sign-in that expires or a server that recovers shows without a reload. Polling stops with
+ * the screen showing them.
  */
 export function useSpadeConnectors(ready = true) {
   const machine = useSpadeMachine().key;
@@ -97,12 +104,12 @@ export function useSpadeConnectors(ready = true) {
     queryKey: [...connectorsKey, machine],
     queryFn: ({ signal }) => readConnectors(client, { signal }),
     enabled: ready,
-    refetchInterval: (query) =>
-      query.state.data?.connectors.some(
-        (each) => each.state === "signing_in" || each.state === "connecting",
-      )
-        ? 2_000
-        : false,
+    refetchInterval: (query) => {
+      const connectors = query.state.data?.connectors ?? [];
+      if (connectors.some((each) => each.state === "signing_in" || each.state === "connecting"))
+        return followMs;
+      return connectors.length > 0 ? watchMs : false;
+    },
   });
 }
 
