@@ -1,6 +1,6 @@
 import type { AutomationRun } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { finishedSince, runAlertTitle, runStatusLine } from "./run-alerts.ts";
+import { batchRunAlerts, finishedSince, runAlertTitle, runStatusLine } from "./run-alerts.ts";
 
 const run = (id: string, finishedAt: number | undefined): AutomationRun => ({
   id,
@@ -35,4 +35,42 @@ test("a system notification about a run says what happened, never what it printe
   expect(runStatusLine(failed)).toBe("The automation run failed");
   expect(runStatusLine(failed)).not.toContain("abc123");
   expect(runStatusLine(run("ok", 1_500))).toBe("The automation run finished");
+});
+
+const finished = (
+  id: string,
+  finishedAt: number,
+  status: AutomationRun["status"] = "succeeded",
+) => ({
+  ...run(id, finishedAt),
+  status,
+});
+
+test("a few runs that finished together are each said, newest first", () => {
+  const batch = batchRunAlerts([finished("a", 2), finished("b", 4), finished("c", 3)]);
+  expect(batch.shown.map((entry) => entry.id)).toEqual(["b", "c", "a"]);
+  expect(batch.summary).toBeNull();
+});
+
+test("a pile of finished runs says the newest three, then how many more finished and failed", () => {
+  const runs = Array.from({ length: 60 }, (_, index) =>
+    finished(`r${index}`, 1_000 + index, index % 10 === 0 ? "failed" : "succeeded"),
+  );
+  const batch = batchRunAlerts(runs);
+  expect(batch.shown.map((entry) => entry.id)).toEqual(["r59", "r58", "r57"]);
+  expect(batch.summary).toEqual({
+    count: 57,
+    title: "57 more automation runs finished",
+    body: "6 failed",
+  });
+  // Every run is either said or counted.
+  expect(batch.shown.length + (batch.summary?.count ?? 0)).toBe(60);
+});
+
+test("four runs are all said: a summary never stands in for just one", () => {
+  const batch = batchRunAlerts([1, 2, 3, 4].map((at) => finished(`r${at}`, at)));
+  expect(batch.shown).toHaveLength(4);
+  expect(batch.summary).toBeNull();
+  const quiet = batchRunAlerts([1, 2, 3, 4, 5].map((at) => finished(`r${at}`, at)));
+  expect(quiet.summary).toMatchObject({ count: 2, body: "None failed" });
 });
