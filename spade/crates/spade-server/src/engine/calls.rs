@@ -50,8 +50,9 @@ pub(super) async fn handle_calls(
     let facts = TurnFacts {
         untrusted: (!in_view.is_empty()).then(|| in_view.join(", ")),
     };
-    // A note outlives the turn: one written while a tainted summary is in view asks too.
-    let untrusted_memory = untrusted || context::untrusted_summary(events);
+    // A note outlives the turn, so it answers to the whole prompt like a trusted file does
+    // (ADR 0130): a page read in an earlier turn, or a tainted summary, still in view asks too.
+    let untrusted_memory = untrusted || !in_view.is_empty();
     let mut runnable: Vec<(Call, String, Value)> = Vec::new();
     let mut waiting = false;
     // Started with no stored result. This worker runs every call it starts to its stored end, so
