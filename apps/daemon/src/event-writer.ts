@@ -1,6 +1,7 @@
 import type { DatabaseSync, StatementSync } from "node:sqlite";
-import { Event, type EventPayload, type Thread, type ThreadId } from "@ace/protocol";
+import { type Event, type EventPayload, type Thread, type ThreadId } from "@ace/protocol";
 import { updateThread } from "@ace/projection";
+import { canonicalEvent } from "./canonical-event.ts";
 import { prepareRunClient } from "./run-client-storage.ts";
 import { liveMetadataChange } from "./thread-client-storage.ts";
 import {
@@ -55,7 +56,7 @@ interface EventWriteSource {
   nextId(): string;
   wakeSearch(): void;
 }
-/** An envelope before the canonicalising parse; its id is any string `nextId` made. */
+/** An envelope before it is made canonical; its id is any string `nextId` made. */
 type EventInput = Omit<Event, "id" | "payload"> & { id: string; payload: EventPayload };
 /** Canonical folding and derived-table writes. The caller owns the SQLite transaction. */
 export class EventWriter {
@@ -64,22 +65,22 @@ export class EventWriter {
     this.source = source;
   }
   /**
-   * Fold and store payloads built by ace, each made canonical by `Event.parse` (it fills the
-   * schema's defaults, so the row is in this build's shape). A supplied envelope was parsed when
-   * it was built and is stored as it is.
+   * Fold and store payloads built by ace, each made canonical by `canonicalEvent` (what
+   * `Event.parse` gives, so the row is in this build's shape). A supplied envelope was made
+   * canonical when it was built and is stored as it is.
    */
   append(threadId: ThreadId, payloads: EventPayload[], at: number, envelopes?: Event[]): Event[] {
-    return this.write(threadId, payloads, at, envelopes, (input) => Event.parse(input));
+    return this.write(threadId, payloads, at, envelopes, (input) => canonicalEvent(input));
   }
   /**
-   * As `append`, for payloads that already came out of `Event.parse` (a live envelope stored
-   * under a new sequence). Parsing is idempotent on its own output, so they are not parsed
+   * As `append`, for payloads that are already canonical (a live envelope stored under a new
+   * sequence). Canonicalising is idempotent on its own output, so they are not canonicalised
    * again unless preparing or decorating them built a new payload.
    */
   appendParsed(threadId: ThreadId, payloads: EventPayload[], at: number): Event[] {
     return this.write(threadId, payloads, at, undefined, (input, given) =>
-      // Trusted: `given` is Event.parse output, and seq, id, at and thread id are ace's own.
-      input.payload === given ? (input as Event) : Event.parse(input),
+      // Trusted: `given` is canonical, and seq, id, at and thread id are ace's own.
+      input.payload === given ? (input as Event) : canonicalEvent(input),
     );
   }
   private write(
@@ -116,8 +117,8 @@ export class EventWriter {
           threadId,
           payload: this.decorate(threadId, prepared, seq),
         };
-        // A follow-up was built here from stored rows, never parsed.
-        event = isFollowup ? Event.parse(input) : canonical(input, payload);
+        // A follow-up was built here from stored rows, never made canonical.
+        event = isFollowup ? canonicalEvent(input) : canonical(input, payload);
       }
       seq = event.seq;
       if (!Number.isSafeInteger(seq)) throw new Error("Sequence exhausted");

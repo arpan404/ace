@@ -33,8 +33,24 @@ trusted.
    validated as before. Going back to an older build and forward again records a new start, so
    rows written in between are decoded too. The table is created at open, so it needs no
    migration step and so no pre-upgrade backup.
-4. **Writes still validate.** The writer's `Event.parse` fills schema defaults and is what puts a
-   row in this build's shape; it stays until a cheaper canonical writer replaces it.
+4. **Writes still validate, and canonicalise cheaply where the schema allows.** The writer
+   (`event-writer.ts`, `store-stream.ts`) makes every event canonical with `canonicalEvent`
+   (`canonical-event.ts`) before storing it. Its output equals `Event.parse`'s: the same values,
+   defaults, key order and stored JSON, and a rejection wherever `Event.parse` rejects. For a
+   payload variant that is a plain object with a literal discriminator and only flat fields
+   (strings, numbers, booleans, literals and enums, optional or nullable, with only length,
+   integer and range checks; `item.delta` is the hot one), it runs those checks and rebuilds the
+   event in schema order itself, from plans read off the schema once. Each check matches Zod's
+   meaning: lengths count code points, enums accept Zod's resolved values. Anything else has no
+   plan: a nested object, a default, a transform or pipe, a refinement, a schema that is itself a
+   check (`z.int()`, a string format), a non-literal discriminator, an envelope of another shape.
+   Building the plans never throws for a shape they don't know; a variant that changes loses its
+   plan by itself. Unplanned variants, every input a plan rejects, and every input that isn't
+   plain data (a proxy, a getter, an inherited field, which the plan detects without running
+   them) go to `Event.parse`. `canonical-event.test.ts` runs both on every planned variant,
+   mutated field by field, and on the payloads of the recorded provider sessions;
+   `canonical-event-schemas.test.ts` does the same on synthetic schemas for each of those
+   shapes. Both assert identical output, and a rejection exactly where Zod rejects.
 5. **Thread rows are trusted per row, by revision.** A threads row is rewritten in place a few
    columns at a time and has no sequence, so `thread-row-trust.ts` keeps a side table of
    stamps: the row revision at which this build confirmed the whole row reads the same as
