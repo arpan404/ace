@@ -2,15 +2,13 @@ import { useQuery } from "@tanstack/react-query";
 import { useAceAccount, useAceAccountStore } from "./account-context.tsx";
 
 /** A picture as a `data:` address, which every client's content policy allows for images. */
-function dataUrl(picture: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.addEventListener("load", () =>
-      typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("unreadable")),
-    );
-    reader.addEventListener("error", () => reject(reader.error ?? new Error("unreadable")));
-    reader.readAsDataURL(picture);
-  });
+async function dataUrl(picture: Blob): Promise<string> {
+  const bytes = new Uint8Array(await picture.arrayBuffer());
+  let binary = "";
+  // A chunk small enough for `String.fromCharCode`'s argument limit, at the picture's 1 MiB cap.
+  for (let at = 0; at < bytes.length; at += 0x8000)
+    binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
+  return `data:${picture.type};base64,${btoa(binary)}`;
 }
 
 /**
