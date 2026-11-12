@@ -45,6 +45,7 @@ export function canonicaliser<T>(schema: z.ZodType<T>): Canonicaliser<T> {
   // The rebuild puts `payload` last, where the shape must have it for the key order to match.
   if (Object.keys(schema.shape).at(-1) !== "payload") return fallback;
   if (!(payload instanceof z.ZodDiscriminatedUnion) || payload.def.checks?.length) return fallback;
+  // oxlint-disable-next-line ace/zod-schema-in-function -- runs once, when the plans are first built
   const envelope = flatObject(z.object(envelopeShape));
   if (!envelope) return fallback;
   const discriminator = payload.def.discriminator;
