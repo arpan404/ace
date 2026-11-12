@@ -73,13 +73,14 @@ untrusted-content rules.
    endpoint model's call: reads run, writes ask, destructive calls always ask, and a turn that
    read untrusted output asks for every write. The call waits for the person's answer; if the
    CLI gives up first, the result goes to the CLI with the next turn. Calls run one at a time.
-   ace's own tools in that session are the session's own (ADR 0121's lease rules), less `ask` and
-   everything that starts, steers or schedules other agents (`delegate`, `wait`, `thread_start`,
-   `agent_message`, `agent_cancel`, `thread_control`, `thread_fork`, `transfer`,
-   `automation_put`, `automation_run`), whose work would run ungated; `bots_list`,
-   `bot_message`, memory, workspace, routines, skills, connectors and `ask_user` are Spade's.
-   Each adapter lets the bridge and ace's read-only tools run in read-only without a prompt
-   nobody would see. A turn is finished only once nothing else in the session runs.
+   Of ace's own tools the session is offered an allow-list, nothing else (listed, found or
+   called through `tools_call`): the bridge, ace's reads that return only ace's own state
+   (`machines`, `models`, `projects_find`, `automations_list`, `guide`) and `tools_find` and
+   `tools_call` to reach those. Any other ace tool would act or read outside text with no gate,
+   since nobody answers a prompt there. `ask` is withheld too, as for every host thread
+   (`askAvailable: false`). `bots_list`, `bot_message`, memory, workspace, routines, skills,
+   connectors and `ask_user` are Spade's. Each adapter lets the allow-listed tools run in
+   read-only without a prompt nobody would see. A turn is finished only once nothing else in the session runs.
 5. **Failures are one line and never retried.** A CLI that is missing, signed out, rate-limited
    or out of quota ends the turn as failed with one plain line (for example "Codex is signed out.
    Sign in to it in ace, then send again."). The bot's roster row and conversation show it until
