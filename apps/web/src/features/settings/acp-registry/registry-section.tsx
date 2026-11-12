@@ -39,9 +39,6 @@ export function AcpAgents(props: { entries: readonly ProviderEntry[] }) {
   const { list, refresh } = useRegistry(now);
   const [query, setQuery] = useState("");
   const [all, setAll] = useState(false);
-  // Installed from here while the page is open: the row stays, saying Installed with Set up.
-  const [started, setStarted] = useState<ReadonlySet<string>>(new Set());
-  const start = (key: string) => setStarted((keys) => new Set(keys).add(key));
   const view = list.data;
   // Agents ace already knows as a provider: added ones are in Installed, built-in ones missing
   // here have their own row above.
@@ -49,15 +46,15 @@ export function AcpAgents(props: { entries: readonly ProviderEntry[] }) {
     props.entries.map((entry) => acpRegistryId(entry.install.acpAgentId ?? entry.install.kind)),
   );
   const terms = query.trim().toLowerCase();
+  // A row shows here until its provider is installed; then it is in Installed, and only there.
   const providers = props.entries
-    .filter((entry) => isMissing(entry) || started.has(entry.id))
+    .filter((entry) => isMissing(entry))
     .filter((entry) => !terms || entry.install.name.toLowerCase().includes(terms));
   const agents = searchRegistry(view?.agents ?? [], query)
     .filter(
       (agent) =>
-        started.has(agent.acpAgentId) ||
-        (!known.has(acpRegistryId(agent.acpAgentId)) &&
-          registryStanding(agent, view?.installations ?? []).kind !== "installed"),
+        !known.has(acpRegistryId(agent.acpAgentId)) &&
+        registryStanding(agent, view?.installations ?? []).kind !== "installed",
     )
     .map((agent): AgentHubRow => {
       const standing = registryStanding(agent, view?.installations ?? []);
@@ -108,7 +105,7 @@ export function AcpAgents(props: { entries: readonly ProviderEntry[] }) {
       }
     >
       {providers.map((entry) => (
-        <BuiltInRow key={entry.id} entry={entry} onStart={() => start(entry.id)} />
+        <BuiltInRow key={entry.id} entry={entry} />
       ))}
       {list.isPending ? (
         <ListSkeleton label="the registry" shape="row" rows={3} className="py-3" />
@@ -129,12 +126,7 @@ export function AcpAgents(props: { entries: readonly ProviderEntry[] }) {
       ) : (
         <>
           {shown.map((row) => (
-            <AgentRow
-              key={row.agent.acpAgentId}
-              agent={row.agent}
-              unavailable={row.unavailable}
-              onStart={() => start(row.agent.acpAgentId)}
-            />
+            <AgentRow key={row.agent.acpAgentId} agent={row.agent} unavailable={row.unavailable} />
           ))}
           {terms && !shown.length && !providers.length && (
             <SettingNote>No agents match “{query.trim()}”.</SettingNote>
@@ -154,7 +146,7 @@ export function AcpAgents(props: { entries: readonly ProviderEntry[] }) {
 const lowerFirst = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);
 
 /** A built-in provider not on this computer yet: Install, and its page explains it. */
-function BuiltInRow(props: { entry: ProviderEntry; onStart(): void }) {
+function BuiltInRow(props: { entry: ProviderEntry }) {
   const { install, view } = props.entry;
   const agent = install.registry?.agent;
   return (
@@ -168,17 +160,12 @@ function BuiltInRow(props: { entry: ProviderEntry; onStart(): void }) {
       page={props.entry.id}
       version={agent?.version}
       sub={agent ? registryPublisher(agent.authors) || agent.description : undefined}
-      onStart={props.onStart}
     />
   );
 }
 
 /** A registry agent: Install, or why it can't install on this computer. */
-function AgentRow(props: {
-  agent: RegistryAgent;
-  unavailable: string | undefined;
-  onStart(): void;
-}) {
+function AgentRow(props: { agent: RegistryAgent; unavailable: string | undefined }) {
   const { agent } = props;
   const sub = registryPublisher(agent.authors) || agent.description;
   if (props.unavailable)
@@ -201,7 +188,6 @@ function AgentRow(props: {
       version={agent.version}
       sub={sub}
       setUp={`acp:${agent.acpAgentId}`}
-      onStart={props.onStart}
     />
   );
 }
