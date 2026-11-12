@@ -18,9 +18,13 @@ export function sidebarSettled(entry: ThreadListEntry): boolean {
   return attention !== "not_sent" && attention !== "uncertain";
 }
 
+/**
+ * Failed since it was settled, and not read since. Timed by when it last worked: `updatedAt`
+ * moves with organizing changes (a rename), so a row without `activityAt` can't tell and stays.
+ */
 function failedSinceSettled(entry: ThreadListEntry, settledAt: number): boolean {
-  if (entry.status.state !== "failed") return false;
-  const failedAt = entry.activityAt ?? entry.updatedAt;
+  const failedAt = entry.activityAt;
+  if (entry.status.state !== "failed" || failedAt === undefined) return false;
   return failedAt > settledAt && !(entry.readAt !== undefined && entry.readAt >= failedAt);
 }
 export function sidebarVisible(entry: ThreadListEntry, archived = false): boolean {

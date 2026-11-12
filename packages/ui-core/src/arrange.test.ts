@@ -126,10 +126,17 @@ test("a settled thread stays in Settled when done or failed before it was settle
 test("a settled thread that fails after it was settled comes back until its failure is seen", () => {
   const failsLater = entry("fails-later", { state: "failed" }, now - 10 * 60_000, {
     settledAt: now - hour,
+    activityAt: now - 10 * 60_000,
   });
   expect(arrange([failsLater], state(), now).settled).toEqual([]);
   const read = { ...failsLater, readAt: now };
   expect(arrange([read], state(), now).settled).toEqual(["fails-later"]);
+});
+
+test("renaming a thread settled after it failed doesn't bring the old failure back", () => {
+  // No `activityAt`: only `updatedAt`, which the rename moved past `settledAt`.
+  const renamed = entry("renamed", { state: "failed" }, now, { settledAt: now - hour });
+  expect(arrange([renamed], state(), now).settled).toEqual(["renamed"]);
 });
 
 test.each(["not_sent", "uncertain"] as const)(
