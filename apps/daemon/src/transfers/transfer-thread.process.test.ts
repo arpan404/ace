@@ -125,3 +125,37 @@ it("continues a thread whose folder isn't a Git repository, with the new thread 
     code: "too_late",
   });
 });
+
+it("refuses to continue a replied thread while a command it left running still runs, then continues once it ends", async () => {
+  const m = await transferMachines();
+  const source = await finishedThread(m, "Fix the login bug on the settings page");
+  // The reply is in; the build it started goes on in this checkout (ADR 0116 reads it done).
+  await m.source.h.emit(source.threadId, {
+    type: "background.started",
+    agent: "root",
+    task: "build",
+    kind: "shell",
+    title: "bun run build --watch",
+    stoppable: true,
+  });
+  await m.source.daemon.engine?.flush();
+  expect(m.source.daemon.store.getThread(source.threadId)?.status).toEqual({ state: "done" });
+  const continueOn = () =>
+    m.here.command({
+      type: "thread.continueOn",
+      threadId: source.threadId,
+      hostId: m.targetHostId,
+      includeChanges: true,
+    });
+  expect(await continueOn()).toMatchObject({ ok: false, error: "thread_busy" });
+  expect(m.source.daemon.transfers.outgoing.list()).toEqual([]);
+
+  await m.source.h.emit(source.threadId, {
+    type: "background.ended",
+    task: "build",
+    status: "completed",
+  });
+  await m.source.daemon.engine?.flush();
+  expect(await continueOn()).toMatchObject({ ok: true, threadId: source.threadId });
+  expect(await m.settled()).toMatchObject({ phase: "completed", kind: "thread" });
+});

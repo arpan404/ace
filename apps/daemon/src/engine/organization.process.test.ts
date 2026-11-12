@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import type { Fact } from "@ace/core";
 import { Command, type ThreadId } from "@ace/protocol";
 import { ThreadOrganizer } from "../thread-organizer.ts";
-import { harness, scriptFrames, start, end, question, task } from "./test-support.ts";
+import { harness, scriptFrames, start, end, question } from "./test-support.ts";
 
 type Organized = "thread.settle" | "thread.unsettle" | "thread.delete" | "thread.autoSettle";
 
@@ -101,8 +101,18 @@ test("a thread unsettled by hand stays until auto-settle is back on", async () =
   }
 });
 
-test("a merged PR waits for a background shell to finish before it settles the thread", async () => {
-  const f = await organized(task, end);
+// A command left running after the reply no longer holds (ADR 0116); a background subagent does.
+const subagent: Fact = {
+  type: "background.started",
+  agent: "root",
+  task: "shell",
+  kind: "subagent",
+  title: "Background reviewer",
+  stoppable: true,
+};
+
+test("a merged PR waits for a background subagent to finish before it settles the thread", async () => {
+  const f = await organized(subagent, end);
   try {
     expect(f.h.store.getThread(f.id)?.status).toMatchObject({
       state: "waiting",

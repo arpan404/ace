@@ -217,7 +217,7 @@ test("cancelling a waiting gh read remains possible on the same socket and survi
   }
 });
 
-test("a background task prevents PR selection from replacing its checkout or reporting the tree done", async () => {
+test("a shell left running after the reply prevents PR selection from replacing its checkout", async () => {
   const d = await prDaemon();
   try {
     const id = await d.h.create();
@@ -237,7 +237,13 @@ test("a background task prevents PR selection from replacing its checkout or rep
       error: "thread_tree_is_live",
     });
     expect(d.h.store.getThread(id)?.details?.worktree).toBe(before);
-    expect(d.h.store.getThread(id)?.status.state).not.toBe("done");
+    // The replied thread reads done (ADR 0116); the shell still runs in the kept checkout.
+    expect(d.h.store.getThread(id)?.status).toEqual({ state: "done" });
+    expect(
+      Object.values(d.h.store.snapshotThread(id)?.backgroundTasks ?? {}).map(
+        (entry) => entry.status,
+      ),
+    ).toEqual(["running"]);
   } finally {
     await d.close();
   }

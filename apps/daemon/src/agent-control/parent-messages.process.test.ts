@@ -90,7 +90,8 @@ test("a parent's message starts the child's next turn while its background comma
   const { h, parent, child } = await runningChild(true);
   await h.emit(child, task);
   await h.complete(child, "Started the dev server");
-  expect(h.store.getThread(child)?.status).toEqual({ state: "waiting", on: "background_task" });
+  // The child's reply is its result; the dev server is left running (ADR 0116).
+  expect(h.store.getThread(child)?.status).toEqual({ state: "done" });
   const sent = await message(h, parent, child, "Now run the tests", "queue");
   expect(sent).toMatchObject({ ok: true, data: { arrival: "starting" } });
   await h.engine.flush();

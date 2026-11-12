@@ -9,6 +9,7 @@ import { adoptImportedThread } from "./imported-thread.ts";
 import { GuestThreads } from "./guest-threads.ts";
 import { HostThreads } from "./host-threads.ts";
 import { ThreadLiveness, type LiveWork } from "./thread-liveness.ts";
+import type { EngineOptions } from "./engine-options.ts";
 import { reclaimIdleSlot } from "./slot-reclaim.ts";
 import { EngineModels } from "./models.ts";
 import { personCommand } from "./person-command.ts";
@@ -16,7 +17,7 @@ import { personRefusal } from "./guest-admission.ts";
 import { cancelDelegatedInputs } from "./stop-intents.ts";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { nameWorktreeBranch, runWorktreeGit, type WorktreeGit } from "./worktree-title.ts";
+import { nameWorktreeBranch, runWorktreeGit } from "./worktree-title.ts";
 import { CreationAdmissions, type CreationAdmission } from "./creation-admissions.ts";
 import { validateCreation } from "./creation-validation.ts";
 import { workspaceDirectory } from "./workspace-directory.ts";
@@ -28,21 +29,19 @@ import {
   type CommandResult,
 } from "@ace/protocol";
 import { commandContext } from "../commands.ts";
-import { AccessError, type PermissionSettings } from "./permissions.ts";
+import { AccessError } from "./permissions.ts";
 import { reportedOrTable } from "@ace/provider-kit/access-modes";
 import { changeEngineWorkspace, type WorkspaceChangeReservation } from "./workspace-change.ts";
 import { ProviderKind, ThreadId } from "@ace/protocol";
-import type { PrepareInput } from "./input.ts";
-import { Recovery, RecoveryPreferences, type RecoveryPorts } from "./recovery.ts";
+import { Recovery, RecoveryPreferences } from "./recovery.ts";
 import { ContextMeters } from "./context-meter.ts";
 import { recoverEngine } from "./restart.ts";
 import { DelegationFacts } from "./delegation-facts.ts";
 import { continuesNatively, heldInterrupted } from "./restart-eligibility.ts";
 import { IntentDelivery } from "./intent-delivery.ts";
-import { ThreadTransitions, type TransitionIO } from "./transitions.ts";
+import { ThreadTransitions } from "./transitions.ts";
 import { Sessions } from "./sessions.ts";
 import { timeOrderedIds } from "../time-ordered-id.ts";
-import { type IdSource } from "@ace/core";
 import { SteerLane } from "./steer-lane.ts";
 import { rootRun } from "./steer-yield.ts";
 import type { CommandHandler } from "../commands.ts";
@@ -73,65 +72,7 @@ import {
 export { AdapterRegistry } from "./registry.ts";
 export type { EngineClock } from "./actor.ts";
 
-export interface EngineOptions {
-  /**
-   * Windows only: startup recovery could not prove every process of the previous run gone, so
-   * restart recovery must not report that run's provider work as stopped.
-   */
-  previousProcessesUnverified?: boolean;
-  waitForProvider?(provider: import("@ace/protocol").ProviderKind): Promise<void>;
-  onModelUnavailable?(
-    provider: import("@ace/protocol").ProviderKind,
-    model: string,
-    instance?: string,
-  ): void;
-  onCommandEvent?(event: import("./provider-command-metadata.ts").ProviderCommandEvent): void;
-  models?: import("@ace/models").ModelCatalogApi;
-  worktreeGit?: WorktreeGit;
-  /** The person's message that named a thread, for generating its title once. */
-  onNamingPrompt?(threadId: ThreadId, input: readonly import("@ace/protocol").ContentPart[]): void;
-  permissionSettings?: PermissionSettings;
-  providerEnabled?(provider: import("@ace/protocol").ProviderKind, instance?: string): boolean;
-  selectInstance?: (
-    provider: string,
-    backend?: import("@ace/engine-api").ProviderBackend,
-  ) => string | undefined;
-  transitions?: TransitionIO;
-  prepareInput?: PrepareInput;
-  recovery?: RecoveryPorts;
-  preferences?: Partial<RecoveryPreferences>;
-  limits?: Partial<EngineLimits>;
-  beforeSend?(threadId: ThreadId, commandId: import("@ace/protocol").CommandId): Promise<void>;
-  /** `runCommands` is false when the thread's access is Read-only: no setup script runs. */
-  prepareWorkspace?(threadId: ThreadId, options: { runCommands: boolean }): Promise<string>;
-  assertWorkspaceAvailable?(cwd: string, threadId: ThreadId): Promise<void>;
-  machine?: { host: string; name: string };
-  sessionContext?: NonNullable<ConstructorParameters<typeof Sessions>[0]["context"]>;
-  ids?: IdSource;
-  threadId?: () => string;
-  commandId?: () => string;
-  registry?: AdapterRegistry;
-  clock?: EngineClock;
-  /** Durable batching latency is independent of the status/recovery clock. */
-  batchScheduler?: Pick<EngineClock, "setTimer">;
-  idleMs?: number;
-  silenceMs?: number;
-  onError?: (error: unknown) => void;
-  /** Stopping part of a settled thread's tree failed: for the log only, never the person. */
-  onSettleCleanupFailure?: (thread: ThreadId, error: unknown) => void;
-  onSessionOpenFailure?: (
-    thread: ThreadId,
-    details: import("@ace/protocol").ProviderErrorDetails,
-    route?: import("./session-open-route.ts").SessionOpenRoute,
-  ) => void;
-  onProviderDiagnostic?: (thread: ThreadId, raw: import("@ace/protocol").RawPayload[]) => void;
-  aceToolAction?: typeof import("@ace/mcp-server").aceToolAction;
-  mcp?: (
-    threadId: ThreadId,
-    agentId: string,
-    lifetime: AbortSignal,
-  ) => NonNullable<import("@ace/engine-api").SessionContext["aceMcp"]>;
-}
+export type { EngineOptions } from "./engine-options.ts";
 export class Engine {
   private readonly models: EngineModels;
   private readonly waitForProvider: EngineOptions["waitForProvider"];
@@ -1027,6 +968,10 @@ export class Engine {
   }
   liveWork(id: ThreadId): LiveWork {
     return this.liveness.live(id);
+  }
+  /** Provider work runs or is lost track of, even after a reply that reads done (ADR 0116). */
+  runsProviderWork(id: ThreadId): boolean {
+    return this.liveness.providerWork(id);
   }
   /** Called after the durable cleanup fence has denied all new execution. */
   stopForDeletion(id: ThreadId): Promise<void> {

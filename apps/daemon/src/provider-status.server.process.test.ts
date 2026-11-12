@@ -266,12 +266,14 @@ test("a too-old Pi needs an update and failing CLI auth commands stay unknown, n
     });
     expect(JSON.stringify(response)).not.toContain("SECRET");
     const calls = (await readFile(join(bin, "calls"), "utf8")).trim().split("\n");
-    expect(calls.toSorted()).toEqual([
+    // The startup check, then Refresh's own check after it, which never reuses it.
+    const check = [
       "agy_acp_server:--version",
       "codex:--version",
       "codex:login status",
       "pi:--version",
-    ]);
+    ];
+    expect(calls.toSorted()).toEqual([...check, ...check].toSorted());
     await rm(join(piHome, "settings.json"));
     client.send({ type: "providers.request", requestId: "missing-settings", operation: "refresh" });
     expect(await client.next()).toMatchObject({
