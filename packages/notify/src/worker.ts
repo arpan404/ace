@@ -50,7 +50,12 @@ type WorkerOptionsInput = {
   signal?: AbortSignal;
   spawn?: (entry: URL, options: WorkerOptions) => Worker;
   schedule?: (delayMs: number, restart: () => void) => () => void;
+  /** The timer that ends a held cursor advance (see `NotificationWorker.held`). */
+  holdTimer?: (delayMs: number, release: () => void) => () => void;
 };
+
+/** How long a live stretch of deltas may hold back the worker's cursor advance. */
+const holdMs = 250;
 
 export class NotificationWorker {
   private worker: Worker;
@@ -81,6 +86,15 @@ export class NotificationWorker {
   /** Whether the current worker replaced one that failed. */
   private restarted = false;
   private opened = false;
+  /**
+   * A live stretch the worker keeps nothing of (streamed deltas): only its cursor would move.
+   * The advance waits, merged, for the next live batch, any call that reads or records the
+   * cursor, or `holdMs`, so a stream costs one round trip per window instead of one per delta.
+   */
+  private held: { afterSeq: number; throughSeq: number } | undefined;
+  private cancelHeld: (() => void) | undefined;
+  /** A held advance the worker refused: the next live batch fails with it, so replay resumes. */
+  private heldFailure: Error | undefined;
   constructor(options: WorkerOptionsInput) {
     this.options = options;
     this.transport = options.transport;
@@ -217,6 +231,23 @@ export class NotificationWorker {
       });
     });
   }
+  private holdTimer(run: () => void): () => void {
+    if (this.options.holdTimer) return this.options.holdTimer(holdMs, run);
+    const timer = setTimeout(run, holdMs);
+    timer.unref();
+    return () => clearTimeout(timer);
+  }
+  /** Sends the held cursor advance now, ahead of whatever is sent next. */
+  private release(): void {
+    const held = this.held;
+    if (!held) return;
+    this.held = undefined;
+    this.cancelHeld?.();
+    this.cancelHeld = undefined;
+    this.call({ method: "ingest", ...held, events: [] }).catch((error: unknown) => {
+      this.heldFailure ??= error instanceof Error ? error : new Error(String(error));
+    });
+  }
   private send(message: ToWorker): void {
     this.worker.postMessage(message, []);
   }
@@ -292,6 +323,7 @@ export class NotificationWorker {
   }
   /** Records a deliberate stop at the worker's cursor; call before `close` when sleeping. */
   async sleep(): Promise<void> {
+    this.release();
     await this.call({ method: "sleep" });
   }
   /**
@@ -299,13 +331,16 @@ export class NotificationWorker {
    * queued agent notices are too old to send; call `forgetSleep` once they are acknowledged.
    */
   async closeSleep(): Promise<NoticeWindow[]> {
+    this.release();
     const value = await this.call({ method: "closeSleep" });
     return Array.isArray(value) ? NoticeWindows.parse(value) : [];
   }
   async forgetSleep(): Promise<void> {
+    this.release();
     await this.call({ method: "forgetSleep" });
   }
   async cursor(signal?: AbortSignal): Promise<number> {
+    this.release();
     const value = await this.call({ method: "cursor" }, signal);
     return typeof value === "number" ? value : 0;
   }
@@ -327,8 +362,36 @@ export class NotificationWorker {
         if (events[i]?.seq !== (events[i - 1]?.seq ?? 0) + 1)
           return Promise.reject(new Error(replayGap));
       }
+    // Skip deltas without allocating/copying their payloads.
+    const projected = events.map((event) => metadata(event));
+    // A held advance joins a live batch that follows on from it; anything else sends it first.
+    const held = this.held;
+    const joined = !coverage && held?.throughSeq === first.seq - 1 ? held : undefined;
+    if (!joined) this.release();
+    if (!coverage) {
+      const failure = this.heldFailure;
+      this.heldFailure = undefined;
+      if (failure) return Promise.reject(failure);
+      if (projected.every((event) => event === undefined)) {
+        this.held = { afterSeq: joined?.afterSeq ?? first.seq - 1, throughSeq: last.seq };
+        this.cancelHeld ??= this.holdTimer(() => {
+          this.cancelHeld = undefined;
+          this.release();
+        });
+        return Promise.resolve();
+      }
+      if (joined) {
+        this.held = undefined;
+        this.cancelHeld?.();
+        this.cancelHeld = undefined;
+      }
+    }
     return (async () => {
-      let afterSeq = coverage ? Math.min(coverage.afterSeq, first.seq - 1) : first.seq - 1,
+      let afterSeq = joined
+          ? joined.afterSeq
+          : coverage
+            ? Math.min(coverage.afterSeq, first.seq - 1)
+            : first.seq - 1,
         throughSeq = afterSeq;
       let compact: MetadataEvent[] = [];
       const flush = async () => {
@@ -336,11 +399,10 @@ export class NotificationWorker {
         afterSeq = throughSeq;
         compact = [];
       };
-      // Skip deltas without allocating/copying their payloads. Sixteen compact
-      // records fit the byte budget even under worst-case JSON escaping.
-      for (const event of events) {
-        const projected = metadata(event);
-        if (projected) compact.push(projected);
+      // Sixteen compact records fit the byte budget even under worst-case JSON escaping.
+      for (const [index, event] of events.entries()) {
+        const record = projected[index];
+        if (record) compact.push(record);
         throughSeq = event.seq;
         if (compact.length === 16) await flush();
       }
@@ -399,12 +461,14 @@ export class NotificationWorker {
     await this.checked({ method: "revoke", device }, signal);
   }
   async drain(): Promise<void> {
+    this.release();
     await this.call({ method: "drain" });
   }
   close(): Promise<void> {
     this.closing ??= (async () => {
       this.cancelRestart?.();
       try {
+        this.release();
         if (!this.failed) await this.call({ method: "close" });
       } finally {
         this.stopOnAbort?.();
