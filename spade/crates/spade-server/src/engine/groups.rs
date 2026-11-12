@@ -56,12 +56,41 @@ pub struct GroupLast {
     pub at_ms: i64,
 }
 
+/// What a group is doing now (ADR 0132): its state, a few words, and while it waits on the
+/// person, the member that waits, so clients never read it from the words.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GroupStatus {
+    pub state: State,
+    pub status: Option<String>,
+    pub waiting_member: Option<GroupBot>,
+}
+
+impl GroupStatus {
+    fn idle() -> Self {
+        Self {
+            state: State::Idle,
+            status: None,
+            waiting_member: None,
+        }
+    }
+
+    fn working(status: String) -> Self {
+        Self {
+            state: State::Working,
+            status: Some(status),
+            waiting_member: None,
+        }
+    }
+}
+
 /// A group with what it is doing now.
 #[derive(Debug, Clone)]
 pub struct GroupView {
     pub group: StoredGroup,
     pub state: State,
     pub status: Option<String>,
+    /// The member of this machine that waits for the person, while the group waits.
+    pub waiting_member: Option<GroupBot>,
     pub last_message: Option<GroupLast>,
     pub last_activity_ms: i64,
     /// Per member, in order: its machine can't be reached now.
@@ -288,7 +317,11 @@ impl Engine {
     fn group_view_of(&self, group: StoredGroup) -> Result<GroupView, StoreError> {
         let stored = self.store.events(&group.conversation, 0)?;
         let events: Vec<Event> = stored.iter().map(|e| e.event.clone()).collect();
-        let (state, status) = self.group_status(&group, &events);
+        let GroupStatus {
+            state,
+            status,
+            waiting_member,
+        } = self.group_status(&group, &events);
         let last_message = stored.iter().rev().find_map(|e| match &e.event {
             Event::Known(Known::GroupMessage { text, from, .. }) => Some(GroupLast {
                 from: from.clone(),
@@ -308,6 +341,7 @@ impl Engine {
             group,
             state,
             status,
+            waiting_member,
             last_message,
             away,
         })
@@ -315,14 +349,10 @@ impl Engine {
 
     /// What a group is doing now: working while an ask is open, waiting while a member of this
     /// machine that is answering waits for the person.
-    pub(crate) fn group_status(
-        &self,
-        _group: &StoredGroup,
-        events: &[Event],
-    ) -> (State, Option<String>) {
+    pub(crate) fn group_status(&self, _group: &StoredGroup, events: &[Event]) -> GroupStatus {
         let open = group::open_asks(events);
         if open.is_empty() {
-            return (State::Idle, None);
+            return GroupStatus::idle();
         }
         for ask in &open {
             if ask.to.machine.is_some() {
@@ -336,10 +366,11 @@ impl Engine {
                 .and_then(|a| self.activity(&a.conversation).ok())
                 .is_some_and(|a| a.state == State::Waiting);
             if waiting {
-                return (
-                    State::Waiting,
-                    Some(format!("{} is waiting for you", ask.to.name)),
-                );
+                return GroupStatus {
+                    state: State::Waiting,
+                    status: Some(format!("{} is waiting for you", ask.to.name)),
+                    waiting_member: Some(ask.to.clone()),
+                };
             }
         }
         if let Some(machine) = open.iter().filter(|a| a.queued).find_map(|a| {
@@ -350,10 +381,7 @@ impl Engine {
                 _ => None,
             })
         }) {
-            return (
-                State::Working,
-                Some(format!("Waiting for {machine} to come online")),
-            );
+            return GroupStatus::working(format!("Waiting for {machine} to come online"));
         }
         let mut names: Vec<&str> = Vec::new();
         for ask in &open {
@@ -366,11 +394,11 @@ impl Engine {
             [rest @ .., last] => format!("{} and {last} are answering", rest.join(", ")),
             [] => roster::THINKING.to_owned(),
         };
-        (State::Working, Some(status))
+        GroupStatus::working(status)
     }
 
     /// For a group's transcript, the group's state and status; `None` for any other.
-    pub(super) fn group_status_of(&self, conversation: &str) -> Option<(State, Option<String>)> {
+    pub(super) fn group_status_of(&self, conversation: &str) -> Option<GroupStatus> {
         let id = self.store.group_for_conversation(conversation).ok()??;
         let group = self.store.group(&id).ok()??;
         let events = self.load(conversation).ok()?;
@@ -379,11 +407,12 @@ impl Engine {
 
     /// Sends a group's state to its live subscribers.
     pub(crate) fn announce_group(&self, conversation: &str) {
-        if let Some((state, status)) = self.group_status_of(conversation) {
-            let _ = self
-                .live(conversation)
-                .frames
-                .send(super::Frame::Status { state, status });
+        if let Some(now) = self.group_status_of(conversation) {
+            let _ = self.live(conversation).frames.send(super::Frame::Status {
+                state: now.state,
+                status: now.status,
+                waiting_member: now.waiting_member,
+            });
         }
     }
 

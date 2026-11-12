@@ -313,6 +313,7 @@ impl Engine {
             status,
             waiting_member: None,
         });
+        self.announce_asking_groups(id);
     }
 
     /// The status words for `id` in `activity`'s state; `None` when idle.

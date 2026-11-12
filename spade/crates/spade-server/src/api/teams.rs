@@ -113,6 +113,7 @@ fn group_json(view: &GroupView) -> Value {
         "last_activity": view.last_activity_ms,
         "state": view.state.name(),
         "status": view.status,
+        "waiting_member": view.waiting_member.as_ref().map(|b| json!({ "id": b.id, "name": b.name, "machine": b.machine })),
         "last_message": last_message,
     })
 }

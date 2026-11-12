@@ -186,12 +186,15 @@ impl Engine {
         frames: Option<tokio::sync::broadcast::Receiver<super::Frame>>,
     ) {
         let engine = self.clone();
+        let transcript = group.conversation.clone();
         let (group, ask, to) = (group.id.clone(), ask.to_owned(), bot_of(to));
         let run = self.run_of(&group, &ask);
+        self.asking(&agent.conversation, &transcript, true);
         tokio::spawn(async move {
             let frames =
                 frames.unwrap_or_else(|| engine.live(&agent.conversation).frames.subscribe());
             let outcome = engine.wait_reply(&agent, seq, frames).await;
+            engine.asking(&agent.conversation, &transcript, false);
             engine.finish_ask(&group, &run, &ask, &to, outcome);
         });
     }
@@ -256,6 +259,40 @@ impl Engine {
                 .await;
             engine.finish_ask(&group_id, &run, &ask, &to, outcome);
         });
+    }
+
+    /// Notes (or forgets) that the bot of `member` answers an ask of the group `transcript`.
+    fn asking(&self, member: &str, transcript: &str, open: bool) {
+        let mut asked = self
+            .teams
+            .asked_in
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        let groups = asked.entry(member.to_owned()).or_default();
+        if open {
+            groups.push(transcript.to_owned());
+        } else if let Some(at) = groups.iter().position(|g| g == transcript) {
+            groups.remove(at);
+        }
+        if groups.is_empty() {
+            asked.remove(member);
+        }
+    }
+
+    /// Tells the groups asking the bot of `member` that what it does changed (it waits for the
+    /// person, or no longer does).
+    pub(super) fn announce_asking_groups(&self, member: &str) {
+        let groups = self
+            .teams
+            .asked_in
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(member)
+            .cloned()
+            .unwrap_or_default();
+        for transcript in groups {
+            self.announce_group(&transcript);
+        }
     }
 
     /// The run an ask belongs to, from the group's events.
