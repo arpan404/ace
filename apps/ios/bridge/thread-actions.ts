@@ -178,6 +178,15 @@ export const ThreadAction = z.discriminatedUnion("type", [
   /** The next message's browser annotations: remove one (the rest close ranks) or all. */
   z.object({ type: z.literal("annotation.remove"), id: z.string().min(1).max(128) }),
   z.object({ type: z.literal("annotation.clear") }),
+  /** Reply to the words between `start` and `end` (UTF-16) of an agent's message, or let go. */
+  z.object({
+    type: z.literal("quote.add"),
+    message: z.string().max(1_000_000),
+    start: z.number().int().nonnegative(),
+    end: z.number().int().nonnegative(),
+  }),
+  z.object({ type: z.literal("quote.remove"), id: z.string().min(1).max(128) }),
+  z.object({ type: z.literal("quote.clear") }),
 ]);
 export type ThreadAction = z.infer<typeof ThreadAction>;
 

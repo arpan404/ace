@@ -38,6 +38,7 @@ import {
   type TrayRow,
 } from "./thread-attachments.ts";
 import { ThreadAnnotations, withAnnotations } from "./thread-annotations.ts";
+import { QuoteShelf, ThreadQuotes, withQuotes } from "./thread-quotes.ts";
 import { followBlocks } from "./thread-blocks.ts";
 import { followLaneInfo } from "./lane-info.ts";
 import { endingOf, SubagentRetries } from "./subagent-retries.ts";
@@ -92,6 +93,8 @@ export class ThreadSession {
   readonly #transitions: ThreadTransitions;
   /** The next message's browser annotations (ADR 0082). */
   readonly annotations: ThreadAnnotations;
+  /** The passages of the agent's messages the next message replies to. */
+  readonly #quotes: ThreadQuotes;
   #lane: { agentId: string; tap: ChangeTap; info: ChangeTap } | undefined;
   #setting: FollowUpBehavior | undefined;
   /**
@@ -123,6 +126,8 @@ export class ThreadSession {
     /** Asks to retry a subagent, kept by the bridge across visits to the thread. */
     retries: SubagentRetries = new SubagentRetries(),
     keptSteps?: TurnStepsStore,
+    /** Each thread's quotes, kept by the bridge across visits. */
+    quotes: QuoteShelf = new QuoteShelf(),
   ) {
     this.#retries = retries;
     this.#catalog = catalog;
@@ -197,6 +202,13 @@ export class ThreadSession {
       chunks,
       preview,
     );
+    this.#quotes = new ThreadQuotes(
+      quotes,
+      this.#threadId,
+      (patch) => put("quotes", () => patch),
+      () => host.uuid(),
+      preview,
+    );
     this.#stop = store.observe((keys) => {
       this.#blocks.tap(keys);
       workLine(keys);
@@ -232,6 +244,7 @@ export class ThreadSession {
       )
         this.#queue.update();
       if (keys === "all") this.#ready();
+      if (keys === "all") this.#quotes.resend();
       // Retry, the last turn and Bring back move with the thread's status, its order and its
       // turns, never with a streamed delta: an item's own change costs them nothing.
       if (keys === "all") this.#transitions.resend();
@@ -483,6 +496,15 @@ export class ThreadSession {
       case "annotation.clear":
         this.annotations.clear();
         break;
+      case "quote.add":
+        this.#quotes.add(action.message, action.start, action.end);
+        break;
+      case "quote.remove":
+        this.#quotes.remove(action.id);
+        break;
+      case "quote.clear":
+        this.#quotes.clear();
+        break;
     }
   }
 
@@ -554,7 +576,8 @@ export class ThreadSession {
       return;
     }
     const content = messageContent(text, references, this.#catalog(this.#threadId));
-    if (!messageHasContent(text, this.#tray.size + this.annotations.count)) {
+    const extras = this.#tray.size + this.annotations.count + this.#quotes.count;
+    if (!messageHasContent(text, extras)) {
       this.#admission(id, false, "Write a message or attach a file.");
       return;
     }
@@ -577,8 +600,9 @@ export class ThreadSession {
       isBusy(this.#store.thread?.status),
       payload.delivery,
     );
+    const quoted = this.#quotes.handOff();
     const joined = withAnnotations(
-      content.input,
+      withQuotes(content.input, quoted),
       joinContext(files.context, content.references),
       marked,
     );
@@ -593,6 +617,7 @@ export class ThreadSession {
       saved: () => {
         tray.sent(files.ids);
         if (marked) this.annotations.sent();
+        if (quoted) this.#quotes.sent(quoted);
       },
       receipt: ({ ok }) => {
         if (ok && spends) this.#tune.spent(spends);
