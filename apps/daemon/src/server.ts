@@ -34,6 +34,7 @@ import {
 import type { PluginServerMessage } from "@ace/protocol/plugins";
 import { busyRefusal } from "./busy-refusal.ts";
 import { defaultPressure, Outbox } from "./outbox.ts";
+import { orderedSocket } from "./ordered-socket.ts";
 import { WireTrimmer } from "@ace/projection/wire-trim";
 import { SocketInput } from "./socket-input.ts";
 import { CommandLanes } from "./command-lanes.ts";
@@ -363,7 +364,8 @@ export async function startServer(options: ServerOptions): Promise<{
       stillAdmitted() && holds(authenticated.get(socket), scope);
     const sessions = createServiceSessions({
       options,
-      socket,
+      // Every service write goes after what the outbox holds (`ordered-socket.ts`).
+      socket: orderedSocket(socket, () => outbox.releaseHeld()),
       sessionId,
       local: isLocal,
       // The host's own credential only: an account device is never the host, on any path.

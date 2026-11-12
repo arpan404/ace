@@ -110,6 +110,10 @@ export class Outbox {
    * From now on pack streamed deltas into shared frames, each held at most `frameHoldMs`; the
    * client said it reads several messages per frame. Order and content stay exactly as sent.
    */
+  /** Send what the frame holder holds now: a write past the outbox is about to go. */
+  releaseHeld(): void {
+    this.holder?.release();
+  }
   packFrames(): void {
     this.holder ??= new FrameHolder((text) => this.transmit(text, true), this.delay);
   }

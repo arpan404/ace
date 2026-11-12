@@ -1,9 +1,12 @@
 import { once } from "node:events";
 import { WebSocketServer, WebSocket } from "ws";
-import { Event, ServerMessage } from "@ace/protocol";
+import { BrowserServerMessage, DeviceServerMessage, Event, ServerMessage } from "@ace/protocol";
 import { afterEach, expect, it } from "vitest";
 import { Outbox, RESYNC_CLOSE_CODE, defaultPressure, type PressureOptions } from "./outbox.ts";
 import { systemDeliveryRuntime } from "./delivery-runtime.ts";
+import { orderedSocket } from "./ordered-socket.ts";
+import { writeDeviceMessage } from "./services/device-write.ts";
+import { sendBrowserMessage, sendBrowserStream } from "./services/browser-transport.ts";
 
 const closers: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -19,9 +22,16 @@ async function pair() {
   const connected = once(server, "connection");
   const client = new WebSocket(`ws://127.0.0.1:${address.port}`);
   const frames: string[] = [];
+  /** Every frame in arrival order: text frames as their text, binary ones as `binary:<bytes>`. */
+  const wire: string[] = [];
   const arrived: (() => void)[] = [];
-  client.on("message", (data) => {
-    frames.push(data.toString());
+  client.on("message", (data, isBinary) => {
+    const bytes = Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data as Buffer);
+    if (isBinary) wire.push(`binary:${bytes.toString("hex")}`);
+    else {
+      frames.push(bytes.toString());
+      wire.push(bytes.toString());
+    }
     for (const wake of arrived.splice(0)) wake();
   });
   await once(client, "open");
@@ -44,6 +54,7 @@ async function pair() {
     socket,
     client,
     frames,
+    wire,
     messages,
     async until(count: number) {
       while (messages().length < count) await new Promise<void>((wake) => arrived.push(wake));
@@ -215,4 +226,53 @@ it("held deltas count against the outbox budget, so a stalled stream still resyn
   // Twenty deltas of ~400 bytes would sit under the 64 KiB frame limit, past the 4 KiB budget.
   for (let index = 0; index < 20; index++) out.send(delta("x".repeat(256)));
   expect(await closed).toBe(RESYNC_CLOSE_CODE);
+});
+
+it("service writes past the outbox go after the deltas held before them, text and binary alike", async () => {
+  seq = 0;
+  const { socket, wire, roundTrip } = await pair();
+  const clock = manualDelay();
+  const out = outbox(socket, clock.delay);
+  out.packFrames();
+  // What services get on a main socket (server.ts): the same boundary, the same outbox.
+  const services = orderedSocket(socket, () => out.releaseHeld());
+
+  out.send(delta("a"));
+  await writeDeviceMessage(
+    services,
+    DeviceServerMessage.parse({ type: "devices.result", requestId: "r1", ok: true }),
+  );
+  out.send(delta("b"));
+  sendBrowserMessage(
+    services,
+    BrowserServerMessage.parse({ type: "browser.result", requestId: "r2", ok: true }),
+  );
+  out.send(delta("c"));
+  sendBrowserStream(services, [Uint8Array.of(1, 2, 3)]);
+  out.send(delta("d"));
+  clock.fire();
+  await roundTrip();
+
+  const seen = wire.flatMap((frame) =>
+    frame.startsWith("binary:")
+      ? [frame]
+      : frame.split("\n").map((line) => {
+          const message = JSON.parse(line) as {
+            type: string;
+            events?: { payload: { append: string } }[];
+          };
+          return message.type === "events"
+            ? `delta:${message.events?.map((event) => event.payload.append).join("")}`
+            : message.type;
+        }),
+  );
+  expect(seen).toEqual([
+    "delta:a",
+    "devices.result",
+    "delta:b",
+    "browser.result",
+    "delta:c",
+    "binary:010203",
+    "delta:d",
+  ]);
 });
