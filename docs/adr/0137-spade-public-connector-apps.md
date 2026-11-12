@@ -3,7 +3,7 @@
 Status: accepted. Date: 2026-11-12. Decided by: the owner (2026-11-12: "let's not ship client key
 [secret], let's make those apps support"). Amends [ADR 0131](0131-spade-connectors.md), decisions 1
 and 2 (which client Spade signs in as), and [ADR 0136](0136-spade-client-id-metadata-document.md),
-decision 2 (the order of clients). Amended by [ADR 0139](0139-spade-cloud.md): Spade Cloud
+decision 2 (the order of clients). Amended by [ADR 0140](0140-spade-cloud.md): Spade Cloud
 holds the secrets for apps that need one.
 
 ## Context

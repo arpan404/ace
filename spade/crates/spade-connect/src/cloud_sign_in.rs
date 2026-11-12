@@ -1,4 +1,4 @@
-//! Signing in and renewing through Spade Cloud (ADR 0139). A catalogue entry marked
+//! Signing in and renewing through Spade Cloud (ADR 0140). A catalogue entry marked
 //! `via: "cloud"` signs in with the cloud's client: Spade starts the sign-in at the cloud, opens
 //! its authorization address in the person's browser, polls the cloud until the person is back,
 //! opens the sealed tokens with its one-time key and keeps them in the keychain. Renewals go

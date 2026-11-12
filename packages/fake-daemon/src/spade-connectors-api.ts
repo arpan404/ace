@@ -23,7 +23,7 @@ export class FakeSpadeConnectors {
   readonly deviceSignIn = new Set<string>();
   /** Catalogue ids whose server offers no registration: connecting needs a client ID. */
   readonly needsClient = new Set<string>();
-  /** Catalogue ids that sign in through Spade Cloud (ADR 0139). */
+  /** Catalogue ids that sign in through Spade Cloud (ADR 0140). */
   readonly viaCloud = new Set<string>();
   /** This machine isn't signed in to ace, so sign-ins through Spade Cloud are refused. */
   aceSignedOut = false;

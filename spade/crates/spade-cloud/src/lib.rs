@@ -1,4 +1,4 @@
-//! Spade Cloud (ADR 0139, `spade/docs/cloud.md`): Spade's hosted backend at `cloud.acehq.dev`.
+//! Spade Cloud (ADR 0140, `spade/docs/cloud.md`): Spade's hosted backend at `cloud.acehq.dev`.
 //! Its first job is the OAuth broker for apps whose sign-in needs a client secret (Asana, Box,
 //! Canva, HubSpot): Spade starts a sign-in with a PKCE challenge and a one-time key, the maker
 //! redirects back here, Spade finishes with its verifier, and the cloud exchanges the code with

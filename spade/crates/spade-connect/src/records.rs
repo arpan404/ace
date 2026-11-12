@@ -38,7 +38,7 @@ pub struct OauthFacts {
     pub shipped: bool,
     #[serde(default)]
     pub scopes: Vec<String>,
-    /// Signed in through Spade Cloud (ADR 0139): renewals go through the cloud.
+    /// Signed in through Spade Cloud (ADR 0140): renewals go through the cloud.
     #[serde(default)]
     pub cloud: bool,
     /// When the access token expires, in ms since the epoch, if the server said.

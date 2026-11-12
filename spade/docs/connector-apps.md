@@ -150,7 +150,7 @@ code and Open. The person's own token and own client ID keep working as before.
 
 ## Asana, Box, Canva, HubSpot
 
-Each requires a client secret, and a secret shipped in Spade would be public. Since ADR 0139 they
+Each requires a client secret, and a secret shipped in Spade would be public. Since ADR 0140 they
 sign in through [Spade Cloud](cloud.md), which holds Spade's secrets for them; the owner
 registers those apps with redirect `https://cloud.acehq.dev/v1/oauth/callback` (steps in
 cloud.md). "Use your own client ID" stays: the person registers an app with the maker and types

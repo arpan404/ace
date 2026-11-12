@@ -1,4 +1,4 @@
-# 0139: Spade Cloud, a hosted backend for Spade, starting with app sign-in
+# 0140: Spade Cloud, a hosted backend for Spade, starting with app sign-in
 
 Status: accepted. Date: 2026-11-12. Decided by: the owner (2026-11-12). Amends
 [ADR 0002](0002-local-cli-providers.md) with a third narrow hosted exception, beside

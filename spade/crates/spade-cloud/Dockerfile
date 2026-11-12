@@ -1,4 +1,4 @@
-# Spade Cloud (ADR 0139). Build from the `spade/` directory:
+# Spade Cloud (ADR 0140). Build from the `spade/` directory:
 #   docker build -f crates/spade-cloud/Dockerfile -t spade-cloud .
 # Configured only through the environment; see spade/docs/cloud.md.
 

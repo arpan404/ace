@@ -1,6 +1,6 @@
 {
   "checked": "2026-11-12",
-  "about": "The apps Spade Cloud signs in to (ADR 0139). Endpoints are from each issuer's live authorization-server metadata and each MCP server's protected-resource metadata on the date above. Client IDs and secrets are never here: each app names the environment variables that hold them. See spade/docs/cloud.md.",
+  "about": "The apps Spade Cloud signs in to (ADR 0140). Endpoints are from each issuer's live authorization-server metadata and each MCP server's protected-resource metadata on the date above. Client IDs and secrets are never here: each app names the environment variables that hold them. See spade/docs/cloud.md.",
   "apps": [
     {
       "id": "asana",

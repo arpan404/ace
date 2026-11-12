@@ -1,4 +1,4 @@
-//! What Spade and Spade Cloud say to each other (ADR 0139, `spade/docs/cloud.md`): the shapes of
+//! What Spade and Spade Cloud say to each other (ADR 0140, `spade/docs/cloud.md`): the shapes of
 //! the broker's requests and answers, and [`seal`] / [`OneTimeKey::open`], which carry an app's
 //! token response from the cloud to Spade so only the Spade that started the sign-in can read it.
 //!

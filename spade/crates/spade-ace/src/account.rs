@@ -1,4 +1,4 @@
-//! The person's ace account credential for Spade Cloud (ADR 0139): Spade asks its daemon, with
+//! The person's ace account credential for Spade Cloud (ADR 0140): Spade asks its daemon, with
 //! its grant, for a short-lived machine grant (`POST <daemon>/spade/account-grant`), the same
 //! credential the relay takes (ADR 0111). It is a bearer for five minutes and is never stored.
 

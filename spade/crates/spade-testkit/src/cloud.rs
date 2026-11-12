@@ -1,4 +1,4 @@
-//! A fake Spade Cloud (ADR 0139) on 127.0.0.1: the broker's start, finish and refresh, sealing
+//! A fake Spade Cloud (ADR 0140) on 127.0.0.1: the broker's start, finish and refresh, sealing
 //! its tokens to Spade's one-time key exactly as the real one does. The person "signs in" when a
 //! test calls [`FakeCloud::approve`].
 

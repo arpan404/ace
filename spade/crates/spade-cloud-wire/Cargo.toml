@@ -1,7 +1,7 @@
 [package]
 name = "spade-cloud-wire"
 version = "0.1.0"
-description = "What Spade and Spade Cloud say to each other (ADR 0139): the API's shapes and the sealing of tokens to Spade's one-time key"
+description = "What Spade and Spade Cloud say to each other (ADR 0140): the API's shapes and the sealing of tokens to Spade's one-time key"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

@@ -1,4 +1,4 @@
-//! The ace account credential Spade shows Spade Cloud (ADR 0139): a machine grant from the
+//! The ace account credential Spade shows Spade Cloud (ADR 0140): a machine grant from the
 //! daemon, kept in memory until a minute before it runs out so polling a sign-in doesn't ask the
 //! daemon every few seconds. Never written anywhere.
 

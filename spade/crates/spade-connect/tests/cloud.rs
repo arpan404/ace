@@ -1,4 +1,4 @@
-//! Apps that sign in through Spade Cloud (ADR 0139), against a fake cloud: the tokens it seals
+//! Apps that sign in through Spade Cloud (ADR 0140), against a fake cloud: the tokens it seals
 //! end up in the keychain, renewals go through it, a connected app outlives the cloud being
 //! away, and without an ace account nothing starts.
 

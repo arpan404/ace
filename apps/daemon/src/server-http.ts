@@ -43,7 +43,7 @@ function mcpFirst(options: ServerOptions, next: Handler): Handler {
     // Spade's bots' turns on the person's subscriptions (ADR 0133), with Spade's grant.
     const brains = options.spadeBrains;
     if (path?.startsWith(brainPathPrefix) && brains) return brains(request, response);
-    // A machine grant for Spade Cloud (ADR 0139), with Spade's grant.
+    // A machine grant for Spade Cloud (ADR 0140), with Spade's grant.
     const spadeAccount = path === accountGrantPath ? accountGrant() : undefined;
     if (spadeAccount) return spadeAccount(request, response);
     next(request, response);

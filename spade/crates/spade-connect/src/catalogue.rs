@@ -19,7 +19,7 @@ pub enum SignIn {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Via {
-    /// Spade Cloud, which holds the app's client secret (ADR 0139).
+    /// Spade Cloud, which holds the app's client secret (ADR 0140).
     Cloud,
 }
 

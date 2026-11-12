@@ -405,7 +405,7 @@ impl AceLink {
             .map(|attempt| spade_ace::AceBrains::new(&attempt.config.tools))
     }
 
-    /// The daemon's account-grant request with Spade's grant (ADR 0139), found from ace's files now.
+    /// The daemon's account-grant request with Spade's grant (ADR 0140), found from ace's files now.
     pub fn account(&self) -> Result<spade_ace::AceAccount, String> {
         self.attempt()
             .map(|attempt| spade_ace::AceAccount::new(&attempt.config.tools))

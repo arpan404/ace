@@ -1,7 +1,7 @@
 [package]
 name = "spade-cloud"
 version = "0.1.0"
-description = "Spade Cloud (ADR 0139): Spade's hosted backend at cloud.acehq.dev, first the OAuth broker for apps whose sign-in needs a client secret"
+description = "Spade Cloud (ADR 0140): Spade's hosted backend at cloud.acehq.dev, first the OAuth broker for apps whose sign-in needs a client secret"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

@@ -73,7 +73,7 @@ pub struct Setup {
     /// How long one second of a device sign-in's polling interval lasts: a second in Spade;
     /// tests shorten it so RFC 8628's five-second steps don't slow them.
     pub tick: Duration,
-    /// Spade Cloud, for catalogue entries marked `via: "cloud"` (ADR 0139). `None`: those entries
+    /// Spade Cloud, for catalogue entries marked `via: "cloud"` (ADR 0140). `None`: those entries
     /// take the person's own client ID only.
     pub cloud: Option<Cloud>,
 }

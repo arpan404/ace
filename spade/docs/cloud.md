@@ -1,7 +1,7 @@
 # Spade Cloud
 
 Spade Cloud is Spade's hosted backend at `https://cloud.acehq.dev`
-([ADR 0139](../../docs/adr/0139-spade-cloud.md)). Its first job is signing people in to apps whose
+([ADR 0140](../../docs/adr/0140-spade-cloud.md)). Its first job is signing people in to apps whose
 OAuth needs a client secret, which Spade can't ship: Asana, Box, Canva and HubSpot. It uses the
 person's ace account; there is no separate Spade login. It stores no tokens.
 

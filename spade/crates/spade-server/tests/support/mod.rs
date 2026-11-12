@@ -170,7 +170,7 @@ pub struct Options {
     pub apps: Vec<spade_connect::App>,
     /// With `connectors`: catalogue entries added to the shipped ones.
     pub catalogue: Vec<spade_connect::Entry>,
-    /// With `connectors`: Spade Cloud (ADR 0139).
+    /// With `connectors`: Spade Cloud (ADR 0140).
     pub cloud: Option<spade_connect::Cloud>,
     /// The engine's clock; the machine's when absent.
     pub clock: Option<Arc<dyn Clock>>,

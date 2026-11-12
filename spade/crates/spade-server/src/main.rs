@@ -284,7 +284,7 @@ async fn run() -> Result<(), Failure> {
         apps: spade_connect::apps::shipped(),
         tick: Duration::from_secs(1),
         // Spade Cloud signs in to apps that need a client secret, with the person's ace account
-        // (ADR 0139). `SPADE_CLOUD_URL=off` leaves those apps on the person's own client ID.
+        // (ADR 0140). `SPADE_CLOUD_URL=off` leaves those apps on the person's own client ID.
         cloud: match env("SPADE_CLOUD_URL").map(|v| v.trim().to_owned()) {
             Some(off) if off == "off" => None,
             url => Some(spade_connect::Cloud {

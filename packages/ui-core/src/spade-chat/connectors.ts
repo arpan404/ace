@@ -16,7 +16,7 @@ export interface SpadeCatalogueEntry {
   url: string;
   signIn: SpadeSignIn[];
   notes: string;
-  /** `cloud`: signs in through Spade Cloud with the person's ace account (ADR 0139). */
+  /** `cloud`: signs in through Spade Cloud with the person's ace account (ADR 0140). */
   via: "cloud" | undefined;
 }
 

@@ -1,4 +1,4 @@
-//! Spade Cloud (ADR 0139, `spade/docs/cloud.md`): the hosted broker that signs in to apps whose
+//! Spade Cloud (ADR 0140, `spade/docs/cloud.md`): the hosted broker that signs in to apps whose
 //! sign-in needs a client secret. Spade shows it the person's ace account credential, a PKCE
 //! challenge and a one-time key; the cloud returns the app's tokens sealed to that key. The
 //! tokens are then kept as every connector's are, in the keychain. This module is the cloud's

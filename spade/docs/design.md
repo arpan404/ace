@@ -244,7 +244,7 @@ first match wins:
    Its code is never copied into ours.
 4. **An optional catch-all service** for the long tail, off by default: it holds the person's app
    logins and bills per call.
-5. **[Spade Cloud](cloud.md)** (ADR 0139) signs in to apps whose OAuth needs a client secret,
+5. **[Spade Cloud](cloud.md)** (ADR 0140) signs in to apps whose OAuth needs a client secret,
    with the person's ace account, and stores no tokens. It is Spade's hosted backend and may
    later run Spade itself.
 
