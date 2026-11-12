@@ -765,3 +765,33 @@ fn scopeguard(f: impl FnOnce()) -> impl Drop {
     }
     Guard(Some(f))
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_delete_that_panics_leaves_the_endpoint_free_to_delete_again() -> Result {
+    let gate = support::Gate::default();
+    gate.open();
+    let spade = Spade::start_with(
+        vec![Script::reply("unused")],
+        Vec::new(),
+        support::Options {
+            keychain_delete_gate: Some(gate.clone()),
+            ..support::Options::default()
+        },
+    )
+    .await?;
+    let (status, _) = spade
+        .post(
+            "/v1/endpoints",
+            json!({ "name": "Gate", "format": "openai-chat", "base_url": "http://127.0.0.1:7",
+                    "needs_key": false }),
+        )
+        .await?;
+    assert_eq!(status, 201);
+    gate.panic_next();
+    let (status, _) = spade.delete("/v1/endpoints/gate").await?;
+    assert_eq!(status, 500, "the panicking delete fails");
+    // Not left "already being removed" until a restart.
+    let (status, body) = spade.delete("/v1/endpoints/gate").await?;
+    assert_eq!(status, 204, "{body}");
+    Ok(())
+}
