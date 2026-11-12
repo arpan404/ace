@@ -13,7 +13,8 @@ struct ThreadSummaryPage: View {
     let openThread: ((String) -> Void)?
     /// Opens the agent tree; nil where it isn't one tap away.
     let openAgents: (() -> Void)?
-    /// Opens the thread's changes; nil where the page can't.
+    /// Opens the thread's changes on This thread, as the files count is the whole thread's; nil
+    /// where the page can't.
     let openChanges: (() -> Void)?
     /// Opens a native subagent's transcript, where this page sits on a stack that can push it.
     var openAgent: ((SubagentRoute) -> Void)? = nil
@@ -109,8 +110,7 @@ struct ThreadSummaryPage: View {
     }
 
     private func filesRow(_ files: ThreadSummarySheet.Files) -> some View {
-        // The count is the whole thread's, so Changes opens on This thread, not the last turn.
-        Button { model.sheet(["kind": "changes.scope", "scope": "all"]); openChanges?() } label: {
+        Button { openChanges?() } label: {
             QuietSectionRow {
                 AceIcon(.notePencil, size: AceDesign.Size.glyphSmall, relativeTo: .footnote)
                     .foregroundStyle(AceDesign.Ink.subtle)

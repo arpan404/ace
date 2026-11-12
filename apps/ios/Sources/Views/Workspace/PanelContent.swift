@@ -10,19 +10,24 @@ struct PanelContent: View {
     let title: String
     let subtitle: String
     let openThread: (String) -> Void
+    /// The scope the Changes tab opens on, set by the Summary tab and cleared once shown.
+    @Binding var changesScope: String?
     /// Puts `@path` (or `@path:12-20`) into the composer; nil when this device can't send.
     let mention: ((ComposerMention) -> Void)?
 
     var body: some View {
         switch tool {
         // These two bring their own stack, as sheets.
-        case .changes: ChangesSheet(model: model, title: title)
+        case .changes: ChangesSheet(model: model, title: title, scope: changesScope, scopeShown: { changesScope = nil })
         case .agents: AgentsSheet(model: model, thread: thread, openThread: openThread)
         case .summary:
             NavigationStack {
                 ThreadSummaryPage(model: model, thread: thread, openThread: openThread,
                                   openAgents: { model.panel(thread.id, ["op": "open", "kind": PanelTool.agents.rawValue]) },
-                                  openChanges: { model.panel(thread.id, ["op": "open", "kind": PanelTool.changes.rawValue]) })
+                                  openChanges: {
+                                      changesScope = "all"
+                                      model.panel(thread.id, ["op": "open", "kind": PanelTool.changes.rawValue])
+                                  })
                     .navigationTitle("Summary")
                     .navigationBarTitleDisplayMode(.inline)
             }

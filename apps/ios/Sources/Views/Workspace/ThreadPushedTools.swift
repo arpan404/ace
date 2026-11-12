@@ -9,7 +9,7 @@ struct ThreadPushedTools: ViewModifier {
     @Binding var pushed: ThreadPushedTool?
     let openThread: (String) -> Void
     let openAgent: (SubagentRoute) -> Void
-    /// Back to the thread on its Changes page.
+    /// Back to the thread on its Changes page, showing This thread (the Summary's count).
     var openChanges: (() -> Void)? = nil
     /// Puts a page into the composer; nil when this phone can't send.
     let mention: ((ComposerMention) -> Void)?
