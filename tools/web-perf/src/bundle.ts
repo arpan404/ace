@@ -132,12 +132,18 @@ try {
             lazy.add(chunk);
             queue.push(chunk);
           }
-    if (lazy.size)
+    if (lazy.size) {
       report(
         `${label} with its lazy chunks`,
         weighOf([...eager, ...lazy]),
         budgets.bundle.workerTotalKb,
       );
+      // No budget of its own: the total above bounds it, so moving bytes behind import()
+      // never buys room. Shown so growth in the later chunks is visible apart from startup.
+      process.stdout.write(
+        `  ${`${label} lazy chunks alone`.padEnd(56)} ${weighOf(lazy).toFixed(2).padStart(7)} KB\n`,
+      );
+    }
   }
   if (analyze) {
     process.stdout.write(initialBreakdown(out));
