@@ -8,9 +8,12 @@ extension ClientModel {
     /// Moves the thread to Settled; the daemon refuses while its tree still runs.
     func settle(_ threadId: String) async -> Bool { await inboxCommand(["kind": "settle", "threadId": threadId]) }
     func unsettle(_ threadId: String) async -> Bool { await inboxCommand(["kind": "unsettle", "threadId": threadId]) }
-    /// `preset` is a shared snooze preset id from `inboxLayout.snooze`; the bridge resolves the time.
-    func snooze(_ threadId: String, preset: String) async -> Bool {
-        await inboxCommand(["kind": "snooze", "threadId": threadId, "preset": preset])
+    /// Snoozes until a time or an event (`bridge/inbox-snooze.ts`): `choice` is a preset id from
+    /// `inboxLayout.snooze` or one of the row's `snoozeEvents`. Answers once saved on this device,
+    /// with the toast's words and what Undo puts back; nil when this phone can't ask.
+    func snooze(_ threadId: String, choice: String) async -> SnoozeAnswer? {
+        guard canOperate else { return nil }
+        return try? await service(["type": "inbox.snooze", "threadId": threadId, "choice": choice], as: SnoozeAnswer.self)
     }
     func wake(_ threadId: String) async -> Bool { await inboxCommand(["kind": "wake", "threadId": threadId]) }
     /// Pins (leading Pinned) or unpins; the row moves at once and goes back if refused.
@@ -32,15 +35,15 @@ extension ClientModel {
     func setAutoSettle(_ threadId: String, _ enabled: Bool) async -> Bool {
         await inboxCommand(["kind": "autoSettle", "threadId": threadId, "enabled": enabled])
     }
-    /// Puts a snooze back as it was (Undo of a settle), or wakes the thread (`nil`).
-    /// Resolves with nil once the machine took it (a snooze it finds already over counts as
-    /// taken), else its refusal in words.
-    func snooze(_ threadId: String, until: Double?) async -> String? {
+    /// Puts a snooze back as it was, with the event it waited for (Undo of a snooze or a settle),
+    /// or wakes the thread (`until` nil). Resolves with nil once the machine took it (one it finds
+    /// already over wakes the thread instead), else its refusal in words.
+    func snooze(_ threadId: String, until: Double?, wake: String?) async -> String? {
         guard canOperate else { return "This phone can only view this machine." }
         let id = admissions.nextId()
-        return await receipts.wait(id: id) {
-            action(["type": "inbox", "action": ["kind": "snoozeAt", "threadId": threadId, "until": until.map { $0 as Any } ?? NSNull()], "requestId": id])
-        }
+        let back: [String: Any] = ["kind": "snoozeAt", "threadId": threadId, "until": until.map { $0 as Any } ?? NSNull(),
+                                   "wake": wake.map { $0 as Any } ?? NSNull()]
+        return await receipts.wait(id: id) { action(["type": "inbox", "action": back, "requestId": id]) }
     }
     /// Moves the thread to another of this machine's projects; the row moves at once.
     func moveThread(_ threadId: String, to workspaceId: String) async -> Bool {
@@ -60,6 +63,39 @@ extension ClientModel {
     /// The question asked before deleting `threadIds` for good, from their listed state.
     func deleteQuestion(_ threadIds: [String]) async -> DeleteQuestion? {
         try? await service(["type": "inbox.deleteQuestion", "threadIds": threadIds], as: DeleteQuestion.self)
+    }
+}
+
+/// A snooze as Undo puts it back: when it ends (nil: the thread wakes) and the event it waits
+/// for ("needs_you", "pr").
+struct SnoozeBack: Codable, Sendable, Equatable {
+    let until: Double?
+    let wake: String?
+}
+
+/// The bridge's answer to a snooze (`SnoozeAnswer` in `bridge/inbox-snooze.ts`).
+struct SnoozeAnswer: Decodable, Sendable, Equatable {
+    /// Saved on this device; the machine's refusal, if any, comes later as the screen's error.
+    let saved: Bool
+    /// Why it wasn't saved; empty when it was.
+    let message: String
+    /// "Snoozed until it needs you · Fix login", beside Undo.
+    let toast: String
+    let undo: SnoozeBack
+}
+
+/// One Snooze menu choice: a time preset from the layout, or an event the row offers.
+struct SnoozeChoice: Identifiable, Equatable {
+    let id: String
+    let label: String
+    /// What brings the thread back, under an event's label.
+    var detail: String? = nil
+
+    /// The web's Snooze menu, top to bottom: Until it needs you, the times, Until the PR changes.
+    static func menu(presets: [InboxLayout.SnoozeOption], events: [ThreadRow.SnoozeEvent]) -> [SnoozeChoice] {
+        let event = { (item: ThreadRow.SnoozeEvent) in SnoozeChoice(id: item.id, label: item.label, detail: item.detail) }
+        let times = presets.map { SnoozeChoice(id: $0.id, label: $0.label) }
+        return events.filter { $0.id == "needs_you" }.map(event) + times + events.filter { $0.id != "needs_you" }.map(event)
     }
 }
 

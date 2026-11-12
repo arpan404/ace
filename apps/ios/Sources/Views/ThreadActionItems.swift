@@ -49,7 +49,14 @@ struct ThreadActionItems: View {
                 Button("Wake", ace: .sun) { organizer.wake(key) }
             } else if !settled, !snoozeOptions.isEmpty {
                 Menu {
-                    ForEach(snoozeOptions) { option in Button(option.label) { organizer.snooze(key, option.id) } }
+                    // As the web's: Until it needs you apart at the top, the times, then Until the PR changes.
+                    ForEach(SnoozeChoice.menu(presets: snoozeOptions, events: row.snoozeEvents ?? [])) { choice in
+                        Button { organizer.snooze(key, choice.id) } label: {
+                            Text(choice.label)
+                            if let detail = choice.detail { Text(detail) }
+                        }
+                        if choice.id == "needs_you" { Divider() }
+                    }
                 } label: { Label("Snooze", ace: .bellSimpleZ) }
             }
             ForEach(block("settle"), id: \.self, content: item)

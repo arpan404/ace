@@ -66,8 +66,8 @@ struct InboxView: View {
             .outsideAccessPrompt(inbox)
             .modifier(InboxRename(inbox: inbox, key: $renamingRow))
             .confirmationDialog("Snooze until", isPresented: Binding(get: { snoozing != nil }, set: { if !$0 { snoozing = nil } }), presenting: snoozing) { key in
-                ForEach(inbox.merged.snooze) { option in
-                    Button(option.label) { Task { _ = await inbox.client(key.machineId)?.snooze(key.id, preset: option.id) } }
+                ForEach(SnoozeChoice.menu(presets: inbox.merged.snooze, events: inbox.row(key)?.snoozeEvents ?? [])) { option in
+                    Button(option.label) { Task { await organize.snooze(key, option.id, in: inbox) } }
                 }
             }
             .newThreadEntry(inbox: inbox, composing: $composing, project: composeProject ?? projectFilter) { key in openThread(key) }
@@ -373,7 +373,7 @@ struct InboxView: View {
                 Task { if await inbox.client(key.machineId)?.unsettle(row.id) == true { reveal = key } }
             },
             snooze: { acted(); snoozing = $0 },
-            snoozeUntil: { row, key, preset in acted(); Task { _ = await inbox.client(key.machineId)?.snooze(row.id, preset: preset) } },
+            snoozeUntil: { _, key, choice in acted(); Task { await organize.snooze(key, choice, in: inbox) } },
             wake: { row, key in acted(); Task { _ = await inbox.client(key.machineId)?.wake(row.id) } },
             archive: { _, key in acted(); Task { await organize.run(.archive, [key], in: inbox) } },
             pin: { row, key, pinned in acted(); Task { _ = await inbox.client(key.machineId)?.pin(row.id, pinned) } },
@@ -431,7 +431,7 @@ struct InboxView: View {
     }
     private var organizer: ThreadOrganizer {
         ThreadOrganizer(perform: { key, id in perform(id, key) },
-                        snooze: { key, preset in Task { _ = await inbox.client(key.machineId)?.snooze(key.id, preset: preset) } },
+                        snooze: { key, choice in Task { await organize.snooze(key, choice, in: inbox) } },
                         wake: { key in Task { _ = await inbox.client(key.machineId)?.wake(key.id) } })
     }
     private func perform(_ id: String, _ key: InboxKey) {

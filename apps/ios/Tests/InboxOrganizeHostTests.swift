@@ -47,7 +47,65 @@ import Testing
         let undo = try! #require(organize.undo)
         #expect(await organize.takeBack(undo, in: host))
         #expect(host.sent.map(\.action) == [.settle, .undoSettle])
-        #expect(host.snoozes[key] == host.rows[key]?.snoozedUntil)
+        #expect(host.snoozes[key] == SnoozeBack(until: host.rows[key]?.snoozedUntil, wake: nil))
+    }
+
+    @Test func undoOfASettleKeepsTheEventTheSnoozeWaitedFor() async {
+        let host = FakeHost()
+        let key = InboxKey(machineId: "mac", id: "a")
+        var row = FakeHost.row("a", snoozedUntil: host.clock() + 30 * 86_400_000)
+        row.snoozeWake = "needs_you"
+        host.rows[key] = row
+        host.answers = [BulkOutcome(saved: ["a"]), BulkOutcome(saved: ["a"])]
+        let organize = InboxOrganize()
+        await organize.run(.settle, [key], in: host)
+        #expect(await organize.takeBack(try! #require(organize.undo), in: host))
+        #expect(host.snoozes[key] == SnoozeBack(until: row.snoozedUntil, wake: "needs_you"))
+    }
+
+    @Test func aSnoozeOffersUndoThatPutsBackTheSnoozeItHad() async {
+        let host = FakeHost()
+        let key = InboxKey(machineId: "mac", id: "a")
+        let before = SnoozeBack(until: host.clock() + 3_600_000, wake: "pr")
+        host.snoozeAnswer = SnoozeAnswer(saved: true, message: "", toast: "Snoozed until it needs you · a", undo: before)
+        let organize = InboxOrganize()
+        await organize.snooze(key, "needs_you", in: host)
+        #expect(host.chosen == ["needs_you"])
+        let undo = try! #require(organize.undo)
+        #expect(undo.text == "Snoozed until it needs you · a")
+        #expect(undo.identifier == "inbox.undoSnooze")
+        #expect(await organize.takeBack(undo, in: host))
+        #expect(host.snoozes[key] == before)
+        #expect(organize.undo == nil)
+    }
+
+    @Test func aSnoozeThisDeviceCouldNotSaveSaysSoAndOffersNoUndo() async {
+        let host = FakeHost()
+        host.snoozeAnswer = SnoozeAnswer(saved: false, message: "Couldn't save that snooze on this device. Try again.",
+                                         toast: "", undo: SnoozeBack(until: nil, wake: nil))
+        let organize = InboxOrganize()
+        await organize.snooze(InboxKey(machineId: "mac", id: "a"), "hour", in: host)
+        #expect(organize.undo == nil)
+        #expect(organize.problem == "Couldn't save that snooze on this device. Try again.")
+    }
+
+    @Test func anUndoneSnoozeTheMachineRefusesStaysOnTheToastToTryAgain() async {
+        let host = FakeHost()
+        let key = InboxKey(machineId: "mac", id: "a")
+        host.snoozeRefusal = "Request refused"
+        let organize = InboxOrganize()
+        let undo = InboxUndo(keys: [key], kind: .snoozed(back: SnoozeBack(until: nil, wake: nil)), text: "Snoozed · a")
+        #expect(await organize.takeBack(undo, in: host) == false)
+        #expect(organize.undo?.keys == [key])
+        #expect(organize.problem?.contains("Couldn't take the snooze back.") == true)
+    }
+
+    @Test func theSnoozeMenuPutsUntilItNeedsYouFirstAndThePRLast() {
+        let presets = [InboxLayout.SnoozeOption(id: "hour", label: "1 hour"), InboxLayout.SnoozeOption(id: "tomorrow", label: "Tomorrow")]
+        let events = [ThreadRow.SnoozeEvent(id: "needs_you", label: "Until it needs you", detail: "Returns on a question"),
+                      ThreadRow.SnoozeEvent(id: "pr", label: "Until the PR changes", detail: "A review")]
+        #expect(SnoozeChoice.menu(presets: presets, events: events).map(\.id) == ["needs_you", "hour", "tomorrow", "pr"])
+        #expect(SnoozeChoice.menu(presets: presets, events: []).map(\.id) == ["hour", "tomorrow"])
     }
 
     @Test func undoOfAMoveSendsEachThreadBackToItsOwnProject() async {
@@ -199,7 +257,9 @@ import Testing
     var answers: [BulkOutcome] = []
     var sent: [Sent] = []
     var rows: [InboxKey: ThreadRow] = [:]
-    var snoozes: [InboxKey: Double] = [:]
+    var snoozes: [InboxKey: SnoozeBack] = [:]
+    var snoozeAnswer: SnoozeAnswer?
+    var chosen: [String] = []
     private var finals: [String: CheckedContinuation<BulkOutcome?, Never>] = [:]
     private var early: [String: BulkOutcome] = [:]
 
@@ -215,7 +275,11 @@ import Testing
         if let waiting = finals.removeValue(forKey: ticket) { waiting.resume(returning: outcome) } else { early[ticket] = outcome }
     }
     var snoozeRefusal: String?
-    func snooze(_ key: InboxKey, until: Double?) async -> String? { snoozes[key] = until; return snoozeRefusal }
+    func snooze(_ key: InboxKey, choice: String) async -> SnoozeAnswer? { chosen.append(choice); return snoozeAnswer }
+    func snooze(_ key: InboxKey, until: Double?, wake: String?) async -> String? {
+        snoozes[key] = SnoozeBack(until: until, wake: wake)
+        return snoozeRefusal
+    }
     func deleteQuestion(_ machineId: String, _ ids: [String]) async -> DeleteQuestion? { nil }
     func row(_ key: InboxKey) -> ThreadRow? { rows[key] }
     func clock() -> Double { 1_800_000_000_000 }

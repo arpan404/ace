@@ -254,7 +254,7 @@ struct ThreadMenuPanel: View {
                 Menu {
                     ForEach(model.inboxLayout.snooze) { option in
                         Button(option.label) {
-                            Task { if await model.snooze(thread.id, preset: option.id) { leave() } }
+                            Task { if await model.snooze(thread.id, choice: option.id)?.saved == true { leave() } }
                             dismiss()
                         }
                     }

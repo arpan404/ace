@@ -1,15 +1,17 @@
 import Foundation
 import Observation
 
-/// A settle, archive or move the person can take back from the toast, for one thread or several.
+/// A settle, archive, move or snooze the person can take back from the toast, for one thread or several.
 /// Each kind keeps what its action changed, so Undo puts exactly that back.
 struct InboxUndo: Equatable {
     enum Kind: Equatable {
-        /// Settling clears a snooze: each thread's snooze end before it was settled.
-        case settled(snoozes: [InboxKey: Double])
+        /// Settling clears a snooze: each thread's snooze before it was settled, event and all.
+        case settled(snoozes: [InboxKey: SnoozeBack])
         case archived
         /// Each thread's project before the move; moving back restores its details there.
         case moved(from: [InboxKey: String])
+        /// The snooze the thread had before this one, or none (`until` nil: it wakes).
+        case snoozed(back: SnoozeBack)
     }
     let keys: [InboxKey]
     let kind: Kind
@@ -27,6 +29,7 @@ struct InboxUndo: Equatable {
         case .settled: "inbox.undoSettle"
         case .archived: "inbox.undoArchive"
         case .moved: "inbox.undoMove"
+        case .snoozed: "inbox.undoSnooze"
         }
     }
 }
@@ -52,8 +55,12 @@ struct MoveAsk: Identifiable, Equatable {
     /// The last answer for `ticket` when its first left threads waiting; nil when the machine
     /// goes away first, and they stay pending.
     func final(_ machineId: String, ticket: String) async -> BulkOutcome?
-    /// nil once the machine took it, else its refusal in words.
-    func snooze(_ key: InboxKey, until: Double?) async -> String?
+    /// One thread snoozed until a preset or an event (`ClientModel.snooze(_:choice:)`); nil when
+    /// its machine can't be asked.
+    func snooze(_ key: InboxKey, choice: String) async -> SnoozeAnswer?
+    /// A snooze put back with its event, or a wake (`until` nil): nil once the machine took it,
+    /// else its refusal in words.
+    func snooze(_ key: InboxKey, until: Double?, wake: String?) async -> String?
     func deleteQuestion(_ machineId: String, _ ids: [String]) async -> DeleteQuestion?
     func row(_ key: InboxKey) -> ThreadRow?
     /// The phone's clock (ms).
@@ -198,9 +205,13 @@ struct MoveAsk: Identifiable, Equatable {
     func run(_ action: BulkAction, _ keys: [InboxKey], in host: any OrganizeHost) async {
         guard !keys.isEmpty else { return }
         if action == .delete { await askDelete(keys, in: host); return }
-        // Settling clears a snooze; its Undo puts it back.
-        var snoozes: [InboxKey: Double] = [:]
-        if action == .settle { for key in keys { if let until = host.row(key)?.snoozedUntil { snoozes[key] = until } } }
+        // Settling clears a snooze; its Undo puts it back, with the event it waited for.
+        var snoozes: [InboxKey: SnoozeBack] = [:]
+        if action == .settle {
+            for key in keys {
+                if let row = host.row(key), let until = row.snoozedUntil { snoozes[key] = SnoozeBack(until: until, wake: row.snoozeWake) }
+            }
+        }
         let verb = action == .settle ? "Settled" : "Archived"
         let kind: InboxUndo.Kind? = action == .settle ? .settled(snoozes: snoozes) : action == .archive ? .archived : nil
         let toast = PendingToast(verb: verb)
@@ -214,6 +225,18 @@ struct MoveAsk: Identifiable, Equatable {
         guard let kind else { return }
         // Undo covers the waiting threads too: theirs goes out once their own command lands.
         show(toast, InboxUndo(keys: sorted.taken + sorted.waiting, kind: kind, text: ""), waiting: sorted.waiting)
+    }
+
+    /// Snooze one thread until a preset or an event, with Undo putting back the snooze it had
+    /// (or waking it), as the web's Snooze does. The toast shows once this device saved it.
+    func snooze(_ key: InboxKey, _ choice: String, in host: any OrganizeHost) async {
+        guard let answer = await host.snooze(key, choice: choice) else {
+            problem = "Couldn't snooze that. Try again once the machine is connected."
+            return
+        }
+        guard answer.saved else { problem = answer.message; return }
+        feedback += 1
+        undo = InboxUndo(keys: [key], kind: .snoozed(back: answer.undo), text: answer.toast)
     }
 
     /// Move `keys` (all on one machine) to `project`, with Undo back to where each was.
@@ -301,6 +324,10 @@ struct MoveAsk: Identifiable, Equatable {
                 let sorted = await send(.move, keys, in: host, workspaceId: workspace) { later in outcome.record(later); finish() }
                 outcome.record(sorted)
             }
+        case .snoozed(let back):
+            for key in landed {
+                if let refusal = await host.snooze(key, until: back.until, wake: back.wake) { outcome.fail(key, "Couldn't take the snooze back. \(refusal)") }
+            }
         }
         return undoAnswered(undo, outcome, serial: serial, host: host)
     }
@@ -329,11 +356,11 @@ struct MoveAsk: Identifiable, Equatable {
     }
 
     /// The snooze a settle cleared comes back, while it still has time to run.
-    private func putSnoozesBack(_ keys: [InboxKey], _ snoozes: [InboxKey: Double], _ outcome: UndoOutcome, host: any OrganizeHost) async {
+    private func putSnoozesBack(_ keys: [InboxKey], _ snoozes: [InboxKey: SnoozeBack], _ outcome: UndoOutcome, host: any OrganizeHost) async {
         let now = host.clock()
         for key in keys {
-            guard let until = snoozes[key], until > now else { continue }
-            if let refusal = await host.snooze(key, until: until) { outcome.fail(key, "Couldn't put its snooze back. \(refusal)") }
+            guard let back = snoozes[key], let until = back.until, until > now else { continue }
+            if let refusal = await host.snooze(key, until: until, wake: back.wake) { outcome.fail(key, "Couldn't put its snooze back. \(refusal)") }
         }
     }
 
@@ -362,9 +389,12 @@ extension MachineInbox: OrganizeHost {
     func final(_ machineId: String, ticket: String) async -> BulkOutcome? {
         await client(machineId)?.bulkFinals.wait(ticket)
     }
-    func snooze(_ key: InboxKey, until: Double?) async -> String? {
+    func snooze(_ key: InboxKey, choice: String) async -> SnoozeAnswer? {
+        await client(key.machineId)?.snooze(key.id, choice: choice)
+    }
+    func snooze(_ key: InboxKey, until: Double?, wake: String?) async -> String? {
         guard let client = client(key.machineId) else { return "That machine isn't paired any more." }
-        return await client.snooze(key.id, until: until)
+        return await client.snooze(key.id, until: until, wake: wake)
     }
     func deleteQuestion(_ machineId: String, _ ids: [String]) async -> DeleteQuestion? {
         await client(machineId)?.deleteQuestion(ids)

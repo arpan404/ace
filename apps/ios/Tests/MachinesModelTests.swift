@@ -147,7 +147,7 @@ import Testing
         client.approve(approval, option: approval.options[0])
         client.stopTree()
         #expect(await client.archive("thread-1") == false)
-        #expect(await client.snooze("thread-1", preset: "hour") == false)
+        #expect(await client.snooze("thread-1", choice: "hour") == nil)
         #expect(client.approvalSubmissions.isEmpty)
         #expect(viewOnly.submitted.isEmpty)
         // The machine paired with View and act keeps taking commands beside it.

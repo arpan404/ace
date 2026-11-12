@@ -27,7 +27,7 @@ import Testing
         let (model, root) = try await connected()
         defer { Task { await model.disconnectAndWait(); try? FileManager.default.removeItem(at: root) } }
         try await until("done row arrives") { section(model, of: "ios-done")?.key == "done" }
-        #expect(try await SpikeFixture.within("snooze admitted") { await model.snooze("ios-done", preset: "hour") })
+        #expect(try await SpikeFixture.within("snooze admitted") { await model.snooze("ios-done", choice: "hour")?.saved == true })
         try await until("row moves to Snoozed") { section(model, of: "ios-done")?.key == "snoozed" }
         #expect((model.inbox["ios-done"]?.snoozedUntil ?? 0) > Date().timeIntervalSince1970 * 1000)
         #expect(try await SpikeFixture.within("wake admitted") { await model.wake("ios-done") })

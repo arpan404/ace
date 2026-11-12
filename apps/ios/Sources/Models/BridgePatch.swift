@@ -74,6 +74,14 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     var computerUse: String? = nil
     /// "Started by Claude" when an outside app started the thread (ADR 0122).
     var startedBy: String? = nil
+    /// Inbox rows only: when a snoozed row comes back, worded by the shared rules ("until it
+    /// needs you", "until Mon 9:00 AM"); the event its snooze waits for ("needs_you", "pr"); and
+    /// the event snoozes that fit the thread, for its Snooze menu.
+    var wake: String? = nil
+    var snoozeWake: String? = nil
+    var snoozeEvents: [SnoozeEvent]? = nil
+
+    struct SnoozeEvent: Codable, Sendable, Equatable { let id: String; let label: String; let detail: String }
 
     struct Work: Codable, Sendable, Equatable { let added: Int; let removed: Int }
     struct LinkedPull: Codable, Sendable, Equatable { let number: Int; let state: String; let repo: String; let title: String? }

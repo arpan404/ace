@@ -31,11 +31,15 @@ export type InboxSnoozeRequest = z.infer<typeof InboxSnoozeRequest>;
 export interface SnoozeAnswer {
   /** Saved on this device; the machine's refusal, if any, comes later as the receipt. */
   saved: boolean;
+  /** Why it wasn't saved; empty when it was. */
+  message: string;
   /** "Snoozed until it needs you · Fix login", beside Undo. */
   toast: string;
   /** The snooze Undo puts back (`snoozeAt`); no `until` wakes the thread. */
   undo: { until: number | null; wake: SnoozeSetting["wake"] | null };
 }
+
+const unsaved = "Couldn't save that snooze on this device. Try again.";
 
 function settingOf(choice: InboxSnoozeRequest["choice"], now: number): SnoozeSetting | undefined {
   if (choice === "needs_you" || choice === "pr")
@@ -56,7 +60,7 @@ export async function runSnooze(
   const before = snoozeBefore(entry ?? {}, now);
   const undo = { until: before.until, wake: before.wake ?? null };
   const setting = settingOf(request.choice, now);
-  if (!setting?.until) return { saved: false, toast: "", undo };
+  if (!setting?.until) return { saved: false, message: unsaved, toast: "", undo };
   const { until, wake } = setting;
   const payload: CommandPayload = {
     type: "thread.snooze",
@@ -73,7 +77,8 @@ export async function runSnooze(
   );
   // The words for what it waits for, not the backstop's date.
   const label = snoozeLabel({ snoozedUntil: until, snoozeWake: wake && { on: wake } }, now);
-  return { saved, toast: snoozedToast(preview(entry?.title ?? "", 512), label), undo };
+  const toast = snoozedToast(preview(entry?.title ?? "", 512), label);
+  return { saved, message: saved ? "" : unsaved, toast, undo };
 }
 
 /** What the machine says of a snooze put back that it finds over: its time passed, or its event can't come. */
