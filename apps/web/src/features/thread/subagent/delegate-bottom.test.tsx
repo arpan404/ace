@@ -102,7 +102,8 @@ test("a thread Spade delegated has no parent to open: no subagent bar, no parent
   await screen.findByRole("heading", { name: "Check the relay", level: 1 });
   expect(await screen.findByRole("combobox", { name: "Message" })).toBeTruthy();
   expect(screen.queryByRole("group", { name: "Subagent" })).toBeNull();
-  expect(screen.queryByRole("link", { name: "Spade" })).toBeNull();
+  // The thread links to no parent; the rail's own Spade link is the app's, not the thread's.
+  expect(within(screen.getByRole("main")).queryByRole("link", { name: "Spade" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Open parent" })).toBeNull();
 });
 
