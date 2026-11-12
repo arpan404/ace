@@ -145,7 +145,8 @@ export function parseSpadeConnectStart(body: string): SpadeConnectStart | undefi
   const connector = parseSpadeConnectorValue(record.connector);
   if (connector) return { kind: "connected", connector };
   const url = record.sign_in_url;
-  if (typeof record.id === "string" && typeof url === "string" && /^https?:\/\//i.test(url))
+  // Only https: the address goes straight to the person's browser.
+  if (typeof record.id === "string" && typeof url === "string" && /^https:\/\//i.test(url))
     return { kind: "sign_in", id: record.id, url };
   return undefined;
 }

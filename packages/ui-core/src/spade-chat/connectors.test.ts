@@ -54,6 +54,9 @@ test("connecting answers either a connector or a sign-in address, and nothing el
     parseSpadeConnectStart(JSON.stringify({ id: "x", sign_in_url: "javascript:alert(1)" })),
   ).toBeUndefined();
   expect(
+    parseSpadeConnectStart(JSON.stringify({ id: "x", sign_in_url: "http://auth.example/a" })),
+  ).toBeUndefined();
+  expect(
     parseSpadeConnectStart(JSON.stringify({ connector: { id: "linear", state: "connected" } }))
       ?.kind,
   ).toBe("connected");
