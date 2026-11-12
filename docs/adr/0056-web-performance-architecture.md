@@ -261,3 +261,7 @@ Initial JS (335 KB), first screen (680 KB), routes (345 KB) and CSS (30 KB) stay
 ## Amendment (2026-11-12): round budgets
 
 The owner asked for round bundle budgets, and whole kilobytes in the report: initial JS 350 KB, first screen 700 KB, route 350 KB, CSS 30 KB, a worker's eager script 90 KB, a worker with its later chunks 140 KB. They replace the numbers above (335, 680, 345, 30, 87 and 135). The check still compares exact sizes. The first screen (693 KB) now passes; initial JS (364 KB) stays over until startup code comes out.
+
+## Amendment (2026-11-12): initial JS budget 365 KB
+
+The startup round got initial JS from 364 to 361 KB. Zod stays at startup because the thread route needs it too, so taking it out of startup only moves it into that route. The rest would need the tooltip and hover-card code out of startup (about 17 KB), either as ace's own smaller implementation or by swapping triggers in after their code loads, both UI risks. The owner chose to stop here and set the initial JS budget to 365 KB. The other budgets are unchanged.
