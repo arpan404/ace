@@ -77,6 +77,10 @@ prompt top stays valid. Their risk comes from their annotations (unlabelled mean
 `wait` runs as a background job. When every search backend fails and ace is there, `web_search`
 tells the model to have an ace agent search on the cheapest model the person has.
 
+Connectors (the person's apps through their own remote MCP servers, [connectors.md](connectors.md))
+are offered the same way: deferred, named `<connector>__<tool>`, risk from their annotations,
+output untrusted, and only to bots the person allowed them.
+
 Each conversation gets a skill index (up to 40 skills by name, manual ones left out) frozen into
 its instructions before its first model call; skills added later are found with `skill_search`.
 

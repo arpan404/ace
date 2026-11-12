@@ -40,7 +40,7 @@ pub(super) async fn handle_calls(
     stop: &mut watch::Receiver<bool>,
     pause: &mut watch::Receiver<Pause>,
 ) -> Handled {
-    let registry = engine.tools.registry();
+    let registry = engine.tools.registry_for(id);
     let transcript = Transcript::fold(events);
     let untrusted = context::untrusted_turn(events, &registry);
     // A note outlives the turn: one written while a tainted summary is in view asks too.
@@ -194,7 +194,7 @@ async fn run_tools(
             // that ran for one that did not.
             // What the tool is now is stored with its start, so compaction reads a write as one
             // even once the tool is gone or reclassified.
-            let def = engine.tools.registry().get(&name).cloned();
+            let def = engine.tools.registry_for(id).get(&name).cloned();
             let background = def.as_ref().is_some_and(|def| def.background);
             let risk = match &def {
                 Some(def) => Some(def.risk),
@@ -299,11 +299,11 @@ async fn run_one(
 ) -> ToolOutput {
     if name == TOOL_SEARCH {
         let query = arguments.get("query").and_then(Value::as_str).unwrap_or("");
-        let registry = engine.tools.registry();
+        let registry = engine.tools.registry_for(id);
         let found = registry.search(query, 5);
         return ToolOutput::ok(describe(&found));
     }
-    let Some(tool) = engine.tools.get(name) else {
+    let Some(tool) = engine.tools.get_for(id, name) else {
         return ToolOutput::error(format!("There is no tool named {name}."));
     };
     // Unique across conversations, and the same on every retry of this call.

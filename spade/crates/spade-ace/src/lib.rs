@@ -15,7 +15,6 @@
 mod config;
 mod discovery;
 pub mod events;
-mod secret;
 pub mod skills;
 pub mod tools;
 mod url;
@@ -25,7 +24,7 @@ pub use discovery::{
     DiscoveryError, FIRST_RETRY, LONGEST_RETRY, daemon_urls, discover, next_retry,
     next_retry_between,
 };
-pub use secret::Secret;
 pub use skills::{AceSkills, Skill, SkillErrorCode, SkillList, SkillScope, SkillText, SkillsError};
+pub use spade_mcp::Secret;
 pub use tools::{AceTool, AceToolResult, AceTools, Part, Risk, ToolsError};
 pub use url::{LoopbackUrl, UrlError, UrlKind};

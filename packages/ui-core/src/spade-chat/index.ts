@@ -9,4 +9,5 @@ export * from "./notes.ts";
 export * from "./endpoints.ts";
 export * from "./markup.ts";
 export * from "./hosting.ts";
+export * from "./connectors.ts";
 export * from "./routines.ts";
