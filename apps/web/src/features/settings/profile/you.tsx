@@ -37,7 +37,7 @@ export function NameSetting() {
 export function Legal() {
   const link = "underline decoration-border underline-offset-3 hover:text-foreground";
   return (
-    <nav aria-label="Legal" className="-mt-4 flex gap-4 text-sm text-subtle-foreground">
+    <nav aria-label="Legal" className="flex gap-4 text-xs text-subtle-foreground">
       <a
         href="https://acehq.dev/terms-of-service"
         target="_blank"
