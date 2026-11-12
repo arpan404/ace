@@ -353,6 +353,7 @@ fn job_done(job: &str, name: &str, content: &str) -> Event {
         content: content.into(),
         is_error: false,
         uncertain: false,
+        files: Vec::new(),
     })
 }
 

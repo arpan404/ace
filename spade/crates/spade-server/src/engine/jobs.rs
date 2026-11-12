@@ -99,6 +99,7 @@ pub(super) fn start(
                 content,
                 is_error: output.is_error,
                 uncertain: output.uncertain,
+                files: output.files.clone(),
             });
             keep_trying(|| engine.deliver(&id, &finished)).await;
             engine
@@ -198,6 +199,7 @@ pub(super) fn stop_named(
                     content: JOB_STOPPED.to_owned(),
                     is_error: true,
                     uncertain: true,
+                    files: Vec::new(),
                 })
             })
             .collect();
@@ -253,6 +255,7 @@ pub(super) fn report_lost(engine: &Arc<Engine>, id: &str) -> Result<(), StoreErr
             content: JOB_LOST.to_owned(),
             is_error: true,
             uncertain: true,
+            files: Vec::new(),
         });
         engine.deliver(id, &finished)?;
     }

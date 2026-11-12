@@ -44,6 +44,9 @@ pub struct ToolOutput {
     /// This result carries untrusted content (a file written after reading the web), so the
     /// rest of the turn is untrusted, whatever the tool's definition says.
     pub untrusted: bool,
+    /// Workspace files the tool kept for the person to open (a research report), relative to
+    /// the bot's workspace. Shown as file chips; only background jobs carry them for now.
+    pub files: Vec<String>,
 }
 
 impl ToolOutput {
@@ -54,6 +57,7 @@ impl ToolOutput {
             uncertain: false,
             images: Vec::new(),
             untrusted: false,
+            files: Vec::new(),
         }
     }
 
@@ -71,6 +75,7 @@ impl ToolOutput {
             uncertain: false,
             images: Vec::new(),
             untrusted: false,
+            files: Vec::new(),
         }
     }
 

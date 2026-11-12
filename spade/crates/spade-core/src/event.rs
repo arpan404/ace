@@ -130,6 +130,28 @@ pub enum Known {
         /// The job may or may not have taken effect (lost, stopped or cut off).
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         uncertain: bool,
+        /// Workspace files the job kept for the person to open (a research report, ADR 0135).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        files: Vec<String>,
+    },
+    /// The bot reached one of its spending caps (ADR 0135). Stored once per day or month.
+    CapReached {
+        scope: CapScope,
+        cap_micros: u64,
+        /// The start of the day or month the cap is for, so it is said once per period.
+        period_start: i64,
+        resets_at: i64,
+    },
+    /// The model review judged a call the gate would have run (ADR 0135).
+    CallReviewed {
+        reply: String,
+        call_id: String,
+        name: String,
+        verdict: Verdict,
+        reason: String,
+        model: String,
+        #[serde(default)]
+        cost_micros: u64,
     },
     /// The person pressed Stop, naming what was running then: the open reply and the background
     /// jobs. Those stop; a result of one of those jobs, or of a job its reply started, is kept
@@ -196,6 +218,22 @@ pub enum Known {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         untrusted: bool,
     },
+}
+
+/// Which of a bot's caps (ADR 0135).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CapScope {
+    Daily,
+    Monthly,
+}
+
+/// What the model review decided about a call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Verdict {
+    Allow,
+    Escalate,
 }
 
 /// The agent that sent a message, and how many bot-to-bot hops led to it (1 when the sender was

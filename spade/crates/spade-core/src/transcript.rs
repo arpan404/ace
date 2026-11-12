@@ -203,7 +203,9 @@ impl Transcript {
             Known::SkillsIndexed { .. }
             | Known::MemoryIndexed { .. }
             | Known::ContextCompacted { .. }
-            | Known::AgentConfigured { .. } => {}
+            | Known::AgentConfigured { .. }
+            | Known::CapReached { .. }
+            | Known::CallReviewed { .. } => {}
         }
         if self.open_reply().is_none() {
             self.running.clear();
@@ -576,6 +578,7 @@ mod tests {
             content: "Three options".into(),
             is_error: false,
             uncertain: false,
+            files: Vec::new(),
         }));
         assert!(!Transcript::fold(&events).busy());
     }

@@ -564,6 +564,7 @@ mod tests {
                 content: "late".into(),
                 is_error: false,
                 uncertain: false,
+                files: Vec::new(),
             }),
         ];
         assert!(!needs_reply(&events));
