@@ -102,3 +102,26 @@ export function receiptEntry(
     result: lead || undefined,
   };
 }
+
+/**
+ * A completed turn's subagents as one group: each child once, in the order they started (a
+ * child launched before the turn first). A child the turn launched keeps its launch's row, which
+ * already reads its outcome and result; receipts add the children launched before it. Pure.
+ */
+export function turnSubagents(
+  launched: readonly SubagentEntry[],
+  received: readonly SubagentEntry[],
+): SubagentEntry[] {
+  const seen = new Set(launched.map(key));
+  const all = [...launched];
+  for (const entry of received) {
+    if (seen.has(key(entry))) continue;
+    seen.add(key(entry));
+    all.push(entry);
+  }
+  return all.toSorted((a, b) => startOf(a) - startOf(b));
+}
+
+const key = (entry: SubagentEntry) => entry.childThreadId ?? entry.id;
+/** Unknown starts (0) keep their place after the known ones. */
+const startOf = (entry: SubagentEntry) => entry.startedAt || Number.MAX_SAFE_INTEGER;

@@ -6,7 +6,7 @@ import { isBareErrorCode } from "./error-display.ts";
 import { isContinueInput, isPersonMessage } from "./person-message.ts";
 import { isThreadStartCall } from "./started-thread.ts";
 import { reportsOn, toolRefusal } from "./tool-refusals.ts";
-import { interruptionNotice } from "./system-events.ts";
+import { interruptionNotice, settledResults } from "./system-events.ts";
 
 export { isInlineInteraction } from "./thread-ledger.ts";
 
@@ -74,7 +74,12 @@ export type Block =
     }
   /** The newest turn's one live line ("Working for …"), at the end of its flow, until it settles. */
   | { kind: "live"; key: string; askId: string | undefined }
-  | { kind: "subagents"; key: string; itemIds: string[] }
+  /**
+   * Subagents launched together (`itemIds`, their launches). Once a turn completes, every
+   * subagent row it showed reads as one: its launches, and in `receiptIds` the receipts of
+   * delegated work it was handed (children launched before it, or messaged again).
+   */
+  | { kind: "subagents"; key: string; itemIds: string[]; receiptIds?: string[] | undefined }
   | { kind: "files"; key: string; itemIds: string[] }
   /**
    * A row of its own for one item. `also`: receipts of delegated work delivered right after it,
@@ -984,6 +989,10 @@ export function buildBlocks(source: BlockSource): Block[] {
         // Everything the agent said after its last step is the answer: it all stays in view.
         const finalStep = Math.max(-1, ...turn.work.map((work) => workAt.get(work) ?? -1));
         const answers: string[] = [];
+        // Its subagent rows (launch batches, receipts) gather into the first of them.
+        let crew: Extract<Block, { kind: "subagents" }> | undefined;
+        let crewAt = -1;
+        let crewRows = 0;
         for (const index of [...turn.blocks].toSorted((a, b) => a - b)) {
           const block = blocks[index];
           if (!block) continue;
@@ -992,12 +1001,35 @@ export function buildBlocks(source: BlockSource): Block[] {
             blocks[index] = { ...block, headed: true };
             continue;
           }
+          const launches = block.kind === "subagents" ? block.itemIds : undefined;
+          const receipt =
+            block.kind === "item" && settledResults(source.item(block.itemId))?.length
+              ? block.itemId
+              : undefined;
+          if (launches || receipt !== undefined) {
+            crewRows++;
+            if (crew) {
+              crew.itemIds.push(...(launches ?? []));
+              if (receipt !== undefined) (crew.receiptIds ??= []).push(receipt);
+              absorbed.add(index);
+            } else {
+              crewAt = index;
+              crew = {
+                kind: "subagents",
+                key: block.key.startsWith("subagents:") ? block.key : `subagents:${block.key}`,
+                itemIds: [...(launches ?? [])],
+                receiptIds: receipt === undefined ? undefined : [receipt],
+              };
+            }
+            continue;
+          }
           if (index === headAt) folded.push({ kind: "work", key: head.key, itemIds: firstIds });
           else if (foldable(block, closedQuestion)) {
             folded.push(block);
             absorbed.add(index);
           }
         }
+        if (crew && crewRows > 1) blocks[crewAt] = crew;
         if (folded.length) head.folded = folded;
         if (answers.length) head.answerIds = answers;
         // A paused turn that took no step and said nothing before the limit has nothing behind
@@ -1182,6 +1214,8 @@ export function blockItems(block: Block): readonly string[] {
   // A folded head holds its turn in order: each item once, as the turn said it.
   if (block.kind === "work" && block.folded)
     return [...new Set([...block.folded.flatMap((inner) => blockItems(inner)), ...block.itemIds])];
+  if (block.kind === "subagents" && block.receiptIds?.length)
+    return [...block.itemIds, ...block.receiptIds];
   if ("itemIds" in block) return block.itemIds ?? [];
   if (block.kind === "live") return [];
   if (block.kind === "question") {

@@ -26,7 +26,11 @@ function Holder() {
 }
 
 /** One disclosure at the first launch of a batch; its collapsed row's box is held meanwhile. */
-export function Subagents(props: { threadId: string; itemIds: readonly string[] }) {
+export function Subagents(props: {
+  threadId: string;
+  itemIds: readonly string[];
+  receiptIds?: readonly string[] | undefined;
+}) {
   return (
     <Suspense fallback={<Holder />}>
       <DeferredSubagents.Component {...props} />
