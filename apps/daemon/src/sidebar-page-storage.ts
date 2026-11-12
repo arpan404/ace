@@ -11,8 +11,14 @@ export const sidebarCounted =
 // Queue attention and settled membership exactly match projection.sidebarSettled.
 const attention =
   "COALESCE(json_extract(provider_metadata, '$.queue.paused'), 0) = 1 AND json_extract(provider_metadata, '$.queue.resumeAt') IS NULL AND json_extract(provider_metadata, '$.queue.reason') IS NOT NULL AND json_extract(provider_metadata, '$.queue.reason') NOT IN ('limit', 'snooze') AND NOT (json_extract(provider_metadata, '$.queue.reason') = 'manual' AND COALESCE(json_extract(provider_metadata, '$.queue.pendingCount'), 0) = 0)";
+// The person's own message may not have gone: brings back even a thread settled by hand.
+const unsent = `(${attention}) AND json_extract(provider_metadata, '$.queue.reason') IN ('not_sent', 'uncertain')`;
+// Failed since it was settled, and not read since: by when it last worked, never `updated_at`,
+// which organizing changes move.
+const failedSinceSettled =
+  "json_extract(status, '$.state') = 'failed' AND json_extract(client, '$.activityAt') > json_extract(client, '$.settledAt') AND COALESCE(json_extract(client, '$.readAt'), 0) < json_extract(client, '$.activityAt')";
 /** Paged with the history below the live threads; may be NULL, which is neither. */
-export const sidebarSettled = `COALESCE(json_extract(client, '$.pinned'), 0) != 1 AND json_extract(client, '$.settledAt') IS NOT NULL AND json_extract(status, '$.state') NOT IN ('working', 'needs_you') AND (COALESCE(json_extract(client, '$.settledReason'), '') = 'manual' OR NOT (${attention}))`;
+export const sidebarSettled = `COALESCE(json_extract(client, '$.pinned'), 0) != 1 AND json_extract(client, '$.settledAt') IS NOT NULL AND json_extract(status, '$.state') NOT IN ('working', 'needs_you') AND NOT COALESCE(${failedSinceSettled}, 0) AND (CASE WHEN COALESCE(json_extract(client, '$.settledReason'), '') = 'manual' THEN NOT COALESCE(${unsent}, 0) ELSE NOT (${attention}) END)`;
 /** Gone from every list: deleted, or a host thread the daemon holds for itself (ADR 0121). */
 export const sidebarDeleted =
   "(json_extract(client, '$.deletedAt') IS NOT NULL OR json_extract(client, '$.host') IS NOT NULL)";

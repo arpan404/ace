@@ -112,6 +112,57 @@ test("a settled thread held at a usage limit or with only a command left running
   expect(tabs.inbox).toEqual(["asks", "works"]);
 });
 
+test("a thread settled by hand comes back when it fails later or its message isn't sent, past the first settled window", async () => {
+  const f = await world();
+  // Newer settled threads fill the first settled window, so a thread still counted as settled
+  // by the daemon's own query would sit beyond it, unseen.
+  for (let i = 0; i < 25; i++) f.add(`filler-${i}`, { ...settled, activityAt: now - 2 * day + i });
+  const settledAt = now - 5 * day;
+  const byHand = { settledAt, settledReason: "manual" };
+  f.add("fails-later", {
+    ...byHand,
+    status: { state: "failed" },
+    activityAt: now - 3 * day,
+    readAt: settledAt,
+  });
+  f.add("fails-before", {
+    ...byHand,
+    status: { state: "failed" },
+    activityAt: now - 6 * day,
+    readAt: settledAt,
+  });
+  f.add("failure-read", {
+    ...byHand,
+    status: { state: "failed" },
+    activityAt: now - 3 * day,
+    readAt: now - day,
+  });
+  const unsent = { revision: 1, paused: true, reason: "not_sent", resumeAt: null, pendingCount: 1 };
+  f.add("unsent", {
+    ...settled,
+    status: { state: "waiting", on: "queue" },
+    activityAt: now - 3 * day,
+    queue: unsent,
+  });
+  const restart = { ...unsent, reason: "restart" };
+  f.add("restarted", {
+    ...settled,
+    status: { state: "waiting", on: "queue" },
+    activityAt: now - 3 * day,
+    queue: restart,
+  });
+  const tabs = follow(f).tabs([
+    "fails-later",
+    "fails-before",
+    "failure-read",
+    "unsent",
+    "restarted",
+  ]);
+  expect(tabs.inbox.toSorted()).toEqual(["fails-later", "unsent"]);
+  // The rest are still settled, so they sit past the first window behind the newer fillers.
+  expect(tabs.settled).toEqual([]);
+});
+
 test("the Inbox goes pinned, needs you, running, unseen, idle; Snoozed soonest first; Settled newest first", async () => {
   const f = await world();
   f.add("idle", { status: { state: "done" }, readAt: now, activityAt: now - 1 });
