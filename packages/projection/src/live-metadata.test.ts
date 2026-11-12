@@ -77,6 +77,48 @@ test("the hints name the background command still running, and forget it once it
   ).toBeUndefined();
 });
 
+test("nine background commands running are counted as nine, though only the newest eight are named", () => {
+  const target = thread();
+  const live = fold(
+    target,
+    Array.from({ length: 9 }, (_, at) => ({
+      type: "background_task.started",
+      task: task(`shell-${at}`, `bun run job-${at}`),
+    })),
+  );
+  expect(live?.watching?.map((each) => each.id)).toEqual(
+    Array.from({ length: 8 }, (_, at) => `shell-${at + 1}`),
+  );
+  expect(live?.watchingCount).toBe(9);
+});
+
+test("the oldest command still counts once the newest eight end, though no name is left for it", () => {
+  const target = thread();
+  fold(
+    target,
+    Array.from({ length: 9 }, (_, at) => ({
+      type: "background_task.started",
+      task: task(`shell-${at}`, `bun run job-${at}`),
+    })),
+  );
+  const live = fold(
+    target,
+    Array.from({ length: 8 }, (_, at) => ({
+      type: "background_task.updated",
+      taskId: `shell-${at + 1}`,
+      status: "completed",
+    })),
+  );
+  expect(live?.watching).toBeUndefined();
+  expect(live?.watchingCount).toBe(1);
+  // An ambient helper is never counted; the last command ending leaves nothing.
+  fold(target, [{ type: "background_task.started", task: task("lsp", "tsserver", true) }]);
+  expect(
+    fold(target, [{ type: "background_task.updated", taskId: "shell-0", status: "stopped" }])
+      ?.watchingCount,
+  ).toBeUndefined();
+});
+
 test("a task standing for a subagent counts as a running subagent, bookkeeping as nothing", () => {
   const target = thread();
   const standIn = BackgroundTask.parse({

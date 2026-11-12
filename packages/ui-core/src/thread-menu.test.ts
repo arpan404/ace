@@ -89,6 +89,14 @@ describe("archiving stops what was left running", () => {
   it("counts commands only a done thread left running", () => {
     expect(leftRunningCommands({ status: done, live: { watching: [relay, relay] } })).toBe(2);
     expect(leftRunningCommands({ status: done })).toBe(0);
+    // Nine running: the names stop at eight, the count doesn't.
+    const eight = Array.from({ length: 8 }, () => relay);
+    expect(leftRunningCommands({ status: done, live: { watching: eight, watchingCount: 9 } })).toBe(
+      9,
+    );
+    // The newest eight ended and the oldest runs on: no name left, still one to stop.
+    expect(leftRunningCommands({ status: done, live: { watchingCount: 1 } })).toBe(1);
+    expect(archiveStopsQuestion([{ title: "A", leftRunning: 1 }])).toBeDefined();
     expect(
       leftRunningCommands({
         status: { state: "waiting", on: "background_task" },

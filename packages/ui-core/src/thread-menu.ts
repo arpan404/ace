@@ -1,5 +1,5 @@
 import type { ThreadListEntry, ThreadRunMetadata, ThreadStatus } from "@ace/protocol";
-import { listTreeFacts, treeInBackground, treeWorking } from "./live-status.ts";
+import { leftRunningCount, listTreeFacts, treeInBackground, treeWorking } from "./live-status.ts";
 import { pluralCount } from "./counts.ts";
 import { joinNames } from "./join-names.ts";
 import type { ThreadRowFlags } from "./thread-card.ts";
@@ -153,7 +153,7 @@ export function leftRunningCommands(thread: {
   status: ThreadStatus;
   live?: ThreadRunMetadata | undefined;
 }): number {
-  return thread.status.state === "done" ? (thread.live?.watching?.length ?? 0) : 0;
+  return thread.status.state === "done" ? leftRunningCount(thread.live) : 0;
 }
 
 /** The question asked before an archive ends commands left running. */

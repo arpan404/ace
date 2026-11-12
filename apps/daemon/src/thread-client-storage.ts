@@ -62,6 +62,7 @@ export function seedThreadClient(
 ): void {
   db.exec("CREATE TABLE IF NOT EXISTS client_thread_migration(id INTEGER PRIMARY KEY)");
   seedRunningSubagents(db, read);
+  seedWatchingCount(db, read);
   if (db.prepare("SELECT id FROM client_thread_migration WHERE id=1").get()) return;
   const agents = db.prepare(
     "SELECT count(*) AS n FROM view_entities WHERE thread_id=? AND collection='agents' AND json_extract(value,'$.origin')!='root'",
@@ -121,4 +122,30 @@ function seedRunningSubagents(db: DatabaseSync, read: (id: ThreadId) => Thread |
     );
   }
   db.exec("INSERT INTO client_thread_migration VALUES (2)");
+}
+
+/**
+ * Threads stored before `live.watchingCount` get it once from their running background shells,
+ * counted as `liveMetadata` counts them (not ambient, not bookkeeping, with a command), so a
+ * done thread with more than 8 left running, or only older ones, still asks before an archive.
+ */
+function seedWatchingCount(db: DatabaseSync, read: (id: ThreadId) => Thread | undefined): void {
+  if (db.prepare("SELECT id FROM client_thread_migration WHERE id=3").get()) return;
+  const running = db.prepare(`SELECT thread_id AS id, count(*) AS n FROM view_entities
+    WHERE collection='backgroundTasks' AND json_extract(value,'$.status')='running'
+      AND json_extract(value,'$.kind')='shell'
+      AND COALESCE(json_extract(value,'$.ambient'),0)=0
+      AND COALESCE(json_extract(value,'$.internal'),0)=0
+      AND trim(COALESCE(json_extract(value,'$.title'),''))!=''
+    GROUP BY thread_id`);
+  const write = db.prepare("UPDATE threads SET client=? WHERE id=?");
+  for (const row of running.iterate()) {
+    const thread = read(ThreadId.parse(row.id));
+    if (!thread) continue;
+    write.run(
+      encodeThreadClient({ ...thread, live: { ...thread.live, watchingCount: Number(row.n) } }),
+      thread.id,
+    );
+  }
+  db.exec("INSERT INTO client_thread_migration VALUES (3)");
 }

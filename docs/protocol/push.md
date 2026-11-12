@@ -3565,29 +3565,133 @@ Example:
 
 ```json
 {
-  "seq": 7,
+  "seq": 4,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
-    "kind": "threads",
-    "seq": 7,
-    "threads": {},
-    "window": {
-      "attention": {
-        "chats": {
-          "needsYou": 8,
-          "unread": 3
+    "agentChildren": {},
+    "agents": {},
+    "backgroundTasks": {},
+    "interactions": {},
+    "itemOrder": [],
+    "itemSeqs": {},
+    "items": {},
+    "kind": "thread",
+    "queue": {
+      "lastFailure": null,
+      "paused": true,
+      "pendingCount": 7,
+      "reason": "limit",
+      "resumeAt": 1,
+      "revision": 2
+    },
+    "runs": {},
+    "seq": 4,
+    "thread": {
+      "archivedAt": 0,
+      "backend": "cursor-sdk",
+      "createdAt": 7,
+      "details": {
+        "behind": 3,
+        "linkedIssues": [],
+        "linkedPrs": []
+      },
+      "execution": {
+        "provider": "opencode"
+      },
+      "handoff": {
+        "bytes": 6,
+        "sourceThreadId": "example",
+        "truncated": true
+      },
+      "hasSentMessage": false,
+      "host": "spade",
+      "id": "example",
+      "imported": {
+        "importedAt": 2,
+        "instanceId": "example",
+        "native": {
+          "acpAgentId": "example",
+          "forkedFromNativeId": "example",
+          "instanceId": "example",
+          "provider": "codex"
         },
-        "threads": {
-          "needsYou": 0,
-          "unread": 2
+        "sourceId": "example"
+      },
+      "instanceId": "example",
+      "lineage": {
+        "lossy": false,
+        "mode": "portable",
+        "parentAgentId": "example",
+        "parentThreadId": "example",
+        "point": {
+          "runId": "example",
+          "type": "turn"
         }
       },
-      "before": null,
-      "counts": [],
-      "revision": 3,
-      "total": 2
-    }
+      "listOrder": 4,
+      "live": {
+        "account": "example",
+        "askingThreads": [],
+        "backgroundTaskCount": 3,
+        "provider": "pi",
+        "runningSubagentCount": 1,
+        "step": "tests",
+        "turnStart": {
+          "at": 5,
+          "turn": 10
+        },
+        "waitingOn": 10,
+        "watching": [],
+        "watchingCount": 3
+      },
+      "movedFrom": {
+        "links": {
+          "linkedIssues": [],
+          "linkedPr": {
+            "draft": true,
+            "number": 10,
+            "state": "open",
+            "url": "https://example.invalid/"
+          }
+        },
+        "workspaceId": "example"
+      },
+      "provider": "cursor",
+      "queue": {
+        "lastFailure": {
+          "code": "example",
+          "title": "example"
+        },
+        "paused": false,
+        "reason": null,
+        "resumeAt": 3,
+        "revision": 6
+      },
+      "queuedLaunch": {
+        "text": "example"
+      },
+      "readAt": 4,
+      "rootAgentId": "example",
+      "settledAt": 1,
+      "status": {
+        "state": "unresponsive"
+      },
+      "switch": {
+        "at": 7,
+        "lossy": false,
+        "recommendation": "delegate",
+        "selection": {
+          "provider": "codex"
+        },
+        "state": "applied"
+      },
+      "title": "example",
+      "titleSource": "agent",
+      "updatedAt": 6,
+      "workspaceId": "example"
+    },
+    "usage": {}
   }
 }
 ```
