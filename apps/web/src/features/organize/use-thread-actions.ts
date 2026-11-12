@@ -11,6 +11,8 @@ import {
   isChatEntry,
   leftRunningCommands,
   runningWork,
+  snoozeBefore,
+  snoozedToast,
   stopAndDeleteQuestion,
   type OrganizePatch,
 } from "@ace/ui-core";
@@ -450,13 +452,16 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
     setAutoSettle: (entry, enabled) => void act(entry, autoSettle(entry, enabled)),
     snooze: (entry, until, wake, label) => {
       // Undo puts back the snooze it had, if one was still ahead, else wakes it.
-      const before =
-        entry.snoozedUntil != null && entry.snoozedUntil > Date.now()
-          ? snooze(entry, entry.snoozedUntil, entry.snoozeWake?.on)
-          : snooze(entry, null);
+      const before = snoozeBefore(entry, Date.now());
       void reversibleAll(
-        [{ entry, action: snooze(entry, until, wake), undo: before }],
-        `Snoozed${label ? ` ${label}` : ""} · ${entry.title}`,
+        [
+          {
+            entry,
+            action: snooze(entry, until, wake),
+            undo: snooze(entry, before.until, before.wake),
+          },
+        ],
+        snoozedToast(entry.title, label),
       );
     },
     wake: (entry) => void act(entry, snooze(entry, null)),

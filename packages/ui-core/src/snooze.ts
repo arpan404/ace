@@ -1,5 +1,5 @@
 import { snoozedPullRequests, threadLive } from "@ace/projection";
-import type { ThreadListEntry } from "@ace/protocol";
+import type { SnoozeWake, ThreadListEntry } from "@ace/protocol";
 import { formatClock } from "./time.ts";
 export interface SnoozePreset {
   id: "hour" | "tomorrow" | "monday";
@@ -103,4 +103,32 @@ export function snoozeLabel(
   return entry.snoozedUntil === undefined
     ? undefined
     : `until ${describeWake(entry.snoozedUntil, now, locale)}`;
+}
+
+/** A snooze as `thread.snooze` sets it: when it ends (`null` wakes the thread), and its event. */
+export interface SnoozeSetting {
+  until: number | null;
+  wake?: SnoozeWake["on"];
+}
+
+/**
+ * What Undo of a snooze puts back: the snooze the thread had, event and all, while it was still
+ * ahead; otherwise none, so the thread wakes.
+ */
+export function snoozeBefore(
+  entry: {
+    snoozedUntil?: number | null | undefined;
+    snoozeWake?: { on: SnoozeWake["on"] } | undefined;
+  },
+  now: number,
+): SnoozeSetting {
+  if (entry.snoozedUntil == null || entry.snoozedUntil <= now) return { until: null };
+  return entry.snoozeWake
+    ? { until: entry.snoozedUntil, wake: entry.snoozeWake.on }
+    : { until: entry.snoozedUntil };
+}
+
+/** The toast a snooze shows beside Undo: "Snoozed until it needs you · Fix login". */
+export function snoozedToast(title: string, label: string | undefined): string {
+  return `Snoozed${label ? ` ${label}` : ""} · ${title}`;
 }
