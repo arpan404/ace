@@ -60,6 +60,20 @@ describe("a routine in the conversation", () => {
     expect(c.bubbles()).toEqual(["bot: The build is red."]);
   });
 
+  test("a heartbeat reply that said something before ending with [quiet] shows all it said", () => {
+    const c = conversation();
+    c.stored({ type: "user_message", text: "Check.", from_routine: fromRoutine(true) });
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.stored({ type: "step_finished", reply: "r1", text: "The deploy failed twice." });
+    c.stored({ type: "step_finished", reply: "r1", text: "[quiet]" });
+    c.stored({ type: "reply_finished", reply: "r1", text: "[quiet]" });
+    c.stored({ type: "user_message", text: "Check.", from_routine: fromRoutine(true, "9:30") });
+    c.stored({ type: "reply_started", reply: "r2" });
+    c.stored({ type: "step_finished", reply: "r2", text: "[quiet]" });
+    c.stored({ type: "reply_finished", reply: "r2", text: "[quiet]" });
+    expect(c.bubbles()).toEqual(["bot: The deploy failed twice.\n\n[quiet]"]);
+  });
+
   test("a quiet answer to the person's queued message and a later heartbeat still shows", () => {
     const c = conversation();
     c.stored({ type: "user_message", text: "Did the deploy finish?" });

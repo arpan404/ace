@@ -232,6 +232,9 @@ pub fn silent_replies<'a>(events: impl IntoIterator<Item = &'a Event>) -> HashSe
     let mut silent = HashSet::new();
     // Since the last reply ended: whether anything arrived, and whether all of it was a beat.
     let (mut inputs, mut only_beats) = (false, true);
+    // Each open reply's words so far, step by step: a reply that said something, used a tool
+    // and then ended with `[quiet]` said something.
+    let mut said: std::collections::HashMap<&str, Vec<&str>> = std::collections::HashMap::new();
     for event in events {
         let Event::Known(known) = event else {
             continue;
@@ -245,8 +248,21 @@ pub fn silent_replies<'a>(events: impl IntoIterator<Item = &'a Event>) -> HashSe
                 inputs = true;
                 only_beats = false;
             }
+            Known::StepFinished { reply, text, .. } => {
+                said.entry(reply.as_str()).or_default().push(text.as_str());
+            }
             Known::ReplyFinished { reply, text, .. } => {
-                if inputs && only_beats && is_quiet(text) {
+                let whole = match said.remove(reply.as_str()) {
+                    Some(steps) => steps
+                        .iter()
+                        .map(|step| step.trim())
+                        .filter(|step| !step.is_empty())
+                        .collect::<Vec<_>>()
+                        .join("\n\n"),
+                    // Stored without its steps: the closing text is all there is.
+                    None => text.clone(),
+                };
+                if inputs && only_beats && is_quiet(&whole) {
                     silent.insert(reply.clone());
                 }
                 (inputs, only_beats) = (false, true);

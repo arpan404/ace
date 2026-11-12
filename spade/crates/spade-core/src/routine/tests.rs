@@ -273,6 +273,35 @@ fn a_quiet_answer_to_the_persons_queued_message_and_a_heartbeat_still_shows() {
     assert!(silent_replies(&events).is_empty());
 }
 
+fn step(reply: &str, text: &str) -> Event {
+    Event::Known(Known::StepFinished {
+        reply: reply.into(),
+        text: text.into(),
+        calls: Vec::new(),
+        thoughts: Vec::new(),
+        usage: crate::event::Tokens::default(),
+        cost_micros: 0,
+        seen: None,
+    })
+}
+
+#[test]
+fn a_heartbeat_reply_that_said_something_before_ending_quiet_still_shows() {
+    let events = [
+        message("b1", true),
+        Event::reply_started("r1", "fake/m"),
+        step("r1", "The deploy failed twice; checking the logs."),
+        step("r1", "[quiet]"),
+        finished("r1", "[quiet]"),
+        message("b2", true),
+        Event::reply_started("r2", "fake/m"),
+        step("r2", ""),
+        step("r2", "[quiet]"),
+        finished("r2", "[quiet]"),
+    ];
+    assert_eq!(silent_replies(&events), HashSet::from(["r2".to_owned()]));
+}
+
 #[test]
 fn a_routine_message_reads_as_the_routine_not_the_person() {
     let Event::Known(Known::UserMessage {
