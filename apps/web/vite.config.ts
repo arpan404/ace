@@ -85,7 +85,9 @@ export default defineConfig(({ mode }) => ({
           groups: [
             initialChunk(fileURLToPath(new URL("./src/main.tsx", import.meta.url))),
             mermaidChunk(),
-            lazyIconChunk(),
+            lazyIconChunk(
+              `${fileURLToPath(new URL("./src/routes/_home.t.$threadId.tsx", import.meta.url))}?tsr-split=component`,
+            ),
           ],
         },
       },

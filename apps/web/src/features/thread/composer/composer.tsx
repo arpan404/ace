@@ -1,3 +1,5 @@
+import "@/styles/composer-pill.css";
+import "@/styles/composer-markdown.css";
 import { FloatingContents } from "@/components/ui/floating-material.tsx";
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
 import { withMarkerHashes, type ComposerDraft } from "@ace/ui-core";

@@ -1,9 +1,5 @@
 import type { ClientApi } from "@ace/client";
-import {
-  WorkspaceActionRequest,
-  type ForgeBrowserOperation,
-  type ForgeBrowserResult,
-} from "@ace/protocol";
+import type { ForgeBrowserOperation, ForgeBrowserResult } from "@ace/protocol";
 import type { ForgeKind } from "@ace/protocol/forge";
 import { actionErrorText, forgeErrorText, outcomeUncertain } from "@ace/ui-core";
 import { CommandRefused, daemonErrorCode } from "@/lib/daemon-command.ts";
@@ -30,6 +26,9 @@ export async function readForge(
     : never,
   signal: AbortSignal,
 ): Promise<ForgeBrowserResult> {
+  // The request schema reaches every Git host operation's: it loads with the first read, not
+  // with each page that may read (20 KB gzip of the thread page).
+  const { WorkspaceActionRequest } = await import("@ace/protocol/workspace-actions");
   const reply = await client.request(
     WorkspaceActionRequest.parse({ type: "workspace.request", requestId: "forge-read", operation }),
     { signal },

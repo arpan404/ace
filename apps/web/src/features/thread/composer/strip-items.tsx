@@ -1,3 +1,4 @@
+import "@/styles/composer-strip.css";
 import { planCount, type PlanProgress } from "@ace/ui-core";
 import type { TodoEntry } from "@ace/protocol";
 import {
