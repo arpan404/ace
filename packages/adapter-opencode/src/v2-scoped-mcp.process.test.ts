@@ -318,3 +318,56 @@ test("a readiness plugin OpenCode never registers still opens the session, warns
     await mcp.close();
   }
 });
+
+test("after OpenCode rebuilds the session's location, the next send registers ace's server there again", async () => {
+  const credentials = new CredentialRegistry(() => "e".repeat(64));
+  const registry = new ToolRegistry({ scheduler: nodeScheduler });
+  const mcp = await startMcpServer({ registry, credentials });
+  const h = await setup();
+  const adapter = createOpenCodeAdapter(h.options);
+  const controller = new AbortController();
+  const lease = credentials.issue(
+    {
+      sessionId: "rebuilt",
+      threadId: ThreadId.parse("rebuilt-thread"),
+      agentId: AgentId.parse("root"),
+      capabilities: [],
+    },
+    controller.signal,
+  );
+  const resynced = Promise.withResolvers<void>();
+  try {
+    const session = await adapter.openSession({
+      threadId: ThreadId.parse("rebuilt-thread"),
+      cwd: "/sandbox",
+      signal: controller.signal,
+      aceMcp: { url: mcp.url, bearer: lease.bearer, end: lease.end },
+      onFrame(frame) {
+        if (
+          frame.channel === "lifecycle" &&
+          z.object({ type: z.string() }).parse(frame.data).type === "resynced"
+        )
+          resynced.resolve();
+      },
+      onExit() {},
+    });
+    expect(await h.control("/test/mcp")).toMatchObject({ names: ["ace"] });
+    // OpenCode drops runtime MCP servers when it rebuilds a location.
+    await h.control("/test/events", [
+      { type: "location.shutdown", directory: "/sandbox", data: {} },
+    ]);
+    await resynced.promise;
+    expect(await h.control("/test/mcp")).toMatchObject({ missing: true });
+    await session.configure?.({
+      provider: "opencode",
+      model: "opencode-go/muse-spark-1.3-contributor",
+      options: {},
+    });
+    expect(await h.control("/test/mcp")).toMatchObject({ names: ["ace"], status: 200 });
+    await session.close("shutdown");
+  } finally {
+    controller.abort();
+    await adapter.close();
+    await mcp.close();
+  }
+});

@@ -348,7 +348,16 @@ catalog reports `connected`, then waits for native tool readiness. The v2 config
 `disabled:false`, `codemode:false`, and `oauth:false`. Code Mode would otherwise
 hide individual tools behind a code-execution tool. No ace bearer is added to
 `OPENCODE_CONFIG_CONTENT`, persisted provider config, or project config. Existing
-user MCP servers are preserved; an `ace` name collision fails admission.
+user MCP servers are preserved; an `ace` name collision fails admission. Within one
+session, calls for the same location share one set-up, so ace's server is added once even
+when a send and an interaction answer arrive together, and pending set-ups count toward the
+128-location limit. Once ace added its own server, a failed connect or readiness check is
+retried on the next send by connecting again, never by adding it again. OpenCode drops runtime
+MCP servers when it rebuilds a location (`location.shutdown`), so ace then forgets that
+location and adds its server again through the collision check; work begun before the
+rebuild records nothing and never adds. OpenCode reports no owner for a server, so an
+`ace` that ace did not add since the rebuild is refused, never adopted: a rebuild racing
+ace's own add can leave that location refusing until the session reopens.
 
 ACP HTTP headers travel in its native session RPC as an array of name/value pairs.
 For providers that advertise only stdio, ACP has no portable private-header

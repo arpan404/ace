@@ -1,9 +1,8 @@
-import { waitForAceTools } from "./mcp-ready.ts";
 import { createExtensionCatalog } from "./extension-catalog.ts";
 import { openCodeMcpControls } from "./mcp-controls.ts";
 import { developerInstructions } from "@ace/mcp-server";
 import { openCodeNativeToolGuidance } from "./native-tools.ts";
-import { registerAceMcp } from "./mcp-registration.ts";
+import { AceMcpLocations } from "./mcp-locations.ts";
 import { SessionOpenError } from "@ace/provider-kit/open-error";
 import { opencodePolicy, withSpadeBot } from "./permission-policy.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
@@ -32,8 +31,8 @@ const PreviousModel = z.object({
 });
 const InterruptResult = z.object({ interrupted: z.boolean() });
 export class OpenCodeSession implements ProviderSession {
-  /** Locations where ace's MCP server is registered, and whether its tools were confirmed. */
-  private mcpDirectories = new Map<string, "ready" | "unconfirmed">();
+  /** ace's MCP server in each location this session uses; absent without ace's tools. */
+  private aceLocations: AceMcpLocations | undefined;
   private ctx: SessionContext;
   private server: OpenCodeServer;
   private client: OpenCodeClient;
@@ -83,6 +82,13 @@ export class OpenCodeSession implements ProviderSession {
     });
     this.ownership = new SessionOwnership(ctx.cwd, ctx.resume?.nativeSessionId ?? "");
     this.client = server.scoped(ctx.cwd, this.emit, this.controller.signal);
+    if (ctx.aceMcp)
+      this.aceLocations = new AceMcpLocations({
+        client: this.client,
+        connection: ctx.aceMcp,
+        runtime: server.runtime,
+        unconfirmed: () => this.emit("note", "mcp.readiness", { type: "unconfirmed" }),
+      });
     this.catalog = createExtensionCatalog(this.client, ctx.cwd, this.emit, () => this.closed);
     this.prompts = new SessionPrompts({
       client: this.client,
@@ -215,7 +221,7 @@ export class OpenCodeSession implements ProviderSession {
           value: `${openCodeNativeToolGuidance}\n${developerInstructions("opencode", ctx.aceMcp.session?.())}`,
         });
       s.ownership.establish(info);
-      await s.ensureMcp(info.location.directory);
+      await s.aceLocations?.ensure(info.location.directory);
       s.emit("recv", "snapshot.info", { info, root: true });
       s.opening = false;
       for (const event of s.openingBuffer.splice(0)) s.receive(event);
@@ -299,6 +305,8 @@ export class OpenCodeSession implements ProviderSession {
       p = e.data;
     this.catalog.changed(e.type);
     if (e.type === "location.shutdown" && e.location) {
+      // OpenCode's rebuilt location no longer has ace's runtime MCP server.
+      this.aceLocations?.forget(e.location.directory);
       const owners = this.ownership.atLocation(e.location.directory);
       for (const [key, pending] of this.pending)
         if (owners.has(pending.session)) this.pending.delete(key);
@@ -344,7 +352,7 @@ export class OpenCodeSession implements ProviderSession {
       await new Promise<void>((resolve, reject) => this.waiters.add({ resolve, reject }));
     }
     this.controller.signal.throwIfAborted();
-    await this.ensureMcp(this.directory());
+    await this.aceLocations?.ensure(this.directory());
   }
   /**
    * Before new input or a model change, an unconfirmed location looks once more for ace's
@@ -353,12 +361,7 @@ export class OpenCodeSession implements ProviderSession {
    */
   private async admissionBarrier(): Promise<void> {
     await this.barrier();
-    const directory = this.directory();
-    if (this.ctx.aceMcp && this.mcpDirectories.get(directory) === "unconfirmed")
-      this.mcpDirectories.set(
-        directory,
-        await waitForAceTools(this.client, directory, this.server.runtime, 0),
-      );
+    await this.aceLocations?.admit(this.directory());
   }
   private directory(): string {
     return this.ownership.sessions.get(this.nativeSessionId)?.directory ?? this.ctx.cwd;
@@ -429,15 +432,6 @@ export class OpenCodeSession implements ProviderSession {
       this.recoveryRead = undefined;
     });
     await this.recoveryRead;
-  }
-  private async ensureMcp(directory: string): Promise<void> {
-    if (!this.ctx.aceMcp || this.mcpDirectories.has(directory)) return;
-    if (this.mcpDirectories.size >= 128) throw new Error("OpenCode MCP location limit exceeded");
-    await registerAceMcp(this.client, directory, this.ctx.aceMcp);
-    const readiness = await waitForAceTools(this.client, directory, this.server.runtime);
-    // Registered either way: an unconfirmed location is never registered again, only re-checked.
-    this.mcpDirectories.set(directory, readiness);
-    if (readiness === "unconfirmed") this.emit("note", "mcp.readiness", { type: "unconfirmed" });
   }
   private async readSnapshots(): Promise<void> {
     if (this.closed || this.opening) return;
