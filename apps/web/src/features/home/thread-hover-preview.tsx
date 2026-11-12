@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import { HoverCard, HoverCardTrigger } from "@/components/ui/hover-card.tsx";
-import { ThreadHoverContent, useThreadHover } from "./thread-hover-card.tsx";
+import { ThreadHoverCardContent, useThreadHover } from "./thread-hover.tsx";
 import { useThreadCard } from "./use-thread-card.ts";
 
 /**
@@ -29,7 +29,7 @@ export function ThreadHoverPreview(props: { threadId: string; children?: ReactEl
         render={props.children}
       />
       {hover.open && (
-        <ThreadHoverContent card={card} entry={entry} instance={instance} placement="below" />
+        <ThreadHoverCardContent card={card} entry={entry} instance={instance} placement="below" />
       )}
     </HoverCard>
   );

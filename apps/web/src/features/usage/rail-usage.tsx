@@ -11,7 +11,8 @@ import {
 import { useState } from "react";
 import { railPlaceClass } from "@/components/rail-place.ts";
 import { UsageBars } from "@/components/usage-bars.tsx";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card.tsx";
+import { HoverCard, HoverCardTrigger } from "@/components/ui/hover-card.tsx";
+import { HoverCardContent } from "@/components/ui/hover-card-content.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useUsageHeadroom } from "./use-usage-headroom.ts";

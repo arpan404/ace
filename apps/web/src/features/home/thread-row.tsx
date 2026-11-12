@@ -15,7 +15,7 @@ import { cn } from "@/lib/cn.ts";
 import { ProjectMark } from "@/components/project-mark.tsx";
 import { panelRowLine } from "@/components/ui/panel.tsx";
 import { HoverCard, HoverCardTrigger } from "@/components/ui/hover-card.tsx";
-import { ThreadHoverContent, useThreadHover } from "./thread-hover-card.tsx";
+import { ThreadHoverCardContent, useThreadHover } from "./thread-hover.tsx";
 import { RenameField } from "./rename-field.tsx";
 import { RowActions, type RowActionsProps } from "./row-actions.tsx";
 import { RowProvider, RowWork, threadDetails } from "./row-parts.tsx";
@@ -272,7 +272,7 @@ export function ThreadRow(props: {
           </HoverCardTrigger>,
         )}
         {hover.open && !renaming && (
-          <ThreadHoverContent card={card} entry={entry} instance={instance} />
+          <ThreadHoverCardContent card={card} entry={entry} instance={instance} />
         )}
       </HoverCard>
     </>
