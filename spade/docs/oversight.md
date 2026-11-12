@@ -102,7 +102,9 @@ camelCase) is `token`, `secret`, `password`, `passwd`, `auth`, `authorization`, 
 such a name becomes `•••`. In text, the value such a name gives is hidden however it is written:
 `NAME=value`, `NAME = value`, `NAME="…"`, `name: value`, `"name": "…"`, `--name value`,
 `--name=value`, a URL's `?name=…`; a value runs to whitespace, to its close quote when it opens
-with one, and in a query also to `&` or `#`. After `Authorization:` the scheme (`Basic`,
+with one (a `\"` inside is escaped, not the close), and in a query also to `&` or `#`. JSON
+escaped inside a shell string (`\"password\":\"…\"`) is read the same way, and a URL's password
+(`postgres://user:…@host`) is hidden too. After `Authorization:` the scheme (`Basic`,
 `Bearer`, `Digest`, `Token`) and its credential are both hidden, and so is the word after
 `Bearer` anywhere. Then any word shaped like a key is hidden: one starting `sk-`, `sk_`,
 `pk_live_`, `rk_live_`, `gh?_`, `github_pat_`, `xox?-`, `glpat-`, `AIza`, `AKIA` or `ASIA` (12

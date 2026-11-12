@@ -75,15 +75,51 @@ fn value_end(chars: &[char], at: usize, in_query: bool) -> usize {
         return at;
     };
     if quote(first) {
-        return chars[at + 1..]
-            .iter()
-            .position(|&c| c == first)
-            .map_or(chars.len(), |i| at + 1 + i + 1);
+        // `\"` inside is an escaped quote, not the close.
+        let mut i = at + 1;
+        while i < chars.len() {
+            if chars[i] == '\\' {
+                i += 2;
+                continue;
+            }
+            if chars[i] == first {
+                return i + 1;
+            }
+            i += 1;
+        }
+        return chars.len();
     }
-    chars[at..]
-        .iter()
-        .position(|&c| c.is_whitespace() || quote(c) || (in_query && matches!(c, '&' | '#')))
-        .map_or(chars.len(), |i| at + i)
+    (at..chars.len())
+        .find(|&i| {
+            let c = chars[i];
+            c.is_whitespace()
+                || quote(c)
+                || (c == '\\' && chars.get(i + 1).copied().is_some_and(quote))
+                || (in_query && matches!(c, '&' | '#'))
+        })
+        .unwrap_or(chars.len())
+}
+
+/// Where a value opened by an escaped quote (`\"…\"`, JSON inside a shell string) ends: after
+/// its escaped close quote.
+fn escaped_value_end(chars: &[char], at: usize, quote: char) -> usize {
+    (at + 2..chars.len())
+        .find(|&i| chars[i] == '\\' && chars.get(i + 1) == Some(&quote))
+        .map_or(chars.len(), |i| i + 2)
+}
+
+/// In `scheme://user:password@host`, where the password starts and the `@` after it.
+fn userinfo_password(chars: &[char], scheme_colon: usize) -> Option<(usize, usize)> {
+    let start = scheme_colon + 3;
+    let end = (start..chars.len())
+        .find(|&i| {
+            let c = chars[i];
+            c.is_whitespace() || quote(c) || matches!(c, '/' | '?' | '#')
+        })
+        .unwrap_or(chars.len());
+    let at = (start..end).rev().find(|&i| chars[i] == '@')?;
+    let colon = (start..at).find(|&i| chars[i] == ':')?;
+    (colon + 1 < at).then_some((colon + 1, at))
 }
 
 fn skip_blanks(chars: &[char], mut at: usize) -> usize {
@@ -107,6 +143,17 @@ pub fn text(text: &str) -> String {
     while i < chars.len() {
         let c = chars[i];
         if !word_char(c) {
+            // `postgres://admin:hunter2@db`: the password in a URL's user part.
+            if c == ':'
+                && chars.get(i + 1) == Some(&'/')
+                && chars.get(i + 2) == Some(&'/')
+                && let Some((from, to)) = userinfo_password(&chars, i)
+            {
+                out.extend(&chars[i..from]);
+                out.push_str(HIDDEN);
+                i = to;
+                continue;
+            }
             out.push(c);
             i += 1;
             continue;
@@ -131,7 +178,11 @@ pub fn text(text: &str) -> String {
         if secret_name(bare) {
             out.push_str(&word);
             // `"password": "x"`: a name's own close quote comes before its separator.
+            // In JSON inside a shell string it is escaped: `\"password\":`.
             let mut at = i;
+            if chars.get(at) == Some(&'\\') && chars.get(at + 1).copied().is_some_and(quote) {
+                at += 1;
+            }
             if chars.get(at).copied().is_some_and(quote) {
                 at += 1;
             }
@@ -172,6 +223,20 @@ pub fn text(text: &str) -> String {
 /// Writes the value starting at `at` hidden (its quotes kept) and returns where it ended. An
 /// `Authorization` scheme (`Basic`, `Bearer`) is hidden with the credential after it.
 fn hide_value(chars: &[char], at: usize, in_query: bool, out: &mut String) -> usize {
+    if chars.get(at) == Some(&'\\')
+        && let Some(&open) = chars.get(at + 1)
+        && quote(open)
+    {
+        let end = escaped_value_end(chars, at, open);
+        out.push('\\');
+        out.push(open);
+        out.push_str(HIDDEN);
+        if end >= at + 4 && chars[end - 1] == open && chars[end - 2] == '\\' {
+            out.push('\\');
+            out.push(open);
+        }
+        return end;
+    }
     let end = value_end(chars, at, in_query);
     if end <= at {
         return at;
@@ -350,6 +415,15 @@ mod tests {
             ("https://x.dev/cb?code=1&access_token=a%20b#frag", "a%20b"),
             ("X-Api-Key: k3y", "k3y"),
             ("set apiKey=secretvalue", "secretvalue"),
+            (
+                r#"curl -d "{\"password\":\"hunter2\"}" https://x.dev"#,
+                "hunter2",
+            ),
+            (r#"curl -d "{\"api_key\": \"k3y\", \"q\": 1}""#, "k3y"),
+            (r#"echo "password=\"two words\"""#, "two words"),
+            (r#"{"password": "a\"b c"}"#, "b c"),
+            ("psql postgres://admin:hunter2@db:5432/app", "hunter2"),
+            ("open https://user:pass@host/path?x=1", "pass"),
         ];
         for (case, secret) in cases {
             let shown = text(case);
@@ -361,6 +435,21 @@ mod tests {
         assert!(text("deploy --token 'two words' --verbose").ends_with("'•••' --verbose"));
         assert!(text("https://x.dev/cb?code=1&access_token=a%20b#frag").ends_with("#frag"));
         assert_eq!(text("password = \"x y\" done"), "password = \"•••\" done");
+        assert_eq!(
+            text(r#"curl -d "{\"password\":\"hunter2\",\"q\":1}" x"#),
+            r#"curl -d "{\"password\":\"•••\",\"q\":1}" x"#
+        );
+        assert_eq!(
+            text("psql postgres://admin:hunter2@db:5432/app"),
+            "psql postgres://admin:•••@db:5432/app"
+        );
+        for kept in [
+            "https://example.com:8080/a",
+            "ssh git@github.com",
+            "see https://a.dev/x@y",
+        ] {
+            assert_eq!(text(kept), kept);
+        }
     }
 
     #[test]
