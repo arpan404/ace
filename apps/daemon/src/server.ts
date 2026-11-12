@@ -318,6 +318,7 @@ export async function startServer(options: ServerOptions): Promise<{
       { ...defaultPressure, ...options.pressure },
       runtime.now,
       encoder,
+      runtime.delay,
     );
     // What this client's hello said it can put back stays out of its snapshots and pages.
     let trimmer = new WireTrimmer(undefined);
@@ -534,6 +535,9 @@ export async function startServer(options: ServerOptions): Promise<{
         if (relayed) holdGrant(relayed.grantExpiresAt, actor.id);
         device = actor.id;
         trimmer = new WireTrimmer(message.trims);
+        // Only the main socket streams deltas, so only it packs frames (`frame-holder.ts`).
+        if (message.channel === undefined && message.framing?.includes("lines"))
+          outbox.packFrames();
         peer.access =
           relayed || accountAdmitted
             ? "paired"

@@ -27,6 +27,7 @@ const Result = z.object({
   collectionsPer1000: z.number(),
   transactionsPer1000: z.number(),
   cpuMsPer1000: z.number(),
+  framesPer1000: z.number().default(0),
   peakHeapUsed: z.number(),
   eventsPerSecond: z.number(),
 });
@@ -51,6 +52,7 @@ const rows = [...results].map(([entry, list]) => ({
   collectionsPer1000: median(list.map((r) => r.collectionsPer1000)),
   transactionsPer1000: median(list.map((r) => r.transactionsPer1000)),
   cpuMsPer1000: Math.round(median(list.map((r) => r.cpuMsPer1000))),
+  framesPer1000: Math.round(median(list.map((r) => r.framesPer1000))),
   peakHeapUsedMB: Math.round(median(list.map((r) => r.peakHeapUsed)) / 1e5) / 10,
   eventsPerSecond: Math.round(median(list.map((r) => r.eventsPerSecond))),
 }));
