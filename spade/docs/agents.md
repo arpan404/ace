@@ -159,6 +159,9 @@ fields in a body are ignored. Times are integer milliseconds since the epoch.
   never answered. The id is a slug of the name, unique (`-2`, `-3`, …). `format` is `openai-chat`,
   `openai-responses` or `anthropic`; `needs_key` defaults to true (false for a local server).
   With `preset`, missing fields come from that preset, its key variable and models included.
+  A keychain read never holds the answer up: one still waiting (a prompt nobody answered) leaves
+  `key_set` and `key_source` null, and `GET /models` then says `"keys_pending": true`; asked
+  again, the keychain's answer shows once it comes.
 - **Preset** = `{"id", "name", "format", "base_url", "key_env", "session_header"}`.
 - Errors: `400` for a body that does not fit (or `413`/`415`/`422` from the JSON reader), `404`
   for an unknown id, `409` as above, `502` when the endpoint's own listing fails, `400` when it

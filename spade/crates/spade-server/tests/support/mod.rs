@@ -154,6 +154,8 @@ pub struct Options {
     pub keychain_gate_for: Option<&'static str>,
     /// Every keychain delete waits until this opens.
     pub keychain_delete_gate: Option<Gate>,
+    /// Every read of the (mock) keychain itself waits until this opens, as on a prompt.
+    pub keychain_read_gate: Option<Gate>,
     /// Writes to the database before Spade first opens it.
     pub seed: Option<fn(&Store) -> spade_store::Result<()>>,
     /// Bots' workspaces, for the API (ADR 0130).
@@ -212,6 +214,14 @@ impl Gate {
         self.1.swap(false, std::sync::atomic::Ordering::SeqCst)
     }
 
+    /// Closes it again: waits from now on hold until it opens.
+    pub fn close(&self) {
+        let (open, _) = &*self.0;
+        if let Ok(mut open) = open.lock() {
+            *open = false;
+        }
+    }
+
     pub fn open(&self) {
         let (open, wake) = &*self.0;
         if let Ok(mut open) = open.lock() {
@@ -247,6 +257,7 @@ impl Default for Options {
             settle_deadline: spade_server::startup::SETTLE_DEADLINE,
             seed: None,
             keychain_delete_gate: None,
+            keychain_read_gate: None,
             keychain_gate_for: None,
             workspaces: None,
             learning: None,
@@ -354,15 +365,16 @@ impl Spade {
         options: Options,
     ) -> Result<Self> {
         let mock = mock::Store::new()?;
-        let keys = match &options.keychain_delete_gate {
-            Some(gate) => KeyStore::with_store(
+        let keys = match (&options.keychain_delete_gate, &options.keychain_read_gate) {
+            (None, None) => KeyStore::with_store(mock.clone(), spade_keys::SERVICE),
+            (deletes, reads) => KeyStore::with_store(
                 Arc::new(gated::GatedStore {
                     inner: mock.clone(),
-                    gate: gate.clone(),
+                    gate: deletes.clone(),
+                    reads: reads.clone(),
                 }),
                 spade_keys::SERVICE,
             ),
-            None => KeyStore::with_store(mock.clone(), spade_keys::SERVICE),
         };
         let ace = options.ace_home.clone().map(|home| {
             AceLink::start(
@@ -594,6 +606,16 @@ impl Spade {
             .await?;
         let status = response.status().as_u16();
         Ok((status, response.json().await.unwrap_or(Value::Null)))
+    }
+
+    /// Stores `key` for `endpoint` in the mock keychain behind Spade's back, as another app
+    /// would: Spade learns of it only by reading.
+    pub fn store_key_directly(&self, endpoint: &str, key: &str) -> Result {
+        use keyring_core::api::CredentialStoreApi;
+        self.mock
+            .build(spade_keys::SERVICE, &format!("endpoint:{endpoint}"), None)?
+            .set_password(key)?;
+        Ok(())
     }
 
     /// Makes the keychain's next read or change of `endpoint`'s key fail, once.

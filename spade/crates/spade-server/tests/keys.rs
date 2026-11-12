@@ -78,6 +78,63 @@ async fn a_stuck_key_read_for_one_agent_does_not_stop_another_on_a_keyless_endpo
     Ok(())
 }
 
+/// The fake endpoint as `/v1/models` lists it, and whether any key was still pending.
+async fn listed(spade: &Spade) -> Result<(serde_json::Value, serde_json::Value)> {
+    let (status, body) =
+        tokio::time::timeout(Duration::from_secs(2), spade.get("/v1/models")).await??;
+    assert_eq!(status, 200, "{body}");
+    let fake = body["endpoints"]
+        .as_array()
+        .and_then(|list| list.iter().find(|e| e["id"] == "fake"))
+        .cloned()
+        .unwrap_or_default();
+    Ok((fake, body["keys_pending"].clone()))
+}
+
+#[tokio::test]
+async fn the_model_list_answers_at_once_while_the_keychain_waits_on_a_prompt() -> Result {
+    let gate = Gate::default();
+    gate.open();
+    let spade = Spade::start_with(
+        vec![Script::reply("unused")],
+        Vec::new(),
+        Options {
+            keychain_read_gate: Some(gate.clone()),
+            ..Options::default()
+        },
+    )
+    .await?;
+    let open_at_end = OpenOnDrop(gate);
+    spade.store_key_directly("fake", "sk-fake")?;
+    // Spade has started; now the keychain puts up a prompt nobody answers yet.
+    open_at_end.0.close();
+    let (fake, pending) = listed(&spade).await?;
+    assert_eq!(pending, true, "{fake}");
+    assert!(fake["key_set"].is_null(), "not known yet: {fake}");
+    assert!(fake["key_source"].is_null(), "{fake}");
+    assert!(
+        fake["models"].as_array().is_some_and(|m| !m.is_empty()),
+        "{fake}"
+    );
+    // The person answers the prompt: a later list knows.
+    open_at_end.0.open();
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let (fake, pending) = listed(&spade).await?;
+        if pending == false {
+            assert_eq!(fake["key_set"], true, "{fake}");
+            assert_eq!(fake["key_source"], "keychain", "{fake}");
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the keychain's answer never showed"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    Ok(())
+}
+
 struct OpenOnDrop(Gate);
 
 impl Drop for OpenOnDrop {

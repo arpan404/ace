@@ -12,7 +12,10 @@ use super::Gate;
 /// The mock store, with every credential delete waiting on `gate` first.
 pub struct GatedStore {
     pub inner: Arc<keyring_core::mock::Store>,
-    pub gate: Gate,
+    /// Deletes wait for it.
+    pub gate: Option<Gate>,
+    /// Reads wait for it, as on a keychain prompt nobody answered yet.
+    pub reads: Option<Gate>,
 }
 
 impl std::fmt::Debug for GatedStore {
@@ -40,6 +43,7 @@ impl CredentialStoreApi for GatedStore {
         let cred: Arc<Credential> = Arc::new(GatedCred {
             inner,
             gate: self.gate.clone(),
+            reads: self.reads.clone(),
         });
         Ok(Entry::new_with_credential(cred))
     }
@@ -51,7 +55,8 @@ impl CredentialStoreApi for GatedStore {
 
 struct GatedCred {
     inner: Entry,
-    gate: Gate,
+    gate: Option<Gate>,
+    reads: Option<Gate>,
 }
 
 impl std::fmt::Debug for GatedCred {
@@ -66,12 +71,17 @@ impl CredentialApi for GatedCred {
     }
 
     fn get_secret(&self) -> Result<Vec<u8>> {
+        if let Some(reads) = &self.reads {
+            reads.wait();
+        }
         self.inner.get_secret()
     }
 
     fn delete_credential(&self) -> Result<()> {
-        assert!(!self.gate.take_panic(), "the keychain library panicked");
-        self.gate.wait();
+        if let Some(gate) = &self.gate {
+            assert!(!gate.take_panic(), "the keychain library panicked");
+            gate.wait();
+        }
         self.inner.delete_credential()
     }
 
