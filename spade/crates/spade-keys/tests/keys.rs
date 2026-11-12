@@ -179,3 +179,18 @@ fn connector_secrets_are_kept_apart_from_endpoint_keys_and_each_other() -> Resul
     ));
     Ok(())
 }
+
+#[test]
+fn a_search_key_is_filed_apart_from_a_model_endpoint_of_the_same_name() -> Result {
+    let (keys, store) = mock_store()?;
+    keys.set("brave", "endpoint-key")?;
+    keys.set_search_key("brave", " BSA-123 ")?;
+    assert_eq!(keys.search_key("brave")?, Some("BSA-123".to_owned()));
+    assert_eq!(keys.get("brave")?, Some("endpoint-key".to_owned()));
+    let entry = store.build(SERVICE, "search:brave", None)?;
+    assert_eq!(entry.get_password()?, "BSA-123");
+    assert!(keys.delete_search_key("brave")?);
+    assert_eq!(keys.search_key("brave")?, None);
+    assert_eq!(keys.get("brave")?, Some("endpoint-key".to_owned()));
+    Ok(())
+}

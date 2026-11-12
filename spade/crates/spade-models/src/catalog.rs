@@ -53,6 +53,10 @@ pub enum Capability {
     /// Serves the OpenAI-format `POST /audio/transcriptions` route.
     #[serde(rename = "transcription")]
     Transcription,
+    /// Searches the web with its endpoint's own tool (Anthropic Messages' server web search,
+    /// OpenAI Responses' web search), which `web_search` uses first.
+    #[serde(rename = "web-search")]
+    WebSearch,
 }
 
 /// US dollars per million tokens. Cache prices default to the input price when absent.
@@ -69,6 +73,9 @@ pub struct Price {
     /// tokens the endpoint reports.
     #[serde(default)]
     pub per_call: Option<f64>,
+    /// US dollars per web search the endpoint's own search tool makes, on top of its tokens.
+    #[serde(default)]
+    pub per_search: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -84,7 +91,7 @@ pub struct Model {
 }
 
 impl Capability {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Tools,
         Self::Images,
         Self::Reasoning,
@@ -93,6 +100,7 @@ impl Capability {
         Self::ImageGeneration,
         Self::ImageOutput,
         Self::Transcription,
+        Self::WebSearch,
     ];
 
     /// The name used in files and the API.
@@ -106,6 +114,7 @@ impl Capability {
             Self::ImageGeneration => "image-generation",
             Self::ImageOutput => "image-output",
             Self::Transcription => "transcription",
+            Self::WebSearch => "web-search",
         }
     }
 
@@ -417,6 +426,8 @@ fn check_endpoint(endpoint: FileEndpoint, problems: &mut Vec<String>) -> Endpoin
                     Some(price.output),
                     price.cache_read,
                     price.cache_write,
+                    price.per_call,
+                    price.per_search,
                 ];
                 if !all.into_iter().flatten().all(valid) {
                     problems.push(format!(

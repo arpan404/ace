@@ -85,6 +85,7 @@ mod tests {
             cache_read: Some(0.1),
             cache_write: Some(2.5),
             per_call: None,
+            per_search: None,
         }
     }
 
@@ -92,6 +93,7 @@ mod tests {
     fn an_image_call_costs_its_tokens_and_its_price_per_call() {
         let price = Price {
             per_call: Some(0.04),
+            per_search: None,
             ..sonnet()
         };
         let usage = Usage {
@@ -125,6 +127,7 @@ mod tests {
             cache_read: None,
             cache_write: None,
             per_call: None,
+            per_search: None,
         };
         let usage = Usage {
             input_tokens: Some(1_000),
