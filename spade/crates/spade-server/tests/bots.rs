@@ -186,6 +186,7 @@ async fn a_chain_of_bot_messages_deeper_than_three_is_refused() -> Result {
                     depth: 3,
                 }),
                 from_routine: None,
+                from_group: None,
             }),
             1,
         )?;

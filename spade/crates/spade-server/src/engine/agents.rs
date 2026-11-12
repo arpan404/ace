@@ -246,6 +246,7 @@ impl Engine {
             .unwrap_or_else(|p| p.into_inner())
             .remove(&conversation);
         deleted?;
+        self.bot_left(id)?;
         Ok(())
     }
 

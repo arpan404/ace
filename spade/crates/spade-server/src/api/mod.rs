@@ -215,7 +215,7 @@ fn stored(event: &StoredEvent) -> Value {
 fn send_problem(error: &SendError) -> Response {
     let status = match error {
         SendError::NotFound => StatusCode::NOT_FOUND,
-        SendError::Disabled => StatusCode::CONFLICT,
+        SendError::Disabled | SendError::Group => StatusCode::CONFLICT,
         SendError::Empty | SendError::TooLong | SendError::TooManyImages | SendError::Image(_) => {
             StatusCode::BAD_REQUEST
         }

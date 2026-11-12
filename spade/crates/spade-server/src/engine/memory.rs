@@ -92,6 +92,7 @@ pub(super) fn wake_on_message(engine: &Engine, id: &str, event: &Event) {
         Event::Known(Known::UserMessage {
             from_agent: None,
             from_routine: None,
+            from_group: None,
             ..
         })
     ) {

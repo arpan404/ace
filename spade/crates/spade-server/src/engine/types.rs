@@ -156,6 +156,8 @@ pub enum SendError {
     NotFound,
     #[error("Spade is switched off on this machine; it runs on another one")]
     Disabled,
+    #[error("this is a group's transcript; post with /v1/groups/{{id}}/messages")]
+    Group,
     #[error("the message is empty")]
     Empty,
     #[error("the message is too long")]
