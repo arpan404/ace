@@ -15,9 +15,9 @@ pub enum Risk {
     Read,
     /// Changes something the person may want to check first.
     Write,
-    /// Changes only the bot's own notes (ADR 0128): runs, except while the prompt shows untrusted
-    /// content (since the last compaction, from any turn, or a tainted summary), since a note
-    /// outlives the turn.
+    /// Changes only the bot's own notes (ADR 0128): runs, except while the prompt shows an
+    /// untrusted event since the last compaction, from any turn, since a note outlives the turn.
+    /// With only a tainted summary in view, saves and rewrites become suggestions (memory.md).
     Memory,
     /// Deletes, sends money or cannot be undone.
     Destructive,

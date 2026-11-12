@@ -6,7 +6,7 @@ use spade_core::context::ASK_USER;
 use spade_core::tools::{Risk, ToolDef};
 use spade_models::ToolSpec;
 
-use super::{EngineHandle, Tool, ToolFuture, ToolOutput};
+use super::{EngineHandle, Tool, ToolFuture, ToolOutput, TurnFacts};
 use crate::engine::MemoryCall;
 
 /// One of the memory tools, run by the engine for the bot that called it.
@@ -144,14 +144,18 @@ impl Tool for MemoryTool {
     }
 
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {
-        let (engine, call) = (self.engine.get(), self.call);
+        self.run_in(key, arguments, &TurnFacts::default())
+    }
+
+    fn run_in(&self, key: &str, arguments: Value, turn: &TurnFacts) -> ToolFuture {
+        let (engine, call, suggest) = (self.engine.get(), self.call, turn.memory_suggests);
         let caller = key
             .split_once('.')
             .map_or(key, |(conversation, _)| conversation)
             .to_owned();
         Box::pin(async move {
             match engine {
-                Some(engine) => engine.memory_call(&caller, call, &arguments),
+                Some(engine) => engine.memory_call(&caller, call, &arguments, suggest),
                 None => ToolOutput::error("Spade is stopping."),
             }
         })

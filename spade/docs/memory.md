@@ -57,12 +57,20 @@ changing callers.
 | `history_read`   | `from` (position), `count` (≤ 20) | Those events word for word                                |
 | `ask_user`       | `question`                        | Asks the person and waits for their next message          |
 
-The memory tools run without asking, except while the prompt shows untrusted content, where each
-asks the person first (risk `memory`). That is the same view the workspace's trusted files answer
-to (ADR 0130): any untrusted event since the last compaction, from this turn or an earlier one, or
-a summary drawn from untrusted content (`context_compacted` with `untrusted`). A page read in one
-turn still makes a note in the next turn ask, until a compaction leaves it out with a clean
-summary. Saving text that matches an existing note in the same scope
+The memory tools run without asking, except while the prompt shows an untrusted event: any
+since the last compaction, from this turn or an earlier one (the same events the workspace's
+trusted files answer to, ADR 0130). Then each asks the person first (risk `memory`), so a page
+read in one turn still makes a note in the next turn ask until a compaction leaves it out.
+
+When the only untrusted thing in view is a summary drawn from untrusted content
+(`context_compacted` with `untrusted`), notes don't wait for the person, so a page read long
+ago never blocks a bot's notes for good (a routine's included). `memory_save` and
+`memory_update` then keep the text as a suggestion in the bot's own notes, the same kind
+compaction makes from untrusted text: the bot doesn't see it, and the person keeps or dismisses
+it in the bot's Memory. Their result is `{"suggested": {...}, "why": "..."}`, which shows no
+"Remembered" line, and an update leaves the note it names as it was. Forgetting a note (and any
+other tool of risk `memory`) can't wait as a suggestion, so it asks while such a summary is in
+view. Saving text that matches an existing note in the same scope
 (same words, or nearly all the same words) updates nothing and answers with the existing note.
 
 `memory_save` and `memory_update` answer with JSON, which the app reads to show

@@ -132,6 +132,9 @@ pub struct TurnFacts {
     /// turn's since the last compaction, or a tainted summary): what, in a few words
     /// ("https://example.com"). `None` when it shows none.
     pub untrusted: Option<String>,
+    /// The only untrusted thing in view is a summary drawn from untrusted text: a note saved or
+    /// rewritten now is kept as a suggestion the person keeps or dismisses (memory.md).
+    pub memory_suggests: bool,
 }
 
 /// Tools whose list changes while Spade runs, such as ace's. Every one is offered deferred, so

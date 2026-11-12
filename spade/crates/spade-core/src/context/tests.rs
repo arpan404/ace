@@ -344,9 +344,11 @@ fn untrusted_content_stays_in_view_across_turns_until_compaction_leaves_it_out()
     let mut clean = events.clone();
     clean.push(compacted(false, 6));
     assert!(untrusted_in_view(&clean, &registry).is_empty());
-    // A summary drawn from it keeps it in view.
+    // A summary drawn from it keeps it in view, but no untrusted event is.
     events.push(compacted(true, 6));
     assert_eq!(untrusted_in_view(&events, &registry).len(), 1);
+    assert!(untrusted_events_in_view(&events, &registry).is_empty());
+    assert!(untrusted_summary(&events));
 }
 
 fn job_done(job: &str, name: &str, content: &str) -> Event {
