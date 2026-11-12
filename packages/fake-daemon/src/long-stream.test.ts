@@ -32,7 +32,8 @@ function connect(daemon: FakeDaemon) {
         ...(afterSeq === undefined ? {} : { afterSeq }),
       }),
     );
-  return { received, frames, subscribe };
+  const send = (message: Record<string, unknown>) => transport.send(JSON.stringify(message));
+  return { received, frames, subscribe, send };
 }
 
 function streamed(daemon: FakeDaemon, deltas: number, piece: string) {
@@ -80,4 +81,32 @@ test("a subscriber further behind than the daemon replays gets a snapshot, not e
     .filter((message) => message.type === "events")
     .reduce((sum, message) => sum + ((message.events as unknown[] | undefined)?.length ?? 0), 0);
   expect(replayed).toBe(0);
+});
+
+test("a clipped message's whole text reads back through the source its preview names", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1000 });
+  streamed(daemon, 40, "é".repeat(1000));
+  const wire = connect(daemon);
+  wire.subscribe("whole");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const view = wire.received.find((message) => message.type === "snapshot")?.view as {
+    items: Record<string, { parts: { text: string; source?: { streamId: string } }[] }>;
+  };
+  const part = Object.values(view.items).find((item) => item.parts?.[0]?.source)?.parts[0];
+  const streamId = part?.source?.streamId ?? "";
+  expect(part?.text.length).toBe(previewUnits);
+
+  const whole: Buffer[] = [];
+  for (let offset = 0, page = 0; page < 10; page++) {
+    wire.send({ type: "output.read", requestId: `read-${page}`, streamId, offset, limit: 32768 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const reply = wire.received.find((message) => message.requestId === `read-${page}`) as
+      | { type: string; bytes: string; nextOffset: number; eof: boolean }
+      | undefined;
+    expect(reply?.type).toBe("output.data");
+    whole.push(Buffer.from(reply?.bytes ?? "", "base64"));
+    if (!reply || reply.eof) break;
+    offset = reply.nextOffset;
+  }
+  expect(Buffer.concat(whole).toString("utf16le")).toBe("Start" + "é".repeat(40_000));
 });

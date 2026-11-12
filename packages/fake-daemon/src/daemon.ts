@@ -69,6 +69,7 @@ import { FakeAppDevices } from "./app-devices.ts";
 import { FakeReviewDesk } from "./review-desk.ts";
 import { fakeTransfers, type FakeTransfers } from "./transfers.ts";
 import { ThreadHost } from "./thread-host.ts";
+import { readTextSource } from "./text-source.ts";
 import { numberedRun } from "./run-turns.ts";
 import { historyPage, windowSnapshot } from "./window.ts";
 import { FakeServices } from "./services/index.ts";
@@ -514,9 +515,12 @@ export class FakeDaemon implements Host {
       },
     };
   }
-  /** A page of a shell's full output (`output.read`), or undefined for an unknown stream. */
+  /** A page of a shell's output or a clipped text (`output.read`); undefined for an unknown stream. */
   output(streamId: string, offset: number, limit: number) {
-    return this.outputs.read(streamId, offset, limit);
+    const views = Array.from(this.threads.values(), (host) => host.view);
+    return (
+      this.outputs.read(streamId, offset, limit) ?? readTextSource(views, streamId, offset, limit)
+    );
   }
   get head(): number {
     return this.seq;
