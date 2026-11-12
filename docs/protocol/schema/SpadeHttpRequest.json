@@ -19,7 +19,7 @@
       "$ref": "https://ace.local/protocol/v1/SpadeMethod.json"
     },
     "parts": {
-      "maximum": 1024,
+      "maximum": 4096,
       "minimum": 1,
       "type": "integer"
     },

@@ -9,6 +9,7 @@ import { expect, test } from "vitest";
 import { createDevThread } from "./commands.ts";
 import { Store } from "./store.ts";
 import { schemaVersionBefore } from "./migrations.ts";
+import { undoMachineCode } from "./upgrade-test-support.ts";
 import { retiredWorkflowMigration } from "./retired-workflow-migration.ts";
 
 // A real persisted database is necessary to exercise the upgrade and SQLite readers together.
@@ -65,9 +66,10 @@ test("upgrading an unfinished Offshift run settles stale work and preserves old 
     await store.close();
     const db = new DatabaseSync(path);
     try {
-      // Reconstruct the previous release: before both the workflow removal and the later
-      // machine-child liveness step, so undo that step's columns too.
-      db.exec(`DROP INDEX IF EXISTS machine_children_seen;
+      // Reconstruct the previous release: before the workflow removal, so undo the later
+      // steps too, newest first, ending with the machine-child liveness step's columns.
+      db.exec(`${undoMachineCode}
+        DROP INDEX IF EXISTS machine_children_seen;
         DROP INDEX IF EXISTS machine_children_stopping;
         ALTER TABLE machine_children DROP COLUMN seen_at;
         ALTER TABLE machine_children DROP COLUMN silent_since;
