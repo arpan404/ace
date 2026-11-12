@@ -1,0 +1,26 @@
+[package]
+name = "spade-docs"
+version = "0.1.0"
+description = "Spade's document reading: text from PDF, DOCX, XLSX, CSV and text files, with limits"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+csv = "1.4"
+flate2 = "1"
+pdf-extract = "0.12.1"
+weezl = "0.1"
+quick-xml = "0.42"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["process", "io-util"] }
+zip = { version = "9.5", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true
