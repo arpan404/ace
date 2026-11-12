@@ -162,6 +162,7 @@ export class BrowserSession {
     );
     // A recording needs frames whether or not anyone watches.
     this.live.require(() => this.recordings.active);
+    this.live.onVideoStatus(() => this.emit());
     this.persist();
     this.scheduleLifecycle();
   }
@@ -251,7 +252,13 @@ export class BrowserSession {
       blocked: this.blocked,
       annotation: viewed?.annotation.owner,
       recording: this.recordings.by,
+      video: this.videoStatus(),
     });
+  }
+  private videoStatus() {
+    // State is read while the constructor still sets up the tabs, before the live capture exists.
+    const live: LiveCapture | undefined = this.live;
+    return live?.video.status();
   }
   private emit(): void {
     this.options.state(this.state);

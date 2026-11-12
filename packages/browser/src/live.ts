@@ -49,6 +49,7 @@ export class LiveCapture {
   private linger: ReturnType<typeof setTimeout> | undefined;
   private queue: Promise<void> = Promise.resolve();
   private needed: () => boolean = () => false;
+  private videoStatus: () => void = () => {};
   /** `start` seeds after its own first sync; a later resume seeds in `begin`. */
   private starting = false;
   constructor(
@@ -67,7 +68,7 @@ export class LiveCapture {
     videoSource: () => LiveVideoSource | undefined = () => undefined,
   ) {
     this.videoSource = videoSource;
-    this.video = new LiveVideo({ now, playing: () => {} });
+    this.video = new LiveVideo({ now, playing: () => {}, statusChanged: () => this.videoStatus() });
     this.tab = tab;
     this.scale = scale;
     this.cdp = cdp;
@@ -75,6 +76,10 @@ export class LiveCapture {
     this.onFrame = onFrame;
     this.privacy = privacy;
     this.viewport = viewport;
+  }
+  /** Told whenever `video.status()` changes (the video can't start, or plays again). */
+  onVideoStatus(listener: () => void): void {
+    this.videoStatus = listener;
   }
   /** Frames are also needed while this holds (a recording), viewers or not. */
   require(needed: () => boolean): void {

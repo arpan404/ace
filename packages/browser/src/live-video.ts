@@ -1,3 +1,4 @@
+import type { BrowserVideoStatus } from "@ace/protocol";
 import { AudioFanout, listens, type AudioSink } from "./audio-fanout.ts";
 import type {
   BrowserCdp,
@@ -39,8 +40,13 @@ export interface LiveVideoSource {
 const knownCodecs = ["hvc1.1.6.L153.B0", "avc1.640033", "avc1.42E033", "vp09.00.41.08", "vp8"];
 /** A capture size change waits for the pane to stop moving. */
 const settleMs = 300;
-/** After the encoder failed to start, try again this much later. */
+/**
+ * After a capture failed before its first chunk (the encoder failed to start, or the capture
+ * ended without a picture), try again this much later, doubling with each failure in a row up
+ * to `maxRetryMs`.
+ */
 const retryMs = 5_000;
+const maxRetryMs = 60_000;
 /** Where a new viewer's bit rate starts, before its link has shown what it carries. */
 const initialBitrate = 1_500_000;
 /**
@@ -90,12 +96,19 @@ export class LiveVideo {
   /** What the open capture was last told about its sound (a capture starts with it off). */
   private soundOn = false;
   private soundSequence = 0;
+  /** Captures in a row that failed before their first chunk, and why the last one did. */
+  private failures = 0;
+  private failure = "";
+  private statusChanged: () => void;
   constructor(options: {
     now: () => number;
     /** A viewer started or stopped showing video. */
     playing(id: string, playing: boolean): void;
+    /** `status()` changed. */
+    statusChanged?(): void;
   }) {
     this.now = options.now;
+    this.statusChanged = options.statusChanged ?? (() => {});
     this.fanout = new VideoFanout<BrowserVideoChunk>({
       keyframe: (encode) => this.owedKeys.add(encode),
       playing: options.playing,
@@ -177,6 +190,13 @@ export class LiveVideo {
     this.tabId = tabId;
     this.page = page;
     this.retryAt = -Infinity;
+    // Another tab starts afresh.
+    this.recovered();
+  }
+  /** Set while the video can't start and is being retried; undefined while it plays. */
+  status(): BrowserVideoStatus | undefined {
+    if (!this.failures) return undefined;
+    return { status: "retrying", reason: this.failure, attempts: this.failures };
   }
   /** Stops the tab's capture; viewers keep their last picture until the next `attach`. */
   detach(): void {
@@ -290,10 +310,16 @@ export class LiveVideo {
     this.close();
     const generation = this.generation;
     const tabId = this.tabId;
+    let played = false;
     void source.host
       .open(source.page, size.width, size.height, {
         chunk: (chunk) => {
-          if (generation === this.generation) this.publish(chunk, tabId);
+          if (generation !== this.generation) return;
+          if (!played) {
+            played = true;
+            this.recovered();
+          }
+          this.publish(chunk, tabId);
         },
         audio: (chunk) => {
           if (generation === this.generation) this.publishSound(chunk, tabId);
@@ -302,12 +328,14 @@ export class LiveVideo {
           const codec = encode.split("/")[0];
           if (codec && generation === this.generation) this.failedCodecs.add(codec);
         },
-        ended: () => {
+        ended: (reason) => {
           if (generation !== this.generation) return;
           this.capture = undefined;
           this.encodes = "";
           this.soundOn = false;
           this.fanout.stopAll();
+          // Reopening at once would loop on a tab that never gives a picture.
+          if (!played) this.failed(reason ?? "The tab's capture ended before its first picture");
         },
       })
       .then(
@@ -317,13 +345,28 @@ export class LiveVideo {
           this.encodes = "";
           this.soundOn = false;
         },
-        () => {
-          if (generation === this.generation) this.retryAt = this.now() + retryMs;
+        (error: unknown) => {
+          if (generation !== this.generation) return;
+          this.failed(error instanceof Error ? error.message : "The tab's capture did not start");
         },
       )
       .finally(() => {
         this.opening = false;
       });
+  }
+  /** A capture failed before its first chunk: the next waits longer, and viewers are told. */
+  private failed(reason: string): void {
+    this.failures++;
+    this.failure = reason.slice(0, 2048);
+    this.retryAt = this.now() + Math.min(retryMs * 2 ** (this.failures - 1), maxRetryMs);
+    this.statusChanged();
+  }
+  /** Video plays (or another tab starts): failures so far no longer count. */
+  private recovered(): void {
+    if (!this.failures) return;
+    this.failures = 0;
+    this.failure = "";
+    this.statusChanged();
   }
   private close(): void {
     this.generation++;
