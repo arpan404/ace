@@ -1,4 +1,5 @@
 import "./test-host.ts";
+import type { CommandPayload, CommandResult } from "@ace/protocol";
 import { expect, test } from "vitest";
 import type { ManageReply, ManageWriteReply } from "./forge-manage.ts";
 import type { NewPrCompareReply, NewPrContextReply, NewPrCreateReply } from "./forge-new-pr.ts";
@@ -227,4 +228,35 @@ test("a new pull request without details opens as before", async () => {
   const pr = await manage(ask, opened.number ?? 0);
   expect(pr.metadata).toMatchObject({ labels: [], assignees: [] });
   expect(pr.milestone).toBeNull();
+});
+
+test("a pull request GitHub opened without all its details says which one opened and what it lost", async () => {
+  // GitHub opens it, then refuses a label: the daemon says so in the create's code.
+  let daemonCommand: ((payload: CommandPayload) => Promise<CommandResult>) | undefined;
+  const { ask, client } = await connected(undefined, undefined, async (payload) => {
+    if (!daemonCommand) throw new Error("not connected");
+    const result = await daemonCommand(payload);
+    return payload.type === "forge.hosted.pr.create" && result.ok
+      ? { ...result, code: "forge_pr_details_incomplete" }
+      : result;
+  });
+  daemonCommand = (payload) => client.command(payload);
+  const opened = (await ask({
+    type: "forge.newpr.create",
+    project: "ace",
+    repository: ace,
+    base: "main",
+    head: { owner: "acme", name: "ace", branch: "feature/release-notes" },
+    title: "Release notes page",
+    body: "",
+    draft: false,
+    labels: ["web"],
+  })) as NewPrCreateReply;
+  expect(opened).toMatchObject({ ok: true, number: expect.any(Number) });
+  expect(opened.notice).toEqual({
+    title: `Opened pull request #${opened.number}`,
+    detail:
+      "The pull request is open, but GitHub didn't take all of its reviewers, labels, assignees or milestone: set them on its page.",
+    warning: true,
+  });
 });

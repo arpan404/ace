@@ -6,7 +6,13 @@ import {
   type ForgeRepoPrOptions,
   WorkspaceId,
 } from "@ace/protocol";
-import { actionErrorText, milestoneDue, repositoryLabel, reviewRepositories } from "@ace/ui-core";
+import {
+  actionErrorText,
+  milestoneDue,
+  prCreateNotice,
+  repositoryLabel,
+  reviewRepositories,
+} from "@ace/ui-core";
 import { z } from "zod";
 import type { Preview } from "./agents.ts";
 import { ForgeRefusal, type ForgeOwner, type ForgeReads } from "./forge-reads.ts";
@@ -94,6 +100,11 @@ export interface NewPrCreateReply {
   uncertain: boolean;
   /** The pull request opened, or the one the branches already had. */
   number: number | null;
+  /**
+   * What the person hears after it opened: the branches' existing pull request, or a warning
+   * that GitHub didn't take all of its details. Null for a clean create or a failed one.
+   */
+  notice: { title: string; detail: string | null; warning: boolean } | null;
 }
 
 const plural = (count: number, one: string) => `${count} ${one}${count === 1 ? "" : "s"}`;
@@ -225,6 +236,7 @@ export async function createPr(
         message: actionErrorText(result.error),
         uncertain: false,
         number: null,
+        notice: null,
       };
     return {
       type: "forge.write",
@@ -237,6 +249,13 @@ export async function createPr(
           : "",
       uncertain: false,
       number: result.pr?.number ?? null,
+      notice: result.pr
+        ? (prCreateNotice({
+            number: result.pr.number,
+            existing: !!result.prExisting,
+            code: result.code,
+          }) ?? null)
+        : null,
     };
   } catch {
     reads.forget(request.project);
@@ -247,6 +266,7 @@ export async function createPr(
         "Couldn't confirm it opened. Open New pull request again: an existing one is shown, never a second.",
       uncertain: true,
       number: null,
+      notice: null,
     };
   }
 }
