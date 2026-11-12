@@ -123,6 +123,7 @@ function ReviewModelRow(props: {
       <div className="flex min-w-0 items-center gap-1">
         <SpadeModelPicker
           id={id}
+          label="Review model"
           value={draft}
           onChange={(next) => {
             setDraft(next);
