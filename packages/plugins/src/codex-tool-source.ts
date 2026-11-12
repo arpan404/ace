@@ -4,7 +4,7 @@ import { codexKeySegment, toml } from "./project-shared.ts";
 
 /*
  * The person's Codex tool setup, taken from a tool source folder and passed to Codex accounts
- * whose home is another folder (ADR 0128). Only `[marketplaces]`, `[plugins]` and
+ * whose home is another folder (ADR 0138). Only `[marketplaces]`, `[plugins]` and
  * `[mcp_servers]` are read; nothing else in the config (auth, model providers) ever is.
  */
 

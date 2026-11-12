@@ -6,7 +6,7 @@ import { claudeChromeFlag, codexLaunchArgs } from "../native-tools/read.ts";
 import type { NativeToolFiles } from "../native-tools/files.ts";
 
 /*
- * Starts Codex and Claude sessions with the person's own tool setup (ADR 0128): Codex accounts
+ * Starts Codex and Claude sessions with the person's own tool setup (ADR 0138): Codex accounts
  * get the tool source's plugins, marketplaces and MCP servers; Claude gets the Chrome flag.
  */
 

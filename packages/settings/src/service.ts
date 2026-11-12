@@ -23,7 +23,7 @@ import { fileIO, scheduler, type FileIO, type Scheduler } from "./io.ts";
 const globalOnlyKeys: ReadonlySet<SettingsKey> = new Set<SettingsKey>([
   "computer.lockedUse",
   "spade.enabled",
-  // Which programs a provider may start (ADR 0128): a repository can't point them elsewhere.
+  // Which programs a provider may start (ADR 0138): a repository can't point them elsewhere.
   "providers.codex.toolSource",
   "providers.claude.chrome",
 ]);

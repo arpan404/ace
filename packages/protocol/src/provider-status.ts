@@ -6,7 +6,7 @@ import { CliVersionCheck } from "./cli-version.ts";
 
 /**
  * One of a provider's own tools (Codex computer use, Claude in Chrome), as ace can tell from the
- * config and files it reads, never from a session (ADR 0128). `reason` says why it isn't ready.
+ * config and files it reads, never from a session (ADR 0138). `reason` says why it isn't ready.
  * States a newer daemon adds read as `unknown`.
  */
 export const NativeToolStatus = z.object({

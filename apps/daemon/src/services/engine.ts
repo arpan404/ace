@@ -113,7 +113,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     files: cachedToolFiles(nodeFileSystem),
   };
   const bindProvider = (source: ProviderAdapter) => {
-    // Innermost, so the person's tool setup applies to whichever account is chosen (ADR 0128).
+    // Innermost, so the person's tool setup applies to whichever account is chosen (ADR 0138).
     const adapter = withNativeTools(
       nativeTools,
       configuredAdapter(source, services.providerConfigurations),

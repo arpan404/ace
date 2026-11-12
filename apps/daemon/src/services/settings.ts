@@ -132,7 +132,7 @@ function allowedWrite(key: string, layer: string, authorize: SocketContext["auth
     key === "computer.blockedApps" ||
     // Whether agents may operate this Mac while it is locked.
     key === "computer.lockedUse" ||
-    // Which plugins, MCP servers and Chrome access providers start with (ADR 0128).
+    // Which plugins, MCP servers and Chrome access providers start with (ADR 0138).
     key === "providers.codex.toolSource" ||
     key === "providers.claude.chrome" ||
     key.startsWith("host.") ||

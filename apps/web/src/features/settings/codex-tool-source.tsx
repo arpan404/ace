@@ -22,7 +22,7 @@ const folderSchema = SettingsValues.shape["providers.codex.toolSource"];
 
 /**
  * The folder Codex accounts take the person's plugins, marketplaces and MCP servers from
- * (`providers.codex.toolSource`, ADR 0128). The path shown is the one the daemon reads, so the
+ * (`providers.codex.toolSource`, ADR 0138). The path shown is the one the daemon reads, so the
  * default reads as the real Codex home. On the daemon's own computer the desktop app's folder
  * picker chooses another; elsewhere the person types its full path.
  */

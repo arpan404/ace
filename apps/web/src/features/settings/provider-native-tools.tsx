@@ -26,7 +26,7 @@ const chromeOptions = [
 ] as const;
 
 /**
- * A provider's own tools (ADR 0128), as its status row reports them for the selected account:
+ * A provider's own tools (ADR 0138), as its status row reports them for the selected account:
  * one row per tool with its state, Claude in Chrome's switch, and the folder Codex accounts take
  * their plugins and tools from. Absent when the daemon reports none.
  */

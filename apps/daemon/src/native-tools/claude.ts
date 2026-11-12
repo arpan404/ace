@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import type { NativeToolStatus, SettingsValues } from "@ace/protocol";
 
-/* Pure rules for Claude in Chrome (ADR 0128). */
+/* Pure rules for Claude in Chrome (ADR 0138). */
 
 export type ClaudeChromeSetting = SettingsValues["providers.claude.chrome"];
 

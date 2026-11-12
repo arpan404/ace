@@ -12,7 +12,7 @@ import {
 import type { NativeToolSource, NativeToolStatus } from "@ace/protocol";
 
 /*
- * Pure rules for Codex's own tools (ADR 0128): what a launch adds from the tool source, and
+ * Pure rules for Codex's own tools (ADR 0138): what a launch adds from the tool source, and
  * which of computer use, Chrome and the in-app browser the selected account can use.
  */
 

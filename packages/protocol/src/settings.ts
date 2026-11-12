@@ -56,7 +56,7 @@ export const SettingsValues = z.object({
   "providers.verifier.tier": tier,
   "providers.verifier.reasoningEffort": effort,
   /**
-   * Where Codex accounts take the person's tool setup from (ADR 0128): an absolute folder
+   * Where Codex accounts take the person's tool setup from (ADR 0138): an absolute folder
    * holding a Codex `config.toml`. Its `[marketplaces]`, `[plugins]` and `[mcp_servers]` are
    * passed to every Codex account whose home is another folder, as launch overrides. Null is the
    * default Codex home (`CODEX_HOME`, else `~/.codex`). A folder without a readable

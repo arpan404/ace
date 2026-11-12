@@ -91,12 +91,12 @@ export interface SessionContext {
     lease?: import("@ace/provider-kit/process").ProcessLease;
   };
   /**
-   * Daemon-owned launch arguments carrying the person's provider tool setup (ADR 0128): Codex
+   * Daemon-owned launch arguments carrying the person's provider tool setup (ADR 0138): Codex
    * `-c` overrides for plugins, marketplaces and MCP servers. Never accepted from wire data.
    */
   toolConfigArgs?: readonly string[];
   /**
-   * Daemon-owned (ADR 0128): true starts Claude Code with `--chrome`, false with `--no-chrome`;
+   * Daemon-owned (ADR 0138): true starts Claude Code with `--chrome`, false with `--no-chrome`;
    * absent leaves Claude in Chrome to Claude's own default.
    */
   chrome?: boolean;

@@ -1,7 +1,7 @@
 import type { NativeToolSource, NativeToolStatus, ProviderKind } from "@ace/protocol";
 
 /*
- * The fake machine's provider tools (ADR 0128), from the two settings that decide them: Codex
+ * The fake machine's provider tools (ADR 0138), from the two settings that decide them: Codex
  * has computer use and Chrome from the person's plugins, and its in-app browser needs the ChatGPT
  * app; Claude in Chrome follows `providers.claude.chrome`.
  */
