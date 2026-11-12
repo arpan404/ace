@@ -173,17 +173,16 @@ impl Calendar {
         None
     }
 
-    /// The earliest slot on local `date` after `after_ms`. Times are mapped with the zone's
-    /// "compatible" rule (a gap moves forward, a repeat takes the first), so the minimum is
-    /// taken over all of them rather than the first in wall-clock order.
+    /// The earliest slot on local `date` after `after_ms`. A time a gap skips runs at the gap's
+    /// end, which can come before an earlier-listed time's instant, so the minimum is taken over
+    /// all of them rather than the first in wall-clock order.
     fn first_on(&self, date: Date, after_ms: i64, zone: &TimeZone) -> Option<i64> {
         let mut best: Option<i64> = None;
         for hour in (0..24).filter(|h| self.hours & (1 << h) != 0) {
             for minute in (0..60).filter(|m| self.minutes & (1 << m) != 0) {
-                let Ok(zoned) = date.at(hour, minute, 0, 0).to_zoned(zone.clone()) else {
+                let Some(at) = instant(date.at(hour, minute, 0, 0), zone) else {
                     continue;
                 };
-                let at = zoned.timestamp().as_millisecond();
                 if at > after_ms && best.is_none_or(|b| at < b) {
                     best = Some(at);
                 }
@@ -220,6 +219,24 @@ impl Calendar {
         };
         Some(format!("{days} at {}", list(times)))
     }
+}
+
+/// The instant of local time `at` in `zone`. A time a spring-forward skips is the first instant
+/// after the gap (2:30 on a day that jumps from 2:00 to 3:00 runs at 3:00); a time an autumn
+/// change repeats is its first instant.
+fn instant(at: jiff::civil::DateTime, zone: &TimeZone) -> Option<i64> {
+    use jiff::tz::AmbiguousOffset;
+    let timestamp = match zone.to_ambiguous_timestamp(at).offset() {
+        AmbiguousOffset::Unambiguous { offset } => offset.to_timestamp(at).ok()?,
+        AmbiguousOffset::Fold { before, .. } => before.to_timestamp(at).ok()?,
+        AmbiguousOffset::Gap { after, .. } => {
+            // Read with the later offset, the time falls before the gap; the gap ends at the
+            // next transition.
+            let early = after.to_timestamp(at).ok()?;
+            zone.following(early).next()?.timestamp()
+        }
+    };
+    Some(timestamp.as_millisecond())
 }
 
 /// `a`, `a and b`, `a, b and c`.
@@ -399,7 +416,9 @@ fn field(text: &str, low: u32, high: u32, name: &str) -> Result<u64, String> {
             Some((range, step)) => (range, step.parse::<u32>().map_err(|_| bad())?),
             None => (part, 1),
         };
-        if step == 0 {
+        // A step runs from 1 to the field's span; anything wider matches once at most and is a
+        // mistake, and a huge one would overflow.
+        if step == 0 || step > high - low {
             return Err(bad());
         }
         let (from, to) = if range == "*" {
@@ -420,7 +439,10 @@ fn field(text: &str, low: u32, high: u32, name: &str) -> Result<u64, String> {
         let mut value = from;
         while value <= to {
             set |= 1 << value;
-            value += step;
+            let Some(next) = value.checked_add(step) else {
+                break;
+            };
+            value = next;
         }
     }
     Ok(set)

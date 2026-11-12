@@ -82,6 +82,10 @@ fn schedules_that_cannot_be_read_say_why() {
         "61 * * * *",
         "0 9 * * 8",
         "at 9:15 and 10:30",
+        "1/4294967295 * * * *",
+        "0 0/4294967295 * * *",
+        "*/60 * * * *",
+        "0 9 */32 * *",
     ] {
         assert!(Schedule::parse(text).is_err(), "{text:?} was accepted");
     }
@@ -117,10 +121,11 @@ fn a_daily_time_keeps_its_wall_time_across_both_clock_changes() {
 
 #[test]
 fn a_time_the_spring_change_skips_runs_just_after_the_gap_and_a_repeated_one_runs_once() {
-    // 2:30 does not exist on 2026-03-08 in New York: it runs at 3:30 that day, not never.
+    // 2:30 does not exist on 2026-03-08 in New York (2:00 jumps to 3:00): it runs at 3:00, the
+    // first instant after the gap, not never and not an hour late.
     assert_eq!(
         next_walls("daily at 2:30", "America/New_York", "2026-03-07T12:00", 2),
-        ["2026-03-08T03:30", "2026-03-09T02:30"]
+        ["2026-03-08T03:00", "2026-03-09T02:30"]
     );
     // 1:30 happens twice on 2026-11-01: it runs once.
     let schedule = parse("daily at 1:30");
