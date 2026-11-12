@@ -1,9 +1,11 @@
-import { foldFinished, type ForestNode, type ThreadWork } from "@ace/ui-core";
+import { foldFinished, type ForestNode, type ForestRow, type ThreadWork } from "@ace/ui-core";
 import type { Interaction } from "@ace/protocol";
 import { useCallback, useMemo, useState, type KeyboardEvent } from "react";
+import { cn } from "@/lib/cn.ts";
+import { rowMotion, useListMotion, usePresence } from "@/lib/motion.ts";
 import { useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { AgentLine, CommandLine, FinishedLine, guideLeft } from "./summary-rows.tsx";
-import { useKeptFocus } from "./summary-tree-focus.ts";
+import { treeItems, useKeptFocus } from "./summary-tree-focus.ts";
 
 /** The key a person's fold of a row is kept under, with the Summary tab. */
 const foldKey = (row: string) => `fold:${row}`;
@@ -14,7 +16,7 @@ const foldKey = (row: string) => `fold:${row}`;
  */
 function treeKeys(setActive: (key: string) => void, fold: (key: string, open: boolean) => void) {
   return (event: KeyboardEvent<HTMLUListElement>) => {
-    const items = [...event.currentTarget.querySelectorAll<HTMLElement>('[role="treeitem"]')];
+    const items = treeItems(event.currentTarget);
     const item = event.target instanceof HTMLElement ? event.target : undefined;
     const at = item ? items.indexOf(item) : -1;
     if (!item || at < 0) return;
@@ -172,9 +174,16 @@ export function SummaryTree(props: {
   );
 }
 
+/** A row of one level: an agent or command, or a run of finished siblings folded into one. */
+type LevelRow = ForestRow;
+const levelKey = (row: LevelRow) => (row.kind === "node" ? row.node.key : row.key);
+/** Agents finishing together leave one after another, this far apart. */
+const foldStagger = 40;
+
 /**
  * One level of the tree. Under a parent, finished siblings fold into one "N done" row that opens
- * in place; the tree's own roots always show.
+ * in place; the tree's own roots always show. Rows that leave fade out where they were, one
+ * after another, before the level closes up; rows that arrive rise in.
  */
 function Branch(props: {
   nodes: readonly ForestNode[];
@@ -182,23 +191,49 @@ function Branch(props: {
   context: TreeContext;
   parent?: string | undefined;
 }) {
-  const { depth, context } = props;
-  if (props.parent === undefined)
-    return props.nodes.map((node) => (
-      <BranchNode key={node.key} node={node} depth={depth} context={context} />
-    ));
-  return foldFinished(props.parent, props.nodes).map((row) => {
-    if (row.kind === "node")
-      return <BranchNode key={row.node.key} node={row.node} depth={depth} context={context} />;
+  const { depth, context, parent, nodes } = props;
+  const level = useMemo(
+    (): LevelRow[] =>
+      parent === undefined
+        ? nodes.map((node) => ({ kind: "node", node }))
+        : foldFinished(parent, nodes),
+    [parent, nodes],
+  );
+  // However many agents a sync finishes at once, each fold plays: the stagger bounds the time.
+  const { rows } = useListMotion(level, levelKey, {
+    exitStagger: foldStagger,
+    bulkAt: Number.POSITIVE_INFINITY,
+  });
+  // A leaving row is drawn from its latest state, so an agent that just finished doesn't pulse
+  // on its way out.
+  const latest = useMemo(() => {
+    const map = new Map<string, ForestNode>();
+    for (const row of level)
+      if (row.kind === "node") map.set(row.node.key, row.node);
+      else for (const node of row.nodes) map.set(node.key, node);
+    return map;
+  }, [level]);
+  return rows.map(({ key, item: row, phase, delay }) => {
+    const exiting = phase === "exit";
+    const motion = {
+      className: rowMotion(phase),
+      inert: exiting,
+      "aria-hidden": exiting || undefined,
+      style: delay ? { animationDelay: `${delay}ms` } : undefined,
+    };
+    if (row.kind === "node") {
+      const node = latest.get(key) ?? row.node;
+      return <BranchNode key={key} node={node} depth={depth} context={context} motion={motion} />;
+    }
     const shown = context.isShown(row.key);
     return (
-      <li key={row.key} role="none">
+      <li key={key} role="none" {...motion}>
         <FinishedLine
           rowKey={row.key}
           count={row.nodes.length}
           depth={depth}
           expanded={shown}
-          active={context.active === row.key}
+          active={!exiting && context.active === row.key}
           onFocus={() => context.setActive(row.key)}
           onFold={() => context.fold(row.key, !shown)}
         />
@@ -214,14 +249,28 @@ function Branch(props: {
   });
 }
 
-function BranchNode(props: { node: ForestNode; depth: number; context: TreeContext }) {
-  const { node, depth, context } = props;
+interface RowMotionProps {
+  className: string | undefined;
+  inert: boolean;
+  "aria-hidden": true | undefined;
+  style: { animationDelay: string } | undefined;
+}
+
+function BranchNode(props: {
+  node: ForestNode;
+  depth: number;
+  context: TreeContext;
+  motion?: RowMotionProps;
+}) {
+  const { node, depth, context, motion } = props;
   const parent = node.children.length > 0;
   const open = parent ? context.isOpen(node, depth) : undefined;
+  // A branch that closes, by hand or because its agents finished, fades its rows out first.
+  const children = usePresence(open === true);
   const row = {
     depth,
     expanded: open,
-    active: context.active === node.key,
+    active: !motion?.inert && context.active === node.key,
     onFocus: () => context.setActive(node.key),
     onFold: () => context.fold(node.key, !open),
   };
@@ -234,14 +283,19 @@ function BranchNode(props: { node: ForestNode; depth: number; context: TreeConte
           : undefined))
       : undefined;
   return (
-    <li role="none">
+    <li role="none" {...motion}>
       {node.kind === "agent" ? (
         <AgentLine {...row} node={node} viewed={context.viewed} request={request} />
       ) : (
         <CommandLine {...row} node={node} viewed={context.viewed} />
       )}
-      {open && (
-        <ul role="group" className="relative">
+      {children.mounted && (
+        <ul
+          role="group"
+          inert={!open}
+          aria-hidden={!open || undefined}
+          className={cn("relative", children.toggled && rowMotion(children.phase))}
+        >
           <span
             aria-hidden
             className="pointer-events-none absolute top-0 bottom-2 w-px bg-border"
