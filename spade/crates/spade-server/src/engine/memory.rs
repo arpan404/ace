@@ -277,6 +277,8 @@ impl Engine {
         let agent = self.scope_agent(scope)?;
         match self.save(agent.as_deref(), text, Source::Person)? {
             Saved::New(note) => Ok((note, true)),
+            // The person saying it themselves keeps a matching suggestion.
+            Saved::Exists(note) if note.suggested => Ok((self.accept_note(&note.id)?, false)),
             Saved::Exists(note) => Ok((note, false)),
             Saved::Full => Err(NoteError::Full),
         }

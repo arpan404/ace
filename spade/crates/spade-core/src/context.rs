@@ -542,6 +542,16 @@ pub fn untrusted_turn(events: &[Event], registry: &Registry) -> bool {
         .any(|event| untrusted_event(event, registry))
 }
 
+/// Whether the summary the prompt shows was drawn from untrusted content (ADR 0128). Its facts
+/// may be planted, so a note written while it is in view asks first, like one written after
+/// reading a page.
+pub fn untrusted_summary(events: &[Event]) -> bool {
+    events.iter().rev().find_map(|event| match event {
+        Event::Known(Known::ContextCompacted { untrusted, .. }) => Some(*untrusted),
+        _ => None,
+    }) == Some(true)
+}
+
 /// Whether `event` carries text that may hold instructions from strangers: another bot's message,
 /// or output of a tool marked untrusted (or no longer listed, which cannot vouch for it).
 pub fn untrusted_event(event: &Event, registry: &Registry) -> bool {

@@ -57,7 +57,8 @@ changing callers.
 | `history_read`   | `from` (position), `count` (≤ 20) | Those events word for word                                |
 | `ask_user`       | `question`                        | Asks the person and waits for their next message          |
 
-The memory tools run without asking, except in a turn that read untrusted content, where each
+The memory tools run without asking, except in a turn that read untrusted content or while the
+prompt shows a summary drawn from untrusted content (`context_compacted` with `untrusted`), where each
 asks the person first (risk `memory`). Saving text that matches an existing note in the same scope
 (same words, or nearly all the same words) updates nothing and answers with the existing note.
 
@@ -104,15 +105,15 @@ records `untrusted: true`, so a later summary that folds it in stays untrusted.
 
 All under `/v1`, with the bearer token. Bodies are JSON; errors are `{"error": "…"}`.
 
-| Request                     | Body                      | Answer                                                                                              |
-| --------------------------- | ------------------------- | --------------------------------------------------------------------------------------------------- |
-| `GET /agents/{id}/notes`    |                           | `{"notes": [note…]}`, newest change first; `?q=` ranks                                              |
-| `POST /agents/{id}/notes`   | `{"text"}`                | `201` and the note, source `person`; `200` and the existing note when one already says the same     |
-| `GET /notes`                |                           | The shared notes, as above                                                                          |
-| `POST /notes`               | `{"text"}`                | `201` and a shared note, or `200` as above                                                          |
-| `PATCH /notes/{note}`       | `{"text", "updated_at"?}` | The changed note; with `updated_at`, `409 {"error", "note"}` if the note changed since that version |
-| `POST /notes/{note}/accept` |                           | The kept suggestion, `suggested: false`                                                             |
-| `DELETE /notes/{note}`      |                           | `204`                                                                                               |
+| Request                     | Body                      | Answer                                                                                                                          |
+| --------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /agents/{id}/notes`    |                           | `{"notes": [note…]}`, newest change first; `?q=` ranks                                                                          |
+| `POST /agents/{id}/notes`   | `{"text"}`                | `201` and the note, source `person`; `200` and the existing note when one already says the same (a matching suggestion is kept) |
+| `GET /notes`                |                           | The shared notes, as above                                                                                                      |
+| `POST /notes`               | `{"text"}`                | `201` and a shared note, or `200` as above                                                                                      |
+| `PATCH /notes/{note}`       | `{"text", "updated_at"?}` | The changed note; with `updated_at`, `409 {"error", "note"}` if the note changed since that version                             |
+| `POST /notes/{note}/accept` |                           | The kept suggestion, `suggested: false`                                                                                         |
+| `DELETE /notes/{note}`      |                           | `204`                                                                                                                           |
 
 `400` for text that is empty or too long, `404` for an unknown agent or note, `409` when the scope
 already holds 1,000 notes.

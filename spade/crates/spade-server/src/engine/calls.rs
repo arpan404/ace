@@ -43,6 +43,8 @@ pub(super) async fn handle_calls(
     let registry = engine.tools.registry();
     let transcript = Transcript::fold(events);
     let untrusted = context::untrusted_turn(events, &registry);
+    // A note outlives the turn: one written while a tainted summary is in view asks too.
+    let untrusted_memory = untrusted || context::untrusted_summary(events);
     let mut runnable: Vec<(Call, String, Value)> = Vec::new();
     let mut waiting = false;
     // Started with no stored result. This worker runs every call it starts to its stored end, so
@@ -83,7 +85,12 @@ pub(super) async fn handle_calls(
                 }
                 Some(def) => {
                     let always = transcript.always_allowed.iter().any(|t| t == &name);
-                    match gate::decide(def.risk, always, untrusted) {
+                    let tainted = if def.risk == Risk::Memory {
+                        untrusted_memory
+                    } else {
+                        untrusted
+                    };
+                    match gate::decide(def.risk, always, tainted) {
                         Decision::Run => runnable.push((pending.call, name, arguments)),
                         Decision::Ask => {
                             waiting = true;
