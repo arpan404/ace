@@ -42,7 +42,6 @@ test("a provider's row opens its page, with its accounts, models and facts; Back
   await harness().open("/settings/providers");
   await userEvent.click(await screen.findByRole("link", { name: "Claude Code" }));
   expect(await screen.findByRole("heading", { level: 2, name: "Claude Code" })).toBeTruthy();
-  await userEvent.click(screen.getByText("Advanced", { selector: "summary" }));
   const about = await screen.findByRole("region", { name: "About" }, { timeout: 10_000 });
   expect(within(about).getByText("2.1.4")).toBeTruthy();
   expect(within(about).getByText("/opt/homebrew/bin/claude")).toBeTruthy();
@@ -50,9 +49,9 @@ test("a provider's row opens its page, with its accounts, models and facts; Back
   expect(within(accounts).getByText("Your CLI login")).toBeTruthy();
   expect(within(accounts).getByText("Signed in")).toBeTruthy();
   expect(within(accounts).getByText("Work")).toBeTruthy();
-  // Sign out is on the page, apart from everything else.
+  // Log out is on the page, apart from everything else.
   await userEvent.click(within(accounts).getByRole("button", { name: "Manage Personal" }));
-  expect(await screen.findByRole("menuitem", { name: "Sign out" })).toBeTruthy();
+  expect(await screen.findByRole("menuitem", { name: "Log out" })).toBeTruthy();
   await userEvent.keyboard("{Escape}");
 
   await userEvent.click(screen.getByRole("link", { name: "Back to Providers" }));
@@ -100,7 +99,6 @@ test("OpenCode's page shows each service; a failing one reconnects with its choi
 
 test("Connect a service on Pi's page opens the CLI's own choices", async () => {
   await harness().open("/settings/providers/pi");
-  await userEvent.click(await screen.findByText("Advanced", { selector: "summary" }));
   // The native terminal recipe remains available alongside working catalog readiness.
   const about = await screen.findByRole("region", { name: "About" }, { timeout: 10_000 });
   expect(about.textContent).toContain("Run pi, then type /login");
@@ -190,7 +188,7 @@ test("a CLI that isn't installed offers the supervised installer on its page", a
 
 test("Manage models offers named controls for current and older models without repeating accounts", async () => {
   await harness().open("/settings/providers/codex");
-  const models = await screen.findByRole("region", { name: "Behaviour" }, { timeout: 10_000 });
+  const models = await screen.findByRole("region", { name: "Models" }, { timeout: 10_000 });
   await userEvent.click(await within(models).findByRole("button", { name: "Manage" }));
   const shown = await screen.findByRole("list", { name: "Models" });
   expect(within(shown).getByRole("button", { name: "Star GPT-6.1 Sol" })).toBeTruthy();
@@ -201,7 +199,7 @@ test("Manage models offers named controls for current and older models without r
 test("a provider's default model can be changed, even to a legacy one, and reads as the person's", async () => {
   const app = harness();
   await app.open("/settings/providers/claude");
-  const models = await screen.findByRole("region", { name: "Behaviour" }, { timeout: 10_000 });
+  const models = await screen.findByRole("region", { name: "Models" }, { timeout: 10_000 });
   await userEvent.click(
     await within(models).findByRole("button", { name: "Default model: Opus 5.5" }),
   );
@@ -265,7 +263,6 @@ test("an ACP agent added by command joins the list, and its page removes it", as
   await userEvent.click(
     await screen.findByRole("link", { name: "Qwen Code" }, { timeout: 10_000 }),
   );
-  await userEvent.click(screen.getByText("Advanced", { selector: "summary" }));
   await userEvent.click(await screen.findByRole("button", { name: "Remove Qwen Code" }));
   expect(await section("Installed providers")).toBeTruthy();
   await waitFor(() => expect(screen.queryByRole("link", { name: "Qwen Code" })).toBeNull());
@@ -287,7 +284,7 @@ test("a provider with one available model labels it in the singular", async () =
     .filter((entry) => entry.provider !== "codex")
     .concat(model);
   await app.open("/settings/providers/codex");
-  const models = await screen.findByRole("region", { name: "Behaviour" });
+  const models = await screen.findByRole("region", { name: "Models" });
   expect(await within(models).findByText("1 model · legacy models in a submenu")).toBeTruthy();
   expect(within(models).queryByText("1 models")).toBeNull();
 });
@@ -303,7 +300,7 @@ test("a vanished saved default stays unavailable until the person picks its reco
     (row) => row.id !== "opencode-go/muse-spark-1.3-contributor",
   );
   await app.open("/settings/providers/opencode");
-  const models = await screen.findByRole("region", { name: "Behaviour" });
+  const models = await screen.findByRole("region", { name: "Models" });
   await userEvent.click(
     await within(models).findByRole("button", {
       name: "Default model: Muse Spark 1.3 Contributor, Unavailable",

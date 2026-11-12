@@ -96,16 +96,18 @@ test("hover actions make an account default, rename it and require confirmation 
   await userEvent.type(field, "Client work{Enter}");
   const renamed = await account("Client work");
   await userEvent.click(within(renamed).getByRole("button", { name: "Manage Client work" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
-  const confirm = within(await screen.findByRole("dialog", { name: "Remove Client work?" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Remove account…" }));
+  const confirm = within(
+    await screen.findByRole("dialog", { name: "Remove Client work from Claude Code?" }),
+  );
   await userEvent.click(confirm.getByRole("button", { name: "Cancel" }));
   expect(await account("Client work")).toBeTruthy();
   await userEvent.click(within(renamed).getByRole("button", { name: "Manage Client work" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Remove account…" }));
   await userEvent.click(
-    within(await screen.findByRole("dialog", { name: "Remove Client work?" })).getByRole("button", {
-      name: "Remove",
-    }),
+    within(
+      await screen.findByRole("dialog", { name: "Remove Client work from Claude Code?" }),
+    ).getByRole("button", { name: "Remove account" }),
   );
   await waitFor(async () => expect(within(await accounts()).queryByText("Client work")).toBeNull());
 });
@@ -133,8 +135,8 @@ test("an account row shows its session and weekly windows, the weekly one when i
       .getAllByRole("meter")
       .map((meter) => [meter.getAttribute("aria-label"), meter.getAttribute("aria-valuenow")]),
   ).toEqual([
-    ["Session (5h) window", "34"],
-    ["Weekly window", "97"],
+    ["Session (5h) window", "66"],
+    ["Weekly window", "3"],
   ]);
   // Short names where the row has little room.
   expect(row.getByText("5h")).toBeTruthy();
@@ -148,23 +150,22 @@ test("signed-in rows show quota and the CLI login can be renamed but cannot be r
     within(personal)
       .getByRole("meter", { name: "Session (5h) window" })
       .getAttribute("aria-valuenow"),
-  ).toBe("62");
+  ).toBe("38");
+  expect(within(personal).getByText("38% left")).toBeTruthy();
   expect(within(personal).queryByText("Signed in")).toBeNull();
   const cli = await account("Your CLI login");
   await userEvent.click(within(cli).getByRole("button", { name: "Manage Your CLI login" }));
   expect(await screen.findByRole("menuitem", { name: "Rename" })).toBeTruthy();
   expect(screen.getByRole("menuitem", { name: "Change badge" })).toBeTruthy();
-  expect(screen.queryByRole("menuitem", { name: "Remove" })).toBeNull();
+  expect(screen.queryByRole("menuitem", { name: "Remove account…" })).toBeNull();
   await userEvent.click(await screen.findByRole("menuitem", { name: "Sign in again" }));
   expect(await screen.findByRole("dialog", { name: "Sign in to Claude Code" })).toBeTruthy();
 });
 
-test("CLI path stays collapsed and saves on blur without a Save step", async () => {
+test("CLI path saves on blur without a Save step", async () => {
   const app = harness();
   await app.open("/settings/providers/claude");
   await account("Personal");
-  expect(screen.queryByRole("textbox", { name: "CLI path" })).toBeNull();
-  await userEvent.click(screen.getByText("Advanced", { selector: "summary" }));
   const path = await screen.findByRole("textbox", { name: "CLI path" });
   await userEvent.type(path, "/tmp/claude");
   await userEvent.tab();
@@ -185,8 +186,8 @@ test("CLI path stays collapsed and saves on blur without a Save step", async () 
 test("Advanced removal opens the same supervised confirmation as the header menu", async () => {
   await harness().open("/settings/providers/claude");
   await accounts();
-  await userEvent.click(screen.getByText("Advanced", { selector: "summary" }));
-  await userEvent.click(await screen.findByRole("button", { name: "Remove provider…" }));
+  const advanced = await screen.findByRole("region", { name: "Advanced" });
+  await userEvent.click(within(advanced).getByRole("button", { name: "Remove…" }));
   expect(await screen.findByText(/Remove Claude Code's CLI from this computer/)).toBeTruthy();
   expect(screen.getByRole("button", { name: "Remove CLI" })).toBeTruthy();
 });
@@ -308,8 +309,8 @@ test("an ACP agent's one account can sign in again, sign out and be renamed, but
 
   await userEvent.click(within(row).getByRole("button", { name: "Manage Google" }));
   const menu = await screen.findByRole("menu");
-  expect(within(menu).getByRole("menuitem", { name: "Sign out" })).toBeTruthy();
-  expect(within(menu).queryByRole("menuitem", { name: "Remove" })).toBeNull();
+  expect(within(menu).getByRole("menuitem", { name: "Log out" })).toBeTruthy();
+  expect(within(menu).queryByRole("menuitem", { name: "Remove account…" })).toBeNull();
   await userEvent.click(within(menu).getByRole("menuitem", { name: "Rename" }));
   const name = await screen.findByRole("textbox", { name: "Account name" });
   await userEvent.clear(name);
@@ -334,7 +335,7 @@ test("Antigravity's page lists its sign-in, which ace keeps as its agent's accou
   const cli = await row("Antigravity");
   await userEvent.click(within(cli).getByRole("button", { name: "Manage Antigravity" }));
   // Its CLI login can't be removed, only signed in and out.
-  expect(screen.queryByRole("menuitem", { name: "Remove" })).toBeNull();
+  expect(screen.queryByRole("menuitem", { name: "Remove account…" })).toBeNull();
   await userEvent.click(await screen.findByRole("menuitem", { name: "Sign in again" }));
   expect(await screen.findByRole("dialog", { name: "Sign in to Antigravity" })).toBeTruthy();
 }, 30_000);
@@ -381,9 +382,9 @@ test("an Antigravity account added in Settings signs in on its own, beside the C
   );
 
   await userEvent.click(within(await row("Work")).getByRole("button", { name: "Manage Work" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
-  const confirm = within(await screen.findByRole("dialog", { name: "Remove Work?" }));
-  await userEvent.click(confirm.getByRole("button", { name: "Remove" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Remove account…" }));
+  const confirm = within(await screen.findByRole("dialog", { name: "Remove Work from Antigravity?" }));
+  await userEvent.click(confirm.getByRole("button", { name: "Remove account" }));
   await waitFor(() => expect(within(list).queryByText("Work")).toBeNull());
   expect((await listed()).map((entry) => entry.label)).toEqual(["Antigravity"]);
 }, 30_000);

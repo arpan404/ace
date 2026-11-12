@@ -13,14 +13,22 @@ const disclosureOf = (title: string) => {
 
 test("a settings disclosure stays folded until opened, shows its rows, and folds again", async () => {
   await harness().open("/settings/providers/claude");
-  await screen.findByText("Advanced", { selector: "summary" });
-  expect(disclosureOf("Advanced").open).toBe(false);
+  const summary = await screen.findByText("MCP servers", { selector: "summary span" });
+  const disclosure = () => {
+    const details = summary.closest("details");
+    if (!details) throw new Error("MCP servers is not a disclosure");
+    return details;
+  };
+  expect(disclosure().open).toBe(false);
+  expect(screen.queryByRole("list", { name: "Claude Code MCP servers" })).toBeNull();
 
-  await userEvent.click(screen.getByText("Advanced", { selector: "summary" }));
-  expect(disclosureOf("Advanced").open).toBe(true);
+  await userEvent.click(summary);
+  expect(disclosure().open).toBe(true);
+  expect(await screen.findByRole("list", { name: "Claude Code MCP servers" })).toBeTruthy();
 
-  await userEvent.click(screen.getByText("Advanced", { selector: "summary" }));
-  expect(disclosureOf("Advanced").open).toBe(false);
+  await userEvent.click(summary);
+  expect(disclosure().open).toBe(false);
+  expect(screen.queryByRole("list", { name: "Claude Code MCP servers" })).toBeNull();
 });
 
 test("a group's explanation reads before its rows, inside the same titled section", async () => {
@@ -68,7 +76,7 @@ test("a link to an action row scrolls to it and flashes it, as for any setting",
 
 test("a provider's model problem is said once, however many of its accounts report it", async () => {
   await harness().open("/settings/providers/opencode");
-  const behaviour = await screen.findByRole("region", { name: "Behaviour" });
+  const behaviour = await screen.findByRole("region", { name: "Models" });
   const lines = await within(behaviour).findAllByText(/^OpenRouter could not be reached/);
   expect(lines).toHaveLength(1);
 });
@@ -86,7 +94,7 @@ test("an expired sign-in is said once on a provider's page, with the account's o
   const accounts = await screen.findByRole("region", { name: "Accounts" });
   expect(await within(accounts).findByRole("button", { name: /Reconnect/ })).toBeTruthy();
   expect(await screen.findAllByText("Cursor sign-in has expired.")).toHaveLength(1);
-  // The Behaviour card leaves signing in to the account row.
-  const behaviour = await screen.findByRole("region", { name: "Behaviour" });
+  // The Models card leaves signing in to the account row.
+  const behaviour = await screen.findByRole("region", { name: "Models" });
   expect(within(behaviour).queryByRole("button", { name: /^Sign in/ })).toBeNull();
 });

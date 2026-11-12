@@ -1,8 +1,9 @@
 import { CaretLeftIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import { Suspense, useRef, useState } from "react";
+import type { ReadinessView } from "@ace/ui-core";
+import { Suspense, useRef } from "react";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
-import { SettingDisclosure, SettingSection } from "@/components/setting-row.tsx";
+import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
@@ -15,6 +16,7 @@ import {
   useProviderEntries,
   type ProviderEntry,
 } from "./provider-entries.ts";
+import { ProviderProblemLine } from "./provider-problem-line.tsx";
 import { SettingsBody } from "./settings-body.tsx";
 
 /** The models section loads with the page, apart from the overview. */
@@ -28,6 +30,10 @@ const DeferredProviderTail = deferredComponent(() =>
 
 const DeferredRemoveAgentMenuItem = deferredComponent(() =>
   import("./provider-about.tsx").then((module) => module.RemoveAgentMenuItem),
+);
+
+const DeferredRemoveAgentRow = deferredComponent(() =>
+  import("./provider-about.tsx").then((module) => module.RemoveAgentRow),
 );
 
 const DeferredProviderServices = deferredComponent(() =>
@@ -54,9 +60,9 @@ const back = (
 );
 
 /**
- * One provider's own page: who it's signed in as, the services it reaches (OpenCode, Pi), its
- * models, and technical facts tucked into Advanced. A problem or a missing sign-in
- * is the first thing on it, with the one button that fixes it.
+ * One provider's own page: a problem or a missing sign-in first, with the one button that fixes
+ * it; then its accounts, the services it reaches (OpenCode, Pi), its models, an Advanced group
+ * (MCP servers, CLI path, turning it off, removing it) and its technical facts.
  */
 export function ProviderDetail(props: { id: string }) {
   const { entries, query } = useProviderEntries();
@@ -92,9 +98,22 @@ export function ProviderDetail(props: { id: string }) {
   return <ProviderPage entry={entry} />;
 }
 
+/**
+ * Passed to the header's setup row so it carries only Update, install progress and the ⋯ menu:
+ * signing in, reconnecting and turning on belong to the problem line under the header.
+ */
+const headerView = (view: ReadinessView | undefined): ReadinessView => ({
+  state: "ready",
+  ready: true,
+  label: "",
+  summary: "",
+  tone: "ready",
+  more: [],
+  ...(view?.primary === "update" ? { primary: "update" } : {}),
+});
+
 function ProviderPage(props: { entry: ProviderEntry }) {
   const { install, row, view } = props.entry;
-  const [advanced, setAdvanced] = useState(false);
   const setupActions = useRef<ProviderSetupActions>(null);
   const missing = isMissing(props.entry);
   // Turned off in Settings: ace won't start it, sign in to it or list its models.
@@ -103,7 +122,8 @@ function ProviderPage(props: { entry: ProviderEntry }) {
   const upstreams = install.kind === "opencode" || install.kind === "pi";
   const version = row?.version ?? install.version;
   const update = updateAvailable(props.entry);
-  const setup = (
+  const latest = row?.latestVersion ?? install.registry?.agent?.version;
+  const setup = (heading: boolean) => (
     <ProviderSetupRow
       ref={setupActions}
       provider={install.kind}
@@ -118,13 +138,9 @@ function ProviderPage(props: { entry: ProviderEntry }) {
           </Suspense>
         ) : undefined
       }
-      heading
+      heading={heading}
       missing={missing}
-      view={
-        missing || off || install.kind === "acp" || install.kind === "antigravity"
-          ? view
-          : undefined
-      }
+      view={missing ? view : headerView(view)}
       updateAvailable={update}
     />
   );
@@ -133,100 +149,109 @@ function ProviderPage(props: { entry: ProviderEntry }) {
       page={install.name}
       back={back}
       icon={
-        // A bare mark beside the title, as the sidebar and Usage draw providers.
-        <ProviderIcon
-          provider={install.kind}
-          acpAgentId={install.acpAgentId}
-          size={24}
-          className={missing || off ? "opacity-60 grayscale" : undefined}
-        />
-      }
-      lede={
-        <span className="text-sm">
-          {version}
-          {update && (
-            <span className="text-status-needs-you">
-              {" "}
-              ·{" "}
-              {(row?.latestVersion ?? install.registry?.agent?.version)
-                ? `${row?.latestVersion ?? install.registry?.agent?.version} available`
-                : "Update available"}
-            </span>
-          )}
+        <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-surface-1">
+          <ProviderIcon
+            provider={install.kind}
+            acpAgentId={install.acpAgentId}
+            size={20}
+            className={missing || off ? "opacity-60 grayscale" : undefined}
+          />
         </span>
       }
-      titleActions={setup}
+      lede={
+        (version || update) && (
+          <span className="text-xs">
+            {version && <span className="font-mono">{version}</span>}
+            {update && (
+              <span className="text-status-needs-you">
+                {version ? " · " : ""}
+                {latest ? `${latest} available` : "Update available"}
+              </span>
+            )}
+          </span>
+        )
+      }
+      // Installing lives in the problem line while the provider is missing.
+      titleActions={missing ? undefined : setup(true)}
     >
       <div className="fx-view-in">
-        {view?.detail && !view.ready && usable && (
-          <p className="mt-3 text-sm text-muted-foreground">{view.detail}</p>
+        <ProviderProblemLine
+          provider={install.kind}
+          acpAgentId={install.acpAgentId}
+          instance={install.instance}
+          name={install.name}
+          missing={missing}
+          view={view}
+          install={setup(true)}
+        />
+        {usable && (
+          <Suspense
+            fallback={
+              <SettingSection label="Accounts">
+                <ListSkeleton label="accounts" shape="row" rows={3} />
+              </SettingSection>
+            }
+          >
+            <DeferredProviderAccounts.Component
+              provider={install.kind}
+              acpAgentId={install.acpAgentId}
+              name={install.name}
+            />
+          </Suspense>
         )}
-        {off && (
-          <p className="mt-3 text-sm text-muted-foreground">
-            {install.name} is turned off in ace. ace won't start it, sign in to it or list its
-            models until you turn it on. Its sign-in and settings are kept.
-          </p>
+        {usable && upstreams && row && (
+          <Suspense fallback={null}>
+            <DeferredProviderServices.Component provider={install.kind} name={install.name} />
+          </Suspense>
         )}
         {usable && (
-          <>
+          <SettingSection label="Models">
             <Suspense
               fallback={
-                <SettingSection label="Accounts">
-                  <ListSkeleton label="accounts" shape="row" rows={3} />
-                </SettingSection>
+                <div className="grid h-16 place-items-center">
+                  <Spinner label="Loading models" />
+                </div>
               }
             >
-              <DeferredProviderAccounts.Component
-                provider={install.kind}
-                acpAgentId={install.acpAgentId}
-                name={install.name}
-              />
+              <DeferredProviderModels.Component provider={install.kind} />
             </Suspense>
-          </>
+          </SettingSection>
         )}
-
-        {usable && (
-          <>
-            {upstreams && row && (
-              <Suspense fallback={null}>
-                <DeferredProviderServices.Component provider={install.kind} name={install.name} />
-              </Suspense>
-            )}
-            <SettingSection label="Behaviour">
-              <Suspense
-                fallback={
-                  <div className="grid h-16 place-items-center">
-                    <Spinner label="Loading models" />
-                  </div>
-                }
-              >
-                <DeferredProviderModels.Component provider={install.kind} />
-              </Suspense>
-            </SettingSection>
-          </>
-        )}
-        <SettingDisclosure title="Advanced" className="mt-10" onToggle={setAdvanced}>
-          {advanced && row && (
+        <SettingSection label="Advanced">
+          {row && (
             <Suspense fallback={null}>
               <DeferredProviderMcpServers.Component provider={install.kind} name={install.name} />
             </Suspense>
           )}
-          {advanced && <ProviderPreferences provider={install.kind} missing={missing} />}
-          {advanced && !missing && install.kind !== "cursor" && install.kind !== "acp" && (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => setupActions.current?.requestRemoval()}
-            >
-              Remove provider…
-            </Button>
+          <ProviderPreferences
+            provider={install.kind}
+            name={install.name}
+            missing={missing}
+            off={off}
+          />
+          {!missing && install.kind !== "cursor" && install.kind !== "acp" && (
+            <SettingRow title={`Remove ${install.name}'s CLI`} inline>
+              <Button
+                size="sm"
+                variant="ghost"
+                tone="danger"
+                onClick={() => setupActions.current?.requestRemoval()}
+              >
+                Remove…
+              </Button>
+            </SettingRow>
           )}
-          {advanced && (
+          {install.added && (
             <Suspense fallback={null}>
-              <DeferredProviderTail.Component entry={props.entry} missing={missing} />
+              <DeferredRemoveAgentRow.Component name={install.name} />
             </Suspense>
           )}
-        </SettingDisclosure>
+        </SettingSection>
+        {!missing && (
+          <Suspense fallback={null}>
+            <DeferredProviderTail.Component entry={props.entry} />
+          </Suspense>
+        )}
       </div>
     </SettingsBody>
   );

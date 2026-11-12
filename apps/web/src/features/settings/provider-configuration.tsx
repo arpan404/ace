@@ -6,13 +6,23 @@ import {
   checkpointProblem,
 } from "@ace/ui-core";
 import { useState } from "react";
-import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import { SettingNote, SettingRow } from "@/components/setting-row.tsx";
+import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
-import { Switch } from "@/components/ui/switch.tsx";
 import { useProviderConfiguration } from "@/lib/provider-configuration.ts";
 import { NativeModeRow } from "./native-mode.tsx";
 
-export function ProviderPreferences(props: { provider: ProviderKind; missing: boolean }) {
+/**
+ * A provider's own preferences, as rows of its page's Advanced group: where its CLI is, Cursor's
+ * checkpoint budget, a native mode, and turning it off (turning it back on is the page's
+ * problem line).
+ */
+export function ProviderPreferences(props: {
+  provider: ProviderKind;
+  name: string;
+  missing: boolean;
+  off: boolean;
+}) {
   const { value, disabled, update } = useProviderConfiguration(props.provider);
   const [path, setPath] = useState<string>();
   const [mb, setMb] = useState<string>();
@@ -31,16 +41,7 @@ export function ProviderPreferences(props: { provider: ProviderKind; missing: bo
     });
   };
   return (
-    <SettingSection label="Provider settings">
-      <SettingRow title="Turn off provider" htmlFor="provider-enabled" inline>
-        <Switch
-          id="provider-enabled"
-          checked={value?.enabled === false}
-          // A turned-off provider can always be turned back on, whatever discovery says.
-          disabled={disabled || (props.missing && value?.enabled !== false)}
-          onCheckedChange={(off) => void update((row) => ({ ...row, enabled: !off }))}
-        />
-      </SettingRow>
+    <>
       {props.provider !== "cursor" && (
         <SettingRow
           title="CLI path"
@@ -72,9 +73,9 @@ export function ProviderPreferences(props: { provider: ProviderKind; missing: bo
         </SettingRow>
       )}
       {error && (
-        <p role="alert" className="text-sm text-status-failed">
+        <SettingNote role="alert" className="text-status-failed">
           {binaryPathProblem}
-        </p>
+        </SettingNote>
       )}
       {props.provider === "cursor" && (
         <SettingRow title="Checkpoint budget per thread" htmlFor="cursor-checkpoint-mb">
@@ -94,11 +95,23 @@ export function ProviderPreferences(props: { provider: ProviderKind; missing: bo
         </SettingRow>
       )}
       {mbError && (
-        <p role="alert" className="text-sm text-status-failed">
+        <SettingNote role="alert" className="text-status-failed">
           {checkpointProblem}
-        </p>
+        </SettingNote>
       )}
       {!props.missing && <NativeModeRow provider={props.provider} />}
-    </SettingSection>
+      {!props.missing && !props.off && (
+        <SettingRow title={`Turn off ${props.name}`} inline>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={disabled}
+            onClick={() => void update((row) => ({ ...row, enabled: false }))}
+          >
+            Turn off
+          </Button>
+        </SettingRow>
+      )}
+    </>
   );
 }

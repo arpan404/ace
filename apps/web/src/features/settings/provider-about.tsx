@@ -2,7 +2,7 @@ import { signInSteps, type ReadinessView } from "@ace/ui-core";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
-import { SettingSection } from "@/components/setting-row.tsx";
+import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { MenuItem } from "@/components/ui/menu.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -14,12 +14,12 @@ import { SetupSteps } from "./acp-registry/setup-steps.tsx";
 
 /*
  * The quiet end of a provider's page: the technical facts (version, where it's installed, how
- * it runs, how to sign in from a terminal), how to install it when it isn't, and removing an added agent.
+ * it runs, how to sign in from a terminal), and removing an added agent.
  */
 
 function Fact(props: { term: string; children: ReactNode }) {
   return (
-    <div className="flex min-h-8 flex-wrap items-center gap-2 py-1">
+    <div className="flex min-h-(--setting-row-height-single) flex-wrap items-center gap-x-4 gap-y-1 py-2 text-ui">
       <dt className="w-36 shrink-0 text-muted-foreground">{props.term}</dt>
       <dd className="min-w-0 flex-1 text-right break-words">{props.children}</dd>
     </div>
@@ -39,7 +39,7 @@ export function ProviderAbout(props: {
   const entry = install.registry?.agent;
   return (
     <SettingSection label="About">
-      <dl className="flex flex-col">
+      <dl className="flex flex-col divide-y divide-border-soft">
         {version && (
           <Fact term={install.kind === "cursor" ? "SDK version" : "Version"}>
             <span className={mono}>{version}</span>
@@ -121,10 +121,11 @@ export function RemoveAgentMenuItem(props: { name: string }) {
   );
 }
 
+/** An added agent's removal, as a row of its page's Advanced group. */
 export function RemoveAgentRow(props: { name: string }) {
   const remove = useRemoveAgent(props.name);
   return (
-    <DangerRow title={`Remove ${props.name}`} detail="ace stops offering this agent.">
+    <SettingRow title={`Remove ${props.name}`} inline>
       <Button
         size="sm"
         variant="ghost"
@@ -135,33 +136,12 @@ export function RemoveAgentRow(props: { name: string }) {
       >
         Remove
       </Button>
-    </DangerRow>
+    </SettingRow>
   );
 }
 
-function DangerRow(props: { title: string; detail: string; children: ReactNode }) {
-  return (
-    <section aria-label={props.title} className="mt-10 flex flex-wrap items-center gap-2 py-2">
-      <div className="min-w-0 flex-1">
-        <p className="font-medium">{props.title}</p>
-        <p className="text-sm text-muted-foreground">{props.detail}</p>
-      </div>
-      {props.children}
-    </section>
-  );
-}
-
-/** The provider's technical facts and account-wide actions load after its status. */
-export function ProviderTail(props: { entry: ProviderEntry; missing: boolean }) {
+/** The provider's technical facts load after its status. */
+export function ProviderTail(props: { entry: ProviderEntry }) {
   const { install, row, view } = props.entry;
-  return (
-    <>
-      {!props.missing && (
-        <>
-          <ProviderAbout install={install} row={row} view={view} />
-        </>
-      )}
-      {install.added && <RemoveAgentRow name={install.name} />}
-    </>
-  );
+  return <ProviderAbout install={install} row={row} view={view} />;
 }

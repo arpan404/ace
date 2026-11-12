@@ -4,7 +4,7 @@ export { useAccountViews, useProviderAccountModels } from "@/lib/account-views.t
 export { describeMove, useMoveThreads } from "./account-threads-source.ts";
 /** Reset times with the time left, and a quota window as a labelled bar. */
 export { formatResetCountdown } from "./format.ts";
-export { WindowBar } from "./window-bar.tsx";
+export { WindowBar, windowTone } from "./window-bar.tsx";
 
 export { CompactWindow } from "./window-bar.tsx";
 export { formatResets } from "./format.ts";
