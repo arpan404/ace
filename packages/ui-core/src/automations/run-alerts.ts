@@ -47,24 +47,52 @@ export interface RunAlertBatch<T> {
   summary: { count: number; title: string; body: string } | null;
 }
 
+type Finished = Pick<AutomationRun, "status" | "finishedAt">;
+
+const count = new Intl.NumberFormat("en-US");
+
+/** The newest first, split into those said one by one and the rest, with how many of the rest failed. */
+function split<T extends Finished>(runs: readonly T[]) {
+  const newest = runs.toSorted((a, b) => (b.finishedAt ?? 0) - (a.finishedAt ?? 0));
+  const rest = newest.slice(runAlertsShown);
+  return {
+    newest,
+    shown: newest.slice(0, runAlertsShown),
+    rest: rest.length,
+    failed: rest.filter((run) => run.status === "failed").length,
+  };
+}
+
 /**
  * Many runs that finished at once, such as while the phone was away, as a few alerts: the newest
  * three each, then one saying how many more finished and how many of those failed. A summary
  * never stands in for a single run.
  */
-export function batchRunAlerts<T extends Pick<AutomationRun, "status" | "finishedAt">>(
-  runs: readonly T[],
-): RunAlertBatch<T> {
-  const newest = runs.toSorted((a, b) => (b.finishedAt ?? 0) - (a.finishedAt ?? 0));
+export function batchRunAlerts<T extends Finished>(runs: readonly T[]): RunAlertBatch<T> {
+  const { newest, shown, rest, failed } = split(runs);
   if (newest.length <= runAlertsShown + 1) return { shown: newest, summary: null };
-  const rest = newest.slice(runAlertsShown);
-  const failed = rest.filter((run) => run.status === "failed").length;
   return {
-    shown: newest.slice(0, runAlertsShown),
+    shown,
     summary: {
-      count: rest.length,
-      title: `${rest.length} more automation runs finished`,
-      body: failed ? `${failed} failed` : "None failed",
+      count: rest,
+      title: `${count.format(rest)} more automation runs finished`,
+      body: failed ? `${count.format(failed)} failed` : "None failed",
+    },
+  };
+}
+
+/**
+ * More runs finished than the phone read at once: the newest three each, then the rest it read
+ * as "at least" so many, since older ones it didn't read finished too.
+ */
+export function batchRunAlertsBeyond<T extends Finished>(runs: readonly T[]): RunAlertBatch<T> {
+  const { shown, rest, failed } = split(runs);
+  return {
+    shown,
+    summary: {
+      count: rest,
+      title: `${count.format(rest)}+ more automation runs finished`,
+      body: failed ? `${count.format(failed)}+ failed` : "Some may have failed: see Automations",
     },
   };
 }

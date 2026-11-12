@@ -117,6 +117,7 @@ export {
 export { ideas, type Idea } from "./ideas.ts";
 export {
   batchRunAlerts,
+  batchRunAlertsBeyond,
   finishedSince,
   runAlertsShown,
   runAlertTitle,

@@ -1,6 +1,12 @@
 import type { AutomationRun } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { batchRunAlerts, finishedSince, runAlertTitle, runStatusLine } from "./run-alerts.ts";
+import {
+  batchRunAlerts,
+  batchRunAlertsBeyond,
+  finishedSince,
+  runAlertTitle,
+  runStatusLine,
+} from "./run-alerts.ts";
 
 const run = (id: string, finishedAt: number | undefined): AutomationRun => ({
   id,
@@ -73,4 +79,27 @@ test("four runs are all said: a summary never stands in for just one", () => {
   expect(batch.summary).toBeNull();
   const quiet = batchRunAlerts([1, 2, 3, 4, 5].map((at) => finished(`r${at}`, at)));
   expect(quiet.summary).toMatchObject({ count: 2, body: "None failed" });
+});
+
+test("more runs than the phone read at once: the newest three, then the rest as at least so many", () => {
+  const runs = Array.from({ length: 1_000 }, (_, index) =>
+    finished(`r${index}`, 1_000 + index, index % 100 === 0 ? "failed" : "succeeded"),
+  );
+  const batch = batchRunAlertsBeyond(runs);
+  expect(batch.shown.map((entry) => entry.id)).toEqual(["r999", "r998", "r997"]);
+  expect(batch.summary).toEqual({
+    count: 997,
+    title: "997+ more automation runs finished",
+    body: "10+ failed",
+  });
+  // None failed among those read says nothing about the rest.
+  const quiet = batchRunAlertsBeyond(
+    Array.from({ length: 1_000 }, (_, index) => finished(`q${index}`, 1_000 + index)),
+  );
+  expect(quiet.summary?.body).toBe("Some may have failed: see Automations");
+});
+
+test("a large count reads with its thousands separated", () => {
+  const runs = Array.from({ length: 1_203 }, (_, index) => finished(`r${index}`, index));
+  expect(batchRunAlerts(runs).summary?.title).toBe("1,200 more automation runs finished");
 });
