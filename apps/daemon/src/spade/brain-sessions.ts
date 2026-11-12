@@ -220,7 +220,7 @@ export class SpadeBrains {
       payload: { type: "queue.remove", threadId, expectedRevision: revision, messageId },
     });
     this.deps.store.recordCommand(command.id, command.deviceId, () =>
-      engine.internalHandler.handle(command, commandContext(this.deps.store)),
+      engine.internalHandler.handle(command, this.context()),
     );
     engine.discardRecovery(threadId);
   }
@@ -232,12 +232,8 @@ export class SpadeBrains {
     id: string,
   ): CommandResult {
     const command = Command.parse({ id, deviceId: device, payload });
-    const context: CommandContext = {
-      ...commandContext(this.deps.store),
-      host: { host: "spade-bot", key: bot },
-    };
     return this.deps.store.recordCommand(command.id, command.deviceId, () =>
-      handler.handle(command, context),
+      handler.handle(command, this.context(bot)),
     );
   }
 
@@ -248,8 +244,13 @@ export class SpadeBrains {
       payload: { type: "thread.interrupt", threadId, cascade: true },
     });
     this.deps.store.recordCommand(command.id, command.deviceId, () =>
-      handler.handle(command, commandContext(this.deps.store)),
+      handler.handle(command, this.context()),
     );
+  }
+
+  /** The brain service's own command context: the only one a bot's session takes. */
+  private context(bot = ""): CommandContext {
+    return { ...commandContext(this.deps.store), host: { host: "spade-bot", key: bot } };
   }
 }
 

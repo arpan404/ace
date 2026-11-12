@@ -17,8 +17,9 @@ export type CommandContext = Pick<
 > & {
   creationOwner?: object;
   /**
-   * In-process only: the thread `thread.create` makes is a daemon-held host thread, such as a
-   * Spade bot's hidden session (ADR 0133). Never set from wire data.
+   * In-process only: the daemon's Spade brain service (ADR 0133) sends this command. The thread
+   * `thread.create` makes is then a bot's hidden session, and only commands carrying this may
+   * touch one. Never set from wire data.
    */
   host?: { host: "spade-bot"; key: string };
   preparedWorkspace?: {

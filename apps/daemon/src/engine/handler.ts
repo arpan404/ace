@@ -55,7 +55,7 @@ export function engineHandler(
         const thread = repo.store.getThread(ThreadId.parse(payload.threadId));
         const refused =
           guestRefusal(command.id, payload, thread?.details) ??
-          hostRefusal(command.id, payload, thread?.host);
+          hostRefusal(command.id, payload, thread?.host, context.host?.host === "spade-bot");
         if (refused) return refused;
       }
       if (payload.type === "thread.send" && repo.store.getThread(payload.threadId)?.imported) {

@@ -42,8 +42,12 @@ export function hostRefusal(
   commandId: CommandId,
   payload: CommandPayload,
   host: ThreadDetailsHost,
+  fromBrain = false,
 ): CommandResult | undefined {
-  if (host === "spade-bot" && widensAccess.has(payload.type)) return botRefusal(commandId);
+  // A bot's session takes commands only from the daemon's brain service, and never one that
+  // would change what it may do.
+  if (host === "spade-bot" && (!fromBrain || widensAccess.has(payload.type)))
+    return botRefusal(commandId);
   if (host !== "spade" || (!startsAgent.has(payload.type) && payload.type !== "thread.fork"))
     return undefined;
   return {

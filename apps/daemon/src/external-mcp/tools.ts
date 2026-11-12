@@ -101,7 +101,8 @@ export function externalTools(
   };
   const thread = (grant: OutsideGrant, id: string) => {
     const value = context.store.getThread(ThreadId.parse(id));
-    if (!value || !projectAllowed(grant.projects, value.workspaceId))
+    // Threads ace holds for Spade (its host thread, a bot's session) are no outside client's.
+    if (!value || value.host !== undefined || !projectAllowed(grant.projects, value.workspaceId))
       throw new Error("Outside the grant's projects");
     return value;
   };

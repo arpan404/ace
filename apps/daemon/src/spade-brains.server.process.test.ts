@@ -5,7 +5,9 @@ import { expect, test } from "vitest";
 import {
   Command,
   DeviceId,
+  ItemId,
   ThreadId,
+  type CommandPayload,
   type ServerMessage,
   type SpadeBrainFrame,
 } from "@ace/protocol";
@@ -14,6 +16,11 @@ import { commandContext } from "./commands.ts";
 import { fakeSpadeService } from "./__fixtures__/spade/fake-service.ts";
 import { daemonFixture } from "./agent-control/daemon-test-support.ts";
 import { Client } from "./socket-test-support.ts";
+import {
+  call as outsideCall,
+  enroll as enrollOutside,
+  toolResult,
+} from "./external-mcp/outside-test-support.ts";
 import { connectSpadeMcp, spadeEnv, until } from "./spade-test-support.ts";
 
 type Fixture = Awaited<ReturnType<typeof daemonFixture>>;
@@ -415,5 +422,46 @@ test("a turn ace can't deliver ends with one line and leaves nothing held or res
       "Two",
       "Three",
     ]);
+  });
+}, 30_000);
+
+test("a bot's session takes commands only from the brain service: not agents, not outside clients", async () => {
+  await withSpade(async (f, grant) => {
+    const turn = sendTurn(f.daemon, grant, { instructions: "Rules", message: "Hello" });
+    const thread = ThreadId.parse((await until(() => sessionOf(turn.frames), "session")).thread);
+    await until(() => f.h.inputs.get(thread)?.length === 1, "the message to arrive");
+    provide(f, thread, reply("Hi."), ended);
+    await turn.done;
+    // In-process callers (an agent's tools, the session's own agent forking itself) are refused.
+    const attempts: CommandPayload[] = [
+      { type: "thread.send", threadId: thread, input: [{ type: "text", text: "psst" }] },
+      { type: "thread.interrupt", threadId: thread, cascade: true },
+      {
+        type: "thread.fork",
+        threadId: thread,
+        point: { type: "item", itemId: ItemId.parse("any-item") },
+        input: "try again",
+        budgetBytes: 16384,
+      },
+    ];
+    for (const payload of attempts)
+      expect(f.controls.delegations.command(`agent-${payload.type}`, payload)).toMatchObject({
+        ok: false,
+        error: "host_thread",
+      });
+    // An outside MCP client with every project can't read, message or stop it.
+    const lease = await enrollOutside(f, ["--scope", "operate"]);
+    for (const [name, args] of [
+      ["ace_thread_read", { threadId: thread }],
+      ["ace_thread_send", { threadId: thread, text: "x", idempotencyKey: "k1" }],
+      ["ace_thread_stop", { threadId: thread, idempotencyKey: "k2" }],
+    ] as const)
+      expect(toolResult(await outsideCall(lease, name, args)).isError, name).toBe(true);
+    // ...while a thread of the person's own reads fine.
+    const own = toolResult(
+      await outsideCall(lease, "ace_thread_read", { threadId: f.caller.threadId }),
+    );
+    expect(own.isError).toBeFalsy();
+    expect(f.h.attempts.filter((a) => a.threadId === thread)).toHaveLength(1);
   });
 }, 30_000);
