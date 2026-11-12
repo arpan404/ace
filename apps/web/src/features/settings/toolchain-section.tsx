@@ -4,11 +4,8 @@ import { SettingNote, SettingRow, SettingSection } from "@/components/setting-ro
 import { StatusLabel } from "@/components/status-label.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
-import {
-  toolchainInstallers,
-  toolchainNames,
-  useToolchains,
-} from "@/features/diagnostics/index.ts";
+import { toolchainRow } from "@ace/ui-core";
+import { toolchainNames, useToolchains } from "@/features/diagnostics/index.ts";
 
 type ToolId = Toolchain["id"];
 
@@ -62,20 +59,17 @@ export function ToolchainSection(props: {
 }
 
 function ToolRow(props: { tool: Toolchain; fix: ReactNode }) {
-  const { tool } = props;
-  const installer =
-    !tool.available && (tool.id === "xcode" || tool.id === "android")
-      ? toolchainInstallers[tool.id]
-      : undefined;
+  const row = toolchainRow(props.tool);
+  const { installer } = row;
   return (
     <SettingRow
-      title={toolchainNames[tool.id]}
+      title={row.name}
       description={
-        tool.available ? (
-          tool.version
+        row.ready ? (
+          row.detail
         ) : (
           <>
-            {tool.hint}
+            {row.detail}
             {installer && (
               <>
                 {" "}
@@ -94,11 +88,8 @@ function ToolRow(props: { tool: Toolchain; fix: ReactNode }) {
       }
       inline
     >
-      {!tool.available && props.fix}
-      <StatusLabel
-        tone={tool.available ? "done" : "idle"}
-        label={tool.available ? "Ready" : "Not installed"}
-      />
+      {!row.ready && props.fix}
+      <StatusLabel tone={row.ready ? "done" : "idle"} label={row.status} />
     </SettingRow>
   );
 }
