@@ -302,6 +302,32 @@ describe("the phone's Summary", () => {
     await until(() => view(sink)?.now.lead === "Working", "c, two delegations down, read");
   });
 
+  test("a delegated thread refused for room is read once room frees, and again after it gave way", async () => {
+    const { client, sink, follow } = await opened("roomy", settledWith(...delegate("kid", "kid")), {
+      limits: { threads: 3, threadReserve: 1 },
+      before: (fake) => {
+        child(fake, "kid", "roomy", working);
+        for (const id of ["x", "y"])
+          fake.createThread({ id, workspaceId: "ace", title: id, provider: "codex" });
+      },
+    });
+    const room = client.threadRoom();
+    const other = client.thread("x", { optional: true });
+    expect(room.getSnapshot()).toBe(0);
+    follow();
+    // No room for kid: its branch can't read done, nor working.
+    await until(() => view(sink)?.now.lead === "Syncing", "kid refused");
+    other.release();
+    await until(() => view(sink)?.now.lead === "Working", "kid read once room freed");
+    // The person opens two threads: kid gives its room way, then gets it back when they close.
+    const x = client.thread("x");
+    const y = client.thread("y");
+    await until(() => view(sink)?.now.lead === "Syncing", "kid gave way");
+    y.release();
+    x.release();
+    await until(() => view(sink)?.now.lead === "Working", "kid read again");
+  });
+
   test("closing the page stops the summary and lets every delegated thread go", async () => {
     const { client, sink, follow } = await opened(
       "closing",

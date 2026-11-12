@@ -25,7 +25,7 @@ import { summaryView, type SummaryPlan } from "./thread-summary-view.ts";
 
 export type SummaryReads = Pick<
   ClientCore,
-  "thread" | "turnsPage" | "threadCatchUp" | "threadReadState"
+  "thread" | "threadRoom" | "turnsPage" | "threadCatchUp" | "threadReadState"
 >;
 
 export interface SummaryDeps {
@@ -88,6 +88,8 @@ export class ThreadSummary {
   #showClosed = false;
   #tick: (() => void) | undefined;
   #closed = false;
+  /** The spare room last tried at: one try per rise, cleared once room runs out. */
+  #triedRoom: number | undefined;
   /** Plan items and runs shown, whose updates re-read the plan. */
   #planKeys = new Set<string>();
   #forest: ReturnType<typeof agentForest>;
@@ -120,6 +122,8 @@ export class ThreadSummary {
         this.#put();
     };
     this.#stops.push(store.observe(tap));
+    const room = reads.threadRoom();
+    this.#stops.push(room.subscribe(() => this.#roomChanged(room.getSnapshot())));
     this.#readTurn();
     void this.#readCatchUp();
     this.#put();
@@ -193,6 +197,33 @@ export class ThreadSummary {
     } catch {
       // No catch-up is said rather than a wrong one.
     }
+  }
+
+  /**
+   * Room for optional threads changed. A delegated thread refused for room, or one that gave its
+   * room to a thread the person opened, is held again when room frees: once per rise, as the
+   * web's Summary does, so a thread refused again waits for the next one.
+   */
+  #roomChanged(room: number): void {
+    if (this.#closed) return;
+    if (room <= 0) {
+      this.#triedRoom = undefined;
+      return;
+    }
+    if (this.#triedRoom === room) return;
+    const refused = [...this.#held].filter(
+      ([, held]) => held.lease.store.error?.code === "no_room",
+    );
+    if (!refused.length) return;
+    this.#triedRoom = room;
+    for (const [id, held] of refused) {
+      held.stop();
+      held.lease.release();
+      this.#held.delete(id);
+      this.#works.delete(id);
+    }
+    this.#forest = this.#join();
+    this.#put();
   }
 
   /**
