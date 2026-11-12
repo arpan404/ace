@@ -172,7 +172,7 @@ test("a release that can't build Spade fails loudly", async ({ onTestFinished })
       env: {},
       cargo: noCargo,
     }),
-  ).rejects.toThrow(/DISABLE_SPADE=1/);
+  ).rejects.toThrow(/didn't build/);
   await expect(
     stageSpadeServer({
       repo: dir,
@@ -185,7 +185,7 @@ test("a release that can't build Spade fails loudly", async ({ onTestFinished })
 });
 
 test.runIf(posix)(
-  "DISABLE_SPADE=1 leaves spade-server out of the archive",
+  "every release carries spade-server: the old DISABLE_SPADE=1 no longer leaves it out",
   async ({ onTestFinished }) => {
     const { dir, root, prebuilt, archived } = await release(onTestFinished);
     const how = await stageSpadeServer({
@@ -196,7 +196,7 @@ test.runIf(posix)(
       env: { DISABLE_SPADE: "1", ACE_SPADE_SERVER_BIN: await prebuilt("0.5.0") },
       cargo: noCargo,
     });
-    expect(how).toBe("disabled");
-    expect(await archived()).toEqual(["bin/node", "release.json"]);
+    expect(how).toBe("prebuilt");
+    expect(await archived()).toContain("spade/spade-server");
   },
 );

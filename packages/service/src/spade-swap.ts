@@ -103,7 +103,10 @@ export interface SpadeSwapPorts {
 }
 
 export type SpadeSwapResult =
-  /** `absent`: Spade's service isn't registered; `not-shipped`: a DISABLE_SPADE=1 release. */
+  /**
+   * `absent`: Spade's service isn't registered (hidden Spade has none, ADR 0139);
+   * `not-shipped`: no `spade-server` beside this build, as in a development checkout.
+   */
   | { kind: "skipped"; reason: "absent" | "current" | "not-shipped" }
   | { kind: "swapped"; from: string | undefined; to: string }
   | { kind: "failed"; from: string | undefined; to: string; error: string };

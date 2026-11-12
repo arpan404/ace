@@ -13,7 +13,8 @@ type ReleaseTarget = z.infer<typeof Target>;
  * (`.exe` on Windows) in the archive and in the desktop app's resources, so the signed
  * manifest and checksums cover it like everything else. `ACE_SPADE_SERVER_BIN` names a
  * prebuilt binary; otherwise cargo builds it from `spade/` in release mode. A build that can't
- * produce it fails, unless `DISABLE_SPADE=1` leaves Spade out on purpose.
+ * produce it fails. Whether a person sees Spade is decided at run time, by `features.json` in
+ * ace's home (ADR 0139), never by the build.
  *
  * Spade reports the version stamped into it at build time (`ACE_SPADE_VERSION`) in `/health`,
  * `server.json` and `spade-server --version`, and the updater waits for exactly the release's
@@ -50,8 +51,7 @@ export const stagedSpadeServer = (root: string, target: ReleaseTarget) =>
   bundledSpadeServer(root, target.startsWith("win32") ? "win32" : "linux");
 
 /**
- * Stages `spade-server` for `target` into `root/spade/`. Returns how it got there, or
- * `disabled` when `DISABLE_SPADE=1` left it out.
+ * Stages `spade-server` for `target` into `root/spade/`. Returns how it got there.
  */
 export async function stageSpadeServer(options: {
   repo: string;
@@ -64,10 +64,9 @@ export async function stageSpadeServer(options: {
   versionOf?: VersionOf;
   /** This machine's target: a binary built for another one can't be run to ask its version. */
   host?: string;
-}): Promise<"prebuilt" | "built" | "disabled"> {
+}): Promise<"prebuilt" | "built"> {
   const { repo, root, target, env, version } = options;
   const host = options.host ?? `${process.platform}-${process.arch}`;
-  if (env.DISABLE_SPADE === "1") return "disabled";
   const destination = stagedSpadeServer(root, target);
   const name = spadeBinaryName(target.startsWith("win32") ? "win32" : "linux");
   let source: string;
@@ -84,7 +83,7 @@ export async function stageSpadeServer(options: {
       );
     } catch (error) {
       throw new Error(
-        `Spade's server didn't build for ${target}. Install the Rust toolchain from spade/rust-toolchain.toml, set ACE_SPADE_SERVER_BIN to a prebuilt binary, or set DISABLE_SPADE=1 to release without Spade.`,
+        `Spade's server didn't build for ${target}. Install the Rust toolchain from spade/rust-toolchain.toml, or set ACE_SPADE_SERVER_BIN to a prebuilt binary.`,
         { cause: error },
       );
     }
@@ -93,9 +92,7 @@ export async function stageSpadeServer(options: {
   }
   const info = await lstat(source).catch(() => undefined);
   if (!info?.isFile())
-    throw new Error(
-      `Spade's server is missing at ${source}: a release without it needs DISABLE_SPADE=1.`,
-    );
+    throw new Error(`Spade's server is missing at ${source}: every release carries it.`);
   // A prebuilt binary is always asked; a built one when it runs here (cargo stamped it).
   if (how === "prebuilt" || host === target) {
     let reported: string;

@@ -9,6 +9,7 @@
     "forbidden",
     "invalid_path",
     "unavailable",
+    "hidden",
     "too_large",
     "invalid_body",
     "limit"
