@@ -135,7 +135,7 @@ struct RemoteScreenView: View {
         .listRowSeparator(.hidden)
         .accessibilityIdentifier("computer.chrome")
         NavigationLink { RemoteSettingsView(model: model, category: .computer) } label: {
-            Text("App access and device preferences").font(AceDesign.Typeface.title)
+            Text("App access").font(AceDesign.Typeface.title)
                 .foregroundStyle(AceDesign.Ink.muted)
         }
         .listRowBackground(AceDesign.Surface.background)
