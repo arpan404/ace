@@ -5,6 +5,7 @@
 
 mod anthropic;
 pub mod connector;
+pub mod media;
 mod models;
 mod openai;
 mod responses;
@@ -25,6 +26,7 @@ use serde_json::{Value, json};
 use tokio::net::TcpListener;
 
 pub use connector::FakeConnector;
+pub use media::FakeMedia;
 pub use models::FakeModelList;
 
 /// A tool call the fake makes.

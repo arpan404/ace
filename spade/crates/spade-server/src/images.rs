@@ -113,13 +113,30 @@ impl ImageStore {
         ModelImages {
             store: self,
             can_see,
+            pdfs: None,
         }
+    }
+
+    /// The folder images are kept in.
+    pub fn dir(&self) -> &Path {
+        &self.dir
     }
 }
 
 pub struct ModelImages<'a> {
     store: &'a ImageStore,
     can_see: bool,
+    /// Where attached PDFs are, for a model that reads them natively (ADR 0134).
+    pdfs: Option<&'a crate::media::DocumentStore>,
+}
+
+impl<'a> ModelImages<'a> {
+    /// The same, giving a model that reads PDFs the file itself when that reads better.
+    #[must_use]
+    pub fn with_pdfs(mut self, documents: &'a crate::media::DocumentStore) -> Self {
+        self.pdfs = Some(documents);
+        self
+    }
 }
 
 impl Images for ModelImages<'_> {
@@ -135,6 +152,10 @@ impl Images for ModelImages<'_> {
             media_type: media_type.to_owned(),
             data: STANDARD.encode(bytes).into(),
         })
+    }
+
+    fn document(&self, document: &spade_core::event::DocumentRef) -> Option<Image> {
+        self.pdfs?.native(document)
     }
 }
 

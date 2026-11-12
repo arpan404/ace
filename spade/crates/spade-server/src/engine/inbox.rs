@@ -156,6 +156,8 @@ impl Engine {
             text: text.to_owned(),
             context,
             images: Vec::new(),
+            documents: Vec::new(),
+            voice: None,
             from_agent,
             from_routine: None,
             from_group,

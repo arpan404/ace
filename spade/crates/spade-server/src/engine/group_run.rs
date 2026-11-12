@@ -151,6 +151,8 @@ impl Engine {
             text: text.to_owned(),
             context: Some(context),
             images: Vec::new(),
+            documents: Vec::new(),
+            voice: None,
             from_agent: by.map(|b| FromAgent {
                 id: b.id,
                 name: b.name,

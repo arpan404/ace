@@ -2,6 +2,7 @@ import type { FakeSpade, FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } fr
 import { FakeSpadeConnectors } from "./spade-connectors-api.ts";
 import { FakeSpadeNotes } from "./spade-notes.ts";
 import { FakeSpadeRoutines } from "./spade-routines.ts";
+import { base64Bytes, sha256Hex } from "./sha256.ts";
 import { FakeSpadeTeams } from "./spade-teams.ts";
 
 /*
@@ -51,6 +52,12 @@ export class FakeSpadeApi implements FakeSpadeServer {
   endpoints: Json[] = [];
   presets: Json[] = [];
   fastModel: string | null = null;
+  /** `endpoint/model` for voice messages (ADR 0134). */
+  transcriptionModel: string | null = null;
+  /** Stored images by hash with their media type; any other hash answers 404. */
+  images = new Map<string, string>();
+  /** What `POST /v1/transcriptions` answers. */
+  transcript = "";
   /** False: this machine has no keychain, so key writes answer 503. */
   keychain = true;
   /** A status every key write answers with, to stage a failure. */
@@ -268,12 +275,23 @@ export class FakeSpadeApi implements FakeSpadeServer {
         endpoints: this.endpoints,
         presets: this.presets,
         fast_model: this.fastModel,
+        transcription_model: this.transcriptionModel,
         keychain: this.keychain,
       });
     if (root === "endpoints") return this.endpointRoute(request.method, id, sub, body, query);
     if (root === "keys" && id) return this.keyRoute(request.method, id);
     if (root === "settings" && request.method === "PUT") {
-      this.fastModel = typeof body.fast_model === "string" ? body.fast_model : null;
+      if ("fast_model" in body)
+        this.fastModel = typeof body.fast_model === "string" ? body.fast_model : null;
+      if ("transcription_model" in body) {
+        const model =
+          typeof body.transcription_model === "string" ? body.transcription_model : null;
+        // As Spade: any `endpoint/model` on a saved endpoint, whatever its facts say.
+        const [endpoint, ...rest] = model?.split("/") ?? [];
+        if (model !== null && !(rest.join("/") && this.endpoints.some((e) => e.id === endpoint)))
+          return problem(400, "The transcription model must be on one of your endpoints.");
+        this.transcriptionModel = model;
+      }
       return { status: 204 };
     }
     if (root === "main") {
@@ -282,7 +300,23 @@ export class FakeSpadeApi implements FakeSpadeServer {
     }
     if (root === "conversations" && id)
       return this.conversationRoute(request, id, sub, subId, query);
-    if (root === "images") return { status: 404, body: "" };
+    if (root === "images") {
+      const type = id ? this.images.get(id) : undefined;
+      return type
+        ? { status: 200, body: `bytes of ${id}`, contentType: type }
+        : { status: 404, body: "" };
+    }
+    if (root === "transcriptions" && request.method === "POST")
+      return this.transcriptionModel
+        ? reply({ text: this.transcript })
+        : problem(409, "No transcription model is set.");
+    // A stored document or recording: its bytes, as text here.
+    if ((root === "documents" || root === "audio") && id && request.method === "GET")
+      return {
+        status: 200,
+        body: `bytes of ${id}`,
+        contentType: root === "audio" ? "audio/webm" : "application/octet-stream",
+      };
     return problem(404, "Not found.");
   }
 
@@ -485,7 +519,10 @@ export class FakeSpadeApi implements FakeSpadeServer {
     }
     if (sub === "messages" && request.method === "POST") {
       const body = request.body ? (JSON.parse(request.body) as Json) : {};
-      this.store(id, { type: "user_message", text: body.text ?? "" });
+      const media = mediaOf(body);
+      for (const image of (media.images ?? []) as Json[])
+        this.images.set(String(image.sha256), String(image.media_type));
+      this.store(id, { type: "user_message", text: body.text ?? "", ...media });
       if (agent)
         agent.last_message = {
           from: "person",
@@ -518,4 +555,51 @@ export class FakeSpadeApi implements FakeSpadeServer {
     }
     return problem(404, "Not found.");
   }
+}
+
+/** What Spade names an upload by: the SHA-256 of its bytes, and their count. */
+function uploadIdentity(data: unknown) {
+  let bytes: Uint8Array;
+  try {
+    bytes = base64Bytes(String(data));
+  } catch {
+    bytes = new TextEncoder().encode(String(data));
+  }
+  return { sha256: sha256Hex(bytes), bytes: bytes.length };
+}
+
+/** A sent message's images, documents and recording, stored as Spade stores them (ADR 0134). */
+function mediaOf(body: Json): Json {
+  const images = Array.isArray(body.images) ? (body.images as Json[]) : [];
+  const files = Array.isArray(body.files) ? (body.files as Json[]) : [];
+  const voice = body.voice as Json | undefined;
+  return {
+    ...(images.length
+      ? {
+          images: images.map((image) => {
+            const { sha256, bytes } = uploadIdentity(image.data);
+            return { sha256, media_type: "image/png", bytes };
+          }),
+        }
+      : {}),
+    ...(files.length
+      ? {
+          documents: files.map((file) => {
+            const { sha256, bytes } = uploadIdentity(file.data);
+            const name = String(file.name);
+            const pdf = name.endsWith(".pdf");
+            const media_type = pdf ? "application/pdf" : "application/octet-stream";
+            return { sha256, name, media_type, bytes, chars: 0, cut: false, view: "" };
+          }),
+        }
+      : {}),
+    ...(voice
+      ? {
+          voice: {
+            ...uploadIdentity(voice.data),
+            media_type: String(voice.media_type),
+          },
+        }
+      : {}),
+  };
 }

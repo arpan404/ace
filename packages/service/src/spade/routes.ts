@@ -1,7 +1,10 @@
 import {
+  maxSpadeAudioBytes,
+  maxSpadeDocumentBytes,
   maxSpadeImageBytes,
   maxSpadeRequestBytes,
   maxSpadeResponseBytes,
+  maxSpadeTranscriptionBytes,
   maxSpadeUploadBytes,
   type SpadeMethod,
 } from "@ace/protocol";
@@ -52,22 +55,34 @@ export function checkLivePath(path: string): PathCheck {
 const pathname = (path: string) => path.split("?")[0] ?? "";
 const messageRoute = /^\/v1\/conversations(?:\/[^/]+\/messages)?$/;
 const imageRoute = /^\/v1\/images\/[^/]+$/;
+const documentRoute = /^\/v1\/documents\/[^/]+$/;
+const audioRoute = /^\/v1\/audio\/[^/]+$/;
 
 /**
- * The largest request body a route takes: a new conversation or a message, which may carry 8
- * images as base64, takes `maxSpadeUploadBytes`; every other route keeps a small cap.
+ * The largest request body a route takes, as Spade takes it (`spade/docs/media.md`): a new
+ * conversation or a message, which may carry 8 documents, 8 images and a recording as base64,
+ * takes `maxSpadeUploadBytes`; a recording to transcribe `maxSpadeTranscriptionBytes`; every
+ * other route keeps a small cap.
  */
 export function requestBodyLimit(method: SpadeMethod, path: string): number {
-  return method === "POST" && messageRoute.test(pathname(path))
-    ? maxSpadeUploadBytes
-    : maxSpadeRequestBytes;
+  if (method !== "POST") return maxSpadeRequestBytes;
+  const route = pathname(path);
+  if (messageRoute.test(route)) return maxSpadeUploadBytes;
+  if (route === "/v1/transcriptions") return maxSpadeTranscriptionBytes;
+  return maxSpadeRequestBytes;
 }
 
-/** The largest answer the daemon forwards for a route: one image from `/v1/images/...`. */
+/**
+ * The largest answer forwarded for a route: one stored image, document or recording takes its
+ * own room; everything else (a document's `/text` window included) keeps the small cap.
+ */
 export function responseBodyLimit(method: SpadeMethod, path: string): number {
-  return method === "GET" && imageRoute.test(pathname(path))
-    ? maxSpadeImageBytes
-    : maxSpadeResponseBytes;
+  if (method !== "GET") return maxSpadeResponseBytes;
+  const route = pathname(path);
+  if (imageRoute.test(route)) return maxSpadeImageBytes;
+  if (documentRoute.test(route)) return maxSpadeDocumentBytes;
+  if (audioRoute.test(route)) return maxSpadeAudioBytes;
+  return maxSpadeResponseBytes;
 }
 
 /** Whether an answer is forwarded as text; anything else (an image) goes as base64. */

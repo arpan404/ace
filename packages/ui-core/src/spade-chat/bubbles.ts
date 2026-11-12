@@ -1,6 +1,6 @@
 import type { SpadeReplyEntry } from "./fold.ts";
 import type { SpadeRememberedNote } from "./notes.ts";
-import type { SpadeImageRef } from "./wire.ts";
+import type { SpadeDocumentRef, SpadeImageRef, SpadeVoiceRef } from "./media.ts";
 import type { SpadeView } from "./view.ts";
 
 /*
@@ -15,6 +15,9 @@ export type SpadeBubble =
       key: string;
       text: string;
       images: readonly SpadeImageRef[];
+      documents: readonly SpadeDocumentRef[];
+      /** A voice message: `text` is its transcript, and this its recording. */
+      voice: SpadeVoiceRef | undefined;
       /** Not stored by Spade yet. */
       sending: boolean;
     }
@@ -42,6 +45,9 @@ export type SpadeBubble =
       /** How the reply ended when it didn't finish on its own. */
       end: "stopped" | "failed" | "interrupted" | undefined;
       error: string | undefined;
+      /** What the reply's tools showed the person, after its words (ADR 0134). */
+      images: readonly SpadeImageRef[];
+      documents: readonly SpadeDocumentRef[];
     }
   /** "Remembered: …": a note the bot saved or rewrote, which the person may open to edit. */
   | { kind: "remembered"; key: string; note: SpadeRememberedNote }
@@ -107,6 +113,8 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
               key: entry.key,
               text: entry.text,
               images: entry.images,
+              documents: entry.documents ?? [],
+              voice: entry.voice,
               sending: entry.pending === true,
             },
       );
@@ -124,7 +132,7 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
     const quiet =
       inputs &&
       onlyBeats &&
-      entry.parts.every((part) => part.kind !== "remembered" && part.kind !== "question") &&
+      entry.parts.every((part) => part.kind === "text" || part.kind === "call") &&
       (entry.end === undefined
         ? spadeQuiet.startsWith(whole.toLowerCase())
         : entry.end.kind === "finished" && isSpadeQuiet(whole));
@@ -147,16 +155,25 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
 }
 
 /**
- * A reply's bubbles: its words, split where it remembered a note or asked a question. The first
- * run keeps the reply's key, so a bubble keeps its place as the reply grows.
+ * A reply's bubbles: its words, split where it remembered a note or asked a question, each with
+ * the images and documents its tools showed meanwhile after its words. The first run keeps the
+ * reply's key, so a bubble keeps its place as the reply grows.
  */
 function replyBubbles(entry: SpadeReplyEntry, bubbles: SpadeBubble[]) {
   let words: string[] = [];
+  let images: SpadeImageRef[] = [];
+  let documents: SpadeDocumentRef[] = [];
   let runs = 0;
+  const take = () => {
+    const media = { images, documents };
+    images = [];
+    documents = [];
+    return media;
+  };
   const flush = () => {
     const text = words.join("\n\n").trim();
     words = [];
-    if (!text) return;
+    if (!text && !images.length && !documents.length) return;
     bubbles.push({
       kind: "bot",
       key: runs++ ? `${entry.key}:${runs}` : entry.key,
@@ -164,11 +181,15 @@ function replyBubbles(entry: SpadeReplyEntry, bubbles: SpadeBubble[]) {
       live: false,
       end: undefined,
       error: undefined,
+      ...take(),
     });
   };
   for (const part of entry.parts) {
     if (part.kind === "text") words.push(part.text);
-    else if (part.kind === "remembered") {
+    else if (part.kind === "shared") {
+      images.push(...part.images);
+      documents.push(...part.documents);
+    } else if (part.kind === "remembered") {
       flush();
       bubbles.push({ kind: "remembered", key: `${entry.key}:${part.key}`, note: part.note });
     } else if (part.kind === "question") {
@@ -181,7 +202,7 @@ function replyBubbles(entry: SpadeReplyEntry, bubbles: SpadeBubble[]) {
   const text = words.join("\n\n").trim();
   const end = entry.end && entry.end.kind !== "finished" ? entry.end.kind : undefined;
   // A reply with nothing more to say yet shows only as the working line.
-  if (!text && !end) return;
+  if (!text && !end && !images.length && !documents.length) return;
   bubbles.push({
     kind: "bot",
     key: runs ? `${entry.key}:${runs + 1}` : entry.key,
@@ -189,5 +210,6 @@ function replyBubbles(entry: SpadeReplyEntry, bubbles: SpadeBubble[]) {
     live: entry.end === undefined,
     end,
     error: entry.end?.kind === "failed" ? entry.end.error : undefined,
+    ...take(),
   });
 }

@@ -4,7 +4,7 @@
 
 use spade_models::{Image, Message, Prompt, ToolCall, ToolSpec};
 
-use crate::event::{Event, ImageRef, Known};
+use crate::event::{DocumentRef, Event, ImageRef, Known};
 use crate::tools::{CALL_TOOL, Registry, TOOL_SEARCH};
 
 /// Spade's standing instructions.
@@ -67,6 +67,12 @@ pub fn job_result(job: &str, name: &str, content: &str, is_error: bool) -> Strin
 /// see images"), and the model is told that instead of seeing the image.
 pub trait Images {
     fn get(&self, image: &ImageRef) -> Result<Image, String>;
+
+    /// The attached document itself, for a model that reads it natively and reads it better so
+    /// (ADR 0134); `None` shows its text instead.
+    fn document(&self, _document: &DocumentRef) -> Option<Image> {
+        None
+    }
 }
 
 /// No images: each attached image is described instead.
@@ -76,6 +82,53 @@ impl Images for NoImages {
     fn get(&self, _image: &ImageRef) -> Result<Image, String> {
         Err("images cannot be shown here".to_owned())
     }
+}
+
+/// What the model reads before a spoken message's transcript.
+pub const SPOKEN: &str = "[Spoken; transcribed]";
+
+/// The tool that reads more of an attached document.
+pub const DOCUMENT_READ: &str = "document_read";
+
+/// How many hex characters of a document's hash name it to the model.
+pub const DOCUMENT_ID_CHARS: usize = 12;
+
+/// An attached document as the model reads it: its view of the text (or, when `native`, a note
+/// that the file itself follows), and how to read on. Depends only on the stored reference.
+pub fn document_text(document: &DocumentRef, native: bool) -> String {
+    let id = document.handle();
+    let name: String = document
+        .name
+        .chars()
+        .filter(|c| !c.is_control() && *c != '"')
+        .take(200)
+        .collect();
+    let mut open = format!("<document name=\"{name}\" id=\"{id}\"");
+    if let Some(pages) = document.pages {
+        open.push_str(&format!(" pages=\"{pages}\""));
+    }
+    if let Some(sheets) = document.sheets {
+        open.push_str(&format!(" sheets=\"{sheets}\""));
+    }
+    open.push_str(&format!(" chars=\"{}\">", document.chars));
+    if native {
+        return format!(
+            "{open}\n[The file itself is attached below.]\n</document>\n[Its extracted text can \
+             also be read with {DOCUMENT_READ} id=\"{id}\".]"
+        );
+    }
+    let shown = document.view.chars().count() as u64;
+    let mut out = format!("{open}\n{}\n</document>", document.view);
+    if shown < document.chars {
+        out.push_str(&format!(
+            "\n[{} more characters; read on with {DOCUMENT_READ} id=\"{id}\" offset={shown}]",
+            document.chars - shown
+        ));
+    }
+    if document.cut {
+        out.push_str("\n[The file holds more than Spade keeps of it; the text stops early.]");
+    }
+    out
 }
 
 /// The prompt for the next model call, with attached images described rather than shown.
@@ -249,6 +302,10 @@ impl Images for Recent<'_> {
         }
         self.inner.get(image)
     }
+
+    fn document(&self, document: &DocumentRef) -> Option<Image> {
+        self.inner.document(document)
+    }
 }
 
 fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
@@ -286,13 +343,19 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
                 text,
                 context,
                 images: attached,
+                documents,
+                voice,
                 from_agent,
                 from_routine,
                 from_group,
             } => {
-                let mut text = match context {
-                    Some(context) => format!("<context>\n{context}\n</context>\n\n{text}"),
+                let spoken = match voice {
+                    Some(_) => format!("{SPOKEN} {text}"),
                     None => text.clone(),
+                };
+                let mut text = match context {
+                    Some(context) => format!("<context>\n{context}\n</context>\n\n{spoken}"),
+                    None => spoken,
                 };
                 if let Some(from) = from_agent {
                     text = format!(
@@ -307,6 +370,12 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
                     text = crate::group::framed(from, &text);
                 }
                 let mut shown = Vec::new();
+                for document in documents {
+                    let native = images.document(document);
+                    text.push_str("\n\n");
+                    text.push_str(&document_text(document, native.is_some()));
+                    shown.extend(native);
+                }
                 for image in attached {
                     match images.get(image) {
                         Ok(image) => shown.push(image),
@@ -600,6 +669,8 @@ pub fn untrusted_summary(events: &[Event]) -> bool {
 /// result its tool marked untrusted itself (a workspace file Spade did not write, ADR 0130).
 pub fn untrusted_event(event: &Event, registry: &Registry) -> bool {
     match event {
+        // A document's words are its author's, not the person's (ADR 0134).
+        Event::Known(Known::UserMessage { documents, .. }) if !documents.is_empty() => true,
         // Another bot's message can carry text it read anywhere: treated like untrusted output,
         // whether it started the turn or steered it.
         Event::Known(Known::UserMessage {
@@ -643,6 +714,13 @@ fn describe_event(events: &[Event], event: &Event) -> String {
             from_agent: Some(agent),
             ..
         }) => format!("a message from {}", agent.name),
+        Event::Known(Known::UserMessage { documents, .. }) if !documents.is_empty() => {
+            let names: Vec<String> = documents
+                .iter()
+                .map(|d| d.name.chars().take(80).collect())
+                .collect();
+            format!("the attached file {}", names.join(", "))
+        }
         Event::Known(Known::UserMessage {
             from_group: Some(group),
             from_routine: None,
@@ -703,6 +781,10 @@ fn describe_source(events: &[Event], name: &str, call_id: &str) -> String {
             || "a command's output".to_owned(),
             |command| format!("the output of `{command}`"),
         ),
+        DOCUMENT_READ => field("id").map_or_else(
+            || "an attached file".to_owned(),
+            |id| format!("the attached file {id}"),
+        ),
         "skill_load" => field("name").map_or_else(
             || "a skill's notes".to_owned(),
             |skill| format!("its notes on {skill}"),
@@ -723,5 +805,7 @@ fn ends_reply(event: &Event) -> bool {
     )
 }
 
+#[cfg(test)]
+mod media_tests;
 #[cfg(test)]
 mod tests;

@@ -11,6 +11,7 @@ pub mod config;
 mod error;
 mod format;
 pub mod listing;
+mod media;
 mod prompt;
 mod thoughts;
 mod typed;
@@ -23,6 +24,7 @@ pub use config::ModelsConfig;
 pub use error::ModelError;
 pub use format::Format;
 pub use listing::{ListBounds, Listed};
+pub use media::{MOST_AUDIO_BYTES, MOST_MEDIA_ANSWER};
 pub use prompt::{
     Delta, Generated, Image, Message, Prompt, Reply, Thought, ToolCall, ToolSpec, Usage,
 };

@@ -50,6 +50,8 @@ pub enum Reading {
     Html,
     /// Plain text, JSON or XML: pass through, trimmed.
     Text,
+    /// A PDF (or a generic binary type that may be one): its text, through `spade-docs`.
+    Pdf,
 }
 
 /// The media type of a `Content-Type` header value, lowercased and without parameters.
@@ -69,6 +71,10 @@ pub fn reading(media_type: &str) -> Option<Reading> {
     match media_type {
         "text/html" | "application/xhtml+xml" => Some(Reading::Html),
         "application/json" | "application/xml" => Some(Reading::Text),
+        "application/pdf"
+        | "application/x-pdf"
+        | "application/octet-stream"
+        | "binary/octet-stream" => Some(Reading::Pdf),
         t if t.starts_with("text/") || t.ends_with("+json") || t.ends_with("+xml") => {
             Some(Reading::Text)
         }

@@ -138,7 +138,7 @@ metadata), CGNAT, multicast, reserved and NAT64 local-use addresses and their IP
 address of this machine or on its links (read from its interfaces on every fetch; an unreadable
 list refuses the fetch). It connects only to the addresses it checked, never through a proxy, so
 DNS cannot swap them. Every redirect is checked again, at most five, all within one deadline. It
-reads at most 5 MB after decompression, and only HTML, text, JSON and XML (PDF later), decoded in
+reads at most 5 MB after decompression, and only HTML, text, JSON and XML (and PDFs up to 20 MB, see media.md), decoded in
 the page's own character encoding. HTML is read by html5ever's tokenizer and Spade's own tree
 builder with fixed limits (128 attributes per tag, 256 open elements, 100,000 tags, 1 MiB of text,
 2 KB per link), and becomes light Markdown from the main content (`main`, else the one `article`

@@ -5,6 +5,7 @@ mod agents;
 mod body;
 mod connectors;
 mod endpoints;
+mod media;
 mod memory;
 mod routines;
 mod teams;
@@ -36,10 +37,6 @@ use crate::tools::{AceLink, GrantError};
 /// Set when the server begins shutting down, so live streams end and shutdown is not held up.
 #[derive(Clone)]
 pub struct Closing(pub watch::Receiver<bool>);
-
-/// The largest message body: eight 3.75 MB images as base64, plus the text. Other routes keep the
-/// default limit.
-const MESSAGE_BODY: usize = 60 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -101,10 +98,6 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/routines/{id}/run", post(routines::run))
         .route("/conversations/{id}/events", get(events))
-        .route(
-            "/conversations/{id}/messages",
-            post(message).layer(DefaultBodyLimit::max(MESSAGE_BODY)),
-        )
         .route("/conversations/{id}/stop", post(stop))
         .route("/conversations/{id}/approvals/{call_id}", post(approve))
         .route("/conversations/{id}/live", get(live))
@@ -122,6 +115,7 @@ pub fn router(state: AppState) -> Router {
         .merge(connectors::routes())
         .merge(memory::routes())
         .merge(workspace::routes())
+        .merge(media::routes())
         .merge(teams::routes())
         .route_layer(middleware::from_fn_with_state(state.clone(), authorize))
         .with_state(state.clone());
@@ -214,13 +208,15 @@ fn stored(event: &StoredEvent) -> Value {
     json!({ "seq": event.seq, "at": event.at_ms, "event": event.event.to_json() })
 }
 
-fn send_problem(error: &SendError) -> Response {
+pub(super) fn send_problem(error: &SendError) -> Response {
     let status = match error {
         SendError::NotFound => StatusCode::NOT_FOUND,
         SendError::Disabled | SendError::Group => StatusCode::CONFLICT,
-        SendError::Empty | SendError::TooLong | SendError::TooManyImages | SendError::Image(_) => {
-            StatusCode::BAD_REQUEST
-        }
+        SendError::Empty
+        | SendError::TooLong
+        | SendError::TooManyImages
+        | SendError::TooManyDocuments
+        | SendError::Image(_) => StatusCode::BAD_REQUEST,
         SendError::OverCap => StatusCode::PAYMENT_REQUIRED,
         SendError::Store(_) => StatusCode::INTERNAL_SERVER_ERROR,
     };
@@ -240,30 +236,6 @@ async fn list(State(state): State<AppState>) -> Response {
         )
         .into_response(),
         Err(error) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
-    }
-}
-
-#[derive(Deserialize)]
-struct Text {
-    #[serde(default)]
-    text: String,
-    /// Attached images, each as base64 (a `data:` URL is fine). The type is read from the bytes.
-    #[serde(default)]
-    images: Vec<Upload>,
-}
-
-#[derive(Deserialize)]
-struct Upload {
-    data: String,
-}
-
-impl Text {
-    fn images(&self) -> Result<Vec<Vec<u8>>, Box<Response>> {
-        self.images
-            .iter()
-            .map(|upload| crate::images::decode(&upload.data))
-            .collect::<Result<_, _>>()
-            .map_err(|error| Box::new(problem(StatusCode::BAD_REQUEST, &error.to_string())))
     }
 }
 
@@ -296,21 +268,6 @@ async fn events(
         }
         Ok(None) => problem(StatusCode::NOT_FOUND, "no such conversation"),
         Err(error) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
-    }
-}
-
-async fn message(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-    Json(body): Json<Text>,
-) -> Response {
-    let images = match body.images() {
-        Ok(images) => images,
-        Err(response) => return *response,
-    };
-    match state.engine.send(&id, &body.text, &images) {
-        Ok(()) => StatusCode::ACCEPTED.into_response(),
-        Err(error) => send_problem(&error),
     }
 }
 

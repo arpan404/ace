@@ -176,6 +176,11 @@ pub enum SendError {
     OverCap,
     #[error("a message can carry at most {} images", crate::images::MOST_IMAGES)]
     TooManyImages,
+    #[error(
+        "a message can carry at most {} documents",
+        crate::media::MOST_DOCUMENTS
+    )]
+    TooManyDocuments,
     #[error(transparent)]
     Image(#[from] ImageError),
     #[error(transparent)]
