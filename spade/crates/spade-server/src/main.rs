@@ -13,6 +13,7 @@ use spade_server::home::{DEFAULT_SEARCH, Home, HomeError, new_token};
 use spade_server::images::ImageStore;
 use spade_server::learning::{Learning, SkillFeedback, SkillPropose};
 use spade_server::presets;
+use spade_server::research::{LiveWeb, ResearchTool};
 use spade_server::tools::{
     AceLink, AceTarget, ConnectorSource, EngineHandle, Retry, SkillLibrary, SkillLoad, SkillSearch,
     Todo, Tool, ToolSource, Toolbox, WebFetch, WebSearch,
@@ -191,19 +192,27 @@ async fn run() -> Result<(), Failure> {
             spade_docs::Extractor::in_process()
         }
     };
-    let fetcher =
-        Fetcher::new(Policy::default(), Duration::from_secs(30)).with_documents(reader.clone());
+    let fetcher = Arc::new(
+        Fetcher::new(Policy::default(), Duration::from_secs(30)).with_documents(reader.clone()),
+    );
+    let search = Arc::new(search);
     let mut core: Vec<Arc<dyn Tool>> = vec![
         Arc::new(WebSearch {
-            search: Arc::new(search),
+            search: search.clone(),
             ace_fallback: ace.is_some(),
         }),
-        Arc::new(WebFetch(Arc::new(fetcher))),
+        Arc::new(WebFetch(fetcher.clone())),
         Arc::new(Todo),
     ];
     // Tools that find the calling bot through the engine, set once it exists (ADR 0130).
     let bots = EngineHandle::default();
     let workspaces = Workspaces::new(home.dir.join("workspace"));
+    // Deep research (ADR 0135), reading through the same backends and fetcher.
+    core.push(Arc::new(ResearchTool::new(
+        Arc::new(LiveWeb { search, fetcher }),
+        workspaces.clone(),
+        bots.clone(),
+    )));
     core.extend(workspace_tools(
         workspaces.clone(),
         bots.clone(),

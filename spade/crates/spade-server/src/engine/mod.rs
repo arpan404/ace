@@ -15,10 +15,14 @@ mod groups;
 mod inbox;
 mod index;
 mod jobs;
+mod ledger;
+pub(crate) use ledger::{Admission, Hint};
 mod maintenance;
 mod media;
 mod memory;
 mod outbox;
+mod oversight;
+mod review;
 pub mod roster;
 mod routines;
 mod turn;
@@ -33,6 +37,10 @@ pub use inbox::{InboxAnswer, Sender as InboxSender};
 pub use maintenance::MaintenanceState;
 pub use media::{Outgoing, TranscribeError};
 pub use memory::{MemoryCall, NoteError, NoteScope, note_json};
+pub use oversight::{
+    ActivityPage, ActivityQuery, AgentOversight, Global, GlobalChange, OversightChange,
+    OversightError,
+};
 pub use roster::{LastMessage, State};
 pub use types::{
     Activity, AgentChange, AgentError, AgentInput, AgentView, AnswerError, AvatarInput,
@@ -81,7 +89,10 @@ pub struct Engine {
     clock: Arc<dyn Clock>,
     ids: Arc<dyn Ids>,
     daily_cap_micros: u64,
-    utc_offset_seconds: i32,
+    /// Model calls admitted and not yet paid for (ADR 0135, `ledger`).
+    in_flight: Mutex<ledger::InFlight>,
+    /// Woken each time an admitted call settles, for calls waiting on its estimate.
+    released: Notify,
     limits: Limits,
     skills: Option<Arc<dyn SkillLibrary>>,
     images: ImageStore,
@@ -159,7 +170,8 @@ impl Engine {
             clock: setup.clock,
             ids: setup.ids,
             daily_cap_micros: setup.daily_cap_micros,
-            utc_offset_seconds: setup.utc_offset_seconds,
+            in_flight: Mutex::default(),
+            released: Notify::new(),
             limits: setup.limits,
             skills: setup.skills,
             images: setup.images,
@@ -507,10 +519,18 @@ impl Engine {
         {
             return Err(CompactError::OverCap);
         }
+        // A bot at its own cap compacts nothing either: the summary is a model call.
+        if let Some(why) = self.cap_refusal(id) {
+            return Err(CompactError::BotCapped(why));
+        }
         let model = compact::conversation_model(self, id).unwrap_or_else(|| self.reply_model(id));
         match compact::now(self, id, &model, focus).await {
             Ok(true) => Ok(()),
             Ok(false) => Err(CompactError::Nothing),
+            Err(error) if error == compact::AT_CAP => Err(CompactError::BotCapped(
+                self.cap_refusal(id)
+                    .unwrap_or_else(|| "today's spending cap is used up".to_owned()),
+            )),
             Err(error) => Err(CompactError::Failed(error)),
         }
     }
@@ -539,7 +559,8 @@ impl Engine {
     }
 
     fn within_cap(&self) -> Result<bool, StoreError> {
-        let since = spending::day_start_ms(self.now_ms(), self.utc_offset_seconds);
+        // The person's day, the same one the bots' caps and the app use (ADR 0135).
+        let since = self.periods().day_start;
         Ok(spending::within_cap(
             self.store.spent_since(since)?,
             self.daily_cap_micros,
@@ -629,7 +650,7 @@ impl Engine {
     }
 
     /// Records what a model call cost, failed or not.
-    fn pay(&self, id: &str, model: &str, usage: &spade_models::Usage) -> u64 {
+    pub(super) fn pay(&self, id: &str, model: &str, usage: &spade_models::Usage) -> u64 {
         let cost = spending::cost_micros(self.models.price(model), usage);
         if cost > 0
             && let Err(error) = self.store.record_spend(id, model, cost, self.now_ms())

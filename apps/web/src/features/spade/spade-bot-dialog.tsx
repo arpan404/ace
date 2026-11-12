@@ -18,6 +18,7 @@ import { ConnectorChoice, useConnectorChoice } from "./spade-bot-connectors.tsx"
 import { AvatarChoice, type AvatarDraft } from "./spade-avatar-choice.tsx";
 import { SpadeMachineScope, spadeMachineKey, useSpadeClient } from "./spade-machine.tsx";
 import { SpadeModelPicker } from "./spade-model-picker.tsx";
+import { OversightFields, useOversightChoice } from "./spade-bot-oversight.tsx";
 import { browserTimeZone, ImportBot, TemplateChoice } from "./spade-bot-start.tsx";
 import { agentsKey, type RosterBot, type SpadeHost } from "./use-spade-roster.ts";
 import { connectorsKey } from "./spade-connector-api.ts";
@@ -232,8 +233,8 @@ export function NewBotDialog(props: { hosts: readonly SpadeHost[]; onClose(): vo
 }
 
 /**
- * Edit a bot, on its own machine: name, task, face, model and the connected apps it may use,
- * sent as one change of what moved. Spade keeps its name and face. Task and model apply from the
+ * Edit a bot, on its own machine: name, task, face, model, the connected apps it may use, its
+ * spending caps and its model review (ADR 0135), each sent as one change of what moved. Spade keeps its name and face. Task and model apply from the
  * bot's next reply, and the dialog says so in one quiet line.
  */
 export function EditBotDialog(props: { bot: RosterBot; onClose(): void }) {
@@ -249,19 +250,24 @@ export function EditBotDialog(props: { bot: RosterBot; onClose(): void }) {
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string>();
   const apps = useConnectorChoice(bot.id);
+  const oversight = useOversightChoice(bot);
   const change: Partial<SpadeAgentDraft> = {
     ...(!main && name.trim() !== bot.name ? { name: name.trim() } : {}),
     ...(task.trim() !== bot.task.trim() ? { task: task.trim() } : {}),
     ...(model !== bot.model && /\/./.test(model) ? { model } : {}),
     ...(!main && avatar.kind !== "current" ? { avatar } : {}),
   };
-  const changed = (Object.keys(change).length > 0 || apps.changed) && (main || name.trim() !== "");
+  const changed =
+    (Object.keys(change).length > 0 || apps.changed || oversight.changed) &&
+    !oversight.invalid &&
+    (main || name.trim() !== "");
   const save = async () => {
     setSaving(true);
     setProblem(undefined);
     try {
       if (Object.keys(change).length > 0) await editAgent(client, bot.id, change);
       await apps.save(client);
+      await oversight.save(client);
       await cache.invalidateQueries({ queryKey: agentsKey });
       await cache.invalidateQueries({ queryKey: connectorsKey });
       props.onClose();
@@ -308,6 +314,7 @@ export function EditBotDialog(props: { bot: RosterBot; onClose(): void }) {
           <Field label="Apps">
             <ConnectorChoice choice={apps} main={main} />
           </Field>
+          <OversightFields choice={oversight} />
           <p className="text-xs text-subtle-foreground">
             {`Task and model changes apply from ${bot.name}'s next reply.`}
           </p>

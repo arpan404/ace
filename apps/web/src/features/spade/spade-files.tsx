@@ -30,6 +30,8 @@ export function SpadeFiles(props: {
   bot: { id: string; name: string };
   /** The folder shown, relative to the workspace; empty for its top. */
   folder: string;
+  /** A file in it to open at first. */
+  file?: string | undefined;
   onFolder(path: string): void;
 }) {
   const { bot, folder } = props;
@@ -37,7 +39,7 @@ export function SpadeFiles(props: {
   const machine = useSpadeMachine();
   const cache = useQueryClient();
   const toast = useToast();
-  const [opened, setOpened] = useState<string>();
+  const [opened, setOpened] = useState<string | undefined>(props.file);
   const [confirming, setConfirming] = useState<Confirming>();
   const folderKey = ["spade", "workspace", machine.key, bot.id, folder] as const;
   const listing = useQuery({

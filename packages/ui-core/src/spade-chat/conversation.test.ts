@@ -41,9 +41,11 @@ const said = (entries: readonly SpadeEntry[]) =>
                 ? `[${part.name} ${part.state}]`
                 : part.kind === "remembered"
                   ? `[remembered ${part.note.text}]`
-                  : part.kind === "shared"
-                    ? `[shared ${part.images.length + part.documents.length}]`
-                    : part.text,
+                  : part.kind === "files"
+                    ? `[files ${part.paths.join(", ")}]`
+                    : part.kind === "shared"
+                      ? `[shared ${part.images.length + part.documents.length}]`
+                      : part.text,
             ),
             ...(entry.live ? [`${entry.live}…`] : []),
           ].join(" | ")}${entry.end ? ` (${entry.end.kind})` : ""}`
@@ -537,7 +539,9 @@ describe("the conversation as a chat", () => {
               ? `routine: ${bubble.name}`
               : bubble.kind === "remembered"
                 ? `remembered: ${bubble.note.text}`
-                : `${bubble.kind}: ${bubble.text}`,
+                : bubble.kind === "files"
+                  ? `files: ${bubble.paths.join(", ")}`
+                  : `${bubble.kind}: ${bubble.text}`,
       ),
     ).toEqual([
       "person: Find me a flight",

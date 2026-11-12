@@ -10,6 +10,14 @@ import { spadeDocumentList, spadeImageList, spadeVoiceField } from "./media.ts";
 
 const text = z.string();
 const reply = z.string();
+/** Workspace files a tool kept, for file chips; a path this client can't read is left out. */
+const files = z
+  .array(z.unknown())
+  .nullish()
+  .catch(undefined)
+  .transform((list) =>
+    (list ?? []).filter((path): path is string => typeof path === "string" && path !== ""),
+  );
 
 export type { SpadeImageRef } from "./media.ts";
 
@@ -87,6 +95,7 @@ const known = z.discriminatedUnion("type", [
     /** The result: JSON text from the memory tools, which the view reads (ADR 0128). */
     content: z.unknown().optional(),
     is_error: z.boolean().optional(),
+    files,
   }),
   /**
    * Images and documents a tool showed the person, stored right after its `tool_finished`
@@ -112,6 +121,24 @@ const known = z.discriminatedUnion("type", [
     job: z.string(),
     name: z.string(),
     is_error: z.boolean().optional(),
+    files,
+  }),
+  /** The bot reached a spending cap; stored once per day or month (ADR 0135). */
+  z.object({
+    type: z.literal("cap_reached"),
+    scope: z.enum(["daily", "monthly"]),
+    cap_micros: z.number().nonnegative().catch(0).default(0),
+    period_start: z.unknown().optional(),
+    resets_at: z.number().nullish().catch(undefined),
+  }),
+  /** The model review judged a call before it ran (ADR 0135). */
+  z.object({
+    type: z.literal("call_reviewed"),
+    reply: z.string().nullish().catch(undefined),
+    call_id: z.string(),
+    name: z.string().catch(""),
+    verdict: z.string(),
+    reason: z.string().catch("").default(""),
   }),
   z.object({ type: z.literal("context_compacted") }),
   z.object({

@@ -95,7 +95,7 @@ pub(super) fn agent_json(view: &AgentView) -> Value {
             "from_agent": m.from_agent.as_ref().map(|f| json!({ "id": f.id, "name": f.name })),
         })
     });
-    json!({
+    let mut shown = json!({
         "id": agent.id,
         "kind": agent.kind,
         "name": agent.name,
@@ -112,7 +112,14 @@ pub(super) fn agent_json(view: &AgentView) -> Value {
         "status": view.status,
         "problem": view.problem,
         "last_message": last_message,
-    })
+    });
+    // `spending` and `review` (ADR 0135).
+    if let (Some(shown), Some(extra)) = (shown.as_object_mut(), view.oversight.as_object()) {
+        for (key, value) in extra {
+            shown.insert(key.clone(), value.clone());
+        }
+    }
+    shown
 }
 
 fn agent_problem(error: &AgentError) -> Response {

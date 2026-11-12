@@ -147,6 +147,9 @@ impl Engine {
             Ok(target) => target,
             Err(why) => return ToolOutput::error(why),
         };
+        if let Some(why) = self.cap_refusal(&target.conversation) {
+            return ToolOutput::error(why);
+        }
         let depth = self.hops(caller) + 1;
         if depth > MOST_HOPS {
             return ToolOutput::error(format!(
@@ -339,10 +342,32 @@ impl Engine {
             )));
         }
         let name = &target.name;
+        // A reply closed because the bot reached its cap (ADR 0135) answered nothing.
+        let mut capped: Option<String> = None;
         events.iter().find_map(|stored| match &stored.event {
-            Event::Known(Known::ReplyFinished { text, .. }) => {
-                Some(Outcome::Answered(text.clone()))
+            Event::Known(Known::CapReached {
+                scope,
+                cap_micros,
+                period_start,
+                resets_at,
+            }) => {
+                let hit = spade_core::oversight::Hit {
+                    scope: *scope,
+                    cap_micros: *cap_micros,
+                    period_start: *period_start,
+                    resets_at: *resets_at,
+                };
+                capped = Some(spade_core::oversight::refusal(name, &hit));
+                None
             }
+            Event::Known(Known::ReplyFinished { text, .. }) => match capped.take() {
+                Some(why) => Some(Outcome::Failed(why)),
+                // Closed at a cap said earlier this period: empty, and the bot is at it now.
+                None if text.is_empty() && self.cap_refusal(&target.conversation).is_some() => {
+                    self.cap_refusal(&target.conversation).map(Outcome::Failed)
+                }
+                None => Some(Outcome::Answered(text.clone())),
+            },
             Event::Known(Known::ReplyStopped { text, .. }) => Some(Outcome::Stopped(format!(
                 "{name} was stopped before it finished. What it had said: {text}"
             ))),

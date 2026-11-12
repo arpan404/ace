@@ -205,6 +205,8 @@ impl Transcript {
             | Known::MemoryIndexed { .. }
             | Known::ContextCompacted { .. }
             | Known::AgentConfigured { .. }
+            | Known::CapReached { .. }
+            | Known::CallReviewed { .. }
             | Known::GroupMessage { .. }
             | Known::GroupAsked { .. }
             | Known::GroupAnswered { .. }
@@ -582,6 +584,7 @@ mod tests {
             content: "Three options".into(),
             is_error: false,
             uncertain: false,
+            files: Vec::new(),
         }));
         assert!(!Transcript::fold(&events).busy());
     }

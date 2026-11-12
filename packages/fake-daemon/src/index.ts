@@ -149,5 +149,6 @@ export {
 export { FakeSpadeApi } from "./spade-api.ts";
 export type { FakeSpadeAgent } from "./spade-api.ts";
 export type { FakeSpadeNote } from "./spade-notes.ts";
+export type { FakeSpadeSpending } from "./spade-oversight.ts";
 export type { FakeSpadeGroup, FakeSpadeGroupMember } from "./spade-teams.ts";
 export type { FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";

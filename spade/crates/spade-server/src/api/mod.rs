@@ -8,6 +8,7 @@ mod connectors;
 mod endpoints;
 mod media;
 mod memory;
+mod oversight;
 mod routines;
 mod teams;
 mod workspace;
@@ -116,6 +117,7 @@ pub fn router(state: AppState) -> Router {
         .merge(connectors::routes())
         .merge(brains::routes())
         .merge(memory::routes())
+        .merge(oversight::routes())
         .merge(workspace::routes())
         .merge(media::routes())
         .merge(teams::routes())
@@ -219,7 +221,7 @@ pub(super) fn send_problem(error: &SendError) -> Response {
         | SendError::TooManyImages
         | SendError::TooManyDocuments
         | SendError::Image(_) => StatusCode::BAD_REQUEST,
-        SendError::OverCap => StatusCode::PAYMENT_REQUIRED,
+        SendError::OverCap | SendError::BotCapped(_) => StatusCode::PAYMENT_REQUIRED,
         SendError::Store(_) => StatusCode::INTERNAL_SERVER_ERROR,
     };
     problem(status, &error.to_string())
@@ -302,7 +304,7 @@ async fn compact(
         Err(error @ (CompactError::Busy | CompactError::Nothing)) => {
             problem(StatusCode::CONFLICT, &error.to_string())
         }
-        Err(error @ CompactError::OverCap) => {
+        Err(error @ (CompactError::OverCap | CompactError::BotCapped(_))) => {
             problem(StatusCode::PAYMENT_REQUIRED, &error.to_string())
         }
         Err(CompactError::Failed(error)) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error),

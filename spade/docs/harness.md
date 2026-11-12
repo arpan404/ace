@@ -51,7 +51,9 @@ turn's total.
 - **Stop** cancels the model stream and running tools; calls left without a result are answered
   "not run" in later prompts.
 - **Limits:** 30 steps, $2 per turn, the daily cap; each ends the turn with `reply_failed` and a
-  reason.
+  reason. A bot at its own daily or monthly cap starts no model call: the turn closes and the bot
+  says so once ([oversight.md](oversight.md)). With the model review on, a write the gate would run
+  is judged by a second model first, which can only make it ask.
 - **Restart:** a turn cut off mid-stream or mid-tool by a crash closes as `reply_interrupted`; a
   turn only waiting for an approval resumes, and so does a paused one (below).
 - **Pausing** (docs/ace-integration.md, "Updates" and "Stop"): while admission is closed, messages
@@ -66,7 +68,8 @@ turn's total.
 
 Spade's own tools are always offered in full, in name order: `web_search` (SearXNG, then Brave),
 `web_fetch` (one page as text, a window at a time, refusing local and private addresses),
-`todo`, the workspace tools and `shell` ([workspace.md](workspace.md)), and, when Spade knows where
+`todo`, `research` (a background job that reads many sources and writes a cited report,
+[oversight.md](oversight.md)), the workspace tools and `shell` ([workspace.md](workspace.md)), and, when Spade knows where
 ace is (`SPADE_ACE_HOME`), `skill_search`, `skill_load`, `skill_propose` and `skill_feedback`
 (they say ace is away while it is). Output from `web_search`,
 `web_fetch` and most of ace's tools is untrusted, so a write later in that turn asks.

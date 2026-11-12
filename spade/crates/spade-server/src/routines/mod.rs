@@ -55,6 +55,11 @@ pub fn set_default_zone(engine: &Engine, zone: &str) {
     }
 }
 
+/// The machine's zone, read once at start (UTC until then).
+pub(crate) fn machine_zone(engine: &Engine) -> String {
+    default_zone(engine)
+}
+
 fn default_zone(engine: &Engine) -> String {
     engine
         .routines_shared()

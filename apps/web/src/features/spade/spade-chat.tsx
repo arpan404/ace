@@ -48,6 +48,8 @@ export function SpadeChat(props: {
   onStop(): void;
   onAnswer(callId: string, allowed: boolean, always: boolean): Promise<boolean>;
   onRemembered(note: SpadeRememberedNote): void;
+  /** A file chip: open that file of the bot's workspace. */
+  onOpenFile(path: string): void;
   proposals?: readonly SpadeProposal[];
   onProposal?(id: string, save: boolean): Promise<boolean>;
 }) {
@@ -78,6 +80,7 @@ export function SpadeChat(props: {
             onAnswer={props.onAnswer}
             onProposal={props.onProposal}
             onRemembered={props.onRemembered}
+            onOpenFile={props.onOpenFile}
           />
         );
       })}
@@ -103,7 +106,7 @@ export function SpadeChat(props: {
 }
 
 const botSide = (item: SpadeChatItem) =>
-  item.kind === "bot" || item.kind === "ask" || item.kind === "skill";
+  item.kind === "bot" || item.kind === "ask" || item.kind === "skill" || item.kind === "files";
 
 /**
  * The exact command a shell call would run, which "always" covers (that command, nothing like
@@ -122,6 +125,7 @@ const Bubble = memo(function Bubble(props: {
   onAnswer(callId: string, allowed: boolean, always: boolean): Promise<boolean>;
   onProposal: ((id: string, save: boolean) => Promise<boolean>) | undefined;
   onRemembered(note: SpadeRememberedNote): void;
+  onOpenFile(path: string): void;
 }) {
   const { item, bot } = props;
   switch (item.kind) {
@@ -217,6 +221,15 @@ const Bubble = memo(function Bubble(props: {
             {item.images.length > 0 && <Pictures images={item.images} side="bot" />}
             {item.documents.length > 0 && <DocumentChips documents={item.documents} side="bot" />}
             {item.text && !item.live && <ReadAloud text={item.text} />}
+            {item.files && <FileChips paths={item.files} onOpen={props.onOpenFile} />}
+          </div>
+        </BotRow>
+      );
+    case "files":
+      return (
+        <BotRow bot={bot} face={props.face}>
+          <div className={botBubble}>
+            <FileChips paths={item.paths} onOpen={props.onOpenFile} first />
           </div>
         </BotRow>
       );
@@ -237,6 +250,7 @@ const Bubble = memo(function Bubble(props: {
         <BotRow bot={bot} face={props.face}>
           <Ask
             sentence={spadeApprovalSentence(item.name, bot.name)}
+            reason={item.reason}
             details={item.arguments}
             command={shellCommand(item.name, item.arguments)}
             onAnswer={(allowed, always) => props.onAnswer(item.callId, allowed, always)}
@@ -279,6 +293,8 @@ function BotRow(props: { bot: ChatBot; face: boolean; children: React.ReactNode 
  */
 function Ask(props: {
   sentence: string;
+  /** Why the model review asked rather than let it run. */
+  reason: string | undefined;
   details: unknown;
   command: string | undefined;
   onAnswer(allowed: boolean, always: boolean): Promise<boolean>;
@@ -296,6 +312,9 @@ function Ask(props: {
   return (
     <div className={botBubble}>
       <p>{props.sentence}</p>
+      {props.reason && (
+        <p className="mt-1 text-ui text-muted-foreground">{`Asked you because: ${props.reason}`}</p>
+      )}
       {command !== undefined && (
         <pre
           aria-label="Command"
@@ -399,5 +418,28 @@ function ReadAloud(props: { text: string }) {
         {reading ? "Stop reading" : "Read aloud"}
       </Button>
     </div>
+  );
+}
+/**
+ * Files the bot kept (a research report), each by its name: opens it in the bot's files. Under
+ * the bubble's words, or alone when no words followed yet.
+ */
+function FileChips(props: { paths: readonly string[]; onOpen(path: string): void; first?: true }) {
+  return (
+    <ul aria-label="Files" className={cn("-mx-1 flex flex-wrap gap-1", !props.first && "mt-1.5")}>
+      {props.paths.map((path) => (
+        <li key={path}>
+          <button
+            type="button"
+            aria-label={`Open ${path}`}
+            title={path}
+            onClick={() => props.onOpen(path)}
+            className="max-w-full truncate rounded-sm px-1 text-ui text-muted-foreground underline decoration-border underline-offset-3 transition-colors duration-(--motion-fast) hover:text-foreground focus-ring"
+          >
+            {path.split("/").at(-1) ?? path}
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }

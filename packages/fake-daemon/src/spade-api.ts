@@ -1,6 +1,7 @@
 import type { FakeSpade, FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
 import { FakeSpadeConnectors } from "./spade-connectors-api.ts";
 import { FakeSpadeNotes } from "./spade-notes.ts";
+import { FakeSpadeOversight, type FakeSpadeSpending } from "./spade-oversight.ts";
 import { FakeSpadeRoutines } from "./spade-routines.ts";
 import { base64Bytes, sha256Hex } from "./sha256.ts";
 import { FakeSpadeTeams } from "./spade-teams.ts";
@@ -35,6 +36,9 @@ export interface FakeSpadeAgent {
     at: number;
     from_agent: { id: string; name: string } | null;
   } | null;
+  /** Its spend and caps (ADR 0135); left out, as an older Spade does, until set. */
+  spending?: FakeSpadeSpending;
+  review?: boolean | null;
 }
 
 interface Stored {
@@ -80,6 +84,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
   readonly requests: FakeSpadeRequest[] = [];
   /** The person's connected apps and each bot's allow list (ADR 0131). */
   readonly connectors = new FakeSpadeConnectors();
+  /** Caps, the review and the activity log (ADR 0135). */
+  readonly oversight = new FakeSpadeOversight();
   private readonly events = new Map<string, Stored[]>();
   private sequence = 0;
   private readonly spade: FakeSpade;
@@ -256,6 +262,14 @@ export class FakeSpadeApi implements FakeSpadeServer {
       const agent = this.agents.find((candidate) => candidate.id === id);
       if (!agent) return problem(404, "No such agent.");
       return this.connectors.agentRoute(request.method, id, agent.kind === "main", body);
+    }
+    if (root === "oversight") return this.oversight.route(request.method, body);
+    if (root === "agents" && id && (sub === "oversight" || sub === "activity")) {
+      const agent = this.agents.find((candidate) => candidate.id === id);
+      if (!agent) return problem(404, "No such agent.");
+      return sub === "activity"
+        ? this.oversight.activityRoute(id, new URLSearchParams(query))
+        : this.oversight.agentRoute(request.method, agent, body);
     }
     if (root === "notes") return this.notes.route(request.method, null, id, body, sub);
     if (root === "agents" && id && sub === "notes")

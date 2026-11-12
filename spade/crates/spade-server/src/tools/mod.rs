@@ -45,6 +45,9 @@ pub struct ToolOutput {
     /// This result carries untrusted content (a file written after reading the web), so the
     /// rest of the turn is untrusted, whatever the tool's definition says.
     pub untrusted: bool,
+    /// Workspace files the tool kept for the person to open (a research report), relative to
+    /// the bot's workspace. Shown as file chips; only background jobs carry them for now.
+    pub files: Box<[String]>,
     /// What the tool showed the person, already stored (ADR 0134). Recorded as a `shared` event
     /// beside the result; the model is not shown it.
     pub shared: Shared,
@@ -71,6 +74,7 @@ impl ToolOutput {
             uncertain: false,
             images: Vec::new(),
             untrusted: false,
+            files: Box::default(),
             shared: Shared::default(),
         }
     }
@@ -89,6 +93,7 @@ impl ToolOutput {
             uncertain: false,
             images: Vec::new(),
             untrusted: false,
+            files: Box::default(),
             shared: Shared::default(),
         }
     }

@@ -50,6 +50,8 @@ export type SpadeReplyPart =
   | { kind: "remembered"; key: string; note: SpadeRememberedNote }
   /** The bot asked the person (`ask_user`); their next message answers it. */
   | { kind: "question"; key: string; text: string }
+  /** Workspace files a tool kept (a research report): chips on the bot's next bubble. */
+  | { kind: "files"; key: string; paths: readonly string[] }
   /** Images and documents a tool showed the person (`image_generate`, `share_file`; ADR 0134). */
   | {
       kind: "shared";
@@ -98,7 +100,16 @@ export type SpadeEntry =
   /** The model now reads a summary of what came before. */
   | { kind: "compacted"; key: string }
   /** A background job ended; its result went to Spade. */
-  | { kind: "job"; key: string; name: string; outcome: SpadeJobOutcome };
+  | {
+      kind: "job";
+      key: string;
+      name: string;
+      outcome: SpadeJobOutcome;
+      /** Workspace files it kept, for chips on the bot's next bubble. */
+      files: readonly string[];
+    }
+  /** The bot reached a spending cap (ADR 0135): one bubble of the bot's, once per period. */
+  | { kind: "cap"; key: string; scope: "daily" | "monthly"; capMicros: number };
 
 /** How a background job ended: on its own, with an error, or because the person pressed Stop. */
 export type SpadeJobOutcome = "done" | "failed" | "stopped";
@@ -108,6 +119,8 @@ export interface SpadeApproval {
   callId: string;
   name: string;
   arguments: unknown;
+  /** Why the model review asked the person rather than let it run (ADR 0135). */
+  reason: string | undefined;
 }
 
 export interface SpadeConversationState {
@@ -136,6 +149,10 @@ export interface SpadeConversationState {
   stopping: Set<string>;
   /** Stored events of types this client doesn't read, kept count of and otherwise ignored. */
   unknown: number;
+  /** Why the model review escalated each call, by call id, until its approval is answered. */
+  reviews: Map<string, string>;
+  /** Each cap reached, by scope and period, so one shows once. */
+  caps: Set<string>;
   /** What the agent last said it does now, from the live stream; cleared once it is idle. */
   status: string | undefined;
 }
@@ -178,6 +195,8 @@ export function emptySpadeConversation(): SpadeConversationState {
     jobs: new Map(),
     stopping: new Set(),
     unknown: 0,
+    reviews: new Map(),
+    caps: new Set(),
     status: undefined,
   };
 }
@@ -309,12 +328,19 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
     case "approval_requested":
       state.approvals = [
         ...state.approvals.filter((approval) => approval.callId !== event.call_id),
-        { reply: event.reply, callId: event.call_id, name: event.name, arguments: event.arguments },
+        {
+          reply: event.reply,
+          callId: event.call_id,
+          name: event.name,
+          arguments: event.arguments,
+          reason: state.reviews.get(event.call_id),
+        },
       ];
       setCall(state, event.reply, event.call_id, event.name, "waiting");
       return true;
     case "approval_answered":
       state.approvals = state.approvals.filter((approval) => approval.callId !== event.call_id);
+      state.reviews.delete(event.call_id);
       if (!event.allowed) setCall(state, event.reply, event.call_id, undefined, "declined");
       return true;
     case "tool_started":
@@ -325,6 +351,11 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       state.running.delete(event.call_id);
       setCall(state, event.reply, event.call_id, event.name, event.is_error ? "failed" : "done");
       remembered(state, event.reply, key, event.name, event.content, event.is_error === true);
+      if (event.files.length)
+        updateOpen(state, event.reply, (entry) => ({
+          ...entry,
+          parts: [...entry.parts, { kind: "files", key: `${key}:files`, paths: event.files }],
+        }));
       return true;
     case "shared":
       if (!event.images.length && !event.documents.length) return false;
@@ -355,7 +386,23 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       const stopped = state.stopping.delete(event.job);
       const outcome = event.is_error ? (stopped ? "stopped" : "failed") : "done";
       // Its result goes to Spade like a message: what Spade says about it reads below it.
-      steer(state, { kind: "job", key, name: event.name, outcome });
+      steer(state, { kind: "job", key, name: event.name, outcome, files: event.files });
+      return true;
+    }
+    case "cap_reached": {
+      const period = `${event.scope}:${JSON.stringify(event.period_start ?? stored.at)}`;
+      if (state.caps.has(period)) return false;
+      state.caps.add(period);
+      state.entries.push({ kind: "cap", key, scope: event.scope, capMicros: event.cap_micros });
+      return true;
+    }
+    case "call_reviewed": {
+      if (event.verdict !== "escalate") return false;
+      state.reviews.set(event.call_id, event.reason);
+      const at = state.approvals.findIndex((approval) => approval.callId === event.call_id);
+      const asked = state.approvals[at];
+      if (!asked) return false;
+      state.approvals = state.approvals.with(at, { ...asked, reason: event.reason });
       return true;
     }
     case "reply_finished":

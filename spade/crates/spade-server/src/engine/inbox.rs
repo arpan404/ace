@@ -128,6 +128,10 @@ impl Engine {
         let Some(agent) = agent else {
             return refuse(404, "no such bot on this machine");
         };
+        // A bot at its own cap starts nothing (ADR 0135): the asking machine hears why.
+        if let Some(why) = self.cap_refusal(&agent.conversation) {
+            return refuse(402, &why);
+        }
         let from_agent = body["from"].as_object().map(|from| FromAgent {
             id: short(from.get("id"), 128, "bot"),
             name: short(from.get("name"), crate::engine::NAME_CHARS, "A bot"),

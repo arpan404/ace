@@ -26,6 +26,8 @@ export function SpadeModelPicker(props: {
   value: string;
   onChange(value: string): void;
   id?: string | undefined;
+  /** What the picker is for, when a page has more than one ("Review model"); else "Model". */
+  label?: string | undefined;
 }) {
   const models = useSpadeModels(true);
   const subscriptions = useSpadeSubscriptions(true);
@@ -71,7 +73,7 @@ export function SpadeModelPicker(props: {
   return (
     <div className="flex min-w-0 gap-2">
       <Select
-        label="Endpoint"
+        label={props.label ? `${props.label.replace(/ model$/, "")} endpoint` : "Endpoint"}
         value={current}
         options={options}
         onValueChange={pickSource}
@@ -81,6 +83,7 @@ export function SpadeModelPicker(props: {
         <SpadeModelChoice
           key={endpoint.id}
           id={props.id}
+          label={props.label}
           endpoint={endpoint}
           model={endpoint.id === chosen.endpoint ? chosen.model : ""}
           onChange={(model) => props.onChange(`${endpoint.id}/${model}`)}
@@ -88,7 +91,7 @@ export function SpadeModelPicker(props: {
       ) : source ? (
         <Select
           id={props.id}
-          label="Model"
+          label={props.label ?? "Model"}
           value={chosenCli?.model ?? ""}
           options={[
             ...source.models.map((model) => ({ value: model.id, label: model.name })),
@@ -115,6 +118,7 @@ export function SpadeModelChoice(props: {
   endpoint: SpadeEndpoint;
   model: string;
   id?: string | undefined;
+  label?: string | undefined;
   onChange(model: string): void;
 }) {
   const [open, setOpen] = useState(false);
@@ -137,7 +141,7 @@ export function SpadeModelChoice(props: {
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         id={props.id}
-        aria-label="Model"
+        aria-label={props.label ?? "Model"}
         className={cn(selectTrigger, "min-w-0 flex-1")}
       >
         <span className="truncate">{current?.name ?? (props.model || "Choose a model")}</span>

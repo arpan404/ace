@@ -270,6 +270,47 @@ impl Workspace {
         Ok(content.len())
     }
 
+    /// Writes `content` to `relative` only if nothing is there yet, creating folders on the way.
+    /// Answers `false`, writing nothing, when the name is taken (by a file, a folder or a link),
+    /// so two writers racing for one name never overwrite each other.
+    pub fn create_new(&self, relative: &str, content: &str) -> Result<bool, PathError> {
+        if content.len() > LARGEST_WRITE {
+            return Err(PathError::Io(format!(
+                "that is {} bytes; files are written {LARGEST_WRITE} bytes at most",
+                content.len()
+            )));
+        }
+        let cleaned = clean(relative)?;
+        let Some(name) = cleaned.file_name().map(ToOwned::to_owned) else {
+            return Err(PathError::Io("give a file name".to_owned()));
+        };
+        let dir = self.dir()?;
+        let parent = cleaned.parent().unwrap_or(Path::new(""));
+        if !parent.as_os_str().is_empty() {
+            dir.create_dir_all(parent)
+                .map_err(|error| PathError::at(relative, error))?;
+        }
+        let at = folder(&dir, parent, relative)?;
+        let mut options = OpenOptions::new();
+        options
+            .write(true)
+            .create_new(true)
+            .follow(FollowSymlinks::No);
+        let mut file = match at.open_with(&name, &options) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return Ok(false),
+            Err(error) => return Err(PathError::at(relative, error)),
+        };
+        let written = file
+            .write_all(content.as_bytes())
+            .and_then(|()| file.sync_all());
+        if let Err(error) = written {
+            let _ = at.remove_file(&name);
+            return Err(PathError::at(relative, error));
+        }
+        Ok(true)
+    }
+
     /// Replaces the one place `old` appears in `relative` with `new`. Answers the file's text
     /// before and after.
     pub fn edit(

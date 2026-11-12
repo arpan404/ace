@@ -127,6 +127,7 @@ pub fn output(result: Result<AceToolResult, ToolsError>) -> ToolOutput {
                 uncertain: false,
                 images,
                 untrusted: false,
+                files: Box::default(),
                 shared: crate::tools::Shared::default(),
             }
         }

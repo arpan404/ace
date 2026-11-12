@@ -301,6 +301,7 @@ fn writes_keep_their_ids_and_arguments_and_uncertain_ones_say_so() {
             content: content.into(),
             is_error,
             uncertain: false,
+            files: Vec::new(),
         })
     };
     let mut events = vec![known(Known::StepFinished {
@@ -483,6 +484,7 @@ fn a_background_job_cut_off_stays_in_the_do_not_repeat_list() {
             content: "book did not finish within 30 minutes.".into(),
             is_error: true,
             uncertain: true,
+            files: Vec::new(),
         }),
     ];
     assert_eq!(

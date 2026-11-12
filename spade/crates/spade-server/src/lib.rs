@@ -11,6 +11,7 @@ pub mod learning;
 pub mod media;
 pub mod presets;
 pub mod proof;
+pub mod research;
 pub mod routines;
 pub mod startup;
 pub mod teams;

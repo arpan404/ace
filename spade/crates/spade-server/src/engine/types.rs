@@ -56,6 +56,7 @@ pub struct Setup {
     pub clock: Arc<dyn Clock>,
     pub ids: Arc<dyn Ids>,
     pub daily_cap_micros: u64,
+    /// No longer read: days are the person's, in the time zone the app sends (ADR 0135).
     pub utc_offset_seconds: i32,
     pub limits: Limits,
     /// The person's skill library, when ace provides one.
@@ -115,6 +116,8 @@ pub struct AgentView {
     pub last_message: Option<LastMessage>,
     /// What the agent waits on the person for: `approval` or `question` (ADR 0128).
     pub waiting_for: Option<&'static str>,
+    /// `{"spending", "review"}` (ADR 0135).
+    pub oversight: serde_json::Value,
     /// Why its latest reply on a subscription failed, until a later one works (ADR 0133).
     pub problem: Option<String>,
 }
@@ -176,6 +179,9 @@ pub enum SendError {
     TooLong,
     #[error("today's spending cap is used up")]
     OverCap,
+    /// The bot is at one of its own caps (ADR 0135); the words say which and until when.
+    #[error("{0}")]
+    BotCapped(String),
     #[error("a message can carry at most {} images", crate::images::MOST_IMAGES)]
     TooManyImages,
     #[error(
@@ -199,6 +205,9 @@ pub enum CompactError {
     Nothing,
     #[error("today's spending cap is used up")]
     OverCap,
+    /// The bot is at one of its own caps (ADR 0135).
+    #[error("{0}")]
+    BotCapped(String),
     #[error("{0}")]
     Failed(String),
 }
