@@ -166,6 +166,8 @@ pub struct Options {
     pub clock: Option<Arc<dyn Clock>>,
     /// The engine's ids; counting from 1 when absent.
     pub ids: Option<Arc<dyn Ids>>,
+    /// Where bots on subscriptions reach ace (ADR 0133), set before work opens.
+    pub brains: Option<spade_server::engine::BrainSource>,
 }
 
 /// A clock a test sets by hand.
@@ -247,6 +249,7 @@ impl Default for Options {
             connectors: false,
             clock: None,
             ids: None,
+            brains: None,
         }
     }
 }
@@ -436,6 +439,9 @@ impl Spade {
             adopt: options.adopt.clone(),
             keychain: Some(keys.clone()),
         })?;
+        if let Some(brains) = options.brains.clone() {
+            engine.set_brains(brains);
+        }
         let state = AppState {
             engine: engine.clone(),
             token: TOKEN.into(),

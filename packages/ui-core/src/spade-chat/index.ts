@@ -13,5 +13,6 @@ export * from "./hosting.ts";
 export * from "./skills.ts";
 export * from "./connectors.ts";
 export * from "./routines.ts";
+export * from "./subscriptions.ts";
 export * from "./groups.ts";
 export * from "./group-fold.ts";

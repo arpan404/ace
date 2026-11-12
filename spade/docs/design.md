@@ -82,9 +82,10 @@ long-context prices are not modelled yet, so very long prompts are under-counted
 and GLM-5.3, its Anthropic-format endpoint for Claude Haiku 5.5. Check that Go's terms allow its key
 outside OpenCode before relying on it in production. The Go key is never shipped.
 
-**CLI brains (planned).** Subscription models run as an ace provider session through the daemon,
-with Spade's tools, skills and memory attached as an MCP server and the approval gate inside those
-tools. Spade's roles can point at an endpoint or a CLI.
+**CLI brains.** Subscription models run as an ace provider session through the daemon, one
+hidden session per bot, with the bot's tools reached through ace's MCP endpoint (`spade_tools`,
+`spade_call`) and the approval gate inside those tools. A bot's model can be an endpoint's or
+`cli:<provider>/<model>` ([cli-brains.md](cli-brains.md), ADR 0133).
 
 **SDK.** `genai` behind `spade-models`, compared with `aisdk` and `rig-core` on 2026-11-08 for
 native Anthropic support (caching, thinking blocks across tool turns) and typed output. Spade owns

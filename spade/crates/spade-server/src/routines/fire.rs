@@ -189,7 +189,7 @@ fn fire(
         Some(("skipped_running", "The last run was still going."))
     } else if heartbeat && !engine.idle(&agent.conversation)? {
         Some(("skipped_busy", "The bot was busy."))
-    } else if !engine.can_spend()? {
+    } else if !engine.can_run_turn(&agent.conversation)? {
         Some(("skipped_cap", "Today's spending cap is reached."))
     } else {
         None

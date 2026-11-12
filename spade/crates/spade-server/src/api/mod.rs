@@ -3,6 +3,7 @@
 
 mod agents;
 mod body;
+mod brains;
 mod connectors;
 mod endpoints;
 mod media;
@@ -113,6 +114,7 @@ pub fn router(state: AppState) -> Router {
                 .delete(end_maintenance),
         )
         .merge(connectors::routes())
+        .merge(brains::routes())
         .merge(memory::routes())
         .merge(workspace::routes())
         .merge(media::routes())

@@ -285,6 +285,11 @@ async fn run() -> Result<(), Failure> {
     let address = listener.local_addr().map_err(other)?;
     connectors.set_listening(address);
     connectors.start();
+    // Bots on the person's subscriptions run their turns through ace (ADR 0133). Set before
+    // work opens, so a turn resumed at start finds ace.
+    if let Some(link) = ace.clone() {
+        engine.set_brains(Arc::new(move || link.brains()));
+    }
     spade_server::startup::finish(
         engine.clone(),
         ace.clone(),

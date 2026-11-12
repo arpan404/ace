@@ -6,6 +6,8 @@ import { GrantTokens } from "../external-mcp/tokens.ts";
 import { SpadeGrantDelivery } from "../spade/delivery.ts";
 import { SpadeGrantAuthenticator } from "../spade/grant-auth.ts";
 import { SpadeGrants } from "../spade/grant.ts";
+import { brainHttp } from "../spade/brain-http.ts";
+import { SpadeBrains } from "../spade/brain-sessions.ts";
 import { nodeSpadeLinkRuntime, spadeAceCall } from "../spade/link-runtime.ts";
 import { SpadeLink, type SpadeLinkRuntime } from "../spade/link.ts";
 import { cliVersion } from "../doctor/install.ts";
@@ -24,6 +26,8 @@ export interface DaemonSpadeOptions {
   service?: SpadeServiceControl;
   runtime?: SpadeLinkRuntime;
   pollMs?: { waiting: number; ready: number };
+  /** How long a bot's finished turn waits for its session's other work (ADR 0133). */
+  brainSettleMs?: number;
 }
 
 /**
@@ -83,6 +87,35 @@ export async function startSpade(context: ServiceContext): Promise<void> {
     stopAuth?.();
     auth.close();
   }, "spade grant");
+  const brains = new SpadeBrains({
+    store,
+    engine: () => services.engine,
+    project: () => host.current(),
+    roster: () => {
+      const thread = host.current();
+      const delegations = services.agentControl?.delegations;
+      if (!thread || !delegations) return undefined;
+      return delegations.models(
+        { sessionId: "spade:brains", threadId: thread.threadId, agentId: thread.agentId },
+        {},
+      );
+    },
+    id: context.id,
+    ...(options.brainSettleMs === undefined ? {} : { settleMs: options.brainSettleMs }),
+    clock: {
+      now: () => Date.now(),
+      after(ms, run) {
+        const timer = setTimeout(run, ms);
+        timer.unref();
+        return () => clearTimeout(timer);
+      },
+    },
+  });
+  services.spadeBrainSeq = (threadId) => brains.streamSeq(threadId);
+  services.spadeBrains = brainHttp({
+    brains,
+    verify: (bearer) => grants.verify(bearer) !== undefined,
+  });
   if (!services.mcp) log.log("warn", "Spade's grant can't reach ace's tools: no MCP endpoint");
 
   const delivery = new SpadeGrantDelivery({

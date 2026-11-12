@@ -1,6 +1,7 @@
 //! Spade's pure logic: no I/O, no clocks, no randomness. Everything here is decided from its
 //! inputs, so it is tested directly.
 
+pub mod brain;
 pub mod checkpoint;
 pub mod compaction;
 pub mod context;

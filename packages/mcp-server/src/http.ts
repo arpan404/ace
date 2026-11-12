@@ -97,16 +97,20 @@ export async function startMcpServer<A extends Authenticator = CredentialRegistr
 ) {
   // A provider's own permission mode, read-only included, decides each call; ace only hides a
   // group that is off or that this daemon is not running.
-  options.registry.setAvailability((caller) => {
+  const availability: Parameters<ToolRegistry["setAvailability"]>[0] = (caller) => {
     const state = options.status?.(caller);
     return (name, capability) => {
+      if (state?.onlyTools && !state.onlyTools.includes(bareToolName(name))) return false;
       if (state?.unavailableTools?.includes(bareToolName(name))) return false;
       if (capability && state?.disabled?.[capability] !== undefined) return false;
       if (bareToolName(name) === "ask" && state?.askAvailable === false) return false;
       return true;
     };
-  });
+  };
+  options.registry.setAvailability(availability);
   const status = createContextRegistry(options.registry, options.status, options.knowledge);
+  // `context` (and its resources) answers to the same rules as every other tool.
+  status.setAvailability(availability);
   const awareness = options.awareness
     ? new SessionAwareness(
         options.awareness,

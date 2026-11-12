@@ -84,6 +84,34 @@ impl Images for NoImages {
     }
 }
 
+/// A message to the agent as the model reads it: its per-turn context first, framed as another
+/// bot's or a routine's when one sent it.
+pub fn person_text(
+    text: &str,
+    context: Option<&str>,
+    from_agent: Option<&crate::event::FromAgent>,
+    from_routine: Option<&crate::event::FromRoutine>,
+    from_group: Option<&crate::event::FromGroup>,
+) -> String {
+    let mut text = match context {
+        Some(context) => format!("<context>\n{context}\n</context>\n\n{text}"),
+        None => text.to_owned(),
+    };
+    if let Some(from) = from_agent {
+        text = format!(
+            "<bot_message from=\"{}\" id=\"{}\">\n{text}\n</bot_message>",
+            from.name, from.id
+        );
+    }
+    if let Some(from) = from_routine {
+        text = crate::routine::framed(from, &text);
+    }
+    if let Some(from) = from_group {
+        text = crate::group::framed(from, &text);
+    }
+    text
+}
+
 /// What the model reads before a spoken message's transcript.
 pub const SPOKEN: &str = "[Spoken; transcribed]";
 
@@ -144,6 +172,19 @@ pub fn prompt_with(
     events: &[Event],
     images: &dyn Images,
 ) -> Prompt {
+    let system = instructions(system, events);
+    Prompt {
+        system: Some(system),
+        tools,
+        messages: messages_with(events, images),
+        max_tokens: None,
+        session: None,
+    }
+}
+
+/// The standing instructions for the next turn: Spade's rules, the agent's task, the skill index
+/// and the agent's notes index, all fixed by the events so a rebuild gives the same bytes.
+pub fn instructions(system: &str, events: &[Event]) -> String {
     let skills = events.iter().find_map(|event| match event {
         Event::Known(Known::SkillsIndexed { text }) => Some(text.as_str()),
         _ => None,
@@ -162,13 +203,7 @@ pub fn prompt_with(
     if let Some(notes) = crate::memory::latest_index(events).filter(|n| !n.is_empty()) {
         system.push_str(&format!("\n\n{notes}"));
     }
-    Prompt {
-        system: Some(system),
-        tools,
-        messages: messages_with(events, images),
-        max_tokens: None,
-        session: None,
-    }
+    system
 }
 
 /// The agent's task for the open turn: the last `agent_configured` stored before the latest
@@ -353,22 +388,13 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
                     Some(_) => format!("{SPOKEN} {text}"),
                     None => text.clone(),
                 };
-                let mut text = match context {
-                    Some(context) => format!("<context>\n{context}\n</context>\n\n{spoken}"),
-                    None => spoken,
-                };
-                if let Some(from) = from_agent {
-                    text = format!(
-                        "<bot_message from=\"{}\" id=\"{}\">\n{text}\n</bot_message>",
-                        from.name, from.id
-                    );
-                }
-                if let Some(from) = from_routine {
-                    text = crate::routine::framed(from, &text);
-                }
-                if let Some(from) = from_group {
-                    text = crate::group::framed(from, &text);
-                }
+                let mut text = person_text(
+                    &spoken,
+                    context.as_deref(),
+                    from_agent.as_ref(),
+                    from_routine.as_deref(),
+                    from_group.as_deref(),
+                );
                 let mut shown = Vec::new();
                 for document in documents {
                     let native = images.document(document);

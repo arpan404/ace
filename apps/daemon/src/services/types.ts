@@ -100,6 +100,13 @@ export interface Services {
   skillLibrary?: import("@ace/commands").SkillLibrary;
   /** Spade, ace's assistant: its own service, which the daemon reads and forwards to (ADR 0123). */
   spade?: import("../spade/link.ts").SpadeLink;
+  /** How many frames of a bot's running turn precede a call its CLI makes now (ADR 0133). */
+  spadeBrainSeq?: (threadId: import("@ace/protocol").ThreadId) => Promise<number | undefined>;
+  /** `<daemon>/spade/brains/*`: Spade's bots' turns on subscriptions (ADR 0133). */
+  spadeBrains?: (
+    request: import("node:http").IncomingMessage,
+    response: import("node:http").ServerResponse,
+  ) => void;
   /** Spade's bots on the person's other machines (ADR 0132). */
   spadeRemote?: import("../spade/remote.ts").SpadeRemote;
   commands?: CommandLibrary;

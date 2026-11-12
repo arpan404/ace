@@ -115,6 +115,8 @@ pub struct AgentView {
     pub last_message: Option<LastMessage>,
     /// What the agent waits on the person for: `approval` or `question` (ADR 0128).
     pub waiting_for: Option<&'static str>,
+    /// Why its latest reply on a subscription failed, until a later one works (ADR 0133).
+    pub problem: Option<String>,
 }
 
 /// Why an agent could not be created, changed or deleted.
@@ -222,4 +224,6 @@ pub struct Activity {
     pub last_message: Option<LastMessage>,
     /// `question` while an `ask_user` waits, else `approval` while one waits.
     pub waiting_for: Option<&'static str>,
+    /// Why the latest reply on a subscription failed, until a later one works (ADR 0133).
+    pub problem: Option<String>,
 }

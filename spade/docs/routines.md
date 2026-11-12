@@ -12,7 +12,7 @@ database (`routines`, `routine_runs`, schema 4) and deleted with their bot.
   open one, like the person's message. The model reads it framed as
   `<routine name="…" id="…" fired="…">…</routine>` (`<heartbeat …>` for a heartbeat). `label` is
   fixed when it fires: `9:00`, `caught up from 9:00`, `Tue 9:00` (another day), `thread finished:
-  Fix login`, `webhook`, `run now`.
+Fix login`, `webhook`, `run now`.
 - **Once per slot.** A scheduled routine stores its next slot. The timer claims a due slot and
   records the run (`pending`) in one transaction, moving the next slot past now, then delivers the
   message and marks the run `delivered` with its seq. A run still `pending` after a restart is
