@@ -1,5 +1,5 @@
 import type { ThreadListEntry, ThreadRunMetadata, ThreadStatus } from "@ace/protocol";
-import { listTreeFacts, treeInBackground, treeWorking } from "./live-status.ts";
+import { leftRunningCount, listTreeFacts, treeInBackground, treeWorking } from "./live-status.ts";
 import { pluralCount } from "./counts.ts";
 import { joinNames } from "./join-names.ts";
 import type { ThreadRowFlags } from "./thread-card.ts";
@@ -143,6 +143,42 @@ export function runningWork(thread: {
   ].filter((part) => part !== undefined);
   if (!parts.length) return "Its agent is still working.";
   return `Still running: ${joinNames(parts)}.`;
+}
+
+/**
+ * Commands a done thread left running (ADR 0109, ADR 0116): the thread reads Done while they
+ * run, and archiving it releases its provider, which ends them. None for any other thread.
+ */
+export function leftRunningCommands(thread: {
+  status: ThreadStatus;
+  live?: ThreadRunMetadata | undefined;
+}): number {
+  return thread.status.state === "done" ? leftRunningCount(thread.live) : 0;
+}
+
+/** The question asked before an archive ends commands left running. */
+export interface ArchiveStopsQuestion {
+  /** "Archive thread?" or "Archive 3 threads?". */
+  title: string;
+  /** One sentence: "Archiving stops 2 commands it left running." */
+  message: string;
+}
+
+/**
+ * Ask before archiving `threads` when any left commands running, since archiving stops them;
+ * undefined when none did, so the archive goes ahead at once.
+ */
+export function archiveStopsQuestion(
+  threads: readonly { title: string; leftRunning: number }[],
+): ArchiveStopsQuestion | undefined {
+  const commands = threads.reduce((sum, thread) => sum + thread.leftRunning, 0);
+  if (!commands) return undefined;
+  const one = threads.length === 1;
+  const left = pluralCount(commands, "command", "commands");
+  return {
+    title: one ? "Archive thread?" : `Archive ${pluralCount(threads.length, "thread", "threads")}?`,
+    message: `Archiving stops ${left} ${one ? "it" : "they"} left running.`,
+  };
 }
 
 /** The question asked before deleting a thread for good. */

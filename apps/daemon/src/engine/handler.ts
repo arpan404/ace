@@ -4,7 +4,7 @@ import { adoptImportedThread } from "./imported-thread.ts";
 import { isDefaultSelection } from "@ace/models";
 import { ModelSelectionError, type EngineModels } from "./models.ts";
 import { providerCommandDisabled } from "@ace/core";
-import { provisionalTitle } from "./thread-title.ts";
+import { provisionalTitle } from "@ace/ui-core/thread-title";
 import { boundedJson } from "@ace/provider-kit/ipc";
 import { isSend } from "./queue-store.ts";
 import type { Recovery } from "./recovery.ts";

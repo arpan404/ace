@@ -256,8 +256,8 @@ export function useThreadCommands(close: () => void, query = ""): PaletteGroup[]
             label: `Archive ${n}`,
             icon: ArchiveIcon,
             run: run(() => {
-              actions.archiveMany(chosen);
-              selection.clear();
+              // Cancel on the question keeps the selection, as it does for Delete.
+              actions.archiveMany(chosen, () => selection.clear());
             }),
           },
           {
