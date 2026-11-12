@@ -323,21 +323,38 @@ const settled = Array.from({ length: 55 }, (_, index) =>
 );
 const longInbox = () => [long, ...settled];
 
-test.each([
-  { daemon: "a daemon that leaves out runs finished by the cutoff", oldDaemon: false },
-  { daemon: "an older daemon that lists every run", oldDaemon: true },
-])(
-  "an old long run that finishes while away is said behind newer settled runs: $daemon",
-  async ({ oldDaemon }) => {
-    const kept = memoryKept(0, { since: start });
-    const phone = watch(longInbox, { kept, at: start + 3_600_000, oldDaemon });
-    phone.runs.start();
-    await phone.settle();
-    expect(phone.said.map((alert) => alert.key)).toEqual(["long"]);
-    await phone.next();
-    expect(phone.said).toHaveLength(1);
-  },
-);
+test("an old long run that finishes while away is said behind newer settled runs", async () => {
+  const kept = memoryKept(0, { since: start });
+  const phone = watch(longInbox, { kept, at: start + 3_600_000 });
+  phone.runs.start();
+  await phone.settle();
+  expect(phone.said.map((alert) => alert.key)).toEqual(["long"]);
+  await phone.next();
+  expect(phone.said).toHaveLength(1);
+});
+
+test("on a daemon that lists every run, finishes on its newest page are said once, from progress an earlier build kept", async () => {
+  // Kept by the build that scanned such daemons over several reads: only `since` still counts.
+  const kept = memoryKept(0, {
+    since: start,
+    scan: { before: 7, top: start + 9 },
+    said: [["x", 1]],
+  });
+  const fresh = [1, 2].map((index) =>
+    run(`fresh${index}`, {
+      status: "succeeded",
+      startedAt: start + index,
+      finishedAt: start + 10 + index,
+    }),
+  );
+  const phone = watch(() => [...settled, ...fresh], { kept, at: start + 60_000, oldDaemon: true });
+  phone.runs.start();
+  await phone.settle();
+  expect(phone.said.map((alert) => alert.key)).toEqual(["fresh2", "fresh1"]);
+  await phone.next();
+  expect(phone.said).toHaveLength(2);
+  expect(kept.value).toEqual({ since: start + 12 });
+});
 
 /** More runs than a read takes in, all finished while the phone was away. */
 const flood = Array.from({ length: 1_100 }, (_, index) =>
@@ -365,34 +382,5 @@ test("more runs than one read takes in are counted as at least so many, then nev
   const relaunched = watch(floodInbox, { kept, at: start + 9_000_000 });
   relaunched.runs.start();
   await relaunched.settle();
-  expect(relaunched.said).toEqual([]);
-});
-
-/** More runs than one read takes in, all settled before the cutoff, ahead of the long run. */
-const crowd = Array.from({ length: 1_050 }, (_, index) =>
-  run(`crowd${index}`, {
-    status: "succeeded",
-    startedAt: start - 90_000 + index,
-    finishedAt: start - 80_000 + index,
-  }),
-);
-const crowdInbox = () => [long, ...crowd];
-
-test("on a daemon that lists every run, a long run behind a thousand settled ones is reached on a later read", async () => {
-  const kept = memoryKept(0, { since: start });
-  const phone = watch(crowdInbox, { kept, at: start + 3_600_000, oldDaemon: true });
-  phone.runs.start();
-  await phone.settle();
-  // The first read stops at the cap with nothing new; the next carries on from where it stopped.
-  expect(phone.said).toEqual([]);
-  await phone.next();
-  expect(phone.said.map((alert) => alert.key)).toEqual(["long"]);
-  for (let i = 0; i < 4; i++) await phone.next();
-  expect(phone.said).toHaveLength(1);
-  // A relaunch carries on too, and still says it only once.
-  const relaunched = watch(crowdInbox, { kept, at: start + 7_200_000, oldDaemon: true });
-  relaunched.runs.start();
-  await relaunched.settle();
-  for (let i = 0; i < 3; i++) await relaunched.next();
   expect(relaunched.said).toEqual([]);
 });
