@@ -26,6 +26,14 @@
 /* Reduced motion follows the app's setting (`[data-reduce-motion]`), not only the OS query. */
 @custom-variant motion-reduce (&:where([data-reduce-motion], [data-reduce-motion] *));
 @custom-variant motion-safe (&:where(:root:not([data-reduce-motion]), :root:not([data-reduce-motion]) *));
+/*
+ * Inside the last `group/row`, as Tailwind's `group-last/row` matches. Tailwind writes that one as
+ * `:is(.group\/row:last-child *)`, and a universal selector after `:last-child` makes Chromium
+ * restyle the whole subtree of any element that gains or loses last-child, anywhere on the page
+ * (a streamed answer appending a block restyled thousands of nodes). Ending in the element's own
+ * class confines that restyle to elements carrying it.
+ */
+@custom-variant last-row (.group\/row:last-child &);
 
 /* Tailwind utilities resolve to token variables, so a theme swap needs no component edits. */
 @theme inline {
