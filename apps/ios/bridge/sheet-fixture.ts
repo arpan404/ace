@@ -1,4 +1,4 @@
-import { Client } from "@ace/client";
+import { Client, type ClientOptions } from "@ace/client";
 import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
 import { DeviceId, type DeviceScope } from "@ace/protocol";
 import type { PatchSink } from "./agents.ts";
@@ -9,6 +9,8 @@ export function sheetFixture(
     scopes?: readonly DeviceScope[];
     /** A machine whose daemon predates placement: its lists carry no places. */
     olderDaemon?: boolean;
+    /** The client's subscription limits, for tests of room for optional threads. */
+    limits?: ClientOptions["limits"];
   } = {},
 ) {
   let now = 1_000;
@@ -32,6 +34,7 @@ export function sheetFixture(
     },
     random: () => 0.5,
     id: () => `id-${++ids}`,
+    ...(options.limits ? { limits: options.limits } : {}),
   });
   return { daemon, client };
 }

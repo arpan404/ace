@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { facts, type FakeDaemon } from "@ace/fake-daemon";
 import type { Fact } from "@ace/core";
-import { ThreadId, type Thread } from "@ace/protocol";
+import type { ClientOptions } from "@ace/client";
+import { ThreadId, type Thread, type ThreadStatus } from "@ace/protocol";
 import { Sheets } from "./sheets.ts";
 import { ThreadSummary } from "./thread-summary.ts";
 import type { SummaryView } from "./thread-summary-view.ts";
@@ -27,10 +28,14 @@ const timers = {
 async function opened(
   threadId: string,
   seed: Fact[],
-  before?: (daemon: FakeDaemon) => void,
-  details?: Thread["details"],
+  setup: {
+    before?: (daemon: FakeDaemon) => void;
+    details?: Thread["details"];
+    limits?: ClientOptions["limits"];
+  } = {},
 ) {
-  const { daemon, client } = sheetFixture();
+  const { before, details, limits } = setup;
+  const { daemon, client } = sheetFixture(limits ? { limits } : {});
   closers.push(() => client.close());
   daemon.createThread({
     id: threadId,
@@ -64,6 +69,37 @@ function view(sink: RecordingSink): SummaryView | undefined {
   expect(patch.type).toBe("thread.summary");
   return patch.sheet as SummaryView;
 }
+
+/** An agent of the thread that delegated to `threadId`, its row last told `status`. */
+const delegate = (agent: string, threadId: string, status: ThreadStatus = { state: "done" }) =>
+  [
+    {
+      type: "agent.seen",
+      agent,
+      parent: "root",
+      origin: "ace",
+      fidelity: "full",
+      native: { provider: "codex", nativeId: agent },
+      cwd: "/Users/dev/acme",
+      name: agent,
+    },
+    { type: "agent.external", agent, threadId: ThreadId.parse(threadId), status },
+  ] satisfies Fact[];
+
+/** A delegated thread `id`, started by `parent`, holding `seed`. */
+function child(daemon: FakeDaemon, id: string, parent: string, seed: Fact[]) {
+  daemon.createThread({
+    id,
+    workspaceId: "ace",
+    title: id,
+    provider: "codex",
+    parentThreadId: parent,
+  });
+  daemon.apply(id, seed);
+}
+
+const working = [facts.rootAgent("codex"), facts.turn("root")];
+const settledWith = (...more: Fact[]) => [...working, ...more, facts.endTurn("root")];
 
 const shell = (agent: string, item: string, command: string, exitCode: number): Fact[] => [
   facts.tool(agent, item, {
@@ -126,15 +162,17 @@ describe("the phone's Summary", () => {
         },
         facts.endTurn("root"),
       ],
-      (fake) => {
-        fake.createThread({
-          id: "child",
-          workspaceId: "ace",
-          title: "Docs",
-          provider: "codex",
-          parentThreadId: "parent",
-        });
-        fake.apply("child", [facts.rootAgent("codex"), facts.turn("root")]);
+      {
+        before: (fake) => {
+          fake.createThread({
+            id: "child",
+            workspaceId: "ace",
+            title: "Docs",
+            provider: "codex",
+            parentThreadId: "parent",
+          });
+          fake.apply("child", [facts.rootAgent("codex"), facts.turn("root")]);
+        },
       },
     );
     follow();
@@ -177,8 +215,7 @@ describe("the phone's Summary", () => {
     const { sink, follow } = await opened(
       "prs",
       [facts.rootAgent("codex"), facts.turn("root"), facts.endTurn("root")],
-      undefined,
-      { linkedPrs: [linked(7, "closed"), linked(9, "open", "passed")] },
+      { details: { linkedPrs: [linked(7, "closed"), linked(9, "open", "passed")] } },
     );
     const summary = follow();
     await until(() => (view(sink)?.prs.length ?? 0) > 0, "pull requests");
@@ -226,13 +263,15 @@ describe("the phone's Summary", () => {
         facts.message("root", "first", "assistant", "Started."),
         facts.endTurn("root"),
       ],
-      (fake) => {
-        fake.markReadThrough("away", "first", "ios-sheet-device");
-        fake.apply("away", [
-          { ...facts.turn("root"), nativeTurnId: "second-turn" },
-          facts.message("root", "second", "assistant", "Fixed the login bug."),
-          { ...facts.endTurn("root"), nativeTurnId: "second-turn" },
-        ] as Fact[]);
+      {
+        before: (fake) => {
+          fake.markReadThrough("away", "first", "ios-sheet-device");
+          fake.apply("away", [
+            { ...facts.turn("root"), nativeTurnId: "second-turn" },
+            facts.message("root", "second", "assistant", "Fixed the login bug."),
+            { ...facts.endTurn("root"), nativeTurnId: "second-turn" },
+          ] as Fact[]);
+        },
       },
     );
     const summary = follow();
@@ -248,15 +287,23 @@ describe("the phone's Summary", () => {
     expect(view(sink)?.catchUp).toEqual([]);
   });
 
-  test("closing the page stops the summary", async () => {
-    const { sink, follow } = await opened("closing", [
-      facts.rootAgent("codex"),
-      facts.turn("root"),
-    ]);
+  test("closing the page stops the summary and lets every delegated thread go", async () => {
+    const { client, sink, follow } = await opened(
+      "closing",
+      settledWith(...delegate("kid", "kid")),
+      {
+        limits: { threads: 4, threadReserve: 1 },
+        before: (fake) => child(fake, "kid", "closing", working),
+      },
+    );
+    const room = client.threadRoom();
+    const spare = room.getSnapshot();
     const summary = follow();
-    await until(() => view(sink) !== undefined, "summary");
+    await until(() => view(sink)?.now.lead === "Working", "kid read");
+    expect(room.getSnapshot()).toBe(spare - 1);
     summary.close();
     expect(view(sink)).toBeUndefined();
+    expect(room.getSnapshot()).toBe(spare);
   });
 
   test("the thread's sheets open the Summary, and leaving the thread lets it go", async () => {
