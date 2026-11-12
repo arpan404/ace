@@ -506,6 +506,7 @@ fn between_compactions_new_images_only_add_to_the_end_of_the_prompt() {
         keep_from: 0,
         tokens_before: 0,
         images_left_out: Some(fixed),
+        untrusted: false,
     }));
     assert_eq!(shown_images(&messages_with(&events, &Shelf)), SHOWN_IMAGES);
     let mut before = messages_with(&events, &Shelf);

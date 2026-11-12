@@ -80,6 +80,11 @@ const MIGRATIONS: &[Migration] = &[
 ",
         backfill: Some(crate::agents::backfill),
     },
+    Migration {
+        // ADR 0128: notes, and the index of past text.
+        sql: crate::notes::SCHEMA,
+        backfill: None,
+    },
 ];
 
 /// The schema version this build brings a database up to.

@@ -107,6 +107,11 @@ async fn run(
             None
         }
     };
+    // Facts drawn from untrusted text are only suggested to the person, never kept straight.
+    let untrusted = spade_core::memory::untrusted_span(events, &engine.tools.registry());
+    if let Some(summary) = &written {
+        super::memory::keep_extracted(engine, id, &summary.notes, untrusted);
+    }
     let summary = match written {
         Some(summary) => compaction::render(&summary, &carried),
         None => {
@@ -125,6 +130,7 @@ async fn run(
         keep_from: plan.keep_from,
         tokens_before: last_prompt_tokens(events),
         images_left_out: Some(context::images_to_leave_out(events, plan.keep_from)),
+        untrusted,
     });
     if let Err(error) = engine.record(id, &event) {
         tracing::error!(%error, "could not store a compaction");

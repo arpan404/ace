@@ -4,6 +4,7 @@
 mod ace;
 mod ace_link;
 mod bots;
+mod memory;
 mod skills;
 mod todo;
 mod web_fetch;
@@ -19,6 +20,7 @@ use spade_core::tools::{Registry, ToolDef};
 
 pub use ace_link::{AceLink, AceTarget, GrantError, Retry, grant_slot};
 pub use bots::{BotMessage, BotsList, EngineHandle};
+pub use memory::{AskUser, MemoryTool};
 pub use skills::{AceLibrary, LibraryFuture, SkillLibrary, SkillLoad, SkillSearch};
 pub use todo::Todo;
 pub use web_fetch::WebFetch;

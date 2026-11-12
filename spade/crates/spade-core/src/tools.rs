@@ -15,6 +15,9 @@ pub enum Risk {
     Read,
     /// Changes something the person may want to check first.
     Write,
+    /// Changes only the bot's own notes (ADR 0128): runs, except in a turn that read untrusted
+    /// content, since a note outlives the turn.
+    Memory,
     /// Deletes, sends money or cannot be undone.
     Destructive,
 }
