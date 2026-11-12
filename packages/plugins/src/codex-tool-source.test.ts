@@ -1,13 +1,14 @@
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "vitest";
-import { parse as parseToml } from "smol-toml";
 import {
   codexToolEntryNames,
   codexToolOverrides,
   parseCodexToolConfig,
   readCodexToolSource,
+  relocateCodexHome,
   type CodexToolTables,
 } from "./index.ts";
+import { readCodexOverrides } from "./testing/codex-config.ts";
 
 const source = "/Users/me/tools";
 
@@ -47,15 +48,8 @@ function tables(text: string): CodexToolTables {
   return parsed.tables;
 }
 
-/** What Codex would read back from the overrides: each `-c key=value` parsed as TOML. */
-function readBack(args: readonly string[]): Record<string, unknown> {
-  const lines: string[] = [];
-  for (let index = 0; index < args.length; index += 2) {
-    expect(args[index]).toBe("-c");
-    lines.push(args[index + 1] ?? "");
-  }
-  return parseToml(lines.join("\n"));
-}
+/** What Codex reads back from the overrides, parsing their keys its own way. */
+const readBack = (args: readonly string[]) => readCodexOverrides(args);
 
 describe("Codex tool source overrides", () => {
   test("carry marketplaces, plugins and MCP servers as the person wrote them", () => {
@@ -97,6 +91,13 @@ describe("Codex tool source overrides", () => {
     ["no source type means local", 'source = "./mine"', resolve(source, "mine")],
     ["absolute local path", 'source_type = "local"\nsource = "/opt/x"', "/opt/x"],
     ["git URL", 'source_type = "git"\nsource = "plugins.git"', "plugins.git"],
+    ["URL and no type", 'source = "https://example.com/p.git"', "https://example.com/p.git"],
+    [
+      "user@host form and no type",
+      'source = "git@example.com:me/p.git"',
+      "git@example.com:me/p.git",
+    ],
+    ["home path and no type", 'source = "~/plugins"', "~/plugins"],
   ])(
     "a marketplace with a %s resolves against the source folder only when local",
     (_, body, expected) => {
@@ -130,6 +131,44 @@ describe("Codex tool source overrides", () => {
     });
   });
 
+  test.each([
+    ["a dot", '[plugins."a.b@c"]\nenabled = true\n', "plugins.a.b@c"],
+    ["an equals sign", '[mcp_servers."a=b"]\ncommand = "/x"\n', "mcp_servers.a=b"],
+    ["a space", '[mcp_servers."a b"]\ncommand = "/x"\n', "mcp_servers.a b"],
+    ["a quote", `[mcp_servers.'a"b']\ncommand = "/x"\n`, 'mcp_servers.a"b'],
+  ])("an entry named with %s is left out and named: Codex can't address it", (_, text, name) => {
+    const parsed = parseCodexToolConfig(text, source);
+    expect(parsed.ok && parsed.skipped).toEqual([name]);
+    expect(parsed.ok && codexToolOverrides(parsed.tables)).toEqual([]);
+  });
+
+  test("a field Codex can't address is left out while the rest of its entry passes", () => {
+    const parsed = parseCodexToolConfig(
+      '[mcp_servers.ok]\ncommand = "/x"\n"odd.field" = 1\n',
+      source,
+    );
+    expect(parsed.ok && parsed.skipped).toEqual(["mcp_servers.ok.odd.field"]);
+    expect(parsed.ok && readBack(codexToolOverrides(parsed.tables))).toEqual({
+      mcp_servers: { ok: { command: "/x" } },
+    });
+  });
+
+  test("the account's own enabled choice survives the source's", () => {
+    const home = tables("[mcp_servers.node_repl]\nenabled = false\n");
+    const back = readCodexOverrides(codexToolOverrides(tables(config), home), {
+      mcp_servers: { node_repl: { enabled: false } },
+    });
+    expect(back["mcp_servers"]).toMatchObject({
+      node_repl: { enabled: false, command: "/Applications/Host.app/node_repl" },
+    });
+  });
+
+  test("the source's enabled choice applies where the account sets none", () => {
+    const home = tables('[mcp_servers.node_repl]\ncommand = "/mine"\n');
+    const back = readCodexOverrides(codexToolOverrides(tables(config), home));
+    expect(back["plugins"]).toMatchObject({ "chrome@bundled": { enabled: false } });
+  });
+
   test("malformed TOML is reported, not thrown", () => {
     expect(parseCodexToolConfig("[plugins\nenabled = ", source)).toEqual({
       ok: false,
@@ -147,9 +186,41 @@ describe("Codex tool source overrides", () => {
   });
 });
 
+describe("an MCP server's Codex home", () => {
+  const home = "/Users/me/.ace/account-homes/work";
+  const relocated = (env: string) =>
+    relocateCodexHome(
+      tables(`[mcp_servers.node_repl]\ncommand = "/x"\nenv = ${env}\n`),
+      source,
+      home,
+    ).mcp_servers["node_repl"]?.["env"];
+
+  test.each([
+    ["CODEX_HOME naming the source", `{ CODEX_HOME = "${source}" }`, { CODEX_HOME: home }],
+    ["CODEX_HOME with a trailing slash", `{ CODEX_HOME = "${source}/" }`, { CODEX_HOME: home }],
+    ["CODEX_HOME inside the source", `{ CODEX_HOME = "${source}/sub" }`, { CODEX_HOME: home }],
+    ["another variable naming the source", `{ ROOT = "${source}" }`, { ROOT: home }],
+    [
+      "a program inside the source",
+      `{ APP = "${source}/computer-use/App.app" }`,
+      { APP: `${source}/computer-use/App.app` },
+    ],
+    ["CODEX_HOME elsewhere", '{ CODEX_HOME = "/elsewhere" }', { CODEX_HOME: "/elsewhere" }],
+    ["a sibling folder", `{ CODEX_HOME = "${source}-x" }`, { CODEX_HOME: `${source}-x` }],
+  ])("%s is rewritten only when it means the source's home", (_, env, expected) => {
+    expect(relocated(env)).toEqual(expected);
+  });
+});
+
 const enoent = () => Object.assign(new Error("absent"), { code: "ENOENT" });
 describe("reading a tool source folder", () => {
   test.each([
+    [
+      "config.toml is over the size cap",
+      true,
+      () => Promise.reject(Object.assign(new Error("big"), { code: "EFBIG" })),
+      "too_large_config",
+    ],
     ["the folder is missing", false, () => Promise.reject(enoent()), "missing_folder"],
     ["config.toml is missing", true, () => Promise.reject(enoent()), "missing_config"],
     [
