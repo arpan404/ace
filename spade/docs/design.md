@@ -136,10 +136,9 @@ starts with "No web search is set up." and tells the bot to point the person at 
 Web search in one sentence; the app shows a quiet line under the reply with a text button that
 opens that setting. The settings API: `GET /v1/search` (`searxng_url`, `brave_key_set`,
 `keychain`; never the key), `PUT /v1/search {searxng_url}` (`http` or `https`, `null` forgets
-it), `PUT`/`DELETE /v1/search/brave-key {key}`.
-4. If all of those fail, an ace agent on the cheapest available provider CLI (for example Claude
-   Haiku through Claude Code) runs the search with that CLI's own web tool, on the person's
-   subscription, and returns results with sources. Needs CLI brains.
+it), `PUT`/`DELETE /v1/search/brave-key {key}`. 4. If all of those fail, an ace agent on the cheapest available provider CLI (for example Claude
+Haiku through Claude Code) runs the search with that CLI's own web tool, on the person's
+subscription, and returns results with sources. Needs CLI brains.
 
 Never by reading search engines' result pages directly: it breaks their terms, trips their bot
 detection and can get the person's address blocked. `web_fetch` of a known URL is a plain HTTP
