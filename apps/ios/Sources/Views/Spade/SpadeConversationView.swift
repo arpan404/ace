@@ -113,10 +113,10 @@ struct SpadeConversationView: View {
             }
             sending = false
             if outcome.ok, let id = outcome.id { started?(id); return }
-            if !outcome.ok {
-                if outcome.unknown != true { draft = SpadeDraft.restoring(text, into: draft) }
-                problem = words(outcome)
-            }
+            // Refused, or Spade may have it (a lost start): the words come back, never resent.
+            let after = SpadeDraft.after(outcome, sent: text, draft: draft)
+            draft = after.draft
+            problem = after.problem
         }
     }
 

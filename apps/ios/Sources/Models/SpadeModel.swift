@@ -177,4 +177,12 @@ enum SpadeDraft {
         if typed == message { return draft }
         return "\(message)\n\n\(draft)"
     }
+
+    /// The composer once a send or start of `sent` ends: as it is when it went; otherwise the words
+    /// come back (`restoring`) under the bridge's note when Spade may have them, else why it failed.
+    static func after(_ outcome: SpadeOutcome, sent: String, draft: String) -> (draft: String, problem: String?) {
+        guard !outcome.ok else { return (draft, nil) }
+        let said = [outcome.title, outcome.message].compactMap(\.self).filter { !$0.isEmpty }
+        return (restoring(sent, into: draft), outcome.note ?? (said.isEmpty ? nil : said.joined(separator: ". ")))
+    }
 }

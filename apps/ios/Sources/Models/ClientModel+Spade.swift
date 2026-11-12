@@ -8,11 +8,12 @@ struct SpadeOutcome: Decodable, Sendable {
     let id: String?
     let title: String?
     let message: String?
-    /// Spade may have it: the answer was lost and couldn't be checked. Never handed back to send
-    /// again, which could say it twice.
+    /// Spade may have it: the answer was lost and couldn't be checked. The words stay with the
+    /// person under `note` (`spadeStartWords`), never sent again on their own.
     let unknown: Bool?
-    init(ok: Bool, id: String? = nil, title: String? = nil, message: String? = nil, unknown: Bool? = nil) {
-        self.ok = ok; self.id = id; self.title = title; self.message = message; self.unknown = unknown
+    let note: String?
+    init(ok: Bool, id: String? = nil, title: String? = nil, message: String? = nil, unknown: Bool? = nil, note: String? = nil) {
+        self.ok = ok; self.id = id; self.title = title; self.message = message; self.unknown = unknown; self.note = note
     }
 }
 

@@ -55,6 +55,20 @@ import Foundation
         #expect(SpadeDraft.restoring("Book the train", into: "Book the train") == "Book the train")
     }
 
+    @Test func aStartSpadeMayHaveKeepsItsWordsUnderTheNoteForThePersonToDecide() {
+        let note = "Couldn't confirm Spade got this. Check Spade's list before sending it again."
+        let unknown = SpadeDraft.after(SpadeOutcome(ok: false, unknown: true, note: note), sent: "What's on today?", draft: "")
+        #expect(unknown.draft == "What's on today?")
+        #expect(unknown.problem == note)
+        let refused = SpadeDraft.after(SpadeOutcome(ok: false, title: "Couldn't send to Spade", message: "Today's cap is reached."),
+                                       sent: "Hi", draft: "")
+        #expect(refused.draft == "Hi")
+        #expect(refused.problem == "Couldn't send to Spade. Today's cap is reached.")
+        let sent = SpadeDraft.after(SpadeOutcome(ok: true), sent: "Hi", draft: "Next")
+        #expect(sent.draft == "Next")
+        #expect(sent.problem == nil)
+    }
+
     private func conversation(_ id: String, title: String) -> [String: Any] {
         ["type": "spade.conversation", "id": id, "title": title, "loaded": true, "problem": NSNull(), "busy": false,
          "answering": false, "working": NSNull(), "approval": NSNull()]
