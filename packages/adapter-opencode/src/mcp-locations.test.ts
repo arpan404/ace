@@ -14,6 +14,9 @@ const ready = { tools: [{ name: "ace_context", description: "What ace already kn
 function opencode(
   options: {
     own?: string[];
+    /** Runs before OpenCode answers a list or performs an add, so a test can hold it open. */
+    list?: () => Promise<void> | void;
+    add?: () => Promise<void> | void;
     connect?: () => void;
     readiness?: () => unknown | Promise<unknown>;
   } = {},
@@ -25,6 +28,7 @@ function opencode(
     mcp: {
       async list({ location }: Location) {
         await Promise.resolve();
+        await options.list?.();
         return {
           data: [...(servers.get(location.directory) ?? [])].map((name) => ({
             name,
@@ -34,6 +38,7 @@ function opencode(
       },
       async add({ location, server }: Location & { server: string }) {
         await Promise.resolve();
+        await options.add?.();
         const names = servers.get(location.directory) ?? new Set<string>();
         if (names.has(server)) throw new Error(`MCP server already exists: ${server}`);
         names.add(server);
@@ -216,4 +221,48 @@ test("a set-up still running when the location is rebuilt records nothing, and t
   held.resolve();
   await sending;
   expect(fake.adds()).toBe(2);
+});
+
+/** Resolves once `hold` has been reached, and lets the held call go on with `release`. */
+function gate() {
+  const reached = Promise.withResolvers<void>();
+  const released = Promise.withResolvers<void>();
+  let first = true;
+  return {
+    reached: reached.promise,
+    release: () => released.resolve(),
+    async hold() {
+      if (!first) return;
+      first = false;
+      reached.resolve();
+      await released.promise;
+    },
+  };
+}
+
+test("a set-up whose listing straddles a rebuild adds nothing stale, so ace's server is added once", async () => {
+  const listing = gate();
+  const fake = opencode({ list: listing.hold });
+  const { subject } = locations(fake);
+  const sending = subject.admit("/one");
+  await listing.reached;
+  fake.rebuild("/one");
+  subject.forget("/one");
+  listing.release();
+  await sending;
+  expect(fake.adds()).toBe(1);
+});
+
+test("an add that lands in the rebuilt location is recognised as ace's own, not a collision", async () => {
+  const adding = gate();
+  const fake = opencode({ add: adding.hold });
+  const { subject } = locations(fake);
+  const sending = subject.admit("/one");
+  await adding.reached;
+  // OpenCode rebuilds while the add is in flight; the add then reaches the new services.
+  fake.rebuild("/one");
+  subject.forget("/one");
+  adding.release();
+  await expect(sending).resolves.toBeUndefined();
+  expect(fake.adds()).toBe(1);
 });

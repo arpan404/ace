@@ -355,7 +355,8 @@ when a send and an interaction answer arrive together, and pending set-ups count
 retried on the next send by connecting again, never by adding it again. OpenCode drops runtime
 MCP servers when it rebuilds a location (`location.shutdown`), so ace then forgets that
 location and adds its server again through the collision check; work begun before the
-rebuild records nothing.
+rebuild records nothing and never adds. If the rebuild lands while ace's add is in flight,
+an `ace` found there afterwards is taken as ace's own: the location listed none before.
 
 ACP HTTP headers travel in its native session RPC as an array of name/value pairs.
 For providers that advertise only stdio, ACP has no portable private-header

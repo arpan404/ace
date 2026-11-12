@@ -13,21 +13,27 @@ const catalog = z
       .max(64),
   })
   .passthrough();
+/** Whether a server named `ace` is listed in this location, whoever added it. */
+export async function aceMcpListed(client: OpenCodeClient, directory: string): Promise<boolean> {
+  const listed = catalog.parse(await client.mcp.list({ location: { directory } }));
+  return listed.data.some((server) => server.name === "ace");
+}
+
 /**
  * Adds ace's server to one location. V2 runtime registrations are location-scoped and in
- * memory, never config-file mutations. A server already named `ace` is the person's own, so it
- * is refused rather than replaced.
+ * memory, never config-file mutations. Callers check `aceMcpListed` first: a server already
+ * named `ace` there may be the person's own.
  */
 export async function addAceMcp(
   client: OpenCodeClient,
   directory: string,
   connection: AceMcpConnection,
 ): Promise<void> {
-  const location = { directory };
-  const existing = catalog.parse(await client.mcp.list({ location }));
-  if (existing.data.some((server) => server.name === "ace"))
-    throw new Error("OpenCode MCP server name collision: ace");
-  await client.mcp.add({ server: "ace", location, config: openCodeInjection(connection).server });
+  await client.mcp.add({
+    server: "ace",
+    location: { directory },
+    config: openCodeInjection(connection).server,
+  });
 }
 
 /** Connects the `ace` server ace added. add starts asynchronously; connect waits for native startup and catalog loading. */
