@@ -43,6 +43,9 @@ pub struct Transcript {
     /// The open reply was paused for a planned restart and nothing of it has run since. It is
     /// still open (the conversation is still working) and resumes when Spade starts.
     pub paused: bool,
+    /// Questions the open reply asked the person (`ask_user`), by call id, and whether their
+    /// answer has arrived. One stays until its call has a result.
+    pub questions: Vec<Question>,
     /// Tools the person allowed "always" in this conversation.
     pub always_allowed: Vec<String>,
     /// Which tool each approval asked about, by call id.
@@ -50,6 +53,14 @@ pub struct Transcript {
     /// Indexes into `messages` of the replies still answering, oldest first. The last is the
     /// open reply. Kept as events fold so finding the open reply never scans the history.
     answering: Vec<usize>,
+}
+
+/// A question the open reply asked the person.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Question {
+    pub call_id: String,
+    /// The person's next message has arrived; the call's result is still to be stored.
+    pub answered: bool,
 }
 
 /// What the open reply is doing, for status and restart recovery.
@@ -75,12 +86,31 @@ impl Transcript {
     pub fn apply(&mut self, event: &Event) {
         let Event::Known(event) = event else { return };
         match event {
-            Known::UserMessage { text, .. } => self.messages.push(Message {
-                speaker: Speaker::Person,
-                text: text.clone(),
-                reply: None,
-                outcome: Outcome::Finished,
-            }),
+            Known::UserMessage {
+                text, from_agent, ..
+            } => {
+                // The person's next message answers what the bot asked; another bot's does not.
+                if from_agent.is_none() {
+                    for question in &mut self.questions {
+                        question.answered = true;
+                    }
+                }
+                self.messages.push(Message {
+                    speaker: Speaker::Person,
+                    text: text.clone(),
+                    reply: None,
+                    outcome: Outcome::Finished,
+                })
+            }
+            Known::QuestionAsked { call_id, .. } => {
+                self.paused = false;
+                if !self.stopping {
+                    self.questions.push(Question {
+                        call_id: call_id.clone(),
+                        answered: false,
+                    });
+                }
+            }
             Known::ReplyStarted { reply, .. } => {
                 self.stopping = false;
                 self.paused = false;
@@ -122,6 +152,7 @@ impl Transcript {
             Known::ToolFinished { call_id, .. } => {
                 self.paused = false;
                 self.running.retain(|id| id != call_id);
+                self.questions.retain(|q| &q.call_id != call_id);
             }
             Known::TurnPaused { reply } => {
                 let open = self.open_reply().and_then(|m| m.reply.as_deref());
@@ -166,15 +197,18 @@ impl Transcript {
                     // Nothing waiting can be answered once Stop is pressed.
                     self.stopping = true;
                     self.awaiting.clear();
+                    self.questions.clear();
                 }
             }
             Known::SkillsIndexed { .. }
+            | Known::MemoryIndexed { .. }
             | Known::ContextCompacted { .. }
             | Known::AgentConfigured { .. } => {}
         }
         if self.open_reply().is_none() {
             self.running.clear();
             self.awaiting.clear();
+            self.questions.clear();
             self.paused = false;
         }
     }
@@ -206,7 +240,7 @@ impl Transcript {
         self.open_reply()?;
         Some(if !self.running.is_empty() {
             TurnState::RunningTools
-        } else if !self.awaiting.is_empty() {
+        } else if !self.awaiting.is_empty() || self.asking() {
             TurnState::WaitingOnYou
         } else {
             TurnState::Answering
@@ -227,7 +261,11 @@ impl Transcript {
                 open.text.clone(),
             ));
         }
-        if self.paused || self.turn_state() == Some(TurnState::WaitingOnYou) {
+        // An answered question whose result is not stored yet is still owed to the turn.
+        if self.paused
+            || self.turn_state() == Some(TurnState::WaitingOnYou)
+            || (self.running.is_empty() && !self.questions.is_empty())
+        {
             return None;
         }
         Some(Event::reply_ended(
@@ -235,6 +273,11 @@ impl Transcript {
             reply,
             open.text.clone(),
         ))
+    }
+
+    /// Whether the open reply waits for the person to answer a question it asked.
+    pub fn asking(&self) -> bool {
+        self.questions.iter().any(|q| !q.answered)
     }
 
     /// Whether anything is still working: an open reply or a background job.

@@ -33,6 +33,18 @@ pub enum Known {
     SkillsIndexed {
         text: String,
     },
+    /// The bot's notes for the cached top of the prompt (ADR 0128), stored before the first model
+    /// call and once after each compaction, so the top changes only when the conversation
+    /// compacts.
+    MemoryIndexed {
+        text: String,
+    },
+    /// `ask_user`: the bot asked the person and the turn waits for their next message.
+    QuestionAsked {
+        reply: String,
+        call_id: String,
+        question: String,
+    },
     /// One model call in a turn finished: its text, tool calls and the model's thoughts, kept
     /// whole so they go back exactly as they came.
     StepFinished {

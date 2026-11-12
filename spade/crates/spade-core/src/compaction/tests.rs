@@ -192,6 +192,7 @@ fn completed_writes_are_listed_with_ids_and_arguments_and_reads_and_failures_are
             facts: vec![],
             open: vec![],
             references: vec![],
+            notes: vec![],
         },
         &carried_out(&events, events.len(), &registry),
     );
