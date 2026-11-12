@@ -3,8 +3,8 @@ import { accountSettings } from "./config.ts";
 
 test("a daemon signs in to ace's own backend and grants only ace's relay unless told otherwise", () => {
   expect(accountSettings(undefined, undefined)).toEqual({
-    accountOrigin: "https://relay.acehq.dev",
-    hostedRelayUrl: "wss://relay.acehq.dev",
+    accountOrigin: "https://cloud.acehq.dev",
+    hostedRelayUrl: "wss://cloud.acehq.dev",
   });
 });
 
