@@ -1059,6 +1059,12 @@
       "$ref": "https://ace.local/protocol/v1/SpadeGrantRevoke.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/SpadeMachinesRequest.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeRemoteRequest.json"
+    },
+    {
       "properties": {
         "label": {
           "maxLength": 128,

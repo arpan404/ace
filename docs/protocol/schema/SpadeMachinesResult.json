@@ -1,0 +1,26 @@
+{
+  "$id": "https://ace.local/protocol/v1/SpadeMachinesResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "machines": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/SpadeMachine.json"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
+    "requestId": {
+      "type": "string"
+    },
+    "type": {
+      "const": "spade.machines.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "machines"
+  ],
+  "type": "object"
+}
