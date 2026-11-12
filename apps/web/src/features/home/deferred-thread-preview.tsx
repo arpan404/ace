@@ -12,8 +12,9 @@ const DeferredPreview = deferredComponent(() =>
  * row; the row shows alone meanwhile, and its card opens only after the pointer settles anyway.
  */
 export function ThreadHoverPreview(props: { threadId: string; children?: ReactElement }) {
+  if (!props.children) return null;
   return (
-    <Suspense fallback={props.children ?? null}>
+    <Suspense fallback={props.children}>
       <DeferredPreview.Component threadId={props.threadId}>
         {props.children}
       </DeferredPreview.Component>

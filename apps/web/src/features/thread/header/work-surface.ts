@@ -5,13 +5,6 @@ export const DeferredWorkCard = deferredComponent(() =>
   import("./work-card.tsx").then((module) => module.WorkCard),
 );
 
-/** The icon's popover around the card, loaded with it (`work-popover.tsx`). */
-export const DeferredWorkPopover = deferredComponent(() =>
-  Promise.all([import("./work-popover.tsx"), DeferredWorkCard.preload()]).then(
-    ([module]) => module.WorkPopover,
-  ),
-);
-
 /**
  * The floating surface both placements share: solid, 280px, as tall as its content. It holds the
  * thread's facts and controls, which are content, so it is never glass.

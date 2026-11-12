@@ -36,8 +36,8 @@ import { branchEqual, readSubagentBranch } from "../lib/subagent-group.ts";
 import { ThreadLoadError } from "../thread-load-error.tsx";
 import { AgentTranscript } from "../transcript/agent-transcript.tsx";
 import { SubagentCrumb } from "../header/thread-crumb.tsx";
-import { WorkButton } from "../header/work-button.tsx";
-import { DeferredWorkPopover } from "../header/work-surface.ts";
+import { DeferredWorkPopover, WorkButton } from "../header/work-button.tsx";
+
 import { DeferredStepDetail } from "../items/deferred-step-detail.ts";
 import { useRememberedWorkCardStore, WorkCardContext } from "../header/work-card-store.ts";
 import { WorkSide } from "../header/work-side.tsx";

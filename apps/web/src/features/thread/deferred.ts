@@ -13,7 +13,7 @@ import { DeferredStepDetail } from "./items/deferred-step-detail.ts";
 import { DeferredBackgroundTask } from "./items/background-task-line.tsx";
 import { DeferredSubagents } from "./items/subagents.tsx";
 import { preloadJump } from "./long/jump.ts";
-import { DeferredWorkPopover } from "./header/work-surface.ts";
+import { DeferredWorkPopover } from "./header/work-button.tsx";
 
 export { DeferredInteractionCard, DeferredStepDetail };
 

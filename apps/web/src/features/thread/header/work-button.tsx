@@ -3,8 +3,16 @@ import { listTreeFacts, treeWorking } from "@ace/ui-core";
 import { CirclesThreeIcon } from "@phosphor-icons/react";
 import { Suspense, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { DeferredWorkPopover } from "./work-surface.ts";
+import { deferredComponent } from "@/lib/deferred-component.tsx";
+import { DeferredWorkCard } from "./work-surface.ts";
 import { useWorkCardState, useWorkCardStore, type WorkCardStore } from "./work-card-store.ts";
+
+/** The icon's popover around the card, loaded with it (`work-popover.tsx`). */
+export const DeferredWorkPopover = deferredComponent(() =>
+  Promise.all([import("./work-popover.tsx"), DeferredWorkCard.preload()]).then(
+    ([module]) => module.WorkPopover,
+  ),
+);
 
 /** Space kept between the card and the composer below it. */
 const composerGap = 12;
