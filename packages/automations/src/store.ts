@@ -72,12 +72,17 @@ export class AutomationStore {
       this.db.exec(`INSERT OR IGNORE INTO automation_state SELECT id,state FROM automation_jobs;
         UPDATE automation_jobs SET state='{}' WHERE state<>'{}';
         INSERT OR IGNORE INTO automation_revisions SELECT id,1 FROM automation_jobs;`);
-      // Each run's finish time in its own column, backfilled once from runs saved before it, so
-      // the inbox leaves out settled runs by an index instead of reading every run's record.
+      // Each run's finish time in its own column, so the inbox leaves out settled runs by an index
+      // instead of reading every run's record. Filled on every open, not only when the column is
+      // added: an older build that opens this store finishes runs without it. Only rows without a
+      // finish time are looked at (`automation_unfinished`): runs still going, and those.
       const columns = this.db.prepare("PRAGMA table_info(automation_runs)").all();
       if (!columns.some((column) => column.name === "finished_at"))
-        this.db.exec(`ALTER TABLE automation_runs ADD COLUMN finished_at INTEGER;
-          UPDATE automation_runs SET finished_at=json_extract(body,'$.finishedAt');`);
+        this.db.exec("ALTER TABLE automation_runs ADD COLUMN finished_at INTEGER");
+      this.db
+        .exec(`CREATE INDEX IF NOT EXISTS automation_unfinished ON automation_runs(seq) WHERE finished_at IS NULL;
+        UPDATE automation_runs SET finished_at=json_extract(body,'$.finishedAt')
+          WHERE finished_at IS NULL AND json_extract(body,'$.finishedAt') IS NOT NULL;`);
       // Runs still going sort after every finish, so "finished after T, or still going" is one range.
       this.db.exec(
         `CREATE INDEX IF NOT EXISTS automation_finished ON automation_runs(coalesce(finished_at, ${notFinished}))`,

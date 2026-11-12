@@ -177,12 +177,32 @@ test("runs saved before finish times had their own column are still left out by 
   h.service.stop();
   // The store as an older build left it: no finish-time column or its index.
   const db = new DatabaseSync(h.storePath);
-  db.exec("DROP INDEX IF EXISTS automation_finished");
+  db.exec("DROP INDEX IF EXISTS automation_finished; DROP INDEX IF EXISTS automation_unfinished");
   db.exec("ALTER TABLE automation_runs DROP COLUMN finished_at");
   db.close();
   const reopened = new AutomationStore(h.storePath);
   expect(
     reopened.inbox(50, undefined, undefined, start + 500).runs.map((run) => run.eventKey),
   ).toEqual(["old-2", "old-1"]);
+  reopened.close();
+});
+
+test("a run an older build finished after the upgrade is still left out by finish time on reopen", async () => {
+  const h = harness();
+  h.service.put(definition({ prompt: "Review" }));
+  for (let index = 0; index < 2; index++) {
+    h.now = start + index * 1_000;
+    h.service.trigger("triage", { key: `run-${index}`, variables: {} });
+    await h.finish(index);
+  }
+  h.service.stop();
+  // An older build that knows nothing of the column finished run-0 and left its finish time empty.
+  const db = new DatabaseSync(h.storePath);
+  db.prepare("UPDATE automation_runs SET finished_at=NULL WHERE event_key='run-0'").run();
+  db.close();
+  const reopened = new AutomationStore(h.storePath);
+  expect(
+    reopened.inbox(50, undefined, undefined, start + 500).runs.map((run) => run.eventKey),
+  ).toEqual(["run-1"]);
   reopened.close();
 });
