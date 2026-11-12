@@ -66,6 +66,7 @@ import { NativeTransfers, TransferAction } from "./transfers.ts";
 import { NativeAutomations } from "./automations.ts";
 import { localTimeZone, projectRepository } from "@ace/ui-core/automations";
 import { NativeWorkspace, WorkspaceAction } from "./workspace.ts";
+import { NativeSpade, NativeSpadeAction } from "./spade.ts";
 import { ReadAhead } from "./read-ahead.ts";
 
 const Config = z.object({
@@ -156,6 +157,8 @@ let ahead: ReadAhead | undefined;
 /** Native's last word on whether the network and power allow reading ahead. */
 let readAheadAllowed = false;
 let workspace: NativeWorkspace | undefined;
+/** Spade on this machine, through its daemon (`spade.ts`). */
+let spade: NativeSpade | undefined;
 const pump = new PatchPump();
 const deviceStats = new DeviceStats(pump);
 const trust = new TrustMonitor();
@@ -465,6 +468,13 @@ async function start(json: string): Promise<void> {
   if (suggest) services.catalog = new CatalogPage(suggest.catalogs);
   services.carried = (threadId) =>
     threadId === visit.threadId ? (visit.session?.carriedFiles() ?? new Set()) : new Set();
+  spade?.stop();
+  spade = new NativeSpade(client, pump, {
+    now: () => host.now(),
+    id: () => host.uuid(),
+    later: (delay, callback) => scheduler.set(delay, callback),
+  });
+  services.spade = spade;
   workspace = new NativeWorkspace(pump, {
     load: () => call("storage.workspace.load"),
     save: async (value) => {
@@ -530,6 +540,12 @@ function action(json: string): void {
     const panel = WorkspaceAction.safeParse(raw);
     if (panel.success) {
       if (workspace) void workspace.handle(panel.data).catch(error);
+      else error();
+      return;
+    }
+    const spadeAction = NativeSpadeAction.safeParse(raw);
+    if (spadeAction.success) {
+      if (spade) spade.handle(spadeAction.data);
       else error();
       return;
     }

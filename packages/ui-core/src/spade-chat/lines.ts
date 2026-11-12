@@ -99,3 +99,10 @@ export function spadeKeyLine(endpoint: SpadeEndpoint, keychain: boolean): SpadeK
     placeholder: endpoint.keySet === false ? "Paste key" : "Replace key",
   };
 }
+
+/**
+ * A new bot's form keeps its words with this when the answer to making it was lost: Spade may
+ * have made it, and nothing tells which bot a lost request made, so nothing is sent again.
+ */
+export const spadeUnconfirmedBotNote =
+  "Couldn't confirm Spade made this bot. Check the list before making it again.";
