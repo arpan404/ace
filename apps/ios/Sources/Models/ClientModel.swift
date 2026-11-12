@@ -158,6 +158,8 @@ import QuartzCore
     let computerAccess = ComputerAccessModel()
     /// Outside apps' sign-ins and screen use (ADR 0122).
     let outside = OutsideClientsModel()
+    /// Spade on this machine: its state, list and open conversation (`ClientModel+Spade.swift`).
+    let spade = SpadeModel()
     /// Continue on… and Open on… from this machine (`bridge/transfers.ts`).
     let transfers = TransfersModel()
     /// The daemon reads the bridge keeps, for each screen's first frame (`ReadMirror`).
@@ -210,7 +212,7 @@ import QuartzCore
         hostId = target.scope.hostId
         inbox.removeAll(); projectsVersion &+= 1; pending = [:]; thread = keeping; inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
         // Another machine's runtime: this one's saves and computer access no longer apply.
-        browser.forgetSaves(); computerAccess.reset(); outside.reset()
+        browser.forgetSaves(); computerAccess.reset(); outside.reset(); spade.reset()
         inboxLayout = .empty; chatLayout = .empty
         machineStatus = nil; providers = nil; admission = nil; appUpdate = nil; projectLooks = [:]; machineGlyph = nil; cacheUsage = nil
         // A code prompt belongs to the runtime that was asked; the new one asks again if it must.
@@ -244,6 +246,7 @@ import QuartzCore
         self.runtime = runtime
         // The restored inbox's sort, so the live list opens in the order already on screen.
         runtime.start(itemLimit: itemLimit, inboxSort: inboxLayout.sortBy)
+        spadeResume()
         // The thread on screen (the kept one, or one tapped while the old runtime shut down) is
         // visited on this runtime. Not the person opening it: its notifications stay delivered.
         if let showing = thread {
@@ -695,6 +698,7 @@ import QuartzCore
             case .devices(let patch): devices.apply(patch)
             case .computerAccess(let state): computerAccess.apply(state)
             case .outside(let state): outside.apply(state)
+            case .spade(let patch): spade.apply(patch)
             }
         }
         (thread?.refresh ?? thread)?.screen.commit()

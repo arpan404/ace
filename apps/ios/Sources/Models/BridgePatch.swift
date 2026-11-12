@@ -396,6 +396,8 @@ enum BridgePatch: Decodable, Sendable {
     case computerAccess(ComputerAccessModel.State)
     /// Outside apps' sign-ins and screen use on this machine (`bridge/outside-clients.ts`).
     case outside(OutsideClientsModel.State)
+    /// Spade on this machine (`bridge/spade.ts`).
+    case spade(SpadeModel.Patch)
     /// A kept read restored from an earlier run, and each family's generation (`bridge/native-reads.ts`).
     case serviceCache(ServiceReply.Cache, ServiceValue)
     /// A kept read the bridge stopped keeping: Swift's copy lets it go too.
@@ -516,6 +518,7 @@ enum BridgePatch: Decodable, Sendable {
         case let kind where DevicesPatch.types.contains(kind): self = .devices(try DevicesPatch(from: decoder))
         case "computer.access": self = .computerAccess(try ComputerAccessModel.State(from: decoder))
         case "outside.state": self = .outside(try OutsideClientsModel.State(from: decoder))
+        case let kind where SpadeModel.Patch.types.contains(kind): self = .spade(try SpadeModel.Patch(type: kind, from: decoder))
         case let kind where ScreenPatch.types.contains(kind):
             let (id, epoch) = try scope()
             self = .screen(id, epoch, try ScreenPatch(type: kind, from: decoder))
