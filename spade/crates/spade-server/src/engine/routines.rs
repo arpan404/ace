@@ -39,9 +39,10 @@ impl Engine {
         Ok(self.activity(conversation)?.state == State::Idle)
     }
 
-    /// Whether today's spending cap leaves room for another turn.
-    pub(crate) fn can_spend(&self) -> Result<bool, StoreError> {
-        self.within_cap()
+    /// Whether today's spending cap leaves room for another turn in `conversation` (one on a
+    /// subscription always has room).
+    pub(crate) fn can_spend(&self, conversation: &str) -> Result<bool, StoreError> {
+        Ok(self.cap_free(conversation) || self.within_cap()?)
     }
 
     /// Stores the routine's message in `conversation`, where it starts a turn or steers the open

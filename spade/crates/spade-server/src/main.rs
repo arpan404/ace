@@ -244,6 +244,10 @@ async fn run() -> Result<(), Failure> {
     if let Some(link) = ace.clone() {
         spade_server::routines::watch_ace(&engine, move || link.daemon_socket());
     }
+    // Bots on the person's subscriptions run their turns through ace (ADR 0133).
+    if let Some(link) = ace.clone() {
+        engine.set_brains(Arc::new(move || link.brains()));
+    }
     home.write_server_json(address, std::process::id())
         .map_err(other)?;
     tracing::info!(%address, "spade listening");

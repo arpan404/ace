@@ -45,9 +45,22 @@ fn task(raw: &str) -> Result<String, AgentError> {
 }
 
 impl Engine {
-    /// A model reference the person may pick: `endpoint/model` on one of their endpoints.
+    /// A model reference the person may pick: `endpoint/model` on one of their endpoints, or a
+    /// subscription, `cli:<provider>[@<account>]/<model>` (ADR 0133), which ace checks when a turn
+    /// runs on it.
     pub(super) fn check_model(&self, raw: &str) -> Result<String, AgentError> {
         let model = raw.trim();
+        if spade_core::brain::CliModel::is(model) {
+            return spade_core::brain::CliModel::parse(model)
+                .map(|_| model.to_owned())
+                .ok_or_else(|| {
+                    AgentError::Invalid(
+                        "a subscription model is cli:<provider>/<model>, for example \
+                         cli:codex/gpt-6.1-sol"
+                            .to_owned(),
+                    )
+                });
+        }
         let valid = model.len() <= MODEL_CHARS
             && !model.chars().any(char::is_control)
             && model
@@ -279,6 +292,7 @@ impl Engine {
             status,
             last_message: activity.last_message,
             waiting_for: activity.waiting_for,
+            problem: activity.problem,
             agent,
         })
     }
