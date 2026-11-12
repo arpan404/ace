@@ -56,6 +56,8 @@ export type SpadeBubble =
   | { kind: "files"; key: string; paths: readonly string[] }
   /** "Remembered: …": a note the bot saved or rewrote, which the person may open to edit. */
   | { kind: "remembered"; key: string; note: SpadeRememberedNote }
+  /** Web search had nothing set up: a quiet line that opens Settings › Spade › Web search. */
+  | { kind: "search-setup"; key: string }
   /** `name`: the tool it asks to use, for `spadeApprovalSentence` with the bot's name. */
   | {
       kind: "ask";
@@ -231,15 +233,18 @@ function replyBubbles(entry: SpadeReplyEntry, bubbles: SpadeBubble[], held: Held
   const text = words.join("\n\n").trim();
   const end = entry.end && entry.end.kind !== "finished" ? entry.end.kind : undefined;
   // A reply with nothing more to say yet shows only as the working line.
-  if (!text && !end && !images.length && !documents.length) return;
-  pushBot(bubbles, held, {
-    key: runs ? `${entry.key}:${runs + 1}` : entry.key,
-    text,
-    live: entry.end === undefined,
-    end,
-    error: entry.end?.kind === "failed" ? entry.end.error : undefined,
-    ...take(),
-  });
+  if (text || end || images.length || documents.length)
+    pushBot(bubbles, held, {
+      key: runs ? `${entry.key}:${runs + 1}` : entry.key,
+      text,
+      live: entry.end === undefined,
+      end,
+      error: entry.end?.kind === "failed" ? entry.end.error : undefined,
+      ...take(),
+    });
+  // Under the finished reply, so it sits below the bot's own words about it.
+  const setup = entry.parts.find((part) => part.kind === "search-setup");
+  if (setup && entry.end) bubbles.push({ kind: "search-setup", key: `${entry.key}:${setup.key}` });
 }
 
 interface Held {

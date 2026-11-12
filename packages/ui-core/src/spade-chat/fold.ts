@@ -1,4 +1,5 @@
 import { spadeRemembered, type SpadeRememberedNote } from "./notes.ts";
+import { spadeNeedsSearchSetup } from "./web-search.ts";
 import type { SpadeDocumentRef, SpadeImageRef, SpadeVoiceRef } from "./media.ts";
 import type { SpadeKnownEvent, SpadeLiveInput, SpadeStored } from "./wire.ts";
 
@@ -50,6 +51,8 @@ export type SpadeReplyPart =
   | { kind: "remembered"; key: string; note: SpadeRememberedNote }
   /** The bot asked the person (`ask_user`); their next message answers it. */
   | { kind: "question"; key: string; text: string }
+  /** `web_search` had nothing set up to search with: a line that opens its setting. */
+  | { kind: "search-setup"; key: string }
   /** Workspace files a tool kept (a research report): chips on the bot's next bubble. */
   | { kind: "files"; key: string; paths: readonly string[] }
   /** Images and documents a tool showed the person (`image_generate`, `share_file`; ADR 0134). */
@@ -351,6 +354,13 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       state.running.delete(event.call_id);
       setCall(state, event.reply, event.call_id, event.name, event.is_error ? "failed" : "done");
       remembered(state, event.reply, key, event.name, event.content, event.is_error === true);
+      if (spadeNeedsSearchSetup(event.name, event.content, event.is_error === true))
+        updateOpen(state, event.reply, (entry) =>
+          // Once per reply, however often it searched.
+          entry.parts.some((part) => part.kind === "search-setup")
+            ? undefined
+            : { ...entry, parts: [...entry.parts, { kind: "search-setup", key }] },
+        );
       if (event.files.length)
         updateOpen(state, event.reply, (entry) => ({
           ...entry,
