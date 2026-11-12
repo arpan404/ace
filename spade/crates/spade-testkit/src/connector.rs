@@ -214,6 +214,11 @@ impl FakeConnector {
         lock(&self.state.bearers).clone()
     }
 
+    /// Adds a tool without telling anyone, as a server that never sends list changes does.
+    pub fn add_tool_quietly(&self, tool: Tool) {
+        lock(&self.state.tools).push(tool);
+    }
+
     /// Adds a tool and tells every session the list changed.
     pub async fn add_tool_and_notify(&self, tool: Tool) {
         lock(&self.state.tools).push(tool);

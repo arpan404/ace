@@ -353,6 +353,7 @@ impl Spade {
                 random: Arc::new(spade_connect::OsRandom),
                 catalogue: spade_connect::catalogue::shipped(),
                 timeout: Duration::from_secs(5),
+                relist: Duration::from_secs(600),
             })?;
             let source = spade_server::tools::ConnectorSource::new(
                 hub.clone(),

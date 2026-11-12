@@ -25,7 +25,7 @@ use tokio::sync::Notify;
 
 pub use catalogue::{Entry, SignIn};
 pub use hub::{Callback, ConnectError, ConnectRequest, FinishError, Started};
-pub use live::{CallError, ConnectorTool};
+pub use live::{CallError, ConnectorTool, RELIST};
 pub use oauth::pkce::{OsRandom, Random};
 pub use records::Access;
 use records::Record;
@@ -47,6 +47,8 @@ pub struct Setup {
     pub catalogue: Vec<Entry>,
     /// Each sign-in request and each tool call gives up after this.
     pub timeout: Duration,
+    /// How often each server's tool list is read again unasked ([`RELIST`] in Spade).
+    pub relist: Duration,
 }
 
 /// What the app is shown about one connector. Never a secret.
@@ -88,6 +90,7 @@ pub struct Connectors {
     random: Arc<dyn Random>,
     catalogue: Vec<Entry>,
     timeout: Duration,
+    relist: Duration,
     redirect: RwLock<Option<String>>,
     /// The connectors, as stored. Changed under this lock, then written.
     records: Mutex<Vec<Record>>,
@@ -114,6 +117,7 @@ impl Connectors {
             random: setup.random,
             catalogue: setup.catalogue,
             timeout: setup.timeout,
+            relist: setup.relist,
             redirect: RwLock::new(None),
             records: Mutex::new(records),
             access: Mutex::new(access),

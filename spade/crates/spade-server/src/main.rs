@@ -170,6 +170,7 @@ async fn run() -> Result<(), Failure> {
         random: Arc::new(spade_connect::OsRandom),
         catalogue: spade_connect::catalogue::shipped(),
         timeout: Duration::from_secs(60),
+        relist: spade_connect::RELIST,
     })
     .map_err(other)?;
     tools = tools.with_source(Arc::new(ConnectorSource::new(

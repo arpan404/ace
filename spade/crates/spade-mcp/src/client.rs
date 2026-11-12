@@ -189,6 +189,13 @@ impl McpClient {
         Ok(tools)
     }
 
+    /// Every tool the server offers now, read again from the server even when the cached list
+    /// has not been announced as changed (servers that never send list changes).
+    pub async fn fresh_tools(&self) -> Result<Vec<McpTool>, ToolsError> {
+        self.stale.store(true, Ordering::Release);
+        self.tools().await
+    }
+
     /// Calls one tool. `arguments` is a JSON object, or null for none. A call is sent at most
     /// once: `NotRun` means it did not run, `OutcomeUnknown` and `Timeout` that it may have.
     pub async fn call(&self, name: &str, arguments: Value) -> Result<McpToolResult, ToolsError> {

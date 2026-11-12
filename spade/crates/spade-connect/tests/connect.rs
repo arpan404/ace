@@ -26,6 +26,11 @@ struct Spade {
 }
 
 fn spade() -> Result<Spade> {
+    spade_relisting(Duration::from_secs(600))
+}
+
+/// Spade reading each server's tool list again every `relist`.
+fn spade_relisting(relist: Duration) -> Result<Spade> {
     let dir = tempfile::tempdir()?;
     let database = dir.path().join("spade.sqlite");
     let store: Arc<CredentialStore> = mock::Store::new()?;
@@ -37,6 +42,7 @@ fn spade() -> Result<Spade> {
         random: Arc::new(OsRandom),
         catalogue: spade_connect::catalogue::shipped(),
         timeout: Duration::from_secs(5),
+        relist,
     })?;
     connectors.set_listening("127.0.0.1:4555".parse()?);
     Ok(Spade {
@@ -467,6 +473,25 @@ async fn a_tool_the_server_adds_while_connected_is_offered() -> Result {
 }
 
 #[tokio::test]
+async fn a_server_that_never_announces_changes_still_has_its_new_tools_read_on_the_timer() -> Result
+{
+    let app = FakeConnector::start(app_tools()).await;
+    let spade = spade_relisting(Duration::from_millis(150))?;
+    let view = signed_in(&spade, &app).await?;
+    app.add_tool_quietly(tool("archive", None, None));
+    let wanted = format!("{}__archive", view.id);
+    wait_for(|| {
+        spade
+            .connectors
+            .tools_for("main", true)
+            .iter()
+            .any(|t| t.name == wanted)
+    })
+    .await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn connectors_survive_a_restart_and_reopen_from_the_keychain() -> Result {
     let app = FakeConnector::start(app_tools()).await;
     let spade = spade()?;
@@ -478,6 +503,7 @@ async fn connectors_survive_a_restart_and_reopen_from_the_keychain() -> Result {
         random: Arc::new(OsRandom),
         catalogue: Vec::new(),
         timeout: Duration::from_secs(5),
+        relist: Duration::from_secs(600),
     })?;
     again.start();
     wait_for(|| {

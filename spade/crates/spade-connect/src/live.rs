@@ -13,8 +13,9 @@ use crate::oauth::{self, OauthError};
 use crate::records::{Auth, Record};
 use crate::{Connectors, lock, secrets};
 
-/// How often a live session's tool list is read again without being told it changed.
-const RELIST: Duration = Duration::from_secs(10 * 60);
+/// How often a live session's tool list is read again without being told it changed, unless
+/// [`crate::Setup::relist`] says otherwise.
+pub const RELIST: Duration = Duration::from_secs(10 * 60);
 /// Renew an access token this long before it expires.
 const RENEW_AHEAD_MS: i64 = 60_000;
 const FIRST_RETRY: Duration = Duration::from_secs(2);
@@ -198,6 +199,8 @@ impl Connectors {
 
     async fn run_keeper(self: &Arc<Self>, id: &str) {
         let mut wait = FIRST_RETRY;
+        // Set when the timer ran out: the next listing asks the server, never the cache.
+        let mut fresh = false;
         loop {
             let Some(record) = self.record(id) else {
                 return;
@@ -212,7 +215,11 @@ impl Connectors {
                     return;
                 }
                 Err(Unready::Other(why)) => Err((why, None)),
-                Ok((client, generation)) => match client.tools().await {
+                Ok((client, generation)) => match if std::mem::take(&mut fresh) {
+                    client.fresh_tools().await
+                } else {
+                    client.tools().await
+                } {
                     Ok(tools) => Ok((client, tools)),
                     Err(ToolsError::Refused) => Err(("refused".into(), Some(generation))),
                     Err(error) => Err((error.to_string(), None)),
@@ -225,7 +232,7 @@ impl Connectors {
                     self.set_tools(id, tools);
                     tokio::select! {
                         _ = changes.changed() => {}
-                        () = tokio::time::sleep(RELIST) => {}
+                        () = tokio::time::sleep(self.relist) => fresh = true,
                         () = wake.notified() => {}
                     }
                 }
