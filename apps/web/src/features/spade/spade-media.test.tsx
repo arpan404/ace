@@ -295,23 +295,25 @@ test("Read aloud isn't offered where the system can't speak", async () => {
   expect(screen.queryByRole("button", { name: "Read aloud" })).toBeNull();
 });
 
-test("choosing a transcription model saves it as able to transcribe, and Turn off clears it", async () => {
+test("choosing a transcription model stores only that setting, leaving the model's facts alone, and Turn off clears it", async () => {
   const { spade } = await spadeApp("/settings/spade", (api) => {
     withEndpoint(api);
+    const saved = api.endpoints[0]?.models[0];
+    if (saved) saved.capabilities = ["images"];
     api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
   });
   await userEvent.click(await screen.findByRole("button", { name: "Model" }));
-  await userEvent.type(screen.getByRole("textbox", { name: "Search models" }), "openai/whisper-1");
+  await userEvent.type(screen.getByRole("textbox", { name: "Search models" }), "saved/model");
   await userEvent.keyboard("{Enter}");
   await waitFor(() =>
     expect(spade.sent("PUT", "/v1/settings")).toEqual([
-      { transcription_model: "openrouter/openai/whisper-1" },
+      { transcription_model: "openrouter/saved/model" },
     ]),
   );
-  expect(spade.sent("POST", "/v1/endpoints/openrouter/models")).toEqual([
-    { id: "openai/whisper-1", capabilities: ["transcription"] },
-  ]);
-  await userEvent.click(await screen.findByRole("button", { name: "Turn off" }));
+  await screen.findByRole("button", { name: "Turn off" });
+  expect(spade.sent("POST", "/v1/endpoints/openrouter/models")).toEqual([]);
+  expect(spade.endpoints[0]?.models[0]?.capabilities).toEqual(["images"]);
+  await userEvent.click(screen.getByRole("button", { name: "Turn off" }));
   await waitFor(() =>
     expect(spade.sent("PUT", "/v1/settings").at(-1)).toEqual({ transcription_model: null }),
   );

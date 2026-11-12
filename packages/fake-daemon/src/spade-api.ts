@@ -253,9 +253,15 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (root === "settings" && request.method === "PUT") {
       if ("fast_model" in body)
         this.fastModel = typeof body.fast_model === "string" ? body.fast_model : null;
-      if ("transcription_model" in body)
-        this.transcriptionModel =
+      if ("transcription_model" in body) {
+        const model =
           typeof body.transcription_model === "string" ? body.transcription_model : null;
+        // As Spade: any `endpoint/model` on a saved endpoint, whatever its facts say.
+        const [endpoint, ...rest] = model?.split("/") ?? [];
+        if (model !== null && !(rest.join("/") && this.endpoints.some((e) => e.id === endpoint)))
+          return problem(400, "The transcription model must be on one of your endpoints.");
+        this.transcriptionModel = model;
+      }
       return { status: 204 };
     }
     if (root === "main") {
