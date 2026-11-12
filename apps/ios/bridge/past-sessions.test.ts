@@ -2,7 +2,7 @@ import { until } from "./test-host.ts";
 import { afterEach, expect, test } from "vitest";
 import { ClientCore } from "@ace/client";
 import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
-import { DeviceId, HistorySession, HostId, ThreadId } from "@ace/protocol";
+import { DeviceId, HistorySession, HostId } from "@ace/protocol";
 import { pastSessionProblems } from "@ace/ui-core";
 import { openPastSession, PastSessionOpenRequest } from "./past-sessions.ts";
 
@@ -77,11 +77,16 @@ test("continuing a past session imports it, resumes it in its provider and opens
   const { daemon, open } = await machine();
   const opened = await open("resumable", "continue");
   expect(opened).toEqual({ threadId: "past-resumable", problem: null });
-  expect(
-    daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("past-resumable") }),
-  ).toMatchObject({
-    kind: "thread",
-  });
+  // The imported thread resumes the provider's own session, with nothing sent yet.
+  expect(daemon.pastSessions.continued).toEqual([
+    { threadId: "past-resumable", mode: "resume", input: [], delivery: "queue" },
+  ]);
+});
+
+test("importing a past session never resumes it", async () => {
+  const { daemon, open } = await machine();
+  expect(await open("resumable", "import")).toEqual({ threadId: "past-resumable", problem: null });
+  expect(daemon.pastSessions.continued).toEqual([]);
 });
 
 test("a session its provider can't resume is imported but not opened, and says how to read it", async () => {
