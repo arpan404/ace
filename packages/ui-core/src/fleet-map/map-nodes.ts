@@ -53,13 +53,17 @@ const offline = (name: string): MapProblem => ({
   fixes: ["reconnect", "removeMachine"],
 });
 
-const needsCode = (name: string, fixes: readonly MapFix[]): MapProblem => ({
-  what: `${name} asks for its machine code before this window can open it.`,
+const needsCode = (name: string, fixes: readonly MapFix[], viewer = "this window"): MapProblem => ({
+  what: `${name} asks for its machine code before ${viewer} can open it.`,
   why: "A code keeps a machine closed to a stolen account login. Enter it once per device.",
   fixes,
 });
 
-export function machineNode(machine: MapMachineInput): MapNode {
+/**
+ * A machine as `viewer` reaches it: "this window" on the web, "this iPhone" on the phone, as its
+ * sentences name the client asking.
+ */
+export function machineNode(machine: MapMachineInput, viewer = "this window"): MapNode {
   const via = machine.via;
   const way = via?.kind === "direct" ? directWayOf(via.url) : undefined;
   const relayed = via !== undefined && via.kind !== "direct";
@@ -136,18 +140,18 @@ export function machineNode(machine: MapMachineInput): MapNode {
           { label: "Reached", value: reached },
           { label: "Machine code", value: "Set, not entered here" },
         ],
-        problem: needsCode(machine.name, ["enterCode"]),
+        problem: needsCode(machine.name, ["enterCode"], viewer),
       };
     case "auth_failed":
       return {
         ...base,
         tone: "bad",
-        status: "Refused this window",
+        status: `Refused ${viewer}`,
         wire: { from, kind: "broken", relayed, label: "refused" },
         lines: [{ label: "Reached", value: reached }],
         problem: {
-          what: `${machine.name} refused this window.`,
-          why: "Its pairing for this window ended there. Remove it, then add it again with a fresh pairing link.",
+          what: `${machine.name} refused ${viewer}.`,
+          why: `Its pairing for ${viewer} ended there. Remove it, then add it again with a fresh pairing link.`,
           fixes: ["removeMachine"],
         },
       };

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { deviceNode } from "./map-nodes.ts";
+import { deviceNode, machineNode } from "./map-nodes.ts";
 import type { FleetMapInput, MapDeviceInput } from "./map-types.ts";
 
 const off = { state: "off" } as const;
@@ -41,5 +41,25 @@ test("a device judged against a named machine says that machine, not this comput
 test("without a place, a device is judged against this computer", () => {
   expect(deviceNode(ipad, { ...studio, enabled: false }, names).problem?.what).toBe(
     "iPad can't reach this computer: remote access is off.",
+  );
+});
+
+test("a machine that refused the client names the client that asked", () => {
+  const refused = {
+    id: "mini",
+    name: "mini",
+    status: "auth_failed",
+    failed: false,
+    via: undefined,
+    working: undefined,
+  } as const;
+  expect(machineNode(refused).problem?.what).toBe("mini refused this window.");
+  const phone = machineNode(refused, "this iPhone");
+  expect(phone.status).toBe("Refused this iPhone");
+  expect(phone.problem?.why).toBe(
+    "Its pairing for this iPhone ended there. Remove it, then add it again with a fresh pairing link.",
+  );
+  expect(machineNode({ ...refused, status: "machine_code" }, "this iPhone").problem?.what).toBe(
+    "mini asks for its machine code before this iPhone can open it.",
   );
 });

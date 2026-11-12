@@ -53,7 +53,7 @@ export function fleetMapFacts(input: FleetMapInput): FleetMap {
     ...input.machines
       .filter((machine) => machine.id !== input.own.id)
       .toSorted(byName)
-      .map(machineNode),
+      .map((machine) => machineNode(machine)),
     ...input.account
       .filter((machine) => !listed.has(machine.hostId))
       .toSorted(byName)
