@@ -37,7 +37,8 @@ import Foundation
             }
             for await (id, part, error) in group {
                 if Task.isCancelled { return }
-                if let part { parts[id] = part } else { problem = problem ?? error }
+                // A kept part says nothing about now once its machine's latest read failed.
+                if let part { parts[id] = part } else { parts[id] = nil; problem = problem ?? error }
                 if let reply = await combine(parts) { draw(reply) }
             }
         }
