@@ -201,8 +201,13 @@ function subagents(
 ) {
   const launched = readSubagentGroup(store, ids).value.map((entry) => rolledUp(entry, listed));
   // A completed turn's group also holds the children it was handed work by receipts.
+  // Receipts' children read at the worse of what they delivered and what the list says now, so
+  // one launched earlier that took new work or waits on the person never reads done here.
   const entries = receiptIds.length
-    ? turnSubagents(launched, received(store, receiptIds))
+    ? turnSubagents(
+        launched,
+        received(store, receiptIds).map((entry) => rolledUp(entry, listed)),
+      )
     : launched;
   const states = entries.map((entry) => entry.state);
   // A copy the daemon hasn't confirmed shows its last-seen states and never live activity.
