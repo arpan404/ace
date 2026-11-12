@@ -13,7 +13,7 @@ import type { ProviderEntry } from "./provider-entries.ts";
 import { SetupSteps } from "./acp-registry/setup-steps.tsx";
 
 /*
- * The quiet end of a provider's page: the technical facts (version, where it's installed, how
+ * The quiet end of a provider's page: the technical facts (where it's installed, how
  * it runs, how to sign in from a terminal), and removing an added agent.
  */
 
@@ -40,12 +40,10 @@ export function ProviderAbout(props: {
   return (
     <SettingSection label="About">
       <dl className="flex flex-col divide-y divide-border-soft">
-        {version && (
-          <Fact term={install.kind === "cursor" ? "SDK version" : "Version"}>
+        {/* The header already states a CLI's version; Cursor's names what it is (the SDK's). */}
+        {version && install.kind === "cursor" && (
+          <Fact term="SDK version">
             <span className={mono}>{version}</span>
-            {install.kind !== "cursor" && row?.updateAvailable && (
-              <span className="ml-2 text-sm text-status-needs-you">Update available</span>
-            )}
           </Fact>
         )}
         {install.registry && <Fact term="Installed from">ACP registry</Fact>}
