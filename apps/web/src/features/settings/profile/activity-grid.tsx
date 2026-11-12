@@ -1,7 +1,7 @@
 import { formatTokens } from "@ace/ui-core";
 import { useState } from "react";
 import { cn } from "@/lib/cn.ts";
-import type { ActivityCell, ProfileStats } from "./stats.ts";
+import type { ActivityCell, ProfileStats } from "@ace/ui-core";
 
 const longDay = new Intl.DateTimeFormat("en-US", {
   month: "short",

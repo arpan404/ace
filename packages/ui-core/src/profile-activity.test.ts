@@ -1,5 +1,11 @@
 import { describe, expect, test } from "vitest";
-import { daysBefore, profileStats, shares } from "./stats.ts";
+import {
+  daysBefore,
+  profileActivity,
+  profileStats,
+  shares,
+  type ProfileRows,
+} from "./profile-activity.ts";
 
 const today = "2026-11-03";
 const work = (...entries: [number, number][]) =>
@@ -85,5 +91,82 @@ describe("shares", () => {
       )[1]?.percent,
     ).toBe(1);
     expect(shares([{ key: "a", tokens: 0 }], 5)).toEqual([]);
+  });
+});
+
+/** One machine's rows, empty except what `over` names. */
+const part = (over: Partial<ProfileRows> = {}): ProfileRows => ({
+  days: [],
+  providers: [],
+  models: [],
+  skills: [],
+  roles: [],
+  ...over,
+});
+
+describe("profile activity across machines", () => {
+  test("two machines' work on one day adds up, and so does one account used on both", () => {
+    const activity = profileActivity(
+      [
+        part({
+          days: [{ key: today, tokens: 100 }],
+          providers: [{ provider: "codex", account: "me", tokens: 100 }],
+        }),
+        part({
+          days: [{ key: today, tokens: 50 }],
+          providers: [
+            { provider: "codex", account: "me", tokens: 30 },
+            { provider: "claude", account: "work", tokens: 20 },
+          ],
+        }),
+      ],
+      today,
+    );
+    expect(activity.stats.total).toBe(150);
+    expect(activity.stats.peak).toEqual({ day: today, tokens: 150 });
+    expect(
+      activity.providers.map((share) => [share.provider, share.account, share.percent]),
+    ).toEqual([
+      ["codex", "me", 87],
+      ["claude", "work", 13],
+    ]);
+  });
+
+  test("the top models, the skills used and the share subagents and child threads spent", () => {
+    const activity = profileActivity(
+      [
+        part({
+          models: [
+            { key: "gpt-6", tokens: 60 },
+            { key: "", tokens: 500 },
+          ],
+          skills: [
+            { key: "research", tokens: 30 },
+            { key: "unslop", tokens: 0 },
+          ],
+          roles: [
+            { key: "root", tokens: 70 },
+            { key: "subagent", tokens: 20 },
+          ],
+        }),
+        part({
+          models: [{ key: "opus", tokens: 40 }],
+          skills: [{ key: "review", tokens: 10 }],
+          roles: [{ key: "delegated", tokens: 10 }],
+        }),
+      ],
+      today,
+    );
+    // A row with no model name is not a model.
+    expect(activity.models.map((share) => share.key)).toEqual(["gpt-6", "opus"]);
+    expect(activity.skills).toEqual({ used: 2, top: { key: "research", tokens: 30, percent: 75 } });
+    expect(activity.delegatedPercent).toBe(30);
+  });
+
+  test("no machine answered: nothing to count, and no percent from nothing", () => {
+    const activity = profileActivity([], today);
+    expect(activity.stats.total).toBe(0);
+    expect(activity.providers).toEqual([]);
+    expect(activity.delegatedPercent).toBe(0);
   });
 });
