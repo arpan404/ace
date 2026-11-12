@@ -62,6 +62,8 @@ struct State {
     /// Names itself in the redirect (`iss`, RFC 9207), as it says in its metadata.
     names_itself: AtomicBool,
     endless_metadata: AtomicBool,
+    /// Tool listings fail with an error quoting the credentials the server knows.
+    leaky_listing: AtomicBool,
     /// Every token request waits this long before it is answered.
     token_delay: Mutex<std::time::Duration>,
     /// When set, a code exchange is refused with this as its `error_description`.
@@ -96,6 +98,7 @@ impl FakeConnector {
             registration: AtomicBool::new(true),
             names_itself: AtomicBool::new(true),
             endless_metadata: AtomicBool::new(false),
+            leaky_listing: AtomicBool::new(false),
             refuse_codes: Mutex::new(None),
             token_delay: Mutex::new(std::time::Duration::ZERO),
             pkce: AtomicBool::new(true),
@@ -166,6 +169,12 @@ impl FakeConnector {
     /// Stop offering dynamic client registration.
     pub fn without_registration(&self) {
         self.state.registration.store(false, Ordering::SeqCst);
+    }
+
+    /// From now on, listing tools fails with an error that quotes the bearer it was sent and the
+    /// refresh token it issued, as a careless server might.
+    pub fn leaky_listing(&self) {
+        self.state.leaky_listing.store(true, Ordering::SeqCst);
     }
 
     /// Its protected-resource metadata never ends: chunks keep coming, with no length given.
@@ -531,6 +540,18 @@ impl ServerHandler for Fake {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
+        if self.0.leaky_listing.load(Ordering::SeqCst) {
+            let bearer = lock(&self.0.bearers).last().cloned().unwrap_or_default();
+            let refresh = lock(&self.0.book)
+                .refresh
+                .last()
+                .cloned()
+                .unwrap_or_default();
+            return Err(ErrorData::internal_error(
+                format!("no tools for {bearer} (renew with {refresh})"),
+                None,
+            ));
+        }
         Ok(ListToolsResult::with_all_items(lock(&self.0.tools).clone()))
     }
 

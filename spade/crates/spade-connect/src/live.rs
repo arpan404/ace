@@ -129,7 +129,9 @@ impl Connectors {
                 self.expire(&record);
                 return Err(CallError::NeedsReconnect(record.name));
             }
-            Err(Unready::Other(why)) => return Err(CallError::NotRun(why)),
+            Err(Unready::Other(why)) => {
+                return Err(CallError::NotRun(self.scrubbed(&record.id, why)));
+            }
         };
         match client.call(tool, arguments).await {
             Ok(result) => Ok(result),
@@ -143,7 +145,7 @@ impl Connectors {
                     self.expire(&record);
                     Err(CallError::NeedsReconnect(record.name))
                 }
-                Err(Unready::Other(why)) => Err(CallError::NotRun(why)),
+                Err(Unready::Other(why)) => Err(CallError::NotRun(self.scrubbed(&record.id, why))),
             },
             Err(ToolsError::NotRun(why) | ToolsError::Unavailable(why)) => Err(CallError::NotRun(
                 format!("{} could not be reached: {why}", record.name),
@@ -269,6 +271,7 @@ impl Connectors {
                     }
                 },
                 Err((why, None)) => {
+                    let why = self.scrubbed(id, why);
                     tracing::info!(connector = id, problem = %why, "connector unreachable");
                     self.set_problem(id, why);
                     self.drop_client(id);
@@ -416,7 +419,17 @@ impl Connectors {
             Err(OauthError::Refused(_) | OauthError::NeedsClient) => {
                 return Err(Unready::NeedsReconnect);
             }
-            Err(error) => return Err(Unready::Other(error.to_string())),
+            Err(error) => {
+                // The sign-in server's words may quote what it was sent.
+                let known = [Some(&refresh), client.secret.as_ref()];
+                let why = known
+                    .into_iter()
+                    .flatten()
+                    .fold(error.to_string(), |text, secret| {
+                        Secret::new(secret.clone()).scrub(text)
+                    });
+                return Err(Unready::Other(why));
+            }
         };
         // Written only if nothing disconnected it while the refresh was out.
         let _writing = self.writes.lock().await;
@@ -483,7 +496,24 @@ impl Connectors {
         session.problem = None;
     }
 
+    /// `text` with every credential of connector `id` that its client knows removed (access
+    /// token or API key, refresh token, client secret), for anything shown or logged.
+    fn scrubbed(&self, id: &str, text: String) -> String {
+        let client = self
+            .live
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(id)
+            .and_then(|session| session.client.clone());
+        match client {
+            Some(client) => client.scrub(text),
+            None => text,
+        }
+    }
+
+    /// Records why `id` is unreachable, with its credentials removed.
     fn set_problem(&self, id: &str, why: String) {
+        let why = self.scrubbed(id, why);
         let mut live = self.live.write().unwrap_or_else(|p| p.into_inner());
         live.entry(id.to_owned()).or_default().problem = Some(why);
     }

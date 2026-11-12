@@ -6,8 +6,6 @@ use rmcp::ServiceError;
 use rmcp::service::ClientInitializeError;
 use rmcp::transport::streamable_http_client::StreamableHttpError;
 
-use crate::secret::Secret;
-
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ToolsError {
     /// The server refused the credential (HTTP 401 or 403): it expired or was revoked. The
@@ -38,24 +36,29 @@ pub enum ToolsError {
     InvalidArguments,
 }
 
-pub(crate) fn from_service(error: ServiceError, token: Option<&Secret>) -> ToolsError {
+/// `scrub` removes every credential the client knows from text quoted from the server or a
+/// library.
+pub(crate) fn from_service(error: ServiceError, scrub: &dyn Fn(String) -> String) -> ToolsError {
     match error {
         ServiceError::McpError(data) => ToolsError::Server {
             code: data.code.0,
-            message: scrub(token, data.message.to_string()),
+            message: scrub(data.message.to_string()),
         },
         ServiceError::Timeout { .. } => ToolsError::Timeout,
         ServiceError::TransportSend(ref transport) => match http(transport.error.as_ref()) {
             Http::Refused => ToolsError::Refused,
             Http::NotRun(why) => ToolsError::NotRun(why.into()),
-            Http::Other => ToolsError::Unavailable(scrub(token, chain(&error))),
+            Http::Other => ToolsError::Unavailable(scrub(chain(&error))),
         },
-        ServiceError::TransportClosed => ToolsError::Unavailable(scrub(token, chain(&error))),
-        other => ToolsError::Protocol(scrub(token, chain(&other))),
+        ServiceError::TransportClosed => ToolsError::Unavailable(scrub(chain(&error))),
+        other => ToolsError::Protocol(scrub(chain(&other))),
     }
 }
 
-pub(crate) fn from_init(error: ClientInitializeError, token: Option<&Secret>) -> ToolsError {
+pub(crate) fn from_init(
+    error: ClientInitializeError,
+    scrub: &dyn Fn(String) -> String,
+) -> ToolsError {
     match &error {
         ClientInitializeError::TransportError { error: inner, .. }
             if http(inner.error.as_ref()) == Http::Refused =>
@@ -64,16 +67,9 @@ pub(crate) fn from_init(error: ClientInitializeError, token: Option<&Secret>) ->
         }
         ClientInitializeError::JsonRpcError(data) => ToolsError::Server {
             code: data.code.0,
-            message: scrub(token, data.message.to_string()),
+            message: scrub(data.message.to_string()),
         },
-        _ => ToolsError::Unavailable(scrub(token, chain(&error))),
-    }
-}
-
-fn scrub(token: Option<&Secret>, text: String) -> String {
-    match token {
-        Some(token) => token.scrub(text),
-        None => text,
+        _ => ToolsError::Unavailable(scrub(chain(&error))),
     }
 }
 

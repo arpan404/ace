@@ -489,6 +489,36 @@ async fn a_server_echoing_credentials_never_gets_them_into_a_result() -> Result 
 }
 
 #[tokio::test]
+async fn a_server_error_quoting_credentials_never_reaches_the_connectors_problem() -> Result {
+    let app = FakeConnector::start(app_tools()).await;
+    let spade = spade()?;
+    let view = signed_in(&spade, &app).await?;
+    app.leaky_listing();
+    // The list changed, so Spade reads it again, and the server's error quotes its credentials.
+    app.add_tool_and_notify(tool("archive", None, None)).await;
+    wait_for(|| {
+        spade
+            .connectors
+            .get(&view.id)
+            .is_some_and(|v| v.problem.is_some())
+    })
+    .await?;
+    let problem = spade
+        .connectors
+        .get(&view.id)
+        .and_then(|v| v.problem)
+        .unwrap_or_default();
+    assert!(problem.contains("[redacted]"), "{problem}");
+    for token in app.issued_tokens() {
+        assert!(
+            !problem.contains(&token),
+            "{token} in the problem: {problem}"
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn a_refused_code_exchange_says_so_in_spades_words_not_the_servers() -> Result {
     let app = FakeConnector::start(app_tools()).await;
     app.refuse_code_exchange("<script>steal()</script> call +1 555 0100");

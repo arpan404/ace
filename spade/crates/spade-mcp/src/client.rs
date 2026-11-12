@@ -213,6 +213,12 @@ impl McpClient {
         }
     }
 
+    /// `text` with every credential this client knows removed: its bearer and every credential
+    /// it was told to redact. For text about this server shown or logged elsewhere.
+    pub fn scrub(&self, text: impl Into<String>) -> String {
+        self.config.scrub(text)
+    }
+
     /// Counts the server's tool list changes. The value changes each time the server says its
     /// list changed; the next `tools` call fetches it again.
     pub fn changes(&self) -> watch::Receiver<u64> {
@@ -385,7 +391,7 @@ impl McpClient {
     /// Classifies an SDK error. A session that is gone or refused is dropped, so the next
     /// request opens a fresh one.
     async fn failed(&self, error: rmcp::ServiceError, epoch: u64) -> ToolsError {
-        let error = errors::from_service(error, self.config.token.as_ref());
+        let error = errors::from_service(error, &|text| self.config.scrub(text));
         if matches!(
             error,
             ToolsError::Unavailable(_) | ToolsError::NotRun(_) | ToolsError::Refused
@@ -458,7 +464,7 @@ impl McpClient {
         listener
             .serve(transport)
             .await
-            .map_err(|error| errors::from_init(error, self.config.token.as_ref()))
+            .map_err(|error| errors::from_init(error, &|text| self.config.scrub(text)))
     }
 }
 
