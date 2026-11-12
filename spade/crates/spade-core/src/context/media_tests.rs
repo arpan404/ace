@@ -17,6 +17,7 @@ fn document(chars: u64, view: &str) -> DocumentRef {
         chars,
         cut: false,
         view: view.into(),
+        reader: "pdf-v1".into(),
     }
 }
 
@@ -48,10 +49,10 @@ fn a_document_shows_its_view_and_how_to_read_on() {
     )]);
     let (text, images) = person_text(&messages);
     assert_eq!(images, 0);
-    assert!(text.starts_with("What does it say?\n\n<document name=\"contract final.pdf\" id=\"ab12cd34ef56\" pages=\"12\" chars=\"10000\">\nSection 1. Terms\n</document>"), "{text}");
+    assert!(text.starts_with("What does it say?\n\n<document name=\"contract final.pdf\" id=\"ab12cd34ef56-pdf-v1\" pages=\"12\" chars=\"10000\">\nSection 1. Terms\n</document>"), "{text}");
     assert!(
         text.ends_with(
-            "[9984 more characters; read on with document_read id=\"ab12cd34ef56\" offset=16]"
+            "[9984 more characters; read on with document_read id=\"ab12cd34ef56-pdf-v1\" offset=16]"
         ),
         "{text}"
     );

@@ -96,7 +96,7 @@ pub const DOCUMENT_ID_CHARS: usize = 12;
 /// An attached document as the model reads it: its view of the text (or, when `native`, a note
 /// that the file itself follows), and how to read on. Depends only on the stored reference.
 pub fn document_text(document: &DocumentRef, native: bool) -> String {
-    let id: String = document.sha256.chars().take(DOCUMENT_ID_CHARS).collect();
+    let id = document.handle();
     let name: String = document
         .name
         .chars()

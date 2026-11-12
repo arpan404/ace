@@ -45,7 +45,14 @@ impl HashStore {
     /// Spade uses.
     pub fn read(&self, name: &str) -> Option<Vec<u8>> {
         let (hash, suffix) = name.split_once('.').map_or((name, ""), |(h, s)| (h, s));
-        if !is_hash(hash) || !matches!(suffix, "" | "txt") {
+        let suffix_ok = suffix.is_empty()
+            || (suffix.ends_with("txt")
+                && suffix.len() <= 40
+                && suffix.bytes().all(|b| {
+                    b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'.'
+                })
+                && !suffix.contains(".."));
+        if !is_hash(hash) || !suffix_ok {
             return None;
         }
         let name = if suffix.is_empty() {
@@ -72,6 +79,18 @@ impl HashStore {
             .filter(|name| is_hash(name) && name.starts_with(&prefix));
         let first = found.next()?;
         found.next().is_none().then_some(first)
+    }
+}
+
+impl HashStore {
+    /// The name of the text kept for `sha256` by the newest reader (its file name sorts last).
+    pub fn newest_text(&self, sha256: &str) -> Option<String> {
+        let start = format!("{sha256}.");
+        std::fs::read_dir(&self.dir)
+            .ok()?
+            .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+            .filter(|name| name.starts_with(&start) && name.ends_with(".txt"))
+            .max()
     }
 }
 

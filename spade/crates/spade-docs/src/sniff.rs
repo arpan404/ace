@@ -15,7 +15,27 @@ pub enum Kind {
     Text,
 }
 
+/// The reader's version: a text made by an older one is never taken for this one's.
+pub const READER_VERSION: u32 = 1;
+
 impl Kind {
+    /// The kind's name in files and the API.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Pdf => "pdf",
+            Self::Docx => "docx",
+            Self::Xlsx => "xlsx",
+            Self::Csv => "csv",
+            Self::Tsv => "tsv",
+            Self::Text => "text",
+        }
+    }
+
+    /// Which reader, at which version, makes this kind's text (`pdf-v1`).
+    pub fn reader(self) -> String {
+        format!("{}-v{READER_VERSION}", self.name())
+    }
+
     /// The media type Spade stores and serves it as.
     pub const fn media_type(self) -> &'static str {
         match self {

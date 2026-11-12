@@ -447,3 +447,57 @@ async fn a_reader_child_past_its_memory_cap_fails_instead_of_growing() -> Result
     assert!(read.text.starts_with("word word"));
     Ok(())
 }
+
+#[tokio::test]
+async fn the_same_bytes_read_as_another_kind_keep_their_own_text() -> Result {
+    let bytes = b"name,notes\nAda,likes\n";
+    let short: String = sha256(bytes).chars().take(12).collect();
+    let setup = start(
+        vec![
+            Script::reply("")
+                .call(
+                    "c1",
+                    "document_read",
+                    json!({ "id": format!("{short}-csv-v1") }),
+                )
+                .call(
+                    "c2",
+                    "document_read",
+                    json!({ "id": format!("{short}-text-v1") }),
+                ),
+            Script::reply("Both read."),
+        ],
+        Vec::new(),
+    )
+    .await?;
+    let (_, conversation) = bot(&setup.spade).await?;
+    let data = STANDARD.encode(bytes);
+    let files =
+        json!([{ "name": "people.csv", "data": data }, { "name": "people.txt", "data": data }]);
+    let (status, body) = send(&setup.spade, &conversation, json!({ "files": files })).await?;
+    assert_eq!(status, 202, "{body}");
+    let events = setup
+        .spade
+        .wait_for(&conversation, "reply_finished")
+        .await?;
+    let documents = &of_type(&events, "user_message")[0]["documents"];
+    assert_eq!(documents[0]["reader"], "csv-v1");
+    assert_eq!(documents[1]["reader"], "text-v1");
+    let content = |call: &str| {
+        finished(&events, call)
+            .and_then(|e| e["content"].as_str())
+            .unwrap_or_default()
+            .to_owned()
+    };
+    assert!(
+        content("c1").starts_with("name\tnotes\nAda\tlikes"),
+        "{}",
+        content("c1")
+    );
+    assert!(
+        content("c2").starts_with("name,notes\nAda,likes"),
+        "{}",
+        content("c2")
+    );
+    Ok(())
+}

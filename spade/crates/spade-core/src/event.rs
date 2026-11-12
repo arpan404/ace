@@ -273,6 +273,22 @@ pub struct DocumentRef {
     /// The start of the text, as the prompt shows it.
     #[serde(default)]
     pub view: String,
+    /// Which reader made the text, and its version (`pdf-v1`): the same bytes read as another
+    /// kind, or by a later reader, are another text. Empty on references made before it was kept.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub reader: String,
+}
+
+impl DocumentRef {
+    /// The id the model reads the document by: the hash's first 12 characters, then the reader.
+    pub fn handle(&self) -> String {
+        let short: String = self.sha256.chars().take(12).collect();
+        if self.reader.is_empty() {
+            short
+        } else {
+            format!("{short}-{}", self.reader)
+        }
+    }
 }
 
 /// A spoken message's recording: its SHA-256 (hex), media type and size.

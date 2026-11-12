@@ -43,8 +43,9 @@ impl DocumentStore {
         extracted: &Extracted,
     ) -> std::io::Result<DocumentRef> {
         let sha256 = self.0.put(bytes)?;
+        let reader = extracted.kind.reader();
         self.0
-            .put_as(&format!("{sha256}.txt"), extracted.text.as_bytes())?;
+            .put_as(&format!("{sha256}.{reader}.txt"), extracted.text.as_bytes())?;
         Ok(DocumentRef {
             sha256,
             name: file_name(name),
@@ -55,6 +56,7 @@ impl DocumentStore {
             chars: extracted.chars() as u64,
             cut: extracted.cut,
             view: extracted.text.chars().take(VIEW_CHARS).collect(),
+            reader,
         })
     }
 
@@ -62,11 +64,20 @@ impl DocumentStore {
         self.0.read(sha256)
     }
 
-    /// The window from `offset` of at most `limit` characters of the document `id` names (its
-    /// hash, or at least its first [`DOCUMENT_ID_CHARS`] characters).
+    /// The window from `offset` of at most `limit` characters of the text `id` names: a
+    /// document's handle (its hash, or at least its first [`DOCUMENT_ID_CHARS`] characters, then
+    /// `-` and the reader that made the text). With no reader, the text of the newest reader.
     pub fn window(&self, id: &str, offset: usize, limit: usize) -> Option<Window> {
-        let sha256 = self.0.find(id, DOCUMENT_ID_CHARS)?;
-        let text = String::from_utf8(self.0.read(&format!("{sha256}.txt"))?).ok()?;
+        let (prefix, reader) = id
+            .trim()
+            .split_once('-')
+            .map_or((id.trim(), None), |(p, r)| (p, Some(r)));
+        let sha256 = self.0.find(prefix, DOCUMENT_ID_CHARS)?;
+        let name = match reader {
+            Some(reader) => format!("{sha256}.{reader}.txt"),
+            None => self.0.newest_text(&sha256)?,
+        };
+        let text = String::from_utf8(self.0.read(&name)?).ok()?;
         let total_chars = text.chars().count();
         let limit = limit.clamp(1, WINDOW_CHARS);
         let piece: String = text.chars().skip(offset).take(limit).collect();
@@ -132,6 +143,7 @@ mod tests {
             chars,
             cut: false,
             view: String::new(),
+            reader: "pdf-v1".into(),
         }
     }
 

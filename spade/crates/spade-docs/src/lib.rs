@@ -21,7 +21,7 @@ mod zipped;
 use serde::{Deserialize, Serialize};
 
 pub use child::{CHILD_ARG, CHILD_MEMORY, Extractor, child_memory, limit_memory, serve_child};
-pub use sniff::{Kind, sniff};
+pub use sniff::{Kind, READER_VERSION, sniff};
 
 /// What reading may cost. [`Limits::default`] is what Spade uses; tests may tighten it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
