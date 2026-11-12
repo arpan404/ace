@@ -290,6 +290,29 @@ impl Engine {
         }
     }
 
+    /// The model a conversation's background work (research) uses: its bot's own.
+    pub(crate) fn bot_model(&self, conversation: &str) -> String {
+        self.reply_model(conversation)
+    }
+
+    /// Shows what a background job of the conversation is doing (`Researching · 3 sources
+    /// read`), or, with `None`, clears it unless something else has said more since.
+    pub(crate) fn job_status(&self, conversation: &str, prefix: &str, status: Option<String>) {
+        if status.is_none() {
+            let live = self.live(conversation);
+            let mine = live
+                .status
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .as_deref()
+                .is_some_and(|now| now.starts_with(prefix));
+            if !mine {
+                return;
+            }
+        }
+        self.set_status(conversation, status);
+    }
+
     /// Whether the model review is on for the conversation's bot.
     pub(crate) fn review_on(&self, conversation: &str) -> bool {
         let Ok(Some(agent)) = self.store.agent_for_conversation(conversation) else {
