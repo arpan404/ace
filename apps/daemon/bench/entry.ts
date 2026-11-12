@@ -12,6 +12,8 @@ import { scriptedProvider } from "./scripted.ts";
 import * as v8 from "node:v8";
 import { DatabaseSync, StatementSync } from "node:sqlite";
 import { setImmediate } from "node:timers/promises";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 // Real daemon services and sockets, isolated homes, no provider executables or prompts.
 const daemon = await startDaemon({
@@ -50,6 +52,8 @@ const Request = z.discriminatedUnion("op", [
     op: z.literal("cycle"),
     count: z.number().int().positive().max(64),
     fresh: z.boolean().default(false),
+    /** Deltas each thread streams before its turn ends. */
+    events: z.number().int().min(0).max(10000).default(0),
   }),
   /** Ends these threads' scripted sessions, as their turns finishing would. */
   z.object({ id: z.number(), op: z.literal("finish"), threads: z.array(ThreadId) }),
@@ -60,6 +64,7 @@ const Request = z.discriminatedUnion("op", [
   z.object({ id: z.number(), op: z.literal("plans") }),
 ]);
 let commandId = 0;
+let snapshotCount = 0;
 let cycling: string[] = [];
 async function create() {
   const command = Command.parse({
@@ -177,6 +182,18 @@ process.on("message", (input: unknown) => {
                 code: v8.getHeapCodeStatistics(),
               }
             : undefined;
+        // Diagnostic only: ACE_PERF_HEAP_SNAPSHOTS=<dir> writes a V8-format heap snapshot of the
+        // main isolate at every retained-memory boundary, for diffing what accumulates.
+        const snapshots = process.env.ACE_PERF_HEAP_SNAPSHOTS;
+        if (snapshots) {
+          const bun = Reflect.get(globalThis, "Bun");
+          const snapshot: unknown =
+            typeof bun?.generateHeapSnapshot === "function"
+              ? bun.generateHeapSnapshot("v8")
+              : undefined;
+          if (typeof snapshot !== "string") throw new Error("Heap snapshots require Bun");
+          writeFileSync(join(snapshots, `heap-${++snapshotCount}.heapsnapshot`), snapshot);
+        }
         process.send?.({ id: request.id, threads: [], memory: process.memoryUsage(), native });
         return;
       }
@@ -223,10 +240,13 @@ process.on("message", (input: unknown) => {
         if (request.op === "cycle") {
           cycling = threads;
           for (const id of threads) {
+            for (let i = 0; i < request.events; i++) await provider.emit(id, i);
             await provider.finish(id);
             await engine.flush();
           }
-          threads = [];
+          // The cycled ids, so a reader can open each finished thread as a client would.
+          process.send?.({ id: request.id, threads, memory: process.memoryUsage() });
+          return;
         }
       } else {
         for (let i = 0; i < request.count; i++) await provider.emit(request.thread, i);
