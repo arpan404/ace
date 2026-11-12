@@ -2704,6 +2704,7 @@ dependencies = [
  "apple-native-keyring-store",
  "keyring-core",
  "thiserror",
+ "tokio",
  "windows-native-keyring-store",
  "zbus-secret-service-keyring-store",
 ]

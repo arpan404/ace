@@ -546,14 +546,16 @@ async fn set_grant(State(state): State<AppState>, Json(body): Json<Grant>) -> Re
             "Spade was started without SPADE_ACE_HOME, so it does not know where ace is",
         );
     };
-    match ace.set_grant(&body.grant) {
+    // Kept in the keychain, which can block: off the async workers.
+    off_thread(move || match ace.set_grant(&body.grant) {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error @ GrantError::Empty) => problem(StatusCode::BAD_REQUEST, &error.to_string()),
         Err(GrantError::Keychain(spade_keys::KeyError::Invalid(why))) => {
             problem(StatusCode::BAD_REQUEST, why)
         }
         Err(error) => problem(StatusCode::SERVICE_UNAVAILABLE, &error.to_string()),
-    }
+    })
+    .await
 }
 
 /// Forgets the grant and disconnects from ace.
@@ -561,8 +563,9 @@ async fn forget_grant(State(state): State<AppState>) -> Response {
     let Some(ace) = state.ace else {
         return StatusCode::NO_CONTENT.into_response();
     };
-    match ace.forget_grant() {
+    off_thread(move || match ace.forget_grant() {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => problem(StatusCode::SERVICE_UNAVAILABLE, &error.to_string()),
-    }
+    })
+    .await
 }

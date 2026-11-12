@@ -240,7 +240,7 @@ fn turn_model(engine: &Engine, events: &[Event], reply: &str) -> String {
             }
             _ => None,
         })
-        .unwrap_or_else(|| engine.default_model())
+        .unwrap_or_else(|| engine.keyless_default_model())
 }
 
 async fn model_step(

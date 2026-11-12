@@ -148,6 +148,8 @@ pub struct Options {
     pub keychain_gate: Option<Gate>,
     /// How long admission waits for setup.
     pub settle_deadline: Duration,
+    /// With `keychain_gate`, only this endpoint's key reads wait.
+    pub keychain_gate_for: Option<&'static str>,
     /// Every keychain delete waits until this opens.
     pub keychain_delete_gate: Option<Gate>,
     /// Writes to the database before Spade first opens it.
@@ -207,6 +209,7 @@ impl Default for Options {
             settle_deadline: spade_server::startup::SETTLE_DEADLINE,
             seed: None,
             keychain_delete_gate: None,
+            keychain_gate_for: None,
         }
     }
 }
@@ -306,6 +309,7 @@ impl Spade {
         let keychain = keys.clone();
         let delay = options.keychain_delay;
         let gate = options.keychain_gate.clone();
+        let gate_for = options.keychain_gate_for;
         let models = Models::new(
             catalog(&fake.root)?,
             Keys::keychain_then_env(
@@ -313,7 +317,9 @@ impl Spade {
                     if let Some(delay) = delay {
                         std::thread::sleep(delay);
                     }
-                    if let Some(gate) = &gate {
+                    if let Some(gate) = &gate
+                        && gate_for.is_none_or(|only| only == endpoint)
+                    {
                         gate.wait();
                     }
                     keychain.get(endpoint).ok().flatten()
