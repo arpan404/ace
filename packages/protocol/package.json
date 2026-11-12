@@ -20,6 +20,7 @@
     "./forge-review": "./src/forge-review.ts",
     "./forge-checks": "./src/forge-checks.ts",
     "./forge-browser": "./src/forge-browser.ts",
+    "./workspace-actions": "./src/workspace-actions.ts",
     "./forge-new-pr": "./src/forge-new-pr.ts",
     "./forge-file-content": "./src/forge-file-content.ts",
     "./forge-people": "./src/forge-people.ts",
