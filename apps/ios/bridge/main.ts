@@ -39,6 +39,7 @@ import { keptValue } from "./kept-value.ts";
 import { preview } from "./presentation.ts";
 import { ComposeActions } from "./compose-actions.ts";
 import { ComposerSuggest, sidebarThreads } from "./composer-suggest.ts";
+import { CatalogPage } from "./catalog-page.ts";
 import { CheckoutFiles } from "./checkout-files.ts";
 import { followFileChanges } from "./checkout-request.ts";
 import { NativeFilesAction, routeFilesAction, type FilesActions } from "./checkout-actions.ts";
@@ -461,6 +462,7 @@ async function start(json: string): Promise<void> {
     automations,
   );
   // A file the fork being written carries stays in its thread until the fork is sent or closed.
+  if (suggest) services.catalog = new CatalogPage(suggest.catalogs);
   services.carried = (threadId) =>
     threadId === visit.threadId ? (visit.session?.carriedFiles() ?? new Set()) : new Set();
   workspace = new NativeWorkspace(pump, {
