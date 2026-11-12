@@ -195,6 +195,8 @@ export function parseSpadeTemplates(body: string): SpadeTemplate[] | undefined {
   });
 }
 
+const leftOutShape = z.array(z.string()).catch([]);
+
 /** `POST /v1/agents/import`: the new bot, and one line for each part this machine left out. */
 export function parseSpadeImport(
   body: string,
@@ -202,10 +204,7 @@ export function parseSpadeImport(
   const record = spadeRecord(spadeJson(body));
   const agent = parseSpadeAgentValue(record?.agent);
   if (!agent) return undefined;
-  const leftOut = z
-    .array(z.string())
-    .catch([])
-    .parse(record?.left_out ?? []);
+  const leftOut = leftOutShape.parse(record?.left_out ?? []);
   return { agent, leftOut };
 }
 
