@@ -95,6 +95,7 @@ test("the map lists each machine as the phone reaches it and each device with it
 
   expect(row("studio")).toMatchObject({
     tone: "on",
+    token: "done",
     state: "Connected",
     line: "2 agents working · Tailscale",
     problem: null,
@@ -179,6 +180,7 @@ test("with remote access off on a machine, its reach is one row to turn it on an
       id: "remote",
       title: "Remote access",
       tone: "off",
+      token: "idle",
       words: "Off. Nothing outside studio can reach it.",
       action: { label: "Turn on", key: "remote.enabled", value: true, confirm: null },
     },

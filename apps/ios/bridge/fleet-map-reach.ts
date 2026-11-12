@@ -31,6 +31,8 @@ export interface ReachRow {
   id: "remote" | "account" | "tailscale" | "lan";
   title: string;
   tone: Tone;
+  /** The status token its dot is drawn in. */
+  token: string;
   words: string;
   action: ReachAction | null;
 }
@@ -40,6 +42,8 @@ export interface FleetMachineReach {
   name: string;
   rows: ReachRow[];
 }
+
+const tokens: Record<Tone, string> = { on: "done", warn: "needs-you", off: "idle" };
 
 const direct = [
   { id: "tailscale", title: "Tailscale", key: "remote.tailscale" },
@@ -62,6 +66,7 @@ export function machineReach(
           id: "remote",
           title: "Remote access",
           ...remoteOffLine(name),
+          token: tokens.off,
           action: { label: "Turn on", key: "remote.enabled", value: true, confirm: null },
         },
       ],
@@ -72,7 +77,13 @@ export function machineReach(
     id,
     name,
     rows: [
-      { id: "account", title: "ace account", ...account, action: null },
+      {
+        id: "account",
+        title: "ace account",
+        ...account,
+        token: tokens[account.tone],
+        action: null,
+      },
       ...direct.map((row): ReachRow => {
         const on = part.remote[row.id];
         const line = directLine(row.id, on === true, part.networks?.[row.id]);
@@ -80,6 +91,7 @@ export function machineReach(
           id: row.id,
           title: row.title,
           tone: line.tone,
+          token: tokens[line.tone],
           words: line.words,
           // A setting that couldn't be read offers nothing to change.
           action:

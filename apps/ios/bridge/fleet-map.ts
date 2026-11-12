@@ -115,6 +115,8 @@ export interface FleetMapRow {
   name: string;
   art: MapArt;
   tone: MapTone;
+  /** The status token its dot is drawn in (`@ace/ui-core/mobile`). */
+  token: string;
   /** Beside the dot: "Connected", "Needs you", "Can't connect", else its status. */
   state: string;
   /** Under the name: its status and how it's reached, "2 agents working · Tailscale". */
@@ -195,6 +197,7 @@ function rowOf(node: MapNode, home: string, device?: FleetDevice): FleetMapRow {
     name: node.name,
     art: node.art,
     tone: node.tone,
+    token: toneTokens[node.tone],
     state: nodeStateWords(node),
     line: lineOf(node),
     lines: [...node.lines],
@@ -203,6 +206,13 @@ function rowOf(node: MapNode, home: string, device?: FleetDevice): FleetMapRow {
     machine: node.role === "device" ? null : node.id,
   };
 }
+
+const toneTokens: Record<MapTone, string> = {
+  on: "done",
+  warn: "needs-you",
+  bad: "failed",
+  unknown: "idle",
+};
 
 const byName = <T extends { name: string }>(a: T, b: T) => a.name.localeCompare(b.name);
 
