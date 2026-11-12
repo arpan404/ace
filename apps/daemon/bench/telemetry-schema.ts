@@ -26,6 +26,13 @@ export const Response = z.object({
   id: z.number(),
   threads: z.array(z.string()),
   memory: Memory,
+  meter: z
+    .object({
+      peakHeapUsed: z.number(),
+      cpuUserUs: z.number(),
+      cpuSystemUs: z.number(),
+    })
+    .optional(),
   queryPlans: z.record(z.string(), z.array(z.object({ detail: z.string() }))).optional(),
   native: z
     .object({
