@@ -75,13 +75,13 @@ test("adding a host saves it without changing which host's status is shown", asy
   const app = harness({ throughWorker: true });
   await app.open("/settings/source-control");
   await screen.findByText("Signed in as ada");
-  await userEvent.click(screen.getByRole("button", { name: "Add GitBucket host" }));
+  await addHost("GitBucket");
   await userEvent.type(screen.getByRole("textbox", { name: "GitBucket host" }), "git.example.com");
-  await userEvent.click(screen.getByRole("button", { name: "Add host" }));
+  await submitHost();
   await screen.findByRole("button", { name: "Manage git.example.com" });
-  // GitHub's readiness stays on the page; the new host can be shown on request.
-  expect(screen.getByText("GitHub CLI")).toBeTruthy();
-  expect(screen.getByText("Signed in as ada")).toBeTruthy();
+  // GitHub's readiness stays on its row; the new host can be shown on request.
+  const hosts = screen.getByRole("region", { name: "Git hosts" });
+  expect(within(hosts).getByText("Signed in as ada")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Show status for git.example.com" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Show status for github.com" })).toBeNull();
   expect(app.daemon.services.settings.get("sourceControl.preferences")).toMatchObject({
@@ -90,13 +90,26 @@ test("adding a host saves it without changing which host's status is shown", asy
   });
 });
 
+test("the shown host's row carries its sign-in and CLI, and Rescan reads them again", async () => {
+  const app = harness({ throughWorker: true });
+  await app.open("/settings/source-control");
+  await screen.findByText("Signed in as ada");
+  const hosts = screen.getByRole("region", { name: "Git hosts" });
+  const row = within(hosts).getByText("Signed in as ada").parentElement;
+  expect(row?.textContent).toMatch(/^github\.com · Signed in as ada · gh \d+\.\d+\.\d+$/);
+  expect(screen.queryByText(/Status shown below/)).toBeNull();
+  expect(screen.queryByRole("region", { name: "GitHub" })).toBeNull();
+  await userEvent.click(within(hosts).getByRole("button", { name: "Rescan" }));
+  expect(await within(hosts).findByText("Signed in as ada")).toBeTruthy();
+});
+
 test("a provider that contradicts its public host is refused with that reason, and nothing is saved", async () => {
   const app = harness({ throughWorker: true });
   await app.open("/settings/source-control");
   await screen.findByText("Signed in as ada");
-  await userEvent.click(screen.getByRole("button", { name: "Add Gitea host" }));
+  await addHost("Gitea");
   await userEvent.type(screen.getByRole("textbox", { name: "Gitea host" }), "gitlab.com");
-  await userEvent.click(screen.getByRole("button", { name: "Add host" }));
+  await submitHost();
   expect(
     await screen.findByText(/provider must match the host: github\.com is GitHub/),
   ).toBeTruthy();
@@ -110,16 +123,18 @@ test("showing a GitLab host's status reads it through GitLab and keeps GitLab se
   const app = harness({ throughWorker: true });
   await app.open("/settings/source-control");
   await screen.findByText("Signed in as ada");
-  await userEvent.click(screen.getByRole("button", { name: "Add GitLab host" }));
+  await addHost("GitLab");
   expect(screen.getByRole("textbox", { name: "GitLab host" })).toHaveProperty(
     "value",
     "gitlab.com",
   );
   await userEvent.type(screen.getByRole("textbox", { name: "Expected account" }), "a.user_1");
-  await userEvent.click(screen.getByRole("button", { name: "Add host" }));
+  await submitHost();
   await userEvent.click(await screen.findByRole("button", { name: "Show status for gitlab.com" }));
   await screen.findByText("Signed in as ada, expected a.user_1");
-  expect(screen.getByText("GitLab CLI")).toBeTruthy();
+  // gitlab.com's row now carries the status; github.com's offers it on request.
+  expect(screen.getByRole("button", { name: "Show status for github.com" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Show status for gitlab.com" })).toBeNull();
   expect(screen.getByRole("textbox", { name: "GitLab host" })).toHaveProperty(
     "value",
     "gitlab.com",
@@ -166,24 +181,38 @@ test("removing the shown host falls back to another host, and the last host can'
     },
   });
   await app.open("/settings/source-control");
-  await screen.findByText(/· ghe\.example\.com$/);
+  await screen.findByRole("button", { name: "Show status for github.com" });
   await userEvent.click(screen.getByRole("button", { name: "Remove ghe.example.com" }));
   await waitFor(() =>
     expect(screen.queryByRole("button", { name: "Manage ghe.example.com" })).toBeNull(),
   );
-  await screen.findByText(/· github\.com$/);
+  await screen.findByText("Signed in as ada");
+  expect(screen.queryByRole("button", { name: "Show status for github.com" })).toBeNull();
   expect(screen.getByRole("button", { name: "Manage github.com" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Remove github.com" })).toBeNull();
 });
 
-test("the Git hosts list names every provider, and the provider picker offers each one", async () => {
+test("Git hosts lists only added hosts, Add host offers every other provider, and the provider picker offers each one", async () => {
   const app = harness({ throughWorker: true });
   await app.open("/settings/source-control");
   await screen.findByText("Signed in as ada");
   const hosts = screen.getByRole("region", { name: "Git hosts" });
   expect(within(hosts).getByRole("button", { name: "Manage github.com" })).toBeTruthy();
-  for (const name of ["Cursor Origin", "GitLab", "GitBucket", "Bitbucket", "Gitea", "Forgejo"])
-    expect(within(hosts).getByRole("button", { name: `Add ${name} host` })).toBeTruthy();
+  expect(within(hosts).queryByText("GitLab")).toBeNull();
+  await userEvent.click(within(hosts).getByRole("button", { name: "Add host" }));
+  const menu = (await screen.findAllByRole("menuitem")).map((item) => item.textContent);
+  expect(menu).toEqual([
+    "Cursor Origin",
+    "GitLab",
+    "GitBucket",
+    "Bitbucket",
+    "Gitea",
+    "Forgejo",
+    "Another host…",
+  ]);
+  // Another host… starts a second host of a provider already listed, such as GitHub Enterprise.
+  await userEvent.click(screen.getByRole("menuitem", { name: "Another host…" }));
+  expect(screen.getByRole("textbox", { name: "GitHub host" })).toHaveProperty("value", "");
   await userEvent.click(screen.getByRole("combobox", { name: "Git provider" }));
   const offered = (await screen.findAllByRole("option")).map((option) => option.textContent);
   expect(offered).toEqual([
@@ -196,6 +225,19 @@ test("the Git hosts list names every provider, and the provider picker offers ea
     "Forgejo",
   ]);
 });
+
+/** Picks a provider from the Git hosts heading's Add host menu. */
+async function addHost(name: string) {
+  const hosts = screen.getByRole("region", { name: "Git hosts" });
+  await userEvent.click(within(hosts).getByRole("button", { name: "Add host" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name }));
+}
+
+/** The Preferences form's own Add host button, not the Git hosts menu's. */
+function submitHost() {
+  const form = screen.getByRole("region", { name: "Preferences" });
+  return userEvent.click(within(form).getByRole("button", { name: "Add host" }));
+}
 
 /** Rows the page scrolled to; jsdom has no scrolling of its own. */
 function recordScrolls(): Element[] {
@@ -220,7 +262,7 @@ test("searching for a Git host provider opens the Git hosts list", async () => {
   await userEvent.click(await screen.findByRole("link", { name: /Git hosts/ }));
   await screen.findByRole("heading", { name: "Source control", level: 2 });
   await waitFor(() =>
-    expect(document.getElementById("sourceControl.hosts")?.textContent).toContain("Bitbucket"),
+    expect(document.getElementById("sourceControl.hosts")?.textContent).toContain("GitHub"),
   );
   await waitFor(() => expect(scrolled).toContain(document.getElementById("sourceControl.hosts")));
 });
