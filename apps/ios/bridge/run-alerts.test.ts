@@ -1,5 +1,6 @@
 import type { AutomationRun } from "@ace/protocol";
 import { expect, test } from "vitest";
+import type { KeptValue } from "./kept-value.ts";
 import { RunWatch, type RunAlert } from "./run-alerts.ts";
 
 /* Automation-run alerts on the phone: the inbox read while a run could finish, each finish said once. */
@@ -20,14 +21,33 @@ function run(id: string, patch: Partial<AutomationRun> = {}): AutomationRun {
 }
 
 async function settle() {
-  for (let i = 0; i < 4; i++) await Promise.resolve();
+  for (let i = 0; i < 8; i++) await Promise.resolve();
+}
+
+/** This machine's kept value on the phone, as the host keeps it; its first `failLoads` reads fail. */
+function memoryKept(failLoads = 0, initial?: unknown): KeptValue & { readonly value: unknown } {
+  let value = initial;
+  let failing = failLoads;
+  return {
+    get value() {
+      return value;
+    },
+    load: async () => {
+      if (failing-- > 0) throw new Error("storage.value.load failed");
+      return value;
+    },
+    save: async (next) => {
+      value = next;
+    },
+  };
 }
 
 /** What one read of the inbox gets: its runs, the machine's refusal, or no answer at all. */
 type Read = AutomationRun[] | "refused" | "lost";
 
-function watch(inbox: (at: number) => Read) {
-  let now = start;
+/** A watch on the phone; `kept` is what it keeps between launches, `at` when this launch began. */
+function watch(inbox: (at: number) => Read, options: { kept?: KeptValue; at?: number } = {}) {
+  let now = options.at ?? start;
   const timers: { at: number; run: () => void }[] = [];
   const said: RunAlert[] = [];
   const runs = new RunWatch(
@@ -45,6 +65,7 @@ function watch(inbox: (at: number) => Read) {
     },
     () => now,
     (alert) => said.push(alert),
+    options.kept,
   );
   /** Moves the clock to the next timer and runs it; returns how long it waited. */
   const next = async () => {
@@ -139,4 +160,67 @@ test("a read the machine refuses or never answers says nothing again, then or la
   for (let i = 0; i < 3; i++) await phone.next();
   // Still the one alert: a failed read is no reading, so it forgets nothing it said.
   expect(phone.said.map((alert) => alert.key)).toEqual(["r1"]);
+});
+
+test("a run that finished while the phone was closed is said when it opens again, once", async () => {
+  const kept = memoryKept();
+  let done: number | undefined;
+  const inbox = () => [
+    done === undefined ? run("r1") : run("r1", { status: "succeeded", finishedAt: done }),
+  ];
+  const first = watch(inbox, { kept });
+  first.runs.start();
+  await first.settle();
+  // ace closes; the run finishes an hour before it opens again.
+  first.runs.stop();
+  done = start + 60_000;
+  const later = watch(inbox, { kept, at: start + 3_600_000 });
+  later.runs.start();
+  await later.settle();
+  expect(later.said.map((alert) => alert.key)).toEqual(["r1"]);
+  const again = watch(inbox, { kept, at: start + 7_200_000 });
+  again.runs.start();
+  await again.settle();
+  expect(again.said).toEqual([]);
+});
+
+test("runs that finish while run alerts are off stay unsaid after a relaunch too", async () => {
+  const kept = memoryKept();
+  let done: number | undefined;
+  const inbox = () =>
+    done === undefined ? [] : [run("r1", { status: "succeeded", finishedAt: done })];
+  const first = watch(inbox, { kept });
+  first.runs.start();
+  await first.settle();
+  first.runs.forget();
+  done = start + 20_000;
+  const later = watch(inbox, { kept, at: start + 60_000 });
+  later.runs.start();
+  await later.settle();
+  expect(later.said).toEqual([]);
+});
+
+test("progress the phone can't read back is never saved over", async () => {
+  const kept = memoryKept(1, { since: start - 5 });
+  const phone = watch(() => [run("r1", { status: "succeeded", finishedAt: start + 1 })], { kept });
+  phone.runs.start();
+  await phone.settle();
+  expect(phone.said.map((alert) => alert.key)).toEqual(["r1"]);
+  expect(kept.value).toEqual({ since: start - 5 });
+});
+
+test("alerts off from launch, then on: what finished meanwhile stays unsaid after the next launch", async () => {
+  // The last launch had said everything up to start - 100.
+  const kept = memoryKept(0, { since: start - 100 });
+  const inbox = () => [run("r1", { status: "succeeded", finishedAt: start - 50 })];
+  const first = watch(inbox, { kept });
+  first.runs.forget();
+  first.runs.start();
+  await first.settle();
+  expect(first.said).toEqual([]);
+  first.runs.stop();
+  const later = watch(inbox, { kept, at: start + 60_000 });
+  later.runs.start();
+  await later.settle();
+  expect(later.said).toEqual([]);
 });

@@ -130,7 +130,7 @@ final class DurableStore {
     /// The metadata row a `storage.value.*` key owns; unknown keys are refused.
     private func keptKey(_ request: HostRequest) throws -> String {
         let key = try JSONDecoder().decode(KeptKey.self, from: request.input).key
-        guard ["review", "files"].contains(key) else { throw HostError.storage }
+        guard ["review", "files", "runAlerts"].contains(key) else { throw HostError.storage }
         return "kept." + key
     }
     private func query(_ sql: String, _ values: [String] = []) throws -> [String] {

@@ -3,6 +3,7 @@ import { ClientCore } from "@ace/client";
 import { FakeDaemon, facts, fakeTransport } from "@ace/fake-daemon";
 import { DeviceId, Notification, ThreadId } from "@ace/protocol";
 import { afterEach, expect, it, vi } from "vitest";
+import type { KeptValue } from "./kept-value.ts";
 import { NotificationAction, NotificationBridge } from "./notifications.ts";
 
 const closers: (() => Promise<void>)[] = [];
@@ -46,7 +47,7 @@ const finishedRun = (id: string, finishedAt: number) => ({
 const runCategories = (automations: boolean) => ({ ...categories(true), automations });
 
 /** The real SDK against the fixture daemon; patches are what Swift would receive. */
-async function phone(now?: () => number) {
+async function phone(now?: () => number, runProgress?: KeptValue) {
   const daemon = new FakeDaemon({ clock: () => 1000 });
   daemon.createThread({
     id: threadId,
@@ -106,6 +107,7 @@ async function phone(now?: () => number) {
     200,
     undefined,
     now,
+    runProgress,
   );
   closers.push(async () => {
     bridge.close();
@@ -242,6 +244,31 @@ it("a finished automation run is posted once, when run alerts are on, by the pho
     automationId: "nightly",
     delivery: { post: true, interrupt: true, banner: false },
   });
+});
+
+it("a run that finished while ace was closed is posted once the phone says run alerts are on", async () => {
+  // The last launch had said this machine's runs up to 400; one finished at 450, while closed.
+  let kept: unknown = { since: 400 };
+  const progress: KeptValue = {
+    load: async () => kept,
+    save: async (value) => {
+      kept = value;
+    },
+  };
+  const { daemon, act, of } = await phone(() => 500, progress);
+  daemon.seedServices({
+    settings: { "automations.enabled": true },
+    runs: [finishedRun("closed", 450)],
+  });
+  act({
+    type: "notifications.sync",
+    enabled: true,
+    appState: "background",
+    cursor: 0,
+    phone: { inApp: runCategories(true), system: runCategories(true), quietHours: null },
+  });
+  await vi.waitFor(() => expect(of("notifications.run")).toHaveLength(1));
+  expect(of("notifications.run")[0]).toMatchObject({ key: "closed" });
 });
 
 it("catches up on what the daemon sent while the app wasn't listening, once per cursor", async () => {

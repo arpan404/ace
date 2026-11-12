@@ -288,6 +288,7 @@ async function start(json: string): Promise<void> {
     undefined,
     undefined,
     () => host.now(),
+    keptValue("runAlerts"),
   );
   const owner = client;
   const activityGeneration = makeActivityGeneration();

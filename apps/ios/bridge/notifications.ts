@@ -27,6 +27,7 @@ import { accountView } from "@ace/ui-core";
 import { host } from "./host.ts";
 import { LimitWatch, type LimitAlert } from "./limit-alerts.ts";
 import { RunWatch, type RunAlert } from "./run-alerts.ts";
+import type { KeptValue } from "./kept-value.ts";
 
 const boundedId = z.string().min(1).max(200);
 /** As many recent runs as the web's inbox reads for its toasts. */
@@ -124,6 +125,8 @@ export class NotificationBridge {
     requestMs = 1500,
     /** The phone's clock in milliseconds, for usage-limit and run alerts; none watched without it. */
     now?: () => number,
+    /** How far this machine's runs were said, kept between launches (`run-alerts.ts`). */
+    runProgress?: KeptValue,
   ) {
     this.requestMs = requestMs;
     this.#client = client;
@@ -151,6 +154,7 @@ export class NotificationBridge {
         schedule,
         now,
         (alert) => this.#run(alert),
+        runProgress,
       );
     const connection = client.connectionState();
     this.#stop.push(
@@ -236,6 +240,11 @@ export class NotificationBridge {
    * run that finished meanwhile is said on return; turning alerts off forgets where it was.
    */
   #watchRuns(): void {
+    // Until Swift says what the person wants, nothing is known to be off: pause, never forget.
+    if (!this.#synced) {
+      this.#runs?.stop();
+      return;
+    }
     const wanted =
       this.#enabled && (this.#phone.inApp.automations || this.#phone.system.automations);
     if (!wanted) this.#runs?.forget();
