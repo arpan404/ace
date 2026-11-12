@@ -44,6 +44,11 @@ export const SpadeBrainFrame = z.discriminatedUnion("type", [
   /** The bot's hidden thread; `fresh` when this turn started its session. */
   z.object({ type: z.literal("session"), thread: z.string(), fresh: z.boolean() }),
   z.object({ type: z.literal("text"), text: z.string() }),
+  /**
+   * The CLI read something from outside with its own tools (the web, another program's output):
+   * Spade treats the rest of the turn as untrusted. Sent once per source.
+   */
+  z.object({ type: z.literal("read"), source: z.string().max(200) }),
   /** A few plain words on what the CLI is doing; null when it is thinking. */
   z.object({ type: z.literal("status"), status: z.string().max(200).nullable() }),
   z.object({

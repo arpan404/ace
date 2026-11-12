@@ -86,6 +86,37 @@ function toolStatus(item: Extract<Item, { type: "tool_call" }>): string {
   }
 }
 
+const trustedAceTools = new Set([
+  "spade_tools",
+  "spade_call",
+  "machines",
+  "models",
+  "projects_find",
+  "automations_list",
+]);
+
+/** What a tool call of the CLI's own read from outside, if anything. */
+function readSource(item: Extract<Item, { type: "tool_call" }>): string | undefined {
+  switch (item.call.kind) {
+    case "web.search":
+    case "web.fetch":
+      return "the web";
+    case "mcp": {
+      // The bot's own tools go through Spade, which judges their output itself; these of ace's
+      // return only ace's own state (as Spade's own list of trusted ace tools says).
+      const detail = item.call.detail;
+      if (detail.kind === "mcp" && detail.server === "ace" && trustedAceTools.has(detail.tool))
+        return undefined;
+      return "another tool's output";
+    }
+    case "agent.spawn":
+    case "agent.message":
+      return "another agent's output";
+    default:
+      return undefined;
+  }
+}
+
 function messageText(item: Extract<Item, { type: "message" }>): string {
   return item.parts.map((part) => (part.type === "text" ? part.text : "")).join("");
 }
@@ -104,6 +135,7 @@ export class BrainWatch {
   private readonly sent = new Map<string, number>();
   private status: string | null = null;
   private usage = { input: 0, output: 0 };
+  private readonly read = new Set<string>();
   ended = false;
 
   constructor(root: AgentId, provider: ProviderKind) {
@@ -159,7 +191,13 @@ export class BrainWatch {
     // Only the root agent's, and only what came after the turn was sent (the service feeds no
     // earlier event); providers may report a reply before the run that holds it.
     if (item.agentId !== this.root) return [];
-    if (item.type === "tool_call") return this.setStatus(toolStatus(item));
+    if (item.type === "tool_call") {
+      const source = readSource(item);
+      const read: SpadeBrainFrame[] =
+        source && !this.read.has(source) ? [{ type: "read", source }] : [];
+      if (source) this.read.add(source);
+      return [...this.setStatus(toolStatus(item)), ...read];
+    }
     if (item.type !== "message" || item.role !== "assistant") return [];
     const full = messageText(item);
     const sent = this.sent.get(item.id) ?? 0;

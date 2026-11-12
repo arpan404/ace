@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { AgentId, ItemId, type AgentModelRoster } from "@ace/protocol";
+import { AgentId, ItemId, ToolCall, type AgentModelRoster } from "@ace/protocol";
 import { subscriptionsFrom } from "./brain-sessions.ts";
 import { BrainWatch, failureReason } from "./brain-watch.ts";
 
@@ -84,4 +84,35 @@ test("a reply sent whole after it streamed adds only what is new, and a provider
   });
   expect(asked).toEqual([expect.objectContaining({ type: "failed", reason: "needs_permission" })]);
   expect(watch.ended).toBe(true);
+});
+
+test("the CLI reading the web taints the turn once; its calls to the bot's own tools never do", () => {
+  const root = AgentId.parse("01a1ceeb-4c59-77b0-b615-357c46c0000f");
+  const watch = new BrainWatch(root, "claude");
+  const call = (id: string, detail: ToolCall["detail"]) => ({
+    type: "item.created" as const,
+    item: {
+      id: ItemId.parse(id),
+      agentId: root,
+      createdAt: 1,
+      complete: true,
+      type: "tool_call" as const,
+      call: ToolCall.parse({
+        id,
+        agentId: root,
+        kind: detail.kind,
+        title: "a call",
+        status: "running",
+        detail,
+        startedAt: 1,
+        raw: [],
+      }),
+    },
+  });
+  const reads = [
+    call("a", { kind: "mcp", server: "ace", tool: "spade_call" }),
+    call("b", { kind: "web.fetch", url: "https://example.com" }),
+    call("c", { kind: "web.search", query: "news" }),
+  ].flatMap((event) => watch.next(event).filter((frame) => frame.type === "read"));
+  expect(reads).toEqual([{ type: "read", source: "the web" }]);
 });
