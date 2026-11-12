@@ -2,6 +2,7 @@ import { fixtureImage, longHistory, replayCursor } from "@ace/fake-daemon";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test } from "vitest";
+import { composerWords } from "@/test/composer-text.ts";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
 import { newThreadDraftKey } from "@/lib/new-thread-draft-key.ts";
 
@@ -156,7 +157,7 @@ test("a draft and its uploaded files survive a reload, and go once the message i
   const reloaded = running;
   await reloaded.open("/t/thread-router");
   const field = await message();
-  expect(field.textContent).toBe("Compare with @");
+  expect(composerWords(field)).toBe("Compare with @[routes.png]");
   expect(
     within(screen.getByRole("list", { name: "Attachments" })).getByText("routes.png"),
   ).toBeTruthy();
