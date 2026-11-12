@@ -107,7 +107,7 @@ test.each(["restart", "not_sent", "uncertain"])(
   },
 );
 
-test("a settled thread stays in Settled when done or failed, but comes back while it asks", () => {
+test("a settled thread stays in Settled when done or failed before it was settled, but comes back while it asks", () => {
   const entries = [
     entry("settled", { state: "done" }, now - 2 * hour, { settledAt: now - hour }),
     entry("failed", { state: "failed" }, now - 3 * hour, { settledAt: now - hour }),
@@ -122,6 +122,28 @@ test("a settled thread stays in Settled when done or failed, but comes back whil
   expect(result.active).toEqual(["asks"]);
   expect(result.recent).toEqual(["fresh"]);
 });
+
+test("a settled thread that fails after it was settled comes back until its failure is seen", () => {
+  const failsLater = entry("fails-later", { state: "failed" }, now - 10 * 60_000, {
+    settledAt: now - hour,
+  });
+  expect(arrange([failsLater], state(), now).settled).toEqual([]);
+  const read = { ...failsLater, readAt: now };
+  expect(arrange([read], state(), now).settled).toEqual(["fails-later"]);
+});
+
+test.each(["not_sent", "uncertain"] as const)(
+  "a thread settled by hand comes back while the person's message is %s",
+  (reason) => {
+    const queue = { revision: 1, paused: true, reason, resumeAt: null, pendingCount: 1 };
+    const unsent = entry("unsent", { state: "waiting", on: "queue" }, now, {
+      settledAt: now - hour,
+      settledReason: "manual",
+      queue,
+    });
+    expect(arrange([unsent], state(), now).settled).toEqual([]);
+  },
+);
 
 test("a thread settled by hand stays settled while its queue waits on recovery", () => {
   const queue = { revision: 1, paused: true, reason: "restart" as const, resumeAt: null };
