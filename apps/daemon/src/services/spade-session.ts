@@ -70,6 +70,7 @@ export function createSpadeSession(context: SpadeSocket): SocketService {
     watching = true;
     stops.push(
       spade.subscribe((status) => {
+        if (status.hidden) for (const requestId of streams.keys()) stopStream(requestId, "hidden");
         if (context.connected() && context.authorize("read"))
           context.send({ type: "spade.status.changed", status });
       }),
