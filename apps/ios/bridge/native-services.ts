@@ -1,4 +1,5 @@
 import { NativeTranscript, NativeTranscriptRequest } from "./native-transcript.ts";
+import { openPastSession, PastSessionOpenRequest } from "./past-sessions.ts";
 import {
   FleetRunRequest,
   FleetUpdatesRequest,
@@ -509,6 +510,16 @@ export class NativeServices {
           id,
           true,
           await writeNativeTerminalInput(this.owner, typed.data, controller.signal),
+          "",
+        );
+        return;
+      }
+      const pastSession = PastSessionOpenRequest.safeParse(raw);
+      if (pastSession.success) {
+        this.#reply(
+          id,
+          true,
+          await openPastSession(this.owner, pastSession.data, controller.signal),
           "",
         );
         return;
