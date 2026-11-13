@@ -128,8 +128,21 @@ fn agent_problem(error: &AgentError) -> Response {
 
 pub(super) async fn list(State(state): State<AppState>) -> Response {
     match state.engine.agents() {
-        Ok(views) => Json(json!({ "agents": views.iter().map(agent_json).collect::<Vec<_>>() }))
-            .into_response(),
+        Ok(views) => {
+            let computers = state.engine.computers();
+            let agents: Vec<Value> = views
+                .iter()
+                .map(|view| {
+                    let mut agent = agent_json(view);
+                    // What its computer is doing, so the roster needs no request per bot.
+                    if let Some(computers) = computers {
+                        agent["computer"] = json!(computers.view(&view.agent.id));
+                    }
+                    agent
+                })
+                .collect();
+            Json(json!({ "agents": agents })).into_response()
+        }
         Err(error) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
     }
 }
@@ -221,7 +234,11 @@ pub(super) async fn delete(State(state): State<AppState>, Path(id): Path<String>
         Ok(()) => {
             // Its workspace and proposals go with it (ADR 0130).
             let (workspaces, learning) = (state.workspaces.clone(), state.learning.clone());
+            let computers = state.engine.computers().cloned();
             let forgotten = tokio::task::spawn_blocking(move || {
+                if let Some(computers) = computers {
+                    computers.remove(&id);
+                }
                 if let Some(learning) = learning {
                     learning.forget(&id);
                 }

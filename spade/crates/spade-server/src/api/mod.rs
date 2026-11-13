@@ -4,8 +4,10 @@
 mod agents;
 mod body;
 mod brains;
+mod computer;
 mod connectors;
 mod endpoints;
+mod files;
 mod media;
 mod memory;
 mod oversight;
@@ -127,6 +129,8 @@ pub fn router(state: AppState) -> Router {
         .merge(memory::routes())
         .merge(oversight::routes())
         .merge(workspace::routes())
+        .merge(computer::routes())
+        .merge(files::routes())
         .merge(media::routes())
         .merge(teams::routes())
         .route_layer(middleware::from_fn_with_state(state.clone(), authorize))
@@ -386,6 +390,24 @@ async fn live(
         subscription.status.as_deref(),
         subscription.waiting_member.as_ref(),
     ));
+    // The bot's computer (ADR 0142): how it is now, then each change and each files change.
+    let agent = state.engine.agent_of(&id);
+    let computers = state.engine.computers().cloned();
+    let changes = match (agent, computers) {
+        (Some(agent), Some(computers)) => {
+            first.push(computer_event(&computers.view(&agent)));
+            let changes = BroadcastStream::new(computers.subscribe())
+                .take_while(|item| std::future::ready(item.is_ok()))
+                .filter_map(move |item| {
+                    std::future::ready(match item {
+                        Ok(change) if change.agent() == agent => Some(change_event(&change)),
+                        _ => None,
+                    })
+                });
+            changes.boxed()
+        }
+        _ => stream::empty().boxed(),
+    };
     let frames = BroadcastStream::new(subscription.frames)
         // A subscriber that falls behind is closed; it reconnects with its last seq.
         .take_while(|item| std::future::ready(item.is_ok()))
@@ -418,6 +440,7 @@ async fn live(
             std::future::ready(Some(event))
         })
         .filter_map(std::future::ready);
+    let frames = stream::select(frames, changes);
     let closed = async move {
         match closing {
             Some(Extension(Closing(mut rx))) => {
@@ -431,6 +454,21 @@ async fn live(
     Sse::new(all)
         .keep_alive(KeepAlive::default())
         .into_response()
+}
+
+fn computer_event(view: &crate::computer::View) -> SseEvent {
+    SseEvent::default()
+        .event("computer")
+        .data(json!(view).to_string())
+}
+
+fn change_event(change: &crate::computer::Change) -> SseEvent {
+    match change {
+        crate::computer::Change::Computer { view, .. } => computer_event(view),
+        crate::computer::Change::Files { paths, .. } => SseEvent::default()
+            .event("files")
+            .data(json!({ "paths": paths }).to_string()),
+    }
 }
 
 async fn image(State(state): State<AppState>, Path(sha256): Path<String>) -> Response {

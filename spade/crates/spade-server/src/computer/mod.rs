@@ -26,6 +26,19 @@ use crate::clock::Clock;
 use crate::workspace::{Snapshot, Workspaces, changes};
 pub use terminal::Terminals;
 
+/// Where the bots' `shell` commands run here: in each bot's terminal, or (Windows, which has no
+/// bot terminal yet) each on its own.
+pub fn shell_commands(
+    terminals: &Arc<Terminals>,
+    shell: crate::workspace::shell::Shell,
+) -> crate::workspace::Commands {
+    if cfg!(unix) {
+        crate::workspace::Commands::Terminal(terminals.clone())
+    } else {
+        crate::workspace::Commands::OneShot(shell)
+    }
+}
+
 /// How long a surface counts as live after it was last used.
 pub const ACTIVE: Duration = Duration::from_secs(2 * 60);
 /// Most lines the person entered that a hand-back note keeps.
@@ -74,6 +87,9 @@ impl Kind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct View {
     pub driver: Driver,
+    /// The hidden ace thread the bot's browser and screen run in, as ace reported it, so the app
+    /// can watch them.
+    pub thread_id: Option<String>,
     pub surfaces: Vec<SurfaceView>,
 }
 
@@ -87,6 +103,9 @@ pub struct SurfaceView {
     /// The page, for a browser ace reported one for.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    /// The browser tab, as ace reported it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tab_id: Option<String>,
     /// When it was last used.
     pub last: Option<i64>,
 }
@@ -124,6 +143,12 @@ pub struct Report {
     /// The person clicked or typed in it (while they had the computer).
     #[serde(default)]
     pub person_acted: bool,
+    /// The hidden ace thread the bot's browser and screen run in.
+    #[serde(default)]
+    pub thread_id: Option<String>,
+    /// The browser tab.
+    #[serde(default)]
+    pub tab_id: Option<String>,
 }
 
 /// A person's turn at the computer, kept on disk while it lasts.
@@ -150,6 +175,7 @@ struct Surface {
     reported_live: bool,
     title: Option<String>,
     url: Option<String>,
+    tab_id: Option<String>,
     since: Option<i64>,
     last: Option<i64>,
 }
@@ -169,6 +195,8 @@ pub struct Computers {
     records: Mutex<HashMap<String, Record>>,
     surfaces: Mutex<HashMap<(String, Kind), Surface>>,
     files: Mutex<HashMap<String, Touched>>,
+    /// Each bot's ace thread, as ace last reported it.
+    threads: Mutex<HashMap<String, String>>,
     /// The last view sent for each bot, so only changes are sent.
     sent: Mutex<HashMap<String, View>>,
     /// Bots with a task waiting to send their surfaces going quiet.
@@ -235,6 +263,7 @@ impl Computers {
             records: Mutex::new(records),
             surfaces: Mutex::default(),
             files: Mutex::default(),
+            threads: Mutex::default(),
             sent: Mutex::default(),
             watched: Mutex::default(),
             changes: broadcast::channel(1024).0,
@@ -247,6 +276,27 @@ impl Computers {
             }
         }));
         computers
+    }
+
+    /// Ends terminals unused for `idle` (not those of bots the person has), checking every few
+    /// minutes while Spade runs.
+    pub fn reap_idle(self: &Arc<Self>, idle: Duration) {
+        let me = Arc::downgrade(self);
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(5 * 60)).await;
+                let Some(computers) = me.upgrade() else {
+                    return;
+                };
+                let held = computers.held();
+                let ended = computers
+                    .terminals
+                    .reap(idle, |bot| held.iter().any(|h| h == bot));
+                if ended > 0 {
+                    tracing::info!(ended, "ended idle bot terminals");
+                }
+            }
+        });
     }
 
     pub fn terminals(&self) -> &Arc<Terminals> {
@@ -295,6 +345,7 @@ impl Computers {
                         title: s.title.clone(),
                         since: if live { s.since } else { None },
                         url: s.url.clone(),
+                        tab_id: s.tab_id.clone(),
                         last: s.last,
                     });
                 }
@@ -308,6 +359,7 @@ impl Computers {
             title: info.title,
             since: if terminal_live { info.since } else { None },
             url: None,
+            tab_id: None,
             last: info.last,
         });
         let touched = lock(&self.files).get(agent).cloned();
@@ -318,9 +370,15 @@ impl Computers {
             title: touched.as_ref().and_then(|t| t.path.clone()),
             since: None,
             url: None,
+            tab_id: None,
             last: touched.map(|t| t.at),
         });
-        View { driver, surfaces }
+        let thread_id = lock(&self.threads).get(agent).cloned();
+        View {
+            driver,
+            thread_id,
+            surfaces,
+        }
     }
 
     /// Sends the bot's view if it changed, and keeps watching while anything is live so its
@@ -398,7 +456,11 @@ impl Computers {
             surface.reported_live = report.live;
             surface.title = report.title.map(|t| t.chars().take(200).collect());
             surface.url = report.url.map(|u| u.chars().take(2000).collect());
+            surface.tab_id = report.tab_id.map(|t| t.chars().take(200).collect());
             surface.last = Some(now);
+        }
+        if let Some(thread) = report.thread_id {
+            lock(&self.threads).insert(agent.to_owned(), thread.chars().take(200).collect());
         }
         if report.person_acted {
             self.change_record(agent, |record| {
@@ -514,6 +576,7 @@ impl Computers {
         lock(&self.records).remove(agent);
         lock(&self.surfaces).retain(|(a, _), _| a != agent);
         lock(&self.files).remove(agent);
+        lock(&self.threads).remove(agent);
         lock(&self.sent).remove(agent);
         self.terminals.remove(agent);
     }
