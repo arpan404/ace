@@ -48,8 +48,9 @@ import Observation
         forgetFollowed()
     }
 
-    /// What the bridge sends while a sheet is followed.
-    private func forgetFollowed() {
+    /// What the bridge sends while a sheet is followed. Visiting the thread already on screen
+    /// again drops only this: the bridge sends it again, and replies typed there stay.
+    func forgetFollowed() {
         agents = nil; changes = nil; tree = []; files = [:]; pages = [:]; wholeLines = [:]
         review = nil; replies = nil; ready = nil; chip = nil; outcomes = [:]; draft = nil
         work = nil; branches = nil; workResults = [:]

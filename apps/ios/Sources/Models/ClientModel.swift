@@ -728,7 +728,9 @@ import QuartzCore
         if !isSnapshotRetry { onOpenThread?(id) }
         flushFrames()
         generation += 1
-        sheets.reset()
+        // The thread already on screen, visited again (a new route, a snapshot retry), keeps
+        // what was typed in its sheets; another thread starts them empty.
+        if thread?.id == id { sheets.forgetFollowed() } else { sheets.reset() }
         browser.close(streams: runtime?.browserStreams)
         // A fresh navigation may retry once; a retry itself must not reset the bound.
         if !isSnapshotRetry { snapshotRetries[id] = nil }
