@@ -27,6 +27,11 @@ export const Notification = z.object({
   message: z.string().max(300).optional(),
   /** A `catch_up` alert's threads, longest-waiting first. */
   threadIds: z.array(ThreadId.and(boundedId)).min(1).max(100).optional(),
+  /**
+   * On a live alert to a phone: its position in that phone's catch-up feed
+   * (`NotificationFeedEntry.cursor`), so the phone can tell it from older feed entries.
+   */
+  cursor: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
 });
 export type Notification = z.infer<typeof Notification>;
 export const WebPushSubscription = z.object({

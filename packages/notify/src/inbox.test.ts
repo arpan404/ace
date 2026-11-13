@@ -101,3 +101,19 @@ it("a revoked phone loses its catch-up feed", async () => {
   f.service.revoke(f.phone);
   expect(() => f.service.feed(f.phone, 0)).toThrow();
 });
+
+it("a phone's live alert carries its catch-up cursor, the same on every retry", async () => {
+  const f = fixture("retry");
+  f.start();
+  f.end();
+  await f.flush();
+  for (let i = 0; i < 2; i++) {
+    f.setTime(1000 + 120_000 * (i + 1));
+    await f.service.drain();
+  }
+  const cursor = f.service.feed(f.phone, 0).entries[0]?.cursor;
+  const sent = f.deliveries.filter((d) => d.device.id === f.phone).map((d) => d.notification.cursor);
+  expect(sent.length).toBeGreaterThan(1);
+  expect(new Set(sent)).toEqual(new Set([cursor]));
+  expect(f.deliveries.find((d) => d.device.id === f.desktop)?.notification.cursor).toBeUndefined();
+});
