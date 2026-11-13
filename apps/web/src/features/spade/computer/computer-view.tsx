@@ -18,8 +18,8 @@ import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { cn } from "@/lib/cn.ts";
 import type { ConversationFollow } from "../conversation-follow.ts";
-import { SpadeFace } from "../spade-face.tsx";
 import { BotTerminal } from "./bot-terminal.tsx";
+import { DriverStatus } from "./driver-status.tsx";
 import { FileManager } from "./file-manager.tsx";
 import { SurfacePicture } from "./surface-picture.tsx";
 import type { BotComputerState } from "./use-bot-computer.ts";
@@ -50,17 +50,17 @@ export function ComputerView(props: {
   onOpen(kind: SpadeSurfaceKind): void;
   files: FilesAt;
   onFiles(to: FilesAt): void;
-  side: Pick<ConversationFollow, "onSide"> | undefined;
+  side: Pick<ConversationFollow, "onSide" | "onEnded"> | undefined;
   phone: boolean;
   onCollapse(): void;
 }) {
   const { state, bot } = props;
   const tabs = spadeComputerTabs(state.computer, props.open);
   const surface = state.computer?.surfaces.find((each) => each.kind === props.open);
-  const status = <DriverStatus bot={bot} state={state} phone={props.phone} />;
+  const status = <DriverStatus bot={bot} state={state} fill={props.phone} />;
   return (
     <section aria-label={`${bot.name}'s computer`} className="flex h-full min-h-0 flex-col">
-      <div className="flex h-12 shrink-0 items-center gap-2 px-3">
+      <div className="@container flex h-12 shrink-0 items-center gap-2 px-3">
         {props.phone && (
           <Button size="sm" variant="ghost" onClick={props.onCollapse} className="-ml-1 gap-0.5">
             <Icon icon={CaretLeftIcon} size={14} />
@@ -142,50 +142,15 @@ export function ComputerView(props: {
             file={props.files.file}
             onOpen={props.onFiles}
             side={props.side}
+            writable={state.driving}
           />
         )}
       </div>
       {props.phone && (
-        <div className="flex h-14 shrink-0 items-center gap-2 border-t border-border px-3">
+        <div className="@container flex h-14 shrink-0 items-center gap-2 border-t border-border px-3">
           {status}
         </div>
       )}
     </section>
-  );
-}
-
-/** "Spade is driving · Take over", or "You're driving. Spade is paused. · Hand back". */
-function DriverStatus(props: {
-  bot: { name: string; avatar: SpadeAvatar };
-  state: BotComputerState;
-  phone: boolean;
-}) {
-  const { state, bot } = props;
-  return (
-    <div role="status" className={cn("flex min-w-0 items-center gap-2", props.phone && "flex-1")}>
-      {state.stopping ? (
-        <p className="min-w-0 flex-1 truncate text-ui text-muted-foreground">
-          {`Stopping ${bot.name}…`}
-        </p>
-      ) : state.driving ? (
-        <p className="min-w-0 flex-1 truncate text-ui text-muted-foreground">
-          <span className="text-foreground">You're driving.</span> {`${bot.name} is paused.`}
-        </p>
-      ) : (
-        <p className="flex min-w-0 flex-1 items-center gap-2 truncate text-ui text-muted-foreground">
-          <SpadeFace avatar={bot.avatar} size={20} state="working" />
-          <span className="truncate">{`${bot.name} is driving`}</span>
-        </p>
-      )}
-      <Button
-        size="sm"
-        variant={state.driving || state.stopping ? "primary" : "secondary"}
-        disabled={state.pending !== undefined}
-        onClick={state.driving || state.stopping ? state.handBack : state.takeOver}
-        className="shrink-0"
-      >
-        {state.driving || state.stopping ? "Hand back" : "Take over"}
-      </Button>
-    </div>
   );
 }

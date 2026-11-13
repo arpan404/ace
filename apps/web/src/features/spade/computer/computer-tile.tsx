@@ -1,9 +1,16 @@
-import { spadeSurfaceHeading, spadeSurfaceLine, type SpadeSurface } from "@ace/ui-core/spade-chat";
+import {
+  spadeSurfaceHeading,
+  spadeSurfaceLine,
+  type SpadeAvatar,
+  type SpadeSurface,
+} from "@ace/ui-core/spade-chat";
 import { ArrowsOutSimpleIcon, XIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { cn } from "@/lib/cn.ts";
+import { DriverStatus } from "./driver-status.tsx";
+import type { BotComputerState } from "./use-bot-computer.ts";
 import { surfaceIcons } from "./computer-view.tsx";
 import { useBotPicture } from "./stream-picture.tsx";
 
@@ -15,20 +22,19 @@ import { useBotPicture } from "./stream-picture.tsx";
  */
 export function ComputerTile(props: {
   machine: { key: string; name: string };
-  bot: string;
+  bot: { id: string; name: string; avatar: SpadeAvatar };
   surface: SpadeSurface;
-  driving: boolean;
-  pending: boolean;
+  /** Who drives, with Take over and Hand back. */
+  state: BotComputerState;
   compact: boolean;
   onExpand(): void;
-  onTakeOver(): void;
   onHide(): void;
 }) {
   const { surface } = props;
   const kind = surface.kind;
   const { picture } = useBotPicture(
     kind === "browser" || kind === "screen"
-      ? { machine: props.machine.key, bot: props.bot, surface: kind }
+      ? { machine: props.machine.key, bot: props.bot.id, surface: kind }
       : undefined,
   );
   const heading = spadeSurfaceHeading(surface, props.machine.name);
@@ -64,10 +70,22 @@ export function ComputerTile(props: {
         </p>
         {line && <p className="truncate text-xs text-muted-foreground">{line}</p>}
       </div>
-      {!props.driving && !props.compact && (
-        <Button size="sm" variant="ghost" disabled={props.pending} onClick={props.onTakeOver}>
-          Take over
-        </Button>
+      {props.state.paused || props.state.stopping ? (
+        // The person has it: who drives and Hand back, here as in the expanded computer.
+        <div className="@container flex min-w-0 shrink justify-end">
+          <DriverStatus bot={props.bot} state={props.state} />
+        </div>
+      ) : (
+        !props.compact && (
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={props.state.pending !== undefined}
+            onClick={props.state.takeOver}
+          >
+            Take over
+          </Button>
+        )
       )}
       <IconButton icon={ArrowsOutSimpleIcon} label="Expand" onClick={props.onExpand} />
       {!props.compact && <IconButton icon={XIcon} label="Hide" onClick={props.onHide} />}

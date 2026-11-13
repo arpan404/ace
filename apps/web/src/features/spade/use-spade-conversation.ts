@@ -35,7 +35,7 @@ export function useSpadeConversation(conversation: string) {
     return () => follow.stop();
   }, [follow]);
   useEffect(() => follow.setReady(ready), [follow, ready]);
-  const side: Pick<ConversationFollow, "onSide"> = follow;
+  const side: Pick<ConversationFollow, "onSide" | "onEnded"> = follow;
   const snapshot = useSyncExternalStore(follow.subscribe, follow.get, follow.get);
   const path = `/v1/conversations/${segment(conversation)}`;
   const listChanged = () => void cache.invalidateQueries({ queryKey: agentsKey });

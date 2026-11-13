@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button.tsx";
 import { ResizeHandle } from "@/components/ui/resize-handle.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { usePhone } from "@/lib/breakpoints.ts";
+import { cn } from "@/lib/cn.ts";
+import { useMediaQuery } from "@/lib/media.ts";
 import { BotScreen, useOpenBot } from "./spade-bot-screen.tsx";
 import { SpadeChat, type ChatBot } from "./spade-chat.tsx";
 import { SpadeComposer } from "./spade-composer.tsx";
@@ -23,6 +25,8 @@ import { useSkillProposals } from "./use-skill-proposals.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
 
 const dock = { initial: 380, min: 300, max: 560 };
+/** A window too narrow for the computer and the chat side by side. */
+const narrowQuery = "(max-width: 68.74rem)";
 
 /**
  * A bot's conversation. While it uses its computer, a live tile is pinned above the chat; Expand
@@ -50,7 +54,9 @@ export function Conversation(props: {
   const [stopping, setStopping] = useState(false);
   // The tile the person hid stays hidden until the bot starts on something else.
   const [hidden, setHidden] = useState<string>();
-  const [chatShown, setChatShown] = useState(true);
+  // Below about 1100 px the computer needs the room: the chat starts closed, and opens over it.
+  const narrow = useMediaQuery(narrowQuery, false);
+  const [chatShown, setChatShown] = useState(() => !globalThis.matchMedia?.(narrowQuery).matches);
   const [dockWidth, setDockWidth] = useState(dock.initial);
   // Stopping lasts until nothing is open: the reply and its background jobs.
   if (stopping && !view.busy) setStopping(false);
@@ -92,13 +98,11 @@ export function Conversation(props: {
           showTile && (
             <ComputerTile
               machine={bot.machine}
-              bot={bot.id}
+              bot={bot}
               surface={tiled}
-              driving={computer.driving || computer.stopping}
-              pending={computer.pending !== undefined}
+              state={computer}
               compact={phone}
               onExpand={() => expand(tiled.kind)}
-              onTakeOver={computer.takeOver}
               onHide={() => setHidden(tileKey)}
             />
           )
@@ -118,6 +122,7 @@ export function Conversation(props: {
             bot={chatBot}
             view={view}
             onWatch={tiled && hidden === tileKey ? () => setHidden(undefined) : undefined}
+            paused={computer.paused}
             onRemembered={openMemory}
             onOpenFile={(path) =>
               openBot({
@@ -148,7 +153,8 @@ export function Conversation(props: {
         name={bot.name}
         draftKey={`spade:${bot.machine.key}:${bot.id}`}
         answering={view.busy}
-        onStop={stop}
+        // While the person drives the bot is paused, not working: nothing to stop.
+        onStop={computer.paused ? undefined : stop}
         stopping={stopping}
         blocked={line.ready ? undefined : line.sentence}
         placeholder={`Message ${bot.name}`}
@@ -212,13 +218,18 @@ export function Conversation(props: {
       }
     >
       {(openMemory) => (
-        <div className="flex h-full min-h-0">
+        <div className="relative flex h-full min-h-0">
           <div className="min-w-0 flex-1">{computerView}</div>
           {chatShown && (
             <aside
               aria-label={`Chat with ${bot.name}`}
-              style={{ width: dockWidth }}
-              className="relative shrink-0 border-l border-border [--column:100%]"
+              // The computer keeps at least 60% of the width; in a narrow window the chat lies
+              // over it instead of squeezing it.
+              style={{ width: narrow ? `min(${dockWidth}px, 90%)` : `min(${dockWidth}px, 40%)` }}
+              className={cn(
+                "border-l border-border bg-background [--column:100%]",
+                narrow ? "absolute inset-y-0 right-0 z-20 shadow-lg" : "relative shrink-0",
+              )}
             >
               <ResizeHandle
                 label="Chat width"

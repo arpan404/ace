@@ -55,6 +55,8 @@ import {
 export function rosterLine(bot: RosterBot): { text: string; tone?: "working" | "needs-you" } {
   if (bot.away) return { text: `Away · ${bot.machine.name} is offline` };
   if (bot.unavailable) return { text: `Unavailable · Spade isn't running on ${bot.machine.name}` };
+  // The person has its computer: Spade pauses it until they hand it back.
+  if (bot.computer?.driver === "person") return { text: "Paused while you have the computer" };
   if (bot.state === "waiting" && bot.waitingFor === "question")
     return { text: "Asked you a question", tone: "needs-you" };
   if (bot.state === "waiting") return { text: bot.status ?? "Waiting for you", tone: "needs-you" };

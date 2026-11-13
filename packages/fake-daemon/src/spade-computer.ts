@@ -65,6 +65,8 @@ export class FakeSpadeComputer {
   /** Bots whose work is still stopping after a take-over (a test sets it, then clears it). */
   private readonly stoppingBots = new Set<string>();
   private sequence = 0;
+  /** True: changes send no `computer` frame, as a stream that lags behind would. */
+  quiet = false;
   private readonly deps: FakeComputerDeps;
 
   constructor(deps: FakeComputerDeps) {
@@ -246,6 +248,7 @@ export class FakeSpadeComputer {
   }
 
   private changed(agent: string) {
+    if (this.quiet) return;
     this.deps.emitConversation(agent, "computer", this.of(agent));
   }
 

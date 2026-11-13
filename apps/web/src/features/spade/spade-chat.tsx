@@ -55,6 +55,8 @@ export function SpadeChat(props: {
   view: SpadeView;
   /** The computer's tile is hidden: the working line offers to watch it again. */
   onWatch?: (() => void) | undefined;
+  /** The person has the bot's computer: Spade pauses the bot, and the line says so. */
+  paused?: boolean | undefined;
   onRemembered(note: SpadeRememberedNote): void;
   /** A file chip: open that file of the bot's workspace. */
   onOpenFile(path: string): void;
@@ -112,15 +114,25 @@ export function SpadeChat(props: {
           />
         );
       })}
-      {working && (
-        <WorkingLine
-          avatar={bot.avatar}
-          state={lineState}
-          label={view.status ?? "Working"}
-          since={view.working?.since}
-          onWatch={props.onWatch}
-        />
-      )}
+      {working &&
+        (props.paused ? (
+          // Paused by Spade while the person drives: nothing runs, so no clock.
+          <WorkingLine
+            avatar={bot.avatar}
+            state="idle"
+            label="Paused while you have the computer"
+            since={undefined}
+            onWatch={undefined}
+          />
+        ) : (
+          <WorkingLine
+            avatar={bot.avatar}
+            state={lineState}
+            label={view.status ?? "Working"}
+            since={view.working?.since}
+            onWatch={props.onWatch}
+          />
+        ))}
     </div>
   );
 }

@@ -120,7 +120,7 @@ export function StreamPicture(props: {
           src={picture.src}
           alt=""
           draggable={false}
-          className="size-full object-contain object-top select-none"
+          className="size-full object-contain select-none"
         />
       ) : (
         <p className="px-6 text-center text-ui text-muted-foreground">Waiting for the picture…</p>

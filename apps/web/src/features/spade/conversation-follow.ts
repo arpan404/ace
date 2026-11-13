@@ -74,6 +74,8 @@ export class LiveConversation<S, V> {
   private listeners = new Set<() => void>();
   /** Frames beside the conversation itself (a bot's `computer`, `files`), by event. */
   private sideListeners = new Map<string, Set<(data: string) => void>>();
+  /** Told whenever the live stream ends, before any reopen: what it said may be stale now. */
+  private endListeners = new Set<() => void>();
   private stops: (() => void)[] = [];
   /** The open stream; ended or closed streams are never this. */
   private stream: { close(): void } | undefined;
@@ -117,6 +119,12 @@ export class LiveConversation<S, V> {
     set.add(listener);
     this.sideListeners.set(event, set);
     return () => set.delete(listener);
+  }
+
+  /** `listener` runs whenever the live stream ends (a drop, a restart), until the result. */
+  onEnded(listener: () => void): () => void {
+    this.endListeners.add(listener);
+    return () => this.endListeners.delete(listener);
   }
 
   /** The highest `seq` folded, for sends that need to know what the person saw. */
@@ -258,6 +266,7 @@ export class LiveConversation<S, V> {
 
   private ended(reason: LiveEnd, status: number | undefined) {
     if (reason === "unsubscribed") return;
+    for (const listener of this.endListeners) listener();
     // The way it went is gone: open again at once, the other way or when this one is back.
     if (reason === "dropped") return this.open();
     if (reason === "refused" && status === 404)
