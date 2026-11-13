@@ -63,6 +63,8 @@ workspace = true
 [target."cfg(unix)".dependencies]
 # Each bot's persistent terminal (ADR 0142).
 portable-pty = "0.9"
+# Moves that never replace (renameat2 / renamex_np) and cleaning up what a command left (ADR 0142).
+rustix = { version = "1.1.6", features = ["fs", "process"] }
 
 [target."cfg(windows)".dependencies]
 win32job = "2.1.0"
