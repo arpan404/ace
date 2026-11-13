@@ -18,11 +18,15 @@ enum NotificationKeys {
     static let accessRequestId = "accessRequestId"
     static let accessClient = "accessClient"
     static let accessExpiresAt = "accessExpiresAt"
+    /// Set only on a push the service extension rewrote: the identifier the app would post the
+    /// same alert under, and the one it withdraws it by (a thread alert's thread, ADR 0106).
+    static let pushedAlert = "pushedAlert"
+    static let standsFor = "standsFor"
 }
 
 extension AlertContent {
     /// What Notification Center shows for this alert, with the keys a tap or an answer reads
-    /// back.
+    /// back. The app's local alerts and the service extension's pushes both come from here.
     func fill(_ content: UNMutableNotificationContent) {
         content.title = title
         content.body = body
