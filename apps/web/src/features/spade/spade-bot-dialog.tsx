@@ -247,7 +247,7 @@ export function NewBotDialog(props: { hosts: readonly SpadeHost[]; onClose(): vo
                   onChange={(event) => setTask(event.target.value)}
                 />
               </Field>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="flex flex-col gap-4">
                 {host && (
                   <SpadeMachineScope machine={host.machine}>
                     <Field label="Model" htmlFor={ids.model}>
