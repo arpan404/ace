@@ -13,6 +13,7 @@ const media = (reduced: boolean) => (query: string) =>
   }) as unknown as MediaQueryList;
 
 const keyOf = (key: string) => key;
+const rowOf = (key: string, unconfirmed: boolean) => ({ key, unconfirmed });
 
 test("a row that moves up slides over the rows it passes, and only that row", () => {
   vi.stubGlobal("matchMedia", media(false));
@@ -81,4 +82,19 @@ test("without a stagger, a change past the bulk limit shows at once", () => {
   });
   rerender({ items: ["kept"] });
   expect(result.current.rows.map((row) => row.key)).toEqual(["kept"]);
+});
+
+test("a change the list marks as a settle shows at once, with no row playing an exit", () => {
+  vi.stubGlobal("matchMedia", media(false));
+  const { result, rerender } = renderHook(
+    ({ items }) =>
+      useListMotion(items, (item) => item.key, {
+        exitStagger: 40,
+        snapWhen: (leaving) => leaving.some((item) => item.unconfirmed),
+      }),
+    { initialProps: { items: [rowOf("a", true), rowOf("b", true), rowOf("done", false)] } },
+  );
+  // The facts behind a and b became current: they fold into done, with nothing to fade.
+  rerender({ items: [rowOf("done", false)] });
+  expect(result.current.rows.map((item) => item.key)).toEqual(["done"]);
 });
