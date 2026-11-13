@@ -71,7 +71,7 @@ export class AgentInputLane {
       signal?.throwIfAborted();
       if (this.closed) throw new BrowserActionError("browser_closed");
       const delay = agentInputDelay(this.clock.now(), this.humanAt(), since, this.timing);
-      if (delay === "give_up") throw new BrowserActionError("human_active");
+      if (delay === "give_up") throw new BrowserActionError("person_busy");
       if (delay === 0) return;
       await new Promise<void>((resolve) => {
         const finish = () => {

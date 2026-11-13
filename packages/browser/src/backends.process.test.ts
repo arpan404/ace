@@ -249,7 +249,17 @@ it("agent input waits while the person is active in the tab and proceeds once th
   expect(Date.now() - started).toBeGreaterThanOrEqual(quick.quietMs - 50);
   expect(page?.text).toBe("xyagent");
 });
-it("agent input gives up with human_active while the person never pauses", async () => {
+it("a waiting agent input says how long it waited for the person", async () => {
+  const f = await backendFixture({ collaboration: { ...quick, quietMs: 900, maxWaitMs: 5_000 } });
+  await f.open();
+  const ref = snapshot.parse(await f.service.execute("thread", { action: "snapshot" })).nodes[0]
+    ?.ref;
+  if (!ref) throw new Error("Missing ref");
+  await f.service.input("thread", key("x"), "person");
+  const result = await f.service.execute("thread", { action: "type", ref, text: "agent" });
+  expect(result).toMatchObject({ waited: "Waited 1 s while the person used this tab." });
+});
+it("agent input gives up with person_busy while the person never pauses", async () => {
   const f = await backendFixture({ collaboration: quick });
   await f.open();
   const ref = snapshot.parse(await f.service.execute("thread", { action: "snapshot" })).nodes[0]
@@ -257,7 +267,7 @@ it("agent input gives up with human_active while the person never pauses", async
   if (!ref) throw new Error("Missing ref");
   await f.service.input("thread", key("z"), "person");
   const typing = f.service.execute("thread", { action: "type", ref, text: "agent" });
-  const rejected = expect(typing).rejects.toMatchObject({ code: "human_active" });
+  const rejected = expect(typing).rejects.toMatchObject({ code: "person_busy" });
   const busy = { on: true };
   const person = (async () => {
     while (busy.on) {

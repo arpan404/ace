@@ -181,6 +181,9 @@ export class SessionTabs {
       if (inUse) entry.inUse = inUse;
       const pointer = runtime.pointer();
       if (pointer) entry.pointer = pointer;
+      const agentPointer = runtime.agentPointer();
+      if (agentPointer) entry.agentPointer = agentPointer;
+      if (runtime.personActive()) entry.personActive = true;
       if (runtime.openedBy) entry.openedBy = runtime.openedBy;
       if (runtime.drivenBy) entry.drivenBy = runtime.drivenBy;
       if (runtime.label) entry.label = runtime.label;
