@@ -73,11 +73,37 @@ type Row = {
 const row = (sink: RecordingSink, id: string) =>
   (sink.read(`inbox:${id}`) as { row: Row | null } | undefined)?.row ?? undefined;
 
+type Wire = Parameters<FakeDaemon["connect"]>[0];
+/** Once `hold` is called, keeps the machine's refusals of snoozes it finds over until released. */
+function overRefusals(daemon: FakeDaemon) {
+  let holding = false;
+  const held: (() => void)[] = [];
+  const connect = daemon.connect.bind(daemon);
+  daemon.connect = (wire: Wire) =>
+    connect({
+      ...wire,
+      send: (text) => {
+        if (holding && text.includes('"commandResult"') && text.includes("snooze_in_past"))
+          held.push(() => wire.send(text));
+        else wire.send(text);
+      },
+    });
+  return {
+    hold: () => (holding = true),
+    held: () => held.length,
+    release: () => {
+      holding = false;
+      for (const send of held.splice(0)) send();
+    },
+  };
+}
+
 let requests = 0;
 async function following(seed: (daemon: FakeDaemon) => void) {
   const { daemon, client } = sheetFixture();
   closers.push(() => client.close());
   seed(daemon);
+  const refusals = overRefusals(daemon);
   await client.start();
   const sink = new RecordingSink();
   const inbox = followInbox(client, "mac", sink, clock);
@@ -88,14 +114,20 @@ async function following(seed: (daemon: FakeDaemon) => void) {
       { type: "inbox.snooze", threadId, choice },
       `snooze-${++requests}`,
     ) as Promise<SnoozeAnswer>;
-  /** Undo's put-back, answered once the machine took it. */
-  const putBack = async (threadId: string, undo: SnoozeAnswer["undo"]) => {
+  /** Undo's put-back, sent; its answer comes as the receipt under the returned id. */
+  const sendBack = (threadId: string, undo: SnoozeAnswer["undo"]) => {
     const id = `back-${++requests}`;
     inboxAction(client, { kind: "snoozeAt", threadId, ...undo }, id, sink, inbox);
+    return id;
+  };
+  const answerTo = async (id: string) => {
     await until(() => sink.read(`receipt:${id}`) !== undefined, "the put-back's answer");
     return sink.read(`receipt:${id}`);
   };
-  return { daemon, sink, snooze, putBack, ask };
+  /** Undo's put-back, answered once the machine took it. */
+  const putBack = (threadId: string, undo: SnoozeAnswer["undo"]) =>
+    answerTo(sendBack(threadId, undo));
+  return { daemon, sink, snooze, sendBack, answerTo, putBack, ask, refusals };
 }
 
 test("a working thread snoozes until it needs you, and its row says that, not the backstop date", async () => {
@@ -175,6 +207,31 @@ test("Undo whose old snooze the machine finds over wakes the thread instead of l
   // The phone's clock still gave the old snooze time to run; the machine's has passed it.
   expect(await putBack("a", { until: 1, wake: null })).toMatchObject({ ok: true, message: "" });
   await until(() => listed(daemon, "a")?.snoozedUntil === undefined, "awake");
+});
+
+test("a snooze taken while Undo's refusal is on its way is not woken by Undo", async () => {
+  const { daemon, sink, snooze, sendBack, answerTo, refusals } = await following((machine) =>
+    finished(machine, "a"),
+  );
+  await until(() => row(sink, "a") !== undefined, "the row");
+  await snooze("a", "monday");
+  await until(() => listed(daemon, "a")?.snoozedUntil !== undefined, "the first snooze");
+
+  // Undo puts back a snooze the machine finds over; its refusal is held on the way back.
+  refusals.hold();
+  const back = sendBack("a", { until: 1, wake: null });
+  await until(() => refusals.held() === 1, "the machine's refusal");
+  // Meanwhile the person snoozes the thread again; it goes out behind the put-back.
+  expect((await snooze("a", "tomorrow")).saved).toBe(true);
+  const newer = `receipt:snooze-${requests}`;
+
+  refusals.release();
+  // The Undo still gets its answer: the machine's refusal, as for any refused action.
+  expect(await answerTo(back)).toMatchObject({ ok: false, message: "snooze_in_past" });
+  await until(() => sink.read(newer) !== undefined, "the newer snooze's answer");
+  expect(sink.read(newer)).toMatchObject({ ok: true });
+  expect(listed(daemon, "a")?.snoozedUntil).toBeGreaterThan(phoneNow + hour);
+  expect(row(sink, "a")?.group).toBe("snoozed");
 });
 
 test("Settle's Undo puts the snooze back with the event it waited for", async () => {

@@ -88,7 +88,9 @@ const over = new Set(["snooze_in_past", "snooze_not_live", "snooze_no_pr"]);
  * Put a snooze back as it was, event and all (Undo of a snooze or of a settle), or wake the
  * thread (`until` null). One the machine finds already over, by its own clock or because its
  * event can no longer come, would have woken by now: the thread is woken instead, so Undo never
- * leaves the snooze it took back in place, and that wake's answer is the receipt.
+ * leaves the snooze it took back in place, and that wake's answer is the receipt. Unless the
+ * person changed the thread's snooze again here since: that newer change stands, and the
+ * machine's refusal is Undo's receipt, as for any refused action.
  */
 export function putSnoozeBack(
   organizer: InboxOrganizer,
@@ -105,17 +107,22 @@ export function putSnoozeBack(
       if (!(ended && key === `receipt:${requestId}`)) pump.put(key, read);
     },
   };
-  return organizer.run(
+  let turn = 0;
+  const saved = organizer.run(
     threadId,
     { snoozedUntil: until, snoozeWake: wake ?? null },
     { type: "thread.snooze", threadId, until, ...(wake ? { wake } : {}) },
     requestId,
     answer,
     (result) => {
-      ended = !result.ok && over.has(result.error ?? "");
+      const newer = organizer.snoozeTurn(threadId) !== turn;
+      ended = !result.ok && over.has(result.error ?? "") && !newer;
       if (ended) wakeInstead(organizer, threadId, requestId, pump);
     },
   );
+  // `run` has counted this put-back already: any later turn is a newer change.
+  turn = organizer.snoozeTurn(threadId);
+  return saved;
 }
 
 /** The wake that answers for a put-back the machine found over, under the put-back's request. */

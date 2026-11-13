@@ -22,6 +22,11 @@ export interface InboxOrganizer {
   /** Hear which thread's shown entry changed because an action was taken or dropped. */
   observe(listener: (threadId: string) => void): () => void;
   /**
+   * How many actions taken here changed the thread's snooze (a snooze, a wake, a settle). `run`
+   * counts its action as soon as it's called, so a later turn means a newer change.
+   */
+  snoozeTurn(threadId: string): number;
+  /**
    * Show `patch` on the thread now and send `payload`. Resolves with whether it was saved on
    * this device (the admission); the receipt arrives on the pump under `requestId`, and to
    * `heard` when given.
@@ -38,6 +43,9 @@ export interface InboxOrganizer {
 
 class Refused extends Error {}
 
+const changesSnooze = (patch: OrganizePatch) =>
+  patch.snoozedUntil !== undefined || patch.snoozeWake !== undefined || patch.settled === true;
+
 export function inboxOrganizer(
   owner: ClientCore,
   machineId: string,
@@ -45,6 +53,7 @@ export function inboxOrganizer(
 ): InboxOrganizer {
   const store = owner.threads().store;
   const pending = new PendingActions();
+  const snoozeTurns = new Map<string, number>();
   return {
     machineId,
     entry(id) {
@@ -58,7 +67,9 @@ export function inboxOrganizer(
       });
     },
     observe: pending.subscribe,
+    snoozeTurn: (threadId) => snoozeTurns.get(threadId) ?? 0,
     run(threadId, patch, payload, requestId, pump, heard) {
+      if (changesSnooze(patch)) snoozeTurns.set(threadId, (snoozeTurns.get(threadId) ?? 0) + 1);
       return new Promise<boolean>((admitted) => {
         const send = () =>
           new Promise<void>((accepted, refused) => {
