@@ -1,6 +1,7 @@
 import { agentPointerShownFor, type AgentPointer } from "@ace/ui-core/cowork";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
+import { useWallClock } from "@/lib/time.ts";
 
 /**
  * The agent's pointer over a live picture while the person and the agent share it: a small cursor
@@ -73,21 +74,26 @@ export function AgentCursor(props: {
 
 const percent = (fraction: number) => Math.round(fraction * 10_000) / 100;
 
-/** Whether the pointer shows now: from its last action until it has faded. */
+/**
+ * Whether the pointer shows now: from its last action until it has faded. The clock is read only
+ * when a new action arrives, and the pointer shows from the next tick (a stale one never does).
+ */
 function useShown(pointer: AgentPointer | undefined): boolean {
+  const wall = useWallClock();
   const at = pointer?.at;
-  const [faded, setFaded] = useState<number>();
+  /** The action shown now, if any. */
+  const [shown, setShown] = useState<number>();
   useEffect(() => {
     if (at === undefined) return;
-    const left = agentPointerShownFor(pointer, Date.now());
-    if (left <= 0) {
-      setFaded(at);
-      return;
-    }
-    const timer = setTimeout(() => setFaded(at), left);
-    return () => clearTimeout(timer);
+    const left = agentPointerShownFor(pointer, wall());
+    if (left <= 0) return;
+    const show = setTimeout(() => setShown(at), 0);
+    const fade = setTimeout(() => setShown((now) => (now === at ? undefined : now)), left);
+    return () => {
+      clearTimeout(show);
+      clearTimeout(fade);
+    };
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- a new action is a new `at`
-  }, [at]);
-  if (at === undefined || faded === at) return false;
-  return agentPointerShownFor(pointer, Date.now()) > 0;
+  }, [at, wall]);
+  return at !== undefined && shown === at;
 }

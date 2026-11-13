@@ -2,6 +2,8 @@ import { useAgent } from "@ace/client-react";
 import type { DeviceActivity } from "@ace/protocol";
 import { useEffect, useRef, useState } from "react";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
+import { agentName } from "@ace/ui-core";
+import { coworkLine } from "@ace/ui-core/cowork";
 import { activityCaption, screenFraction, type Size } from "@ace/ui-core/devices";
 
 /** How long a caption stays before it fades. */
@@ -99,6 +101,20 @@ export function ActivityCaption(props: {
         />
       )}
       <span className="truncate">{activityCaption(props.shown.activity)}</span>
+    </p>
+  );
+}
+
+/** While the agent using the device yields to the person's input: "Codex is waiting for you". */
+export function YieldLine(props: {
+  waiting: boolean;
+  holder: { threadId: string; agentId: string } | undefined;
+}) {
+  const agent = useAgent(props.holder?.threadId ?? "", props.holder?.agentId ?? "");
+  if (!props.waiting || !props.holder) return null;
+  return (
+    <p role="status" className="truncate text-xs text-muted-foreground">
+      {coworkLine("waiting", agent ? agentName(agent) : "The agent")}
     </p>
   );
 }

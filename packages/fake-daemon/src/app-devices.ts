@@ -33,6 +33,8 @@ interface Session {
   controller: DeviceState["controller"];
   humanOwner?: Channel;
   holder?: DeviceState["holder"];
+  /** The person's input while an agent uses it in cowork: the agent waits. */
+  personActive?: boolean;
   leaseExpiresAt?: number;
   screen: "home" | "app";
   logs: string[];
@@ -228,6 +230,7 @@ export class FakeAppDevices {
     session.threadId = threadId;
     session.controller = "agent";
     delete session.humanOwner;
+    delete session.personActive;
     session.holder = DeviceState.shape.holder.unwrap().parse({ threadId, agentId });
     delete session.leaseExpiresAt;
     this.publish(session);
@@ -345,6 +348,8 @@ export class FakeAppDevices {
         ? { framed: true }
         : {}),
       controller: session.controller,
+      ...(session.controller === "human" ? { sharing: "exclusive" as const } : {}),
+      ...(session.personActive && session.controller === "agent" ? { personActive: true } : {}),
       ownedHere:
         session.controller === "human" &&
         session.humanOwner === channel &&
@@ -605,7 +610,14 @@ export class FakeAppDevices {
         channel.streams.delete(session.device.id);
         return this.state(session, channel);
       case "input":
-        this.controlled(session, channel);
+        // Shared (cowork, ADR 0143): the person's input goes in while an agent uses the device,
+        // and the agent waits while it is recent.
+        if (session.controller === "agent") {
+          if (!session.personActive) {
+            session.personActive = true;
+            this.publish(session);
+          }
+        } else this.controlled(session, channel);
         if (session.device.platform === "ios" && !this.permissions.accessibility)
           throw denied("accessibility");
         this.inputs.push({ deviceId: session.device.id, input: operation.input });

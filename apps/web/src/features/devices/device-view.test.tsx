@@ -71,16 +71,17 @@ test("the UI tree lists the refs agents read, and hovering one outlines it on th
   expect(iphone.querySelector("[data-bounds-outline]")).toBeNull();
 });
 
-test("a person's key takes the device from the agent holding it and reaches the device", async () => {
+test("a person's key reaches a device an agent uses with no take-over, and the agent waits for them", async () => {
   const { app, iphone } = await agentDriving();
 
   await userEvent.click(within(iphone).getByRole("button", { name: "Rotate" }));
-  // The fake device takes input only from the person holding it: the key took control first.
   await waitFor(() =>
     expect(app.daemon.appDevices.inputs.map((entry) => entry.input)).toEqual([
       { kind: "key", key: "rotate" },
     ]),
   );
+  // Shared: nobody claimed the device for the person; the agent keeps it and yields.
+  await within(iphone).findByText(/is waiting for you$/);
 });
 
 test("a missing Android SDK stays a setup note and never reads as the open Simulator's failure", async () => {

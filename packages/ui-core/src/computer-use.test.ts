@@ -95,14 +95,15 @@ test("live sessions keep one that is stopping or failed while capture is still o
   ]);
 });
 
+const codex = () => "Codex";
+
 test("a shared session says the agent waits while the person's input is recent", () => {
   const holder = { threadId: "t1", agentId: "a1" };
-  const name = () => "Codex";
   expect(
-    screenSession(state({ controller: "agent", holder, personActive: true }), name).status,
+    screenSession(state({ controller: "agent", holder, personActive: true }), codex).status,
   ).toBe("Codex is waiting for you");
   expect(
-    screenSession(state({ controller: "agent", holder, sharing: "exclusive" }), name).status,
+    screenSession(state({ controller: "agent", holder, sharing: "exclusive" }), codex).status,
   ).toBe("Codex is in control");
 });
 

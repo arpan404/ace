@@ -11,7 +11,7 @@ import { Spinner } from "@/components/ui/spinner.tsx";
 import { toolbarEdge } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
-import { ActivityCaption, useFreshActivity } from "./activity-overlay.tsx";
+import { ActivityCaption, useFreshActivity, YieldLine } from "./activity-overlay.tsx";
 import { ControlRail } from "./control-rail.tsx";
 import { DeviceDrawer } from "./device-drawer.tsx";
 import { DeviceHeader } from "./device-header.tsx";
@@ -194,6 +194,7 @@ function SelectedDevice(props: { devices: Devices }) {
                   }}
                 />
               )}
+              <YieldLine waiting={view.personActive} holder={view.holder} />
               <ActivityCaption shown={shown} holder={view.holder} />
             </>
           }
