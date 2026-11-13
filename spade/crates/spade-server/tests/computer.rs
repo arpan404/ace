@@ -1220,3 +1220,97 @@ async fn a_child_a_finished_command_left_in_a_session_of_its_own_is_ended() -> R
     machine.terminals.end_all();
     Ok(())
 }
+
+#[tokio::test]
+async fn a_call_allowed_for_one_terminal_state_is_not_run_once_an_earlier_call_changed_it() -> Result
+{
+    let machine = Machine::new()?;
+    let probe = "printenv NODE_OPTIONS || echo none";
+    let export = "export NODE_OPTIONS=--require=./hook.cjs";
+    let spade = start(
+        &machine,
+        vec![
+            // Allowed always, each while the terminal is as it starts.
+            Script::reply("").call("c1", "shell", json!({ "command": probe })),
+            Script::reply("Checked."),
+            Script::reply("").plain(r#"{"title":"Node"}"#),
+            Script::reply("").call("c2", "shell", json!({ "command": export })),
+            Script::reply("Set."),
+            Script::reply("").call("c3", "shell", json!({ "command": "unset NODE_OPTIONS" })),
+            Script::reply("Back as it was."),
+            // One response: the export runs first and changes what the probe would run.
+            Script::reply("")
+                .call("c4", "shell", json!({ "command": export }))
+                .call("c5", "shell", json!({ "command": probe })),
+            Script::reply("").call("c6", "shell", json!({ "command": probe })),
+            Script::reply("Okay."),
+        ],
+        Vec::new(),
+    )
+    .await?;
+    let (_, conversation) = bot(&spade).await?;
+    let answer = |call: &'static str, always: bool| {
+        let (spade, conversation) = (&spade, conversation.clone());
+        async move {
+            let (status, _) = spade
+                .post(
+                    &format!("/v1/conversations/{conversation}/approvals/{call}"),
+                    json!({ "allowed": true, "always": always }),
+                )
+                .await?;
+            assert_eq!(status, 202);
+            Result::Ok(())
+        }
+    };
+    spade.say(&conversation, "Check").await?;
+    spade.wait_for(&conversation, "approval_requested").await?;
+    answer("c1", true).await?;
+    spade.wait_for(&conversation, "renamed").await?;
+    spade.say(&conversation, "Set it").await?;
+    spade
+        .wait_for_count(&conversation, "approval_requested", 2)
+        .await?;
+    answer("c2", true).await?;
+    spade
+        .wait_for_count(&conversation, "reply_finished", 2)
+        .await?;
+    spade.say(&conversation, "Undo it").await?;
+    spade
+        .wait_for_count(&conversation, "approval_requested", 3)
+        .await?;
+    answer("c3", false).await?;
+    spade
+        .wait_for_count(&conversation, "reply_finished", 3)
+        .await?;
+    spade.say(&conversation, "Both").await?;
+    let events = spade
+        .wait_for_count(&conversation, "approval_requested", 4)
+        .await?;
+    let result = |call: &str| {
+        events
+            .iter()
+            .find(|e| e["type"] == "tool_finished" && e["call_id"] == call)
+            .cloned()
+            .unwrap_or_default()
+    };
+    assert_eq!(result("c4")["is_error"], false, "{}", result("c4"));
+    let refused = result("c5");
+    assert!(
+        refused["content"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("Not run: your terminal"),
+        "{refused}"
+    );
+    let asked: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["type"] == "approval_requested")
+        .map(|e| &e["call_id"])
+        .collect();
+    assert_eq!(
+        asked,
+        vec![&json!("c1"), &json!("c2"), &json!("c3"), &json!("c6")]
+    );
+    machine.terminals.end_all();
+    Ok(())
+}

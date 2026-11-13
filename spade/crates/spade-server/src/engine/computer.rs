@@ -146,6 +146,22 @@ impl Engine {
         }
     }
 
+    /// Records the scope call `key` was allowed with, for the tool to check where it runs.
+    pub(super) fn allow_scope(&self, key: &str, scope: &str) {
+        self.allowed_scopes
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(key.to_owned(), scope.to_owned());
+    }
+
+    /// The scope call `key` was allowed with, taken (each call runs once).
+    pub(crate) fn allowed_scope(&self, key: &str) -> Option<String> {
+        self.allowed_scopes
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(key)
+    }
+
     /// Whether a paused turn in `id` may carry on now.
     pub(super) fn may_run(&self, id: &str) -> bool {
         *self.pause.borrow() == Pause::Off && !self.held(id)

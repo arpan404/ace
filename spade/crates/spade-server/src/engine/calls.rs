@@ -142,7 +142,13 @@ pub(super) async fn handle_calls(
                         }
                     }
                     match decision {
-                        Decision::Run => runnable.push((pending.call, name, arguments)),
+                        Decision::Run => {
+                            // What "always" allowed, checked again where it runs (ADR 0142).
+                            if let Some(scope) = &scope {
+                                engine.allow_scope(&key, scope);
+                            }
+                            runnable.push((pending.call, name, arguments));
+                        }
                         Decision::Ask => {
                             waiting = true;
                             let asked = Event::Known(Known::ApprovalRequested {
@@ -162,7 +168,14 @@ pub(super) async fn handle_calls(
                     }
                 }
             },
-            Status::Allowed => runnable.push((pending.call, name, arguments)),
+            Status::Allowed => {
+                // What the person allowed, as it was asked: checked again where it runs, so a
+                // terminal that changed since (or was reset by a restart) is never run in.
+                if let Some(scope) = asked_scope(events, &pending.call.id) {
+                    engine.allow_scope(&format!("{id}.{}", pending.call.id), &scope);
+                }
+                runnable.push((pending.call, name, arguments));
+            }
             Status::Declined => {
                 let declined = ToolOutput::error(DECLINED);
                 finish_tool(engine, id, reply, &pending.call, &name, declined).await;
@@ -227,6 +240,16 @@ fn allowed_always_for(
                     && asked_scope.clone().or_else(|| tool.always_scope(arguments)).as_deref() == Some(scope))
         }),
         _ => false,
+    })
+}
+
+/// The scope the call `call_id` was asked with, when its tool gave one.
+fn asked_scope(events: &[Event], call_id: &str) -> Option<String> {
+    events.iter().rev().find_map(|event| match event {
+        Event::Known(Known::ApprovalRequested {
+            call_id: c, scope, ..
+        }) if c == call_id => scope.clone(),
+        _ => None,
     })
 }
 

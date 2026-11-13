@@ -148,6 +148,9 @@ pub struct Engine {
     teams: crate::teams::Shared,
     /// The bots' computers (ADR 0142), once the server has set them.
     computers: std::sync::OnceLock<Arc<crate::computer::Computers>>,
+    /// The scope each call about to run was allowed with, by call key, for the tool to check
+    /// again where it runs (a terminal command's folder and variables, ADR 0142).
+    allowed_scopes: Mutex<HashMap<String, String>>,
 }
 
 /// What `starting` says until setup has run long enough to say more.
@@ -206,6 +209,7 @@ impl Engine {
             brains: brain::Brains::default(),
             teams: crate::teams::Shared::default(),
             computers: std::sync::OnceLock::new(),
+            allowed_scopes: Mutex::default(),
         });
         handle.set(&engine);
         engine.sync_endpoints()?;

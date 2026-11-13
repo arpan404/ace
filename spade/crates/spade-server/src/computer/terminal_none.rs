@@ -93,4 +93,13 @@ impl Terminal {
     pub async fn run(self: &Arc<Self>, _command: &str, _timeout: Duration) -> Result<Ran, String> {
         Err(NONE.to_owned())
     }
+
+    pub async fn run_in_state(
+        self: &Arc<Self>,
+        _command: &str,
+        _timeout: Duration,
+        _expected: Option<&str>,
+    ) -> Result<Ran, String> {
+        Err(NONE.to_owned())
+    }
 }
