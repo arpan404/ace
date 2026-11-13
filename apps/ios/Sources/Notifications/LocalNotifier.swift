@@ -196,11 +196,10 @@ final class SystemNotificationCenter: NotificationCenterPort {
     /// live copy arriving meanwhile is reported delivered only once the first copy has landed.
     private var inFlight: [String: [CheckedContinuation<Void, Never>]] = [:]
     /// Each thread's latest live alert that no catch-up feed has held yet. Catch-up reads the
-    /// alerts after its cursor, and a live one can land while that read is out. Bounded: past
-    /// `liveCapacity` threads the oldest goes, and a feed covers each one on every connection.
+    /// alerts after its cursor, and a live one can land while that read is out. At most one
+    /// entry per thread of this machine; a feed that holds one, or retracts it, removes it.
+    /// Nothing is evicted early: dropping one would let an older alert cover a newer request.
     private var live: [String: String] = [:]
-    private var liveOrder: [String] = []
-    static let liveCapacity = 256
     /// The catch-up running now: each waits for the one before, so a later feed's landings and
     /// retractions always apply after an earlier feed's.
     private var catchingUp: Task<Void, Never>?
@@ -214,7 +213,6 @@ final class SystemNotificationCenter: NotificationCenterPort {
     func invalidate() {
         valid = false
         live = [:]
-        liveOrder = []
         desk.cancel(owner: ObjectIdentifier(self))
     }
     /// Returns once the alert has landed, or was deliberately not posted: the coordinator then
@@ -227,7 +225,7 @@ final class SystemNotificationCenter: NotificationCenterPort {
         defer { finish(alert.id) }
         // Newer than anything catch-up still has to land for this thread. One this phone doesn't
         // post leaves the thread's notification as it was, so it holds nothing back.
-        if alert.delivery?.post != false, !CatchUpOrder.isSummary(alert) { noteLive(alert) }
+        if alert.delivery?.post != false, !CatchUpOrder.isSummary(alert) { live[alert.threadId] = alert.id }
         guard alert.delivery?.post != false, valid else { return }
         await desk.land(alert, hostId: hostId, owner: ObjectIdentifier(self))
     }
@@ -243,7 +241,7 @@ final class SystemNotificationCenter: NotificationCenterPort {
     private func apply(cursor: Int, entries: [AlertNotification], retracted: [String]) async {
         desk.retract(retracted, hostId: hostId)
         let gone = Set(retracted)
-        forgetLive { gone.contains($0) }
+        live = live.filter { !gone.contains($0.value) }
         let fresh = entries.filter { inFlight[$0.id] == nil && ledger.admit($0.id) }
         ledger.advance(to: cursor)
         store?.save(ledger)
@@ -259,7 +257,7 @@ final class SystemNotificationCenter: NotificationCenterPort {
         // From here the feed's order covers a live alert it holds; one it doesn't hold yet
         // arrived after it was read and keeps holding older alerts back until a feed does.
         let covered = Set(entries.map(\.id))
-        defer { forgetLive { covered.contains($0) } }
+        defer { live = live.filter { !covered.contains($0.value) } }
         // Checked before each one: an earlier post can be awaited past a turn-off, and a live
         // alert can land meanwhile.
         for alert in newest where freshIds.contains(alert.id) {
@@ -268,16 +266,6 @@ final class SystemNotificationCenter: NotificationCenterPort {
             await desk.land(alert, hostId: hostId, owner: ObjectIdentifier(self))
             finish(alert.id)
         }
-    }
-    private func noteLive(_ alert: AlertNotification) {
-        live[alert.threadId] = alert.id
-        liveOrder.removeAll { $0 == alert.threadId }
-        liveOrder.append(alert.threadId)
-        while liveOrder.count > Self.liveCapacity { live[liveOrder.removeFirst()] = nil }
-    }
-    private func forgetLive(_ alert: (String) -> Bool) {
-        live = live.filter { !alert($0.value) }
-        liveOrder.removeAll { live[$0] == nil }
     }
     /// Waits while an earlier copy of this alert is still landing; at once otherwise.
     private func landed(_ id: String) async {

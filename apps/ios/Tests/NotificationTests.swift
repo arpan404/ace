@@ -494,11 +494,12 @@ import Testing
         let center = HeldCenter()
         let notifier = LocalNotifier(center: center, hostId: "studio")
         notifier.bind(LedgerStore(scope: "studio", defaults: try defaults()))
-        Task { await notifier.catchUp(cursor: 2, entries: [alert("n:1", status: "failed", thread: "other"), alert("n:2")], retracted: []) }
+        let earlier = Task { await notifier.catchUp(cursor: 2, entries: [alert("n:1", status: "failed", thread: "other"), alert("n:2")], retracted: []) }
         try await until("the first feed's first post is out") { center.holding }
         let later = Task { await notifier.catchUp(cursor: 3, entries: [alert("n:3", status: "needs_you", actions: true)], retracted: []) }
         for _ in 0..<20 { await Task.yield() }
         center.release()
+        await earlier.value
         await later.value
         #expect(center.delivered.values.map(\.body).sorted() == ["Failed", "Needs you"])
     }
@@ -507,27 +508,16 @@ import Testing
         let center = HeldCenter()
         let notifier = LocalNotifier(center: center, hostId: "studio")
         notifier.bind(LedgerStore(scope: "studio", defaults: try defaults()))
-        Task { await notifier.catchUp(cursor: 2, entries: [alert("n:1", status: "failed", thread: "other"), alert("n:2")], retracted: []) }
+        let earlier = Task { await notifier.catchUp(cursor: 2, entries: [alert("n:1", status: "failed", thread: "other"), alert("n:2")], retracted: []) }
         try await until("the first feed's first post is out") { center.holding }
         let later = Task { await notifier.catchUp(cursor: 3, entries: [], retracted: ["n:2"]) }
         for _ in 0..<20 { await Task.yield() }
         center.release()
+        await earlier.value
         await later.value
         #expect(center.delivered.values.map(\.body) == ["Failed"])
     }
 
-    @Test func liveAlertsAcrossManyThreadsStayBounded() async throws {
-        let (notifier, center) = try plainNotifier()
-        for index in 0...LocalNotifier.liveCapacity {
-            await notifier.receive(alert("live:\(index)", status: "needs_you", thread: "t-\(index)"))
-        }
-        // The oldest thread's live alert has gone, so its feed lands again; the newest still holds.
-        let oldest = "t-0", newest = "t-\(LocalNotifier.liveCapacity)"
-        await notifier.catchUp(cursor: 1, entries: [alert("old:0", status: "failed", thread: oldest),
-                                                     alert("old:1", status: "failed", thread: newest)], retracted: [])
-        #expect(center.posted.last?.body == "Failed")
-        #expect(center.posted.filter { $0.body == "Failed" }.count == 1)
-    }
 
     @Test func aFeedWhoseNewestForAThreadWasAlreadySeenLandsNothingOlderForIt() async throws {
         let (notifier, center) = try plainNotifier()
