@@ -278,6 +278,33 @@ async fn the_app_lists_opens_downloads_and_deletes_a_bots_files() -> Result {
 
     let (status, _) = setup.spade.get(&format!("{base}/file?path=../x")).await?;
     assert_eq!(status, 400);
+    let clock = Arc::new(spade_server::clock::SystemClock);
+    let terminals = spade_server::computer::Terminals::new(
+        setup._dir.path().join("terminal"),
+        setup.workspaces.clone(),
+        Shell::system(),
+        clock.clone(),
+    );
+    setup
+        .spade
+        .engine
+        .set_computers(spade_server::computer::Computers::open(
+            setup._dir.path().join("computer"),
+            setup.workspaces.clone(),
+            terminals,
+            clock,
+        ));
+    assert_eq!(
+        setup
+            .spade
+            .post(
+                &format!("/v1/agents/{bot_id}/computer/take-over"),
+                json!({}),
+            )
+            .await?
+            .0,
+        204
+    );
     let (status, _) = setup.spade.delete(&format!("{base}?path=")).await?;
     assert_eq!(status, 422, "the workspace itself stays");
     let (status, _) = setup.spade.delete(&format!("{base}?path=reports")).await?;

@@ -83,6 +83,7 @@ take over.
 8. **The person drives.** They type into the terminal (refused with `409` while the bot drives,
    so the person's input never mixes into a bot's command), use the browser and screen through
    ace, and change files through the app.
+   Every file write, including upload, mkdir, move and delete, requires the person driving and no work stopping (`409` otherwise); reads and downloads always work.
 9. **Handing back resumes the bot with a note.** Spade stores `computer_handed_back` with its
    summary of what the person did: how long they had it, whether they used the terminal, the
    workspace files that are new, changed or removed since the take-over, and whether ace said

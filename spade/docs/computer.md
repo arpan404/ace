@@ -211,6 +211,10 @@ The workspace routes in [workspace.md](workspace.md) (list, open, download, dele
 | `POST /agents/{id}/files/mkdir`    | `{"path"}`                    | `204`; makes folders on the way; a file there is `422` |
 | `POST /agents/{id}/files/move`     | `{"from", "to"}`              | `204`; `409` when `to` exists; `422` to another disk; never into itself |
 
+- Reading and downloading always work. Every file write (including upload, mkdir, move and
+  delete) requires the person driving and `stopping: false`; otherwise it answers `409` with
+  the terminal input route's error shape. The check runs once under the computer lock right
+  before the mutation, holding the lock through it.
 - Files are 32 MiB at most (`413`).
 - Writes go through a temporary file renamed into place, as for the tools. A file the person
   writes or uploads is recorded as trusted (path and SHA-256 in the trust record). A move carries
