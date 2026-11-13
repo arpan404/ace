@@ -242,6 +242,16 @@ export function PageView(props: {
   // The daemon draws agents' cursors in the page, so the frames already show them; only a
   // recording keeps them out of the page, and then they are drawn here instead.
   const inPage = props.view.features?.includes("page-cursor") === true && !props.view.recording;
+  // Exactly one agent cursor: the page's own when the frames carry it (it hides itself from
+  // agents' screenshots), else the fading one for a shared tab, else the older gliding one.
+  const overlay =
+    !drawn || inPage
+      ? undefined
+      : props.tab?.agentPointer
+        ? "fading"
+        : props.tab?.inUse && props.tab.pointer
+          ? "gliding"
+          : undefined;
   const paste = (event: ClipboardEvent<HTMLElement>) => {
     event.preventDefault();
     const text = event.clipboardData.getData("text");
@@ -293,7 +303,7 @@ export function PageView(props: {
       {image}
       {image && live && <LocalEchoOverlay ripples={echo.ripples} onSettled={echo.settled} />}
       {fileDrop.indicator}
-      {drawn && props.tab?.agentPointer && (
+      {drawn && overlay === "fading" && props.tab?.agentPointer && (
         // Shared tab (ADR 0143): the agent's latest action, fading after it.
         <TimedAgentCursor
           threadId={props.threadId}
@@ -304,7 +314,7 @@ export function PageView(props: {
           agent={props.agent}
         />
       )}
-      {drawn && !props.tab?.agentPointer && props.tab?.inUse && props.tab.pointer && !inPage && (
+      {drawn && overlay === "gliding" && props.tab?.inUse && props.tab.pointer && (
         <AgentCursor
           threadId={props.threadId}
           agentId={props.tab.inUse.agentId}

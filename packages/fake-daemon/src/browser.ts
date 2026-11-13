@@ -614,6 +614,17 @@ export class FakeBrowser {
     tab.url = url;
     this.changed();
   }
+  /**
+   * The daemon draws agents' cursors in the page itself (the `page-cursor` feature), so the
+   * frames already show them; or it stops.
+   */
+  setPageCursor(threadId: string, on: boolean): void {
+    const view = this.entries.get(threadId)?.view;
+    if (!view) return;
+    const others = (view.features ?? []).filter((feature) => feature !== "page-cursor");
+    view.features = on ? [...others, "page-cursor"] : others;
+    this.changed();
+  }
   /** A person's recording of the thread's view starts or stops; the state says so. */
   setRecording(threadId: string, on: boolean): void {
     const view = this.entries.get(threadId)?.view;

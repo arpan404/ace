@@ -197,6 +197,32 @@ test("in a shared tab the agent's cursor shows where it last acted, then fades",
   );
 });
 
+test("a shared tab shows exactly one agent cursor, the page's own when its frames carry it", async () => {
+  const { panel, browser } = await openBrowser();
+  await agentPage(panel);
+  await waitFor(() => expect(browser.frame(thread)?.width).toBe(800));
+  const drawnHere = () => panel.querySelectorAll("[data-agent-pointer], [data-agent-cursor]");
+  act(() =>
+    browser.agentWorks(thread, { agentId: "worker", pointer: { x: 40, y: 60 }, at: Date.now() }),
+  );
+  // The frames don't carry a cursor: one is drawn here, the fading one.
+  await within(panel).findByRole("img", { name: /'s pointer$/ });
+  expect(drawnHere()).toHaveLength(1);
+
+  // The daemon draws it in the page: the frames show it, and nothing is drawn over them.
+  act(() => browser.setPageCursor(thread, true));
+  await waitFor(() => expect(drawnHere()).toHaveLength(0));
+  act(() =>
+    browser.agentWorks(thread, { agentId: "worker", pointer: { x: 90, y: 30 }, at: Date.now() }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(drawnHere()).toHaveLength(0);
+
+  // A recording keeps cursors out of the page: then the one here comes back, alone.
+  act(() => browser.setRecording(thread, true));
+  await waitFor(() => expect(drawnHere()).toHaveLength(1));
+});
+
 test("a wheel over the page scrolls whatever is under the pointer in Chrome, never ace or the picture", async () => {
   const { panel, browser } = await openBrowser();
   const picture = await agentPage(panel);
