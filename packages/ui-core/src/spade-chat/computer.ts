@@ -1,3 +1,4 @@
+import { parseAgentPointer, type AgentPointer } from "../cowork.ts";
 import { spadeJson, spadeRecord } from "./json.ts";
 
 /*
@@ -27,11 +28,21 @@ export interface SpadeSurface {
   backend: "user" | undefined;
   /** The terminal's last command is still being ended (dropped or timed out, past 30 s). */
   endingStuck: boolean;
+  /** The person acted here just now: in cowork the bot's actions wait for them. */
+  personActive: boolean;
+  /** Where the bot last acted here, in the surface's pixels, when Spade says. */
+  agentPointer: AgentPointer | undefined;
 }
 
 export interface SpadeComputer {
   /** Who drives it: the bot, or the person who took over. */
   driver: "bot" | "person";
+  /**
+   * `cowork`: the person and the bot use it at once, the bot yielding to the person's input.
+   * `exclusive`: the person took over and the bot is paused. Older Spades don't say: a person
+   * driving is exclusive.
+   */
+  mode: "cowork" | "exclusive";
   /**
    * After a take-over, the bot's work is still stopping: the person gets the controls once it
    * is false.
@@ -67,12 +78,22 @@ export function parseSpadeComputer(value: unknown): SpadeComputer | undefined {
           tabId: text(surface.tab_id),
           endingStuck: surface.ending_stuck === true,
           backend: surface.backend === "user" ? "user" : undefined,
+          personActive: surface.person_active === true,
+          agentPointer: parseAgentPointer(surface.agent_pointer),
         },
       ];
     },
   );
+  const driver = fields.driver === "person" ? "person" : "bot";
+  const mode =
+    fields.mode === "exclusive" || fields.mode === "cowork"
+      ? fields.mode
+      : driver === "person"
+        ? "exclusive"
+        : "cowork";
   return {
-    driver: fields.driver === "person" ? "person" : "bot",
+    driver,
+    mode,
     stopping: fields.stopping === true,
     threadId: text(fields.thread_id),
     surfaces,

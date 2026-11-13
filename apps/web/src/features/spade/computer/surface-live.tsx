@@ -1,4 +1,4 @@
-import type { SpadeSurface } from "@ace/ui-core/spade-chat";
+import type { SpadeAvatar, SpadeSurface } from "@ace/ui-core/spade-chat";
 import { lazy, Suspense } from "react";
 import { openExternal } from "@/boot/open-external.ts";
 import { Button } from "@/components/ui/button.tsx";
@@ -23,16 +23,21 @@ const note = (text: string) => (
  * A bot's browser or screen, live. Where the app supplies pictures (`BotStreams`, the fake world)
  * they show; otherwise ace's own views: the browser's page view on the bot's hidden thread and
  * tab, or computer use's live view of the session that thread started. A tab in the person's own
- * Chrome isn't streamed: it offers to open there. The person's input goes through only while they
- * drive. A bot on another machine is watched from that machine.
+ * Chrome isn't streamed: it offers to open there. The person's input goes through while they may
+ * act: in cowork straight away (the bot yields to it), in exclusive mode while they drive, when
+ * the screen's controls are taken for them and the page follows the pane. The bot's pointer shows
+ * where it last acted. A bot on another machine is watched from that machine.
  */
 export function SurfaceLive(props: {
   machine: { key: string; name: string; primary: boolean };
-  bot: { id: string; name: string };
+  bot: { id: string; name: string; avatar: SpadeAvatar };
   kind: BotPictureSurface;
   surface: SpadeSurface | undefined;
   /** The bot's hidden ace thread, once Spade knows it. */
   threadId: string | undefined;
+  /** The person's input goes in now (cowork, or exclusive while they drive). */
+  mayAct: boolean;
+  /** Exclusive mode is the person's now: they hold the controls and the bot is paused. */
   driving: boolean;
   label: string;
 }) {
@@ -44,8 +49,10 @@ export function SurfaceLive(props: {
     return (
       <StreamPicture
         surfaceKey={{ machine: props.machine.key, bot: bot.id, surface: kind }}
-        driving={props.driving}
+        mayAct={props.mayAct}
         label={props.label}
+        pointer={props.surface?.agentPointer}
+        bot={bot}
       />
     );
   if (!props.machine.primary) return note(`${bot.name}'s ${words} shows on ${props.machine.name}.`);
@@ -80,13 +87,17 @@ export function SurfaceLive(props: {
         <BotBrowser
           threadId={props.threadId}
           tabId={props.surface?.tabId}
+          mayAct={props.mayAct}
           driving={props.driving}
+          agent={bot.name}
           waiting={waiting}
         />
       ) : (
         <BotScreen
           threadId={props.threadId}
+          mayAct={props.mayAct}
           driving={props.driving}
+          agent={bot.name}
           label={props.label}
           waiting={waiting}
           onProblem={(error) =>

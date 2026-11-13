@@ -1,14 +1,17 @@
+import { coworkLine } from "@ace/ui-core/cowork";
 import type { SpadeAvatar } from "@ace/ui-core/spade-chat";
 import { Button } from "@/components/ui/button.tsx";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
 import { SpadeFace } from "../spade-face.tsx";
 import type { BotComputerState } from "./use-bot-computer.ts";
 
 /**
- * Who drives the bot's computer, with the one thing to do about it: "Spade is driving · Take
- * over", "Stopping Spade… · Hand back" while the bot's work ends, or "You're driving. Spade is
- * paused. · Hand back". Words never cut mid-word: in a narrow container (`@container` on the
- * parent) they shorten to the face, "Stopping…" or "You".
+ * Who has the bot's computer, in one sentence, with the one thing to do about it. In cowork both
+ * use it: "Spade is working here" or "Spade is waiting for you" (it yields to the person's
+ * input), with Take over, which pauses the bot, as the secondary action. In exclusive mode: "You
+ * have it. Spade is paused." or "Stopping Spade…", with Hand back. Words never cut mid-word: in a
+ * narrow container (`@container` on the parent) they shorten to the face, "Stopping…" or "You".
  */
 export function DriverStatus(props: {
   bot: { name: string; avatar: SpadeAvatar };
@@ -41,28 +44,59 @@ export function DriverStatus(props: {
         ) : person ? (
           <>
             <span className={long}>
-              <span className="text-foreground">You're driving.</span> {`${bot.name} is paused.`}
+              <span className="text-foreground">{coworkLine("yours", bot.name)}.</span>{" "}
+              {`${bot.name} is paused.`}
             </span>
             <span aria-hidden className={cn(short, "text-foreground")}>
-              {props.brief ? "You're driving" : "You"}
+              {props.brief ? coworkLine("yours", bot.name) : "You"}
             </span>
           </>
         ) : (
           <>
-            <SpadeFace avatar={bot.avatar} size={20} state="working" />
-            <span className={long}>{`${bot.name} is driving`}</span>
+            <SpadeFace
+              avatar={bot.avatar}
+              size={20}
+              state={state.status === "working" ? "working" : "idle"}
+            />
+            <span className={long}>{coworkLine(state.status, bot.name)}</span>
           </>
         )}
       </p>
-      <Button
-        size="sm"
-        variant={person ? "primary" : "secondary"}
-        disabled={state.pending !== undefined}
-        onClick={person ? state.handBack : state.takeOver}
-        className="shrink-0"
-      >
-        {person ? "Hand back" : "Take over"}
-      </Button>
+      {person ? (
+        <Button
+          size="sm"
+          variant="primary"
+          disabled={state.pending !== undefined}
+          onClick={state.handBack}
+          className="shrink-0"
+        >
+          Hand back
+        </Button>
+      ) : (
+        <TakeOver bot={bot.name} state={state} />
+      )}
     </div>
+  );
+}
+
+/** Take over, the secondary action in cowork, saying where it is offered what it does. */
+export function TakeOver(props: { bot: string; state: BotComputerState; variant?: "ghost" }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            size="sm"
+            variant={props.variant ?? "secondary"}
+            disabled={props.state.pending !== undefined}
+            onClick={props.state.takeOver}
+            className="shrink-0"
+          />
+        }
+      >
+        Take over
+      </TooltipTrigger>
+      <TooltipContent>{`Pauses ${props.bot} until you hand back`}</TooltipContent>
+    </Tooltip>
   );
 }

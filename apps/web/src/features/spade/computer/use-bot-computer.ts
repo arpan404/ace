@@ -1,5 +1,6 @@
 import { parseSpadeComputerBody, type SpadeComputer } from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
+import { coworkState } from "@ace/ui-core/cowork";
 import { useEffect, useRef, useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import type { ConversationFollow } from "../conversation-follow.ts";
@@ -10,8 +11,9 @@ import { handBack, readComputer, takeOver } from "./computer-api.ts";
 
 /**
  * A bot's computer as it is now. What it shows comes from the conversation stream's `computer`
- * frames (sent on connect and on every change), else the roster's last read. The controls are
- * the person's only while that stream is up and the latest state from Spade says they drive and
+ * frames (sent on connect and on every change), else the roster's last read. In cowork (the
+ * default) the person and the bot use it at once: the person's input goes in straight away and
+ * the bot yields to it. In exclusive mode (Take over) the controls are the person's only while that stream is up and the latest state from Spade says they drive and
  * the bot's work has stopped: never from Take over's own answer, never while a take-over or
  * hand-back is on its way, and never while the stream is down. Take over and Hand back read the
  * computer from Spade once answered; that read counts only if nothing newer (a frame, the stream
@@ -82,10 +84,29 @@ export function useBotComputer(
       );
   };
   const person = computer?.driver === "person";
+  const cowork = computer?.mode === "cowork";
+  const driving = streamUp && pending === undefined && person && computer?.stopping === false;
+  const agentActive = (computer?.surfaces ?? []).some((each) => each.live);
+  const yielding = (computer?.surfaces ?? []).some((each) => each.live && each.personActive);
   return {
     computer,
-    /** The controls are the person's: the stream is up and Spade says they drive, work stopped. */
-    driving: streamUp && pending === undefined && person && computer?.stopping === false,
+    /**
+     * Exclusive mode is the person's: the stream is up and Spade says they drive, work stopped.
+     */
+    driving,
+    /** Cowork, as Spade last said: both use it, the bot yielding to the person. */
+    cowork,
+    /**
+     * The person's input goes in now: in cowork straight away (unless a take-over is on its
+     * way), in exclusive mode only while they drive.
+     */
+    mayAct: driving || (cowork && !person && pending === undefined),
+    /** Who has it now, for the one-line status. */
+    status: coworkState({
+      exclusive: person || pending === "take-over",
+      personActive: cowork && yielding,
+      agentActive,
+    }),
     /** The person has the computer (or is getting it) and the bot's work is still stopping. */
     stopping: (person && computer?.stopping === true) || pending === "take-over",
     /** The person has the computer, as Spade last said: the bot is paused. */
