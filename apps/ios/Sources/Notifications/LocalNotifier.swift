@@ -235,21 +235,24 @@ final class SystemNotificationCenter: NotificationCenterPort {
     }
     func catchUp(cursor: Int, entries: [AlertNotification], retracted: [String]) async {
         let previous = catchingUp
+        // What is held back as this feed arrives: a reconnect while it waits behind an earlier
+        // catch-up must not free its older alerts.
+        let arrived = live
         let mine = Task { @MainActor [weak self] in
             await previous?.value
-            await self?.apply(cursor: cursor, entries: entries, retracted: retracted)
+            await self?.apply(cursor: cursor, entries: entries, retracted: retracted, arrived: arrived)
         }
         catchingUp = mine
         await mine.value
     }
-    private func apply(cursor: Int, entries: [AlertNotification], retracted: [String]) async {
+    private func apply(cursor: Int, entries: [AlertNotification], retracted: [String], arrived: [String: Live]) async {
         desk.retract(retracted, hostId: hostId)
         let gone = Set(retracted)
         live = live.filter { !gone.contains($0.value.id) }
-        // What was held back when this feed started applying, retractions gone: a reconnect
+        // Held back as the feed arrived and as it starts applying, retractions gone: a reconnect
         // (`connected`) clears `live` for the next feed, but must not free this one's older
-        // alerts mid-way.
-        let held = live
+        // alerts while it waits or mid-way.
+        let held = [arrived.filter { !gone.contains($0.value.id) }, live]
         let fresh = entries.filter { inFlight[$0.id] == nil && ledger.admit($0.id) }
         ledger.advance(to: cursor)
         store?.save(ledger)
@@ -270,8 +273,8 @@ final class SystemNotificationCenter: NotificationCenterPort {
         // alert can land meanwhile.
         for alert in newest where freshIds.contains(alert.id) {
             guard valid else { return }
-            guard CatchUpOrder.isNewer(alert, than: held[alert.threadId], in: entries),
-                  CatchUpOrder.isNewer(alert, than: live[alert.threadId], in: entries) else { continue }
+            let holders = held.map { $0[alert.threadId] } + [live[alert.threadId]]
+            guard holders.allSatisfy({ CatchUpOrder.isNewer(alert, than: $0, in: entries) }) else { continue }
             await desk.land(alert, hostId: hostId, owner: ObjectIdentifier(self))
             finish(alert.id)
         }

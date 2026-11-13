@@ -532,6 +532,25 @@ import Testing
         #expect(center.delivered.values.map(\.body).sorted() == ["Failed", "Needs you"])
     }
 
+    @Test func aReconnectWhileAFeedWaitsItsTurnStillKeepsItsOlderFinishOffALiveRequest() async throws {
+        let center = HeldCenter()
+        let notifier = LocalNotifier(center: center, hostId: "studio")
+        notifier.bind(LedgerStore(scope: "studio", defaults: try defaults()))
+        // An earlier feed is still posting when the request arrives live and the next feed comes.
+        let earlier = Task { await notifier.catchUp(cursor: 1, entries: [cursored(alert("n:1", status: "failed", thread: "other"), 1)], retracted: []) }
+        try await until("the earlier feed is posting") { center.holding }
+        let request = Task { await notifier.receive(cursored(alert("n:3", status: "needs_you", actions: true), 3)) }
+        for _ in 0..<20 { await Task.yield() }
+        let queued = Task { await notifier.catchUp(cursor: 2, entries: [cursored(alert("n:2"), 2)], retracted: []) }
+        for _ in 0..<20 { await Task.yield() }
+        notifier.connected()
+        center.release()
+        await earlier.value
+        await request.value
+        await queued.value
+        #expect(center.delivered.values.map(\.body).sorted() == ["Failed", "Needs you"])
+    }
+
     @Test func aLaterCatchUpWaitsForAnEarlierOneThatIsStillPosting() async throws {
         let center = HeldCenter()
         let notifier = LocalNotifier(center: center, hostId: "studio")
