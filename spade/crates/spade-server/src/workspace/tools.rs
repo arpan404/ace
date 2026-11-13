@@ -416,6 +416,23 @@ impl Tool for ShellTool {
         )
     }
 
+    /// In the bot's terminal, "always" covers the command run from the folder and with the
+    /// variables it has now; when either changes, the same command asks again.
+    fn always_scope_in(&self, key: &str, arguments: &Value) -> Option<String> {
+        let command = self.always_scope(arguments)?;
+        let Commands::Terminal(terminals) = &self.shell else {
+            return Some(command);
+        };
+        let digest = self
+            .place
+            .bots
+            .agent_for_key(key)
+            .and_then(|bot| terminals.of(&bot).ok())
+            .map(|terminal| terminal.state_digest())
+            .unwrap_or_default();
+        Some(format!("{command}\n[terminal state {digest}]"))
+    }
+
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {
         let workspace = self.place.workspace(key);
         let shell = self.shell.clone();

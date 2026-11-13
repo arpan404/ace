@@ -71,6 +71,10 @@ impl Terminal {
         false
     }
 
+    pub fn state_digest(&self) -> String {
+        String::new()
+    }
+
     pub fn attach(
         self: &Arc<Self>,
         _after: u64,

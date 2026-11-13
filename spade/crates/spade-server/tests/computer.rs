@@ -1072,3 +1072,74 @@ async fn handing_back_while_ace_still_answers_the_take_over_leaves_the_bot_drivi
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn an_always_allowed_command_asks_again_once_a_carried_variable_changes_what_it_runs()
+-> Result {
+    let machine = Machine::new()?;
+    let probe = "printenv NODE_OPTIONS || echo none";
+    let spade = start(
+        &machine,
+        vec![
+            Script::reply("").call("c1", "shell", json!({ "command": probe })),
+            Script::reply("Ran it."),
+            Script::reply("").plain(r#"{"title":"Node"}"#),
+            // The same command, allowed always, runs at once while nothing changed.
+            Script::reply("").call("c2", "shell", json!({ "command": probe })),
+            Script::reply("Again."),
+            // A command exports a variable that changes what node would load.
+            Script::reply("").call(
+                "c3",
+                "shell",
+                json!({ "command": "export NODE_OPTIONS=--require=./hook.cjs" }),
+            ),
+            Script::reply("Set."),
+            Script::reply("").call("c4", "shell", json!({ "command": probe })),
+            Script::reply("Okay."),
+        ],
+        Vec::new(),
+    )
+    .await?;
+    let (_, conversation) = bot(&spade).await?;
+    let approve = |call: &'static str, always: bool| {
+        let (spade, conversation) = (&spade, conversation.clone());
+        async move {
+            let (status, _) = spade
+                .post(
+                    &format!("/v1/conversations/{conversation}/approvals/{call}"),
+                    json!({ "allowed": true, "always": always }),
+                )
+                .await?;
+            assert_eq!(status, 202);
+            Result::Ok(())
+        }
+    };
+    spade.say(&conversation, "Check node").await?;
+    spade.wait_for(&conversation, "approval_requested").await?;
+    approve("c1", true).await?;
+    spade.wait_for(&conversation, "renamed").await?;
+    spade.say(&conversation, "Again").await?;
+    spade
+        .wait_for_count(&conversation, "reply_finished", 2)
+        .await?;
+    spade.say(&conversation, "Set it").await?;
+    spade
+        .wait_for_count(&conversation, "approval_requested", 2)
+        .await?;
+    approve("c3", false).await?;
+    spade
+        .wait_for_count(&conversation, "reply_finished", 3)
+        .await?;
+    spade.say(&conversation, "Check again").await?;
+    let events = spade
+        .wait_for_count(&conversation, "approval_requested", 3)
+        .await?;
+    let asked: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["type"] == "approval_requested")
+        .map(|e| &e["call_id"])
+        .collect();
+    assert_eq!(asked, vec![&json!("c1"), &json!("c3"), &json!("c4")]);
+    machine.terminals.end_all();
+    Ok(())
+}

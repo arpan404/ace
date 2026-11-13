@@ -102,12 +102,13 @@ pub(super) async fn handle_calls(
                     finish_tool(engine, id, reply, &pending.call, &name, missing).await;
                 }
                 Some(def) => {
-                    let always = match engine
+                    let key = format!("{id}.{}", pending.call.id);
+                    let scope = engine
                         .tools
                         .get_for(id, &name)
-                        .and_then(|tool| tool.always_scope(&arguments))
-                    {
-                        Some(scope) => allowed_always_for(engine, id, events, &name, &scope),
+                        .and_then(|tool| tool.always_scope_in(&key, &arguments));
+                    let always = match &scope {
+                        Some(scope) => allowed_always_for(engine, id, events, &name, scope),
                         None => transcript.always_allowed.iter().any(|t| t == &name),
                     };
                     let tainted = match def.risk {
@@ -149,6 +150,7 @@ pub(super) async fn handle_calls(
                                 call_id: pending.call.id.clone(),
                                 name,
                                 arguments,
+                                scope,
                             });
                             // Never asked once the reply is stopped, so no answer can allow it.
                             match engine.record_unless_stopped(id, reply, &asked) {
@@ -220,8 +222,9 @@ fn allowed_always_for(
             always: true,
             ..
         }) => events.iter().any(|asked| {
-            matches!(asked, Event::Known(Known::ApprovalRequested { call_id: c, name: n, arguments, .. })
-                if c == call_id && n == name && tool.always_scope(arguments).as_deref() == Some(scope))
+            matches!(asked, Event::Known(Known::ApprovalRequested { call_id: c, name: n, arguments, scope: asked_scope, .. })
+                if c == call_id && n == name
+                    && asked_scope.clone().or_else(|| tool.always_scope(arguments)).as_deref() == Some(scope))
         }),
         _ => false,
     })

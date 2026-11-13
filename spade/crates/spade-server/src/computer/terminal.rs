@@ -329,6 +329,29 @@ impl Terminal {
         }
     }
 
+    /// What the bot's next command would start from: the folder and the variables carried from
+    /// the last, as a digest. An "always" given for a command holds only while this is the same
+    /// (a carried `NODE_OPTIONS` or `PYTHONPATH` changes what the same command runs).
+    pub fn state_digest(&self) -> String {
+        let carried = lock(&self.carried).clone();
+        let dir = carried
+            .dir
+            .filter(|dir| dir.is_dir())
+            .unwrap_or_else(|| self.dir.clone());
+        // The same folder however it is named (`/var` and `/private/var` on macOS).
+        let dir = std::fs::canonicalize(&dir).unwrap_or(dir);
+        let mut env = carried.env;
+        env.sort();
+        let mut text = dir.to_string_lossy().into_owned();
+        for (name, value) in env {
+            text.push('\0');
+            text.push_str(&name);
+            text.push('=');
+            text.push_str(&value);
+        }
+        crate::workspace::trust::hash(text.as_bytes())
+    }
+
     /// Whether a bot command runs (or is still being stopped). The person types only once it is
     /// gone.
     pub fn bot_running(&self) -> bool {

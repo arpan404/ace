@@ -83,6 +83,11 @@ pub enum Known {
         call_id: String,
         name: String,
         arguments: Value,
+        /// What answering "always" covers, as the tool said when it asked (a terminal command's
+        /// covers the command in the folder and with the variables it would run with, ADR
+        /// 0142). Absent for older events and tools whose always covers the whole tool.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        scope: Option<String>,
     },
     ApprovalAnswered {
         reply: String,
