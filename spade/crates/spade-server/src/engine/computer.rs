@@ -135,6 +135,32 @@ impl Engine {
         rx
     }
 
+    /// At a step boundary of the bot in `conversation`, never mid-call: stores Spade's summary of
+    /// what the person did on its computer in cowork since it was last told, when there is one
+    /// and it is due (ADR 0143). Answers whether one was stored, so the step reads it.
+    pub(super) fn offer_person_activity(&self, conversation: &str) -> bool {
+        let Some(computers) = self.computers.get() else {
+            return false;
+        };
+        let Some(agent) = self.agent_of(conversation) else {
+            return false;
+        };
+        let Some(note) = computers.take_activity(&agent) else {
+            return false;
+        };
+        let event = Event::Known(Known::PersonActivity {
+            text: note.text,
+            data: note.data,
+        });
+        match self.record(conversation, &event) {
+            Ok(_) => true,
+            Err(error) => {
+                tracing::warn!(%conversation, %error, "the person's activity could not be stored");
+                false
+            }
+        }
+    }
+
     /// A tool started in `conversation`: one of ace's browser or screen tools makes that surface
     /// of the bot's computer live.
     pub(super) fn computer_tool_started(&self, conversation: &str, name: &str) {

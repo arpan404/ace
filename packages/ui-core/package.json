@@ -22,6 +22,7 @@
     "./counts": "./src/counts.ts",
     "./phone-keymap": "./src/phone-keymap.ts",
     "./computer-use": "./src/computer-use.ts",
+    "./cowork": "./src/cowork.ts",
     "./outside-clients": "./src/outside-clients.ts",
     "./devices": "./src/device-kit.ts",
     "./browser-devices": "./src/browser-devices.ts",

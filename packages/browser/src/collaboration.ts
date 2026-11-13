@@ -1,9 +1,11 @@
 import type { BrowserCommand } from "@ace/protocol";
+import { personQuietMs, personWaitMs, presenceStep } from "@ace/interaction/presence";
 
 /*
  * People and agents share every tab (ADR 0067, "Collaboration"). Nobody takes or hands back
  * control: the person's input always lands at once, and an agent's input politely waits while
  * the person is busy in the same tab. These are the pure rules; the tab runtime applies them.
+ * The quiet window and the longest wait are cowork's, the same for every surface (ADR 0143).
  */
 
 export interface CollaborationTiming {
@@ -23,8 +25,8 @@ export interface CollaborationTiming {
 }
 
 export const collaborationTiming: CollaborationTiming = {
-  quietMs: 1_500,
-  maxWaitMs: 10_000,
+  quietMs: personQuietMs,
+  maxWaitMs: personWaitMs,
   inUseMs: 8_000,
   followAfterMs: 30_000,
   presentMs: 30_000,
@@ -68,9 +70,6 @@ export function agentInputDelay(
   waitingSince: number,
   timing: CollaborationTiming,
 ): number | "give_up" {
-  const quietIn = humanAt + timing.quietMs - now;
-  if (quietIn <= 0) return 0;
-  const left = waitingSince + timing.maxWaitMs - now;
-  if (left <= 0) return "give_up";
-  return Math.min(quietIn, left);
+  const step = presenceStep(now, humanAt, waitingSince, timing);
+  return step.kind === "run" ? 0 : step.kind === "give_up" ? "give_up" : step.ms;
 }

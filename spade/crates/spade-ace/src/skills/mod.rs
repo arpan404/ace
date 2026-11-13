@@ -286,8 +286,10 @@ impl AceSkills {
     }
 
     /// Hands a bot's browser and screen to `driver` (`person` or `bot`): `spade.computer.drive`.
-    /// The answer's fields beside `requestId` (`driver`, `handback` when the person handed back,
-    /// or `error`). Setting the current driver again changes nothing.
+    /// The frame names the mode too (ADR 0143): `exclusive` for the person, `cowork` for the bot;
+    /// a daemon that knows modes goes by it, an older one by `driver`. The answer's fields beside
+    /// `requestId` (`driver`, `mode`, `handback` when the person handed back, or `error`).
+    /// Setting the current driver again changes nothing.
     pub async fn spade_computer_drive(
         &self,
         bot: &str,
@@ -299,6 +301,7 @@ impl AceSkills {
                 "requestId": id,
                 "bot": bot,
                 "driver": driver,
+                "mode": if driver == "person" { "exclusive" } else { "cowork" },
             })
         })
         .await

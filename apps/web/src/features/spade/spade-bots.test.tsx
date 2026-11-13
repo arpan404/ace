@@ -60,6 +60,7 @@ test("New bot creates the bot on the machine chosen for it and opens its convers
         name: "Travel",
         task: "Plan and book my trips",
         model: "openrouter/anthropic/sonnet",
+        access: "auto_review",
         avatar: expect.objectContaining({ kind: "character", v: 1, body: "fox", pair: "cocoa" }),
       },
     ]),

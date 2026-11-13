@@ -2,6 +2,7 @@ import { botFaceStateOf } from "@ace/ui-core/bot-face";
 import { formatAge } from "@ace/ui-core";
 import {
   spadeCappedLine,
+  spadeTaskLine,
   spadeGroupLine,
   spadeLiveSurfaces,
   spadeProblemStep,
@@ -57,6 +58,14 @@ export function rosterLine(bot: RosterBot): { text: string; tone?: "working" | "
   if (bot.unavailable) return { text: `Unavailable · Spade isn't running on ${bot.machine.name}` };
   // The person has its computer: Spade pauses it until they hand it back.
   if (bot.computer?.driver === "person") return { text: "Paused while you have the computer" };
+  // A task it carries on by itself, or one that waits on the person, says so in the same words
+  // as its chat; the name is the row's first line.
+  const task = spadeTaskLine(bot.name, bot.progress, bot.status);
+  if (task?.tone === "needs-you") return { text: "Needs you", tone: "needs-you" };
+  // Waiting on a job, another bot or its next step's time: quiet, nothing for the person to do.
+  if (task?.tone === "waiting") return { text: ["Waiting", task.step].filter(Boolean).join(" · ") };
+  if (task)
+    return { text: ["Working on it", task.step].filter(Boolean).join(" · "), tone: "working" };
   if (bot.state === "waiting" && bot.waitingFor === "question")
     return { text: "Asked you a question", tone: "needs-you" };
   if (bot.state === "waiting") return { text: bot.status ?? "Waiting for you", tone: "needs-you" };

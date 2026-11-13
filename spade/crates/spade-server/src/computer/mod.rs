@@ -6,6 +6,7 @@
 //! restart keeps the bot paused. Surfaces are what is happening now and live in memory.
 
 mod ace_sync;
+pub mod cowork;
 pub mod daemon;
 pub mod note;
 pub mod ring;
@@ -26,6 +27,7 @@ use tokio::sync::broadcast;
 use crate::clock::Clock;
 use crate::workspace::{Snapshot, Workspaces, changes};
 pub use ace_sync::RESYNC;
+pub use cowork::Mode;
 pub use terminal::Terminals;
 
 /// Where the bots' `shell` commands run here: in each bot's terminal, or (Windows, which has no
@@ -43,7 +45,6 @@ pub fn shell_commands(
 
 /// How long a surface counts as live after it was last used.
 pub const ACTIVE: Duration = Duration::from_secs(2 * 60);
-/// Most lines the person entered that a hand-back note keeps.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -87,7 +88,7 @@ impl Kind {
         }
     }
 
-    fn word(self) -> &'static str {
+    pub(crate) fn word(self) -> &'static str {
         match self {
             Self::Browser => "browser",
             Self::Screen => "screen",
@@ -100,6 +101,9 @@ impl Kind {
 /// What `GET /v1/agents/{id}/computer` answers and the live `computer` frame carries.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct View {
+    /// `cowork` (both at once) or `exclusive` (the person took over; the bot is paused).
+    pub mode: Mode,
+    /// `person` in exclusive mode, `bot` in cowork.
     pub driver: Driver,
     /// The person took over and some of the bot's work is still being stopped (a command in its
     /// terminal, or a call ace hasn't seen end): they don't have the controls yet.
@@ -132,6 +136,8 @@ pub struct SurfaceView {
     pub backend: Option<String>,
     /// When it was last used.
     pub last: Option<i64>,
+    /// The person is using it now (for the browser and screen, as ace reports it).
+    pub person_active: bool,
 }
 
 /// A change the app hears on the conversation's live stream.
@@ -164,9 +170,13 @@ pub struct Report {
     pub title: Option<String>,
     #[serde(default)]
     pub url: Option<String>,
-    /// The person clicked or typed in it (while they had the computer).
+    /// The person clicked or typed in it.
     #[serde(default)]
     pub person_acted: bool,
+    /// The person used it within the last few seconds (ace's cowork report). Absent from older
+    /// daemons.
+    #[serde(default)]
+    pub person_active: Option<bool>,
     /// The hidden ace thread the bot's browser and screen run in.
     #[serde(default)]
     pub thread_id: Option<String>,
@@ -240,6 +250,16 @@ pub struct Computers {
     stopping: Mutex<HashSet<String>>,
     /// Bots whose browser and screen haven't been read from ace since Spade started.
     unread: Mutex<HashSet<String>>,
+    /// When the person last acted on each bot's surface (cowork and exclusive).
+    person_seen: Mutex<HashMap<(String, Kind), i64>>,
+    /// Whether ace last said the person is active on each bot's browser or screen.
+    reported_active: Mutex<HashMap<(String, Kind), bool>>,
+    /// What the person did in cowork since each bot was last told.
+    activity: Mutex<HashMap<String, cowork::Activity>>,
+    /// When each bot was last offered a summary.
+    offered: Mutex<HashMap<String, i64>>,
+    /// Paths the person changed in cowork and when, so the bot leaves them alone a while.
+    person_files: Mutex<HashMap<String, Vec<cowork::Recent>>>,
     changes: broadcast::Sender<Change>,
     me: Weak<Self>,
 }
@@ -294,6 +314,7 @@ impl Computers {
                 }
             }
         }
+        let person_files = cowork::load_recent(&root, clock.now_ms());
         let computers = Arc::new_cyclic(|me| Self {
             root,
             workspaces,
@@ -312,6 +333,11 @@ impl Computers {
             transit: Mutex::default(),
             handbacks: Mutex::default(),
             unread: Mutex::default(),
+            person_seen: Mutex::default(),
+            reported_active: Mutex::default(),
+            activity: Mutex::default(),
+            offered: Mutex::default(),
+            person_files: Mutex::new(person_files),
             changes: broadcast::channel(1024).0,
             me: me.clone(),
         });
@@ -371,7 +397,9 @@ impl Computers {
         lock(&self.records).keys().cloned().collect()
     }
 
-    /// Checks once under the driver lock and holds it until the file operation ends.
+    /// Checks once under the driver lock and holds it until the file operation ends. In cowork
+    /// the person writes at once (the caller checks the revision they opened); in exclusive mode
+    /// only once none of the bot's work is still stopping.
     pub(crate) fn person_file_write<T>(
         &self,
         agent: &str,
@@ -379,7 +407,9 @@ impl Computers {
     ) -> Result<T, &'static str> {
         let records = lock(&self.records);
         if !records.contains_key(agent) {
-            return Err("take over the bot's computer before changing its files");
+            let result = write();
+            drop(records);
+            return Ok(result);
         }
         let stopping = lock(&self.stopping);
         if stopping.contains(agent) || self.terminals.info(agent).busy {
@@ -413,6 +443,7 @@ impl Computers {
                         ending_stuck: false,
                         backend: s.backend.clone(),
                         last: s.last,
+                        person_active: self.person_active(agent, kind),
                     });
                 }
             }
@@ -429,6 +460,7 @@ impl Computers {
             ending_stuck: info.ending_stuck,
             backend: None,
             last: info.last,
+            person_active: self.person_active(agent, Kind::Terminal),
         });
         let touched = lock(&self.files).get(agent).cloned();
         let files_live = recent(touched.as_ref().map(|t| t.at));
@@ -442,11 +474,13 @@ impl Computers {
             ending_stuck: false,
             backend: None,
             last: touched.map(|t| t.at),
+            person_active: self.person_active(agent, Kind::Files),
         });
         let thread_id = lock(&self.threads).get(agent).cloned();
         let stopping =
             driver == Driver::Person && (info.busy || lock(&self.stopping).contains(agent));
         View {
+            mode: self.mode(agent),
             driver,
             stopping,
             thread_id,
@@ -536,7 +570,16 @@ impl Computers {
         if let Some(thread) = report.thread_id {
             lock(&self.threads).insert(agent.to_owned(), thread.chars().take(200).collect());
         }
+        if let Some(active) = report.person_active {
+            lock(&self.reported_active).insert((agent.to_owned(), kind), active);
+        }
         if report.person_acted {
+            self.person_seen(agent, kind);
+            let visited = lock(&self.surfaces)
+                .get(&(agent.to_owned(), kind))
+                .filter(|_| kind == Kind::Browser)
+                .and_then(|s| s.url.clone());
+            self.person_did(agent, kind, &[], visited.as_deref());
             self.change_record(agent, |record| {
                 record.used.insert(kind.word().to_owned());
             })?;
@@ -562,12 +605,17 @@ impl Computers {
         self.changed(agent);
     }
 
-    /// The person wrote `path` through the app (it is trusted: the caller records that).
-    pub fn person_wrote(&self, agent: &str, path: &str) {
+    /// The person changed these paths through the app (`changed`, `new`, `removed`). What they
+    /// write is trusted: the caller records that.
+    pub fn person_changed(&self, agent: &str, files: &[(String, &'static str)]) {
         let _ = self.change_record_if_held(agent, |record| {
-            record.wrote.insert(path.to_owned());
+            for (path, _) in files {
+                record.wrote.insert(path.clone());
+            }
         });
-        self.files_changed(agent, Some(vec![path.to_owned()]));
+        self.person_seen(agent, Kind::Files);
+        self.person_did(agent, Kind::Files, files, None);
+        self.files_changed(agent, Some(files.iter().map(|(p, _)| p.clone()).collect()));
     }
 
     /// The person typed in the terminal. What they typed is theirs and never kept: the note
@@ -581,6 +629,8 @@ impl Computers {
                 record.used.insert("terminal".to_owned());
             });
         }
+        self.person_seen(agent, Kind::Terminal);
+        self.person_did(agent, Kind::Terminal, &[], None);
         self.files_changed(agent, None);
     }
 
@@ -671,6 +721,7 @@ impl Computers {
         lock(&self.wanted).remove(agent);
         lock(&self.handbacks).remove(agent);
         lock(&self.sent).remove(agent);
+        self.forget_activity(agent);
         self.terminals.remove(agent);
     }
 

@@ -1,3 +1,4 @@
+import { spadeAccessLabel, parseSpadeAccess } from "./autonomy.ts";
 import { z } from "zod";
 import { spadeJson, spadeRecord } from "./json.ts";
 import { spadeMoney } from "./oversight.ts";
@@ -16,6 +17,8 @@ export const spadeActivityKinds = [
   "approval",
   "routine",
   "review",
+  "task",
+  "access",
   "spend",
   "cap",
 ] as const;
@@ -30,6 +33,8 @@ export const spadeActivityKindWords: Record<SpadeActivityKind, string> = {
   approval: "Approvals",
   routine: "Routines",
   review: "Reviews",
+  task: "Progress",
+  access: "Access",
   spend: "Spending",
   cap: "Caps",
 };
@@ -129,7 +134,30 @@ function connectorParts(name: string): { app: string; tool: string } {
   return at < 0 ? { app: "", tool: name } : { app: name.slice(0, at), tool: name.slice(at + 2) };
 }
 
-function sentenceOf(entry: SpadeActivityEntry): { sentence: string; outcome?: string | undefined } {
+const reviewVerdicts: Record<string, string> = {
+  approved: "approved",
+  allowed: "approved",
+  allow: "approved",
+  refused: "refused",
+  refuse: "refused",
+  denied: "refused",
+  escalated: "asked you",
+  escalate: "asked you",
+};
+
+/** A verdict's reason: Spade's `reason`, else the entry's summary. */
+const reasonOf = (entry: SpadeActivityEntry): string | undefined => {
+  const reason = entry.raw.reason;
+  return (typeof reason === "string" && reason) || entry.summary || undefined;
+};
+
+const capitalised = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
+function sentenceOf(entry: SpadeActivityEntry): {
+  sentence: string;
+  outcome?: string | undefined;
+  detail?: string | undefined;
+} {
   const name = entry.name ?? "";
   const words = spadeToolWords(name);
   const outcome = entry.outcome ?? "";
@@ -158,11 +186,26 @@ function sentenceOf(entry: SpadeActivityEntry): { sentence: string; outcome?: st
     case "routine":
       return { sentence: outcome === "heartbeat" ? "Heartbeat ran" : `${name || "A routine"} ran` };
     case "review":
+      // An older Spade's review only allowed or escalated.
       return {
-        sentence:
-          outcome === "escalated"
-            ? `The review asked you before it would ${words.base}`
-            : `The review allowed it to ${words.base}`,
+        sentence: `The reviewer ${reviewVerdicts[outcome] ?? "approved"}: ${words.base}`,
+        detail: reasonOf(entry),
+      };
+    case "access": {
+      const access = parseSpadeAccess(name);
+      return {
+        sentence: access ? `Access changed to ${spadeAccessLabel(access)}` : "Access changed",
+        detail: "",
+      };
+    }
+    case "task":
+      // Spade names it `continued` or `paused`, and its summary is the whole sentence ("carried
+      // on by itself, step 4", "Paused after 25 steps on its own. …").
+      return {
+        sentence: capitalised(
+          entry.summary || (name === "paused" ? "Paused its task" : "Carried on by itself"),
+        ),
+        detail: "",
       };
     case "spend":
       return { sentence: turnEnds[outcome] ?? "Finished a turn" };
@@ -174,14 +217,14 @@ function sentenceOf(entry: SpadeActivityEntry): { sentence: string; outcome?: st
 }
 
 export function spadeActivityWords(entry: SpadeActivityEntry): SpadeActivityWords {
-  const { sentence, outcome } = sentenceOf(entry);
+  const { sentence, outcome, detail } = sentenceOf(entry);
   const facts = [
     ...(outcome ? [outcome] : []),
     ...(entry.costMicros === undefined ? [] : [spadeMoney(entry.costMicros)]),
   ];
   return {
     sentence,
-    detail: entry.summary || undefined,
+    detail: (detail ?? entry.summary) || undefined,
     facts: facts.length ? facts.join(" · ") : undefined,
   };
 }

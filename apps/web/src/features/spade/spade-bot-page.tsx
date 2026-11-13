@@ -8,7 +8,7 @@ import {
 } from "@ace/ui-core/spade-chat";
 import { formatAge, formatAgo } from "@ace/ui-core/time";
 import { useNavigate } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
 import { Icon } from "@/components/icon.tsx";
@@ -19,6 +19,8 @@ import { Switch } from "@/components/ui/switch.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useNow } from "@/lib/time.ts";
 import { surfaceIcons } from "./computer/computer-view.tsx";
+import { AccessChoice } from "./spade-access-choice.tsx";
+import { editAgent } from "./spade-api.ts";
 import { BotScreen, deleting, useOpenBot } from "./spade-bot-screen.tsx";
 import { EditBotDialog } from "./spade-bot-dialog.tsx";
 import { SpadeFace } from "./spade-face.tsx";
@@ -32,13 +34,14 @@ import { message } from "./spade-screen-parts.tsx";
 import { readFolder } from "./spade-workspace-api.ts";
 import { useDeleteBot, useDuplicateBot, useExportBot } from "./use-bot-actions.ts";
 import { useSpadeModels, useSpadeSubscriptions } from "./use-spade-models.ts";
-import type { RosterBot } from "./use-spade-roster.ts";
+import { agentsKey, type RosterBot } from "./use-spade-roster.ts";
 import { useSpadeRoutines } from "./use-spade-routines.ts";
 
 /**
  * A bot's own page, opened from its name: its face, name, machine and model, its task, then Edit,
  * Duplicate, Export and Delete; and its sections: Computer (what it used last, to open), Routines
- * (each with its switch), Memory (edited in place), Files, Activity and Spending.
+ * (each with its switch), Memory (edited in place), Access (changed in place), Files, Activity
+ * and Spending.
  */
 export function BotPage(props: { bot: RosterBot }) {
   const { bot } = props;
@@ -122,6 +125,7 @@ export function BotPage(props: { bot: RosterBot }) {
               </SettingSection>
             </div>
             <div className="flex min-w-0 flex-col gap-8">
+              <AccessSection bot={bot} />
               <FilesSection bot={bot} />
               <ActivitySection bot={bot} />
               <SpendingSection bot={bot} onEdit={() => setEditing(true)} />
@@ -377,10 +381,54 @@ function ActivitySection(props: { bot: RosterBot }) {
   );
 }
 
-/** This month's spend and today's, its caps, and its model review; Edit changes them. */
+/** How much it may do without asking, saved the moment the person picks another level. */
+function AccessSection(props: { bot: RosterBot }) {
+  const { bot } = props;
+  const client = useSpadeClient();
+  const cache = useQueryClient();
+  const toast = useToast();
+  const saved = bot.access ?? "ask";
+  // The level picked shows at once; it falls back if Spade refuses it.
+  const [shown, setShown] = useState(saved);
+  const [seen, setSeen] = useState(saved);
+  const [saving, setSaving] = useState(false);
+  if (seen !== saved) {
+    setSeen(saved);
+    setShown(saved);
+  }
+  return (
+    <SettingSection label="Access">
+      <div className="py-3">
+        <AccessChoice
+          name={bot.name}
+          value={shown}
+          disabled={saving}
+          headed
+          onChange={(access) => {
+            setShown(access);
+            setSaving(true);
+            editAgent(client, bot.id, { access })
+              .then(
+                () => cache.invalidateQueries({ queryKey: agentsKey }),
+                (error: unknown) => {
+                  setShown(saved);
+                  toast.error({
+                    title: `Couldn't change ${bot.name}'s access`,
+                    description: message(error),
+                  });
+                },
+              )
+              .finally(() => setSaving(false));
+          }}
+        />
+      </div>
+    </SettingSection>
+  );
+}
+
+/** This month's spend and today's, and its caps; Edit changes them. */
 function SpendingSection(props: { bot: RosterBot; onEdit(): void }) {
   const spending = props.bot.spending;
-  const review = props.bot.review;
   return (
     <SettingSection
       label="Spending"
@@ -409,11 +457,6 @@ function SpendingSection(props: { bot: RosterBot; onEdit(): void }) {
           <span className="text-ui tabular-nums">{spadeMoney(spending.monthlyCapMicros)}</span>
         </SettingRow>
       )}
-      <SettingRow inline title="Review">
-        <span className="text-ui text-muted-foreground">
-          {review === undefined ? "Follows default" : review ? "On" : "Off"}
-        </span>
-      </SettingRow>
     </SettingSection>
   );
 }

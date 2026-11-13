@@ -96,6 +96,7 @@ pub struct AceLink {
     grants: AtomicU64,
     /// Set once the stored grant has been read (or there is nothing to read).
     loaded: AtomicBool,
+    refusals: AtomicU64,
     retry: Retry,
     current: RwLock<Option<Connected>>,
     connected: AtomicBool,
@@ -132,6 +133,7 @@ impl AceLink {
             keys,
             grant: Mutex::new(None),
             grants: AtomicU64::new(0),
+            refusals: AtomicU64::new(0),
             loaded: AtomicBool::new(false),
             retry,
             current: RwLock::default(),
@@ -152,6 +154,22 @@ impl AceLink {
     /// Whether ace's tools are reachable now.
     pub fn connected(&self) -> bool {
         self.connected.load(Ordering::SeqCst)
+    }
+
+    /// Three consecutive authentication refusals with the current grant need a new credential.
+    pub fn refused(&self) -> bool {
+        self.refusals.load(Ordering::SeqCst) >= 3
+    }
+
+    fn observe_refusal(&self, generation: u64, refused: bool) {
+        let _held = self.grant.lock().unwrap_or_else(|p| p.into_inner());
+        if self.grants.load(Ordering::SeqCst) == generation {
+            if refused {
+                self.refusals.fetch_add(1, Ordering::SeqCst);
+            } else {
+                self.refusals.store(0, Ordering::SeqCst);
+            }
+        }
     }
 
     /// Waits until ace's tools are reachable, for at most `longest`. Returns whether they are.
@@ -201,6 +219,7 @@ impl AceLink {
             let mut held = self.grant.lock().unwrap_or_else(|p| p.into_inner());
             *held = Some(Secret::new(grant));
             self.grants.fetch_add(1, Ordering::SeqCst);
+            self.refusals.store(0, Ordering::SeqCst);
         }
         self.retire_clients();
         self.wake.notify_one();
@@ -213,6 +232,7 @@ impl AceLink {
             let mut held = self.grant.lock().unwrap_or_else(|p| p.into_inner());
             *held = None;
             self.grants.fetch_add(1, Ordering::SeqCst);
+            self.refusals.store(0, Ordering::SeqCst);
         }
         self.retire_clients();
         self.disconnect();
@@ -314,16 +334,19 @@ impl AceLink {
             listed = tokio::time::timeout(self.retry.answer, client.tools()) => match listed {
                 Ok(Ok(list)) => list,
                 Ok(Err(error)) => {
+                    self.observe_refusal(grants, matches!(error, spade_ace::ToolsError::Refused));
                     tracing::debug!(%error, "could not reach ace");
                     return Ended::Lost { connected: false };
                 }
                 Err(_) => {
+                    self.observe_refusal(grants, false);
                     tracing::debug!("ace did not answer in time");
                     return Ended::Lost { connected: false };
                 }
             },
             () = self.wake.notified() => return Ended::Woken,
         };
+        self.observe_refusal(grants, false);
         let skills = Arc::new(AceSkills::new(config.skills));
         if !self.offer(grants, &client, &skills, &list) {
             return Ended::Woken;
@@ -344,15 +367,18 @@ impl AceLink {
             };
             match checked {
                 Ok(Ok(list)) => {
+                    self.observe_refusal(grants, false);
                     if !self.offer(grants, &client, &skills, &list) {
                         return Ended::Woken;
                     }
                 }
                 Ok(Err(error)) => {
+                    self.observe_refusal(grants, matches!(error, spade_ace::ToolsError::Refused));
                     tracing::info!(%error, "lost ace; its tools are gone until it is back");
                     return Ended::Lost { connected: true };
                 }
                 Err(_) => {
+                    self.observe_refusal(grants, false);
                     tracing::info!("ace stopped answering; its tools are gone until it is back");
                     return Ended::Lost { connected: true };
                 }
@@ -638,6 +664,7 @@ mod tests {
             keys: None,
             grant: Mutex::new(None),
             grants: AtomicU64::new(0),
+            refusals: AtomicU64::new(0),
             loaded: AtomicBool::new(true),
             retry: Retry {
                 answer: Duration::from_millis(300),

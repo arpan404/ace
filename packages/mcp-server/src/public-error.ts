@@ -41,6 +41,7 @@ export const PublicToolCode = z.enum([
   "human_private",
   "needs_person",
   "person_driving",
+  "person_busy",
   "browser_paused",
   "browser_closed",
   "backend_changed",
@@ -262,6 +263,10 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   person_driving: {
     message: "The person is driving this computer",
     hint: "They took over your browser and screen. Don't retry or work around it: carry on with work that needs neither, or end your turn saying where you were. You'll be told what they did when they hand back.",
+  },
+  person_busy: {
+    message: "The person is using this right now; nothing was done",
+    hint: "They kept working in the same tab, app or device for a minute. Try again shortly, or work in another tab or app meanwhile.",
   },
   needs_person: {
     message: "This page needs the person",

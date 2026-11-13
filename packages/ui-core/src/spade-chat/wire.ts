@@ -95,6 +95,8 @@ const known = z.discriminatedUnion("type", [
     call_id: z.string(),
     name: z.string(),
     arguments: z.unknown().optional(),
+    /** Why the auto-review asked the person rather than approve it itself. */
+    reviewer_reason: z.string().nullish().catch(undefined),
   }),
   z.object({
     type: z.literal("approval_answered"),
@@ -156,6 +158,11 @@ const known = z.discriminatedUnion("type", [
     name: z.string().catch(""),
     verdict: z.string(),
     reason: z.string().catch("").default(""),
+  }),
+  z.object({
+    type: z.literal("task_paused"),
+    reason: z.enum(["budget", "no_progress"]),
+    steps: z.number().int().nonnegative(),
   }),
   z.object({ type: z.literal("context_compacted") }),
   z.object({

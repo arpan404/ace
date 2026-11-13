@@ -89,6 +89,7 @@ export interface SpadeReplyEntry {
 }
 
 export type SpadeEntry =
+  | { kind: "task-paused"; key: string; reason: "budget" | "no_progress"; steps: number }
   | {
       kind: "user";
       key: string;
@@ -345,7 +346,8 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           callId: event.call_id,
           name: event.name,
           arguments: event.arguments,
-          reason: state.reviews.get(event.call_id),
+          // An escalation carries the reviewer's reason itself; an older Spade sent it apart.
+          reason: event.reviewer_reason || state.reviews.get(event.call_id),
         },
       ];
       setCall(state, event.reply, event.call_id, event.name, "waiting");
@@ -442,6 +444,9 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       );
     case "reply_interrupted":
       return closeReply(state, event.reply, { kind: "interrupted" }, event.text);
+    case "task_paused":
+      state.entries.push({ kind: "task-paused", key, reason: event.reason, steps: event.steps });
+      return true;
     case "context_compacted":
       state.entries.push({ kind: "compacted", key });
       return true;

@@ -11,3 +11,5 @@ export const loadComputerUseSettings = () =>
 export { keyInput, pointerGesture, windowPoint, type ShownPicture } from "./live-input.ts";
 /** A Spade bot's screen session, live, with the person's input only while they drive. */
 export const loadBotScreen = () => import("./bot-screen.tsx");
+/** The agent's pointer over a live picture the person and the agent share. */
+export { AgentCursor } from "./agent-cursor.tsx";

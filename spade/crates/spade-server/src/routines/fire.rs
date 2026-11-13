@@ -255,6 +255,7 @@ fn deliver(
         label,
         heartbeat,
         event,
+        untrusted: r.untrusted,
     };
     match engine.deliver_routine(conversation, &text, from) {
         Ok(seq) => engine.store().run_delivered(run, seq)?,

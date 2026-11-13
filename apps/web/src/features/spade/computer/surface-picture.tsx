@@ -1,18 +1,19 @@
-import { spadeHostOf, type SpadeSurface } from "@ace/ui-core/spade-chat";
+import { spadeHostOf, type SpadeAvatar, type SpadeSurface } from "@ace/ui-core/spade-chat";
 import { LockSimpleIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
 import { SurfaceLive } from "./surface-live.tsx";
 
 /**
  * A bot's browser (under its address) or screen in the expanded computer: the live view, which
- * takes the person's input only while they drive.
+ * takes the person's input while they may act (cowork, or exclusive while they drive).
  */
 export function SurfacePicture(props: {
   machine: { key: string; name: string; primary: boolean };
-  bot: { id: string; name: string };
+  bot: { id: string; name: string; avatar: SpadeAvatar };
   kind: "browser" | "screen";
   surface: SpadeSurface | undefined;
   threadId: string | undefined;
+  mayAct: boolean;
   driving: boolean;
   label: string;
 }) {

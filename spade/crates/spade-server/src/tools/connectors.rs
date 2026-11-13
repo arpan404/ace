@@ -93,6 +93,19 @@ impl Tool for ConnectorCall {
         self.def.clone()
     }
 
+    fn class(&self, arguments: &Value) -> spade_core::autonomy::Class {
+        spade_core::autonomy::classify(
+            &self.tool.tool.name,
+            self.def.risk,
+            spade_core::autonomy::Source::App(spade_core::autonomy::AppHints {
+                description: &self.tool.tool.description,
+                annotated: self.tool.tool.annotated,
+                open_world: self.tool.tool.open_world,
+            }),
+            arguments,
+        )
+    }
+
     fn run(&self, _key: &str, arguments: Value) -> ToolFuture {
         let hub = self.hub.clone();
         let (connector, name) = (self.tool.connector.clone(), self.tool.tool.name.clone());

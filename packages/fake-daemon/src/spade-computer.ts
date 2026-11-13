@@ -1,8 +1,9 @@
 import type { FakeSpadeAnswer } from "./spade.ts";
 
 /*
- * Each bot's computer in the fake Spade: who drives it, the surfaces it uses, its terminal's
- * output and the file writes the file manager sends (`/v1/agents/{id}/computer`, `/terminal`,
+ * Each bot's computer in the fake Spade: who has it (cowork by default, exclusive once the person
+ * takes over), the surfaces it uses, its terminal's output and the file writes the file manager
+ * sends (a save with a stale `base` is refused `409 changed`) (`/v1/agents/{id}/computer`, `/terminal`,
  * `/files`). Tests and the fake app stage it (`use`, `print`) and read what the app sent.
  */
 
@@ -17,6 +18,16 @@ export interface FakeSurface {
   last?: number | null;
   tab_id?: string | null;
   backend?: "user";
+  /** The person acted here just now: in cowork the bot waits for them. */
+  person_active?: boolean;
+}
+
+/** A file's revision as the fake Spade reads it: a hash of its text. */
+export function fakeFileRevision(text: string): string {
+  let hash = 5381;
+  for (let index = 0; index < text.length; index++)
+    hash = ((hash * 33) ^ text.charCodeAt(index)) >>> 0;
+  return `r${hash.toString(36)}-${text.length}`;
 }
 
 interface Terminal {
@@ -56,6 +67,29 @@ const encode = (text: string) => btoa(String.fromCharCode(...new TextEncoder().e
 const decode = (base64: string) =>
   new TextDecoder().decode(Uint8Array.from(atob(base64), (char) => char.charCodeAt(0)));
 
+/**
+ * Spade's answer to a write whose `base` (the revision the person opened) the file at `path` no
+ * longer has, or that is gone: `409 changed`. Undefined when the write may go.
+ */
+export function fakeStale(
+  files: Record<string, string>,
+  path: string,
+  base: unknown,
+): FakeSpadeAnswer | undefined {
+  if (typeof base !== "string") return undefined;
+  const now = files[path];
+  if (now !== undefined && base === fakeFileRevision(now)) return undefined;
+  return reply(
+    {
+      error: "changed",
+      code: "changed",
+      message: "The file changed since you opened it.",
+      revision: now === undefined ? null : fakeFileRevision(now),
+    },
+    409,
+  );
+}
+
 export class FakeSpadeComputer {
   private readonly drivers = new Map<string, "bot" | "person">();
   private readonly surfaces = new Map<string, FakeSurface[]>();
@@ -67,6 +101,8 @@ export class FakeSpadeComputer {
   private sequence = 0;
   /** True: changes send no `computer` frame, as a stream that lags behind would. */
   quiet = false;
+  /** Set: every file save fails with this (`500`), as a full disk would. */
+  failSaves: string | undefined;
   /** While set, reads of the computer wait for it (`holdReads`). */
   private readsHeld: Promise<void> | undefined;
   private readonly deps: FakeComputerDeps;
@@ -85,8 +121,10 @@ export class FakeSpadeComputer {
         title: null,
         since: null,
       };
+    const driver = this.drivers.get(agent) ?? "bot";
     return {
-      driver: this.drivers.get(agent) ?? "bot",
+      driver,
+      mode: driver === "person" ? "exclusive" : "cowork",
       stopping: this.stoppingBots.has(agent),
       thread_id: this.threads.get(agent) ?? null,
       surfaces: [
@@ -105,6 +143,15 @@ export class FakeSpadeComputer {
     this.changed(agent);
   }
 
+  /** The person's input on a surface makes the bot yield (`person_active`), or no longer. */
+  personActive(agent: string, kind: FakeSurface["kind"], active: boolean): void {
+    const list = this.surfaces.get(agent) ?? [];
+    const surface = list.find((each) => each.kind === kind);
+    if (!surface) return;
+    surface.person_active = active;
+    this.changed(agent);
+  }
+
   /** ace reported the hidden thread the bot's browser and screen run in. */
   thread(agent: string, threadId: string): void {
     this.threads.set(agent, threadId);
@@ -116,6 +163,12 @@ export class FakeSpadeComputer {
     if (stopping) this.stoppingBots.add(agent);
     else this.stoppingBots.delete(agent);
     this.changed(agent);
+  }
+
+  /** The bot writes a file in its workspace, and its conversation stream says so. */
+  botWrites(agent: string, path: string, text: string): void {
+    this.deps.files(agent)[path] = text;
+    this.filesChanged(agent, [path]);
   }
 
   /** Output from the bot's terminal. */
@@ -182,7 +235,8 @@ export class FakeSpadeComputer {
         return done;
       }
       if (action === "input") {
-        if (this.driver(agent) !== "person") return problem(409, "Take over to type here.");
+        // Cowork or exclusive, the shell is the person's; after a take-over it waits for the
+        // bot's last command to go.
         if (this.stoppingBots.has(agent)) return problem(409, "still stopping");
         this.type(agent, decode(String(body.data_b64 ?? "")));
         return done;
@@ -206,6 +260,9 @@ export class FakeSpadeComputer {
     if (method === "PUT" && !action) {
       const path = query.get("path") ?? "";
       if (bad(path)) return problem(400, "That path isn't in the workspace.");
+      if (this.failSaves) return problem(500, this.failSaves);
+      const stale = fakeStale(files, path, body.base);
+      if (stale) return stale;
       files[path] = text();
       this.filesChanged(agent, [path]);
       return done;
@@ -214,6 +271,8 @@ export class FakeSpadeComputer {
     if (action === "upload" || action === "mkdir") {
       const path = String(body.path ?? "");
       if (bad(path)) return problem(400, "That path isn't in the workspace.");
+      const stale = action === "upload" ? fakeStale(files, path, body.base) : undefined;
+      if (stale) return stale;
       if (action === "upload") files[path] = text();
       else folders.add(path);
       this.filesChanged(agent, [path]);
@@ -223,6 +282,8 @@ export class FakeSpadeComputer {
       const from = String(body.from ?? "");
       const to = String(body.to ?? "");
       if (bad(from) || bad(to)) return problem(400, "That path isn't in the workspace.");
+      const stale = fakeStale(files, from, body.base);
+      if (stale) return stale;
       if (Object.keys(files).some((name) => under(name, to)) || folders.has(to))
         return problem(409, `${to} already exists.`);
       const moved = Object.keys(files).filter((name) => under(name, from));

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ThreadId } from "./ids.ts";
 import { SpadeBotId } from "./spade-brains.ts";
+import { CoworkSharing } from "./cowork.ts";
 
 /**
  * A Spade bot's computer as ace keeps it: its own browser and its use of the screen. Each bot
@@ -25,12 +26,20 @@ export const SpadeComputerTab = z.object({
    * that Chrome; ace streams none of it. Absent: ace's browser, watched with `browser.subscribe`.
    */
   backend: z.literal("user").optional(),
+  /** The person used this tab within the last 3 s; the bot's page input waits meanwhile. */
+  personActive: z.boolean().optional(),
 });
 export type SpadeComputerTab = z.infer<typeof SpadeComputerTab>;
 
 export const SpadeComputer = z.object({
   bot: SpadeBotId,
   driver: SpadeComputerDriver,
+  /**
+   * `cowork`: the bot and the person both act, and the bot waits while the person uses the same
+   * tab or app (ADR 0143). `exclusive`: the person took over (`driver: "person"`). Absent from
+   * older daemons: read it from `driver`.
+   */
+  mode: CoworkSharing.optional(),
   /** The bot's hidden thread, for `browser.subscribe`; absent until the bot first used either. */
   threadId: ThreadId.optional(),
   browser: z.object({ tabs: z.array(SpadeComputerTab).max(64) }),
@@ -39,6 +48,8 @@ export const SpadeComputer = z.object({
     apps: z.array(z.string().min(1).max(200)).max(16),
     /** When it began using the first of them, ms since the epoch. */
     since: z.number().int().nonnegative().optional(),
+    /** The person used one of those apps within the last 3 s. */
+    personActive: z.boolean().optional(),
   }),
 });
 export type SpadeComputer = z.infer<typeof SpadeComputer>;
@@ -75,16 +86,23 @@ export type SpadeComputerResult = z.infer<typeof SpadeComputerResult>;
  * screen tools are refused with `person_driving`. Handing back answers with what the person did.
  * Idempotent: setting the current driver changes nothing and reports no hand-back. Operate scope.
  */
-export const SpadeComputerDrive = z.object({
-  type: z.literal("spade.computer.drive"),
-  requestId,
-  bot: SpadeBotId,
-  driver: SpadeComputerDriver,
-});
+export const SpadeComputerDrive = z
+  .object({
+    type: z.literal("spade.computer.drive"),
+    requestId,
+    bot: SpadeBotId,
+    driver: SpadeComputerDriver.optional(),
+    /** `exclusive` takes over (as `driver: "person"`), `cowork` hands back; wins over `driver`. */
+    mode: CoworkSharing.optional(),
+  })
+  .refine((value) => value.driver !== undefined || value.mode !== undefined, {
+    message: "driver or mode is required",
+  });
 export const SpadeComputerDriveResult = z.object({
   type: z.literal("spade.computer.drive.result"),
   requestId: z.string(),
   driver: SpadeComputerDriver.optional(),
+  mode: CoworkSharing.optional(),
   /**
    * On a take-over: true once none of the bot's work runs, so the person has the controls;
    * false if some still ran when the daemon stopped waiting (12 s), so they don't yet. Sending

@@ -123,11 +123,14 @@ describe("spending", () => {
   });
 });
 
-const words = (fields: Record<string, unknown>) =>
+const parsedEntry = (fields: Record<string, unknown>) =>
+  parseSpadeActivity(JSON.stringify({ entries: [{ id: "1", seq: 1, ...fields }] }))?.entries[0] ??
+  (undefined as never);
+const verdict = (outcome: string, reason: string) =>
   spadeActivityWords(
-    parseSpadeActivity(JSON.stringify({ entries: [{ id: "1", seq: 1, ...fields }] }))?.entries[0] ??
-      (undefined as never),
-  ).sentence;
+    parsedEntry({ kind: "review", name: "send_email", outcome, reason, summary: "to: x" }),
+  );
+const words = (fields: Record<string, unknown>) => spadeActivityWords(parsedEntry(fields)).sentence;
 
 describe("activity", () => {
   test("a page says where the next one starts, even when it has no entries", () => {
@@ -191,9 +194,45 @@ describe("activity", () => {
       "Asked you to send an email",
     );
     expect(words({ kind: "review", name: "send_email", outcome: "escalated" })).toBe(
-      "The review asked you before it would send an email",
+      "The reviewer asked you: send an email",
     );
     expect(words({ kind: "cap", name: "monthly" })).toBe("Reached its monthly cap");
+  });
+
+  test("a reviewer verdict reads as approved, refused or asked you, with its reason under it", () => {
+    expect(verdict("allowed", "Routine reply the person asked for")).toMatchObject({
+      sentence: "The reviewer approved: send an email",
+      detail: "Routine reply the person asked for",
+    });
+    expect(verdict("refused", "Not part of its task")).toMatchObject({
+      sentence: "The reviewer refused: send an email",
+      detail: "Not part of its task",
+    });
+    expect(verdict("escalated", "Sends as you")).toMatchObject({
+      sentence: "The reviewer asked you: send an email",
+      detail: "Sends as you",
+    });
+  });
+
+  test("carrying on and pausing read as the step it took or why it stopped", () => {
+    expect(
+      spadeActivityWords(
+        parsedEntry({ kind: "task", name: "continued", summary: "carried on by itself, step 4" }),
+      ),
+    ).toMatchObject({ sentence: "Carried on by itself, step 4", detail: undefined });
+    const pause = "Paused after 25 steps on its own. Send a message to let it carry on.";
+    expect(
+      spadeActivityWords(parsedEntry({ kind: "task", name: "paused", summary: pause })),
+    ).toMatchObject({ sentence: pause, detail: undefined });
+  });
+
+  test("access changes name the selected level in the activity log", () => {
+    expect(words({ kind: "access", name: "auto_review" })).toBe("Access changed to Auto-review");
+    expect(
+      spadeActivityWords(
+        parsedEntry({ kind: "access", name: "full_access", summary: "access level" }),
+      ),
+    ).toMatchObject({ sentence: "Access changed to Full access", detail: undefined });
   });
 
   test("the query sends only the parts that are set", () => {

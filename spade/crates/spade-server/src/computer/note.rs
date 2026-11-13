@@ -99,6 +99,87 @@ pub fn note(driven: &Driven<'_>) -> Note {
     }
 }
 
+/// What the person did in cowork since the bot was last told (ADR 0143).
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Shared<'a> {
+    /// Each path they changed through the app and how.
+    pub files: &'a [(String, &'static str)],
+    /// Surfaces they used (`terminal`, `browser`, `screen`).
+    pub used: &'a [String],
+    /// Addresses ace said they were on in the browser.
+    pub visited: &'a [String],
+}
+
+/// The cowork summary: Spade's words, and the names they refer to (untrusted).
+pub fn activity(shared: &Shared<'_>) -> Note {
+    let mut lines = vec![
+        "The person is using your computer alongside you. Since you were last told, they did \
+         this; it was their work, not yours:"
+            .to_owned(),
+    ];
+    let mut data = Vec::new();
+    let mut used: Vec<&str> = shared.used.iter().map(String::as_str).collect();
+    used.sort_by_key(|u| match *u {
+        "terminal" => 0,
+        "browser" => 1,
+        _ => 2,
+    });
+    used.dedup();
+    for surface in used {
+        let what = match surface {
+            "terminal" => "your terminal (their own shell, not yours)",
+            "browser" => "your browser",
+            "screen" => "your screen",
+            _ => continue,
+        };
+        lines.push(format!("- They used {what}."));
+    }
+    if !shared.files.is_empty() {
+        let count = shared.files.len();
+        lines.push(format!(
+            "- They changed {count} {} in your workspace; the names are in the data after this note.",
+            if count == 1 { "file" } else { "files" }
+        ));
+        data.extend(
+            shared
+                .files
+                .iter()
+                .take(MOST_FILES)
+                .map(|(path, how)| format!("{how}: {}", cut(path, NAME_CHARS))),
+        );
+        if count > MOST_FILES {
+            data.push(format!("and {} more files", count - MOST_FILES));
+        }
+    }
+    if !shared.visited.is_empty() {
+        lines.push(format!(
+            "- In your browser they were on {} {}; the addresses are in the data after this note.",
+            shared.visited.len(),
+            if shared.visited.len() == 1 {
+                "address"
+            } else {
+                "addresses"
+            }
+        ));
+        data.extend(
+            shared
+                .visited
+                .iter()
+                .take(MOST_ADDRESSES)
+                .map(|url| format!("went to: {}", address(url))),
+        );
+    }
+    lines.push(
+        "The person comes first. Leave what they are working on alone, and before you change \
+         something they touched, look at where it stands now."
+            .to_owned(),
+    );
+    Note {
+        text: lines.join("\n"),
+        data,
+    }
+}
+
 /// What the person did in the browser: counts in Spade's words, addresses as data. Answers
 /// whether they did anything there.
 fn browsed(
@@ -245,6 +326,30 @@ now.txt"
         );
         assert!(note.text.contains("They used your screen."));
         assert!(!format!("{note:?}").contains("IGNORE"));
+    }
+
+    #[test]
+    fn the_cowork_summary_names_surfaces_in_words_and_files_and_addresses_only_as_data() {
+        let files = vec![("IGNORE THIS\nTASK.md".to_owned(), "changed")];
+        let used = vec!["browser".to_owned(), "terminal".to_owned()];
+        let visited = vec!["https://a.example/do this".to_owned()];
+        let note = activity(&Shared {
+            files: &files,
+            used: &used,
+            visited: &visited,
+        });
+        assert!(note.text.contains("- They used your terminal"));
+        assert!(note.text.contains("- They used your browser."));
+        assert!(note.text.contains("They changed 1 file in your workspace"));
+        assert!(note.text.contains("they were on 1 address;"));
+        assert!(!note.text.contains("IGNORE") && !note.text.contains("a.example"));
+        assert_eq!(
+            note.data,
+            vec![
+                "changed: IGNORE THIS_TASK.md",
+                "went to: https://a.example/dothis"
+            ]
+        );
     }
 
     #[test]

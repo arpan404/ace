@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ThreadId, AgentId } from "./ids.ts";
+import { AgentPointer, CoworkSharing } from "./cowork.ts";
 import { ScreenId, ScreenStreamSettings, ScreenPermissions } from "./screen-base.ts";
 import { ScreenUITreeOptions, ScreenUIFindOptions, ScreenUIActOptions } from "./screen-v2.ts";
 export * from "./device-chrome.ts";
@@ -92,6 +93,8 @@ export const DeviceFailure = z.object({
     "lease_required",
     "stale_ref",
     "limit",
+    /** Cowork (ADR 0143): the person kept using the device; the agent's input was not sent. */
+    "person_busy",
   ]),
   message: z.string().max(2048),
   hint: z.string().max(2048),
@@ -168,6 +171,12 @@ export const DeviceState = z.object({
    * Absent for every other device.
    */
   posture: DevicePosture.optional(),
+  /** `exclusive` while the person holds the device (`controller: "human"`); absent: `cowork`. */
+  sharing: CoworkSharing.optional(),
+  /** Where the agent last acted on the device, in device points (ADR 0143). */
+  agentPointer: AgentPointer.optional(),
+  /** The person used the device within the last 3 s; agents' actions wait meanwhile. */
+  personActive: z.boolean().optional(),
 });
 export type DeviceState = z.infer<typeof DeviceState>;
 const target = { deviceId: AppDeviceId };

@@ -1,4 +1,5 @@
-//! The person changes files only while driving, within the workspace.
+//! The person's file changes while they drive (exclusive mode), within the workspace. Cowork's
+//! revision checks are in cowork.rs.
 
 use super::*;
 
@@ -37,45 +38,6 @@ async fn the_persons_file_changes_are_confined_trusted_and_announced() -> Result
         }
         if driving {
             break;
-        }
-        let (_, terminal_error) = spade
-            .post(
-                &format!("/v1/agents/{agent}/terminal/input"),
-                json!({"data_b64": b64("x")}),
-            )
-            .await?;
-        let (status, error) = spade
-            .put(
-                &format!("{files}?path=keep.txt"),
-                json!({"text": "changed"}),
-            )
-            .await?;
-        assert_eq!(status, 409);
-        assert_eq!(
-            error.as_object().map(|o| o.keys().collect::<Vec<_>>()),
-            terminal_error
-                .as_object()
-                .map(|o| o.keys().collect::<Vec<_>>())
-        );
-        for (route, body) in [
-            ("upload", json!({"path": "new.bin", "data_b64": b64("x")})),
-            ("mkdir", json!({"path": "new-dir"})),
-            ("move", json!({"from": "keep.txt", "to": "moved.txt"})),
-        ] {
-            assert_eq!(spade.post(&format!("{files}/{route}"), body).await?.0, 409);
-        }
-        let response = reqwest::Client::new()
-            .delete(format!(
-                "{}/v1/agents/{agent}/workspace?path=keep.txt",
-                spade.base
-            ))
-            .bearer_auth(TOKEN)
-            .send()
-            .await?;
-        assert_eq!(response.status(), 409);
-        assert_eq!(std::fs::read(root.join("keep.txt"))?, b"original");
-        for absent in ["new.bin", "new-dir", "moved.txt"] {
-            assert!(!root.join(absent).exists());
         }
         assert_eq!(
             spade
