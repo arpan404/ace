@@ -367,6 +367,43 @@ import Testing
         try await until("the answered request's notification goes") { center.delivered.isEmpty }
     }
 
+    // MARK: Alerts a push showed while ace was closed (ADR 0106)
+
+    @Test func aPushedFinishGoesWhenTheSameThreadAsksForThePersonLater() async throws {
+        let center = FakeCenter()
+        let pushed = PushedAlerts(defaults: try defaults())
+        let notifier = LocalNotifier(center: center, hostId: "studio", desk: AlertDesk(center: center, now: { 0 }, pushed: pushed))
+        notifier.bind(LedgerStore(scope: "studio", defaults: try defaults()))
+        center.push(alert("n:1"), hostId: "studio", apnsId: "apns-1", pushed: pushed)
+        // Reopened: catch-up brings the finish, which the push already showed.
+        await notifier.catchUp(cursor: 1, entries: [alert("n:1")], retracted: [])
+        #expect(center.delivered.keys.sorted() == ["apns-1"])
+        await notifier.receive(alert("n:2", status: "needs_you", actions: true))
+        #expect(center.delivered.values.map(\.body) == ["Needs you"])
+    }
+
+    @Test func twoPushesForOneThreadWhileClosedLeaveOnlyTheNewerAfterCatchUp() async throws {
+        let center = FakeCenter()
+        let pushed = PushedAlerts(defaults: try defaults())
+        let notifier = LocalNotifier(center: center, hostId: "studio", desk: AlertDesk(center: center, now: { 0 }, pushed: pushed))
+        notifier.bind(LedgerStore(scope: "studio", defaults: try defaults()))
+        center.push(alert("n:1"), hostId: "studio", apnsId: "apns-1", pushed: pushed)
+        center.push(alert("n:2", status: "needs_you", actions: true), hostId: "studio", apnsId: "apns-2", pushed: pushed)
+        await notifier.catchUp(cursor: 2, entries: [alert("n:1"), alert("n:2", status: "needs_you", actions: true)], retracted: [])
+        #expect(center.delivered.keys.sorted() == ["apns-2"])
+        #expect(center.posted.isEmpty)
+    }
+
+    @Test func anotherThreadsPushIsLeftAlone() async throws {
+        let center = FakeCenter()
+        let pushed = PushedAlerts(defaults: try defaults())
+        let notifier = LocalNotifier(center: center, hostId: "studio", desk: AlertDesk(center: center, now: { 0 }, pushed: pushed))
+        notifier.bind(LedgerStore(scope: "studio", defaults: try defaults()))
+        center.push(alert("n:1", status: "failed", thread: "other"), hostId: "studio", apnsId: "apns-1", pushed: pushed)
+        await notifier.receive(alert("n:2", status: "needs_you", actions: true))
+        #expect(center.delivered.count == 2)
+    }
+
     @Test func aRetractionAlsoWithdrawsTheBareIdAnOlderBuildPosted() async throws {
         let center = FakeCenter()
         await center.post(AlertContent(alert("n:1")))
@@ -593,11 +630,28 @@ private final class FakeCenter: NotificationCenterPort, @unchecked Sendable {
     var withdrawn: [String] = []
     /// What Notification Center shows: a post replaces any with the same identifier.
     var delivered: [String: AlertContent] = [:]
+    /// The service extension's copies among `delivered`, by APNs identifier: the alert each is
+    /// (`pushedAlert`) and the thread it stands for (`standsFor`).
+    private var pushes: [String: (alert: String, standsFor: String)] = [:]
     func post(_ content: AlertContent) async { posted.append(content); delivered[content.identifier] = content }
     func withdraw(_ identifiers: [String]) {
         withdrawn.append(contentsOf: identifiers)
         for id in identifiers { delivered.removeValue(forKey: id) }
+        let wanted = Set(identifiers)
+        remove(pushes.filter { wanted.contains($0.value.alert) || wanted.contains($0.value.standsFor) }.keys)
     }
+    func withdrawPushed(standingFor thread: String, except alert: String) {
+        remove(pushes.filter { $0.value.standsFor == thread && $0.value.alert != alert }.keys)
+    }
+    /// What `AceNotificationService` does with a push while ace is closed: shows the alert under
+    /// APNs' identifier and notes it in `PushedAlerts`.
+    func push(_ alert: AlertNotification, hostId: String, apnsId: String, pushed: PushedAlerts) {
+        let content = AlertContent(alert, hostId: hostId)
+        delivered[apnsId] = content
+        pushes[apnsId] = (content.identifier, AlertStack.thread(alert.threadId, hostId: hostId))
+        pushed.record(content.identifier)
+    }
+    private func remove(_ ids: some Sequence<String>) { for id in Array(ids) { pushes[id] = nil; delivered[id] = nil } }
 }
 /// Holds the first post open until released, as a slow Notification Center would.
 private final class HeldCenter: NotificationCenterPort, @unchecked Sendable {
@@ -616,6 +670,7 @@ private final class HeldCenter: NotificationCenterPort, @unchecked Sendable {
     }
     func release() { lock.withLock { let held = gate; gate = nil; return held }?.resume() }
     func withdraw(_ identifiers: [String]) { lock.withLock { for id in identifiers { shown.removeValue(forKey: id) } } }
+    func withdrawPushed(standingFor thread: String, except alert: String) {}
 }
 private struct FakeAuthorizer: NotificationAuthorizer {
     func status() async -> NotificationCoordinator.Permission { .allowed }

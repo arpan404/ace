@@ -5,6 +5,10 @@ import UserNotifications
 protocol NotificationCenterPort: AnyObject, Sendable {
     func post(_ content: AlertContent) async
     func withdraw(_ identifiers: [String])
+    /// Withdraws the service extension's copies of `thread`'s earlier alerts (ADR 0106): delivered
+    /// pushes standing for it whose alert isn't `alert`. They carry APNs' identifier, so posting
+    /// under the thread's own doesn't replace them.
+    func withdrawPushed(standingFor thread: String, except alert: String)
 }
 
 final class SystemNotificationCenter: NotificationCenterPort {
@@ -35,6 +39,18 @@ final class SystemNotificationCenter: NotificationCenterPort {
                 return [NotificationKeys.pushedAlert, NotificationKeys.standsFor].contains { (info[$0] as? String).map(wanted.contains) ?? false }
             }
             if !pushed.isEmpty { center.removeDeliveredNotifications(withIdentifiers: pushed.map(\.request.identifier)) }
+        }
+    }
+    func withdrawPushed(standingFor thread: String, except alert: String) {
+        let center = UNUserNotificationCenter.current()
+        center.getDeliveredNotifications { delivered in
+            let older = delivered.filter { note in
+                let info = note.request.content.userInfo
+                // Only the extension's copies have `pushedAlert`; the app's own post is never matched.
+                guard let pushed = info[NotificationKeys.pushedAlert] as? String else { return false }
+                return pushed != alert && info[NotificationKeys.standsFor] as? String == thread
+            }
+            if !older.isEmpty { center.removeDeliveredNotifications(withIdentifiers: older.map(\.request.identifier)) }
         }
     }
 }
@@ -70,10 +86,16 @@ final class SystemNotificationCenter: NotificationCenterPort {
         save()
         withdraw(landed.withdraw)
         guard let content = landed.post else { return }
-        // A push already showed this alert (the socket's ack was lost, or catch-up brought it):
-        // the stack keeps it as the thread's, and withdrawing the thread withdraws the push.
-        if content.identifier == AlertStack.thread(alert.threadId, hostId: hostId),
-           pushed.contains(AlertContent.requestId(alert.id, hostId: hostId)) { return }
+        let thread = AlertStack.thread(alert.threadId, hostId: hostId)
+        if content.identifier == thread {
+            let request = AlertContent.requestId(alert.id, hostId: hostId)
+            // This alert is the thread's one notification now: a push of an earlier one (shown
+            // while ace was closed) goes, as the thread's own post would replace it.
+            center.withdrawPushed(standingFor: thread, except: request)
+            // A push already showed this alert (the socket's ack was lost, or catch-up brought
+            // it): the stack keeps it as the thread's, and withdrawing the thread withdraws it.
+            if pushed.contains(request) { return }
+        }
         landings += 1
         let serial = landings
         if let owner { landing[serial] = (owner, alert.threadId, hostId) }

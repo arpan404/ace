@@ -710,8 +710,9 @@ field, and neither does any machine before iOS gives a token.
   keys a local alert has. It has no JavaScript runtime and no networking. Anything that fails
   leaves the gateway's "ace" / "New activity", which never says done.
 - **Shown once.** The extension notes each alert it showed in the app group's defaults
-  (`PushedAlerts`); the app skips posting an alert a push already showed, and withdrawing a thread
-  or an alert also removes its pushed copy.
+  (`PushedAlerts`); the app skips posting an alert a push already showed, withdrawing a thread
+  or an alert also removes its pushed copy, and a thread's newer alert, posted or pushed, takes
+  the place of a pushed copy of an older one.
 - **Acks.** The bridge acks a live `notification` frame (`notification.ack`) only when Swift
   answers its `notifications.alert` patch with `notifications.delivered { id }`: posted, already
   shown from a push, or not wanted by this phone's settings. Before Swift's first

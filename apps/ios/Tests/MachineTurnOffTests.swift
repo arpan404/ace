@@ -255,6 +255,7 @@ private final class Center: NotificationCenterPort, @unchecked Sendable {
         withdrawn.append(contentsOf: identifiers)
         for id in identifiers { delivered.removeValue(forKey: id) }
     }
+    func withdrawPushed(standingFor thread: String, except alert: String) {}
 }
 private struct Allowed: NotificationAuthorizer {
     func status() async -> NotificationCoordinator.Permission { .allowed }
