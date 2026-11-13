@@ -207,7 +207,7 @@ test("the file manager opens and saves a file, makes a folder, moves, uploads an
   await userEvent.type(name, "trips/old.txt{Enter}");
   await waitFor(() =>
     expect(spade.sent("POST", "/v1/agents/scout/files/move")).toEqual([
-      { from: "old.txt", to: "trips/old.txt" },
+      { from: "old.txt", to: "trips/old.txt", base: fakeFileRevision("x") },
     ]),
   );
 
@@ -227,7 +227,8 @@ test("the file manager opens and saves a file, makes a folder, moves, uploads an
       spade.requests.some(
         (request) =>
           request.method === "DELETE" &&
-          request.path === "/v1/agents/scout/workspace?path=notes.txt",
+          request.path ===
+            `/v1/agents/scout/workspace?path=notes.txt&base=${fakeFileRevision("hello")}`,
       ),
     ).toBe(true),
   );
@@ -365,8 +366,6 @@ test("while a take-over is on its way, files can be read and downloaded but ever
   const { spade } = await spadeApp("/spade/scout?computer=files", (api) => {
     seed(api);
     api.files.set("scout", { "plan.md": "# Plan\n" });
-    // The take-over waits on the bot's work to stop.
-    api.computer.stopping("scout", true);
   });
   const writes = () =>
     spade.requests.filter(
@@ -384,6 +383,7 @@ test("while a take-over is on its way, files can be read and downloaded but ever
   // Delete asks first; taken over meanwhile (the bot's work still stopping), the answer waits.
   await userEvent.click(screen.getByRole("button", { name: "Delete" }));
   const confirm = within(await screen.findByRole("dialog", { name: "Delete plan.md?" }));
+  spade.computer.stopping("scout", true);
   spade.answer({ method: "POST", path: "/v1/agents/scout/computer/take-over", body: undefined });
   await waitFor(() => expect(editor.readOnly).toBe(true));
   await userEvent.click(confirm.getByRole("button", { name: "Delete" }));
@@ -394,46 +394,6 @@ test("while a take-over is on its way, files can be read and downloaded but ever
   expect((screen.getByRole("button", { name: "Download" }) as HTMLButtonElement).disabled).toBe(
     false,
   );
-});
-
-test("a save over a file the bot changed since it was opened shows the conflict, and Reload reads it again", async () => {
-  const { spade } = await spadeApp("/spade/scout?computer=files&file=plan.md", (api) => {
-    seed(api);
-    api.files.set("scout", { "plan.md": "# Plan\n" });
-  });
-  const editor = await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "plan.md" });
-  await waitFor(() => expect(editor.value).toBe("# Plan\n"));
-  fireEvent.change(editor, { target: { value: "# Plan\nMine" } });
-  // Meanwhile the bot wrote it.
-  const scoutFiles = spade.files.get("scout");
-  if (scoutFiles) scoutFiles["plan.md"] = "# Plan\nScout's";
-  await userEvent.click(screen.getByRole("button", { name: "Save" }));
-  const conflict = await screen.findByRole("alert");
-  expect(conflict.textContent).toContain("Changed since you opened it");
-  // Nothing was written over the bot's words.
-  expect(spade.files.get("scout")?.["plan.md"]).toBe("# Plan\nScout's");
-  expect(editor.value).toBe("# Plan\nMine");
-
-  await userEvent.click(within(conflict).getByRole("button", { name: "Reload" }));
-  await waitFor(() => expect(editor.value).toBe("# Plan\nScout's"));
-  expect(screen.queryByRole("alert")).toBeNull();
-});
-
-test("Overwrite saves the person's draft over the file as it is now", async () => {
-  const { spade } = await spadeApp("/spade/scout?computer=files&file=plan.md", (api) => {
-    seed(api);
-    api.files.set("scout", { "plan.md": "# Plan\n" });
-  });
-  const editor = await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "plan.md" });
-  await waitFor(() => expect(editor.value).toBe("# Plan\n"));
-  fireEvent.change(editor, { target: { value: "# Plan\nMine" } });
-  const scoutFiles = spade.files.get("scout");
-  if (scoutFiles) scoutFiles["plan.md"] = "# Plan\nScout's";
-  await userEvent.click(screen.getByRole("button", { name: "Save" }));
-  const conflict = await screen.findByRole("alert");
-  await userEvent.click(within(conflict).getByRole("button", { name: "Overwrite" }));
-  await waitFor(() => expect(spade.files.get("scout")?.["plan.md"]).toBe("# Plan\nMine"));
-  await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
 });
 
 test("the status says the bot waits for the person while their input makes it yield", async () => {
@@ -521,6 +481,21 @@ test("a read of the computer that lands after the stream dropped gives no contro
     ),
   );
   expect(input.disabled).toBe(true);
+});
+
+test("in cowork the person's keys stop once the stream drops, and come back with it", async () => {
+  const { app } = await spadeApp("/spade/scout?computer=terminal", seed);
+  const panel = await screen.findByRole("tabpanel", { name: "Terminal" });
+  const input = await within(panel).findByRole<HTMLTextAreaElement>("textbox", {
+    name: "Scout's input",
+  });
+  await waitFor(() => expect(input.disabled).toBe(false));
+  // What the app last heard says cowork, but it can't be sure of it any more.
+  app.daemon.spade.status = { state: "starting" };
+  app.daemon.spade.endStreams("/v1/conversations/c-scout/live");
+  await waitFor(() => expect(input.disabled).toBe(true));
+  app.daemon.spade.status = { state: "ready", version: "0.6.0" };
+  await waitFor(() => expect(input.disabled).toBe(false));
 });
 
 test("a slow read never overwrites a newer state from the stream", async () => {

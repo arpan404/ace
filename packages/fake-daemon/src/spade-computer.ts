@@ -67,6 +67,29 @@ const encode = (text: string) => btoa(String.fromCharCode(...new TextEncoder().e
 const decode = (base64: string) =>
   new TextDecoder().decode(Uint8Array.from(atob(base64), (char) => char.charCodeAt(0)));
 
+/**
+ * Spade's answer to a write whose `base` (the revision the person opened) the file at `path` no
+ * longer has, or that is gone: `409 changed`. Undefined when the write may go.
+ */
+export function fakeStale(
+  files: Record<string, string>,
+  path: string,
+  base: unknown,
+): FakeSpadeAnswer | undefined {
+  if (typeof base !== "string") return undefined;
+  const now = files[path];
+  if (now !== undefined && base === fakeFileRevision(now)) return undefined;
+  return reply(
+    {
+      error: "changed",
+      code: "changed",
+      message: "The file changed since you opened it.",
+      revision: now === undefined ? null : fakeFileRevision(now),
+    },
+    409,
+  );
+}
+
 export class FakeSpadeComputer {
   private readonly drivers = new Map<string, "bot" | "person">();
   private readonly surfaces = new Map<string, FakeSurface[]>();
@@ -78,6 +101,8 @@ export class FakeSpadeComputer {
   private sequence = 0;
   /** True: changes send no `computer` frame, as a stream that lags behind would. */
   quiet = false;
+  /** Set: every file save fails with this (`500`), as a full disk would. */
+  failSaves: string | undefined;
   /** While set, reads of the computer wait for it (`holdReads`). */
   private readsHeld: Promise<void> | undefined;
   private readonly deps: FakeComputerDeps;
@@ -138,6 +163,12 @@ export class FakeSpadeComputer {
     if (stopping) this.stoppingBots.add(agent);
     else this.stoppingBots.delete(agent);
     this.changed(agent);
+  }
+
+  /** The bot writes a file in its workspace, and its conversation stream says so. */
+  botWrites(agent: string, path: string, text: string): void {
+    this.deps.files(agent)[path] = text;
+    this.filesChanged(agent, [path]);
   }
 
   /** Output from the bot's terminal. */
@@ -229,17 +260,9 @@ export class FakeSpadeComputer {
     if (method === "PUT" && !action) {
       const path = query.get("path") ?? "";
       if (bad(path)) return problem(400, "That path isn't in the workspace.");
-      const now = files[path];
-      if (typeof body.base === "string" && now !== undefined && body.base !== fakeFileRevision(now))
-        return reply(
-          {
-            error: "changed",
-            code: "changed",
-            message: "The file changed since you opened it.",
-            revision: fakeFileRevision(now),
-          },
-          409,
-        );
+      if (this.failSaves) return problem(500, this.failSaves);
+      const stale = fakeStale(files, path, body.base);
+      if (stale) return stale;
       files[path] = text();
       this.filesChanged(agent, [path]);
       return done;
@@ -248,6 +271,8 @@ export class FakeSpadeComputer {
     if (action === "upload" || action === "mkdir") {
       const path = String(body.path ?? "");
       if (bad(path)) return problem(400, "That path isn't in the workspace.");
+      const stale = action === "upload" ? fakeStale(files, path, body.base) : undefined;
+      if (stale) return stale;
       if (action === "upload") files[path] = text();
       else folders.add(path);
       this.filesChanged(agent, [path]);
@@ -257,6 +282,8 @@ export class FakeSpadeComputer {
       const from = String(body.from ?? "");
       const to = String(body.to ?? "");
       if (bad(from) || bad(to)) return problem(400, "That path isn't in the workspace.");
+      const stale = fakeStale(files, from, body.base);
+      if (stale) return stale;
       if (Object.keys(files).some((name) => under(name, to)) || folders.has(to))
         return problem(409, `${to} already exists.`);
       const moved = Object.keys(files).filter((name) => under(name, from));

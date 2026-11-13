@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { loadBotScreen } from "@/features/computer-use/index.ts";
 import { loadBotBrowser } from "@/features/panels/index.ts";
+import { SpadeFace } from "../spade-face.tsx";
 import { message } from "../spade-screen-parts.tsx";
 import { useBotStreams, type BotPictureSurface } from "./bot-streams.ts";
 import { StreamPicture } from "./stream-picture.tsx";
@@ -88,6 +89,7 @@ export function SurfaceLive(props: {
           tabId={props.surface?.tabId}
           mayAct={props.mayAct}
           driving={props.driving}
+          agent={{ name: bot.name, mark: <SpadeFace avatar={bot.avatar} size={14} /> }}
           waiting={waiting}
         />
       ) : (
@@ -95,7 +97,7 @@ export function SurfaceLive(props: {
           threadId={props.threadId}
           mayAct={props.mayAct}
           driving={props.driving}
-          agent={bot.name}
+          agent={{ name: bot.name, mark: <SpadeFace avatar={bot.avatar} size={14} /> }}
           label={props.label}
           waiting={waiting}
           onProblem={(error) =>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useSyncExternalStore, type ReactNode } from "react";
 import { WithServices } from "../with-services.tsx";
 import { usePanelServices } from "../services.ts";
 import { PageView } from "./page-view.tsx";
@@ -21,6 +21,8 @@ export interface BotBrowserProps {
   mayAct: boolean;
   /** Exclusive mode is the person's: the page follows the pane. */
   driving: boolean;
+  /** The bot, for its cursor: its name and face. */
+  agent: { name: string; mark: ReactNode };
   /** Said while the page hasn't opened yet. */
   waiting: string;
 }
@@ -57,6 +59,7 @@ function BotBrowser(props: BotBrowserProps) {
       frame={source.frame(threadId)}
       interactive={props.mayAct}
       fit={props.driving}
+      agent={props.agent}
     />
   );
 }

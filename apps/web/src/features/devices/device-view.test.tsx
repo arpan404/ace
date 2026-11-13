@@ -46,6 +46,19 @@ test("an agent's tap shows on the stage as a ripple and a caption naming the ele
   expect(iphone.querySelector("[data-activity-ripple]")).toBeNull();
 });
 
+test("an agent's tap leaves its cursor on the device where it acted, which then fades", async () => {
+  const { app, iphone } = await agentDriving();
+  act(() =>
+    app.daemon.appDevices.agentActs(iphoneId, { action: "tap", point: { x: 195, y: 422 } }),
+  );
+  const pointer = await within(iphone).findByRole("img", { name: /'s pointer$/ });
+  expect(pointer.style.left).not.toBe("");
+  await waitFor(
+    () => expect(within(iphone).queryByRole("img", { name: /'s pointer$/ })).toBeNull(),
+    { timeout: 4000 },
+  );
+});
+
 test("what an agent did before the device's tab opened isn't replayed", async () => {
   const { app, panel } = await openDevices();
   await within(panel).findByRole("searchbox", { name: "Search devices" });

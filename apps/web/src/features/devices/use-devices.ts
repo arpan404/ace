@@ -2,6 +2,7 @@ import { useSeconds } from "@/lib/time.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { DeviceClientError } from "@ace/client/devices";
 import type {
+  AgentPointer,
   DeviceActivity,
   DeviceInput,
   DeviceOperation,
@@ -70,6 +71,8 @@ export interface DevicesView {
   activity: DeviceActivity | undefined;
   /** The agent using it waits: the person's input on it is recent (cowork, ADR 0143). */
   personActive: boolean;
+  /** Where the agent using it last acted, in device points. */
+  agentPointer: AgentPointer | undefined;
   stateLoaded: boolean;
   /** Every device's controller and holder, for the list's tiles. */
   controllers: ReadonlyMap<string, Pick<DeviceState, "controller" | "holder" | "ownedHere">>;
@@ -228,6 +231,7 @@ export function useDevices(threadId: string, deviceId?: string) {
     holder: state?.controller === "agent" ? state.holder : undefined,
     activity: state?.activity,
     personActive: state?.controller === "agent" && state.personActive === true,
+    agentPointer: state?.controller === "agent" ? state.agentPointer : undefined,
     stateLoaded: state !== undefined,
     controllers: new Map(
       snapshot.states.map((entry) => [

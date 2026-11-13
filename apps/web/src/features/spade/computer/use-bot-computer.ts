@@ -12,10 +12,11 @@ import { handBack, readComputer, takeOver } from "./computer-api.ts";
 /**
  * A bot's computer as it is now. What it shows comes from the conversation stream's `computer`
  * frames (sent on connect and on every change), else the roster's last read. In cowork (the
- * default) the person and the bot use it at once: the person's input goes in straight away and
- * the bot yields to it. In exclusive mode (Take over) the controls are the person's only while that stream is up and the latest state from Spade says they drive and
- * the bot's work has stopped: never from Take over's own answer, never while a take-over or
- * hand-back is on its way, and never while the stream is down. Take over and Hand back read the
+ * default) the person and the bot use it at once: the person's input goes in with no take-over and
+ * the bot yields to it. In either mode the person's input goes in only while that stream is up
+ * and the latest state from Spade allows it (cowork; or exclusive, they drive and the bot's work
+ * has stopped): never from Take over's own answer or the roster's cached read, never while a
+ * take-over or hand-back is on its way, and never while the stream is down. Take over and Hand back read the
  * computer from Spade once answered; that read counts only if nothing newer (a frame, the stream
  * dropping) came while it was out.
  */
@@ -85,7 +86,10 @@ export function useBotComputer(
   };
   const person = computer?.driver === "person";
   const cowork = computer?.mode === "cowork";
-  const driving = streamUp && pending === undefined && person && computer?.stopping === false;
+  // Spade's own word, fresh: the stream that sends it is up (so `live` is its latest frame, or a
+  // read nothing newer overtook), no take-over or hand-back is on its way, and no work stops.
+  const fresh = streamUp && live !== undefined && pending === undefined && live.stopping === false;
+  const driving = fresh && person;
   const agentActive = (computer?.surfaces ?? []).some((each) => each.live);
   const yielding = (computer?.surfaces ?? []).some((each) => each.live && each.personActive);
   return {
@@ -97,10 +101,11 @@ export function useBotComputer(
     /** Cowork, as Spade last said: both use it, the bot yielding to the person. */
     cowork,
     /**
-     * The person's input goes in now: in cowork straight away (unless a take-over is on its
-     * way), in exclusive mode only while they drive.
+     * The person's input goes in now, only on Spade's fresh word: in cowork with no take-over, in
+     * exclusive mode while they drive. A dropped stream, a change of hands on its way or work
+     * still stopping turns it off in either mode.
      */
-    mayAct: driving || (cowork && !person && pending === undefined),
+    mayAct: driving || (fresh && cowork && !person),
     /** Who has it now, for the one-line status. */
     status: coworkState({
       exclusive: person || pending === "take-over",

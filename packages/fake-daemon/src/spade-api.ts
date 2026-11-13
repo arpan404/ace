@@ -1,5 +1,5 @@
 import type { FakeSpade, FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
-import { FakeSpadeComputer, fakeFileRevision } from "./spade-computer.ts";
+import { FakeSpadeComputer, fakeFileRevision, fakeStale } from "./spade-computer.ts";
 import { FakeSpadeConnectors } from "./spade-connectors-api.ts";
 import { FakeSpadeNotes } from "./spade-notes.ts";
 import { FakeSpadeSearch } from "./spade-search.ts";
@@ -460,6 +460,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
       return problem(400, "paths may not use `..`");
     if (method === "DELETE") {
       if (!path) return problem(422, "the workspace itself cannot be deleted");
+      const stale = fakeStale(files, path, query.get("base") ?? undefined);
+      if (stale) return stale;
       for (const name of Object.keys(files))
         if (name === path || name.startsWith(`${path}/`)) delete files[name];
       const folders = this.folders.get(agent);

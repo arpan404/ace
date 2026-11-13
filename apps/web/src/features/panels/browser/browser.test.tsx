@@ -180,6 +180,23 @@ test("the person can use a tab an agent is working in, with no control to take",
   expect(browser.tab(thread)?.inUse).toMatchObject({ kind: "agent", agentId: "worker" });
 });
 
+test("in a shared tab the agent's cursor shows where it last acted, then fades", async () => {
+  const { panel, browser } = await openBrowser();
+  await agentPage(panel);
+  await waitFor(() => expect(browser.frame(thread)?.width).toBe(800));
+  act(() =>
+    browser.agentWorks(thread, { agentId: "worker", pointer: { x: 40, y: 60 }, at: Date.now() }),
+  );
+  const pointer = await within(panel).findByRole("img", { name: /'s pointer$/ });
+  expect(pointer.style.left).not.toBe("");
+  // The timed cursor stands in for the old one, which never faded.
+  expect(within(panel).queryByRole("img", { name: /is pointing here$/ })).toBeNull();
+  await waitFor(
+    () => expect(within(panel).queryByRole("img", { name: /'s pointer$/ })).toBeNull(),
+    { timeout: 4000 },
+  );
+});
+
 test("a wheel over the page scrolls whatever is under the pointer in Chrome, never ace or the picture", async () => {
   const { panel, browser } = await openBrowser();
   const picture = await agentPage(panel);

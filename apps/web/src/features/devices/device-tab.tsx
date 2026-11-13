@@ -165,6 +165,8 @@ function SelectedDevice(props: { devices: Devices }) {
           stream={meter}
           corner={statsShown ? <StreamStatsPanel stats={stats} /> : undefined}
           activity={shown}
+          agentPointer={view.agentPointer}
+          holder={view.holder}
           highlight={highlight}
           idle={idle}
           rail={

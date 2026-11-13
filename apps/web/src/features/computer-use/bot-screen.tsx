@@ -1,6 +1,5 @@
 import type { ScreenInput, ScreenState } from "@ace/protocol";
-import { agentInitial } from "@ace/ui-core/cowork";
-import { useEffect, useEffectEvent } from "react";
+import { useEffect, useEffectEvent, type ReactNode } from "react";
 import { LiveView } from "./live-view.tsx";
 import { useScreenSession, type ScreenSession } from "./screen-session.ts";
 
@@ -20,8 +19,8 @@ export interface BotScreenProps {
   mayAct: boolean;
   /** Exclusive mode is the person's now: the session's controls are taken for them. */
   driving: boolean;
-  /** The bot's name, for its pointer. */
-  agent: string;
+  /** The bot, for its pointer: its name and face. */
+  agent: { name: string; mark: ReactNode };
   label: string;
   /** Said while no session of the bot's shows. */
   waiting: string;
@@ -111,11 +110,7 @@ export default function BotScreen(props: BotScreenProps) {
       label={props.label}
       className="size-full"
       onInput={acts ? send : undefined}
-      agent={{
-        name: props.agent,
-        pointer: state?.agentPointer,
-        mark: agentInitial(props.agent),
-      }}
+      agent={{ ...props.agent, pointer: state?.agentPointer }}
     />
   );
 }

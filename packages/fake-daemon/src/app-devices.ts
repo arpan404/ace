@@ -35,6 +35,7 @@ interface Session {
   holder?: DeviceState["holder"];
   /** The person's input while an agent uses it in cowork: the agent waits. */
   personActive?: boolean;
+  agentPointer?: DeviceState["agentPointer"];
   leaseExpiresAt?: number;
   screen: "home" | "app";
   logs: string[];
@@ -241,6 +242,9 @@ export class FakeAppDevices {
     const session = this.known(deviceId);
     session.activitySequence++;
     session.activity = { ...activity, sequence: session.activitySequence };
+    // Where it acted, for its cursor while the person shares the device (ADR 0143).
+    if (activity.point)
+      session.agentPointer = { ...activity.point, kind: "click", at: this.clock() };
     if (activity.action === "key" && activity.key === "home") session.screen = "home";
     else if (activity.point) session.screen = "app";
     this.publish(session);
@@ -350,6 +354,9 @@ export class FakeAppDevices {
       controller: session.controller,
       ...(session.controller === "human" ? { sharing: "exclusive" as const } : {}),
       ...(session.personActive && session.controller === "agent" ? { personActive: true } : {}),
+      ...(session.agentPointer && session.controller === "agent"
+        ? { agentPointer: session.agentPointer }
+        : {}),
       ownedHere:
         session.controller === "human" &&
         session.humanOwner === channel &&

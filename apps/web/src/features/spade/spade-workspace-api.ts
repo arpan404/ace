@@ -123,9 +123,18 @@ export function downloadFile(target: SpadeTarget, bot: string, path: string): Pr
   return spadeBlob(target, `${base(bot)}/workspace/download${at(path)}`);
 }
 
-/** Deletes a file, or a folder with what is in it. */
-export async function deletePath(target: SpadeTarget, bot: string, path: string): Promise<void> {
-  await spadeHttp(target, "DELETE", `${base(bot)}/workspace${at(path)}`);
+/**
+ * Deletes a file, or a folder with what is in it. With `opened` (a file's revision the person
+ * saw), Spade refuses (`409 changed`) if the file moved on since.
+ */
+export async function deletePath(
+  target: SpadeTarget,
+  bot: string,
+  path: string,
+  opened?: string,
+): Promise<void> {
+  const since = opened === undefined ? "" : `&base=${encodeURIComponent(opened)}`;
+  await spadeHttp(target, "DELETE", `${base(bot)}/workspace${at(path)}${since}`);
 }
 
 export async function readProposals(

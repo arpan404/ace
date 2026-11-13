@@ -60,15 +60,20 @@ export async function saveFile(
 export const changedSinceOpened = (error: unknown) =>
   error instanceof SpadeRequestError && error.status === 409 && error.message === "changed";
 
-/** A file from the person's computer, put at `path`. */
+/**
+ * A file from the person's computer, put at `path`. Replacing a file, `opened` is the revision
+ * of it the person saw: refused (`409 changed`) if it moved on since.
+ */
 export async function uploadFile(
   target: SpadeTarget,
   bot: string,
   path: string,
   bytes: Uint8Array,
+  opened?: string,
 ) {
+  const data_b64 = spadeBase64(bytes);
   await spadeHttp(target, "POST", `${base(bot)}/files/upload`, {
-    body: { path, data_b64: spadeBase64(bytes) },
+    body: opened === undefined ? { path, data_b64 } : { path, data_b64, base: opened },
   });
 }
 
@@ -76,7 +81,18 @@ export async function makeFolder(target: SpadeTarget, bot: string, path: string)
   await spadeHttp(target, "POST", `${base(bot)}/files/mkdir`, { body: { path } });
 }
 
-/** Renames or moves a file or folder; refused (409) when `to` exists. */
-export async function movePath(target: SpadeTarget, bot: string, from: string, to: string) {
-  await spadeHttp(target, "POST", `${base(bot)}/files/move`, { body: { from, to } });
+/**
+ * Renames or moves a file or folder; refused (409) when `to` exists, and for a file with
+ * `opened` (the revision of `from` the person saw), when it moved on since.
+ */
+export async function movePath(
+  target: SpadeTarget,
+  bot: string,
+  from: string,
+  to: string,
+  opened?: string,
+) {
+  await spadeHttp(target, "POST", `${base(bot)}/files/move`, {
+    body: opened === undefined ? { from, to } : { from, to, base: opened },
+  });
 }
