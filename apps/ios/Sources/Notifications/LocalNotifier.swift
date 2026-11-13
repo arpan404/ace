@@ -217,8 +217,9 @@ final class SystemNotificationCenter: NotificationCenterPort {
         store?.save(ledger)
         inFlight[alert.id] = []
         defer { finish(alert.id) }
-        // Newer than anything catch-up still has to land for this thread, posted or not.
-        if !CatchUpOrder.isSummary(alert) { live[alert.threadId] = alert.id }
+        // Newer than anything catch-up still has to land for this thread. One this phone doesn't
+        // post leaves the thread's notification as it was, so it holds nothing back.
+        if alert.delivery?.post != false, !CatchUpOrder.isSummary(alert) { live[alert.threadId] = alert.id }
         guard alert.delivery?.post != false, valid else { return }
         await desk.land(alert, hostId: hostId, owner: ObjectIdentifier(self))
     }
@@ -235,10 +236,12 @@ final class SystemNotificationCenter: NotificationCenterPort {
             for alert in fresh { finish(alert.id) }
             live = [:]
         }
-        let newest = CatchUpOrder.newestPerThread(fresh)
+        // Only alerts this phone posts compete: one it doesn't (a background finish with that
+        // category off) never hides the request before it.
+        let newest = CatchUpOrder.newestPerThread(fresh.filter { $0.delivery?.post != false })
         // Checked before each one: an earlier post can be awaited past a turn-off, and a live
         // alert can land meanwhile.
-        for alert in newest where alert.delivery?.post != false {
+        for alert in newest {
             guard valid else { return }
             guard CatchUpOrder.isNewer(alert, than: live[alert.threadId], in: entries) else { continue }
             await desk.land(alert, hostId: hostId, owner: ObjectIdentifier(self))
@@ -264,7 +267,7 @@ final class SystemNotificationCenter: NotificationCenterPort {
 /// missed alert matters; landing an older one after it would put "Done" over a request that
 /// still waits (AGENTS.md priority 1).
 enum CatchUpOrder {
-    /// The feed's newest alert for each thread, in feed order. A `catch_up` summary stands for
+    /// The newest of these alerts for each thread, in feed order. A `catch_up` summary stands for
     /// several threads and always stays.
     static func newestPerThread(_ fresh: [AlertNotification]) -> [AlertNotification] {
         var last: [String: String] = [:]

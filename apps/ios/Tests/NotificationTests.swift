@@ -454,6 +454,23 @@ import Testing
         #expect(center.posted.map(\.body) == ["Done"])
     }
 
+    @Test func aMissedFinishThisPhoneDoesntPostNeverHidesTheRequestBeforeIt() async throws {
+        let (notifier, center) = try plainNotifier()
+        var finish = alert("n:2", status: "background_done")
+        finish.delivery = .init(post: false, interrupt: false, banner: false)
+        await notifier.catchUp(cursor: 2, entries: [alert("n:1", status: "needs_you", actions: true), finish], retracted: [])
+        #expect(center.delivered.values.map(\.body) == ["Needs you"])
+    }
+
+    @Test func aLiveAlertThisPhoneDoesntPostHoldsNothingBack() async throws {
+        let (notifier, center) = try plainNotifier()
+        var finish = alert("n:3", status: "background_done")
+        finish.delivery = .init(post: false, interrupt: false, banner: false)
+        await notifier.receive(finish)
+        await notifier.catchUp(cursor: 2, entries: [alert("n:2", status: "needs_you", actions: true)], retracted: [])
+        #expect(center.delivered.values.map(\.body) == ["Needs you"])
+    }
+
     @Test func aRetractedLiveAlertNoLongerHoldsBackTheFeed() async throws {
         let (notifier, center) = try plainNotifier()
         await notifier.receive(alert("n:2", status: "needs_you", actions: true))
