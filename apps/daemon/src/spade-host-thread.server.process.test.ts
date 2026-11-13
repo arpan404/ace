@@ -7,7 +7,7 @@ import { Command, DeviceId, ThreadId, type ServerMessage } from "@ace/protocol";
 import { fakeSpadeService } from "./__fixtures__/spade/fake-service.ts";
 import { daemonFixture } from "./agent-control/daemon-test-support.ts";
 import { Client } from "./socket-test-support.ts";
-import { aceMcpUrl, connectSpadeMcp, spadeEnv, until } from "./spade-test-support.ts";
+import { aceMcpUrl, adminSocket, connectSpadeMcp, spadeEnv, until } from "./spade-test-support.ts";
 
 type Daemon = Awaited<ReturnType<typeof daemonFixture>>["daemon"];
 
@@ -237,6 +237,70 @@ test("Spade acts as its own hidden host thread: the full agent tool set, delegat
     });
   } finally {
     for (const client of opened) await client.close().catch(() => {});
+    await daemon.close();
+    await service.close();
+  }
+}, 30_000);
+
+test("Spade names a bot on its own calls: the person driving that bot's computer refuses its browser tools", async () => {
+  let home = "";
+  const service = fakeSpadeService(() => home);
+  const f = await daemonFixture(undefined, {
+    spade: { service: service.control, pollMs: { waiting: 50, ready: 200 } },
+  });
+  home = join(f.h.home, "daemon");
+  let { daemon } = f;
+  const socket = await adminSocket(daemon);
+  let client: Awaited<ReturnType<typeof connectSpadeMcp>> | undefined;
+  try {
+    const spade = await startSpade(daemon);
+    client = await connectMcp(spade);
+    expect(
+      await socket.ask({
+        type: "spade.computer.drive",
+        requestId: "take",
+        bot: "fares",
+        driver: "person",
+      }),
+    ).toEqual({
+      type: "spade.computer.drive.result",
+      requestId: "take",
+      driver: "person",
+      stopped: true,
+    });
+    const refused = await client.callTool({
+      name: "browser_tabs",
+      arguments: { action: "list" },
+      _meta: { "ace/acting-for": "fares" },
+    });
+    expect(refused.isError).toBe(true);
+    expect(JSON.stringify(refused.content)).toContain("person_driving");
+    // Nothing opened for it: no thread of its own yet, no tabs, no screen.
+    expect(
+      await socket.ask({ type: "spade.computer.get", requestId: "get", bot: "fares" }),
+    ).toEqual({
+      type: "spade.computer.result",
+      requestId: "get",
+      computer: { bot: "fares", driver: "person", browser: { tabs: [] }, screen: { apps: [] } },
+    });
+    expect(daemon.spade?.status().thread?.id).toBe(spade.hostId);
+
+    // A daemon restart leaves the person driving: the take-over is kept on disk.
+    await client.close();
+    client = undefined;
+    await socket.close();
+    daemon = await f.restart();
+    const again = await startSpade(daemon);
+    client = await connectMcp(again);
+    const still = await client.callTool({
+      name: "browser_tabs",
+      arguments: { action: "list" },
+      _meta: { "ace/acting-for": "fares" },
+    });
+    expect(JSON.stringify(still.content)).toContain("person_driving");
+  } finally {
+    await client?.close().catch(() => {});
+    await socket.close().catch(() => {});
     await daemon.close();
     await service.close();
   }

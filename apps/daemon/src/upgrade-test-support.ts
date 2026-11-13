@@ -15,12 +15,15 @@ import { schemaVersionBefore } from "./migrations.ts";
  */
 const olderBuild = "DROP TABLE IF EXISTS stored_event_shape; ";
 
+/** What the Spade computer step, the newest in the schema, added: the take-over table. */
+export const undoSpadeComputers = olderBuild + "DROP TABLE spade_computer_drivers; ";
+
 /**
- * What the outside MCP client steps (ADR 0122), the newest in the schema, added: the grant,
+ * What the outside MCP client steps (ADR 0122) added, after the steps since: the grant,
  * token and thread tables, the DCR clients and the tokens' resource column.
  */
 export const undoOutsideClients =
-  olderBuild +
+  undoSpadeComputers +
   "DROP TABLE outside_grant_threads; DROP TABLE outside_grant_tokens; DROP TABLE outside_grants; DROP TABLE outside_oauth_clients; ";
 
 /** The schema just before the outside MCP client steps. */

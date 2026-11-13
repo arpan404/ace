@@ -179,6 +179,9 @@ const migrations = [
   outsideGrantTables,
   // Token pairs bound to the resource they were issued for, and DCR clients (ADR 0122).
   outsideOAuthTables,
+  // The Spade bots whose computer the person drives, so a restart leaves them driving; no rows
+  // exist before it.
+  `CREATE TABLE IF NOT EXISTS spade_computer_drivers (bot TEXT PRIMARY KEY, takeover TEXT NOT NULL);`,
 ];
 /**
  * Oldest schema an existing database is upgraded from. Each step after it must carry the

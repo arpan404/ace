@@ -293,3 +293,52 @@ it("an agent folds a foldable simulator, sees its posture, and a phone that does
   expect(phone.json).toMatchObject({ code: "not_supported" });
   expect(h.service.states().find((state) => state.device.id === android)?.posture).toBeUndefined();
 });
+
+it("a sim_start stopped while the emulator boots starts no live view on it", async () => {
+  const fake = await fakeSimService();
+  onTestFinished(() => fake.close());
+  const registry = new ToolRegistry({ scheduler: { after: () => () => {} } });
+  devicesToolkit(fake.service).register(registry);
+  const credentials = new CredentialRegistry(() => "c".repeat(64));
+  onTestFinished(() => credentials.close());
+  const lease = credentials.issue(
+    {
+      sessionId: "sim-tools",
+      threadId: ThreadId.parse("thread-1"),
+      agentId: AgentId.parse("agent-1"),
+      capabilities: ["devices"],
+    },
+    new AbortController().signal,
+  );
+  // The emulator is slow to boot; the call is stopped (a person took over) meanwhile.
+  const stop = new AbortController();
+  const booting = Promise.withResolvers<void>();
+  const booted = Promise.withResolvers<void>();
+  const boot = fake.platform.boot.bind(fake.platform);
+  fake.platform.boot = async (device) => {
+    stop.abort();
+    await booting.promise;
+    await boot(device);
+    booted.resolve();
+  };
+  const result = await registry.call(
+    "sim_start",
+    { simId: android, boot: true },
+    lease.principal,
+    stop.signal,
+  );
+  expect(result.isError).toBe(true);
+  booting.resolve();
+  await booted.promise;
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  // The boot the platform was already doing finished; nothing was started on the device after.
+  expect(fake.platform.devices.find((device) => device.id === android)?.state).toBe("booted");
+  const { states } = z
+    .object({
+      states: z.array(
+        z.looseObject({ device: z.looseObject({ id: z.string() }), lifecycle: z.string() }),
+      ),
+    })
+    .parse(await fake.service.request({ op: "states" }, { kind: "human", owner: "person" }));
+  expect(states.find((state) => state.device.id === android)?.lifecycle ?? "idle").toBe("idle");
+});

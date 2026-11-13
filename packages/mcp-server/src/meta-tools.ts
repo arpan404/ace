@@ -165,7 +165,7 @@ export function createMetaRegistry(): ToolRegistry {
           )
       )
         throw new PublicToolError("call_directly");
-      return dispatch(name, args, context.signal);
+      return dispatch(name, args, context.signal, context.actingFor);
     },
   });
   return registry;
