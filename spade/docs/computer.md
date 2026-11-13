@@ -164,11 +164,12 @@ commands. Asking, the timeouts, the 4 MiB output caps, the
      inherits. The mark alone never chooses a process.
 
    Each one is recorded with its identity when found: a pidfd on Linux, which every signal goes
-   through, and its start time on macOS, checked again right before every signal and skipped on
-   a mismatch. So a pid another process has taken is never signalled, and the leader's number is
+   through, and its start time on macOS, to the microsecond (`proc_pidinfo(PROC_PIDTBSDINFO)`,
+   `pbi_start_tvsec` and `pbi_start_tvusec`), checked again right before every signal and skipped
+   on a mismatch. So a pid another process has taken is never signalled, and the leader's number is
    never used once reaped. Everything chosen is stopped (`SIGSTOP`). The look is repeated until
    nothing new turns up and each one is *seen* stopped or gone (Linux `/proc/<pid>/stat` state
-   `T`/`t`/`Z`/`X`, macOS `ps` state `T`/`Z`), then all of it is killed. Adopted ones are reaped,
+   `T`/`t`/`Z`/`X`, macOS `pbi_status` `SSTOP`/`SZOMB`), then all of it is killed. Adopted ones are reaped,
    each by its own pid, never `waitpid(-1)`. When that doesn't settle within 8 passes, what is
    known is killed anyway, the end is logged, the tool result adds "Not every process this
    command started could be seen to stop; some may still be running", and the terminal starts
@@ -177,8 +178,7 @@ commands. Asking, the timeouts, the 4 MiB output caps, the
    **The limits.** On macOS, a process that detached (`setsid`) and was reparented away before
    the end can survive, such as a daemon left by a command that finished. macOS shows no other
    process's environment and has no subreaper. On Linux, only one that also cleared its
-   environment and started another program before its parent exited can. Start times on macOS
-   come in whole seconds, so a pid reused within the same second would read as the same process.
+   environment and started another program before its parent exited can.
 6. **"Always" holds only in the state it was given in.** Answering `always` covers the exact
    command run from the same folder with the same carried variables. The approval stores that
    scope (`approval_requested.scope`: the command and a digest of the folder and variables), and

@@ -57,7 +57,7 @@ take over.
    starts or the person types. That includes children in sessions of their own. Only processes
    provably the command's are signalled: its unreaped leader, descendants by parent chain, its
    group, and on Linux orphans Spade adopted as child subreaper that carry the run's mark. Each
-   is held by identity (a pidfd on Linux, its start time on macOS), so a reused pid is never
+   is held by identity (a pidfd on Linux, its start time to the microsecond on macOS), so a reused pid is never
    signalled. They are stopped, seen stopped, then killed. When that doesn't settle, the result
    says some may still run and the terminal starts afresh. On macOS a process that detached and
    was reparented away before the end, such as a daemon left by a finished command, can survive.

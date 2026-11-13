@@ -122,6 +122,8 @@ impl Shell {
         let (dir, command, timeout) = (job.dir, job.script, job.timeout);
         // Inherited by everything the command starts, so all of it can be found at the end.
         let mark = uuid::Uuid::new_v4().simple().to_string();
+        // Before it starts, so everything of its group started after this.
+        let spawned_us = platform::now_us();
         let mut child = platform::command(&self.env, command)
             .current_dir(dir)
             .env_clear()
@@ -135,7 +137,7 @@ impl Shell {
             .spawn()
             .map_err(|error| format!("the shell could not start: {error}"))?;
         // Kills everything the command started when this run ends, however it ends.
-        let mut contained = platform::contain(&child, &mark);
+        let mut contained = platform::contain(&child, &mark, spawned_us);
         if let (Some(started), Some(pid)) = (job.started, child.id()) {
             started(pid);
         }
@@ -281,13 +283,13 @@ mod platform {
     /// all of it is ended once, by `kill` or else on drop.
     pub(super) struct Contained(Option<Run>);
 
-    fn now_secs() -> u64 {
+    pub(super) fn now_us() -> u64 {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs())
+            .map_or(0, |d| u64::try_from(d.as_micros()).unwrap_or(u64::MAX))
     }
 
-    pub(super) fn contain(child: &Child, mark: &str) -> Contained {
+    pub(super) fn contain(child: &Child, mark: &str, spawned_us: u64) -> Contained {
         Contained(
             child
                 .id()
@@ -296,8 +298,8 @@ mod platform {
                     leader,
                     mark: mark.to_owned(),
                     reaped: false,
-                    started_secs: now_secs(),
-                    ended_secs: None,
+                    started_us: spawned_us,
+                    ended_us: None,
                 }),
         )
     }
@@ -307,7 +309,7 @@ mod platform {
         pub(super) fn reaped(&mut self) {
             if let Some(run) = self.0.as_mut() {
                 run.reaped = true;
-                run.ended_secs = Some(now_secs());
+                run.ended_us = Some(now_us());
             }
         }
 
@@ -396,7 +398,11 @@ mod platform {
     /// Unused here: the job object holds everything the command starts.
     pub(super) const MARK: &str = "SPADE_RUN";
 
-    pub(super) fn contain(child: &Child, _mark: &str) -> Contained {
+    pub(super) fn now_us() -> u64 {
+        0
+    }
+
+    pub(super) fn contain(child: &Child, _mark: &str, _spawned_us: u64) -> Contained {
         let job = Job::create().ok().and_then(|job| {
             let mut info = ExtendedLimitInfo::new();
             info.limit_kill_on_job_close();

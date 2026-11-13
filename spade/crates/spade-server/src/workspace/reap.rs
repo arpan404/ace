@@ -9,8 +9,8 @@
 //! everything the command starts inherits). The mark alone never selects a process.
 //!
 //! **Whose they are.** A process is recorded with its identity when found (on Linux a pidfd,
-//! which every signal goes through; on macOS its start time, checked again right before every
-//! signal, and skipped on a mismatch), so a pid reused by another process is never signalled.
+//! which every signal goes through; on macOS its start time to the microsecond, checked again
+//! right before every signal, and skipped on a mismatch), so a pid reused by another process is never signalled.
 //! The leader is never signalled by number once it is reaped.
 //!
 //! **How.** Everything found is stopped (`SIGSTOP`), and the look is repeated until no new
@@ -38,8 +38,8 @@ pub(super) struct Found {
     pub pid: i32,
     pub parent: i32,
     pub group: i32,
-    /// When it started, in the platform's own unit (clock ticks since boot on Linux, seconds
-    /// since the epoch on macOS). With the pid, it names one process.
+    /// When it started, in the platform's own unit (clock ticks since boot on Linux,
+    /// microseconds since the epoch on macOS). With the pid, it names one process.
     pub started: u64,
     /// Stopped, or exited and not yet reaped.
     pub still: bool,
@@ -54,12 +54,12 @@ pub(super) struct Run {
     pub mark: String,
     /// The leader was reaped: its number may belong to another process now.
     pub reaped: bool,
-    /// When it started and ended, in seconds since the epoch, for telling its group's members
-    /// from a later group that reused the number (macOS; Linux needs neither).
+    /// When it was started and reaped, in microseconds since the epoch, for telling its group's
+    /// members from a later group that reused the number (macOS; Linux needs neither).
     #[cfg_attr(target_os = "linux", allow(dead_code))]
-    pub started_secs: u64,
+    pub started_us: u64,
     #[cfg_attr(target_os = "linux", allow(dead_code))]
-    pub ended_secs: Option<u64>,
+    pub ended_us: Option<u64>,
 }
 
 /// Which of `all` belong to `run`: see the module's comment. `me` is Spade's own pid.
@@ -281,83 +281,49 @@ mod platform {
 
 #[cfg(not(target_os = "linux"))]
 mod platform {
+    use libproc::libproc::bsd_info::BSDInfo;
+    use libproc::libproc::proc_pid::pidinfo;
+    use libproc::processes::{ProcFilter, pids_by_type};
     use rustix::process::{Pid, Signal, kill_process};
 
     use super::{Found, Run};
 
-    const COLUMNS: [&str; 10] = [
-        "-o", "pid=", "-o", "ppid=", "-o", "pgid=", "-o", "stat=", "-o", "etime=",
-    ];
+    /// `SSTOP` and `SZOMB` in `pbi_status` (`sys/proc.h`).
+    const STOPPED: u32 = 4;
+    const ZOMBIE: u32 = 5;
 
-    /// Every process now, from `ps`: pid, parent, group, state and how long it has run, turned
-    /// into its start in seconds since the epoch. The mark is never read here (macOS shows no
-    /// other process's environment).
+    /// Every process now. The mark is never read here (macOS shows no other process's
+    /// environment).
     pub(super) fn look(_mark: &str) -> Vec<Found> {
-        ps(&["-ax"])
-    }
-
-    fn ps(which: &[&str]) -> Vec<Found> {
-        let Ok(output) = std::process::Command::new("/bin/ps")
-            .args(which)
-            .args(COLUMNS)
-            .env_clear()
-            .stdin(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .output()
-        else {
-            return Vec::new();
-        };
-        let now = now_secs();
-        String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .filter_map(|line| parse(line, now))
+        pids_by_type(ProcFilter::All)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|pid| info(i32::try_from(pid).ok()?))
             .collect()
     }
 
-    fn parse(line: &str, now: u64) -> Option<Found> {
-        let mut fields = line.split_whitespace();
-        let pid = fields.next()?.parse().ok()?;
-        let parent = fields.next()?.parse().ok()?;
-        let group = fields.next()?.parse().ok()?;
-        let state = fields.next()?;
-        let elapsed = elapsed_secs(fields.next()?)?;
+    /// One process from `proc_pidinfo(PROC_PIDTBSDINFO)`: its start to the microsecond
+    /// (`pbi_start_tvsec`, `pbi_start_tvusec`), parent, group and state.
+    fn info(pid: i32) -> Option<Found> {
+        let info: BSDInfo = pidinfo(pid, 0).ok()?;
         Some(Found {
             pid,
-            parent,
-            group,
-            started: now.saturating_sub(elapsed),
-            still: state.starts_with('T') || state.starts_with('Z'),
+            parent: i32::try_from(info.pbi_ppid).ok()?,
+            group: i32::try_from(info.pbi_pgid).ok()?,
+            started: info
+                .pbi_start_tvsec
+                .saturating_mul(1_000_000)
+                .saturating_add(info.pbi_start_tvusec),
+            still: matches!(info.pbi_status, STOPPED | ZOMBIE),
             marked: false,
         })
-    }
-
-    /// `[[dd-]hh:]mm:ss`.
-    fn elapsed_secs(text: &str) -> Option<u64> {
-        let (days, clock) = match text.split_once('-') {
-            Some((days, clock)) => (days.parse::<u64>().ok()?, clock),
-            None => (0, text),
-        };
-        let parts: Vec<u64> = clock
-            .split(':')
-            .map(|p| p.parse().ok())
-            .collect::<Option<_>>()?;
-        let secs = parts.iter().fold(0, |total, part| total * 60 + part);
-        Some(days * 86_400 + secs)
-    }
-
-    fn now_secs() -> u64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs())
     }
 
     /// A group member that started while the command ran: a later group that reused the
     /// number started after it ended.
     pub(super) fn group_member(process: &Found, run: &Run) -> bool {
-        process.started + 1 >= run.started_secs
-            && run
-                .ended_secs
-                .is_none_or(|ended| process.started <= ended + 1)
+        process.started >= run.started_us
+            && run.ended_us.is_none_or(|ended| process.started <= ended)
     }
 
     /// The process found, with its start time; checked again right before each signal.
@@ -376,13 +342,9 @@ mod platform {
             &self.found
         }
 
-        /// Only if the pid still names the process found. Start times come in whole seconds,
-        /// so a second either way is the same process.
+        /// Only if the pid still names the process found: the same start, to the microsecond.
         pub(super) fn signal(&self, sig: Signal) {
-            let pid = self.found.pid.to_string();
-            let still_it = ps(&["-p", &pid]).iter().any(|now| {
-                now.pid == self.found.pid && now.started.abs_diff(self.found.started) <= 1
-            });
+            let still_it = info(self.found.pid).is_some_and(|now| super::same(&self.found, &now));
             if still_it && let Some(pid) = Pid::from_raw(self.found.pid) {
                 let _ = kill_process(pid, sig);
             }
@@ -414,8 +376,8 @@ mod tests {
             leader: 100,
             mark: "m".into(),
             reaped,
-            started_secs: 1_000,
-            ended_secs: reaped.then_some(1_010),
+            started_us: 1_000,
+            ended_us: reaped.then_some(1_010),
         }
     }
 
