@@ -524,7 +524,7 @@ import Testing
             await notifier.catchUp(cursor: 2, entries: [cursored(alert("n:1", status: "failed", thread: "other"), 1), cursored(alert("n:2"), 2)],
                                    retracted: [])
         }
-        for _ in 0..<20 { await Task.yield() }
+        try await until("the feed is applying") { notifier.ledger.cursor == 2 }
         notifier.connected()
         center.release()
         await request.value

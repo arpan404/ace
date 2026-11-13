@@ -244,11 +244,12 @@ final class SystemNotificationCenter: NotificationCenterPort {
     }
     private func apply(cursor: Int, entries: [AlertNotification], retracted: [String]) async {
         desk.retract(retracted, hostId: hostId)
-        // What was held back when this feed started applying: a reconnect (`connected`) clears
-        // `live` for the next feed, but must not free this one's older alerts mid-way.
-        let held = live
         let gone = Set(retracted)
         live = live.filter { !gone.contains($0.value.id) }
+        // What was held back when this feed started applying, retractions gone: a reconnect
+        // (`connected`) clears `live` for the next feed, but must not free this one's older
+        // alerts mid-way.
+        let held = live
         let fresh = entries.filter { inFlight[$0.id] == nil && ledger.admit($0.id) }
         ledger.advance(to: cursor)
         store?.save(ledger)
