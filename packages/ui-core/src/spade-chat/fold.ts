@@ -89,6 +89,7 @@ export interface SpadeReplyEntry {
 }
 
 export type SpadeEntry =
+  | { kind: "task-paused"; key: string; reason: "budget" | "no_progress"; steps: number }
   | {
       kind: "user";
       key: string;
@@ -443,6 +444,9 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       );
     case "reply_interrupted":
       return closeReply(state, event.reply, { kind: "interrupted" }, event.text);
+    case "task_paused":
+      state.entries.push({ kind: "task-paused", key, reason: event.reason, steps: event.steps });
+      return true;
     case "context_compacted":
       state.entries.push({ kind: "compacted", key });
       return true;

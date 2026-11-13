@@ -54,12 +54,6 @@ export function SpadeRequestStrip(props: {
             {words.detail && (
               <p className="truncate text-xs text-muted-foreground">{words.detail}</p>
             )}
-            {approval.reason && (
-              // The reviewer asked the person rather than approve it: its reason, quietly.
-              <p title={approval.reason} className="truncate text-xs text-muted-foreground">
-                {`Reviewer: ${approval.reason}`}
-              </p>
-            )}
           </div>
           <div className="flex shrink-0 items-center gap-1">
             {details && (
@@ -72,13 +66,50 @@ export function SpadeRequestStrip(props: {
                 Review
               </Button>
             )}
+            {!approval.reason && (
+              <>
+                <Button
+                  size="xs"
+                  variant="secondary"
+                  disabled={answering !== undefined}
+                  onClick={() => answer("allow")}
+                >
+                  {answering === "allow" ? `${words.allow}…` : words.allow}
+                </Button>
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  disabled={answering !== undefined}
+                  onClick={() => answer("deny")}
+                >
+                  {words.deny}
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+        {approval.reason && (
+          // The reviewer asked the person rather than approve it: its reason, quietly, under
+          // the request and across the strip, so a phone shows all of it.
+          <p className="pl-8 text-xs text-muted-foreground">{`Reviewer: ${approval.reason}`}</p>
+        )}
+        {approval.reason && (
+          <div className="flex items-center gap-1 pl-8">
             <Button
               size="xs"
-              variant="secondary"
+              variant="ghost"
               disabled={answering !== undefined}
               onClick={() => answer("allow")}
             >
-              {answering === "allow" ? `${words.allow}…` : words.allow}
+              {answering === "allow" ? "Allow…" : "Allow"}
+            </Button>
+            <Button
+              size="xs"
+              variant="ghost"
+              disabled={answering !== undefined}
+              onClick={() => answer("always")}
+            >
+              Always allow
             </Button>
             <Button
               size="xs"
@@ -86,10 +117,10 @@ export function SpadeRequestStrip(props: {
               disabled={answering !== undefined}
               onClick={() => answer("deny")}
             >
-              {words.deny}
+              Deny
             </Button>
           </div>
-        </div>
+        )}
         {open && details && (
           <div className="flex flex-col gap-1.5">
             <pre
@@ -98,7 +129,7 @@ export function SpadeRequestStrip(props: {
             >
               {details}
             </pre>
-            {command !== undefined && (
+            {command !== undefined && !approval.reason && (
               <Button
                 size="xs"
                 variant="ghost"

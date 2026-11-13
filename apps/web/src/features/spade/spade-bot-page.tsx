@@ -398,28 +398,30 @@ function AccessSection(props: { bot: RosterBot }) {
   }
   return (
     <SettingSection label="Access">
-      <AccessChoice
-        name={bot.name}
-        value={shown}
-        disabled={saving}
-        headed
-        onChange={(access) => {
-          setShown(access);
-          setSaving(true);
-          editAgent(client, bot.id, { access })
-            .then(
-              () => cache.invalidateQueries({ queryKey: agentsKey }),
-              (error: unknown) => {
-                setShown(saved);
-                toast.error({
-                  title: `Couldn't change ${bot.name}'s access`,
-                  description: message(error),
-                });
-              },
-            )
-            .finally(() => setSaving(false));
-        }}
-      />
+      <div className="py-3">
+        <AccessChoice
+          name={bot.name}
+          value={shown}
+          disabled={saving}
+          headed
+          onChange={(access) => {
+            setShown(access);
+            setSaving(true);
+            editAgent(client, bot.id, { access })
+              .then(
+                () => cache.invalidateQueries({ queryKey: agentsKey }),
+                (error: unknown) => {
+                  setShown(saved);
+                  toast.error({
+                    title: `Couldn't change ${bot.name}'s access`,
+                    description: message(error),
+                  });
+                },
+              )
+              .finally(() => setSaving(false));
+          }}
+        />
+      </div>
     </SettingSection>
   );
 }

@@ -1,3 +1,4 @@
+import { spadeAccessLabel, parseSpadeAccess } from "./autonomy.ts";
 import { z } from "zod";
 import { spadeJson, spadeRecord } from "./json.ts";
 import { spadeMoney } from "./oversight.ts";
@@ -17,6 +18,7 @@ export const spadeActivityKinds = [
   "routine",
   "review",
   "task",
+  "access",
   "spend",
   "cap",
 ] as const;
@@ -32,6 +34,7 @@ export const spadeActivityKindWords: Record<SpadeActivityKind, string> = {
   routine: "Routines",
   review: "Reviews",
   task: "Progress",
+  access: "Access",
   spend: "Spending",
   cap: "Caps",
 };
@@ -186,6 +189,12 @@ function sentenceOf(entry: SpadeActivityEntry): {
         sentence: `The reviewer ${reviewVerdicts[outcome] ?? "approved"}: ${words.base}`,
         detail: reasonOf(entry),
       };
+    case "access": {
+      const access = parseSpadeAccess(name);
+      return {
+        sentence: access ? `Access changed to ${spadeAccessLabel(access)}` : "Access changed",
+      };
+    }
     case "task":
       // It carried on by itself, or stopped because nothing moved: the summary says which step.
       return outcome === "paused"

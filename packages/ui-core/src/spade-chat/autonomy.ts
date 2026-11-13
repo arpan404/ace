@@ -38,7 +38,7 @@ export function parseSpadeAccess(raw: unknown): SpadeAccess | undefined {
   return parsed.success ? parsed.data : undefined;
 }
 
-export type SpadeTaskState = "working" | "blocked_on_person" | "done";
+export type SpadeTaskState = "working" | "waiting" | "blocked_on_person" | "done";
 
 /** Where a bot is on its task; undefined from a Spade before tasks that carry on. */
 export interface SpadeTaskProgress {
@@ -49,31 +49,21 @@ export interface SpadeTaskProgress {
   step: string | undefined;
 }
 
-const taskStateShape = z.enum(["working", "blocked_on_person", "done"]);
 const taskObjectShape = z.object({
-  state: taskStateShape,
-  continuing: z.boolean().catch(false).optional(),
-  step: z.string().nullish().catch(undefined),
+  status: z.enum(["working", "waiting", "blocked_on_person", "done"]),
+  note: z.string().nullish().catch(undefined),
 });
 
-/**
- * From an agent's fields: `task_state` as a word or as `{state, continuing, step}`, with
- * `continuing` and `step` beside it when it is a word.
- */
+/** The server's task state and its separate continuation flag. */
 export function parseSpadeTaskProgress(
   record: Record<string, unknown>,
 ): SpadeTaskProgress | undefined {
-  const raw = record.task_state;
-  const continuing = record.continuing === true;
-  const step = typeof record.step === "string" && record.step ? record.step : undefined;
-  const word = taskStateShape.safeParse(raw);
-  if (word.success) return { state: word.data, continuing, step };
-  const object = taskObjectShape.safeParse(raw);
-  if (!object.success) return undefined;
+  const parsed = taskObjectShape.safeParse(record.task_state);
+  if (!parsed.success) return undefined;
   return {
-    state: object.data.state,
-    continuing: object.data.continuing ?? continuing,
-    step: object.data.step || step,
+    state: parsed.data.status,
+    continuing: record.continuing === true,
+    step: parsed.data.note || undefined,
   };
 }
 
@@ -98,10 +88,10 @@ export function spadeTaskLine(
   if (!task) return undefined;
   if (task.state === "blocked_on_person")
     return { sentence: `${name} needs you`, step: undefined, tone: "needs-you" };
-  if (task.state === "working" && task.continuing)
+  if (task.continuing && task.state !== "done")
     return {
       sentence: `${name} is working on it`,
-      step: task.step ?? status,
+      step: status === "Checking a step" ? status : (task.step ?? status),
       tone: "working",
     };
   return undefined;

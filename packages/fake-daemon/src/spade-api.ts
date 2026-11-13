@@ -45,10 +45,11 @@ export interface FakeSpadeAgent {
   /** How much it may do without asking; left out, as a Spade before access levels does. */
   access?: "ask" | "auto_review" | "full_access";
   /** Its task: on it, waiting on the person, or done; with whether it carries on by itself. */
-  task_state?: "working" | "blocked_on_person" | "done";
+  task_state?: {
+    status: "working" | "waiting" | "blocked_on_person" | "done";
+    note?: string;
+  } | null;
   continuing?: boolean;
-  /** The step it is on, in its own few words. */
-  step?: string | null;
 }
 
 interface Stored {
@@ -675,7 +676,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
         allowed: body.allowed === true,
         always: body.always === true,
       });
-      if (agent?.task_state === "blocked_on_person") agent.task_state = "working";
+      if (agent?.task_state?.status === "blocked_on_person")
+        agent.task_state = { status: "working" };
       if (agent) this.status(agent, "working", null);
       return reply({});
     }

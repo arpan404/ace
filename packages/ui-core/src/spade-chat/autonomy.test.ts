@@ -22,7 +22,10 @@ describe("access levels", () => {
 
 describe("a task that carries on", () => {
   test("a bot carrying on by itself says it is working on it, with its step", () => {
-    const bot = agent({ task_state: "working", continuing: true, step: "Checking easyJet" });
+    const bot = agent({
+      task_state: { status: "working", note: "Checking easyJet" },
+      continuing: true,
+    });
     expect(spadeTaskLine("Flights", bot?.progress)).toEqual({
       sentence: "Flights is working on it",
       step: "Checking easyJet",
@@ -31,20 +34,25 @@ describe("a task that carries on", () => {
   });
 
   test("the step comes from the object form or the live status when the field has none", () => {
-    const bot = agent({ task_state: { state: "working", continuing: true } });
+    const bot = agent({ task_state: { status: "working" }, continuing: true });
     expect(spadeTaskLine("Flights", bot?.progress, "Reading fares")?.step).toBe("Reading fares");
   });
 
   test("a task waiting on the person says the bot needs you", () => {
-    const bot = agent({ task_state: "blocked_on_person" });
+    const bot = agent({ task_state: { status: "blocked_on_person" } });
     expect(spadeTaskLine("Flights", bot?.progress)?.sentence).toBe("Flights needs you");
   });
 
   test("a done task, a bot only answering a message, and an older Spade show nothing", () => {
     expect(
-      spadeTaskLine("Flights", agent({ task_state: "done", continuing: true })?.progress),
+      spadeTaskLine(
+        "Flights",
+        agent({ task_state: { status: "done" }, continuing: true })?.progress,
+      ),
     ).toBe(undefined);
-    expect(spadeTaskLine("Flights", agent({ task_state: "working" })?.progress)).toBeUndefined();
+    expect(
+      spadeTaskLine("Flights", agent({ task_state: { status: "working" } })?.progress),
+    ).toBeUndefined();
     expect(spadeTaskLine("Flights", agent({})?.progress)).toBeUndefined();
   });
 });
@@ -72,4 +80,25 @@ describe("escalations", () => {
     });
     expect(state.approvals[0]?.reason).toBe("It sends as you to someone new");
   });
+});
+
+test("a waiting task can keep a continuation pending without appearing finished", () => {
+  expect(
+    spadeTaskLine(
+      "Flights",
+      agent({
+        task_state: { status: "waiting", note: "Waiting for its next step" },
+        continuing: true,
+      })?.progress,
+    )?.sentence,
+  ).toBe("Flights is working on it");
+  expect(
+    spadeTaskLine(
+      "Flights",
+      agent({
+        task_state: { status: "waiting" },
+        continuing: false,
+      })?.progress,
+    ),
+  ).toBeUndefined();
 });

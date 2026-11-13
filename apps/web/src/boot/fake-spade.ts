@@ -114,7 +114,7 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     },
     // Auto-review: the reviewer asked the person about sending as them.
     access: "auto_review",
-    task_state: "blocked_on_person",
+    task_state: { status: "blocked_on_person" },
     continuing: false,
     last_activity: minutes(11),
   });
@@ -135,9 +135,8 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     },
     // Full access, carrying on with its task by itself.
     access: "full_access",
-    task_state: "working",
+    task_state: { status: "working", note: "Writing the Fixes section" },
     continuing: true,
-    step: "Writing the Fixes section",
     last_activity: minutes(44),
   });
   const garden = here.addAgent({
@@ -299,7 +298,7 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     task: "Watch fares to Lisbon for the 14th to the 18th and tell me when it's worth booking.",
     model: "openrouter/openai/gpt-6.1-mini",
     access: "ask",
-    task_state: "done",
+    task_state: { status: "done" },
     spending: {
       today_micros: 180_000,
       month_micros: 1_240_000,
@@ -410,9 +409,11 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     },
   ])
     here.routines.agentRoute("POST", "flights", "routines", routine);
+  here.store(flights.conversation, { type: "task_paused", reason: "no_progress", steps: 4 });
   here.oversight.activity.set(
     "flights",
     [
+      { kind: "access", name: "auto_review", summary: "", outcome: "changed", ago: 1 },
       { kind: "task", name: null, summary: "no progress", outcome: "paused", ago: 2 },
       { kind: "tool", name: "web_search", summary: "Checked 6 airlines", outcome: "ok", ago: 3 },
       { kind: "task", name: null, summary: "step 4", outcome: "continued", ago: 3 },
@@ -421,7 +422,7 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
         name: "workspace_write",
         summary: "flights.md",
         reason: "Updating its own fare notes is part of its task.",
-        outcome: "approved",
+        outcome: "allowed",
         ago: 4,
       },
       {

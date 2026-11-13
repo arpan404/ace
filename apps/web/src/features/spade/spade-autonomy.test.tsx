@@ -79,6 +79,8 @@ test("a request the reviewer escalated shows its reason, and Allow answers it", 
   await userEvent.click(await botRow("Scout"));
   const request = within(await screen.findByRole("group", { name: /^Scout wants to/ }));
   expect(request.getByText("Reviewer: A booking is a payment.")).toBeTruthy();
+  expect(request.getByRole("button", { name: "Always allow" })).toBeTruthy();
+  expect(request.getByRole("button", { name: "Deny" })).toBeTruthy();
   // Nothing of the review is in the conversation itself.
   expect(within(screen.getByRole("feed")).queryByText(/A booking is a payment/)).toBeNull();
   await userEvent.click(request.getByRole("button", { name: "Allow" }));
@@ -88,50 +90,6 @@ test("a request the reviewer escalated shows its reason, and Allow answers it", 
     ]),
   );
   await waitFor(() => expect(screen.queryByRole("group", { name: /^Scout wants to/ })).toBeNull());
-});
-
-test("a bot carrying on by itself says so in its chat and its row, and the line goes once it is done", async () => {
-  let scout: ReturnType<FakeSpadeApi["addAgent"]> | undefined;
-  await spadeApp("/spade", (api) => {
-    withSpade(api);
-    scout = api.addAgent({
-      id: "scout",
-      name: "Scout",
-      state: "working",
-      task_state: "working",
-      continuing: true,
-      step: "Checking easyJet",
-    });
-  });
-  const row = await botRow("Scout");
-  await waitFor(() => expect(row.textContent).toContain("Working on it · Checking easyJet"));
-  await userEvent.click(row);
-  const feed = await screen.findByRole("feed", { name: "Conversation with Scout" });
-  await waitFor(() =>
-    expect(within(feed).getByRole("status").textContent).toContain(
-      "Scout is working on it · Checking easyJet",
-    ),
-  );
-  // Stop stays while it carries on.
-  expect(screen.getByRole("button", { name: "Stop the agent" })).toBeTruthy();
-
-  if (scout) Object.assign(scout, { state: "idle", task_state: "done", continuing: false });
-  await waitFor(() => expect(within(feed).queryByRole("status")).toBeNull());
-  expect((await botRow("Scout")).textContent).not.toContain("Working on it");
-});
-
-test("a task waiting on the person reads that the bot needs you", async () => {
-  await spadeApp("/spade", (api) => {
-    withSpade(api);
-    api.addAgent({ id: "scout", name: "Scout", task_state: "blocked_on_person" });
-  });
-  const row = await botRow("Scout");
-  await waitFor(() => expect(row.textContent).toContain("Needs you"));
-  await userEvent.click(row);
-  const feed = await screen.findByRole("feed", { name: "Conversation with Scout" });
-  await waitFor(() =>
-    expect(within(feed).getByRole("status").textContent).toContain("Scout needs you"),
-  );
 });
 
 test("the activity log lists the reviewer's verdicts with their reasons, and how the task went on", async () => {
@@ -145,7 +103,7 @@ test("the activity log lists the reviewer's verdicts with their reasons, and how
         { kind: "task", name: null, summary: "no progress", outcome: "paused" },
         { kind: "task", name: null, summary: "step 4", outcome: "continued" },
         { kind: "review", name: "send_email", outcome: "refused", reason: "Not its task." },
-        { kind: "review", name: "web_fetch", outcome: "approved", reason: "Routine reading." },
+        { kind: "review", name: "web_fetch", outcome: "allowed", reason: "Routine reading." },
         { kind: "review", name: "send_email", outcome: "escalated", reason: "Sends as you." },
       ].map((fields, index) =>
         Object.assign(

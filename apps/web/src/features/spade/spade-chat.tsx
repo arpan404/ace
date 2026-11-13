@@ -203,6 +203,12 @@ const Bubble = memo(function Bubble(props: {
           )}
         </div>
       );
+    case "task-paused":
+      return (
+        <p role="note" className="text-xs text-muted-foreground">
+          {item.text}
+        </p>
+      );
     case "routine":
       // A routine fired (ADR 0129): a small label in the middle, never the person's bubble.
       return (

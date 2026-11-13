@@ -12,6 +12,7 @@ import { spadeCapSentence } from "./oversight.ts";
  * and a note the bot saved as one quiet line between its bubbles.
  */
 export type SpadeBubble =
+  | { kind: "task-paused"; key: string; text: string }
   | {
       kind: "person";
       key: string;
@@ -111,6 +112,17 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
       inputs = true;
       onlyBeats = false;
       hold(held, entry.key, entry.files);
+    }
+    if (entry.kind === "task-paused") {
+      bubbles.push({
+        kind: "task-paused",
+        key: entry.key,
+        text:
+          entry.reason === "budget"
+            ? `Paused after ${entry.steps} steps. Send a message to keep going.`
+            : "Paused because it wasn't making progress. Send a message to keep going.",
+      });
+      continue;
     }
     if (entry.kind === "handback") {
       bubbles.push({ kind: "handback", key: entry.key, text: entry.text, data: entry.data });

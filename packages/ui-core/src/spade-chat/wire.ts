@@ -159,6 +159,11 @@ const known = z.discriminatedUnion("type", [
     verdict: z.string(),
     reason: z.string().catch("").default(""),
   }),
+  z.object({
+    type: z.literal("task_paused"),
+    reason: z.enum(["budget", "no_progress"]),
+    steps: z.number().int().nonnegative(),
+  }),
   z.object({ type: z.literal("context_compacted") }),
   z.object({
     type: z.literal("stop_requested"),

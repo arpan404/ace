@@ -200,7 +200,7 @@ describe("activity", () => {
   });
 
   test("a reviewer verdict reads as approved, refused or asked you, with its reason under it", () => {
-    expect(verdict("approved", "Routine reply the person asked for")).toMatchObject({
+    expect(verdict("allowed", "Routine reply the person asked for")).toMatchObject({
       sentence: "The reviewer approved: send an email",
       detail: "Routine reply the person asked for",
     });
@@ -221,6 +221,11 @@ describe("activity", () => {
     expect(
       spadeActivityWords(parsedEntry({ kind: "task", outcome: "paused", summary: "no progress" })),
     ).toMatchObject({ sentence: "Paused: no progress", detail: undefined });
+  });
+
+  test("access changes name the selected level in the activity log", () => {
+    expect(words({ kind: "access", name: "auto_review" })).toBe("Access changed to Auto-review");
+    expect(words({ kind: "access", name: "full_access" })).toBe("Access changed to Full access");
   });
 
   test("the query sends only the parts that are set", () => {
