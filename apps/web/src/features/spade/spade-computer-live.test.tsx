@@ -128,6 +128,40 @@ test("the bot's screen shows the session its thread started, and the person's in
   );
 });
 
+/** The screen sessions as the daemon holds them now, read on a channel of the test's own. */
+async function sessions(daemon: FakeDaemon) {
+  let answer: unknown;
+  const channel = daemon.screen.connection((message) => {
+    if (!(message instanceof Uint8Array) && message.type === "screen.result" && message.ok)
+      answer = message.data;
+  });
+  await channel.request({
+    type: "screen.request",
+    requestId: "read-sessions",
+    operation: { op: "sessions" },
+  } as never);
+  channel.close();
+  return answer as { sessionId: string; controller: string }[];
+}
+
+test("the screen's controls go back once its view goes, so nothing stays the person's", async () => {
+  const { app, spade } = await spadeApp("/spade/scout?computer=screen", seed, {
+    daemon: (daemon) => void onScreen(daemon),
+  });
+  spade.computer.thread("scout", thread);
+  spade.computer.use("scout", { kind: "screen", live: true, title: "TextEdit" });
+  await screen.findByRole("img", { name: "Scout's screen" });
+  await userEvent.click(screen.getByRole("button", { name: "Take over" }));
+  await waitFor(async () =>
+    expect((await sessions(app.daemon)).map((each) => each.controller)).toEqual(["human"]),
+  );
+  // Off to the files while still driving: the screen's view goes, and its controls with it.
+  await userEvent.click(screen.getByRole("tab", { name: "Files" }));
+  await waitFor(async () =>
+    expect((await sessions(app.daemon)).map((each) => each.controller)).toEqual(["none"]),
+  );
+});
+
 test("a bot that hasn't opened its browser yet says so", async () => {
   const { spade } = await spadeApp("/spade/scout?computer=browser", seed);
   spade.computer.use("scout", { kind: "browser", live: true, title: null, url: null });

@@ -114,10 +114,14 @@ test("+ offers New bot, New group and Import bot, and an imported bot opens", as
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 
   await openNew("Import bot…");
-  const file = new File([JSON.stringify({ name: "Pilot", task: "Fly" })], "pilot.json", {
-    type: "application/json",
-  });
+  const file = new File(
+    [JSON.stringify({ format: "spade-bot", name: "Pilot", task: "Fly" })],
+    "pilot.json",
+    {
+      type: "application/json",
+    },
+  );
   fireEvent.change(screen.getByLabelText("Bot file to import"), { target: { files: [file] } });
   await waitFor(() => expect(spade.sent("POST", "/v1/agents/import")).toHaveLength(1));
-  await screen.findByRole("feed", { name: /^Conversation with / });
+  await screen.findByRole("feed", { name: "Conversation with Pilot" });
 });

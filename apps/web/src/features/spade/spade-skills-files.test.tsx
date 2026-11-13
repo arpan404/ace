@@ -126,6 +126,9 @@ test("Files lists the bot's folder, opens a file and deletes after confirming", 
   await userEvent.click(await screen.findByRole("link", { name: /^Writer on .*open its page$/ }));
   const section = within(await screen.findByRole("region", { name: "Files" }));
   await userEvent.click(section.getByRole("button", { name: "All" }));
+  // Changing files needs the person driving.
+  await userEvent.click(await screen.findByRole("button", { name: "Take over" }));
+  await screen.findByRole("button", { name: "Hand back" });
   const files = within(await screen.findByRole("list", { name: "Files" }));
   expect(files.getAllByRole("listitem").map((row) => row.textContent?.split(/\d/)[0])).toEqual([
     expect.stringContaining("notes"),
@@ -168,6 +171,8 @@ test("moving to another folder closes the open file, and Delete names the file's
     },
     { history },
   );
+  await userEvent.click(await screen.findByRole("button", { name: "Take over" }));
+  await screen.findByRole("button", { name: "Hand back" });
   const inner = within(await screen.findByRole("list", { name: "Files" }));
   const plan = (await inner.findAllByRole("listitem")).find((row) =>
     row.textContent?.includes("plan.md"),

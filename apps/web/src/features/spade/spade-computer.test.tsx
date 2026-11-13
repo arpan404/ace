@@ -178,6 +178,9 @@ test("the file manager opens and saves a file, makes a folder, moves, uploads an
     seed(api);
     api.files.set("scout", { "plan.md": "# Plan\n", "old.txt": "x" });
   });
+  // Changes need the person driving.
+  await userEvent.click(await screen.findByRole("button", { name: "Take over" }));
+  await screen.findByRole("button", { name: "Hand back" });
   const files = await screen.findByRole("list", { name: "Files" });
   await userEvent.click(await within(files).findByRole("button", { name: /^plan\.md/ }));
   const editor = await screen.findByRole("textbox", { name: "plan.md" });
@@ -335,4 +338,125 @@ test("handing back leaves one quiet line in the chat, with what changed behind a
       .map((item) => item.textContent),
   ).toEqual(["new: notes/plan.md", "went to: https://example.com/account"]);
   expect(within(note).queryByRole("link")).toBeNull();
+});
+
+test("Take over gives the controls only once Spade itself says the bot's work has stopped", async () => {
+  const { spade } = await spadeApp("/spade/scout?computer=terminal", (api) => {
+    seed(api);
+    api.computer.stopping("scout", true);
+  });
+  const panel = await screen.findByRole("tabpanel", { name: "Terminal" });
+  const input = await within(panel).findByRole("textbox", { name: "Scout's input" });
+  // No frame follows the take-over: only Spade's answer to reading the computer counts.
+  spade.computer.quiet = true;
+  await userEvent.click(screen.getByRole("button", { name: "Take over" }));
+  await waitFor(() =>
+    expect(
+      spade.requests.filter(
+        (request) => request.method === "GET" && request.path === "/v1/agents/scout/computer",
+      ),
+    ).not.toHaveLength(0),
+  );
+  await screen.findByText("Stopping Scout…");
+  expect((input as HTMLTextAreaElement).disabled).toBe(true);
+
+  spade.computer.quiet = false;
+  spade.computer.stopping("scout", false);
+  await waitFor(() => expect((input as HTMLTextAreaElement).disabled).toBe(false));
+});
+
+test("the bot's files can be read and downloaded while it drives; every change waits for the person to take over", async () => {
+  const { spade } = await spadeApp("/spade/scout?computer=files", (api) => {
+    seed(api);
+    api.files.set("scout", { "plan.md": "# Plan\n" });
+  });
+  const writes = () =>
+    spade.requests.filter(
+      (request) =>
+        request.path.includes("/files") ||
+        (request.method === "DELETE" && request.path.includes("/workspace")),
+    );
+  const files = await screen.findByRole("list", { name: "Files" });
+  expect((screen.getByRole("button", { name: "Upload" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole("button", { name: "New folder" }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+  await userEvent.click(within(files).getByRole("button", { name: "More for plan.md" }));
+  const remove = await screen.findByRole("menuitem", { name: /^Delete/ });
+  expect(remove.getAttribute("aria-disabled")).toBe("true");
+  expect(remove.textContent).toContain("Take over to change files");
+  await userEvent.keyboard("{Escape}");
+
+  await userEvent.click(within(files).getByRole("button", { name: /^plan\.md/ }));
+  const editor = await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "plan.md" });
+  await waitFor(() => expect(editor.value).toBe("# Plan\n"));
+  expect(editor.readOnly).toBe(true);
+  expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole("button", { name: "Download" }) as HTMLButtonElement).disabled).toBe(
+    false,
+  );
+
+  // Taken over, Delete asks first; handed back meanwhile, the answer changes nothing.
+  await userEvent.click(screen.getByRole("button", { name: "Take over" }));
+  await waitFor(() => expect(editor.readOnly).toBe(false));
+  await userEvent.click(screen.getByRole("button", { name: "Delete" }));
+  const confirm = within(await screen.findByRole("dialog", { name: "Delete plan.md?" }));
+  spade.answer({ method: "POST", path: "/v1/agents/scout/computer/hand-back", body: undefined });
+  await waitFor(() => expect(editor.readOnly).toBe(true));
+  await userEvent.click(confirm.getByRole("button", { name: "Delete" }));
+  expect(writes()).toEqual([]);
+  expect(spade.files.get("scout")?.["plan.md"]).toBe("# Plan\n");
+});
+
+test("words typed while a file saves stay as the draft", async () => {
+  const { spade } = await spadeApp("/spade/scout?computer=files&file=plan.md", (api) => {
+    seed(api);
+    api.files.set("scout", { "plan.md": "# Plan\n" });
+  });
+  await userEvent.click(await screen.findByRole("button", { name: "Take over" }));
+  const editor = await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "plan.md" });
+  await waitFor(() => expect(editor.readOnly).toBe(false));
+  fireEvent.change(editor, { target: { value: "# Plan\nDay 1" } });
+  // Saved, then typed in before the answer came back.
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  fireEvent.change(editor, { target: { value: "# Plan\nDay 1\nDay 2" } });
+  await waitFor(() => expect(spade.files.get("scout")?.["plan.md"]).toBe("# Plan\nDay 1"));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Saving…" })).toBeNull());
+  expect(editor.value).toBe("# Plan\nDay 1\nDay 2");
+  expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false);
+});
+
+test("Take over on the tile turns it into who drives, with Hand back", async () => {
+  const { spade } = await spadeApp("/spade/scout", browsing);
+  const tile = await screen.findByRole("region", { name: /live$/ });
+  await userEvent.click(within(tile).getByRole("button", { name: "Take over" }));
+  await within(tile).findByText(/You're driving\./);
+  expect(within(tile).queryByRole("button", { name: "Take over" })).toBeNull();
+  await userEvent.click(within(tile).getByRole("button", { name: "Hand back" }));
+  await within(tile).findByRole("button", { name: "Take over" });
+  expect(spade.computer.driver("scout")).toBe("bot");
+});
+
+test("while the person drives, the bot reads as paused, with no clock and no Stop", async () => {
+  await spadeApp("/spade/scout", (api) => {
+    browsing(api);
+    const scout = api.agents.find((agent) => agent.id === "scout");
+    if (!scout) throw new Error("no Scout");
+    api.store(scout.conversation, { type: "user_message", text: "Find a hotel." });
+    api.store(scout.conversation, { type: "reply_started", reply: "r1" });
+    api.status(scout, "working", "Comparing hotels");
+  });
+  const feed = within(await screen.findByRole("feed", { name: "Conversation with Scout" }));
+  await feed.findByText("Comparing hotels");
+  expect(screen.getByRole("button", { name: "Stop the agent" })).toBeTruthy();
+
+  const tile = await screen.findByRole("region", { name: /live$/ });
+  await userEvent.click(within(tile).getByRole("button", { name: "Take over" }));
+  const line = await feed.findByRole("status");
+  await waitFor(() => expect(line.textContent).toBe("Paused while you have the computer"));
+  expect(feed.queryByText("Comparing hotels")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
+  await waitFor(async () =>
+    expect((await botRow("Scout")).textContent).toContain("Paused while you have the computer"),
+  );
 });
