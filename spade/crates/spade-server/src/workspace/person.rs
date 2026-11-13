@@ -10,6 +10,14 @@ use serde::{Deserialize, Serialize};
 use super::files::{MOST_WALKED, folder, millis};
 use super::{PathError, Workspace, clean, shown};
 
+/// Largest file a revision is taken of: the largest the person writes.
+pub const LARGEST_REVISION: u64 = 32 * 1024 * 1024;
+
+/// A file's revision: `sha256:<hex>` of its content.
+pub fn revision_of(bytes: &[u8]) -> String {
+    format!("sha256:{}", super::trust::hash(bytes))
+}
+
 /// What a snapshot keeps of one entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Seen {
@@ -23,6 +31,38 @@ pub struct Seen {
 pub type Snapshot = BTreeMap<String, Seen>;
 
 impl Workspace {
+    /// The file at `relative`'s revision now: `None` when nothing is there, an error for a folder
+    /// or a file too large to have one.
+    pub fn revision(&self, relative: &str) -> Result<Option<String>, PathError> {
+        match self.bytes_up_to(relative, LARGEST_REVISION) {
+            Ok(bytes) => Ok(Some(revision_of(&bytes))),
+            Err(PathError::Missing(_)) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Refuses with [`PathError::Changed`] unless the file at `relative` is still revision
+    /// `base`. No `base` (a new file, or the person chose to overwrite) always passes.
+    pub fn check_base(&self, relative: &str, base: Option<&str>) -> Result<(), PathError> {
+        let Some(base) = base else {
+            return Ok(());
+        };
+        // Grown past the largest file a revision is taken of: it can't be the one they opened.
+        let cleaned = clean(relative)?;
+        if let Ok(meta) = self.dir()?.metadata(&cleaned)
+            && meta.is_file()
+            && meta.len() > LARGEST_REVISION
+        {
+            return Err(PathError::Changed(None));
+        }
+        let now = self.revision(relative)?;
+        if now.as_deref() == Some(base) {
+            Ok(())
+        } else {
+            Err(PathError::Changed(now))
+        }
+    }
+
     /// The workspace's files and folders now.
     pub fn snapshot(&self) -> Result<Snapshot, PathError> {
         let dir = self.dir()?;

@@ -8,6 +8,7 @@
 //! place, and a file with more than one hard link is never written.
 
 mod files;
+mod identity;
 mod person;
 #[cfg(unix)]
 mod reap;
@@ -17,6 +18,9 @@ pub mod shell;
 mod tools;
 pub mod trust;
 
+pub use identity::Identity;
+
+use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 
 use cap_fs_ext::DirExt;
@@ -55,6 +59,10 @@ pub enum PathError {
     Exists(String),
     #[error("{0}")]
     Io(String),
+    /// The file is no longer the revision the person opened (cowork, ADR 0143): its revision now,
+    /// `None` when nothing is there.
+    #[error("it changed since you opened it")]
+    Changed(Option<String>),
 }
 
 impl PathError {
@@ -74,12 +82,37 @@ impl From<std::io::Error> for PathError {
     }
 }
 
+/// Each bot's lock for changing its files.
+type Locks =
+    std::sync::Arc<std::sync::Mutex<HashMap<String, std::sync::Arc<std::sync::Mutex<()>>>>>;
+
+/// What a test runs between a bot tool's checks and its write, with the path.
+type HookFn = std::sync::Arc<dyn Fn(&str) + Send + Sync>;
+
+/// Run between a bot tool's checks and its write; tests only.
+#[derive(Clone, Default)]
+struct Hook(Option<HookFn>);
+
+impl std::fmt::Debug for Hook {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.0.is_some() {
+            "Hook(set)"
+        } else {
+            "Hook"
+        })
+    }
+}
+
 /// Every bot's workspace, under one root (`<data folder>/workspace`).
 #[derive(Debug, Clone)]
 pub struct Workspaces {
     root: PathBuf,
     /// Held while a trust record is read and written.
     trust_lock: std::sync::Arc<std::sync::Mutex<()>>,
+    /// Per bot: held while the person's file routes or the bot's file tools check and change
+    /// files (ADR 0143), so neither lands between the other's check and its write.
+    mutations: Locks,
+    hook: std::sync::Arc<std::sync::Mutex<Hook>>,
 }
 
 impl Workspaces {
@@ -87,7 +120,17 @@ impl Workspaces {
         Self {
             root: root.into(),
             trust_lock: std::sync::Arc::default(),
+            mutations: Locks::default(),
+            hook: std::sync::Arc::default(),
         }
+    }
+
+    /// Runs `hook` in every bot file tool between its checks and its write, holding the
+    /// workspace's lock. Only with the `test-hooks` feature.
+    #[cfg(feature = "test-hooks")]
+    pub fn before_bot_commit(&self, hook: impl Fn(&str) + Send + Sync + 'static) {
+        *self.hook.lock().unwrap_or_else(|p| p.into_inner()) =
+            Hook(Some(std::sync::Arc::new(hook)));
     }
 
     /// The bot's workspace. Its folder is created on first use; `bot` must be an id Spade made.
@@ -99,8 +142,17 @@ impl Workspaces {
         {
             return Err(PathError::Io(format!("{bot} is not a bot id")));
         }
+        let mutation = self
+            .mutations
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .entry(bot.to_owned())
+            .or_default()
+            .clone();
         Ok(Workspace {
             root: self.root.clone(),
+            mutation,
+            hook: self.hook.lock().unwrap_or_else(|p| p.into_inner()).clone(),
             bot: bot.to_owned(),
             trust: Trust::new(
                 self.root.join(TRUST_DIR).join(format!("{bot}.json")),
@@ -131,6 +183,9 @@ impl Workspaces {
 #[derive(Debug, Clone)]
 pub struct Workspace {
     root: PathBuf,
+    /// This bot's lock for changing its files (see [`Workspaces`]).
+    mutation: std::sync::Arc<std::sync::Mutex<()>>,
+    hook: Hook,
     bot: String,
     trust: Trust,
 }
@@ -148,6 +203,21 @@ impl Workspace {
         }
         root.open_dir_nofollow(&self.bot)
             .map_err(|_| PathError::Outside(self.bot.clone()))
+    }
+
+    /// Runs `change` holding the workspace's file lock: the person's routes and the bot's file
+    /// tools check (revision, the person's recent changes), write and record inside it. Terminal
+    /// commands are other processes and never take it. Blocking.
+    pub fn changing<T>(&self, change: impl FnOnce() -> T) -> T {
+        let _held = self.mutation.lock().unwrap_or_else(|p| p.into_inner());
+        change()
+    }
+
+    /// The test hook between a bot tool's checks and its write; nothing in a release build.
+    pub fn before_bot_commit(&self, path: &str) {
+        if let Some(hook) = &self.hook.0 {
+            hook(path);
+        }
     }
 
     /// The folder's path, for the shell's working directory. Checked to be a real folder.

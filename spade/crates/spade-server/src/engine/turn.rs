@@ -271,6 +271,11 @@ async fn drive(
                 if super::memory::index_if_due(engine, id, &events) {
                     continue;
                 }
+                // What the person did on the bot's computer meanwhile (cowork), before the step's
+                // prompt is built, so the step reads it.
+                if engine.offer_person_activity(id) {
+                    continue;
+                }
                 if cli {
                     let step =
                         super::brain::step(engine, id, &reply, &events, &model, &mut stop, pause)
