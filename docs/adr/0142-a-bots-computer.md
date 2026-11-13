@@ -97,12 +97,12 @@ take over.
    `<computer_handed_back from="spade">`, so it never takes the person's work for its own.
    The note is stored before the bot is released, so a crash can only repeat it, never lose it.
 10. **The person's turn survives a restart.** While the person drives,
-    `<data folder>/computer/<bot>.json` holds the take-over: its conversation, the workspace as it
-    was, and the surfaces used so far. A Spade that starts with it keeps the bot
-    paused and its messages waiting until the hand-back. The daemon keeps its driver in memory
-    only, so Spade tells it again every few seconds while the person drives, and while ace has
-    not confirmed a hand-back. Changes of driver go to ace one at a time per bot, ending at the
-    latest asked for, so a take-over ace answers late can't undo a hand-back.
+   `<data folder>/computer/<bot>.json` holds the take-over: its conversation, the workspace as it
+   was, and the surfaces used so far. A Spade that starts with it keeps the bot
+   paused and its messages waiting until the hand-back. The daemon keeps its driver in memory
+   only, so Spade tells it again every few seconds while the person drives, and while ace has
+   not confirmed a hand-back. Changes of driver go to ace one at a time per bot, ending at the
+   latest asked for, so a take-over ace answers late can't undo a hand-back.
 
 ### Safety
 
