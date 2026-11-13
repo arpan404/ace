@@ -12,7 +12,11 @@ import { CliVersionCheck } from "./cli-version.ts";
 export const NativeToolStatus = z.object({
   id: z.string().min(1).max(64),
   label: z.string().min(1).max(128),
-  state: z.enum(["ready", "unavailable", "unknown"]).catch("unknown"),
+  // A union, not `.catch()`: browser workers load this schema and leave `.catch()` out.
+  state: z.union([
+    z.enum(["ready", "unavailable", "unknown"]),
+    z.unknown().transform(() => "unknown" as const),
+  ]),
   reason: z.string().max(512).optional(),
 });
 export type NativeToolStatus = z.infer<typeof NativeToolStatus>;
