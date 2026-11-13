@@ -22,6 +22,7 @@ export function findHostThread(store: Store): SpadeHostThread | undefined {
   const row = store
     .statement(
       `SELECT id FROM threads WHERE json_extract(client,'$.host')='spade'
+      AND json_extract(client,'$.hostKey') IS NULL
       AND json_extract(client,'$.deletedAt') IS NULL ORDER BY created_at DESC, id LIMIT 1`,
     )
     .get();

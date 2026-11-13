@@ -286,6 +286,9 @@ export async function startMcp(context: ServiceContext): Promise<void> {
     }),
     knowledge,
     toolFailureReporter(context.log, context.id),
+    // Spade's bots act in the browser and on the screen as their own hidden threads.
+    (_tool, capability, caller, actingFor) =>
+      services.spadeComputers?.actAs(capability, caller, actingFor),
   );
   resources.own(() => mcp.close());
   services.mcp = mcp;
