@@ -1,4 +1,9 @@
-import { spadeLiveSurfaces, spadeStateLine, type SpadeSurfaceKind } from "@ace/ui-core/spade-chat";
+import {
+  spadeLiveSurfaces,
+  spadeStateLine,
+  spadeTaskLine,
+  type SpadeSurfaceKind,
+} from "@ace/ui-core/spade-chat";
 import { ChatCircleIcon } from "@phosphor-icons/react";
 import { useMemo, useState } from "react";
 import { Icon } from "@/components/icon.tsx";
@@ -58,8 +63,11 @@ export function Conversation(props: {
   const narrow = useMediaQuery(narrowQuery, false);
   const [chatShown, setChatShown] = useState(() => !globalThis.matchMedia?.(narrowQuery).matches);
   const [dockWidth, setDockWidth] = useState(dock.initial);
-  // Stopping lasts until nothing is open: the reply and its background jobs.
-  if (stopping && !view.busy) setStopping(false);
+  // A task it carries on by itself: its line stays between replies, and Stop with it.
+  const task = spadeTaskLine(bot.name, bot.progress, view.status ?? bot.status);
+  const open = view.busy || task?.tone === "working";
+  // Stopping lasts until nothing is open: the reply, its background jobs and the task's next step.
+  if (stopping && !open) setStopping(false);
   const stop = () => {
     setStopping(true);
     conversation.stop().catch((error: unknown) => {
@@ -123,6 +131,7 @@ export function Conversation(props: {
             view={view}
             onWatch={tiled && hidden === tileKey ? () => setHidden(undefined) : undefined}
             paused={computer.paused}
+            task={task}
             onRemembered={openMemory}
             onOpenFile={(path) =>
               openBot({
@@ -152,7 +161,7 @@ export function Conversation(props: {
       <SpadeComposer
         name={bot.name}
         draftKey={`spade:${bot.machine.key}:${bot.id}`}
-        answering={view.busy}
+        answering={open}
         // While the person drives the bot is paused, not working: nothing to stop.
         onStop={computer.paused ? undefined : stop}
         stopping={stopping}

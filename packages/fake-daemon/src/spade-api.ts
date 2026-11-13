@@ -42,6 +42,13 @@ export interface FakeSpadeAgent {
   /** Its spend and caps (ADR 0135); left out, as an older Spade does, until set. */
   spending?: FakeSpadeSpending;
   review?: boolean | null;
+  /** How much it may do without asking; left out, as a Spade before access levels does. */
+  access?: "ask" | "auto_review" | "full_access";
+  /** Its task: on it, waiting on the person, or done; with whether it carries on by itself. */
+  task_state?: "working" | "blocked_on_person" | "done";
+  continuing?: boolean;
+  /** The step it is on, in its own few words. */
+  step?: string | null;
 }
 
 interface Stored {
@@ -217,6 +224,31 @@ export class FakeSpadeApi implements FakeSpadeServer {
     args?: unknown,
     id = `r${++this.sequence}`,
   ): void {
+    this.request(agent, { callId, name, args, reply: id });
+  }
+
+  /** A call the auto-review asked the person about rather than approve, with its reason. */
+  escalate(
+    agent: FakeSpadeAgent,
+    callId: string,
+    name: string,
+    args: unknown,
+    reviewerReason: string,
+  ): void {
+    this.request(agent, {
+      callId,
+      name,
+      args,
+      reply: `r${++this.sequence}`,
+      reviewerReason,
+    });
+  }
+
+  private request(
+    agent: FakeSpadeAgent,
+    call: { callId: string; name: string; args: unknown; reply: string; reviewerReason?: string },
+  ): void {
+    const { callId, name, args, reply: id } = call;
     this.store(agent.conversation, { type: "reply_started", reply: id });
     this.store(agent.conversation, {
       type: "step_finished",
@@ -230,6 +262,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
       call_id: callId,
       name,
       ...(args === undefined ? {} : { arguments: args }),
+      ...(call.reviewerReason === undefined ? {} : { reviewer_reason: call.reviewerReason }),
     });
     this.status(agent, "waiting", "Waiting for you");
   }
@@ -417,6 +450,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
         name: String(body.name ?? ""),
         task: String(body.task ?? ""),
         model: String(body.model ?? ""),
+        // A new bot starts on Auto-review unless the person picked another level.
+        access: accessOf(body.access) ?? "auto_review",
         ...(avatar?.kind === "image"
           ? { avatar: { kind: "image", sha256: "a".repeat(64) } }
           : avatar?.kind === "character"
@@ -432,6 +467,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
         return problem(400, "Spade's name and face can't change.");
       for (const key of ["name", "task", "model"] as const)
         if (typeof body[key] === "string") agent[key] = body[key];
+      const access = accessOf(body.access);
+      if (access) agent.access = access;
       if (body.avatar && typeof body.avatar === "object") {
         const avatar = body.avatar as Json;
         agent.avatar =
@@ -638,6 +675,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
         allowed: body.allowed === true,
         always: body.always === true,
       });
+      if (agent?.task_state === "blocked_on_person") agent.task_state = "working";
       if (agent) this.status(agent, "working", null);
       return reply({});
     }
@@ -650,6 +688,9 @@ export class FakeSpadeApi implements FakeSpadeServer {
     return problem(404, "Not found.");
   }
 }
+
+const accessLevels = ["ask", "auto_review", "full_access"] as const;
+const accessOf = (value: unknown) => accessLevels.find((level) => level === value);
 
 /** What Spade names an upload by: the SHA-256 of its bytes, and their count. */
 function uploadIdentity(data: unknown) {

@@ -112,6 +112,10 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
       cheeks: "blush",
       accessory: "headphones",
     },
+    // Auto-review: the reviewer asked the person about sending as them.
+    access: "auto_review",
+    task_state: "blocked_on_person",
+    continuing: false,
     last_activity: minutes(11),
   });
   const notes = here.addAgent({
@@ -129,6 +133,11 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
       cheeks: "none",
       accessory: "none",
     },
+    // Full access, carrying on with its task by itself.
+    access: "full_access",
+    task_state: "working",
+    continuing: true,
+    step: "Writing the Fixes section",
     last_activity: minutes(44),
   });
   const garden = here.addAgent({
@@ -260,11 +269,17 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     inbox,
     "Drafted it:\n\n“Hi Marta, Thursday works for the plumber. Any time after 2pm is fine. Thanks, Arpan”",
   );
-  here.ask(inbox, "k-mail", "send_email", {
-    to: { name: "Marta Reyes", email: "marta@example.com" },
-    subject: "Plumber",
-    body: "Hi Marta, Thursday works for the plumber. Any time after 2pm is fine. Thanks, Arpan",
-  });
+  here.escalate(
+    inbox,
+    "k-mail",
+    "send_email",
+    {
+      to: { name: "Marta Reyes", email: "marta@example.com" },
+      subject: "Plumber",
+      body: "Hi Marta, Thursday works for the plumber. Any time after 2pm is fine. Thanks, Arpan",
+    },
+    "It sends an email as you to someone outside this conversation.",
+  );
 
   here.store(notes.conversation, {
     type: "user_message",
@@ -283,6 +298,8 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     name: "Flights",
     task: "Watch fares to Lisbon for the 14th to the 18th and tell me when it's worth booking.",
     model: "openrouter/openai/gpt-6.1-mini",
+    access: "ask",
+    task_state: "done",
     spending: {
       today_micros: 180_000,
       month_micros: 1_240_000,
@@ -396,8 +413,34 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
   here.oversight.activity.set(
     "flights",
     [
+      { kind: "task", name: null, summary: "no progress", outcome: "paused", ago: 2 },
       { kind: "tool", name: "web_search", summary: "Checked 6 airlines", outcome: "ok", ago: 3 },
-      { kind: "tool", name: "web_fetch", summary: "Found €212 on TAP", outcome: "ok", ago: 3 },
+      { kind: "task", name: null, summary: "step 4", outcome: "continued", ago: 3 },
+      {
+        kind: "review",
+        name: "workspace_write",
+        summary: "flights.md",
+        reason: "Updating its own fare notes is part of its task.",
+        outcome: "approved",
+        ago: 4,
+      },
+      {
+        kind: "review",
+        name: "send_email",
+        summary: "to: deals@example.com",
+        reason: "Signing you up for a newsletter isn't part of watching fares.",
+        outcome: "refused",
+        ago: 5,
+      },
+      {
+        kind: "review",
+        name: "call_tool",
+        summary: "book_flight",
+        reason: "A booking is a payment; it asked you.",
+        outcome: "escalated",
+        ago: 6,
+      },
+      { kind: "tool", name: "web_fetch", summary: "Found €212 on TAP", outcome: "ok", ago: 7 },
       {
         kind: "routine",
         name: "Fare check",
@@ -408,7 +451,7 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     ].map((fields, index) =>
       Object.assign({}, fields, {
         id: `act-${index}`,
-        seq: 3 - index,
+        seq: 100 - index,
         at: minutes(fields.ago),
         cost_micros: null,
       }),

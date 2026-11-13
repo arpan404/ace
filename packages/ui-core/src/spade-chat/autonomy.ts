@@ -77,6 +77,13 @@ export function parseSpadeTaskProgress(
   };
 }
 
+/** A task's line: its sentence, the step it is on, and whether it works or waits on the person. */
+export interface SpadeTaskLine {
+  sentence: string;
+  step: string | undefined;
+  tone: "working" | "needs-you";
+}
+
 /**
  * The line a bot's chat and roster show for its task: "Flights is working on it" with its step
  * while it carries on by itself, "Flights needs you" while the task waits on the person, and
@@ -87,7 +94,7 @@ export function spadeTaskLine(
   task: SpadeTaskProgress | undefined,
   /** The step's words when the task carries none: the agent's live status. */
   status?: string | undefined,
-): { sentence: string; step: string | undefined; tone: "working" | "needs-you" } | undefined {
+): SpadeTaskLine | undefined {
   if (!task) return undefined;
   if (task.state === "blocked_on_person")
     return { sentence: `${name} needs you`, step: undefined, tone: "needs-you" };

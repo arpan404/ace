@@ -126,6 +126,10 @@ describe("spending", () => {
 const parsedEntry = (fields: Record<string, unknown>) =>
   parseSpadeActivity(JSON.stringify({ entries: [{ id: "1", seq: 1, ...fields }] }))?.entries[0] ??
   (undefined as never);
+const verdict = (outcome: string, reason: string) =>
+  spadeActivityWords(
+    parsedEntry({ kind: "review", name: "send_email", outcome, reason, summary: "to: x" }),
+  );
 const words = (fields: Record<string, unknown>) => spadeActivityWords(parsedEntry(fields)).sentence;
 
 describe("activity", () => {
@@ -196,10 +200,6 @@ describe("activity", () => {
   });
 
   test("a reviewer verdict reads as approved, refused or asked you, with its reason under it", () => {
-    const verdict = (outcome: string, reason: string) =>
-      spadeActivityWords(
-        parsedEntry({ kind: "review", name: "send_email", outcome, reason, summary: "to: x" }),
-      );
     expect(verdict("approved", "Routine reply the person asked for")).toMatchObject({
       sentence: "The reviewer approved: send an email",
       detail: "Routine reply the person asked for",

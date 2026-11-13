@@ -1,5 +1,6 @@
 import type { BotFaceState } from "@ace/ui-core/bot-face";
 import {
+  type SpadeTaskLine,
   parseSpadeAvatar,
   spadeBubbles,
   spadeFailureSentence,
@@ -48,7 +49,9 @@ const faceRoom = "w-7 shrink-0";
  * Web search, and a skill the bot offers as a bubble with Save and Discard (ADR 0130),
  * after the reply that made it. While the bot works, one line under its last bubble: its face
  * working, its few words and how long it has been at it, with Watch when its computer's tile is
- * hidden. Stop is the composer's; while the bot waits on the person nothing more shows.
+ * hidden. A bot carrying on with its task by itself keeps that line between replies ("Flights is
+ * working on it · its step"), and a task waiting on the person reads "Flights needs you" (the
+ * request is in the strip). Stop is the composer's; a done task shows nothing more.
  */
 export function SpadeChat(props: {
   bot: ChatBot;
@@ -57,6 +60,8 @@ export function SpadeChat(props: {
   onWatch?: (() => void) | undefined;
   /** The person has the bot's computer: Spade pauses the bot, and the line says so. */
   paused?: boolean | undefined;
+  /** Its task's line (`spadeTaskLine`): carrying on by itself, or waiting on the person. */
+  task?: SpadeTaskLine | undefined;
   onRemembered(note: SpadeRememberedNote): void;
   /** A file chip: open that file of the bot's workspace. */
   onOpenFile(path: string): void;
@@ -84,8 +89,11 @@ export function SpadeChat(props: {
       ? "thinking"
       : "working";
   const lastFace = useFaceState(busy ? lineState : "idle", true);
-  // The working line shows while the bot works itself, not while it waits on the person.
+  // The working line shows while the bot works itself, not while it waits on the person; a
+  // task that carries on or waits on the person keeps its line between replies too.
   const working = busy && !waiting;
+  const task = props.task;
+  const lined = working || task !== undefined;
   return (
     <div
       role="feed"
@@ -97,7 +105,7 @@ export function SpadeChat(props: {
         const next = bubbles[index + 1];
         const last = index === bubbles.length - 1;
         // The face sits by the last of a run of one sender's bubbles, or by the working line.
-        const lastOfRun = !(next && sameSender(item, next)) && !(busy && last);
+        const lastOfRun = !(next && sameSender(item, next)) && !((busy || lined) && last);
         const previous = bubbles[index - 1];
         return (
           <Bubble
@@ -114,7 +122,7 @@ export function SpadeChat(props: {
           />
         );
       })}
-      {working &&
+      {lined &&
         (props.paused ? (
           // Paused by Spade while the person drives: nothing runs, so no clock.
           <WorkingLine
@@ -124,12 +132,24 @@ export function SpadeChat(props: {
             since={undefined}
             onWatch={undefined}
           />
+        ) : task?.tone === "needs-you" ? (
+          <WorkingLine
+            avatar={bot.avatar}
+            state="needs-you"
+            label={task.sentence}
+            since={undefined}
+            onWatch={undefined}
+          />
         ) : (
           <WorkingLine
             avatar={bot.avatar}
-            state={lineState}
-            label={view.status ?? "Working"}
-            since={view.working?.since}
+            state={task && !working ? "working" : lineState}
+            label={
+              task
+                ? [task.sentence, task.step].filter(Boolean).join(" · ")
+                : (view.status ?? "Working")
+            }
+            since={working ? view.working?.since : undefined}
             onWatch={props.onWatch}
           />
         ))}

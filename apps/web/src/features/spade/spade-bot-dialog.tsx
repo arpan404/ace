@@ -5,7 +5,13 @@ import {
   suggestBotNames,
   type BotFace as BotFaceModel,
 } from "@ace/ui-core/bot-face";
-import { spadeAgentNameMax, spadeAgentTaskMax, type SpadeAgent } from "@ace/ui-core/spade-chat";
+import {
+  spadeAgentNameMax,
+  spadeAgentTaskMax,
+  spadeNewBotAccess,
+  type SpadeAccess,
+  type SpadeAgent,
+} from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useId, useState, type ReactNode } from "react";
@@ -20,6 +26,7 @@ import {
 } from "@/components/ui/dialog.tsx";
 import { Input, Textarea } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
+import { AccessChoice } from "./spade-access-choice.tsx";
 import { createAgent, editAgent, readModels, type SpadeAgentDraft } from "./spade-api.ts";
 import { ConnectorChoice, useConnectorChoice } from "./spade-bot-connectors.tsx";
 import { AvatarChoice, draftFace, type AvatarDraft } from "./spade-avatar-choice.tsx";
@@ -99,8 +106,9 @@ const fault = (error: unknown) => (error instanceof Error ? error.message : "Try
 /**
  * New bot (ADR 0126, 0127) in two panes: its face on the left (Shuffle, the creature and its
  * colours, More for the rest); on the right its name, a template to start from, its task (what
- * it is for, in the person's words), its model and the machine it runs on (machines whose Spade
- * answers, this one first). Creating it opens its conversation.
+ * it is for, in the person's words), its model, the machine it runs on (machines whose Spade
+ * answers, this one first) and its access, Auto-review unless the person picks another.
+ * Creating it opens its conversation.
  */
 export function NewBotDialog(props: { hosts: readonly SpadeHost[]; onClose(): void }) {
   const ids = { name: useId(), task: useId(), model: useId(), machine: useId() };
@@ -120,6 +128,7 @@ export function NewBotDialog(props: { hosts: readonly SpadeHost[]; onClose(): vo
     face: shuffleFace(Math.random, undefined, worn),
   }));
   const [model, setModel] = useState("");
+  const [access, setAccess] = useState<SpadeAccess>(spadeNewBotAccess);
   const [template, setTemplate] = useState<string>();
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string>();
@@ -171,6 +180,7 @@ export function NewBotDialog(props: { hosts: readonly SpadeHost[]; onClose(): vo
         name: name.trim(),
         task: task.trim(),
         ...(chosenModel ? { model } : {}),
+        access,
         ...(template === undefined ? {} : { template }),
         ...(zone === undefined ? {} : { time_zone: zone }),
         ...(face ? { avatar: face } : {}),
@@ -285,6 +295,11 @@ export function NewBotDialog(props: { hosts: readonly SpadeHost[]; onClose(): vo
                     </p>
                   )}
                 </Field>
+                <AccessChoice
+                  name={name.trim() || "this bot"}
+                  value={access}
+                  onChange={setAccess}
+                />
               </div>
             </div>
           </div>
@@ -316,7 +331,7 @@ export function NewBotDialog(props: { hosts: readonly SpadeHost[]; onClose(): vo
 
 /**
  * Edit a bot, on its own machine: name, task, face, model, the connected apps it may use, its
- * spending caps and its model review (ADR 0135), each sent as one change of what moved, in New
+ * access and its spending caps (ADR 0135), each sent as one change of what moved, in New
  * bot's two panes (its face on the left). Spade keeps its name and face.
  */
 export function EditBotDialog(props: { bot: RosterBot; onClose(): void }) {
@@ -334,6 +349,7 @@ export function EditBotDialog(props: { bot: RosterBot; onClose(): void }) {
     bot.avatar.kind === "character" &&
     JSON.stringify(avatar.face) === JSON.stringify(bot.avatar.face);
   const [model, setModel] = useState(bot.model);
+  const [access, setAccess] = useState<SpadeAccess>(bot.access ?? "ask");
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string>();
   const apps = useConnectorChoice(bot.id);
@@ -344,6 +360,7 @@ export function EditBotDialog(props: { bot: RosterBot; onClose(): void }) {
     ...(task.trim() !== bot.task.trim() ? { task: task.trim() } : {}),
     ...(model !== bot.model && /\/./.test(model) ? { model } : {}),
     ...(face ? { avatar: face } : {}),
+    ...(access !== (bot.access ?? "ask") ? { access } : {}),
   };
   const changed =
     (Object.keys(change).length > 0 || apps.changed || oversight.changed) &&
@@ -406,6 +423,7 @@ export function EditBotDialog(props: { bot: RosterBot; onClose(): void }) {
               <Field label="Apps">
                 <ConnectorChoice choice={apps} main={main} />
               </Field>
+              <AccessChoice name={bot.name} value={access} onChange={setAccess} />
               <OversightFields choice={oversight} />
             </div>
           </div>
