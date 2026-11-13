@@ -20,7 +20,8 @@ export function SurfacePicture(props: {
     <div className="flex h-full min-h-0 flex-col gap-0 p-4">
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-code shadow-[inset_0_0_0_1px_var(--border)]">
         {props.kind === "browser" && <AddressBar url={props.surface?.url} />}
-        <div className="relative min-h-0 flex-1 bg-background">
+        {/* A full-height column, so the live view fills it and the picture centres in it. */}
+        <div className="relative flex min-h-0 flex-1 flex-col bg-background *:min-h-0 *:flex-1">
           <SurfaceLive {...props} />
         </div>
       </div>

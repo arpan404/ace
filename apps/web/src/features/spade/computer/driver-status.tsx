@@ -13,14 +13,16 @@ import type { BotComputerState } from "./use-bot-computer.ts";
 export function DriverStatus(props: {
   bot: { name: string; avatar: SpadeAvatar };
   state: BotComputerState;
-  /** Fills its row (the phone's bottom bar, the tile's side). */
+  /** Fills its row (the phone's bottom bar). */
   fill?: boolean;
+  /** Always the short words (the tile, beside its own heading), with no container to measure. */
+  brief?: boolean;
 }) {
   const { state, bot } = props;
   const person = state.paused || state.stopping;
   // The whole sentence is always read; it shows only where there is room for it.
-  const long = "sr-only whitespace-nowrap @2xl:not-sr-only";
-  const short = "whitespace-nowrap @2xl:hidden";
+  const long = props.brief ? "sr-only" : "sr-only whitespace-nowrap @2xl:not-sr-only";
+  const short = props.brief ? "whitespace-nowrap" : "whitespace-nowrap @2xl:hidden";
   return (
     <div role="status" className={cn("flex min-w-0 items-center gap-2", props.fill && "flex-1")}>
       <p
@@ -42,7 +44,7 @@ export function DriverStatus(props: {
               <span className="text-foreground">You're driving.</span> {`${bot.name} is paused.`}
             </span>
             <span aria-hidden className={cn(short, "text-foreground")}>
-              You
+              {props.brief ? "You're driving" : "You"}
             </span>
           </>
         ) : (

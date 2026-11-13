@@ -72,9 +72,7 @@ export function ComputerTile(props: {
       </div>
       {props.state.paused || props.state.stopping ? (
         // The person has it: who drives and Hand back, here as in the expanded computer.
-        <div className="@container flex min-w-0 shrink justify-end">
-          <DriverStatus bot={props.bot} state={props.state} />
-        </div>
+        <DriverStatus bot={props.bot} state={props.state} brief />
       ) : (
         !props.compact && (
           <Button
