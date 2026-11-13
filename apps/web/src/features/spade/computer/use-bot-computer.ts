@@ -26,9 +26,12 @@ export function useBotComputer(
     () =>
       side?.onSide("computer", (data) => {
         const computer = parseSpadeComputerBody(data);
-        if (computer) setLive(computer);
+        if (!computer) return;
+        setLive(computer);
+        // The list's row shows what it uses too: read it again now rather than at the next poll.
+        void cache.invalidateQueries({ queryKey: agentsKey });
       }),
-    [side],
+    [side, cache],
   );
   const computer = live ?? bot.computer;
   const act = (kind: "take-over" | "hand-back") => {
@@ -39,6 +42,7 @@ export function useBotComputer(
         setLive((shown) => ({
           threadId: undefined,
           surfaces: [],
+          stopping: false,
           ...(shown ?? bot.computer),
           driver: kind === "take-over" ? "person" : "bot",
         }));
@@ -55,8 +59,10 @@ export function useBotComputer(
   };
   return {
     computer,
-    /** The person drives: the bot is paused. */
-    driving: computer?.driver === "person",
+    /** The person drives and the bot's work has stopped: the controls are theirs. */
+    driving: computer?.driver === "person" && !computer.stopping,
+    /** The person took over and the bot's work is still stopping. */
+    stopping: computer?.driver === "person" && computer.stopping,
     pending,
     takeOver: () => act("take-over"),
     handBack: () => act("hand-back"),

@@ -58,6 +58,8 @@ export class FakeSpadeComputer {
   private readonly drivers = new Map<string, "bot" | "person">();
   private readonly surfaces = new Map<string, FakeSurface[]>();
   private readonly terminals = new Map<string, Terminal>();
+  /** Bots whose work is still stopping after a take-over (a test sets it, then clears it). */
+  private readonly stoppingBots = new Set<string>();
   private sequence = 0;
   private readonly deps: FakeComputerDeps;
 
@@ -77,6 +79,7 @@ export class FakeSpadeComputer {
       };
     return {
       driver: this.drivers.get(agent) ?? "bot",
+      stopping: this.stoppingBots.has(agent),
       surfaces: [
         ...used.filter((surface) => surface.kind === "browser" || surface.kind === "screen"),
         listed("terminal"),
@@ -90,6 +93,13 @@ export class FakeSpadeComputer {
     const list = (this.surfaces.get(agent) ?? []).filter((each) => each.kind !== surface.kind);
     list.push({ since: surface.live ? this.deps.now() : null, ...surface });
     this.surfaces.set(agent, list);
+    this.changed(agent);
+  }
+
+  /** The bot's work is still stopping after a take-over (true), or has stopped (false). */
+  stopping(agent: string, stopping: boolean): void {
+    if (stopping) this.stoppingBots.add(agent);
+    else this.stoppingBots.delete(agent);
     this.changed(agent);
   }
 
@@ -136,6 +146,7 @@ export class FakeSpadeComputer {
       }
       if (action === "input") {
         if (this.driver(agent) !== "person") return problem(409, "Take over to type here.");
+        if (this.stoppingBots.has(agent)) return problem(409, "still stopping");
         this.type(agent, decode(String(body.data_b64 ?? "")));
         return done;
       }

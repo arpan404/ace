@@ -3,7 +3,7 @@ import { isValidFace, repairFace } from "@ace/ui-core/bot-face";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
-import { botRow, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, openNew, spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -34,7 +34,7 @@ function crew(spade: FakeSpadeApi) {
 }
 
 async function newBot() {
-  await userEvent.click(await screen.findByRole("button", { name: "New bot" }));
+  await openNew("New bot");
   return within(await screen.findByRole("dialog", { name: "New bot" }));
 }
 
@@ -68,7 +68,7 @@ test("each roster row's face is its bot's state: working, needs you, blocked or 
   expect(faceOf(await botRow("Scout"))?.getAttribute("data-face")).toBe("round lagoon");
 });
 
-test("while a bot works, the working line carries its face working; asking, it asks", async () => {
+test("while a bot works, the working line carries its face working; asking, its face asks in the request above the composer", async () => {
   const { spade } = await spadeApp("/spade/scout", crew);
   const chat = within(await screen.findByRole("feed", { name: "Conversation with Scout" }));
   const line = await chat.findByRole("status");
@@ -77,9 +77,10 @@ test("while a bot works, the working line carries its face working; asking, it a
   const scout = spade.agents.find((agent) => agent.id === "scout");
   if (!scout) throw new Error("no Scout");
   spade.ask(scout, "k-sheet", "write_sheet", undefined, "r-scout");
-  await waitFor(() =>
-    expect(faceOf(chat.getByRole("status"))?.getAttribute("data-state")).toBe("needs-you"),
-  );
+  const request = await screen.findByRole("group", { name: /^Scout wants to/ });
+  expect(faceOf(request)?.getAttribute("data-state")).toBe("needs-you");
+  // The wait is said once, in the request: the working line goes.
+  await waitFor(() => expect(chat.queryByRole("status")).toBeNull());
 });
 
 test("the editor changes one part at a time, hides what doesn't fit, and steps a part on click", async () => {

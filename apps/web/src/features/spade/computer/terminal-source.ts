@@ -7,7 +7,8 @@ import type { LiveEnd, SpadeTransport } from "../spade-transport.ts";
  * A bot's terminal as ace's terminal view reads one: Spade's PTY stream
  * (`/v1/agents/{id}/terminal/live?after=N`) turned into the view's offset-addressed output. The
  * stream resumes after the last `seq` it drew, so a reconnect or a Spade restart never draws output
- * twice; output the ring dropped meanwhile is marked as dropped. The PTY starts again on demand,
+ * twice; output the ring dropped meanwhile is marked as dropped. Every screen attached follows
+ * its own position in the stream. The PTY starts again on demand,
  * so its exit is a line in the output, never the end of the view. Typing goes to Spade only while
  * the person drives (`setDriving`); Spade refuses it otherwise.
  */
@@ -32,10 +33,6 @@ export function spadeTerminalSource(deps: TerminalSourceDeps): SpadeTerminalSour
   let driving = false;
   const id = `spade:${deps.bot}`;
   const info: TerminalInfo = { id, threadId: "", name: deps.name, exited: false };
-  /** The last `seq` drawn, and how many characters the view has drawn (its offsets). */
-  let seq = 0;
-  let drawn = 0;
-  const decoder = new TextDecoder();
   return {
     setDriving: (on) => {
       driving = on;
@@ -49,6 +46,12 @@ export function spadeTerminalSource(deps: TerminalSourceDeps): SpadeTerminalSour
     open: async () => info,
     close: async () => {},
     attach(_terminal, _fromOffset, listener: (event: TerminalEvent) => void) {
+      // Each screen follows the stream on its own: from the start, then after the last `seq` it
+      // drew whenever the stream opens again. (This source never drops its link, so a screen
+      // attaches once, from offset 0.)
+      let seq = 0;
+      let drawn = 0;
+      const decoder = new TextDecoder();
       let close: (() => void) | undefined;
       let stopWaiting: (() => void) | undefined;
       let retry: (() => void) | undefined;

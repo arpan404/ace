@@ -28,6 +28,11 @@ export interface SpadeSurface {
 export interface SpadeComputer {
   /** Who drives it: the bot, or the person who took over. */
   driver: "bot" | "person";
+  /**
+   * After a take-over, the bot's work is still stopping: the person gets the controls once it
+   * is false.
+   */
+  stopping: boolean;
   /** The hidden ace thread its browser and screen run in, once it used either. */
   threadId: string | undefined;
   surfaces: SpadeSurface[];
@@ -62,6 +67,7 @@ export function parseSpadeComputer(value: unknown): SpadeComputer | undefined {
   );
   return {
     driver: fields.driver === "person" ? "person" : "bot",
+    stopping: fields.stopping === true,
     threadId: text(fields.thread_id),
     surfaces,
   };

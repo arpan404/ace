@@ -113,11 +113,13 @@ export function BotPage(props: { bot: RosterBot }) {
             <div className="flex min-w-0 flex-col gap-8">
               <ComputerSection bot={bot} />
               <RoutinesSection bot={bot} />
-              <SpadeNotes
-                scope={{ kind: "agent", agent: bot.id }}
-                label="Memory"
-                placeholder={`Something ${bot.name} should remember`}
-              />
+              <SettingSection label="Memory">
+                <SpadeNotes
+                  scope={{ kind: "agent", agent: bot.id }}
+                  label={`${bot.name}'s memory`}
+                  placeholder={`Add something for ${bot.name} to remember`}
+                />
+              </SettingSection>
             </div>
             <div className="flex min-w-0 flex-col gap-8">
               <FilesSection bot={bot} />

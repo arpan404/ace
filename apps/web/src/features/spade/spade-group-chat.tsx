@@ -35,7 +35,7 @@ export const unknownFace = (bot: SpadeGroupBot): GroupFace => ({
  * (`Spade asked Research`) and a queued, failed or stopped ask as one short muted line. Never a
  * tool call. While the group works, one line under the last bubble: the answering member's face
  * with moving eyes, the group's few words, `Open <bot>` when that bot waits for the person in
- * its own chat (the member the status names, `spadeGroupWaiting`), and Stop.
+ * its own chat (the member the status names, `spadeGroupWaiting`). Stop is the composer's.
  */
 export function SpadeGroupChat(props: {
   name: string;
@@ -43,8 +43,6 @@ export function SpadeGroupChat(props: {
   /** The group's members, to find the one that waits for the person. */
   members: readonly SpadeGroupBot[];
   faceOf(bot: SpadeGroupBot): GroupFace;
-  stopping: boolean;
-  onStop(): void;
 }) {
   const { view } = props;
   const waiting = view.state === "waiting";
@@ -85,15 +83,6 @@ export function SpadeGroupChat(props: {
               {`Open ${working.name}`}
             </Button>
           )}
-          <Button
-            size="xs"
-            variant="ghost"
-            disabled={props.stopping}
-            aria-label={`Stop ${props.name}`}
-            onClick={props.onStop}
-          >
-            {props.stopping ? "Stopping…" : "Stop"}
-          </Button>
         </div>
       )}
     </div>

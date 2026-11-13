@@ -2,7 +2,7 @@ import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { botRow, roster, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, openNew, roster, spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -108,7 +108,7 @@ test("a group's chat shows the person, each member's name and face once per run,
   expect(chat.queryByText(/web_search/)).toBeNull();
 });
 
-test("the group's status shows under the last bubble, with the waiting member's chat a click away, and Stop ends the run", async () => {
+test("the group's status shows under the last bubble, with the waiting member's chat a click away, and the composer's Stop ends the run", async () => {
   const { spade } = await spadeApp("/spade", withGroup, { machines: [studio] });
   const chat = await openTrips();
   const [trips] = spade.teams.groups;
@@ -116,7 +116,9 @@ test("the group's status shows under the last bubble, with the waiting member's 
   spade.teams.status(trips, "waiting", "Research is waiting for you");
   const status = await chat.findByRole("status");
   await within(status).findByText("Research is waiting for you");
-  await userEvent.click(within(status).getByRole("button", { name: "Stop Trips" }));
+  // Stop is the composer's.
+  expect(within(status).queryByRole("button", { name: /^Stop/ })).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Stop the agent" }));
   await waitFor(() => expect(spade.sent("POST", "/v1/groups/trips/stop")).toEqual([{}]));
   await chat.findByText("Stopped");
 });
@@ -209,7 +211,7 @@ test("a message in a group posts to the group", async () => {
 
 test("New group posts its name, members of both machines and the lead", async () => {
   const { spade } = await spadeApp("/spade", team, { machines: [studio] });
-  await userEvent.click(await screen.findByRole("button", { name: "New group" }));
+  await openNew("New group");
   const form = within(await screen.findByRole("dialog", { name: "New group" }));
   await userEvent.type(form.getByRole("textbox", { name: "Name" }), "Trips");
   await userEvent.click(await form.findByRole("checkbox", { name: "Research" }));
@@ -265,7 +267,7 @@ test("making Spade lead a group it isn't in adds Spade to the members and names 
 
 test("a group on a machine without Spade offers only that machine's bots to lead and names the lead", async () => {
   const { others } = await spadeApp("/spade", team, { machines: [studio] });
-  await userEvent.click(await screen.findByRole("button", { name: "New group" }));
+  await openNew("New group");
   const form = within(await screen.findByRole("dialog", { name: "New group" }));
   await userEvent.click(form.getByRole("combobox", { name: "Lives on" }));
   await userEvent.click(await screen.findByRole("option", { name: "Studio Mac" }));
@@ -320,7 +322,7 @@ test("starting from a template fills the form and sends the template with the ti
       routines: [],
     });
   });
-  await userEvent.click(await screen.findByRole("button", { name: "New bot" }));
+  await openNew("New bot");
   const form = within(await screen.findByRole("dialog", { name: "New bot" }));
   await userEvent.click(await form.findByRole("button", { name: /^Morning digest/ }));
   expect(form.getByRole<HTMLInputElement>("textbox", { name: "Name" }).value).toBe(
@@ -377,7 +379,7 @@ test("Import bot sends the file to the machine, says what it left out, then open
     team(seed);
     seed.teams.leftOut = ["The Linear app isn't connected here."];
   });
-  await userEvent.click(await screen.findByRole("button", { name: "New bot" }));
+  await openNew("New bot");
   const form = within(await screen.findByRole("dialog", { name: "New bot" }));
   const file = new File(
     [JSON.stringify({ format: "spade-bot", version: 1, name: "Scout", task: "Scout news" })],
@@ -398,7 +400,7 @@ test("Import bot sends the file to the machine, says what it left out, then open
 
 test("Import bot refuses a file over 6 MB without reading or sending it", async () => {
   const { spade } = await spadeApp("/spade", team);
-  await userEvent.click(await screen.findByRole("button", { name: "New bot" }));
+  await openNew("New bot");
   const form = within(await screen.findByRole("dialog", { name: "New bot" }));
   const file = new File([new Uint8Array(6 * 1024 * 1024 + 1)], "Huge.spade-bot.json", {
     type: "application/json",
@@ -421,7 +423,7 @@ test("an imported bot opens on the machine it was sent to, even if Runs on moved
     },
     { machines: [studio] },
   );
-  await userEvent.click(await screen.findByRole("button", { name: "New bot" }));
+  await openNew("New bot");
   const form = within(await screen.findByRole("dialog", { name: "New bot" }));
   const file = new File(["{}"], "Scout.spade-bot.json", { type: "application/json" });
   const read = Promise.withResolvers<string>();

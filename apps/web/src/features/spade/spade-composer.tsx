@@ -33,6 +33,8 @@ export function SpadeComposer(props: {
   /** Stops the bot; with it, Stop takes the end of an empty capsule while the bot works. */
   onStop?: (() => void) | undefined;
   stopping?: boolean | undefined;
+  /** Words to start with, one tap each ("Ask Inbox"), shown above the composer. */
+  chips?: readonly { label: string; text: string; face: ReactNode }[] | undefined;
   /** Names `@` offers (a group's members), inserted as plain text. */
   mentionNames?: readonly string[] | undefined;
   send(message: SpadeMessage): Promise<void>;
@@ -100,6 +102,21 @@ export function SpadeComposer(props: {
         idleAction={<MicButton voice={voice} />}
         attached={
           <>
+            {props.chips && props.chips.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-1.5 px-1">
+                {props.chips.map((chip) => (
+                  <button
+                    key={chip.label}
+                    type="button"
+                    onClick={() => composer.current?.insertText(chip.text)}
+                    className="flex h-8 items-center gap-1.5 rounded-full bg-secondary px-3 text-ui text-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover"
+                  >
+                    {chip.face}
+                    {chip.label}
+                  </button>
+                ))}
+              </div>
+            )}
             {props.attached}
             <VoiceStrip voice={voice} />
           </>

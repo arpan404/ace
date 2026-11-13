@@ -39,6 +39,14 @@ const activityReads = (spade: FakeSpadeApi) =>
     .filter((request) => request.path.startsWith("/v1/agents/scout/activity"))
     .map((request) => request.path.split("?")[1] ?? "");
 
+/** Scout's whole activity: from its page's Activity section, All. */
+async function openActivity() {
+  await userEvent.click(await botRow("Scout"));
+  await userEvent.click(await screen.findByRole("link", { name: /^Scout on .*open its page$/ }));
+  const section = within(await screen.findByRole("region", { name: "Activity" }));
+  await userEvent.click(section.getByRole("button", { name: "All" }));
+}
+
 async function openMenu(item: string) {
   await userEvent.click(await botRow("Scout"));
   await userEvent.click(await screen.findByRole("button", { name: "More actions" }));
@@ -70,7 +78,7 @@ test("a bot's activity lists what it did newest first, and its filters and searc
       }),
     ]);
   });
-  await openMenu("Activity");
+  await openActivity();
   const list = within(await screen.findByRole("list", { name: "Activity" }));
   await waitFor(() =>
     expect(list.getAllByRole("listitem").map((row) => row.textContent)).toEqual([
@@ -105,7 +113,7 @@ test("Show older reads the page before the last entry shown", async () => {
       ),
     );
   });
-  await openMenu("Activity");
+  await openActivity();
   await userEvent.click(await screen.findByRole("button", { name: "Show older" }));
   await waitFor(() => expect(activityReads(spade)).toContain("before=2&limit=100"));
   await waitFor(() =>
@@ -216,7 +224,7 @@ test("Show older goes on from where Spade stopped reading, past a part with noth
       .get("scout")
       ?.unshift(entry(4_000, { kind: "routine", name: "Evening digest", summary: "18:00" }));
   });
-  await openMenu("Activity");
+  await openActivity();
   const list = within(await screen.findByRole("list", { name: "Activity" }));
   expect(list.getAllByRole("listitem")).toHaveLength(1);
   await userEvent.click(await screen.findByRole("button", { name: "Show older" }));

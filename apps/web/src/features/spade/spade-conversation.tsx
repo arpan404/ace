@@ -94,7 +94,7 @@ export function Conversation(props: {
               machine={bot.machine}
               bot={bot.id}
               surface={tiled}
-              driving={computer.driving}
+              driving={computer.driving || computer.stopping}
               pending={computer.pending !== undefined}
               compact={phone}
               onExpand={() => expand(tiled.kind)}

@@ -41,15 +41,17 @@ test("a routine's message shows as its label, not as the person, and a quiet hea
   expect(bubbles[0]?.querySelector("svg.bot-face")).not.toBeNull();
 });
 
-test("the person adds, pauses and edits a bot's routines from its menu, and turns its heartbeat on", async () => {
+test("the person adds, pauses and edits a bot's routines from its page, and turns its heartbeat on", async () => {
   const { spade } = await spadeApp("/spade", (seed) => {
     withEndpoint(seed);
     seed.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
     seed.addAgent({ id: "scout", name: "Scout" });
   });
   await userEvent.click(await botRow("Scout"));
-  await userEvent.click(await screen.findByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Routines" }));
+  // The bot's page, then all of its routines.
+  await userEvent.click(await screen.findByRole("link", { name: /^Scout on .*open its page$/ }));
+  const section = within(await screen.findByRole("region", { name: "Routines" }));
+  await userEvent.click(section.getByRole("button", { name: "All" }));
 
   await userEvent.click(await screen.findByRole("button", { name: "Add routine" }));
   const form = within(await screen.findByRole("dialog", { name: "New routine" }));

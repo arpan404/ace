@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
+import { Button } from "@/components/ui/button.tsx";
 import { MenuItem } from "@/components/ui/menu.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { Screen } from "@/features/shell/index.ts";
@@ -12,6 +13,7 @@ import { SpadeComposer } from "./spade-composer.tsx";
 import { SpadeGroupChat, unknownFace, type GroupFace } from "./spade-group-chat.tsx";
 import { EditGroupDialog } from "./spade-group-dialog.tsx";
 import { GroupFaces } from "./spade-group-faces.tsx";
+import { SpadeFace } from "./spade-face.tsx";
 import { SpadeMachineScope, spadeMachineKey, useSpadeClient } from "./spade-machine.tsx";
 import {
   ConversationSkeleton,
@@ -29,6 +31,7 @@ import {
   shownMembers,
   useSpadeGroups,
   type RosterGroup,
+  type ShownMember,
 } from "./use-spade-groups.ts";
 import { useSpadeRoster, type RosterBot } from "./use-spade-roster.ts";
 
@@ -97,10 +100,12 @@ function GroupScreen(props: {
 }) {
   const { group } = props;
   const machines = useMachines();
+  const members = shownMembers(machines, group, props.bots);
   return (
     <Screen
       title={group.name}
-      mark={<GroupFaces members={shownMembers(machines, group, props.bots)} size={20} />}
+      subtitle={members.map((member) => member.name).join(", ")}
+      mark={<GroupFaces members={members} size={20} />}
       menu={props.menu}
     >
       {props.children}
@@ -159,7 +164,7 @@ function useGroupMenu(group: RosterGroup, bots: readonly RosterBot[]) {
       <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />
     </>
   );
-  return { menu, dialogs };
+  return { menu, dialogs, edit: () => setEditing(true) };
 }
 
 function Conversation(props: { group: RosterGroup; bots: readonly RosterBot[] }) {
@@ -226,9 +231,10 @@ function Conversation(props: { group: RosterGroup; bots: readonly RosterBot[] })
                 machine: member.machine,
               }))}
               faceOf={faceOf}
-              stopping={stopping}
-              onStop={stop}
             />
+          )}
+          {view.loaded && !problem && view.rows.length === 0 && (
+            <GroupStart members={members} onAdd={actions.edit} />
           )}
         </Scroller>
         <SpadeComposer
@@ -238,10 +244,48 @@ function Conversation(props: { group: RosterGroup; bots: readonly RosterBot[] })
           blocked={line.ready ? undefined : line.sentence}
           placeholder={`Message ${group.name}`}
           mentionNames={members.map((member) => member.name)}
+          onStop={stop}
+          stopping={stopping}
+          // A group with nothing said yet offers to ask one member.
+          chips={
+            view.loaded && view.rows.length === 0
+              ? members.map((member) => ({
+                  label: `Ask ${member.name}`,
+                  text: `@${member.name} `,
+                  face: <SpadeFace avatar={member.avatar} size={18} />,
+                }))
+              : undefined
+          }
           send={conversation.send}
         />
       </div>
       {actions.dialogs}
     </GroupScreen>
+  );
+}
+
+/** A group with nothing said yet: who is in it, and Add a bot. */
+function GroupStart(props: { members: readonly ShownMember[]; onAdd(): void }) {
+  const names = props.members.map((member) => member.name);
+  const list =
+    names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : (names[0] ?? "");
+  return (
+    <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-center">
+      <div className="flex items-center gap-2">
+        {props.members.map((member) => (
+          <SpadeFace
+            key={`${member.machineKey}/${member.agent}`}
+            avatar={member.avatar}
+            size={48}
+          />
+        ))}
+      </div>
+      <p className="text-md text-foreground">
+        {`${list} ${names.length > 1 ? "are" : "is"} in this group.`}
+      </p>
+      <Button size="sm" variant="ghost" onClick={props.onAdd}>
+        Add a bot
+      </Button>
+    </div>
   );
 }

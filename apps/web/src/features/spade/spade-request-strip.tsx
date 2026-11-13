@@ -28,7 +28,8 @@ export function SpadeRequestStrip(props: {
   const { approval } = props;
   const words = spadeRequestWords(approval.name, approval.arguments, props.bot.name);
   const command = shellCommand(approval.name, approval.arguments);
-  const details = callDetails(approval.arguments);
+  // A command shows itself; anything else, the call's arguments.
+  const details = command ?? callDetails(approval.arguments);
   const [open, setOpen] = useState(false);
   const [answering, setAnswering] = useState<"allow" | "deny" | "always">();
   const answer = (choice: "allow" | "deny" | "always") => {
@@ -88,7 +89,7 @@ export function SpadeRequestStrip(props: {
         {open && details && (
           <div className="flex flex-col gap-1.5">
             <pre
-              aria-label="Details"
+              aria-label={command === undefined ? "Details" : "Command"}
               className="no-scrollbar max-h-48 overflow-auto rounded-md bg-code px-2.5 py-2 font-mono text-xs leading-normal whitespace-pre-wrap shadow-[inset_0_0_0_1px_var(--border)]"
             >
               {details}

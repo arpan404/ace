@@ -23,9 +23,8 @@ test("a bot's Memory adds, edits in place and deletes its notes through Spade", 
     api.notes.add({ text: "Lives in Leeds" });
   });
   await screen.findByRole("feed", { name: "Conversation with Travel" });
-  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Memory" }));
-  const dialog = within(await screen.findByRole("dialog", { name: "Travel's memory" }));
+  // The bot's name opens its page, where Memory is a section edited in place.
+  const dialog = await openMemory();
   // Its own notes only: the shared ones live in About you.
   const list = within(await dialog.findByRole("list", { name: "Travel's memory" }));
   expect(list.getAllByRole("listitem").map((row) => row.textContent)).toEqual([
@@ -106,9 +105,8 @@ const rememberedChat = (api: FakeSpadeApi) => {
 };
 
 const openMemory = async () => {
-  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Memory" }));
-  return within(await screen.findByRole("dialog", { name: "Travel's memory" }));
+  await userEvent.click(await screen.findByRole("link", { name: /^Travel on .*open its page$/ }));
+  return within(await screen.findByRole("region", { name: "Memory" }));
 };
 
 test("a note the bot saved reads as one Remembered line that opens it for editing", async () => {
@@ -126,13 +124,13 @@ test("a note the bot saved reads as one Remembered line that opens it for editin
 
 test("a Remembered line opens the note as Spade has it now, not as last read", async () => {
   const { spade } = await spadeApp("/spade/travel", rememberedChat);
-  const chat = within(await screen.findByRole("feed", { name: "Conversation with Travel" }));
-  await chat.findByText("Got it.");
-  // Read the notes once, so the old text is cached.
+  await screen.findByRole("feed", { name: "Conversation with Travel" });
+  // Read the notes once on the bot's page, so the old text is cached, then back to the chat.
   const first = await openMemory();
   await first.findByRole("button", { name: "Edit: Prefers window seats" });
-  await userEvent.keyboard("{Escape}");
-  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  await userEvent.click(screen.getByRole("button", { name: "Chat" }));
+  const chat = within(await screen.findByRole("feed", { name: "Conversation with Travel" }));
+  await chat.findByText("Got it.");
   spade.notes.rewrite("n_1", "Prefers aisle seats");
 
   await userEvent.click(chat.getByRole("button", { name: "Remembered: Prefers window seats" }));
@@ -243,6 +241,7 @@ test("a question from the bot shows as its bubble, and its row says it asked you
   const chat = within(await screen.findByRole("feed", { name: "Conversation with Travel" }));
   const bubble = await chat.findByRole("article", { name: "Travel" });
   expect(bubble.textContent).toContain("Which airport do you fly from?");
-  expect(within(chat.getByRole("status")).getByText("Waiting for you")).toBeTruthy();
+  // It waits on the person: no working line says so again under the question.
+  expect(chat.queryByRole("status")).toBeNull();
   expect((await botRow("Travel")).textContent).toMatch(/Asked you a question$/);
 });

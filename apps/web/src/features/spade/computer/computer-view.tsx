@@ -153,7 +153,11 @@ function DriverStatus(props: {
   const { state, bot } = props;
   return (
     <div role="status" className={cn("flex min-w-0 items-center gap-2", props.phone && "flex-1")}>
-      {state.driving ? (
+      {state.stopping ? (
+        <p className="min-w-0 flex-1 truncate text-ui text-muted-foreground">
+          {`Stopping ${bot.name}…`}
+        </p>
+      ) : state.driving ? (
         <p className="min-w-0 flex-1 truncate text-ui text-muted-foreground">
           <span className="text-foreground">You're driving.</span> {`${bot.name} is paused.`}
         </p>
@@ -165,12 +169,12 @@ function DriverStatus(props: {
       )}
       <Button
         size="sm"
-        variant={state.driving ? "primary" : "secondary"}
+        variant={state.driving || state.stopping ? "primary" : "secondary"}
         disabled={state.pending !== undefined}
-        onClick={state.driving ? state.handBack : state.takeOver}
+        onClick={state.driving || state.stopping ? state.handBack : state.takeOver}
         className="shrink-0"
       >
-        {state.driving ? "Hand back" : "Take over"}
+        {state.driving || state.stopping ? "Hand back" : "Take over"}
       </Button>
     </div>
   );

@@ -1,6 +1,6 @@
 import type { SpadeSurfaceKind } from "@ace/ui-core/spade-chat";
 import { Link, Navigate } from "@tanstack/react-router";
-import { Screen } from "@/features/shell/index.ts";
+import { Screen, ViewListPage } from "@/features/shell/index.ts";
 import { readingColumn } from "@/features/thread/index.ts";
 import { useMachines } from "@/lib/machines.ts";
 import { SpadeActivity } from "./spade-activity.tsx";
@@ -13,8 +13,15 @@ import { SpadeStateStrip } from "./spade-state.tsx";
 import { useSpadeRoster } from "./use-spade-roster.ts";
 import { ConversationSkeleton, Problem, useSpadeLine } from "./spade-screen-parts.tsx";
 
-/** `/spade`: Spade's own conversation, once the roster says where Spade is. */
+/**
+ * `/spade`: on a phone, the list itself, as its own screen; wider, Spade's own conversation,
+ * once the roster says where Spade is.
+ */
 export function SpadeHomeScreen() {
+  return <ViewListPage title="Spade" fallback={<SpadeHome />} />;
+}
+
+function SpadeHome() {
   const line = useSpadeLine();
   const roster = useSpadeRoster(line.ready);
   const main = roster.bots.find((bot) => bot.kind === "main");
