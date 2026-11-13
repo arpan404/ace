@@ -433,6 +433,56 @@ import Testing
         #expect(center.delivered.values.map(\.body) == ["Needs you"])
     }
 
+    @Test func catchUpNeverPutsAnOlderFinishOverANewerRequestThatArrivedLive() async throws {
+        let (notifier, center) = try plainNotifier()
+        // Live while catch-up's read was out: the request is newer than the finish before it.
+        await notifier.receive(alert("n:2", status: "needs_you", actions: true))
+        await notifier.catchUp(cursor: 2, entries: [alert("n:1"), alert("n:2", status: "needs_you", actions: true)], retracted: [])
+        #expect(center.delivered.values.map(\.body) == ["Needs you"])
+    }
+
+    @Test func aLiveAlertTheFeedDoesNotHoldYetStaysOverTheFeedsOlderOnes() async throws {
+        let (notifier, center) = try plainNotifier()
+        await notifier.receive(alert("n:3", status: "needs_you", actions: true))
+        await notifier.catchUp(cursor: 2, entries: [alert("n:1"), alert("n:2", status: "failed")], retracted: [])
+        #expect(center.delivered.values.map(\.body) == ["Needs you"])
+    }
+
+    @Test func catchUpShowsOnlyEachThreadsNewestMissedAlert() async throws {
+        let (notifier, center) = try plainNotifier()
+        await notifier.catchUp(cursor: 2, entries: [alert("n:1", status: "needs_you", actions: true), alert("n:2")], retracted: [])
+        #expect(center.posted.map(\.body) == ["Done"])
+    }
+
+    @Test func aRetractedLiveAlertNoLongerHoldsBackTheFeed() async throws {
+        let (notifier, center) = try plainNotifier()
+        await notifier.receive(alert("n:2", status: "needs_you", actions: true))
+        await notifier.catchUp(cursor: 2, entries: [alert("n:1", status: "failed")], retracted: ["n:2"])
+        #expect(center.delivered.values.map(\.body) == ["Failed"])
+    }
+
+    @Test func aCopyWaitingOnALandingIsReleasedEvenAfterTheLedgerLetItsIdGo() async throws {
+        let center = HeldCenter()
+        let notifier = LocalNotifier(center: center, hostId: "studio")
+        notifier.bind(LedgerStore(scope: "studio", defaults: try defaults()))
+        let returned = Returns()
+        Task { await notifier.receive(alert("n:1")) }
+        try await until("the first copy is landing") { center.holding }
+        Task { await notifier.receive(alert("n:1")); returned.count += 1 }
+        for _ in 0..<20 { await Task.yield() }
+        // More alerts than the ledger keeps, none posted: n:1 leaves the ledger.
+        let quiet = (0...NotificationLedger.capacity).map { index -> AlertNotification in
+            var other = alert("other:\(index)", thread: "other-\(index)")
+            other.delivery = .init(post: false, interrupt: false, banner: false)
+            return other
+        }
+        await notifier.catchUp(cursor: 1, entries: quiet, retracted: [])
+        Task { await notifier.receive(alert("n:1")); returned.count += 1 }
+        for _ in 0..<20 { await Task.yield() }
+        center.release()
+        try await until("both later copies return") { returned.count == 2 }
+    }
+
     @Test func anotherThreadsPushIsLeftAlone() async throws {
         let center = FakeCenter()
         let pushed = PushedAlerts(defaults: try defaults())
@@ -630,6 +680,12 @@ import Testing
         session.patch(#"{"type":"connection","state":"ready"}"#)
         try await until("the connection is ready") { model.connection == "ready" }
         return (coordinator, center, session)
+    }
+    private func plainNotifier() throws -> (LocalNotifier, FakeCenter) {
+        let center = FakeCenter()
+        let notifier = LocalNotifier(center: center, hostId: "studio")
+        notifier.bind(LedgerStore(scope: "studio", defaults: try defaults()))
+        return (notifier, center)
     }
     private func defaults() throws -> UserDefaults { try #require(UserDefaults(suiteName: "ace.tests.\(UUID().uuidString)")) }
     private func target(_ host: String = "host") throws -> ConnectionTarget {
@@ -873,3 +929,5 @@ private final class Session: ClientSession, @unchecked Sendable {
         return #"{"type":"outside.state","access":[\#(access)],"screen":[],"opened":\#(opened),"live":\#(live)}"#
     }
 }
+/// How many waiting copies have returned.
+@MainActor private final class Returns { var count = 0 }

@@ -195,6 +195,9 @@ final class SystemNotificationCenter: NotificationCenterPort {
     /// Alerts admitted to the ledger whose landing hasn't finished, with whoever waits on each: a
     /// live copy arriving meanwhile is reported delivered only once the first copy has landed.
     private var inFlight: [String: [CheckedContinuation<Void, Never>]] = [:]
+    /// Each thread's alert that arrived live since the last catch-up finished. Catch-up reads the
+    /// alerts after its cursor, and a live one can land while that read is out.
+    private var live: [String: String] = [:]
     init(center: any NotificationCenterPort, hostId: String? = nil, desk: AlertDesk? = nil) {
         self.center = center; self.hostId = hostId; self.desk = desk ?? AlertDesk(center: center)
     }
@@ -209,24 +212,35 @@ final class SystemNotificationCenter: NotificationCenterPort {
     /// Returns once the alert has landed, or was deliberately not posted: the coordinator then
     /// tells the bridge it was delivered.
     func receive(_ alert: AlertNotification) async {
-        guard ledger.admit(alert.id) else { return await landed(alert.id) }
+        // An earlier copy still landing is waited for, even if the ledger has since let its id go.
+        guard inFlight[alert.id] == nil, ledger.admit(alert.id) else { return await landed(alert.id) }
         store?.save(ledger)
         inFlight[alert.id] = []
         defer { finish(alert.id) }
+        // Newer than anything catch-up still has to land for this thread, posted or not.
+        if !CatchUpOrder.isSummary(alert) { live[alert.threadId] = alert.id }
         guard alert.delivery?.post != false, valid else { return }
         await desk.land(alert, hostId: hostId, owner: ObjectIdentifier(self))
     }
     func catchUp(cursor: Int, entries: [AlertNotification], retracted: [String]) async {
         desk.retract(retracted, hostId: hostId)
-        let fresh = entries.filter { ledger.admit($0.id) }
+        let gone = Set(retracted)
+        live = live.filter { !gone.contains($0.value) }
+        let fresh = entries.filter { inFlight[$0.id] == nil && ledger.admit($0.id) }
         ledger.advance(to: cursor)
         store?.save(ledger)
         for alert in fresh { inFlight[alert.id] = [] }
-        // Each finishes as it lands; whatever a turn-off skips finishes here.
-        defer { for alert in fresh { finish(alert.id) } }
-        // Checked before each one: an earlier post can be awaited past a turn-off.
-        for alert in fresh where alert.delivery?.post != false {
+        // Each finishes as it lands; whatever a turn-off or a newer alert skips finishes here.
+        defer {
+            for alert in fresh { finish(alert.id) }
+            live = [:]
+        }
+        let newest = CatchUpOrder.newestPerThread(fresh)
+        // Checked before each one: an earlier post can be awaited past a turn-off, and a live
+        // alert can land meanwhile.
+        for alert in newest where alert.delivery?.post != false {
             guard valid else { return }
+            guard CatchUpOrder.isNewer(alert, than: live[alert.threadId], in: entries) else { continue }
             await desk.land(alert, hostId: hostId, owner: ObjectIdentifier(self))
             finish(alert.id)
         }
@@ -243,5 +257,28 @@ final class SystemNotificationCenter: NotificationCenterPort {
     /// A local, non-daemon notice (an action that couldn't finish). It opens the thread.
     func notice(id: String, threadId: String, title: String, body: String, hostId: String? = nil) async {
         await desk.post(.notice(id: id, threadId: threadId, title: title, body: body, hostId: hostId)).value
+    }
+}
+
+/// Which missed alerts catch-up still shows. A thread shows one notification, so only its newest
+/// missed alert matters; landing an older one after it would put "Done" over a request that
+/// still waits (AGENTS.md priority 1).
+enum CatchUpOrder {
+    /// The feed's newest alert for each thread, in feed order. A `catch_up` summary stands for
+    /// several threads and always stays.
+    static func newestPerThread(_ fresh: [AlertNotification]) -> [AlertNotification] {
+        var last: [String: String] = [:]
+        for alert in fresh where !isSummary(alert) { last[alert.threadId] = alert.id }
+        return fresh.filter { isSummary($0) || last[$0.threadId] == $0.id }
+    }
+    /// A `catch_up` alert lists several threads; `threadId` is only the longest-waiting one.
+    static func isSummary(_ alert: AlertNotification) -> Bool { alert.status == "catch_up" }
+    /// Whether `alert` from the feed is newer than the thread's live alert. The feed holds every
+    /// alert after the cursor in order, so a live alert outside it arrived after it was read.
+    static func isNewer(_ alert: AlertNotification, than liveId: String?, in feed: [AlertNotification]) -> Bool {
+        guard !isSummary(alert), let liveId else { return true }
+        guard let livePosition = feed.firstIndex(where: { $0.id == liveId }),
+              let position = feed.firstIndex(where: { $0.id == alert.id }) else { return false }
+        return position > livePosition
     }
 }
