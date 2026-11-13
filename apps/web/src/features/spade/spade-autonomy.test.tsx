@@ -126,7 +126,7 @@ test("the activity log lists the reviewer's verdicts with their reasons, and how
   await waitFor(() =>
     expect(list.getAllByRole("listitem").map((row) => row.textContent)).toEqual([
       expect.stringMatching(/Paused: its last 3 steps changed nothing\./),
-      expect.stringMatching(/Kept going: carried on by itself, step 4/),
+      expect.stringMatching(/Carried on by itself, step 4/),
       expect.stringMatching(/Access changed to Full access$/),
       expect.stringMatching(/The reviewer refused: send an emailNot its task\./),
       expect.stringMatching(/The reviewer approved: read a web pageRoutine reading\./),

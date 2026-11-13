@@ -219,7 +219,7 @@ describe("activity", () => {
       spadeActivityWords(
         parsedEntry({ kind: "task", name: "continued", summary: "carried on by itself, step 4" }),
       ),
-    ).toMatchObject({ sentence: "Kept going: carried on by itself, step 4", detail: undefined });
+    ).toMatchObject({ sentence: "Carried on by itself, step 4", detail: undefined });
     const pause = "Paused after 25 steps on its own. Send a message to let it carry on.";
     expect(
       spadeActivityWords(parsedEntry({ kind: "task", name: "paused", summary: pause })),

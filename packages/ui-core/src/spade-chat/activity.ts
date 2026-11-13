@@ -151,6 +151,8 @@ const reasonOf = (entry: SpadeActivityEntry): string | undefined => {
   return (typeof reason === "string" && reason) || entry.summary || undefined;
 };
 
+const capitalised = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
 function sentenceOf(entry: SpadeActivityEntry): {
   sentence: string;
   outcome?: string | undefined;
@@ -197,10 +199,14 @@ function sentenceOf(entry: SpadeActivityEntry): {
       };
     }
     case "task":
-      // Spade names it `continued` or `paused`; a pause's summary is its whole sentence, and a
-      // step's says which step it was ("carried on by itself, step 4").
-      if (name === "paused") return { sentence: entry.summary || "Paused its task", detail: "" };
-      return { sentence: `Kept going: ${entry.summary || "next step"}`, detail: "" };
+      // Spade names it `continued` or `paused`, and its summary is the whole sentence ("carried
+      // on by itself, step 4", "Paused after 25 steps on its own. …").
+      return {
+        sentence: capitalised(
+          entry.summary || (name === "paused" ? "Paused its task" : "Carried on by itself"),
+        ),
+        detail: "",
+      };
     case "spend":
       return { sentence: turnEnds[outcome] ?? "Finished a turn" };
     case "cap":

@@ -34,6 +34,11 @@ try {
       await shot("task-paused");
       await go("/spade/notes", "is working on it");
       await shot("continuing");
+      await go("/spade", "Research");
+      await page.getByText("Research", { exact: true }).first().click();
+      await page.getByText("Research is waiting").first().waitFor({ timeout: 30_000 });
+      await settle(page);
+      await shot("waiting");
       await go("/spade/flights?view=activity", "The reviewer");
       await shot("activity");
       await go("/spade/notes?view=bot", "Full access");
