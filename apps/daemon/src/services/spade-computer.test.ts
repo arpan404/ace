@@ -24,6 +24,9 @@ function socket(scopes: readonly DeviceScope[] = ["read", "operate"]) {
     create: () => undefined,
     tabs: () => [],
     apps: () => [],
+    activeTab: () => undefined,
+    botOf: () => undefined,
+    report: () => {},
     now: () => 5_000,
   });
   const sent: ServerMessage[] = [];

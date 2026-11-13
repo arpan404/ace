@@ -1,5 +1,6 @@
 import { AccessMode, ThreadId } from "@ace/protocol";
-import { SpadeComputers, tabOf } from "../spade/computers.ts";
+import { SpadeComputers, botOfHostKey, tabOf } from "../spade/computers.ts";
+import { spadeRequest } from "../spade/forward.ts";
 import type { SpadeHostThread } from "../spade/host-thread.ts";
 import type { ServiceContext } from "./types.ts";
 
@@ -52,6 +53,37 @@ export function startSpadeComputers(
     },
     apps: (threadId) =>
       services.computerUsing?.threads().find((entry) => entry.threadId === threadId)?.apps ?? [],
+    activeTab(threadId) {
+      const browser = services.browser;
+      return browser?.hasActiveSession(threadId) ? browser.state(threadId).activeTabId : undefined;
+    },
+    botOf(threadId) {
+      const id = ThreadId.safeParse(threadId);
+      const thread = id.success ? store.getThread(id.data) : undefined;
+      return thread?.host === "spade" ? botOfHostKey(thread.hostKey) : undefined;
+    },
+    // Spade learns its bots' surfaces from these, for its live stream; a Spade that isn't
+    // running misses them and reads `spade.computer.get` when it starts.
+    report(bot, kind, report) {
+      const connection = services.spade?.ready()?.connection;
+      if (!connection) return;
+      void spadeRequest(
+        connection,
+        {
+          method: "PUT",
+          path: `/v1/agents/${encodeURIComponent(bot)}/computer/surfaces/${kind}`,
+          body: Buffer.from(JSON.stringify(report)),
+          contentType: "application/json",
+        },
+        { signal: AbortSignal.timeout(5_000), maxBytes: 64 * 1024 },
+      ).then(
+        (answer) => {
+          if (answer.kind !== "response" || answer.status >= 300)
+            context.log.log("debug", "Spade didn't take a bot's computer surface", { bot, kind });
+        },
+        () => context.log.log("debug", "Spade didn't take a bot's computer surface", { bot, kind }),
+      );
+    },
     now: context.now,
   });
   const stops = [

@@ -12,12 +12,25 @@ import {
   type SpadeComputerTab,
 } from "@ace/protocol";
 import { ComputerDrivers } from "./computer-drivers.ts";
+import {
+  ReportChanges,
+  browserReport,
+  screenReport,
+  type SurfaceKind,
+  type SurfaceReport,
+} from "./computer-reports.ts";
 import type { SpadeHostThread } from "./host-thread.ts";
 
 /** The capabilities whose tools act on a bot's own computer. */
 const computerCapabilities = new Set<McpCapability>(["browser", "screen"]);
 
-const hostKeyOf = (bot: string) => `computer:${bot}`;
+const computerKey = "computer:";
+const hostKeyOf = (bot: string) => `${computerKey}${bot}`;
+
+/** The bot a hidden thread's `hostKey` names as its computer, if it is one. */
+export function botOfHostKey(key: string | undefined): string | undefined {
+  return key?.startsWith(computerKey) ? key.slice(computerKey.length) : undefined;
+}
 
 export interface BotThread {
   threadId: ThreadId;
@@ -35,6 +48,12 @@ export interface SpadeComputersDeps {
   tabs(threadId: ThreadId): readonly SpadeComputerTab[];
   /** Apps the thread's agent is using now, in the order it began. */
   apps(threadId: ThreadId): readonly string[];
+  /** The tab the thread's browser is on, if any. */
+  activeTab(threadId: ThreadId): string | undefined;
+  /** The bot whose computer this thread is; undefined for any other thread. */
+  botOf(threadId: string): string | undefined;
+  /** Tells Spade one surface of a bot's computer changed. Never throws. */
+  report(bot: string, kind: SurfaceKind, report: SurfaceReport): void;
   now(): number;
 }
 
@@ -50,6 +69,7 @@ export class SpadeComputers {
   private readonly drivers: ComputerDrivers;
   /** When each bot's thread first had an app in use, while it still has one. */
   private readonly using = new Map<ThreadId, number>();
+  private readonly changes = new ReportChanges();
   constructor(deps: SpadeComputersDeps) {
     this.deps = deps;
     this.drivers = new ComputerDrivers(deps.now);
@@ -101,39 +121,79 @@ export class SpadeComputers {
   ): { driver: SpadeComputerDriver; handback?: SpadeComputerHandback } {
     const thread = this.deps.find(hostKeyOf(bot));
     const tabs = thread ? this.deps.tabs(thread.threadId) : [];
+    let result: { driver: SpadeComputerDriver; handback?: SpadeComputerHandback };
     if (driver === "person") {
       this.drivers.take(bot, tabs);
-      return { driver };
+      result = { driver };
+    } else {
+      const handback = this.drivers.handBack(bot, tabs);
+      result = { driver, ...(handback ? { handback } : {}) };
     }
-    const handback = this.drivers.handBack(bot, tabs);
-    return { driver, ...(handback ? { handback } : {}) };
+    if (thread) {
+      this.sendBrowser(bot, thread.threadId, tabs, this.deps.activeTab(thread.threadId));
+      this.send(
+        bot,
+        "screen",
+        screenReport(thread.threadId, this.deps.apps(thread.threadId), this.driving(bot)),
+      );
+    }
+    return result;
   }
 
-  /** A browser's state changed: a driven bot's tabs are noted for its hand-back. */
-  browserChanged(state: Pick<BrowserState, "threadId" | "tabs">): void {
-    const bot = this.botOf(state.threadId);
-    if (bot) this.drivers.observe(bot, (state.tabs ?? []).map(tabOf));
+  /**
+   * A browser's state changed: a bot's browser is reported to Spade, and while the person drives
+   * it, its tabs are noted for the hand-back.
+   */
+  browserChanged(state: Pick<BrowserState, "threadId" | "tabs" | "activeTabId">): void {
+    const bot = this.deps.botOf(state.threadId);
+    if (!bot) return;
+    const tabs = (state.tabs ?? []).map(tabOf);
+    this.drivers.observe(bot, tabs);
+    this.sendBrowser(bot, state.threadId, tabs, state.activeTabId);
   }
 
   /** A screen session for `threadId` is watched or driven by the person. */
   screenUsedBy(threadId: string): void {
-    const bot = this.botOf(threadId);
+    const bot = this.deps.botOf(threadId);
     if (bot) this.drivers.usedScreen(bot);
   }
 
-  /** The threads using apps changed: keeps when each began, for `screen.since`. */
-  appsChanged(threads: readonly { threadId: ThreadId }[]): void {
-    const now = new Set(threads.map((entry) => entry.threadId));
-    for (const threadId of now)
+  /**
+   * The threads using apps changed: keeps when each began, for `screen.since`, and reports each
+   * bot whose screen use began, changed or ended.
+   */
+  appsChanged(threads: readonly { threadId: ThreadId; apps: readonly string[] }[]): void {
+    const now = new Map(threads.map((entry) => [entry.threadId, entry.apps]));
+    const touched = new Set([...now.keys(), ...this.using.keys()]);
+    for (const threadId of now.keys())
       if (!this.using.has(threadId)) this.using.set(threadId, this.deps.now());
     for (const threadId of this.using.keys()) if (!now.has(threadId)) this.using.delete(threadId);
+    for (const threadId of touched) {
+      const bot = this.deps.botOf(threadId);
+      if (bot)
+        this.send(
+          bot,
+          "screen",
+          screenReport(threadId, now.get(threadId) ?? [], this.driving(bot)),
+        );
+    }
   }
 
-  /** The driven bot whose thread this is. */
-  private botOf(threadId: string): string | undefined {
-    for (const bot of this.drivers.driven())
-      if (this.deps.find(hostKeyOf(bot))?.threadId === threadId) return bot;
-    return undefined;
+  private driving(bot: string): boolean {
+    return this.drivers.driver(bot) === "person";
+  }
+
+  private sendBrowser(
+    bot: string,
+    threadId: string,
+    tabs: readonly SpadeComputerTab[],
+    activeTabId: string | undefined,
+  ): void {
+    this.send(bot, "browser", browserReport(threadId, tabs, activeTabId, this.driving(bot)));
+  }
+
+  private send(bot: string, kind: SurfaceKind, report: SurfaceReport): void {
+    if (this.changes.changed(bot, kind, report)) this.deps.report(bot, kind, report);
   }
 
   private ensure(host: SpadeHostThread, bot: string): BotThread | undefined {

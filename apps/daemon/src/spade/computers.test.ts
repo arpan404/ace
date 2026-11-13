@@ -37,6 +37,7 @@ function ace() {
   const threads = new Map<string, BotThread>();
   const tabs = new Map<string, SpadeComputerTab[]>();
   const apps = new Map<string, string[]>();
+  const reports: object[] = [];
   const computers = new SpadeComputers({
     host: () => spade,
     find: (key) => threads.get(key),
@@ -50,6 +51,12 @@ function ace() {
     },
     tabs: (threadId) => tabs.get(threadId) ?? [],
     apps: (threadId) => apps.get(threadId) ?? [],
+    activeTab: () => undefined,
+    botOf: (threadId) =>
+      [...threads]
+        .find(([, thread]) => thread.threadId === threadId)?.[0]
+        .slice("computer:".length),
+    report: (bot, kind, report) => reports.push({ bot, kind, ...report }),
     now: () => clock,
   });
   const registry = new ToolRegistry({
@@ -89,6 +96,7 @@ function ace() {
   };
   return {
     computers,
+    reports,
     call,
     tabs,
     apps,
@@ -146,7 +154,7 @@ test("a bot's computer lists its tabs and the apps it is using, with when it beg
   const threadId = ThreadId.parse(ran);
   daemon.tabs.set(threadId, [{ tabId: "t1", title: "Fares", url: "https://fly.test/" }]);
   daemon.apps.set(threadId, ["Numbers"]);
-  daemon.computers.appsChanged([{ threadId }]);
+  daemon.computers.appsChanged([{ threadId, apps: ["Numbers"] }]);
   expect(daemon.computers.computer("fares")).toEqual({
     bot: "fares",
     driver: "bot",
@@ -221,4 +229,35 @@ test("another bot's browser changing never lands in a driven bot's hand-back", a
     visited: [],
     screenUsed: false,
   });
+});
+
+test("Spade hears when a bot's browser or screen changes, once per change, and who acted", async () => {
+  const daemon = ace();
+  const threadId = ThreadId.parse((await daemon.call("browser_tabs", { actingFor: "fares" })).ran);
+  const tab = { tabId: "t1", title: "Fares", url: "https://fly.test/" };
+  daemon.computers.browserChanged({ threadId, tabs: [tab], activeTabId: "t1" });
+  daemon.computers.browserChanged({ threadId, tabs: [tab], activeTabId: "t1" });
+  daemon.computers.appsChanged([{ threadId, apps: ["Numbers"] }]);
+  daemon.computers.appsChanged([]);
+  // Another thread's browser is nobody's computer.
+  daemon.computers.browserChanged({ threadId: ThreadId.parse("other"), tabs: [tab] });
+  expect(daemon.reports).toEqual([
+    {
+      bot: "fares",
+      kind: "browser",
+      live: true,
+      title: "Fares",
+      url: "https://fly.test/",
+      tab_id: "t1",
+      thread_id: threadId,
+    },
+    { bot: "fares", kind: "screen", live: true, title: "Numbers", thread_id: threadId },
+    { bot: "fares", kind: "screen", live: false, thread_id: threadId },
+  ]);
+  daemon.reports.length = 0;
+  daemon.computers.drive("fares", "person");
+  expect(daemon.reports).toEqual([
+    expect.objectContaining({ kind: "browser", live: false, person_acted: true }),
+    expect.objectContaining({ kind: "screen", live: false, person_acted: true }),
+  ]);
 });

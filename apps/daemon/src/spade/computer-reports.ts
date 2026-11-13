@@ -1,0 +1,59 @@
+import type { SpadeComputerTab } from "@ace/protocol";
+
+/**
+ * One surface of a bot's computer as Spade takes it
+ * (`PUT /v1/agents/{id}/computer/surfaces/{browser|screen}`): whether it is live, what it shows,
+ * the thread and tab the apps stream it from, and whether the person did something while driving.
+ */
+export interface SurfaceReport {
+  live: boolean;
+  title?: string;
+  url?: string;
+  tab_id?: string;
+  thread_id: string;
+  person_acted?: boolean;
+}
+
+export type SurfaceKind = "browser" | "screen";
+
+/** The bot's browser: live with a tab open, showing the tab it is on (else its last tab). */
+export function browserReport(
+  threadId: string,
+  tabs: readonly SpadeComputerTab[],
+  activeTabId: string | undefined,
+  personDriving: boolean,
+): SurfaceReport {
+  const tab = tabs.find((each) => each.tabId === activeTabId) ?? tabs.at(-1);
+  return {
+    live: tab !== undefined,
+    ...(tab ? { title: tab.title || tab.url, url: tab.url, tab_id: tab.tabId } : {}),
+    thread_id: threadId,
+    ...(personDriving ? { person_acted: true } : {}),
+  };
+}
+
+/** The bot's screen: live while it uses an app, titled with the apps it uses. */
+export function screenReport(
+  threadId: string,
+  apps: readonly string[],
+  personDriving: boolean,
+): SurfaceReport {
+  return {
+    live: apps.length > 0,
+    ...(apps.length ? { title: apps.join(", ") } : {}),
+    thread_id: threadId,
+    ...(personDriving ? { person_acted: true } : {}),
+  };
+}
+
+/** Lets through only a report that differs from the last one sent for that bot and surface. */
+export class ReportChanges {
+  private readonly last = new Map<string, string>();
+  changed(bot: string, kind: SurfaceKind, report: SurfaceReport): boolean {
+    const key = `${kind}\u0000${bot}`;
+    const text = JSON.stringify(report);
+    if (this.last.get(key) === text) return false;
+    this.last.set(key, text);
+    return true;
+  }
+}
