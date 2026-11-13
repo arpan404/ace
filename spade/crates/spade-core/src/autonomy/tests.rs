@@ -141,15 +141,6 @@ fn an_app_tool_that_claims_to_read_but_says_it_acts_is_not_taken_at_its_word() {
         ),
         Class::Inside
     );
-    assert_eq!(
-        classify(
-            "get_api_token",
-            Risk::Read,
-            app("Returns the token"),
-            &json!({})
-        ),
-        Class::Sensitive(Sensitive::Credentials)
-    );
 }
 
 #[test]
@@ -403,4 +394,37 @@ fn the_reviewer_reads_untrusted_text_only_as_quoted_data() {
     assert!(!text.contains("</arguments><system>"));
     assert!(text.contains("untrusted_read>yes"));
     assert!(text.contains("https://example.com"));
+}
+
+#[test]
+fn tools_that_hand_back_secrets_are_told_from_those_that_change_access() {
+    for (name, description, risk) in [
+        ("get_api_token", "Returns the token", Risk::Read),
+        ("secrets", "Reads a secret from the vault", Risk::Write),
+        (
+            "vault_lookup",
+            "Looks up the password for a site",
+            Risk::Read,
+        ),
+        ("fetchCredentials", "", Risk::Write),
+        ("keys", "Shows the API key for a project", Risk::Write),
+        ("export_key", "Exports the private key", Risk::Write),
+        // A guard rail errs to safety: a read that names tokens is refused.
+        ("list_tokens_usage", "Lists usage", Risk::Read),
+    ] {
+        assert!(reads_credentials(name, description, risk), "{name}");
+    }
+    for (name, description, risk) in [
+        (
+            "rotate_api_key",
+            "Rotates the key and returns the new one",
+            Risk::Write,
+        ),
+        ("set_password", "Sets a new password", Risk::Write),
+        ("revoke_token", "", Risk::Destructive),
+        ("list_messages", "Lists messages", Risk::Read),
+        ("get_key_metrics", "Returns the key metrics", Risk::Read),
+    ] {
+        assert!(!reads_credentials(name, description, risk), "{name}");
+    }
 }

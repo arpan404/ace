@@ -184,10 +184,6 @@ pub fn classify(name: &str, risk: Risk, source: Source<'_>, arguments: &Value) -
         if acts(name, hints.description) {
             return Class::Sensitive(Sensitive::Mislabelled);
         }
-        // Reading a password or a token is no harmless read, whatever the app says.
-        if words_say(name, hints.description) == Some(Sensitive::Credentials) {
-            return Class::Sensitive(Sensitive::Credentials);
-        }
     }
     if risk == Risk::Read {
         return Class::Inside;
@@ -364,6 +360,112 @@ fn sensitive_in(words: &[String]) -> Option<Sensitive> {
 /// call, reads included. A denylist can't be complete; it is a guard rail, not a sandbox.
 pub fn reaches_credentials(arguments: &Value) -> bool {
     secrets::reaches(arguments)
+}
+
+/// Things that are secrets, in a tool's name or its description's first sentence.
+const SECRET_NOUNS: &[&str] = &[
+    "token",
+    "tokens",
+    "secret",
+    "secrets",
+    "password",
+    "passwords",
+    "passphrase",
+    "credential",
+    "credentials",
+    "apikey",
+    "apikeys",
+    "keychain",
+];
+/// Verbs that hand a secret back.
+const READ_VERBS: &[&str] = &[
+    "get",
+    "gets",
+    "read",
+    "reads",
+    "fetch",
+    "fetches",
+    "show",
+    "shows",
+    "reveal",
+    "reveals",
+    "export",
+    "exports",
+    "retrieve",
+    "retrieves",
+    "view",
+    "views",
+    "copy",
+    "copies",
+    "print",
+    "prints",
+    "dump",
+    "dumps",
+    "lookup",
+    "find",
+    "finds",
+    "return",
+    "returns",
+    "list",
+    "lists",
+    "decrypt",
+    "decrypts",
+    "load",
+    "loads",
+];
+/// Verbs that change sign-ins or access instead: those go to the person.
+const CHANGE_VERBS: &[&str] = &[
+    "set",
+    "sets",
+    "update",
+    "updates",
+    "rotate",
+    "rotates",
+    "create",
+    "creates",
+    "revoke",
+    "revokes",
+    "delete",
+    "deletes",
+    "reset",
+    "resets",
+    "change",
+    "changes",
+    "grant",
+    "grants",
+    "add",
+    "adds",
+    "remove",
+    "removes",
+    "generate",
+    "generates",
+    "regenerate",
+    "invalidate",
+    "store",
+    "stores",
+    "save",
+    "saves",
+    "issue",
+    "issues",
+];
+
+/// Whether a tool, by what it says about itself, hands back sign-ins, keys or secrets: it names
+/// one (`token`, `secret`, `password`, `credential`, `api key`…) and reads (a read verb, or it
+/// is read-only), and no verb says it changes them. Refused on every level, like a command that
+/// reads them ([`reaches_credentials`]); one that changes them asks the person instead.
+pub fn reads_credentials(name: &str, description: &str, risk: Risk) -> bool {
+    let first = description.split(['.', '\n']).next().unwrap_or("");
+    let said: Vec<String> = words(name).into_iter().chain(words(first)).collect();
+    let has = |list: &[&str]| said.iter().any(|w| list.contains(&w.as_str()));
+    let api_key = said
+        .windows(2)
+        .any(|pair| pair[0] == "api" && matches!(pair[1].as_str(), "key" | "keys"));
+    let private_key = said
+        .windows(2)
+        .any(|pair| pair[0] == "private" && matches!(pair[1].as_str(), "key" | "keys"));
+    (has(SECRET_NOUNS) || api_key || private_key)
+        && (risk == Risk::Read || has(READ_VERBS))
+        && !has(CHANGE_VERBS)
 }
 
 /// What the result of a call refused for reaching credentials says.

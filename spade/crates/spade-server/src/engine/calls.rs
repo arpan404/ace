@@ -138,7 +138,14 @@ pub(super) async fn handle_calls(
                             }),
                         // Anything untrusted the prompt shows, from any turn since compaction.
                         tainted: !in_view.is_empty(),
-                        credentials: autonomy::reaches_credentials(&arguments),
+                        // Its arguments reach a credential place, or the tool itself says it
+                        // hands back secrets: refused on every level.
+                        credentials: autonomy::reaches_credentials(&arguments)
+                            || autonomy::reads_credentials(
+                                &def.spec.name,
+                                &def.spec.description,
+                                def.risk,
+                            ),
                         standing: autonomy::STANDING.contains(&name.as_str()),
                         fits: autonomy::fits_review(&arguments),
                     });

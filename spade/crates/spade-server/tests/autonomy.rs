@@ -911,3 +911,49 @@ async fn stop_pressed_as_a_reply_ends_calls_off_the_step_that_would_follow() -> 
     assert_eq!(count(&events, "stop_requested"), 1);
     Ok(())
 }
+
+#[tokio::test]
+async fn a_tool_that_hands_back_a_token_is_refused_even_on_full_access() -> Result {
+    let token = FakeTool::new("get_api_token", Risk::Read, "sk-123").app("Returns the API token");
+    let read = calls_of(&token);
+    let spade = Spade::start(
+        vec![
+            Script::reply("").call("c1", "get_api_token", json!({})),
+            Script::reply("I can't read it."),
+            Script::reply("").plain(TITLE),
+        ],
+        vec![Arc::new(token) as Arc<dyn Tool>],
+    )
+    .await?;
+    let (_, conversation) = bot(&spade, "full_access").await?;
+    spade.say(&conversation, "What's my token?").await?;
+    let events = settled(&spade, &conversation).await?;
+    let result = first(&events, "tool_finished").ok_or("no result")?;
+    let content = result["content"].as_str().unwrap_or("");
+    assert!(
+        content.starts_with("Not run: Spade never lets a bot read"),
+        "{content}"
+    );
+    assert_eq!(ran(&read), 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_tool_that_changes_access_goes_to_the_person() -> Result {
+    let rotate = FakeTool::new("rotate_api_key", Risk::Write, "rotated").app("Rotates the key");
+    let rotated = calls_of(&rotate);
+    let spade = Spade::start(
+        vec![Script::reply("").call("c1", "rotate_api_key", json!({}))],
+        vec![Arc::new(rotate) as Arc<dyn Tool>],
+    )
+    .await?;
+    let (_, conversation) = bot(&spade, "auto_review").await?;
+    spade.say(&conversation, "Rotate the key").await?;
+    let events = spade.wait_for(&conversation, "approval_requested").await?;
+    asked_by_rule(
+        &events,
+        "It changes sign-ins, keys or who has access, so you decide.",
+    )?;
+    assert_eq!(ran(&rotated), 0);
+    Ok(())
+}
