@@ -585,6 +585,8 @@ struct FakeDaemon {
     drivers: std::sync::Mutex<std::collections::HashMap<String, Driver>>,
     drives: std::sync::Mutex<Vec<(String, Driver)>>,
     computer: std::sync::Mutex<Option<AceComputer>>,
+    /// How long a take-over takes to answer (ace drains the bot's calls in flight first).
+    take_over_takes: Duration,
 }
 
 impl FakeDaemon {
@@ -611,6 +613,9 @@ impl Daemon for FakeDaemon {
         driver: Driver,
     ) -> BoxFuture<'a, std::result::Result<Option<Handback>, String>> {
         Box::pin(async move {
+            if driver == Driver::Person && self.driver(bot) == Driver::Bot {
+                tokio::time::sleep(self.take_over_takes).await;
+            }
             if let Ok(mut drives) = self.drives.lock() {
                 drives.push((bot.to_owned(), driver));
             }
@@ -662,7 +667,10 @@ async fn ace_hears_who_drives_again_after_it_forgets_and_its_handback_reaches_th
     let computers = machine.computers();
     spade.engine.set_computers(computers.clone());
     let (agent, conversation) = bot(&spade).await?;
-    let daemon = Arc::new(FakeDaemon::default());
+    let daemon = Arc::new(FakeDaemon {
+        take_over_takes: Duration::from_secs(2),
+        ..FakeDaemon::default()
+    });
     if let Ok(mut held) = daemon.computer.lock() {
         *held = Some(AceComputer {
             driver: Driver::Bot,
@@ -672,6 +680,7 @@ async fn ace_hears_who_drives_again_after_it_forgets_and_its_handback_reaches_th
                     tab_id: "tab_1".to_owned(),
                     title: "Docs".to_owned(),
                     url: "https://docs.example/".to_owned(),
+                    backend: Some("user".to_owned()),
                 }],
             },
             screen: Screen::default(),
@@ -697,12 +706,30 @@ async fn ace_hears_who_drives_again_after_it_forgets_and_its_handback_reaches_th
         .as_array()
         .and_then(|s| s.iter().find(|s| s["kind"] == "browser"))
         .cloned();
-    assert_eq!(browser.map(|b| b["tab_id"].clone()), Some(json!("tab_1")));
+    let browser = browser.unwrap_or_default();
+    assert_eq!(browser["tab_id"], "tab_1");
+    assert_eq!(
+        browser["backend"], "user",
+        "the person's own browser is passed on"
+    );
 
+    // ace takes a while to answer a take-over; the person doesn't wait for it.
+    let asked = std::time::Instant::now();
     let (status, _) = spade
         .post(&format!("/v1/agents/{agent}/computer/take-over"), json!({}))
         .await?;
     assert_eq!(status, 204);
+    assert!(
+        asked.elapsed() < Duration::from_secs(1),
+        "{:?}",
+        asked.elapsed()
+    );
+    for _ in 0..200 {
+        if daemon.driver(&agent) == Driver::Person {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
     assert_eq!(daemon.driver(&agent), Driver::Person);
     // The daemon restarts and forgets; Spade tells it again.
     daemon.forget();

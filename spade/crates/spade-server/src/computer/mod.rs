@@ -64,12 +64,25 @@ pub enum Kind {
     Files,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::Kind;
+
+    #[test]
+    fn simulator_and_screen_tools_drive_the_screen_and_browser_tools_the_browser() {
+        assert_eq!(Kind::of_tool("sim_tap"), Some(Kind::Screen));
+        assert_eq!(Kind::of_tool("screen_act"), Some(Kind::Screen));
+        assert_eq!(Kind::of_tool("browser_open"), Some(Kind::Browser));
+        assert_eq!(Kind::of_tool("thread_start"), None);
+    }
+}
+
 impl Kind {
     /// The surface ace's tool `name` drives, if any.
     pub fn of_tool(name: &str) -> Option<Self> {
         if name.starts_with("browser_") {
             Some(Self::Browser)
-        } else if name.starts_with("screen_") {
+        } else if name.starts_with("screen_") || name.starts_with("sim_") {
             Some(Self::Screen)
         } else {
             None
@@ -109,6 +122,9 @@ pub struct SurfaceView {
     /// The browser tab, as ace reported it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tab_id: Option<String>,
+    /// `user` when the tab is in the person's own browser, which ace doesn't stream.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backend: Option<String>,
     /// When it was last used.
     pub last: Option<i64>,
 }
@@ -152,6 +168,9 @@ pub struct Report {
     /// The browser tab.
     #[serde(default)]
     pub tab_id: Option<String>,
+    /// `user` for a tab in the person's own browser.
+    #[serde(default)]
+    pub backend: Option<String>,
 }
 
 /// A person's turn at the computer, kept on disk while it lasts.
@@ -179,6 +198,7 @@ struct Surface {
     title: Option<String>,
     url: Option<String>,
     tab_id: Option<String>,
+    backend: Option<String>,
     since: Option<i64>,
     last: Option<i64>,
 }
@@ -358,6 +378,7 @@ impl Computers {
                         since: if live { s.since } else { None },
                         url: s.url.clone(),
                         tab_id: s.tab_id.clone(),
+                        backend: s.backend.clone(),
                         last: s.last,
                     });
                 }
@@ -372,6 +393,7 @@ impl Computers {
             since: if terminal_live { info.since } else { None },
             url: None,
             tab_id: None,
+            backend: None,
             last: info.last,
         });
         let touched = lock(&self.files).get(agent).cloned();
@@ -383,6 +405,7 @@ impl Computers {
             since: None,
             url: None,
             tab_id: None,
+            backend: None,
             last: touched.map(|t| t.at),
         });
         let thread_id = lock(&self.threads).get(agent).cloned();
@@ -469,6 +492,7 @@ impl Computers {
             surface.title = report.title.map(|t| t.chars().take(200).collect());
             surface.url = report.url.map(|u| u.chars().take(2000).collect());
             surface.tab_id = report.tab_id.map(|t| t.chars().take(200).collect());
+            surface.backend = report.backend.map(|b| b.chars().take(32).collect());
             surface.last = Some(now);
         }
         if let Some(thread) = report.thread_id {

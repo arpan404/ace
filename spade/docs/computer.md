@@ -26,9 +26,10 @@ Spade without computers: `503`.
 - `terminal` and `files` are always there. `browser` and `screen` appear once the bot has used
   them or ace has reported them.
 - `since` is when the surface became live (null when it isn't). `last` is when it was last used.
-  `url` and `tab_id` are sent only when ace reported them.
+  `url`, `tab_id` and `backend` are sent only when ace reported them. `backend: "user"` marks a tab
+  in the person's own browser, which ace doesn't stream; any value is passed on as it is.
 - **browser, screen:** live while ace reports them live, or for 2 minutes after the bot's last
-  call to one of ace's `browser_*` or `screen_*` tools. `title`, `url`, `tab_id` and the
+  call to one of ace's `browser_*`, `screen_*` or `sim_*` tools (a simulator counts as the screen). `title`, `url`, `tab_id` and the
   top-level `thread_id` (the hidden ace thread they run in) come from ace's report.
 - **terminal:** live while its shell runs and either the person drives or something happened in
   it in the last 2 minutes. `title` is the bot's last command (its first line, 80 characters at
@@ -76,7 +77,8 @@ The daemon keeps each bot's browser and screen in a hidden thread of its own
   public error `person_driving`. Spade gives the model a not-run result that is not an error ("the
   person took over your computer … don't retry"), so it never counts as a failure to try again.
 - **Take-over** also sends `spade.computer.drive {requestId, bot, driver: "person"}` over the
-  daemon's loopback socket (5 s wait, failure tolerated). **Hand-back** first sends
+  daemon's loopback socket, after answering the person: ace answers once the bot's calls in
+  flight have ended (up to 10 s), so Spade waits up to 20 s and tolerates a failure. **Hand-back** first sends
   `driver: "bot"`. The answer's `handback {drivenMs, visited, opened, closed, screenUsed}` goes
   into the note as addresses only, never page titles, which are the pages' own text: at most 10
   per list, 200 characters each, no spaces or backticks. "They used your screen" is added when

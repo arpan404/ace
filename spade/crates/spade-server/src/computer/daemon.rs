@@ -20,6 +20,9 @@ pub struct Tab {
     pub title: String,
     #[serde(default)]
     pub url: String,
+    /// `user` for a tab in the person's own browser, which ace doesn't stream.
+    #[serde(default)]
+    pub backend: Option<String>,
 }
 
 /// What the person did with the bot's browser and screen while they drove (`SpadeComputerHandback`).
@@ -120,11 +123,13 @@ mod tests {
 
         let computer = computer_answer(&json!({ "computer": {
             "bot": "a_1", "driver": "person", "threadId": "th_1",
-            "browser": { "tabs": [{ "tabId": "t1", "title": "Docs", "url": "https://d.example/" }] },
+            "browser": { "tabs": [{ "tabId": "t1", "title": "Docs", "url": "https://d.example/",
+                                    "backend": "user", "added": "later" }] },
             "screen": { "apps": ["Notes"], "since": 5 } } }));
         assert!(computer.is_ok_and(|c| c.driver == Driver::Person
             && c.thread_id.as_deref() == Some("th_1")
-            && c.screen.apps == ["Notes"]));
+            && c.screen.apps == ["Notes"]
+            && c.browser.tabs[0].backend.as_deref() == Some("user")));
         assert!(computer_answer(&json!({ "error": "unavailable" })).is_err());
     }
 }

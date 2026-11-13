@@ -74,10 +74,12 @@ async fn take_over(State(state): State<AppState>, Path(id): Path<String>) -> Res
         Err(error) => takeover_problem(&error),
     })
     .await;
+    // ace answers once the bot's calls in flight have ended (up to 10 s); the bot is already
+    // paused here, so the person needn't wait for it. Later rounds tell ace again if this fails.
     if response.status() == StatusCode::NO_CONTENT
-        && let Some(computers) = state.engine.computers()
+        && let Some(computers) = state.engine.computers().cloned()
     {
-        computers.ace_takes_over(&id).await;
+        tokio::spawn(async move { computers.ace_takes_over(&id).await });
     }
     response
 }

@@ -13,8 +13,9 @@ use super::{Computers, Driver, Kind, lock};
 
 /// How often the daemon is told again.
 pub const RESYNC: Duration = Duration::from_secs(10);
-/// How long a take-over or hand-back waits for the daemon before carrying on without it.
-const ASK: Duration = Duration::from_secs(5);
+/// How long a take-over or hand-back waits for the daemon before carrying on without it. ace
+/// answers a take-over once the bot's calls in flight have ended, which can take 10 s.
+const ASK: Duration = Duration::from_secs(20);
 
 impl Computers {
     /// Gives the computers ace's daemon, and starts keeping it in step: every `agents` bot's
@@ -112,6 +113,7 @@ impl Computers {
                 browser.title = Some(tab.title.chars().take(200).collect());
                 browser.url = Some(tab.url.chars().take(2000).collect());
                 browser.tab_id = Some(tab.tab_id.clone());
+                browser.backend = tab.backend.clone();
                 browser.last = browser.last.or(Some(now));
             }
             if !computer.screen.apps.is_empty() {
