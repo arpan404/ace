@@ -418,10 +418,16 @@ beforeAll(async () => {
       export { MachineTarget } from "@/boot/machine-target.ts";
       export { TabMessage, WorkerMessage } from "@ace/client-worker/wire";
       export { string, object, number, array, tuple, instanceof as instanceOf, enum as enumeration } from "zod";
-      // The machine-pool and client workers' entries load with the worker build's Zod, so a
-      // schema that calls a dropped method while its module loads fails here, not in a build.
+      // Every worker entry loads with the worker build's Zod, so a schema that calls a dropped
+      // method while its module loads fails here, not in a build. The notification service
+      // worker is built with the page's methods, which keep everything the workers' keep.
       import "@/boot/machine-worker.ts";
       import "@/boot/client-worker.ts";
+      import "@/boot/perf-worker.ts";
+      import "@/lib/diffs/diff.worker.ts";
+      import "@/components/markdown/highlight.worker.ts";
+      import "@/features/panels/files/find.worker.ts";
+      import "@/notification-worker.ts";
     `,
   );
   const recorded = await protocolCorpus();
