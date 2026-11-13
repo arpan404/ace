@@ -52,6 +52,18 @@ untrusted content is in view, when they ask.
 
 ### The shell classifier
 
+**What it is, and what it isn't.** The classifier is a best-effort layer in front of the reviewer.
+It catches common ways a command reaches outside the workspace and sends them to the person
+before any model judges them. It is not a containment guarantee: a shell can do more than any
+reading of its words can follow, and a command it lets through can still reach the network or
+write outside the workspace. Containment will come from an OS sandbox in a later change: no
+network, and writes only in the workspace and temp folders, unless the reviewer or the person
+approves an unsandboxed run. Until then, `auto_review` relies on the reviewer for what the
+classifier misses.
+
+When it can't follow what a command will run, it doesn't try harder: it sends the command to the
+person as unclear.
+
 `spade_core::autonomy::shell` reads a `shell` command without a model and sends these to the
 person whatever the reviewer would say (the reason names the kind):
 
@@ -68,7 +80,7 @@ person whatever the reviewer would say (the reason names the kind):
 | unclear       | what it can't read: here-documents, `eval`, backticks, `$((…))`, a program from a variable, a shell reading from a pipe (`base64 -d \| sh`), unbalanced quotes, `curl -K`/`--config`, `wget -e`, `parallel` reading commands from its input; inline code that starts programs or builds code (`subprocess`, `child_process`, `os.system`, `eval(`, `base64`, awk's `system()` and pipes)                                               |
 | unseen script | a file the command runs that Spade can't show: outside the workspace, through `~` or a variable, missing, unreadable, or over 24,000 bytes                                                                                                                                                                                                                                                                                             |
 
-It reads every simple command: across `|`, `;`, `&&`, `||`, `$(…)`, `sh -c`/`bash -c` strings,
+It tries to read every simple command: across `|`, `;`, `&&`, `||`, `$(…)`, `sh -c`/`bash -c` strings,
 variable assignments and wrappers. What a wrapper runs (`find -exec`/`-execdir`/`-ok`, `xargs`,
 `parallel`, `timeout`, `nice`, `nohup`, `time`, `watch`, `command`, `builtin`, `exec`, `env`
 and `env -S`, `flock`, `sudo`, `doas`, `su -c`…) is unwrapped through the same reading, and each
@@ -94,7 +106,8 @@ the terminal's current folder.
 variables from one to the next; shell functions and aliases never carry over (`BASH_FUNC_*`, a
 value that is a function body), nor variables that make a shell or interpreter run code first
 (`BASH_ENV`, `ENV`, `NODE_OPTIONS`, `PYTHONSTARTUP`, `PERL5OPT`, `RUBYOPT`, `GIT_SSH_COMMAND`,
-`LESSOPEN`, `ZDOTDIR`…). So what a command runs is what its words say.
+`LESSOPEN`, `ZDOTDIR`…), so a definition from one command can't change what the next one's words
+run.
 
 ### The reviewer
 
@@ -133,8 +146,9 @@ names a token, secret, password, credential, passphrase, keychain, API key or pr
 reads (read-only, or a verb like `get`, `read`, `fetch`, `show`, `export`, `return`), and no verb
 says it changes them. A tool that changes sign-ins or access (`rotate`, `set`, `revoke`,
 `create`…) goes to the person instead:
-`Not run: Spade never lets a bot read sign-in tokens, keys or provider credentials.` A denylist
-can't be complete: this is a guard rail in front of the reviewer and the person, not a sandbox.
+`Not run: Spade never lets a bot read sign-in tokens, keys or provider credentials.` This is a
+list of known places and tools, so it misses what it doesn't know; it is a guard rail in front of
+the reviewer and the person, not a sandbox.
 
 ### Routines
 

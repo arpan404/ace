@@ -1,6 +1,6 @@
 //! Where the person's sign-ins and credentials live, and the tools that read them (ADR 0002,
-//! ADR 0144). No level lets a bot reach them. A denylist can never be complete: this is a guard
-//! rail in front of the reviewer and the person, not a sandbox.
+//! ADR 0144). No level lets a bot reach them. It lists known places and tools, so it misses
+//! what it doesn't know: a guard rail in front of the reviewer and the person, not a sandbox.
 
 use serde_json::Value;
 

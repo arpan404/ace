@@ -4,7 +4,8 @@
 //! payments), anything it can't read for sure, and the code it runs from files, which the
 //! reviewer is shown. Every simple command is looked at: across pipes, `;`, `&&`, `||`, `$(...)`,
 //! `sh -c` strings and the wrappers that run another command (`env`, `xargs`, `find -exec`,
-//! `sudo`…). Like any denylist it can't be complete; the reviewer and the person stand behind it.
+//! `sudo`…). It is a best-effort layer in front of the reviewer, not containment (that is an OS
+//! sandbox's job): what it can't follow it sends to the person as unclear.
 
 mod effects;
 mod options;

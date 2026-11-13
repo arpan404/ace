@@ -63,7 +63,14 @@ data, credentials) still come to them.
    read by any program, or run a tool that reads secrets (`security find-*-password`,
    `secret-tool lookup`, `gpg --export-secret*`, keyring CLIs), and when the tool itself says it
    hands back a token, secret, password or key. A tool that changes sign-ins or access goes to
-   the person. It is a denylist, a guard rail rather than a sandbox; it can't be complete.
+   the person. It is a list of known places and tools, a guard rail rather than a sandbox, and it
+   misses what it doesn't know.
+   - **The shell classifier is a best-effort layer in front of the reviewer, not a containment
+     guarantee.** A command it lets through can still reach the network or write outside the
+     workspace. Containment will be an OS sandbox in a later change (no network; writes only in
+     the workspace and temp folders, unless the reviewer or the person approves an unsandboxed
+     run). Where the classifier can't follow what a command runs, it sends it to the person as
+     unclear rather than modelling it further.
    - Shell commands are also read without a model: sending over the network, mail, publishing,
      changing servers, writing or deleting outside the bot's folder, driving other apps, admin
      rights and payments go to the person whatever the reviewer says, and so does a command

@@ -393,7 +393,7 @@ fn sensitive_in(words: &[String]) -> Option<Sensitive> {
 
 /// Whether a call's arguments reach sign-ins or credentials: a path where they live, read by any
 /// program, or a command that reads secrets ([`secrets`]). Checked on every level and for every
-/// call, reads included. A denylist can't be complete; it is a guard rail, not a sandbox.
+/// call, reads included. It lists known places and tools: a guard rail, not a sandbox.
 pub fn reaches_credentials(arguments: &Value) -> bool {
     secrets::reaches(arguments)
 }
