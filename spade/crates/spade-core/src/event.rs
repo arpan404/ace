@@ -183,6 +183,10 @@ pub enum Known {
         model: String,
         #[serde(default)]
         cost_micros: u64,
+        /// The hash of the files the call runs, as the reviewer read them (ADR 0144): a call
+        /// approved with these runs only while they are unchanged.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bound: Option<String>,
     },
     /// The person set the bot's access level (ADR 0144). The latest one holds from the bot's
     /// next tool call; a bot with none is on `ask`.

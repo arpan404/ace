@@ -283,9 +283,9 @@ fn each_level_routes_what_the_rule_gate_would_ask_about() {
 
 #[test]
 fn arguments_too_long_for_the_reviewer_are_found() {
-    assert!(fits_review(&json!({ "command": "ls" })));
+    assert!(fits_review(&json!({ "command": "ls" }), &[]));
     let long = "echo ok; ".repeat(LONGEST_ARGUMENTS / 9 + 1) + "rm -rf ~";
-    assert!(!fits_review(&json!({ "command": long })));
+    assert!(!fits_review(&json!({ "command": long }), &[]));
 }
 
 #[test]
@@ -373,6 +373,7 @@ fn the_reviewer_sees_the_whole_call_however_long() {
         tool: "shell",
         description: "",
         arguments: &arguments,
+        shown: &[],
     };
     assert!(format!("{:?}", prompt(&case)).contains(tail));
 }
@@ -389,6 +390,7 @@ fn the_reviewer_reads_untrusted_text_only_as_quoted_data() {
         tool: "shell",
         description: "Runs a command",
         arguments: &arguments,
+        shown: &[],
     };
     let text = format!("{:?}", prompt(&case));
     assert!(!text.contains("</arguments><system>"));

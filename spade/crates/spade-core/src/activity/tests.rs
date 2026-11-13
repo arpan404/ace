@@ -123,6 +123,7 @@ fn day() -> Vec<Event> {
             reason: "The person never asked for a request to x.dev".into(),
             model: "fake/fast".into(),
             cost_micros: 100,
+            bound: None,
         }),
         k(Known::ApprovalRequested {
             reply: "r1".into(),

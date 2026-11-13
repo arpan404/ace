@@ -76,6 +76,10 @@ impl Terminal {
         String::new()
     }
 
+    pub fn start_dir(&self) -> std::path::PathBuf {
+        std::path::PathBuf::new()
+    }
+
     pub fn attach(
         self: &Arc<Self>,
         _after: u64,

@@ -81,6 +81,16 @@ pub fn person_words(events: &[Event]) -> Vec<String> {
     words
 }
 
+/// The hash of the files the call was approved with, when it runs any (ADR 0144).
+pub fn bound(events: &[Event], call_id: &str) -> Option<String> {
+    events.iter().rev().find_map(|event| match event {
+        Event::Known(Known::CallReviewed {
+            call_id: c, bound, ..
+        }) if c == call_id => bound.clone(),
+        _ => None,
+    })
+}
+
 /// A verdict already stored for the call, so a call is reviewed once even across a restart.
 pub fn stored(events: &[Event], call_id: &str) -> Option<(Verdict, String)> {
     events.iter().rev().find_map(|event| match event {

@@ -133,6 +133,11 @@ pub trait Tool: Send + Sync {
     fn always_scope_in(&self, _key: &str, arguments: &Value) -> Option<String> {
         self.always_scope(arguments)
     }
+    /// [`Tool::class`] for the call with `key`, with the files it runs that the reviewer must read
+    /// (the shell's scripts). Most tools need only their arguments.
+    fn classed(&self, _key: &str, arguments: &Value) -> spade_core::autonomy::Classed {
+        self.class(arguments).into()
+    }
     /// What a call of this tool can reach, for the auto-review (ADR 0144). Spade's own tools are
     /// classed by name; ace's and the person's apps' tools say more about themselves.
     fn class(&self, arguments: &Value) -> spade_core::autonomy::Class {

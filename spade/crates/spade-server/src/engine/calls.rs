@@ -1,7 +1,7 @@
 //! A step's tool calls: the gate, approvals, running allowed calls in parallel (or as background
 //! jobs), and storing each result.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use futures_util::StreamExt;
@@ -67,6 +67,9 @@ pub(super) async fn handle_calls(
         memory_suggests: summary_only,
     };
     let mut runnable: Vec<(Call, String, Value)> = Vec::new();
+    // Calls approved by the reviewer with the files they run, by call id: the hash of those
+    // files as it read them (ADR 0144).
+    let mut bound: HashMap<String, Option<String>> = HashMap::new();
     let mut waiting = false;
     // Started with no stored result. This worker runs every call it starts to its stored end, so
     // such a call ran in an earlier worker that was cut off: its outcome is unknown.
@@ -126,28 +129,29 @@ pub(super) async fn handle_calls(
                     // Read now, for this call: a change the person made while earlier calls
                     // of the step were decided holds from here (ADR 0144).
                     let access = engine.level(id, events);
+                    // What the call reaches, and the files it runs that the reviewer must read.
+                    let classed = engine.tools.get_for(id, &name).map_or_else(
+                        || Class::Sensitive(Sensitive::Unknown).into(),
+                        |tool| tool.classed(&key, &arguments),
+                    );
                     let route = autonomy::route(autonomy::Call {
                         access,
                         rule,
                         risk: def.risk,
-                        class: engine
-                            .tools
-                            .get_for(id, &name)
-                            .map_or(Class::Sensitive(Sensitive::Unknown), |tool| {
-                                tool.class(&arguments)
-                            }),
+                        class: classed.class,
                         // Anything untrusted the prompt shows, from any turn since compaction.
                         tainted: !in_view.is_empty(),
                         // Its arguments reach a credential place, or the tool itself says it
                         // hands back secrets: refused on every level.
-                        credentials: autonomy::reaches_credentials(&arguments)
+                        credentials: classed.credentials
+                            || autonomy::reaches_credentials(&arguments)
                             || autonomy::reads_credentials(
                                 &def.spec.name,
                                 &def.spec.description,
                                 def.risk,
                             ),
                         standing: autonomy::STANDING.contains(&name.as_str()),
-                        fits: autonomy::fits_review(&arguments),
+                        fits: autonomy::fits_review(&arguments, &classed.shown),
                     });
                     let mut reviewer_reason = None;
                     let rule_ran = route == Route::Run;
@@ -201,7 +205,17 @@ pub(super) async fn handle_calls(
                                 arguments: &arguments,
                                 def: &def,
                                 shell: name == "shell",
+                                shown: &classed.shown,
                             };
+                            // An approval is bound to the files as the reviewer read them: the
+                            // stored one's, or these when this review is the first.
+                            let expected = match review::stored(events, &pending.call.id) {
+                                Some(_) => review::bound(events, &pending.call.id),
+                                None => super::autonomy::binding(&classed.shown),
+                            };
+                            if expected.is_some() || !classed.shown.is_empty() {
+                                bound.insert(pending.call.id.clone(), expected);
+                            }
                             match super::autonomy::review(
                                 engine, id, reply, events, &registry, under, stop,
                             )
@@ -299,7 +313,7 @@ pub(super) async fn handle_calls(
         finish_tool(engine, id, reply, &call, &name, unknown).await;
     }
     if !runnable.is_empty() {
-        return run_tools(engine, id, reply, runnable, &facts, stop, pause).await;
+        return run_tools(engine, id, reply, runnable, &bound, &facts, stop, pause).await;
     }
     if waiting {
         let live = engine.live(id);
@@ -392,11 +406,13 @@ fn resolve(call: &Call) -> (String, Value) {
     (call.name.clone(), call.arguments.clone())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_tools(
     engine: &Arc<Engine>,
     id: &str,
     reply: &str,
     calls: Vec<(Call, String, Value)>,
+    bound: &HashMap<String, Option<String>>,
     facts: &TurnFacts,
     stop: &mut watch::Receiver<bool>,
     pause: &mut watch::Receiver<Pause>,
@@ -423,6 +439,19 @@ async fn run_tools(
             let Some((call, name, arguments)) = queue.next() else {
                 break;
             };
+            // A file the reviewer read changed since: not run, and the bot asks again.
+            if let Some(expected) = bound.get(&call.id) {
+                let now = engine.tools.get_for(id, &name).and_then(|tool| {
+                    super::autonomy::binding(
+                        &tool.classed(&format!("{id}.{}", call.id), &arguments).shown,
+                    )
+                });
+                if &now != expected {
+                    let changed = ToolOutput::ok(autonomy::refused(SCRIPT_CHANGED));
+                    finished.push_back((call, name, changed));
+                    continue;
+                }
+            }
             // A tool runs only once its start is stored, so a restart can never mistake a call
             // that ran for one that did not.
             // What the tool is now is stored with its start, so compaction reads a write as one
@@ -512,6 +541,9 @@ async fn run_tools(
         }
     }
 }
+
+/// Why a reviewed call whose files changed before it started didn't run.
+const SCRIPT_CHANGED: &str = "A file it runs changed after it was reviewed.";
 
 /// A result being stored (see `finish_tool`).
 type Storing<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>>;

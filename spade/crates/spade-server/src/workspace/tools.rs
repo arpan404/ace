@@ -433,6 +433,41 @@ impl Tool for ShellTool {
         )
     }
 
+    /// Classed by what the command runs, from the folder it would start in: where the bot's
+    /// terminal is now, else its workspace. The scripts it runs are read so the reviewer sees
+    /// them (ADR 0144); with no workspace to read, none can be shown.
+    fn classed(&self, key: &str, arguments: &Value) -> spade_core::autonomy::Classed {
+        let workspace = self
+            .place
+            .workspace(key)
+            .ok()
+            .and_then(|workspace| workspace.path().ok());
+        let Some(workspace) = workspace else {
+            return spade_core::autonomy::classify_shell(
+                arguments,
+                &spade_core::autonomy::shell::Lexical,
+            );
+        };
+        let start = match &self.shell {
+            Commands::Terminal(terminals) => self
+                .place
+                .bots
+                .agent_for_key(key)
+                .and_then(|bot| terminals.of(&bot).ok())
+                .map(|terminal| terminal.start_dir())
+                .filter(|dir| !dir.as_os_str().is_empty()),
+            Commands::OneShot(_) => None,
+        }
+        .unwrap_or_else(|| workspace.clone());
+        match super::place::FsPlace::new(start, &workspace) {
+            Some(place) => spade_core::autonomy::classify_shell(arguments, &place),
+            None => spade_core::autonomy::classify_shell(
+                arguments,
+                &spade_core::autonomy::shell::Lexical,
+            ),
+        }
+    }
+
     /// "Always" allows this exact command, nothing like it.
     fn always_scope(&self, arguments: &Value) -> Option<String> {
         Some(

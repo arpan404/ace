@@ -220,7 +220,7 @@ async fn a_reviewer_that_takes_too_long_leaves_the_call_to_the_person() -> Resul
     };
     let spade = Spade::start_with(
         vec![
-            Script::reply("").call("c1", "shell", json!({ "command": "make" })),
+            Script::reply("").call("c1", "shell", json!({ "command": "cargo build" })),
             // Slower than the timeout, so the timeout always wins.
             Script::reply("")
                 .plain(r#"{"verdict":"approve","reason":"fine","outward_or_irreversible":false}"#)
@@ -375,7 +375,7 @@ async fn a_level_change_survives_a_restart() -> Result {
         .restart(
             vec![Arc::new(tool) as Arc<dyn Tool>],
             vec![
-                Script::reply("").call("c1", "shell", json!({ "command": "make" })),
+                Script::reply("").call("c1", "shell", json!({ "command": "cargo build" })),
                 Script::reply("Built."),
                 Script::reply("").plain(TITLE),
             ],
@@ -725,7 +725,7 @@ async fn the_reviewer_is_told_of_untrusted_content_from_an_earlier_turn() -> Res
             Script::reply("").call("c1", "fetch_page", json!({ "url": "https://x.example" })),
             Script::reply("I read it."),
             Script::reply("").plain(TITLE),
-            Script::reply("").call("c2", "shell", json!({ "command": "make" })),
+            Script::reply("").call("c2", "shell", json!({ "command": "cargo build" })),
             Script::reply("").plain(
                 r#"{"verdict":"escalate","reason":"Unsure.","outward_or_irreversible":false}"#,
             ),
@@ -853,7 +853,7 @@ async fn a_reviewer_answer_that_leaves_out_whether_it_reaches_outside_goes_to_th
     let commands = calls_of(&tool);
     let spade = Spade::start(
         vec![
-            Script::reply("").call("c1", "shell", json!({ "command": "make" })),
+            Script::reply("").call("c1", "shell", json!({ "command": "cargo build" })),
             Script::reply("").plain(r#"{"verdict":"approve","reason":"Fine."}"#),
         ],
         vec![Arc::new(tool) as Arc<dyn Tool>],

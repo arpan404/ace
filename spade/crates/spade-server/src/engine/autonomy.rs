@@ -157,6 +157,7 @@ pub(super) fn record_rule(
         reason: reason.to_owned(),
         model: String::new(),
         cost_micros: 0,
+        bound: None,
     });
     engine.record_unless_stopped(id, reply, &event)
 }
@@ -168,6 +169,23 @@ pub(super) struct Under<'a> {
     pub arguments: &'a Value,
     pub def: &'a ToolDef,
     pub shell: bool,
+    /// Files the call runs, shown to the reviewer; an approval is bound to them.
+    pub shown: &'a [spade_core::autonomy::shell::Shown],
+}
+
+/// The hash a call's shown files are bound by; `None` when it runs none.
+pub(super) fn binding(shown: &[spade_core::autonomy::shell::Shown]) -> Option<String> {
+    if shown.is_empty() {
+        return None;
+    }
+    let mut text = Vec::new();
+    for file in shown {
+        text.extend_from_slice(file.path.as_bytes());
+        text.push(0);
+        text.extend_from_slice(file.content.as_bytes());
+        text.push(0);
+    }
+    Some(crate::workspace::trust::hash(&text))
 }
 
 /// Has the reviewer judge one call, storing its verdict first. A verdict already stored for the
@@ -205,6 +223,7 @@ pub(super) async fn review(
         tool: under.name,
         description: &under.def.spec.description,
         arguments: under.arguments,
+        shown: under.shown,
     };
     let prompt = autonomy::prompt(&case).session(id);
     let admission = tokio::select! {
@@ -279,6 +298,7 @@ pub(super) async fn review(
         reason: reason.clone(),
         model,
         cost_micros: cost,
+        bound: binding(under.shown),
     });
     match engine.record_unless_stopped(id, reply, &reviewed) {
         Ok(true) => of(verdict, reason),
