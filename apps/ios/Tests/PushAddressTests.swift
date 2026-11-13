@@ -61,7 +61,7 @@ import UserNotifications
 
     // MARK: Shown once
 
-    @Test func anAlertAPushAlreadyShowedIsNotPostedAgainWhenTheSocketBringsIt() async throws {
+    @Test func anAlertAPushAlreadyShowedIsPostedAgainOnlyQuietlyWhenTheSocketBringsIt() async throws {
         let shared = try defaults()
         let pushed = PushedAlerts(defaults: shared)
         let vectors = try PushVectors.load()
@@ -72,9 +72,10 @@ import UserNotifications
         _ = coordinator
         session.patch(#"{"type":"notifications.alert","notification":{"id":"n:42","threadId":"t-docs","title":"Write the README","status":"done","backgroundCount":0,"actions":[],"preview":"Added a build section"}}"#)
         session.patch(#"{"type":"notifications.alert","notification":{"id":"n:50","threadId":"t-other","title":"Other","status":"failed","backgroundCount":0,"actions":[]}}"#)
-        try await until("the other alert posts") { !center.posted.isEmpty }
-        for _ in 0..<20 { await Task.yield() }
-        #expect(center.posted.map(\.title) == ["Other"])
+        try await until("both alerts post") { center.posted.count == 2 }
+        // In the push's place under the thread's own identifier, without a second sound.
+        #expect(center.posted.map(\.title) == ["Write the README", "Other"])
+        #expect(center.posted.map(\.level) == [.passive, .active])
     }
 
     // MARK: Helpers
