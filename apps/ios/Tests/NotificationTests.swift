@@ -514,6 +514,24 @@ import Testing
         #expect(center.delivered.values.map(\.body) == ["Failed"])
     }
 
+    @Test func aReconnectMidCatchUpStillKeepsThatFeedsOlderFinishOffALiveRequest() async throws {
+        let center = HeldCenter()
+        let notifier = LocalNotifier(center: center, hostId: "studio")
+        notifier.bind(LedgerStore(scope: "studio", defaults: try defaults()))
+        let request = Task { await notifier.receive(cursored(alert("n:3", status: "needs_you", actions: true), 3)) }
+        try await until("the live request is landing") { center.holding }
+        let feed = Task {
+            await notifier.catchUp(cursor: 2, entries: [cursored(alert("n:1", status: "failed", thread: "other"), 1), cursored(alert("n:2"), 2)],
+                                   retracted: [])
+        }
+        for _ in 0..<20 { await Task.yield() }
+        notifier.connected()
+        center.release()
+        await request.value
+        await feed.value
+        #expect(center.delivered.values.map(\.body).sorted() == ["Failed", "Needs you"])
+    }
+
     @Test func aLaterCatchUpWaitsForAnEarlierOneThatIsStillPosting() async throws {
         let center = HeldCenter()
         let notifier = LocalNotifier(center: center, hostId: "studio")

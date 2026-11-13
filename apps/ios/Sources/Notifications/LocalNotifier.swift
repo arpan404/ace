@@ -244,6 +244,9 @@ final class SystemNotificationCenter: NotificationCenterPort {
     }
     private func apply(cursor: Int, entries: [AlertNotification], retracted: [String]) async {
         desk.retract(retracted, hostId: hostId)
+        // What was held back when this feed started applying: a reconnect (`connected`) clears
+        // `live` for the next feed, but must not free this one's older alerts mid-way.
+        let held = live
         let gone = Set(retracted)
         live = live.filter { !gone.contains($0.value.id) }
         let fresh = entries.filter { inFlight[$0.id] == nil && ledger.admit($0.id) }
@@ -266,7 +269,8 @@ final class SystemNotificationCenter: NotificationCenterPort {
         // alert can land meanwhile.
         for alert in newest where freshIds.contains(alert.id) {
             guard valid else { return }
-            guard CatchUpOrder.isNewer(alert, than: live[alert.threadId], in: entries) else { continue }
+            guard CatchUpOrder.isNewer(alert, than: held[alert.threadId], in: entries),
+                  CatchUpOrder.isNewer(alert, than: live[alert.threadId], in: entries) else { continue }
             await desk.land(alert, hostId: hostId, owner: ObjectIdentifier(self))
             finish(alert.id)
         }
