@@ -409,7 +409,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
               Number(b.kind === "main") - Number(a.kind === "main") ||
               b.last_activity - a.last_activity,
           )
-          .map((agent) => ({ ...agent, computer: this.computer.of(agent.id) })),
+          .map((agent) => Object.assign({}, agent, { computer: this.computer.of(agent.id) })),
       });
     if (!id && method === "POST") {
       const avatar = body.avatar as Json | undefined;
@@ -463,7 +463,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
       for (const name of Object.keys(files))
         if (name === path || name.startsWith(`${path}/`)) delete files[name];
       const folders = this.folders.get(agent);
-      for (const folder of [...(folders ?? [])])
+      for (const folder of folders ?? [])
         if (folder === path || folder.startsWith(`${path}/`)) folders?.delete(folder);
       return { status: 204 };
     }

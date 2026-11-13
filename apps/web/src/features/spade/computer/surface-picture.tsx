@@ -17,15 +17,18 @@ export function useBotPicture(key: BotSurfaceKey | undefined): {
   available: boolean;
 } {
   const streams = useBotStreams();
-  const [picture, setPicture] = useState<BotPicture>();
+  // Kept with the surface it shows, so another surface never shows the last one's picture.
+  const [shown, setShown] = useState<{ id: string; picture: BotPicture }>();
   const id = key ? `${key.machine}/${key.bot}/${key.surface}` : "";
   useEffect(() => {
-    setPicture(undefined);
     if (!streams || !key) return;
-    return streams.watch(key, setPicture);
+    return streams.watch(key, (picture) => setShown({ id, picture }));
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- `id` names the key
   }, [streams, id]);
-  return { picture, available: streams !== undefined };
+  return {
+    picture: shown?.id === id ? shown.picture : undefined,
+    available: streams !== undefined,
+  };
 }
 
 /**
@@ -73,9 +76,10 @@ export function SurfacePicture(props: {
       >
         {browser && <AddressBar url={props.surface?.url} />}
         <div
-          role="img"
+          // While the person drives it takes their clicks and keys, as an app in the page.
+          role="application"
           aria-label={props.label}
-          tabIndex={props.driving ? 0 : -1}
+          tabIndex={props.driving ? 0 : undefined}
           data-driving={props.driving || undefined}
           onPointerDown={(event) => {
             if (!props.driving) return;

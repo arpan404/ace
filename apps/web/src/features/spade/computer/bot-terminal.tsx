@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { loadStandaloneTerminal } from "@/features/panels/index.ts";
@@ -22,16 +22,11 @@ const later = (delay: number, run: () => void) => {
 export function BotTerminal(props: { bot: { id: string; name: string }; driving: boolean }) {
   const client = useSpadeClient();
   const toast = useToast();
-  const driving = useRef(props.driving);
-  useEffect(() => {
-    driving.current = props.driving;
-  }, [props.driving]);
   const [source] = useState(() =>
     spadeTerminalSource({
       transport: spadeTransport(client),
       bot: props.bot.id,
       name: `${props.bot.name}'s terminal`,
-      canType: () => driving.current,
       type: (data) => typeInTerminal(client, props.bot.id, data),
       resize: (cols, rows) => resizeTerminal(client, props.bot.id, cols, rows),
       failed: (error) =>
@@ -39,6 +34,7 @@ export function BotTerminal(props: { bot: { id: string; name: string }; driving:
       later,
     }),
   );
+  useEffect(() => source.setDriving(props.driving), [source, props.driving]);
   return (
     <div className="flex h-full min-h-0 flex-col p-4">
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-code p-2 shadow-[inset_0_0_0_1px_var(--border)]">

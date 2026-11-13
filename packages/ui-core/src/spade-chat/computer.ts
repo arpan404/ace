@@ -21,11 +21,15 @@ export interface SpadeSurface {
   url: string | undefined;
   /** When it was last used, while it isn't live. */
   last: number | undefined;
+  /** The browser tab the bot uses, as ace reported it. */
+  tabId: string | undefined;
 }
 
 export interface SpadeComputer {
   /** Who drives it: the bot, or the person who took over. */
   driver: "bot" | "person";
+  /** The hidden ace thread its browser and screen run in, once it used either. */
+  threadId: string | undefined;
   surfaces: SpadeSurface[];
 }
 
@@ -51,11 +55,16 @@ export function parseSpadeComputer(value: unknown): SpadeComputer | undefined {
           since: time(surface.since),
           url: text(surface.url),
           last: time(surface.last),
+          tabId: text(surface.tab_id),
         },
       ];
     },
   );
-  return { driver: fields.driver === "person" ? "person" : "bot", surfaces };
+  return {
+    driver: fields.driver === "person" ? "person" : "bot",
+    threadId: text(fields.thread_id),
+    surfaces,
+  };
 }
 
 /** A computer from a body or a live frame's data. */

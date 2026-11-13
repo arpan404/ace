@@ -24,6 +24,8 @@ export function PanelTitleSearch(props: {
   onQuery(query: string): void;
   /** The panel's own actions (New automation, Add a skill), before the magnifier. */
   actions?: ReactNode;
+  /** In the title's place: a filter that names the list ("All bots ⌄"); `title` then names the field's row only. */
+  lead?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const input = useRef<HTMLInputElement>(null);
@@ -50,7 +52,11 @@ export function PanelTitleSearch(props: {
           open && "pointer-events-none -translate-x-1 opacity-0",
         )}
       >
-        <h2 className={cn("min-w-0 flex-1 pl-2", panelTitleText)}>{props.title}</h2>
+        {props.lead ? (
+          <div className="flex min-w-0 flex-1 items-center pl-0.5">{props.lead}</div>
+        ) : (
+          <h2 className={cn("min-w-0 flex-1 pl-2", panelTitleText)}>{props.title}</h2>
+        )}
         {props.actions}
       </div>
       {/* Room for the magnifier while closed; the field itself floats over the row. */}

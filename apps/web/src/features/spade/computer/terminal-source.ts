@@ -9,15 +9,13 @@ import type { LiveEnd, SpadeTransport } from "../spade-transport.ts";
  * stream resumes after the last `seq` it drew, so a reconnect or a Spade restart never draws output
  * twice; output the ring dropped meanwhile is marked as dropped. The PTY starts again on demand,
  * so its exit is a line in the output, never the end of the view. Typing goes to Spade only while
- * the person drives (`canType`); Spade refuses it otherwise.
+ * the person drives (`setDriving`); Spade refuses it otherwise.
  */
 
 export interface TerminalSourceDeps {
   transport: SpadeTransport;
   bot: string;
   name: string;
-  /** Whether the person drives now: keys and the size go to Spade only then. */
-  canType(): boolean;
   type(data: string): Promise<void>;
   resize(cols: number, rows: number): Promise<void>;
   /** A key or a size Spade refused. */
@@ -27,7 +25,11 @@ export interface TerminalSourceDeps {
 
 const resumable = new Set<LiveEnd>(["restarted", "closed", "unavailable", "limit"]);
 
-export function spadeTerminalSource(deps: TerminalSourceDeps): TerminalSource {
+/** The source, and whether the person drives now: keys and the size go to Spade only then. */
+export type SpadeTerminalSource = TerminalSource & { setDriving(driving: boolean): void };
+
+export function spadeTerminalSource(deps: TerminalSourceDeps): SpadeTerminalSource {
+  let driving = false;
   const id = `spade:${deps.bot}`;
   const info: TerminalInfo = { id, threadId: "", name: deps.name, exited: false };
   /** The last `seq` drawn, and how many characters the view has drawn (its offsets). */
@@ -35,6 +37,9 @@ export function spadeTerminalSource(deps: TerminalSourceDeps): TerminalSource {
   let drawn = 0;
   const decoder = new TextDecoder();
   return {
+    setDriving: (on) => {
+      driving = on;
+    },
     link: "connected",
     version: 0,
     subscribe: () => () => {},
@@ -101,11 +106,11 @@ export function spadeTerminalSource(deps: TerminalSourceDeps): TerminalSource {
       };
     },
     write(_terminal, data) {
-      if (!deps.canType()) return;
+      if (!driving) return;
       deps.type(data).catch(deps.failed);
     },
     resize(_terminal, cols, rows) {
-      if (!deps.canType()) return;
+      if (!driving) return;
       deps.resize(cols, rows).catch(() => {});
     },
   };

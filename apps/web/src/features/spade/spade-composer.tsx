@@ -14,8 +14,9 @@ import { useSpadeModels } from "./use-spade-models.ts";
 const spadeThread = { id: "", workspaceId: "", title: "", draft: true } as const;
 
 /**
- * The thread composer, sending to Spade. It always sends: while a reply runs the message steers
- * it, so it never turns into Stop or Queue (Stop is on the Working line). Files attach as they
+ * The thread composer as ace's capsule, sending to Spade: +, the field, and one button at its
+ * end: the mic while it is empty, Send once there are words, Stop while the bot works and the
+ * draft is empty. A message always sends: while a reply runs it steers it. Files attach as they
  * do in a thread: images go as images, anything else as a document Spade reads (ADR 0134). The
  * mic records a voice message whose words land here to be checked. Until Spade runs, sending
  * says why.
@@ -29,6 +30,9 @@ export function SpadeComposer(props: {
   blocked: string | undefined;
   placeholder: string;
   attached?: ReactNode;
+  /** Stops the bot; with it, Stop takes the end of an empty capsule while the bot works. */
+  onStop?: (() => void) | undefined;
+  stopping?: boolean | undefined;
   /** Names `@` offers (a group's members), inserted as plain text. */
   mentionNames?: readonly string[] | undefined;
   send(message: SpadeMessage): Promise<void>;
@@ -78,7 +82,10 @@ export function SpadeComposer(props: {
         draftKey={props.draftKey}
         busy={props.answering}
         sendsNow
-        stopInStrip
+        onStop={props.onStop}
+        stopping={props.stopping}
+        stopInStrip={!props.onStop}
+        capsule
         followUp="steer"
         // Spade reads the files from this window; with no thread they never upload to the daemon.
         sendsWhileUploading
@@ -90,7 +97,7 @@ export function SpadeComposer(props: {
         placeholder={props.placeholder}
         shortPlaceholder={`Message ${props.name}`}
         sendBlocked={props.blocked ? { reason: props.blocked, describedBy: reason } : undefined}
-        controls={<MicButton voice={voice} />}
+        idleAction={<MicButton voice={voice} />}
         attached={
           <>
             {props.attached}

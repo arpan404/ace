@@ -45,6 +45,11 @@ const reply = (body: unknown, status = 200): FakeSpadeAnswer => ({
 const problem = (status: number, error: string) => reply({ error }, status);
 const done: FakeSpadeAnswer = { status: 204 };
 
+/** A path the workspace refuses: empty, absolute, or climbing out with `..`. */
+const bad = (path: string) => !path || path.startsWith("/") || path.split("/").includes("..");
+/** `name` is `root` or inside it. */
+const under = (name: string, root: string) => name === root || name.startsWith(`${root}/`);
+
 const encode = (text: string) => btoa(String.fromCharCode(...new TextEncoder().encode(text)));
 const decode = (base64: string) =>
   new TextDecoder().decode(Uint8Array.from(atob(base64), (char) => char.charCodeAt(0)));
@@ -148,7 +153,6 @@ export class FakeSpadeComputer {
   ): FakeSpadeAnswer {
     const files = this.deps.files(agent);
     const folders = this.deps.folders(agent);
-    const bad = (path: string) => !path || path.startsWith("/") || path.split("/").includes("..");
     const text = () =>
       typeof body.text === "string" ? body.text : decode(String(body.data_b64 ?? ""));
     if (method === "PUT" && !action) {
@@ -171,7 +175,6 @@ export class FakeSpadeComputer {
       const from = String(body.from ?? "");
       const to = String(body.to ?? "");
       if (bad(from) || bad(to)) return problem(400, "That path isn't in the workspace.");
-      const under = (name: string, root: string) => name === root || name.startsWith(`${root}/`);
       if (Object.keys(files).some((name) => under(name, to)) || folders.has(to))
         return problem(409, `${to} already exists.`);
       const moved = Object.keys(files).filter((name) => under(name, from));
@@ -180,11 +183,11 @@ export class FakeSpadeComputer {
         files[`${to}${name.slice(from.length)}`] = files[name] ?? "";
         delete files[name];
       }
-      for (const folder of [...folders])
-        if (under(folder, from)) {
-          folders.delete(folder);
-          folders.add(`${to}${folder.slice(from.length)}`);
-        }
+      // From a copy: the folders change as they move.
+      const before = new Set(folders);
+      folders.clear();
+      for (const folder of before)
+        folders.add(under(folder, from) ? `${to}${folder.slice(from.length)}` : folder);
       this.filesChanged(agent, [from, to]);
       return done;
     }

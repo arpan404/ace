@@ -37,7 +37,9 @@ export function useBotComputer(
       () => {
         setPending(undefined);
         setLive((shown) => ({
-          surfaces: (shown ?? bot.computer)?.surfaces ?? [],
+          threadId: undefined,
+          surfaces: [],
+          ...(shown ?? bot.computer),
           driver: kind === "take-over" ? "person" : "bot",
         }));
         void cache.invalidateQueries({ queryKey: agentsKey });

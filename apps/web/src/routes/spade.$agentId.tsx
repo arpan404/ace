@@ -14,16 +14,25 @@ export const Route = createFileRoute("/spade/$agentId")({
     /** With `files`, a file in it opened (a report a file chip opens). */
     file: z.string().optional().catch(undefined),
     /**
-     * `routines`: the bot's routines and heartbeat instead of its conversation (ADR 0129);
+     * `bot`: the bot's own page; `routines`: the bot's routines and heartbeat instead of its conversation (ADR 0129);
      * `activity`: what it did (ADR 0135).
      */
-    view: z.enum(["routines", "activity"]).optional().catch(undefined),
+    view: z.enum(["bot", "routines", "activity"]).optional().catch(undefined),
+    /** The bot's computer expanded on this surface (with `files` and `file` on Files). */
+    computer: z.enum(["browser", "screen", "terminal", "files"]).optional().catch(undefined),
   }),
   component: function SpadeAgentRoute() {
     const { agentId } = Route.useParams();
-    const { on, files, file, view } = Route.useSearch();
+    const { on, files, file, view, computer } = Route.useSearch();
     return (
-      <SpadeAgentScreen agentId={agentId} machine={on} files={files} file={file} view={view} />
+      <SpadeAgentScreen
+        agentId={agentId}
+        machine={on}
+        computer={computer}
+        files={files}
+        file={file}
+        view={view}
+      />
     );
   },
 });

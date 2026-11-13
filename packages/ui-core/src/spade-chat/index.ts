@@ -20,3 +20,4 @@ export * from "./groups.ts";
 export * from "./group-fold.ts";
 export * from "./web-search.ts";
 export * from "./computer.ts";
+export * from "./request-words.ts";
