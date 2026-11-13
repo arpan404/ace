@@ -67,6 +67,8 @@ export class FakeSpadeComputer {
   private sequence = 0;
   /** True: changes send no `computer` frame, as a stream that lags behind would. */
   quiet = false;
+  /** While set, reads of the computer wait for it (`holdReads`). */
+  private readsHeld: Promise<void> | undefined;
   private readonly deps: FakeComputerDeps;
 
   constructor(deps: FakeComputerDeps) {
@@ -128,6 +130,19 @@ export class FakeSpadeComputer {
     return this.drivers.get(agent) ?? "bot";
   }
 
+  /**
+   * Holds every read of the computer (`GET …/computer`) until the result is called; each then
+   * answers with the computer as it was when asked, as a slow read would.
+   */
+  holdReads(): () => void {
+    const held = Promise.withResolvers<void>();
+    this.readsHeld = held.promise;
+    return () => {
+      this.readsHeld = undefined;
+      held.resolve();
+    };
+  }
+
   /** A terminal stream's opening frames: the output after `after`, then its size. */
   backlog(agent: string, after: number): { event: string; data: string }[] {
     const terminal = this.terminal(agent);
@@ -139,11 +154,20 @@ export class FakeSpadeComputer {
     ];
   }
 
-  route(method: string, agent: string, parts: string[], query: URLSearchParams, body: Json) {
+  route(
+    method: string,
+    agent: string,
+    parts: string[],
+    query: URLSearchParams,
+    body: Json,
+  ): FakeSpadeAnswer | Promise<FakeSpadeAnswer> {
     if (!this.deps.exists(agent)) return problem(404, "No such agent.");
     const [area, action] = parts;
     if (area === "computer") {
-      if (method === "GET" && !action) return reply(this.of(agent));
+      if (method === "GET" && !action) {
+        const asked = reply(this.of(agent));
+        return this.readsHeld ? this.readsHeld.then(() => asked) : asked;
+      }
       if (method === "POST" && (action === "take-over" || action === "hand-back")) {
         this.drivers.set(agent, action === "take-over" ? "person" : "bot");
         this.changed(agent);

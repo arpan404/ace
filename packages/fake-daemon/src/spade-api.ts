@@ -294,7 +294,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
     ];
   }
 
-  answer(request: FakeSpadeRequest): FakeSpadeAnswer {
+  answer(request: FakeSpadeRequest): FakeSpadeAnswer | Promise<FakeSpadeAnswer> {
     this.requests.push(request);
     const [path = "", query = ""] = request.path.split("?");
     const parts = path.split("/").slice(2).map(decodeURIComponent);
