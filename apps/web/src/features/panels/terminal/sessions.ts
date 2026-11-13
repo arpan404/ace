@@ -174,6 +174,13 @@ export class TerminalSessions {
     if (entry) this.release(entry);
     return this.source.close(id, threadId);
   }
+  /**
+   * Let every terminal go (its stream, raw output and screen), leaving its shell running: the
+   * owner of these sessions is gone. Showing one again attaches afresh.
+   */
+  dispose(): void {
+    for (const entry of this.attached.values()) this.release(entry);
+  }
   private ensure(id: string): Attached {
     let entry = this.attached.get(id);
     if (!entry) {

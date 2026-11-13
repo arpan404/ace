@@ -164,6 +164,15 @@ const known = z.discriminatedUnion("type", [
     jobs: z.array(z.string()).optional().default([]),
   }),
   z.object({ type: z.literal("renamed"), title: z.string() }),
+  /**
+   * The person handed the bot's computer back: Spade's narration of what they did (never what
+   * they typed), and the names involved as untrusted data (`new: path`, `went to: address`).
+   */
+  z.object({
+    type: z.literal("computer_handed_back"),
+    text: z.string(),
+    data: z.array(z.unknown()).optional(),
+  }),
 ]);
 
 export type SpadeKnownEvent = z.infer<typeof known>;

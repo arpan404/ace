@@ -8,8 +8,12 @@ import { deferredComponent } from "@/lib/deferred-component.tsx";
 export const loadCreateFile = () => import("./files/create-file.tsx");
 /** A provider's sign-in terminal, outside any thread (the app hands it to the sign-in dialog). */
 export const loadAuthTerminal = () => import("./terminal/auth-terminal.tsx");
+/** A terminal over a source outside the workspace (a Spade bot's PTY). */
+export const loadStandaloneTerminal = () => import("./terminal/standalone-terminal.tsx");
 
 export const loadThreadBrowser = () => import("./browser/thread-browser.tsx");
+/** A Spade bot's tab in its hidden thread's browser, live, with input only while the person drives. */
+export const loadBotBrowser = () => import("./browser/bot-browser.tsx");
 /** Every thread's page floating in picture-in-picture, over whatever screen shows. */
 export const loadFloatingBrowsers = () => import("./browser/floating-browsers.tsx");
 

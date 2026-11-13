@@ -157,7 +157,8 @@ export function spadeGroupLine(group: SpadeGroup): {
     return { text: group.status ?? "Waiting for you", tone: "needs-you" };
   if (group.state === "working") return { text: group.status ?? "Working", tone: "working" };
   const last = group.lastMessage;
-  if (!last?.text) return { text: "No messages yet" };
+  // Until the first message: who is in it.
+  if (!last?.text) return { text: group.members.map((member) => member.name).join(", ") };
   if (last.from === "person") return { text: `You: ${last.text}` };
   return { text: last.agent ? `${last.agent.name}: ${last.text}` : last.text };
 }

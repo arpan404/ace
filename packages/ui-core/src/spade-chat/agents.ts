@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { faceForId, parseStoredBotFace, storedBotFace, type BotFace } from "../bot-face/index.ts";
 import { spadeJson, spadeRecord } from "./json.ts";
+import { parseSpadeComputer, type SpadeComputer } from "./computer.ts";
 import { parseSpadeReview, parseSpadeSpending, type SpadeSpending } from "./oversight.ts";
 
 /*
@@ -56,6 +57,8 @@ export interface SpadeAgent {
   spending: SpadeSpending | undefined;
   /** Its own model review switch; undefined follows the default. */
   review: boolean | undefined;
+  /** Its computer and who drives it; undefined from a Spade before computers. */
+  computer: SpadeComputer | undefined;
   /** The agent as Spade sent it, fields this client doesn't know included. */
   raw: Record<string, unknown>;
 }
@@ -144,6 +147,7 @@ export function parseSpadeAgentValue(raw: unknown): SpadeAgent | undefined {
       : undefined,
     spending: parseSpadeSpending(record.spending),
     review: parseSpadeReview(record.review),
+    computer: parseSpadeComputer(record.computer),
     raw: record,
   };
 }

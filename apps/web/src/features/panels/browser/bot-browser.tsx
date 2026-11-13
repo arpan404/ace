@@ -1,0 +1,66 @@
+import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { WithServices } from "../with-services.tsx";
+import { usePanelServices } from "../services.ts";
+import { PageView } from "./page-view.tsx";
+
+/*
+ * A Spade bot's browser tab, live: the bot acts in ace's browser as a hidden thread of its own,
+ * so this is the thread browser's page view on that thread, showing the bot's tab. It shows the
+ * tab to the person (the video follows the shown tab) and takes their pointer and keys only while
+ * they drive; while the bot drives it only shows, and never resizes the bot's page.
+ */
+
+export interface BotBrowserProps {
+  /** The bot's hidden thread. */
+  threadId: string;
+  /** The bot's tab; the thread's shown tab when Spade hasn't said. */
+  tabId: string | undefined;
+  /** The person drives: their input goes to the page, and the page follows the pane. */
+  driving: boolean;
+  /** Said while the page hasn't opened yet. */
+  waiting: string;
+}
+
+function BotBrowser(props: BotBrowserProps) {
+  const { preview: source } = usePanelServices();
+  const { threadId, tabId } = props;
+  const subscribe = useCallback(
+    (changed: () => void) => source.subscribe(changed, threadId),
+    [source, threadId],
+  );
+  useSyncExternalStore(subscribe, () => source.version);
+  useEffect(() => source.watch(threadId), [source, threadId]);
+  const view = source.view(threadId);
+  const listed = view?.tabs?.some((tab) => tab.tabId === tabId) === true;
+  // The picture follows the tab shown in the thread: show the bot's.
+  useEffect(() => {
+    if (tabId && listed && view?.activeTabId !== tabId)
+      void source.selectTab(threadId, tabId).catch(() => {});
+  }, [source, threadId, tabId, listed, view?.activeTabId]);
+  if (!view || view.closed)
+    return (
+      <p className="grid h-full place-items-center px-6 text-center text-ui text-muted-foreground">
+        {props.waiting}
+      </p>
+    );
+  const tab = view.tabs?.find((each) => each.tabId === (listed ? tabId : view.activeTabId));
+  return (
+    <PageView
+      source={source}
+      threadId={threadId}
+      view={view}
+      tab={tab}
+      frame={source.frame(threadId)}
+      interactive={props.driving}
+      fit={props.driving}
+    />
+  );
+}
+
+export default function BotBrowserBoundary(props: BotBrowserProps) {
+  return (
+    <WithServices quiet>
+      <BotBrowser {...props} />
+    </WithServices>
+  );
+}

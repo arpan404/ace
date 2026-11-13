@@ -97,9 +97,10 @@ const legacyColours: Record<BotFaceModel["pair"], string> = {
 const fault = (error: unknown) => (error instanceof Error ? error.message : "Try again.");
 
 /**
- * New bot (ADR 0126, 0127): its name, its task (what it is for, in the person's words), its face,
- * its model and the machine it runs on (machines whose Spade answers, this one first). Creating
- * it opens its conversation.
+ * New bot (ADR 0126, 0127) in two panes: its face on the left (Shuffle, the creature and its
+ * colours, More for the rest); on the right its name, a template to start from, its task (what
+ * it is for, in the person's words), its model and the machine it runs on (machines whose Spade
+ * answers, this one first). Creating it opens its conversation.
  */
 export function NewBotDialog(props: { hosts: readonly SpadeHost[]; onClose(): void }) {
   const ids = { name: useId(), task: useId(), model: useId(), machine: useId() };
@@ -206,80 +207,87 @@ export function NewBotDialog(props: { hosts: readonly SpadeHost[]; onClose(): vo
     );
   return (
     <Dialog open onOpenChange={(open) => !open && props.onClose()}>
-      <DialogContent size="lg">
+      <DialogContent size="xl">
         <DialogHeader>
           <DialogTitle>New bot</DialogTitle>
         </DialogHeader>
         <DialogBody>
-          <Field label="Start from a template">
-            <TemplateChoice
-              client={host?.machine.client}
-              machineKey={chosen.key}
-              value={template}
-              onChange={(picked) => {
-                setTemplate(picked?.id);
-                if (!picked) return;
-                setName(picked.name);
-                setTask(picked.task);
-                setAvatar({ kind: "face", face: picked.face });
-              }}
-            />
-          </Field>
-          <Field label="Face">
-            <AvatarChoice
-              value={avatar}
-              fallback={draftFace(avatar) ?? faceForId(name || "new")}
-              takenPairs={worn}
-              onChange={setAvatar}
-            />
-          </Field>
-          <NameField id={ids.name} value={name} face={draftFace(avatar)} onChange={setName} />
-          <Field label="Task" htmlFor={ids.task}>
-            <Textarea
-              id={ids.task}
-              value={task}
-              maxLength={spadeAgentTaskMax}
-              placeholder="What this bot is for"
-              onChange={(event) => setTask(event.target.value)}
-            />
-          </Field>
-          {host && (
-            <SpadeMachineScope machine={host.machine}>
-              <Field label="Model" htmlFor={ids.model}>
-                <SpadeModelPicker id={ids.model} value={model} onChange={setModel} />
+          {/* Its face on the left; what it is, on the right. */}
+          <div className="grid gap-6 md:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
+            <Field label="Face">
+              <AvatarChoice
+                value={avatar}
+                fallback={draftFace(avatar) ?? faceForId(name || "new")}
+                takenPairs={worn}
+                onChange={setAvatar}
+              />
+            </Field>
+            <div className="flex min-w-0 flex-col gap-4">
+              <NameField id={ids.name} value={name} face={draftFace(avatar)} onChange={setName} />
+              <Field label="Start from">
+                <TemplateChoice
+                  client={host?.machine.client}
+                  machineKey={chosen.key}
+                  value={template}
+                  onChange={(picked) => {
+                    setTemplate(picked?.id);
+                    if (!picked) return;
+                    setName(picked.name);
+                    setTask(picked.task);
+                    setAvatar({ kind: "face", face: picked.face });
+                  }}
+                />
               </Field>
-            </SpadeMachineScope>
-          )}
-          <Field label="Runs on" htmlFor={ids.machine}>
-            <Select
-              id={ids.machine}
-              label="Runs on"
-              value={chosen.key}
-              options={[
-                ...props.hosts.map((each) => ({
-                  value: spadeMachineKey(each.machine),
-                  label: each.machine.primary
-                    ? `${each.machine.name} (this machine)`
-                    : each.machine.name,
-                })),
-                ...(host ? [] : [{ value: chosen.key, label: chosen.name, disabled: true }]),
-              ]}
-              onValueChange={(next) => {
-                const picked = props.hosts.find((each) => each.spade.key === next);
-                if (!picked) return;
-                setChosen({ key: next, name: picked.machine.name });
-                // Another machine has its own endpoints and templates.
-                setModel("");
-                setTemplate(undefined);
-              }}
-              className="w-72"
-            />
-            {!host && (
-              <p role="status" className="text-xs text-muted-foreground">
-                {`${chosen.name} isn't reachable right now. Wait for it, or pick another machine.`}
-              </p>
-            )}
-          </Field>
+              <Field label="Task" htmlFor={ids.task}>
+                <Textarea
+                  id={ids.task}
+                  value={task}
+                  maxLength={spadeAgentTaskMax}
+                  placeholder="What this bot is for, in your words"
+                  onChange={(event) => setTask(event.target.value)}
+                />
+              </Field>
+              <div className="flex flex-col gap-4">
+                {host && (
+                  <SpadeMachineScope machine={host.machine}>
+                    <Field label="Model" htmlFor={ids.model}>
+                      <SpadeModelPicker id={ids.model} value={model} onChange={setModel} />
+                    </Field>
+                  </SpadeMachineScope>
+                )}
+                <Field label="Machine" htmlFor={ids.machine}>
+                  <Select
+                    id={ids.machine}
+                    label="Machine"
+                    value={chosen.key}
+                    options={[
+                      ...props.hosts.map((each) => ({
+                        value: spadeMachineKey(each.machine),
+                        label: each.machine.primary
+                          ? `${each.machine.name} (this machine)`
+                          : each.machine.name,
+                      })),
+                      ...(host ? [] : [{ value: chosen.key, label: chosen.name, disabled: true }]),
+                    ]}
+                    onValueChange={(next) => {
+                      const picked = props.hosts.find((each) => each.spade.key === next);
+                      if (!picked) return;
+                      setChosen({ key: next, name: picked.machine.name });
+                      // Another machine has its own endpoints and templates.
+                      setModel("");
+                      setTemplate(undefined);
+                    }}
+                    className="w-full"
+                  />
+                  {!host && (
+                    <p role="status" className="text-xs text-muted-foreground">
+                      {`${chosen.name} isn't reachable right now. Wait for it, or pick another machine.`}
+                    </p>
+                  )}
+                </Field>
+              </div>
+            </div>
+          </div>
           {problem && (
             <p role="alert" className="text-ui text-destructive">
               {problem}
@@ -308,8 +316,8 @@ export function NewBotDialog(props: { hosts: readonly SpadeHost[]; onClose(): vo
 
 /**
  * Edit a bot, on its own machine: name, task, face, model, the connected apps it may use, its
- * spending caps and its model review (ADR 0135), each sent as one change of what moved. Spade keeps its name and face. Task and model apply from the
- * bot's next reply, and the dialog says so in one quiet line.
+ * spending caps and its model review (ADR 0135), each sent as one change of what moved, in New
+ * bot's two panes (its face on the left). Spade keeps its name and face.
  */
 export function EditBotDialog(props: { bot: RosterBot; onClose(): void }) {
   const { bot } = props;
@@ -359,43 +367,48 @@ export function EditBotDialog(props: { bot: RosterBot; onClose(): void }) {
   };
   return (
     <Dialog open onOpenChange={(open) => !open && props.onClose()}>
-      <DialogContent size="lg">
+      <DialogContent size={main ? "lg" : "xl"}>
         <DialogHeader>
           <DialogTitle>{main ? "Edit Spade" : `Edit ${bot.name}`}</DialogTitle>
         </DialogHeader>
         <DialogBody>
-          {!main && (
-            <Field label="Face">
-              <AvatarChoice
-                value={avatar}
-                fallback={draftFace(avatar) ?? faceForId(bot.id)}
-                takenPairs={worn}
-                onChange={setAvatar}
-              />
-            </Field>
-          )}
-          {!main && (
-            <NameField id={ids.name} value={name} face={draftFace(avatar)} onChange={setName} />
-          )}
-          <Field label="Task" htmlFor={ids.task}>
-            <Textarea
-              id={ids.task}
-              value={task}
-              maxLength={spadeAgentTaskMax}
-              placeholder="What this bot is for"
-              onChange={(event) => setTask(event.target.value)}
-            />
-          </Field>
-          <Field label="Model" htmlFor={ids.model}>
-            <SpadeModelPicker id={ids.model} value={model} onChange={setModel} />
-          </Field>
-          <Field label="Apps">
-            <ConnectorChoice choice={apps} main={main} />
-          </Field>
-          <OversightFields choice={oversight} />
-          <p className="text-xs text-subtle-foreground">
-            {`Task and model changes apply from ${bot.name}'s next reply.`}
-          </p>
+          <div
+            className={
+              main ? "flex flex-col gap-4" : "grid gap-6 md:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]"
+            }
+          >
+            {!main && (
+              <Field label="Face">
+                <AvatarChoice
+                  value={avatar}
+                  fallback={draftFace(avatar) ?? faceForId(bot.id)}
+                  takenPairs={worn}
+                  onChange={setAvatar}
+                />
+              </Field>
+            )}
+            <div className="flex min-w-0 flex-col gap-4">
+              {!main && (
+                <NameField id={ids.name} value={name} face={draftFace(avatar)} onChange={setName} />
+              )}
+              <Field label="Task" htmlFor={ids.task}>
+                <Textarea
+                  id={ids.task}
+                  value={task}
+                  maxLength={spadeAgentTaskMax}
+                  placeholder="What this bot is for, in your words"
+                  onChange={(event) => setTask(event.target.value)}
+                />
+              </Field>
+              <Field label="Model" htmlFor={ids.model}>
+                <SpadeModelPicker id={ids.model} value={model} onChange={setModel} />
+              </Field>
+              <Field label="Apps">
+                <ConnectorChoice choice={apps} main={main} />
+              </Field>
+              <OversightFields choice={oversight} />
+            </div>
+          </div>
           {problem && (
             <p role="alert" className="text-ui text-destructive">
               {problem}

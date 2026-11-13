@@ -30,7 +30,9 @@ export { useScriptConfigurations } from "./files/script-configurations.ts";
 export {
   loadCreateFile,
   loadAuthTerminal,
+  loadStandaloneTerminal,
   loadThreadBrowser,
+  loadBotBrowser,
   loadFloatingBrowsers,
   DeferredFileDiffBlock,
   DeferredFileTree,
@@ -50,6 +52,8 @@ export { useDiffPrefs, type DiffPrefs } from "./changes/diff-prefs.ts";
 export { diffLayout } from "./changes/diff-layout.ts";
 export { DiffViewMenu } from "./changes/diff-view-menu.tsx";
 export type { LineRange, LineTarget } from "./changes/file-diff.tsx";
+/** What a terminal shows and types into, for a terminal outside the workspace. */
+export type { TerminalEvent, TerminalInfo, TerminalSource } from "./sources.ts";
 export { bindTerminalEndDelivery } from "./terminal/end-delivery.ts";
 export { useAlwaysShowDevices } from "./browser/device-settings.ts";
 export { useAutomaticPip } from "./browser/pip-setting.ts";

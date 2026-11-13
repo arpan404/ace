@@ -2,7 +2,7 @@ import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
-import { botRow, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, openNew, spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -29,7 +29,7 @@ const withSubscriptions = (spade: FakeSpadeApi) => {
 
 test("the model picker offers your subscriptions beside endpoints, per account, and a bot is made on one", async () => {
   const { spade } = await spadeApp("/spade", withSubscriptions);
-  await userEvent.click(await screen.findByRole("button", { name: "New bot" }));
+  await openNew("New bot");
   const form = within(await screen.findByRole("dialog", { name: "New bot" }));
   await userEvent.type(form.getByRole("textbox", { name: "Name" }), "Notes");
   await userEvent.click(await form.findByRole("combobox", { name: "Endpoint" }));
@@ -50,7 +50,7 @@ test("the model picker offers your subscriptions beside endpoints, per account, 
   );
 });
 
-test("a bot whose subscription can't run says why in its row", async () => {
+test("a bot whose subscription can't run says the next step in its row", async () => {
   await spadeApp("/spade", (spade) => {
     withSubscriptions(spade);
     spade.addAgent({
@@ -61,6 +61,6 @@ test("a bot whose subscription can't run says why in its row", async () => {
     });
   });
   const row = await botRow("Notes");
-  expect(row.textContent).toContain("Codex is signed out. Sign in to it in ace, then send again.");
+  expect(row.textContent).toContain("Sign in to Codex to go on");
   expect(row.textContent).not.toContain("You: Hi");
 });

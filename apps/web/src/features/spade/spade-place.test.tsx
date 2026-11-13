@@ -87,7 +87,7 @@ test("opening a bot shows its conversation as bubbles from both sides, and none 
   expect(chat.queryByText(/web/i)).toBeNull();
 });
 
-test("while a bot works its face and status show under its last bubble, until the reply ends", async () => {
+test("while a bot works its face, status and time show under its last bubble, with Stop in the composer, until the reply ends", async () => {
   const { spade } = await spadeApp("/spade", (api) => {
     withEndpoint(api);
     api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
@@ -100,14 +100,16 @@ test("while a bot works its face and status show under its last bubble, until th
   const line = await screen.findByRole("status", { name: "" });
   await waitFor(() => expect(line.textContent).toContain("Reading a page"));
   expect(line.querySelector("[data-moving]")).not.toBeNull();
-  expect(within(line).getByRole("button", { name: "Stop Spade" })).toBeTruthy();
+  // Stop is the composer's, never the line's.
+  expect(within(line).queryByRole("button")).toBeNull();
+  expect(screen.getByRole("button", { name: "Stop the agent" })).toBeTruthy();
   spade.reply(main, "Here it is.", "r9");
   await screen.findByText("Here it is.");
   await waitFor(() => expect(screen.queryByText("Reading a page")).toBeNull());
-  expect(screen.queryByRole("button", { name: "Stop Spade" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull();
 });
 
-test("an approval arrives as the bot's bubble, and Allow answers it", async () => {
+test("an approval waits above the composer, and Send answers it", async () => {
   const { spade } = await spadeApp("/spade", (api) => {
     withEndpoint(api);
     api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
@@ -115,19 +117,19 @@ test("an approval arrives as the bot's bubble, and Allow answers it", async () =
     api.ask(inbox, "k7", "send_email");
   });
   await userEvent.click(await botRow("Inbox"));
-  const ask = await screen.findByText("Inbox wants to send an email.");
-  const bubble = ask.closest("[role=article]");
-  if (!(bubble instanceof HTMLElement)) throw new Error("no bubble");
-  await userEvent.click(within(bubble).getByRole("button", { name: "Allow" }));
+  const request = await screen.findByRole("group", { name: "Inbox wants to send an email" });
+  await userEvent.click(within(request).getByRole("button", { name: "Send" }));
   await waitFor(() =>
     expect(spade.sent("POST", "/v1/conversations/c-inbox/approvals/k7")).toEqual([
       { allowed: true, always: false },
     ]),
   );
-  await waitFor(() => expect(screen.queryByText("Inbox wants to send an email.")).toBeNull());
+  await waitFor(() =>
+    expect(screen.queryByRole("group", { name: "Inbox wants to send an email" })).toBeNull(),
+  );
 });
 
-test("editing a bot sends only what changed and says task and model apply from its next reply", async () => {
+test("editing a bot sends only what changed", async () => {
   const { spade } = await spadeApp("/spade/garden", (api) => {
     withEndpoint(api);
     api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
@@ -142,7 +144,6 @@ test("editing a bot sends only what changed and says task and model apply from i
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Edit bot" }));
   const dialog = within(await screen.findByRole("dialog", { name: "Edit Garden" }));
-  expect(dialog.getByText("Task and model changes apply from Garden's next reply.")).toBeTruthy();
   const task = dialog.getByRole("textbox", { name: "Task" });
   await userEvent.clear(task);
   await userEvent.type(task, "Keep the tomatoes alive");
@@ -189,19 +190,19 @@ test("an approval shows what the call would do on request, as plain text", async
     const inbox = api.addAgent({ id: "inbox", name: "Inbox" });
     api.ask(inbox, "k7", "send_email", { to: "marta@example.com", body: "<b>Thursday</b> works" });
   });
-  await userEvent.click(await screen.findByRole("button", { name: "Details" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Review" }));
   const details = await screen.findByLabelText("Details");
   expect(details.textContent).toContain('"to": "marta@example.com"');
   expect(details.textContent).toContain("<b>Thursday</b> works");
   expect(details.querySelector("b")).toBeNull();
 });
 
-test("Stop stays while a bot waits on the person", async () => {
+test("Stop stays in the composer while a bot waits on the person", async () => {
   await spadeApp("/spade/inbox", (api) => {
     withEndpoint(api);
     api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
     api.ask(api.addAgent({ id: "inbox", name: "Inbox" }), "k7", "send_email");
   });
-  await screen.findByText("Inbox wants to send an email.");
-  expect(await screen.findByRole("button", { name: "Stop Inbox" })).toBeTruthy();
+  await screen.findByRole("group", { name: "Inbox wants to send an email" });
+  expect(await screen.findByRole("button", { name: "Stop the agent" })).toBeTruthy();
 });

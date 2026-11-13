@@ -99,7 +99,6 @@ export function OversightFields(props: { choice: ReturnType<typeof useOversightC
             onChange={choice.setMonthly}
           />
         </div>
-        <p className="text-xs text-subtle-foreground">Leave a cap empty for no cap.</p>
       </div>
       <div className="flex flex-col gap-1.5">
         <span className="text-ui font-medium">Review</span>
@@ -115,10 +114,6 @@ export function OversightFields(props: { choice: ReturnType<typeof useOversightC
           size="sm"
           className="w-fit"
         />
-        <p className="text-xs text-subtle-foreground">
-          A second model checks each step that changes something before it runs, and asks you when
-          it looks wrong.
-        </p>
       </div>
     </>
   );
