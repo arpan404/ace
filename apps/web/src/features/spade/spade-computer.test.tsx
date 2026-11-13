@@ -1,4 +1,4 @@
-import type { FakeSpadeApi } from "@ace/fake-daemon";
+import { fakeFileRevision, type FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, onTestFinished, test } from "vitest";
@@ -112,21 +112,22 @@ test("Expand gives the computer the main column with the chat docked beside it, 
   await screen.findByRole("region", { name: /live$/ });
 });
 
-test("Take over tells Spade the person drives, and Hand back gives the computer back", async () => {
+test("Take over tells Spade the person has it alone, and Hand back shares the computer again", async () => {
   const { spade } = await spadeApp("/spade/scout?computer=browser", browsing);
-  await screen.findByText("Scout is driving");
+  await screen.findByText("Scout is working here");
   await userEvent.click(screen.getByRole("button", { name: "Take over" }));
   await screen.findByText(/Scout is paused\./);
+  expect(screen.getByRole("status").textContent).toContain("You have it.");
   expect(spade.sent("POST", "/v1/agents/scout/computer/take-over")).toHaveLength(1);
   expect(spade.computer.driver("scout")).toBe("person");
 
   await userEvent.click(screen.getByRole("button", { name: "Hand back" }));
-  await screen.findByText("Scout is driving");
+  await screen.findByText("Scout is working here");
   expect(spade.sent("POST", "/v1/agents/scout/computer/hand-back")).toHaveLength(1);
   expect(spade.computer.driver("scout")).toBe("bot");
 });
 
-test("the bot's terminal shows its output to everyone and takes keys only while the person drives", async () => {
+test("the person types in the bot's terminal without taking over, and sees the shell answer", async () => {
   const { spade } = await spadeApp("/spade/scout?computer=terminal", (api) => {
     seed(api);
     api.computer.use("scout", { kind: "terminal", live: true, title: "fares.py" });
@@ -140,10 +141,6 @@ test("the bot's terminal shows its output to everyone and takes keys only while 
   );
   expect(panel.isConnected).toBe(true);
   const input = await within(panel).findByRole("textbox", { name: "Scout's input" });
-  expect((input as HTMLTextAreaElement).disabled).toBe(true);
-  expect(spade.sent("POST", "/v1/agents/scout/terminal/input")).toHaveLength(0);
-
-  await userEvent.click(screen.getByRole("button", { name: "Take over" }));
   await waitFor(() => expect((input as HTMLTextAreaElement).disabled).toBe(false));
   fireEvent.keyDown(input, { key: "l" });
   fireEvent.keyDown(input, { key: "s" });
@@ -155,6 +152,7 @@ test("the bot's terminal shows its output to everyone and takes keys only while 
   );
   // Spade's shell answered, and the view drew it.
   await waitFor(() => expect(panel.textContent).toContain("ran: ls"));
+  expect(spade.computer.driver("scout")).toBe("bot");
 });
 
 test("after Take over the terminal waits for the bot's work to stop before taking keys", async () => {
@@ -178,9 +176,7 @@ test("the file manager opens and saves a file, makes a folder, moves, uploads an
     seed(api);
     api.files.set("scout", { "plan.md": "# Plan\n", "old.txt": "x" });
   });
-  // Changes need the person driving.
-  await userEvent.click(await screen.findByRole("button", { name: "Take over" }));
-  await screen.findByRole("button", { name: "Hand back" });
+  // Shared: changes go with no take-over.
   const files = await screen.findByRole("list", { name: "Files" });
   await userEvent.click(await within(files).findByRole("button", { name: /^plan\.md/ }));
   const editor = await screen.findByRole("textbox", { name: "plan.md" });
@@ -189,7 +185,7 @@ test("the file manager opens and saves a file, makes a folder, moves, uploads an
   await userEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() =>
     expect(spade.sent("PUT", "/v1/agents/scout/files?path=plan.md")).toEqual([
-      { text: "# Plan\nDay 2" },
+      { text: "# Plan\nDay 2", base: fakeFileRevision("# Plan\n") },
     ]),
   );
   expect(spade.files.get("scout")?.["plan.md"]).toBe("# Plan\nDay 2");
@@ -365,10 +361,12 @@ test("Take over gives the controls only once Spade itself says the bot's work ha
   await waitFor(() => expect((input as HTMLTextAreaElement).disabled).toBe(false));
 });
 
-test("the bot's files can be read and downloaded while it drives; every change waits for the person to take over", async () => {
+test("while a take-over is on its way, files can be read and downloaded but every change waits", async () => {
   const { spade } = await spadeApp("/spade/scout?computer=files", (api) => {
     seed(api);
     api.files.set("scout", { "plan.md": "# Plan\n" });
+    // The take-over waits on the bot's work to stop.
+    api.computer.stopping("scout", true);
   });
   const writes = () =>
     spade.requests.filter(
@@ -377,35 +375,74 @@ test("the bot's files can be read and downloaded while it drives; every change w
         (request.method === "DELETE" && request.path.includes("/workspace")),
     );
   const files = await screen.findByRole("list", { name: "Files" });
-  expect((screen.getByRole("button", { name: "Upload" }) as HTMLButtonElement).disabled).toBe(true);
-  expect((screen.getByRole("button", { name: "New folder" }) as HTMLButtonElement).disabled).toBe(
-    true,
-  );
-  await userEvent.click(within(files).getByRole("button", { name: "More for plan.md" }));
-  const remove = await screen.findByRole("menuitem", { name: /^Delete/ });
-  expect(remove.getAttribute("aria-disabled")).toBe("true");
-  expect(remove.textContent).toContain("Take over to change files");
-  await userEvent.keyboard("{Escape}");
-
   await userEvent.click(within(files).getByRole("button", { name: /^plan\.md/ }));
   const editor = await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "plan.md" });
   await waitFor(() => expect(editor.value).toBe("# Plan\n"));
-  expect(editor.readOnly).toBe(true);
-  expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
-  expect((screen.getByRole("button", { name: "Download" }) as HTMLButtonElement).disabled).toBe(
-    false,
-  );
+  // Shared: it can be changed now.
+  expect(editor.readOnly).toBe(false);
 
-  // Taken over, Delete asks first; handed back meanwhile, the answer changes nothing.
-  await userEvent.click(screen.getByRole("button", { name: "Take over" }));
-  await waitFor(() => expect(editor.readOnly).toBe(false));
+  // Delete asks first; taken over meanwhile (the bot's work still stopping), the answer waits.
   await userEvent.click(screen.getByRole("button", { name: "Delete" }));
   const confirm = within(await screen.findByRole("dialog", { name: "Delete plan.md?" }));
-  spade.answer({ method: "POST", path: "/v1/agents/scout/computer/hand-back", body: undefined });
+  spade.answer({ method: "POST", path: "/v1/agents/scout/computer/take-over", body: undefined });
   await waitFor(() => expect(editor.readOnly).toBe(true));
   await userEvent.click(confirm.getByRole("button", { name: "Delete" }));
   expect(writes()).toEqual([]);
   expect(spade.files.get("scout")?.["plan.md"]).toBe("# Plan\n");
+  await screen.findByText("Stopping Scout…");
+  expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole("button", { name: "Download" }) as HTMLButtonElement).disabled).toBe(
+    false,
+  );
+});
+
+test("a save over a file the bot changed since it was opened shows the conflict, and Reload reads it again", async () => {
+  const { spade } = await spadeApp("/spade/scout?computer=files&file=plan.md", (api) => {
+    seed(api);
+    api.files.set("scout", { "plan.md": "# Plan\n" });
+  });
+  const editor = await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "plan.md" });
+  await waitFor(() => expect(editor.value).toBe("# Plan\n"));
+  fireEvent.change(editor, { target: { value: "# Plan\nMine" } });
+  // Meanwhile the bot wrote it.
+  const scoutFiles = spade.files.get("scout");
+  if (scoutFiles) scoutFiles["plan.md"] = "# Plan\nScout's";
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  const conflict = await screen.findByRole("alert");
+  expect(conflict.textContent).toContain("Changed since you opened it");
+  // Nothing was written over the bot's words.
+  expect(spade.files.get("scout")?.["plan.md"]).toBe("# Plan\nScout's");
+  expect(editor.value).toBe("# Plan\nMine");
+
+  await userEvent.click(within(conflict).getByRole("button", { name: "Reload" }));
+  await waitFor(() => expect(editor.value).toBe("# Plan\nScout's"));
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("Overwrite saves the person's draft over the file as it is now", async () => {
+  const { spade } = await spadeApp("/spade/scout?computer=files&file=plan.md", (api) => {
+    seed(api);
+    api.files.set("scout", { "plan.md": "# Plan\n" });
+  });
+  const editor = await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "plan.md" });
+  await waitFor(() => expect(editor.value).toBe("# Plan\n"));
+  fireEvent.change(editor, { target: { value: "# Plan\nMine" } });
+  const scoutFiles = spade.files.get("scout");
+  if (scoutFiles) scoutFiles["plan.md"] = "# Plan\nScout's";
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  const conflict = await screen.findByRole("alert");
+  await userEvent.click(within(conflict).getByRole("button", { name: "Overwrite" }));
+  await waitFor(() => expect(spade.files.get("scout")?.["plan.md"]).toBe("# Plan\nMine"));
+  await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+});
+
+test("the status says the bot waits for the person while their input makes it yield", async () => {
+  const { spade } = await spadeApp("/spade/scout?computer=browser", browsing);
+  await screen.findByText("Scout is working here");
+  spade.computer.personActive("scout", "browser", true);
+  await screen.findByText("Scout is waiting for you");
+  spade.computer.personActive("scout", "browser", false);
+  await screen.findByText("Scout is working here");
 });
 
 test("words typed while a file saves stay as the draft", async () => {
@@ -413,9 +450,8 @@ test("words typed while a file saves stay as the draft", async () => {
     seed(api);
     api.files.set("scout", { "plan.md": "# Plan\n" });
   });
-  await userEvent.click(await screen.findByRole("button", { name: "Take over" }));
   const editor = await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "plan.md" });
-  await waitFor(() => expect(editor.readOnly).toBe(false));
+  await waitFor(() => expect(editor.value).toBe("# Plan\n"));
   fireEvent.change(editor, { target: { value: "# Plan\nDay 1" } });
   // Saved, then typed in before the answer came back.
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -426,11 +462,11 @@ test("words typed while a file saves stay as the draft", async () => {
   expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false);
 });
 
-test("Take over on the tile turns it into who drives, with Hand back", async () => {
+test("Take over on the tile says the person has it, with Hand back", async () => {
   const { spade } = await spadeApp("/spade/scout", browsing);
   const tile = await screen.findByRole("region", { name: /live$/ });
   await userEvent.click(within(tile).getByRole("button", { name: "Take over" }));
-  await within(tile).findByText(/You're driving\./);
+  await within(tile).findByText("You have it");
   expect(within(tile).queryByRole("button", { name: "Take over" })).toBeNull();
   await userEvent.click(within(tile).getByRole("button", { name: "Hand back" }));
   await within(tile).findByRole("button", { name: "Take over" });

@@ -1,8 +1,9 @@
 import type { FakeSpadeAnswer } from "./spade.ts";
 
 /*
- * Each bot's computer in the fake Spade: who drives it, the surfaces it uses, its terminal's
- * output and the file writes the file manager sends (`/v1/agents/{id}/computer`, `/terminal`,
+ * Each bot's computer in the fake Spade: who has it (cowork by default, exclusive once the person
+ * takes over), the surfaces it uses, its terminal's output and the file writes the file manager
+ * sends (a save with a stale `base` is refused `409 changed`) (`/v1/agents/{id}/computer`, `/terminal`,
  * `/files`). Tests and the fake app stage it (`use`, `print`) and read what the app sent.
  */
 
@@ -17,6 +18,16 @@ export interface FakeSurface {
   last?: number | null;
   tab_id?: string | null;
   backend?: "user";
+  /** The person acted here just now: in cowork the bot waits for them. */
+  person_active?: boolean;
+}
+
+/** A file's revision as the fake Spade reads it: a hash of its text. */
+export function fakeFileRevision(text: string): string {
+  let hash = 5381;
+  for (let index = 0; index < text.length; index++)
+    hash = ((hash * 33) ^ text.charCodeAt(index)) >>> 0;
+  return `r${hash.toString(36)}-${text.length}`;
 }
 
 interface Terminal {
@@ -85,8 +96,10 @@ export class FakeSpadeComputer {
         title: null,
         since: null,
       };
+    const driver = this.drivers.get(agent) ?? "bot";
     return {
-      driver: this.drivers.get(agent) ?? "bot",
+      driver,
+      mode: driver === "person" ? "exclusive" : "cowork",
       stopping: this.stoppingBots.has(agent),
       thread_id: this.threads.get(agent) ?? null,
       surfaces: [
@@ -102,6 +115,15 @@ export class FakeSpadeComputer {
     const list = (this.surfaces.get(agent) ?? []).filter((each) => each.kind !== surface.kind);
     list.push({ since: surface.live ? this.deps.now() : null, ...surface });
     this.surfaces.set(agent, list);
+    this.changed(agent);
+  }
+
+  /** The person's input on a surface makes the bot yield (`person_active`), or no longer. */
+  personActive(agent: string, kind: FakeSurface["kind"], active: boolean): void {
+    const list = this.surfaces.get(agent) ?? [];
+    const surface = list.find((each) => each.kind === kind);
+    if (!surface) return;
+    surface.person_active = active;
     this.changed(agent);
   }
 
@@ -182,7 +204,8 @@ export class FakeSpadeComputer {
         return done;
       }
       if (action === "input") {
-        if (this.driver(agent) !== "person") return problem(409, "Take over to type here.");
+        // Cowork or exclusive, the shell is the person's; after a take-over it waits for the
+        // bot's last command to go.
         if (this.stoppingBots.has(agent)) return problem(409, "still stopping");
         this.type(agent, decode(String(body.data_b64 ?? "")));
         return done;
@@ -206,6 +229,17 @@ export class FakeSpadeComputer {
     if (method === "PUT" && !action) {
       const path = query.get("path") ?? "";
       if (bad(path)) return problem(400, "That path isn't in the workspace.");
+      const now = files[path];
+      if (typeof body.base === "string" && now !== undefined && body.base !== fakeFileRevision(now))
+        return reply(
+          {
+            error: "changed",
+            code: "changed",
+            message: "The file changed since you opened it.",
+            revision: fakeFileRevision(now),
+          },
+          409,
+        );
       files[path] = text();
       this.filesChanged(agent, [path]);
       return done;

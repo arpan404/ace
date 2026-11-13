@@ -1,5 +1,5 @@
 import type { FakeSpade, FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
-import { FakeSpadeComputer } from "./spade-computer.ts";
+import { FakeSpadeComputer, fakeFileRevision } from "./spade-computer.ts";
 import { FakeSpadeConnectors } from "./spade-connectors-api.ts";
 import { FakeSpadeNotes } from "./spade-notes.ts";
 import { FakeSpadeSearch } from "./spade-search.ts";
@@ -470,7 +470,13 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (view === "file") {
       const text = files[path];
       if (text === undefined) return problem(404, `${path} does not exist`);
-      return reply({ path, size: text.length, text, unreadable: null });
+      return reply({
+        path,
+        size: text.length,
+        text,
+        unreadable: null,
+        revision: fakeFileRevision(text),
+      });
     }
     const prefix = path ? `${path}/` : "";
     const entries = new Map<string, Json>();

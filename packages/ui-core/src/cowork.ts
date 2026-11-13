@@ -6,25 +6,12 @@
  * view of it shares.
  */
 
-import type { AgentPointer, AgentPointerKind } from "@ace/protocol";
+import type { AgentPointer } from "@ace/protocol";
 
 export type { AgentPointer } from "@ace/protocol";
 
 /** How long the agent's pointer stays after its last action, then fades. */
 export const agentPointerFadeMs = 1500;
-
-const pointerKinds: readonly AgentPointerKind[] = ["move", "click", "drag", "scroll", "type"];
-const finite = (value: unknown): value is number =>
-  typeof value === "number" && Number.isFinite(value);
-
-/** A pointer from JSON (Spade's `agent_pointer`); undefined when it isn't one. */
-export function parseAgentPointer(value: unknown): AgentPointer | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const fields = value as Record<string, unknown>;
-  const kind = pointerKinds.find((each) => each === fields.kind) ?? "move";
-  if (!finite(fields.x) || !finite(fields.y) || !finite(fields.at)) return undefined;
-  return { x: fields.x, y: fields.y, kind, at: fields.at };
-}
 
 /** How much longer the pointer shows at `now`, in ms; 0 once it has faded. */
 export function agentPointerShownFor(pointer: AgentPointer | undefined, now: number): number {

@@ -1,4 +1,3 @@
-import { parseAgentPointer, type AgentPointer } from "../cowork.ts";
 import { spadeJson, spadeRecord } from "./json.ts";
 
 /*
@@ -30,8 +29,6 @@ export interface SpadeSurface {
   endingStuck: boolean;
   /** The person acted here just now: in cowork the bot's actions wait for them. */
   personActive: boolean;
-  /** Where the bot last acted here, in the surface's pixels, when Spade says. */
-  agentPointer: AgentPointer | undefined;
 }
 
 export interface SpadeComputer {
@@ -79,7 +76,6 @@ export function parseSpadeComputer(value: unknown): SpadeComputer | undefined {
           endingStuck: surface.ending_stuck === true,
           backend: surface.backend === "user" ? "user" : undefined,
           personActive: surface.person_active === true,
-          agentPointer: parseAgentPointer(surface.agent_pointer),
         },
       ];
     },

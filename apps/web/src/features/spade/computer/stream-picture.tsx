@@ -1,4 +1,3 @@
-import type { AgentPointer } from "@ace/ui-core/cowork";
 import type { SpadeAvatar } from "@ace/ui-core/spade-chat";
 import { useEffect, useRef, useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -46,8 +45,6 @@ export function StreamPicture(props: {
   /** The person's input goes in now. */
   mayAct: boolean;
   label: string;
-  /** Where the bot last acted, in the picture's pixels. */
-  pointer: AgentPointer | undefined;
   bot: { name: string; avatar: SpadeAvatar };
 }) {
   const streams = useBotStreams();
@@ -147,7 +144,7 @@ export function StreamPicture(props: {
       )}
       {picture && (
         <AgentCursor
-          pointer={props.pointer}
+          pointer={picture.pointer}
           width={picture.width}
           height={picture.height}
           name={props.bot.name}

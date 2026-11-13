@@ -51,7 +51,6 @@ export function SurfaceLive(props: {
         surfaceKey={{ machine: props.machine.key, bot: bot.id, surface: kind }}
         mayAct={props.mayAct}
         label={props.label}
-        pointer={props.surface?.agentPointer}
         bot={bot}
       />
     );

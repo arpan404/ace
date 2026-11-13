@@ -51,7 +51,7 @@ async function onScreen(daemon: FakeDaemon) {
   });
 }
 
-test("the bot's browser shows its own tab from its ace thread, and takes the person's keys only while they drive", async () => {
+test("the person types in the bot's browser without taking over, into the bot's own tab", async () => {
   let botTab = "";
   const { app, spade } = await spadeApp("/spade/scout?computer=browser", seed, {
     daemon: (daemon) => {
@@ -69,9 +69,6 @@ test("the bot's browser shows its own tab from its ace thread, and takes the per
   // The thread shows the bot's tab, not the one the person opened there.
   await waitFor(() => expect(app.daemon.browser.view(thread)?.activeTabId).toBe(botTab));
   const panel = await screen.findByRole("tabpanel", { name: "Browser" });
-  expect(within(panel).queryByRole("application")).toBeNull();
-
-  await userEvent.click(screen.getByRole("button", { name: "Take over" }));
   const page = await within(panel).findByRole("application", { name: /^Control / });
   fireEvent.keyDown(page, { key: "a", code: "KeyA" });
   await waitFor(() =>
@@ -80,9 +77,9 @@ test("the bot's browser shows its own tab from its ace thread, and takes the per
   expect(
     app.daemon.browser.inputs.filter((each) => each.threadId === thread).map((each) => each.tabId),
   ).toEqual(expect.arrayContaining([botTab]));
-
-  await userEvent.click(screen.getByRole("button", { name: "Hand back" }));
-  await waitFor(() => expect(within(panel).queryByRole("application")).toBeNull());
+  // Still shared: Spade never heard of a take-over.
+  expect(spade.computer.driver("scout")).toBe("bot");
+  expect(screen.getByRole("button", { name: "Take over" })).toBeTruthy();
 });
 
 test("a tab in the person's own Chrome isn't streamed: it offers to open there", async () => {
@@ -106,17 +103,12 @@ test("a tab in the person's own Chrome isn't streamed: it offers to open there",
   );
 });
 
-test("the bot's screen shows the session its thread started, and the person's input reaches it only once they drive", async () => {
+test("the person's input reaches the bot's screen without taking over or taking its controls", async () => {
   const { app, spade } = await spadeApp("/spade/scout?computer=screen", seed, {
     daemon: (daemon) => void onScreen(daemon),
   });
   spade.computer.thread("scout", thread);
   spade.computer.use("scout", { kind: "screen", live: true, title: "TextEdit" });
-  const view = await screen.findByRole("img", { name: "Scout's screen" });
-  fireEvent.keyDown(view, { key: "a" });
-  expect(app.daemon.screen.inputs).toHaveLength(0);
-
-  await userEvent.click(screen.getByRole("button", { name: "Take over" }));
   await waitFor(() =>
     expect(screen.getByRole("img", { name: "Scout's screen" }).getAttribute("tabindex")).toBe("0"),
   );
@@ -125,6 +117,35 @@ test("the bot's screen shows the session its thread started, and the person's in
     expect(app.daemon.screen.inputs.map((each) => each.input)).toEqual([
       { kind: "text.type", text: "a" },
     ]),
+  );
+  // Shared: nobody claimed the session's controls for the person.
+  expect((await sessions(app.daemon)).map((each) => each.controller)).not.toContain("human");
+});
+
+test("while Take over is on its way, the bot's screen takes no input until the controls are the person's", async () => {
+  const { app, spade } = await spadeApp("/spade/scout?computer=screen", seed, {
+    daemon: (daemon) => void onScreen(daemon),
+  });
+  spade.computer.thread("scout", thread);
+  spade.computer.use("scout", { kind: "screen", live: true, title: "TextEdit" });
+  await waitFor(() =>
+    expect(screen.getByRole("img", { name: "Scout's screen" }).getAttribute("tabindex")).toBe("0"),
+  );
+  // Exclusive mode, with the bot's work still stopping: the view only shows.
+  spade.computer.stopping("scout", true);
+  await userEvent.click(screen.getByRole("button", { name: "Take over" }));
+  await screen.findByText("Stopping Scout…");
+  await waitFor(() =>
+    expect(screen.getByRole("img", { name: "Scout's screen" }).getAttribute("tabindex")).toBeNull(),
+  );
+  fireEvent.keyDown(screen.getByRole("img", { name: "Scout's screen" }), { key: "a" });
+  expect(app.daemon.screen.inputs).toHaveLength(0);
+  spade.computer.stopping("scout", false);
+  await waitFor(async () =>
+    expect((await sessions(app.daemon)).map((each) => each.controller)).toEqual(["human"]),
+  );
+  await waitFor(() =>
+    expect(screen.getByRole("img", { name: "Scout's screen" }).getAttribute("tabindex")).toBe("0"),
   );
 });
 
