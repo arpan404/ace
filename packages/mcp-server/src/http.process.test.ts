@@ -127,6 +127,29 @@ it("a call's acting-for comes from the client's _meta, never from the tool's arg
   expect(await whom({ arguments: { for: "fares" } })).toEqual({ actingFor: "nobody" });
   // A name that isn't a short id is ignored rather than passed on.
   expect(await whom({ _meta: { "ace/acting-for": "../x y" } })).toEqual({ actingFor: "nobody" });
+
+  // A client that reaches tools through tools_call keeps the outer call's name.
+  const core = new LegacyClient({ name: "spade-core", version: "1" });
+  cleanups.push(() => core.close());
+  await core.connect(
+    legacyWire(
+      new LegacyTransport(new URL(h.server.url), {
+        requestInit: {
+          headers: {
+            Authorization: `Bearer ${lease.bearer}`,
+            "X-Ace-Notifications": "stream",
+            "X-Ace-Tools": "core",
+          },
+        },
+      }),
+    ),
+  );
+  const wrapped = await core.callTool({
+    name: "tools_call",
+    arguments: { name: "ace_whom", arguments: {} },
+    _meta: { "ace/acting-for": "fares" },
+  });
+  expect(JSON.stringify(wrapped)).toContain('"actingFor":"fares"');
 });
 
 it("filters unauthorized tools and rejects direct capability bypasses", async () => {

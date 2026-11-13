@@ -35,7 +35,13 @@ export interface SessionTools {
    * client does not list every tool, where `tools_call` is offered (`toolsets.ts`).
    */
   readonly dispatch?:
-    | ((name: string, input: unknown, signal: AbortSignal) => Promise<CallToolResult>)
+    | ((
+        name: string,
+        input: unknown,
+        signal: AbortSignal,
+        /** The outer call's `actingFor`, so a dispatched call acts for the same one. */
+        actingFor?: string,
+      ) => Promise<CallToolResult>)
     | undefined;
 }
 
@@ -61,16 +67,26 @@ export interface ToolContext {
   readonly actingFor?: string;
 }
 /**
- * The attribution one call runs as. The host may swap the caller's for another it owns (Spade's
- * bots each act as their own hidden thread, `spade/computers.ts` in the daemon) or refuse the call by throwing a
- * `PublicToolError`. Undefined: the call runs as the caller.
+ * Whom one call runs as, when the host swaps the caller's attribution for another it owns
+ * (Spade's bots each act as their own hidden thread, `spade/computers.ts` in the daemon).
+ * Aborting `signal` cancels the call; `settled` is called once the tool's work has ended,
+ * however it ended, so the host can wait for its calls to drain.
+ */
+export interface CallAct {
+  readonly caller: McpAttribution;
+  readonly signal?: AbortSignal;
+  readonly settled?: () => void;
+}
+/**
+ * Decides whom one call runs as, or refuses it by throwing a `PublicToolError`. Undefined: the
+ * call runs as the caller.
  */
 export type CallActor = (
   tool: string,
   capability: McpCapability | null,
   caller: McpAttribution,
   actingFor: string | undefined,
-) => McpAttribution | undefined | Promise<McpAttribution | undefined>;
+) => CallAct | undefined | Promise<CallAct | undefined>;
 export type CallObserver = (
   name: string,
   input: unknown,
@@ -442,12 +458,15 @@ export class ToolRegistry {
     if (principal.signal.aborted) return failure("session_ended");
     const { sessionId, threadId, agentId } = principal.scope;
     const controller = new AbortController();
+    // Aborted with the host's own signal for this call, once `actAs` has given one.
+    const acted = new AbortController();
     const entry = this.entry(name);
     const host = entry && this.callSignal?.(entry.name, entry.capability, principal.scope);
     const signal = AbortSignal.any([
       principal.signal,
       requestSignal,
       controller.signal,
+      acted.signal,
       ...(host ? [host] : []),
     ]);
     const context: ToolContext = {
@@ -478,6 +497,22 @@ export class ToolRegistry {
     )
       return finish(failure("calls_limit"));
     if (signal.aborted) return finish(failure("cancelled"));
+    let act: CallAct | undefined;
+    try {
+      act = await this.actAs?.(entry.name, entry.capability, context.caller, context.actingFor);
+    } catch (caught: unknown) {
+      return finish(toolFailure(caught, this.report(entry.name, context.caller, caught)));
+    }
+    if (act?.signal) {
+      const forward = () => acted.abort();
+      if (act.signal.aborted) forward();
+      else act.signal.addEventListener("abort", forward, { once: true });
+    }
+    if (signal.aborted) {
+      act?.settled?.();
+      return finish(failure("cancelled"));
+    }
+    const runAs = act ? { ...context, caller: act.caller } : context;
     this.active++;
     this.activeThreads.set(threadId, (this.activeThreads.get(threadId) ?? 0) + 1);
     let executionSettled = false;
@@ -503,15 +538,7 @@ export class ToolRegistry {
       });
     });
     const executing = Promise.resolve()
-      .then(async () => {
-        const actor = await this.actAs?.(
-          entry.name,
-          entry.capability,
-          context.caller,
-          context.actingFor,
-        );
-        return entry.execute(input, { ...context, ...(actor ? { caller: actor } : {}), signal });
-      })
+      .then(() => entry.execute(input, { ...runAs, signal }))
       .catch((caught: unknown) => {
         if (caught instanceof ResultBudgetExceeded) return failure("result_too_large");
         const error =
@@ -522,6 +549,7 @@ export class ToolRegistry {
       })
       .finally(() => {
         executionSettled = true;
+        act?.settled?.();
         release();
       });
     // An uncooperative backend retains its slot until it settles, bounding detached work.
