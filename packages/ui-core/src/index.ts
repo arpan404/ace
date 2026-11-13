@@ -99,6 +99,7 @@ export * from "./inline-markdown.ts";
 export * from "./limits.ts";
 export * from "./limit-words.ts";
 export * from "./past-sessions.ts";
+export * from "./notification-settings.ts";
 export * from "./simulator-settings.ts";
 export * from "./models.ts";
 export * from "./model-catalog-read.ts";

@@ -1,14 +1,16 @@
 import { z } from "zod";
-import type { ClientCore } from "@ace/client";
+import { ClientError, type ClientCore } from "@ace/client";
 import {
   AppState,
   InteractionId,
   NotificationPreferences,
   ThreadId,
   type Notification,
+  type NotificationAddress,
   type NotificationFeed,
 } from "@ace/protocol";
 import { submitCommand } from "./commands.ts";
+import { PhonePush, phoneAddress, sameAddress } from "./notification-address.ts";
 import {
   alertAnswer,
   alertRequest,
@@ -40,6 +42,8 @@ export const NotificationAction = z.discriminatedUnion("type", [
     cursor: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
     /** This phone's own delivery preferences; older hosts omit them. */
     phone: PhoneNotificationPrefs.optional(),
+    /** This phone's push token and key (`notification-address.ts`); null or absent: none. */
+    push: PhonePush.nullable().optional(),
   }),
   z.object({ type: z.literal("notifications.config") }),
   z.object({ type: z.literal("notifications.preferences"), preferences: NotificationPreferences }),
@@ -101,8 +105,15 @@ export class NotificationBridge {
   #minuteOfDay: MinuteOfDay;
   /** False until Swift reports on/off; the runtime's default must not unregister a device. */
   #synced = false;
+  /** Swift's push token and key; without one the daemon sends alerts on the socket only. */
+  #push: PhonePush | null = null;
   /** What this connection has told the daemon; unknown again after every reconnect. */
-  #daemon: "registered" | "unregistered" | undefined;
+  #daemon: NotificationAddress | "unregistered" | undefined;
+  /**
+   * This connection's daemon refused the push address: it predates ADR 0106, so it gets the
+   * socket address and no acks. A reconnect asks again, in case the machine was updated.
+   */
+  #pushRefused = false;
   #connection = 0;
   /** Register/unregister/catch-up run one at a time, each against the latest on/off state. */
   #queue: Promise<void> = Promise.resolve();
@@ -174,10 +185,13 @@ export class NotificationBridge {
           this.#runs?.stop();
           this.#connection++;
           this.#daemon = undefined;
+          this.#pushRefused = false;
         }
       }),
       client.onMessage((message) => {
-        if (message.type === "notification" && this.#enabled) this.#alert(message.notification);
+        if (message.type !== "notification") return;
+        this.#acknowledge(message.notification.id);
+        if (this.#enabled) this.#alert(message.notification);
       }),
     );
   }
@@ -194,6 +208,7 @@ export class NotificationBridge {
         this.#synced = true;
         this.#appState = action.appState;
         if (action.phone) this.#phone = action.phone;
+        this.#push = action.push ?? null;
         this.#watchLimits();
         this.#watchRuns();
         this.#cursor = Math.max(this.#cursor, action.cursor);
@@ -285,29 +300,53 @@ export class NotificationBridge {
     return this.#queue;
   }
   /**
-   * On: register this phone once per connection, then catch up. Off: unregister once per
-   * connection, so a mute that couldn't be sent, or a registration the daemon kept from an
-   * earlier socket, is undone as soon as the phone reconnects.
+   * On: register this phone's address once per connection, and again when its push token or key
+   * changes, then catch up. Off: unregister once per connection, so a mute that couldn't be sent,
+   * or a registration the daemon kept from an earlier socket, is undone as soon as the phone
+   * reconnects.
    */
   async #reconcile(): Promise<void> {
     if (!this.#synced || this.#client.state !== "ready") return;
-    const want = this.#enabled ? "registered" : "unregistered";
-    if (this.#daemon !== want) {
+    const want = this.#enabled
+      ? phoneAddress(this.#pushRefused ? null : this.#push)
+      : "unregistered";
+    const told = this.#daemon;
+    const current =
+      want === "unregistered" || told === undefined || told === "unregistered"
+        ? want === told
+        : sameAddress(want, told);
+    if (!current) {
       const connection = this.#connection;
       try {
-        if (want === "registered")
-          await this.#client.request({
-            type: "notification.register",
-            device: { channel: "websocket", platform: "phone" },
-          });
-        else await this.#client.request({ type: "notification.unregister" });
-      } catch {
+        if (want === "unregistered")
+          await this.#client.request({ type: "notification.unregister" });
+        else await this.#client.request({ type: "notification.register", device: want });
+      } catch (error) {
+        if (connection !== this.#connection) return;
+        // A daemon older than the push channel can't parse the address and refuses it
+        // (`invalid_message`); alerts keep working on the socket address.
+        if (want !== "unregistered" && want.channel === "push" && refused(error)) {
+          this.#pushRefused = true;
+          return this.#reconcile();
+        }
         return; // The next connection retries; catch-up needs a registered device.
       }
       if (connection !== this.#connection) return;
       this.#daemon = want;
     }
-    if (want === "registered") await this.#catchUp();
+    if (want !== "unregistered") await this.#catchUp();
+  }
+  /**
+   * Tells the daemon this phone took a live alert, so it doesn't push it too (ADR 0106). The ack
+   * says the frame reached a running app, not that an alert was shown, so it goes out at once,
+   * before any Swift round trip, and also while this machine's alerts are off: the daemon only
+   * sends a frame it decided to alert on, and a muted phone that stayed silent would otherwise
+   * get the push it muted. Before Swift syncs, catch-up still posts the alert.
+   */
+  #acknowledge(id: string): void {
+    // A daemon that refused the push address can't read acks either and would answer each one
+    // with an error.
+    if (!this.#pushRefused) this.#send({ type: "notification.ack", id });
   }
   /** The daemon stops counting a backgrounded socket as delivered (it may be suspended). */
   #presence(): void {
@@ -485,4 +524,9 @@ export class NotificationBridge {
       },
     );
   }
+}
+
+/** The daemon answered and said no, as opposed to the request not getting through. */
+function refused(error: unknown): boolean {
+  return error instanceof ClientError && error.code === "daemon";
 }
