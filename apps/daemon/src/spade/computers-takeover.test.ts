@@ -17,7 +17,7 @@ test("taking over stops the bot's call in flight and is answered only once it ha
   expect(daemon.acting.aborted).toBe(true);
   expect(daemon.acting.ended).toBe(false);
   expect(answered).toBe(false);
-  expect(await taken).toEqual({ driver: "person", stopped: true });
+  expect(await taken).toEqual({ driver: "person", mode: "exclusive", stopped: true });
   expect(daemon.acting.ended).toBe(true);
   expect(await running).toEqual({ error: "cancelled" });
 });
@@ -49,7 +49,7 @@ test("a take-over whose call never stops is answered once the drain limit passes
   expect(answered).toBe(false);
   for (const run of daemon.timers.splice(0)) run();
   // The person isn't told they have the controls while the bot's call still runs.
-  expect(await taken).toEqual({ driver: "person", stopped: false });
+  expect(await taken).toEqual({ driver: "person", mode: "exclusive", stopped: false });
   // Its refusals hold meanwhile.
   expect(await daemon.call("browser_tabs", { actingFor: "fares" })).toEqual({
     error: "person_driving",
@@ -59,6 +59,7 @@ test("a take-over whose call never stops is answered once the drain limit passes
   await settle();
   expect(await daemon.computers.drive("fares", "person")).toEqual({
     driver: "person",
+    mode: "exclusive",
     stopped: true,
   });
 });
@@ -83,6 +84,7 @@ test("the person still drives after a daemon restart, and Spade sending driver=p
   // Spade re-sends the take-over on reconnect: nothing restarts.
   expect(await after.computers.drive("fares", "person")).toEqual({
     driver: "person",
+    mode: "exclusive",
     stopped: true,
   });
   expect((await after.computers.drive("fares", "bot")).handback).toMatchObject({
@@ -100,6 +102,7 @@ test("handing back reports where the person went, the tabs they opened and close
   daemon.tabs.set(threadId, [home, old]);
   expect(await daemon.computers.drive("fares", "person")).toEqual({
     driver: "person",
+    mode: "exclusive",
     stopped: true,
   });
   expect(daemon.computers.computer("fares").driver).toBe("person");
@@ -122,6 +125,7 @@ test("handing back reports where the person went, the tabs they opened and close
   daemon.advance(180_000);
   expect(await daemon.computers.drive("fares", "bot")).toEqual({
     driver: "bot",
+    mode: "cowork",
     handback: {
       drivenMs: 180_000,
       visited: ["https://fly.test/login", "https://fly.test/book", "https://bank.test/"],
@@ -131,7 +135,7 @@ test("handing back reports where the person went, the tabs they opened and close
     },
   });
   // Handing back twice reports nothing new.
-  expect(await daemon.computers.drive("fares", "bot")).toEqual({ driver: "bot" });
+  expect(await daemon.computers.drive("fares", "bot")).toEqual({ driver: "bot", mode: "cowork" });
 });
 
 test("another bot's browser changing never lands in a driven bot's hand-back", async () => {

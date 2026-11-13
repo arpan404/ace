@@ -266,6 +266,7 @@ test("Spade names a bot on its own calls: the person driving that bot's computer
       type: "spade.computer.drive.result",
       requestId: "take",
       driver: "person",
+      mode: "exclusive",
       stopped: true,
     });
     const refused = await client.callTool({

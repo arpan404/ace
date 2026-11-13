@@ -59,6 +59,14 @@ export function startSpadeComputers(
     apps: (threadId) =>
       services.computerUsing?.threads().find((entry) => entry.threadId === threadId)?.apps ?? [],
     activeTab: (threadId) => browsers.activeTab(threadId),
+    screenPersonActive: (threadId) =>
+      services.screen
+        ?.states()
+        .some(
+          (state) =>
+            state.personActive === true &&
+            (state.holder?.threadId === threadId || state.threadId === threadId),
+        ) ?? false,
     botOf(threadId) {
       const id = ThreadId.safeParse(threadId);
       const thread = id.success ? store.getThread(id.data) : undefined;
