@@ -150,6 +150,10 @@ jobs:
         # Under the job's limit, so a hung test fails this step and the steps below still show
         # and upload where it stopped.
         timeout-minutes: 40
+        env:
+          # The runner's simulator is 3 to 4 times slower than a dev Mac; speed budgets that read
+          # this (TerminalPerformanceTests) stretch by it and still fail a larger regression.
+          TEST_RUNNER_ACE_PERF_SLACK: "4"
         run: |
           xcodebuild test-without-building -project Ace.xcodeproj -scheme Ace -configuration Debug \
             -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}" \
