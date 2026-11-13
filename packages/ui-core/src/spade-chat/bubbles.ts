@@ -119,8 +119,8 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
         key: entry.key,
         text:
           entry.reason === "budget"
-            ? `Paused after ${entry.steps} steps. Send a message to keep going.`
-            : "Paused because it wasn't making progress. Send a message to keep going.",
+            ? `Paused after ${entry.steps} steps on its own. Send a message to let it carry on.`
+            : `Paused: its last ${entry.steps} steps changed nothing. Send a message to let it carry on.`,
       });
       continue;
     }

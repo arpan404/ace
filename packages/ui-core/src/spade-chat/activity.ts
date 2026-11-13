@@ -193,13 +193,14 @@ function sentenceOf(entry: SpadeActivityEntry): {
       const access = parseSpadeAccess(name);
       return {
         sentence: access ? `Access changed to ${spadeAccessLabel(access)}` : "Access changed",
+        detail: "",
       };
     }
     case "task":
-      // It carried on by itself, or stopped because nothing moved: the summary says which step.
-      return outcome === "paused"
-        ? { sentence: `Paused: ${entry.summary || "no progress"}`, detail: "" }
-        : { sentence: `Kept going: ${entry.summary || name || "next step"}`, detail: "" };
+      // Spade names it `continued` or `paused`; a pause's summary is its whole sentence, and a
+      // step's says which step it was ("carried on by itself, step 4").
+      if (name === "paused") return { sentence: entry.summary || "Paused its task", detail: "" };
+      return { sentence: `Kept going: ${entry.summary || "next step"}`, detail: "" };
     case "spend":
       return { sentence: turnEnds[outcome] ?? "Finished a turn" };
     case "cap":

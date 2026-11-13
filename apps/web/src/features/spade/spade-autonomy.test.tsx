@@ -74,15 +74,19 @@ test("a request the reviewer escalated shows its reason, and Allow answers it", 
   const { spade } = await spadeApp("/spade", (api) => {
     withSpade(api);
     const scout = api.addAgent({ id: "scout", name: "Scout", access: "auto_review" });
-    api.escalate(scout, "k1", "call_tool", { tool: "book_flight" }, "A booking is a payment.");
+    api.escalate(
+      scout,
+      "k1",
+      "call_tool",
+      { tool: "book_flight" },
+      "It could spend money, so you decide.",
+    );
   });
   await userEvent.click(await botRow("Scout"));
   const request = within(await screen.findByRole("group", { name: /^Scout wants to/ }));
-  expect(request.getByText("Reviewer: A booking is a payment.")).toBeTruthy();
-  expect(request.getByRole("button", { name: "Always allow" })).toBeTruthy();
-  expect(request.getByRole("button", { name: "Deny" })).toBeTruthy();
+  expect(request.getByText("It could spend money, so you decide.")).toBeTruthy();
   // Nothing of the review is in the conversation itself.
-  expect(within(screen.getByRole("feed")).queryByText(/A booking is a payment/)).toBeNull();
+  expect(within(screen.getByRole("feed")).queryByText(/spend money/)).toBeNull();
   await userEvent.click(request.getByRole("button", { name: "Allow" }));
   await waitFor(() =>
     expect(spade.sent("POST", "/v1/conversations/c-scout/approvals/k1")).toEqual([
@@ -100,8 +104,9 @@ test("the activity log lists the reviewer's verdicts with their reasons, and how
     api.oversight.activity.set(
       "scout",
       [
-        { kind: "task", name: null, summary: "no progress", outcome: "paused" },
-        { kind: "task", name: null, summary: "step 4", outcome: "continued" },
+        { kind: "task", name: "paused", summary: "Paused: its last 3 steps changed nothing." },
+        { kind: "task", name: "continued", summary: "carried on by itself, step 4" },
+        { kind: "access", name: "full_access", summary: "access level" },
         { kind: "review", name: "send_email", outcome: "refused", reason: "Not its task." },
         { kind: "review", name: "web_fetch", outcome: "allowed", reason: "Routine reading." },
         { kind: "review", name: "send_email", outcome: "escalated", reason: "Sends as you." },
@@ -120,8 +125,9 @@ test("the activity log lists the reviewer's verdicts with their reasons, and how
   const list = within(await screen.findByRole("list", { name: "Activity" }));
   await waitFor(() =>
     expect(list.getAllByRole("listitem").map((row) => row.textContent)).toEqual([
-      expect.stringMatching(/Paused: no progress/),
-      expect.stringMatching(/Kept going: step 4/),
+      expect.stringMatching(/Paused: its last 3 steps changed nothing\./),
+      expect.stringMatching(/Kept going: carried on by itself, step 4/),
+      expect.stringMatching(/Access changed to Full access$/),
       expect.stringMatching(/The reviewer refused: send an emailNot its task\./),
       expect.stringMatching(/The reviewer approved: read a web pageRoutine reading\./),
       expect.stringMatching(/The reviewer asked you: send an emailSends as you\./),

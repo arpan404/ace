@@ -60,7 +60,7 @@ export function SpadeChat(props: {
   onWatch?: (() => void) | undefined;
   /** The person has the bot's computer: Spade pauses the bot, and the line says so. */
   paused?: boolean | undefined;
-  /** Its task's line (`spadeTaskLine`): carrying on by itself, or waiting on the person. */
+  /** Its task's line (`spadeTaskLine`): carrying on by itself, waiting, or waiting on the person. */
   task?: SpadeTaskLine | undefined;
   onRemembered(note: SpadeRememberedNote): void;
   /** A file chip: open that file of the bot's workspace. */
@@ -140,12 +140,21 @@ export function SpadeChat(props: {
             since={undefined}
             onWatch={undefined}
           />
+        ) : task?.tone === "waiting" && !working ? (
+          // Waiting on something other than the person: it says so, with no spinner or clock.
+          <WorkingLine
+            avatar={bot.avatar}
+            state="idle"
+            label={[task.sentence, task.step].filter(Boolean).join(" · ")}
+            since={undefined}
+            onWatch={undefined}
+          />
         ) : (
           <WorkingLine
             avatar={bot.avatar}
             state={task && !working ? "working" : lineState}
             label={
-              task
+              task && task.tone !== "waiting"
                 ? [task.sentence, task.step].filter(Boolean).join(" · ")
                 : (view.status ?? "Working")
             }

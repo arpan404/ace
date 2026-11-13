@@ -62,6 +62,8 @@ export function rosterLine(bot: RosterBot): { text: string; tone?: "working" | "
   // as its chat; the name is the row's first line.
   const task = spadeTaskLine(bot.name, bot.progress, bot.status);
   if (task?.tone === "needs-you") return { text: "Needs you", tone: "needs-you" };
+  // Waiting on a job, another bot or its next step's time: quiet, nothing for the person to do.
+  if (task?.tone === "waiting") return { text: ["Waiting", task.step].filter(Boolean).join(" · ") };
   if (task)
     return { text: ["Working on it", task.step].filter(Boolean).join(" · "), tone: "working" };
   if (bot.state === "waiting" && bot.waitingFor === "question")

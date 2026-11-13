@@ -65,7 +65,11 @@ export function Conversation(props: {
   const [dockWidth, setDockWidth] = useState(dock.initial);
   // A task it carries on by itself: its line stays between replies, and Stop with it.
   const task = spadeTaskLine(bot.name, bot.progress, view.status ?? bot.status);
-  const open = view.busy || task?.tone === "working";
+  // A waiting task with a step Spade will start is open too: Stop calls that step off.
+  const open =
+    view.busy ||
+    task?.tone === "working" ||
+    (task?.tone === "waiting" && bot.progress?.continuing === true);
   // Stopping lasts until nothing is open: the reply, its background jobs and the task's next step.
   if (stopping && !open) setStopping(false);
   const stop = () => {

@@ -277,7 +277,7 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
       subject: "Plumber",
       body: "Hi Marta, Thursday works for the plumber. Any time after 2pm is fine. Thanks, Arpan",
     },
-    "It sends an email as you to someone outside this conversation.",
+    "It sends a message as you, so you decide.",
   );
 
   here.store(notes.conversation, {
@@ -413,10 +413,22 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
   here.oversight.activity.set(
     "flights",
     [
-      { kind: "access", name: "auto_review", summary: "", outcome: "changed", ago: 1 },
-      { kind: "task", name: null, summary: "no progress", outcome: "paused", ago: 2 },
+      { kind: "access", name: "auto_review", summary: "access level", outcome: null, ago: 1 },
+      {
+        kind: "task",
+        name: "paused",
+        summary: "Paused: its last 4 steps changed nothing. Send a message to let it carry on.",
+        outcome: null,
+        ago: 2,
+      },
       { kind: "tool", name: "web_search", summary: "Checked 6 airlines", outcome: "ok", ago: 3 },
-      { kind: "task", name: null, summary: "step 4", outcome: "continued", ago: 3 },
+      {
+        kind: "task",
+        name: "continued",
+        summary: "carried on by itself, step 4",
+        outcome: null,
+        ago: 3,
+      },
       {
         kind: "review",
         name: "workspace_write",
@@ -437,7 +449,7 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
         kind: "review",
         name: "call_tool",
         summary: "book_flight",
-        reason: "A booking is a payment; it asked you.",
+        reason: "It could spend money, so you decide.",
         outcome: "escalated",
         ago: 6,
       },
@@ -481,6 +493,10 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
       cheeks: "blush",
       accessory: "none",
     },
+    // Waiting on a long download before its next step: nothing for the person to do.
+    access: "auto_review",
+    task_state: { status: "waiting", note: "Downloading the 14 papers" },
+    continuing: true,
     last_activity: minutes(60 * 24 * 2),
     last_message: {
       from: "agent",

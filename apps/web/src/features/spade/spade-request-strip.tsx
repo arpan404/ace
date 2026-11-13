@@ -16,8 +16,9 @@ function shellCommand(name: string, args: unknown): string | undefined {
  * A bot's oldest open request in the strip above the composer, as ace shows an agent's: its
  * face, who wants to do what to whom, the first line of what it would send, then Review (the
  * whole call, and "Always allow this command" for a command), the answer that lets it go, and
- * the one that doesn't. A request the auto-review escalated says why in one quiet line; one it
- * refused never reaches the person (it is in the activity log). What the bot drafted stays in the conversation above.
+ * the one that doesn't. A request the review sent to the person says why in one quiet line; a
+ * call it refused never reaches the person (it is in the activity log). What the bot drafted
+ * stays in the conversation above.
  */
 export function SpadeRequestStrip(props: {
   bot: { name: string; avatar: SpadeAvatar };
@@ -66,50 +67,13 @@ export function SpadeRequestStrip(props: {
                 Review
               </Button>
             )}
-            {!approval.reason && (
-              <>
-                <Button
-                  size="xs"
-                  variant="secondary"
-                  disabled={answering !== undefined}
-                  onClick={() => answer("allow")}
-                >
-                  {answering === "allow" ? `${words.allow}…` : words.allow}
-                </Button>
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  disabled={answering !== undefined}
-                  onClick={() => answer("deny")}
-                >
-                  {words.deny}
-                </Button>
-              </>
-            )}
-          </div>
-        </div>
-        {approval.reason && (
-          // The reviewer asked the person rather than approve it: its reason, quietly, under
-          // the request and across the strip, so a phone shows all of it.
-          <p className="pl-8 text-xs text-muted-foreground">{`Reviewer: ${approval.reason}`}</p>
-        )}
-        {approval.reason && (
-          <div className="flex items-center gap-1 pl-8">
             <Button
               size="xs"
-              variant="ghost"
+              variant="secondary"
               disabled={answering !== undefined}
               onClick={() => answer("allow")}
             >
-              {answering === "allow" ? "Allow…" : "Allow"}
-            </Button>
-            <Button
-              size="xs"
-              variant="ghost"
-              disabled={answering !== undefined}
-              onClick={() => answer("always")}
-            >
-              Always allow
+              {answering === "allow" ? `${words.allow}…` : words.allow}
             </Button>
             <Button
               size="xs"
@@ -117,9 +81,14 @@ export function SpadeRequestStrip(props: {
               disabled={answering !== undefined}
               onClick={() => answer("deny")}
             >
-              Deny
+              {words.deny}
             </Button>
           </div>
+        </div>
+        {approval.reason && (
+          // Why the reviewer asked the person rather than approve it, in its own words ("It
+          // could spend money, so you decide."): one quiet line across the strip, never cut.
+          <p className="pl-8 text-xs text-muted-foreground">{approval.reason}</p>
         )}
         {open && details && (
           <div className="flex flex-col gap-1.5">
@@ -129,7 +98,7 @@ export function SpadeRequestStrip(props: {
             >
               {details}
             </pre>
-            {command !== undefined && !approval.reason && (
+            {command !== undefined && (
               <Button
                 size="xs"
                 variant="ghost"

@@ -71,13 +71,15 @@ export function parseSpadeTaskProgress(
 export interface SpadeTaskLine {
   sentence: string;
   step: string | undefined;
-  tone: "working" | "needs-you";
+  tone: "working" | "waiting" | "needs-you";
 }
 
 /**
  * The line a bot's chat and roster show for its task: "Flights is working on it" with its step
- * while it carries on by itself, "Flights needs you" while the task waits on the person, and
- * nothing once it is done or while it only answers the person's message.
+ * while it carries on by itself, "Flights is waiting" with its note while the task waits on
+ * something else (a job, a reply from another bot, its next step's time), "Flights needs you"
+ * while it waits on the person, and nothing once it is done or while it only answers the
+ * person's message.
  */
 export function spadeTaskLine(
   name: string,
@@ -88,6 +90,8 @@ export function spadeTaskLine(
   if (!task) return undefined;
   if (task.state === "blocked_on_person")
     return { sentence: `${name} needs you`, step: undefined, tone: "needs-you" };
+  if (task.state === "waiting")
+    return { sentence: `${name} is waiting`, step: task.step, tone: "waiting" };
   if (task.continuing && task.state !== "done")
     return {
       sentence: `${name} is working on it`,

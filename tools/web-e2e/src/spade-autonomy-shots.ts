@@ -28,9 +28,9 @@ try {
         await page.getByText(ready).first().waitFor({ timeout: 30_000 });
         await settle(page);
       };
-      await go("/spade/inbox", "Reviewer:");
+      await go("/spade/inbox", "so you decide");
       await shot("escalation");
-      await go("/spade/flights", "Paused because");
+      await go("/spade/flights", "changed nothing");
       await shot("task-paused");
       await go("/spade/notes", "is working on it");
       await shot("continuing");

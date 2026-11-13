@@ -82,23 +82,21 @@ describe("escalations", () => {
   });
 });
 
-test("a waiting task can keep a continuation pending without appearing finished", () => {
-  expect(
-    spadeTaskLine(
-      "Flights",
-      agent({
-        task_state: { status: "waiting", note: "Waiting for its next step" },
-        continuing: true,
-      })?.progress,
-    )?.sentence,
-  ).toBe("Flights is working on it");
-  expect(
-    spadeTaskLine(
-      "Flights",
-      agent({
-        task_state: { status: "waiting" },
-        continuing: false,
-      })?.progress,
-    ),
-  ).toBeUndefined();
+const waitingLine = (continuing: boolean) =>
+  spadeTaskLine(
+    "Flights",
+    agent({ task_state: { status: "waiting", note: "Waiting on the fare alert" }, continuing })
+      ?.progress,
+    "Thinking",
+  );
+
+test("a task waiting on something else says the bot is waiting, with its note", () => {
+  const waiting = {
+    sentence: "Flights is waiting",
+    step: "Waiting on the fare alert",
+    tone: "waiting",
+  };
+  // With a step Spade will start, and without one: either way it waits, it isn't working.
+  expect(waitingLine(true)).toEqual(waiting);
+  expect(waitingLine(false)).toEqual(waiting);
 });

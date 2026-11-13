@@ -56,6 +56,30 @@ test("a task waiting on the person reads that the bot needs you", async () => {
   );
 });
 
+test("a task waiting on something else says so quietly, with its note and Stop for its next step", async () => {
+  await spadeApp("/spade", (api) => {
+    withSpade(api);
+    api.addAgent({
+      id: "scout",
+      name: "Scout",
+      task_state: { status: "waiting", note: "Waiting on the download" },
+      continuing: true,
+    });
+  });
+  const row = await botRow("Scout");
+  await waitFor(() => expect(row.textContent).toContain("Waiting · Waiting on the download"));
+  expect(row.textContent).not.toContain("Needs you");
+  await userEvent.click(row);
+  const feed = await screen.findByRole("feed", { name: "Conversation with Scout" });
+  await waitFor(() =>
+    expect(within(feed).getByRole("status").textContent).toBe(
+      "Scout is waiting · Waiting on the download",
+    ),
+  );
+  // A step Spade will start is still open: Stop calls it off.
+  expect(screen.getByRole("button", { name: "Stop the agent" })).toBeTruthy();
+});
+
 test("a task pause shows once after replay, and continuation nudges stay out of chat", async () => {
   await spadeApp("/spade", (api) => {
     withSpade(api);
@@ -74,7 +98,9 @@ test("a task pause shows once after replay, and continuation nudges stay out of 
   await userEvent.click(await botRow("Scout"));
   const feed = within(await screen.findByRole("feed", { name: "Conversation with Scout" }));
   expect(
-    await feed.findAllByText("Paused after 25 steps. Send a message to keep going."),
+    await feed.findAllByText(
+      "Paused after 25 steps on its own. Send a message to let it carry on.",
+    ),
   ).toHaveLength(1);
   expect(feed.queryByText("private nudge")).toBeNull();
   expect(feed.queryByText("Refused action reason")).toBeNull();

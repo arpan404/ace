@@ -216,16 +216,23 @@ describe("activity", () => {
 
   test("carrying on and pausing read as the step it took or why it stopped", () => {
     expect(
-      spadeActivityWords(parsedEntry({ kind: "task", outcome: "continued", summary: "step 4" })),
-    ).toMatchObject({ sentence: "Kept going: step 4", detail: undefined });
+      spadeActivityWords(
+        parsedEntry({ kind: "task", name: "continued", summary: "carried on by itself, step 4" }),
+      ),
+    ).toMatchObject({ sentence: "Kept going: carried on by itself, step 4", detail: undefined });
+    const pause = "Paused after 25 steps on its own. Send a message to let it carry on.";
     expect(
-      spadeActivityWords(parsedEntry({ kind: "task", outcome: "paused", summary: "no progress" })),
-    ).toMatchObject({ sentence: "Paused: no progress", detail: undefined });
+      spadeActivityWords(parsedEntry({ kind: "task", name: "paused", summary: pause })),
+    ).toMatchObject({ sentence: pause, detail: undefined });
   });
 
   test("access changes name the selected level in the activity log", () => {
     expect(words({ kind: "access", name: "auto_review" })).toBe("Access changed to Auto-review");
-    expect(words({ kind: "access", name: "full_access" })).toBe("Access changed to Full access");
+    expect(
+      spadeActivityWords(
+        parsedEntry({ kind: "access", name: "full_access", summary: "access level" }),
+      ),
+    ).toMatchObject({ sentence: "Access changed to Full access", detail: undefined });
   });
 
   test("the query sends only the parts that are set", () => {
