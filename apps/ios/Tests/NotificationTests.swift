@@ -490,6 +490,30 @@ import Testing
         #expect(center.delivered.values.map(\.body) == ["Needs you"])
     }
 
+    @Test func aLiveAlertTheDaemonDroppedNeverHoldsBackANewerOneFromTheFeed() async throws {
+        let (notifier, center) = try plainNotifier()
+        await notifier.receive(cursored(alert("n:5"), 5))
+        // The daemon's inbox let n:5 go without a retraction; the feed brings a newer request.
+        await notifier.catchUp(cursor: 7, entries: [cursored(alert("n:7", status: "needs_you", actions: true), 7)], retracted: [])
+        #expect(center.delivered.values.map(\.body) == ["Needs you"])
+    }
+
+    @Test func aFeedAlertWithALowerCursorNeverCoversALiveRequest() async throws {
+        let (notifier, center) = try plainNotifier()
+        await notifier.receive(cursored(alert("n:3", status: "needs_you", actions: true), 3))
+        await notifier.catchUp(cursor: 3, entries: [cursored(alert("n:2", status: "failed"), 2)], retracted: [])
+        #expect(center.delivered.values.map(\.body) == ["Needs you"])
+    }
+
+    @Test func aNewConnectionStopsHoldingBackTheLastOnesLiveAlerts() async throws {
+        let (notifier, center) = try plainNotifier()
+        await notifier.receive(cursored(alert("n:a", status: "needs_you", actions: true), 500))
+        // The daemon's database was rebuilt and its cursors started over.
+        notifier.connected()
+        await notifier.catchUp(cursor: 3, entries: [cursored(alert("n:b", status: "failed"), 3)], retracted: [])
+        #expect(center.delivered.values.map(\.body) == ["Failed"])
+    }
+
     @Test func aLaterCatchUpWaitsForAnEarlierOneThatIsStillPosting() async throws {
         let center = HeldCenter()
         let notifier = LocalNotifier(center: center, hostId: "studio")
@@ -754,6 +778,11 @@ import Testing
         session.patch(#"{"type":"connection","state":"ready"}"#)
         try await until("the connection is ready") { model.connection == "ready" }
         return (coordinator, center, session)
+    }
+    private func cursored(_ alert: AlertNotification, _ cursor: Int) -> AlertNotification {
+        var alert = alert
+        alert.cursor = cursor
+        return alert
     }
     private func plainNotifier() throws -> (LocalNotifier, FakeCenter) {
         let center = FakeCenter()

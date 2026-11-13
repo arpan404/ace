@@ -171,7 +171,8 @@ it("catches up on what the daemon sent while the app wasn't listening, once per 
   await vi.waitFor(() => expect(of("notifications.feed")).toHaveLength(1));
   expect(of("notifications.feed")[0]).toMatchObject({
     cursor: 1,
-    entries: [{ id: "n:1" }],
+    // Each entry keeps its feed position, which Swift compares with live alerts' cursors.
+    entries: [{ id: "n:1", cursor: 1 }],
     retracted: [],
   });
   daemon.retractNotification("n:1");

@@ -199,7 +199,8 @@ final class SystemNotificationCenter: NotificationCenterPort {
     /// alerts after its cursor, and a live one can land while that read is out. At most one
     /// entry per thread of this machine; a feed that holds one, or retracts it, removes it.
     /// Nothing is evicted early: dropping one would let an older alert cover a newer request.
-    private var live: [String: String] = [:]
+    private var live: [String: Live] = [:]
+    struct Live: Equatable { let id: String; let cursor: Int? }
     /// The catch-up running now: each waits for the one before, so a later feed's landings and
     /// retractions always apply after an earlier feed's.
     private var catchingUp: Task<Void, Never>?
@@ -210,6 +211,9 @@ final class SystemNotificationCenter: NotificationCenterPort {
     func bind(_ store: LedgerStore) { self.store = store; ledger = store.load() }
     /// Its machine was turned off or let go: nothing it still has under way lands, and what it
     /// handed the desk that hasn't landed yet is called back.
+    /// A new connection: its feed holds everything after the stored cursor, so nothing from the
+    /// last one needs holding back, and a rebuilt database starts its cursors over.
+    func connected() { live = [:] }
     func invalidate() {
         valid = false
         live = [:]
@@ -225,7 +229,7 @@ final class SystemNotificationCenter: NotificationCenterPort {
         defer { finish(alert.id) }
         // Newer than anything catch-up still has to land for this thread. One this phone doesn't
         // post leaves the thread's notification as it was, so it holds nothing back.
-        if alert.delivery?.post != false, !CatchUpOrder.isSummary(alert) { live[alert.threadId] = alert.id }
+        if alert.delivery?.post != false, !CatchUpOrder.isSummary(alert) { live[alert.threadId] = Live(id: alert.id, cursor: alert.cursor) }
         guard alert.delivery?.post != false, valid else { return }
         await desk.land(alert, hostId: hostId, owner: ObjectIdentifier(self))
     }
@@ -241,7 +245,7 @@ final class SystemNotificationCenter: NotificationCenterPort {
     private func apply(cursor: Int, entries: [AlertNotification], retracted: [String]) async {
         desk.retract(retracted, hostId: hostId)
         let gone = Set(retracted)
-        live = live.filter { !gone.contains($0.value) }
+        live = live.filter { !gone.contains($0.value.id) }
         let fresh = entries.filter { inFlight[$0.id] == nil && ledger.admit($0.id) }
         ledger.advance(to: cursor)
         store?.save(ledger)
@@ -257,7 +261,7 @@ final class SystemNotificationCenter: NotificationCenterPort {
         // From here the feed's order covers a live alert it holds; one it doesn't hold yet
         // arrived after it was read and keeps holding older alerts back until a feed does.
         let covered = Set(entries.map(\.id))
-        defer { live = live.filter { !covered.contains($0.value) } }
+        defer { live = live.filter { !covered.contains($0.value.id) } }
         // Checked before each one: an earlier post can be awaited past a turn-off, and a live
         // alert can land meanwhile.
         for alert in newest where freshIds.contains(alert.id) {
@@ -295,10 +299,14 @@ enum CatchUpOrder {
     }
     /// A `catch_up` alert lists several threads; `threadId` is only the longest-waiting one.
     static func isSummary(_ alert: AlertNotification) -> Bool { alert.status == "catch_up" }
-    /// Whether `alert` from the feed is newer than the thread's live alert. The feed holds every
-    /// alert after the cursor in order, so a live alert outside it arrived after it was read.
-    static func isNewer(_ alert: AlertNotification, than liveId: String?, in feed: [AlertNotification]) -> Bool {
-        guard !isSummary(alert), let liveId else { return true }
+    /// Whether `alert` from the feed is newer than the thread's live alert. Both carry the
+    /// daemon's feed cursor, which only grows. Without one (an older daemon) the feed's order
+    /// decides: it holds every alert after the cursor, so a live alert outside it arrived after
+    /// it was read.
+    static func isNewer(_ alert: AlertNotification, than live: LocalNotifier.Live?, in feed: [AlertNotification]) -> Bool {
+        guard !isSummary(alert), let live else { return true }
+        if let cursor = alert.cursor, let liveCursor = live.cursor { return cursor > liveCursor }
+        let liveId = live.id
         guard let livePosition = feed.firstIndex(where: { $0.id == liveId }),
               let position = feed.firstIndex(where: { $0.id == alert.id }) else { return false }
         return position > livePosition

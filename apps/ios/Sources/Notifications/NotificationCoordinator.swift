@@ -201,6 +201,7 @@ struct SystemAuthorizer: NotificationAuthorizer {
             }
         case .connected:
             if let entry {
+                entry.notifier.connected()
                 sync(entry.model, ledger: entry.notifier, hostId: entry.hostId)
                 connectedForAccess(entry.model, hostId: entry.hostId)
             }

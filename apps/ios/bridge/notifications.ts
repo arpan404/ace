@@ -395,8 +395,8 @@ export class NotificationBridge {
     const entries = await Promise.all(
       feed.entries.map((entry) =>
         entry.notification.interactionId && asking++ < enrichLimit
-          ? this.#withRequest(entry.notification)
-          : this.#delivered(entry.notification),
+          ? this.#withRequest({ ...entry.notification, cursor: entry.cursor })
+          : this.#delivered({ ...entry.notification, cursor: entry.cursor }),
       ),
     );
     this.#put("notifications:feed", () => ({
