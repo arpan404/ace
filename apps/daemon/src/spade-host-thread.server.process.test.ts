@@ -249,7 +249,7 @@ test("Spade names a bot on its own calls: the person driving that bot's computer
     spade: { service: service.control, pollMs: { waiting: 50, ready: 200 } },
   });
   home = join(f.h.home, "daemon");
-  const { daemon } = f;
+  let { daemon } = f;
   const socket = await adminSocket(daemon);
   let client: Awaited<ReturnType<typeof connectSpadeMcp>> | undefined;
   try {
@@ -279,9 +279,23 @@ test("Spade names a bot on its own calls: the person driving that bot's computer
       computer: { bot: "fares", driver: "person", browser: { tabs: [] }, screen: { apps: [] } },
     });
     expect(daemon.spade?.status().thread?.id).toBe(spade.hostId);
+
+    // A daemon restart leaves the person driving: the take-over is kept on disk.
+    await client.close();
+    client = undefined;
+    await socket.close();
+    daemon = await f.restart();
+    const again = await startSpade(daemon);
+    client = await connectMcp(again);
+    const still = await client.callTool({
+      name: "browser_tabs",
+      arguments: { action: "list" },
+      _meta: { "ace/acting-for": "fares" },
+    });
+    expect(JSON.stringify(still.content)).toContain("person_driving");
   } finally {
     await client?.close().catch(() => {});
-    await socket.close();
+    await socket.close().catch(() => {});
     await daemon.close();
     await service.close();
   }

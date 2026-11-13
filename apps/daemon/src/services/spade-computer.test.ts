@@ -9,6 +9,7 @@ import {
   type DeviceScope,
 } from "@ace/protocol";
 import type { z } from "zod";
+import { memoryTakeovers } from "../spade/computer-drivers.ts";
 import { SpadeComputers } from "../spade/computers.ts";
 import { createSpadeComputerSession } from "./spade-computer.ts";
 
@@ -27,17 +28,22 @@ function socket(scopes: readonly DeviceScope[] = ["read", "operate"]) {
     activeTab: () => undefined,
     botOf: () => undefined,
     report: () => {},
+    takeovers: memoryTakeovers(),
+    after: () => () => {},
     now: () => 5_000,
   });
   const sent: ServerMessage[] = [];
+  const tasks = new Set<Promise<void>>();
   const session = createSpadeComputerSession({
     options: { spadeComputers: computers },
     authorize: (scope) => scopes.includes(scope),
     connected: () => true,
     send: (message) => sent.push(ServerMessage.parse(message)),
+    tasks,
   });
   return async (message: z.input<typeof ClientMessage>) => {
     await session.handle?.(ClientMessage.parse(message), DeviceId.parse("spade"));
+    await Promise.all(tasks);
     return sent.at(-1);
   };
 }

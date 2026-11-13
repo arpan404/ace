@@ -1,7 +1,11 @@
-import { AccessMode, ThreadId } from "@ace/protocol";
+import { AccessMode, ThreadId, type BrowserState, type SpadeComputerTab } from "@ace/protocol";
 import { SpadeComputers, botOfHostKey, tabOf } from "../spade/computers.ts";
 import { spadeRequest } from "../spade/forward.ts";
+import type { BrowserService } from "@ace/browser";
+import type { TakeoverStore } from "../spade/computer-drivers.ts";
 import type { SpadeHostThread } from "../spade/host-thread.ts";
+import { storedTakeover } from "../stored-decode.ts";
+import type { Store } from "../store.ts";
 import type { ServiceContext } from "./types.ts";
 
 /**
@@ -15,6 +19,10 @@ export function startSpadeComputers(
   folder: string,
 ): SpadeComputers {
   const { services, store } = context;
+  const browsers = botBrowsers({
+    ace: () => services.browser,
+    user: () => services.userBrowserSessions,
+  });
   const computers = new SpadeComputers({
     host,
     find(hostKey) {
@@ -46,17 +54,10 @@ export function startSpadeComputers(
       });
       return agentId ? { threadId, agentId } : undefined;
     },
-    tabs(threadId) {
-      const browser = services.browser;
-      if (!browser?.hasActiveSession(threadId)) return [];
-      return (browser.state(threadId).tabs ?? []).map(tabOf);
-    },
+    tabs: (threadId) => browsers.tabs(threadId),
     apps: (threadId) =>
       services.computerUsing?.threads().find((entry) => entry.threadId === threadId)?.apps ?? [],
-    activeTab(threadId) {
-      const browser = services.browser;
-      return browser?.hasActiveSession(threadId) ? browser.state(threadId).activeTabId : undefined;
-    },
+    activeTab: (threadId) => browsers.activeTab(threadId),
     botOf(threadId) {
       const id = ThreadId.safeParse(threadId);
       const thread = id.success ? store.getThread(id.data) : undefined;
@@ -84,10 +85,16 @@ export function startSpadeComputers(
         () => context.log.log("debug", "Spade didn't take a bot's computer surface", { bot, kind }),
       );
     },
+    takeovers: storedTakeovers(store),
+    after(ms, run) {
+      const timer = setTimeout(run, ms);
+      timer.unref?.();
+      return () => clearTimeout(timer);
+    },
     now: context.now,
   });
   const stops = [
-    services.browser?.observeStates((state) => computers.browserChanged(state)),
+    browsers.watch((state) => computers.browserChanged(state)),
     services.computerUsing?.subscribe((threads) => computers.appsChanged(threads)),
     // A screen session the person drives for a bot's thread counts as using its screen.
     services.screen?.watch((state) => {
@@ -99,4 +106,65 @@ export function startSpadeComputers(
     for (const stop of stops) stop?.();
   }, "spade computers");
   return computers;
+}
+
+/** Take-overs in `spade_computer_drivers`, one row per bot the person drives. */
+function storedTakeovers(store: Pick<Store, "statement">): TakeoverStore {
+  return {
+    *load() {
+      const rows = store.statement("SELECT bot, takeover FROM spade_computer_drivers").all();
+      for (const row of rows) yield [String(row.bot), storedTakeover(String(row.takeover))];
+    },
+    save(bot, takeover) {
+      store
+        .statement(
+          `INSERT INTO spade_computer_drivers(bot, takeover) VALUES(?, ?)
+          ON CONFLICT(bot) DO UPDATE SET takeover=excluded.takeover`,
+        )
+        .run(bot, JSON.stringify(takeover));
+    },
+    remove(bot) {
+      store.statement("DELETE FROM spade_computer_drivers WHERE bot=?").run(bot);
+    },
+  };
+}
+
+type BrowserReads = Pick<BrowserService, "hasActiveSession" | "state" | "observeStates">;
+
+/**
+ * A bot's browser across both of ace's backends: ace's own browser and the person's own Chrome
+ * (`backend: "user"`, ADR 0084), whose tabs are marked so the apps know where to watch them.
+ */
+export function botBrowsers(services: {
+  ace: () => BrowserReads | undefined;
+  user: () => BrowserReads | undefined;
+}) {
+  const backends = () => [
+    { browser: services.ace(), backend: undefined },
+    { browser: services.user(), backend: "user" as const },
+  ];
+  return {
+    tabs(threadId: ThreadId): SpadeComputerTab[] {
+      return backends().flatMap(({ browser, backend }) =>
+        browser?.hasActiveSession(threadId)
+          ? (browser.state(threadId).tabs ?? []).map((tab) => tabOf(tab, backend))
+          : [],
+      );
+    },
+    activeTab(threadId: ThreadId): string | undefined {
+      for (const { browser } of backends())
+        if (browser?.hasActiveSession(threadId)) {
+          const active = browser.state(threadId).activeTabId;
+          if (active) return active;
+        }
+      return undefined;
+    },
+    /** Hears every state change in either backend. */
+    watch(listener: (state: BrowserState) => void): () => void {
+      const stops = backends().map(({ browser }) => browser?.observeStates(listener));
+      return () => {
+        for (const stop of stops) stop?.();
+      };
+    },
+  };
 }

@@ -10,6 +10,8 @@ export interface SurfaceReport {
   title?: string;
   url?: string;
   tab_id?: string;
+  /** `user`: the tab is in the person's own Chrome; absent for ace's browser. */
+  backend?: "user";
   thread_id: string;
   person_acted?: boolean;
 }
@@ -26,7 +28,14 @@ export function browserReport(
   const tab = tabs.find((each) => each.tabId === activeTabId) ?? tabs.at(-1);
   return {
     live: tab !== undefined,
-    ...(tab ? { title: tab.title || tab.url, url: tab.url, tab_id: tab.tabId } : {}),
+    ...(tab
+      ? {
+          title: tab.title || tab.url,
+          url: tab.url,
+          tab_id: tab.tabId,
+          ...(tab.backend ? { backend: tab.backend } : {}),
+        }
+      : {}),
     thread_id: threadId,
     ...(personDriving ? { person_acted: true } : {}),
   };

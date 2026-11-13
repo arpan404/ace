@@ -1,109 +1,6 @@
 import { expect, test } from "vitest";
-import { z } from "zod";
-import { CredentialRegistry, ToolRegistry } from "@ace/mcp-server";
-import {
-  AgentId,
-  ThreadId,
-  WorkspaceId,
-  type McpCapability,
-  type SpadeComputerTab,
-} from "@ace/protocol";
-import { SpadeComputers, type BotThread } from "./computers.ts";
-
-const spade = {
-  threadId: ThreadId.parse("spade-host"),
-  agentId: AgentId.parse("spade-root"),
-  workspaceId: WorkspaceId.parse("spade-project"),
-};
-
-const lease = (threadId: ThreadId) =>
-  new CredentialRegistry(() => "a".repeat(64)).issue(
-    {
-      sessionId: "session",
-      threadId,
-      agentId: AgentId.parse("root"),
-      capabilities: ["browser", "screen", "thread_control"],
-    },
-    new AbortController().signal,
-  ).principal;
-
-/**
- * ace's tool registry with Spade's bots wired in as the daemon does, and two tools that report
- * the thread they ran as: a browser tool and a thread-control one. Browsers are a map of each
- * thread's tabs, as ace's browser service would hold them.
- */
-function ace() {
-  let clock = 1_000;
-  const threads = new Map<string, BotThread>();
-  const tabs = new Map<string, SpadeComputerTab[]>();
-  const apps = new Map<string, string[]>();
-  const reports: object[] = [];
-  const computers = new SpadeComputers({
-    host: () => spade,
-    find: (key) => threads.get(key),
-    create(_host, key) {
-      const thread = {
-        threadId: ThreadId.parse(`thread-${threads.size + 1}`),
-        agentId: AgentId.parse(`agent-${threads.size + 1}`),
-      };
-      threads.set(key, thread);
-      return thread;
-    },
-    tabs: (threadId) => tabs.get(threadId) ?? [],
-    apps: (threadId) => apps.get(threadId) ?? [],
-    activeTab: () => undefined,
-    botOf: (threadId) =>
-      [...threads]
-        .find(([, thread]) => thread.threadId === threadId)?.[0]
-        .slice("computer:".length),
-    report: (bot, kind, report) => reports.push({ bot, kind, ...report }),
-    now: () => clock,
-  });
-  const registry = new ToolRegistry({
-    scheduler: { after: () => () => {} },
-    actAs: (_tool, capability, caller, actingFor) => computers.actAs(capability, caller, actingFor),
-  });
-  const tool = (name: string, capability: McpCapability) =>
-    registry.register({
-      name,
-      description: name,
-      capability,
-      timeoutMs: 1000,
-      input: z.object({ bot: z.string().optional() }),
-      output: z.object({ threadId: z.string() }),
-      async run(_input, context) {
-        return { threadId: context.caller.threadId };
-      },
-    });
-  tool("browser_tabs", "browser");
-  tool("screen_state", "screen");
-  tool("thread_read", "thread_control");
-  const call = async (
-    name: string,
-    options: { args?: object; actingFor?: string; from?: ThreadId } = {},
-  ) => {
-    const result = await registry.call(
-      name,
-      options.args ?? {},
-      lease(options.from ?? spade.threadId),
-      new AbortController().signal,
-      options.actingFor ? { actingFor: options.actingFor } : {},
-    );
-    const text = z.object({ text: z.string() }).parse(result.content[0]).text;
-    return result.isError
-      ? { error: z.object({ code: z.string() }).parse(JSON.parse(text)).code }
-      : { ran: z.object({ threadId: z.string() }).parse(JSON.parse(text)).threadId };
-  };
-  return {
-    computers,
-    reports,
-    call,
-    tabs,
-    apps,
-    threadOf: (bot: string) => threads.get(`computer:${bot}`)?.threadId,
-    advance: (ms: number) => void (clock += ms),
-  };
-}
+import { ThreadId } from "@ace/protocol";
+import { ace, spade } from "./computers-test-support.ts";
 
 test("a browser call Spade makes for a bot runs as that bot's own thread", async () => {
   const daemon = ace();
@@ -112,6 +9,13 @@ test("a browser call Spade makes for a bot runs as that bot's own thread", async
   expect(first.ran).not.toBe(spade.threadId);
   // The same bot keeps the same thread, so it finds its tabs again.
   expect(await daemon.call("screen_state", { actingFor: "fares" })).toEqual(first);
+});
+
+test("a simulator call Spade makes for a bot runs as that bot's thread too", async () => {
+  const daemon = ace();
+  const browser = await daemon.call("browser_tabs", { actingFor: "fares" });
+  expect(await daemon.call("sim_act", { actingFor: "fares" })).toEqual(browser);
+  expect((await daemon.call("sim_act", { actingFor: "news" })).ran).toBe(daemon.threadOf("news"));
 });
 
 test("a bot named in the tool's arguments changes nothing: only Spade's client names the bot", async () => {
@@ -142,7 +46,7 @@ test("two bots get separate browsers, and each lists only its own tabs", async (
   expect(daemon.computers.computer("news").browser.tabs.map((tab) => tab.tabId)).toEqual(["t2"]);
 });
 
-test("a bot's computer lists its tabs and the apps it is using, with when it began", async () => {
+test("a bot's computer lists its tabs, in ace's browser and the person's Chrome, and its apps", async () => {
   const daemon = ace();
   expect(daemon.computers.computer("fares")).toEqual({
     bot: "fares",
@@ -150,97 +54,48 @@ test("a bot's computer lists its tabs and the apps it is using, with when it beg
     browser: { tabs: [] },
     screen: { apps: [] },
   });
-  const { ran } = await daemon.call("browser_tabs", { actingFor: "fares" });
-  const threadId = ThreadId.parse(ran);
-  daemon.tabs.set(threadId, [{ tabId: "t1", title: "Fares", url: "https://fly.test/" }]);
+  const threadId = ThreadId.parse((await daemon.call("browser_tabs", { actingFor: "fares" })).ran);
+  const mine = { tabId: "u1", title: "Bank", url: "https://bank.test/", backend: "user" as const };
+  daemon.tabs.set(threadId, [{ tabId: "t1", title: "Fares", url: "https://fly.test/" }, mine]);
   daemon.apps.set(threadId, ["Numbers"]);
   daemon.computers.appsChanged([{ threadId, apps: ["Numbers"] }]);
   expect(daemon.computers.computer("fares")).toEqual({
     bot: "fares",
     driver: "bot",
     threadId,
-    browser: { tabs: [{ tabId: "t1", title: "Fares", url: "https://fly.test/" }] },
+    browser: { tabs: [{ tabId: "t1", title: "Fares", url: "https://fly.test/" }, mine] },
     screen: { apps: ["Numbers"], since: 1_000 },
   });
 });
 
-test("while the person drives, the bot's browser and screen tools are refused, other tools are not", async () => {
+test("while the person drives, the bot's browser, screen and simulator tools are refused, other tools are not", async () => {
   const daemon = ace();
   await daemon.call("browser_tabs", { actingFor: "fares" });
-  daemon.computers.drive("fares", "person");
-  expect(await daemon.call("browser_tabs", { actingFor: "fares" })).toEqual({
-    error: "person_driving",
-  });
-  expect(await daemon.call("screen_state", { actingFor: "fares" })).toEqual({
-    error: "person_driving",
-  });
+  await daemon.computers.drive("fares", "person");
+  for (const tool of ["browser_tabs", "screen_state", "sim_act"])
+    expect(await daemon.call(tool, { actingFor: "fares" })).toEqual({ error: "person_driving" });
   expect((await daemon.call("thread_read", { actingFor: "fares" })).ran).toBe(spade.threadId);
   // Another bot keeps working.
   expect((await daemon.call("browser_tabs", { actingFor: "news" })).ran).toBe(
     daemon.threadOf("news"),
   );
-  daemon.computers.drive("fares", "bot");
+  await daemon.computers.drive("fares", "bot");
   expect((await daemon.call("browser_tabs", { actingFor: "fares" })).ran).toBe(
     daemon.threadOf("fares"),
   );
-});
-
-test("handing back reports where the person went, the tabs they opened and closed, and the screen", async () => {
-  const daemon = ace();
-  const { ran } = await daemon.call("browser_tabs", { actingFor: "fares" });
-  const threadId = ThreadId.parse(ran);
-  const home = { tabId: "t1", title: "Fares", url: "https://fly.test/" };
-  const old = { tabId: "t2", title: "Old", url: "https://old.test/" };
-  daemon.tabs.set(threadId, [home, old]);
-  expect(daemon.computers.drive("fares", "person")).toEqual({ driver: "person" });
-  expect(daemon.computers.computer("fares").driver).toBe("person");
-  const login = { ...home, title: "Sign in", url: "https://fly.test/login" };
-  daemon.computers.browserChanged({ threadId, tabs: [login] });
-  const booking = { tabId: "t3", title: "Booking", url: "https://fly.test/book" };
-  daemon.tabs.set(threadId, [login, booking]);
-  daemon.computers.browserChanged({ threadId, tabs: [login, booking] });
-  daemon.computers.screenUsedBy(threadId);
-  daemon.advance(180_000);
-  expect(daemon.computers.drive("fares", "bot")).toEqual({
-    driver: "bot",
-    handback: {
-      drivenMs: 180_000,
-      visited: ["https://fly.test/login", "https://fly.test/book"],
-      opened: [booking],
-      closed: [old],
-      screenUsed: true,
-    },
-  });
-  // Handing back twice reports nothing new.
-  expect(daemon.computers.drive("fares", "bot")).toEqual({ driver: "bot" });
-});
-
-test("another bot's browser changing never lands in a driven bot's hand-back", async () => {
-  const daemon = ace();
-  await daemon.call("browser_tabs", { actingFor: "fares" });
-  const news = ThreadId.parse((await daemon.call("browser_tabs", { actingFor: "news" })).ran);
-  daemon.computers.drive("fares", "person");
-  daemon.computers.browserChanged({
-    threadId: news,
-    tabs: [{ tabId: "n1", title: "News", url: "https://news.test/" }],
-  });
-  daemon.computers.screenUsedBy(news);
-  expect(daemon.computers.drive("fares", "bot").handback).toMatchObject({
-    visited: [],
-    screenUsed: false,
-  });
 });
 
 test("Spade hears when a bot's browser or screen changes, once per change, and who acted", async () => {
   const daemon = ace();
   const threadId = ThreadId.parse((await daemon.call("browser_tabs", { actingFor: "fares" })).ran);
   const tab = { tabId: "t1", title: "Fares", url: "https://fly.test/" };
-  daemon.computers.browserChanged({ threadId, tabs: [tab], activeTabId: "t1" });
-  daemon.computers.browserChanged({ threadId, tabs: [tab], activeTabId: "t1" });
+  daemon.tabs.set(threadId, [tab]);
+  daemon.computers.browserChanged({ threadId, activeTabId: "t1" });
+  daemon.computers.browserChanged({ threadId, activeTabId: "t1" });
   daemon.computers.appsChanged([{ threadId, apps: ["Numbers"] }]);
   daemon.computers.appsChanged([]);
   // Another thread's browser is nobody's computer.
-  daemon.computers.browserChanged({ threadId: ThreadId.parse("other"), tabs: [tab] });
+  daemon.computers.browserChanged({ threadId: ThreadId.parse("other") });
   expect(daemon.reports).toEqual([
     {
       bot: "fares",
@@ -255,9 +110,21 @@ test("Spade hears when a bot's browser or screen changes, once per change, and w
     { bot: "fares", kind: "screen", live: false, thread_id: threadId },
   ]);
   daemon.reports.length = 0;
-  daemon.computers.drive("fares", "person");
+  await daemon.computers.drive("fares", "person");
   expect(daemon.reports).toEqual([
-    expect.objectContaining({ kind: "browser", live: false, person_acted: true }),
+    expect.objectContaining({ kind: "browser", live: true, person_acted: true }),
     expect.objectContaining({ kind: "screen", live: false, person_acted: true }),
+  ]);
+});
+
+test("a tab in the person's own Chrome is reported with its backend", async () => {
+  const daemon = ace();
+  const threadId = ThreadId.parse((await daemon.call("browser_tabs", { actingFor: "fares" })).ran);
+  daemon.tabs.set(threadId, [
+    { tabId: "u1", title: "Bank", url: "https://bank.test/", backend: "user" },
+  ]);
+  daemon.computers.browserChanged({ threadId });
+  expect(daemon.reports).toEqual([
+    expect.objectContaining({ kind: "browser", tab_id: "u1", backend: "user" }),
   ]);
 });

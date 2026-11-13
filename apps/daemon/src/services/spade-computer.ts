@@ -1,7 +1,7 @@
 import type { SpadeComputers } from "../spade/computers.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
-type SpadeComputerSocket = Pick<SocketContext, "authorize" | "connected" | "send"> & {
+type SpadeComputerSocket = Pick<SocketContext, "authorize" | "connected" | "send" | "tasks"> & {
   options: { spadeComputers?: Pick<SpadeComputers, "computer" | "drive"> | undefined };
 };
 
@@ -31,15 +31,21 @@ export function createSpadeComputerSession(context: SpadeComputerSocket): Socket
         );
         return true;
       }
-      context.send(
-        error || !computers
-          ? { type: "spade.computer.drive.result", requestId, error: error ?? "unavailable" }
-          : {
-              type: "spade.computer.drive.result",
-              requestId,
-              ...computers.drive(bot, message.driver),
-            },
-      );
+      if (error || !computers) {
+        context.send({
+          type: "spade.computer.drive.result",
+          requestId,
+          error: error ?? "unavailable",
+        });
+        return true;
+      }
+      // Answered once the bot's calls in flight have stopped, without holding up the socket.
+      const task = computers.drive(bot, message.driver).then((result) => {
+        if (context.connected())
+          context.send({ type: "spade.computer.drive.result", requestId, ...result });
+      });
+      context.tasks.add(task);
+      void task.finally(() => context.tasks.delete(task));
       return true;
     },
   };
