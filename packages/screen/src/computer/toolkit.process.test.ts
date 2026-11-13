@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { computerWorld, type WorldOptions } from "./testing/world.ts";
+import { ScreenCowork } from "../cowork.ts";
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
@@ -290,4 +291,150 @@ it("Linux agents are not offered display pictures", async () => {
   const { call, ops } = await world({ toolkit: { platform: "linux" } });
   expect((await call("screen_display", {})).result.isError).toBe(true);
   expect(await ops()).toEqual([]);
+});
+
+/** A cowork clock that moves only when the test says so; `sleeping` resolves once a wait began. */
+function coworkClock() {
+  let now = 1_000_000;
+  let timers: { at: number; run: () => void }[] = [];
+  const clock = {
+    now: () => now,
+    set(ms: number, run: () => void) {
+      const timer = { at: now + Math.max(0, ms), run };
+      timers.push(timer);
+      return () => {
+        timers = timers.filter((each) => each !== timer);
+      };
+    },
+  };
+  const sleeping = async (count = 1) => {
+    for (let tries = 0; timers.length < count; tries++) {
+      if (tries > 2_000) throw new Error("No wait began");
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+  };
+  const advance = (ms: number) => {
+    const end = now + ms;
+    for (;;) {
+      const due = timers.filter((timer) => timer.at <= end).sort((a, b) => a.at - b.at)[0];
+      if (!due) break;
+      timers = timers.filter((timer) => timer !== due);
+      now = due.at;
+      due.run();
+    }
+    now = end;
+  };
+  return { clock, sleeping, advance };
+}
+
+const acts = async (ops: () => Promise<string[]>) =>
+  (await ops()).filter((op) => op.startsWith("act"));
+
+it("in cowork an agent's act waits while the person uses the app, runs once they pause, and says so", async () => {
+  const time = coworkClock();
+  const cowork = new ScreenCowork({ clock: time.clock });
+  const { call, ops } = await world({ toolkit: { cowork } });
+  await call("screen_state", { app: "Calculator" });
+  // The person types in Calculator through the live view; their lease runs 3 s.
+  cowork.personInput(["com.apple.calculator"]);
+  const acting = call("screen_act", {
+    app: "Calculator",
+    actions: [{ type: "key", key: "Escape" }],
+  });
+  // Another app stays free: an act there runs at once.
+  const elsewhere = await call("screen_act", {
+    app: "TextEdit",
+    actions: [{ type: "key", key: "Escape" }],
+  });
+  expect(elsewhere.text).not.toContain("Waited");
+  await time.sleeping();
+  expect(await acts(ops)).toHaveLength(1);
+  time.advance(2_000);
+  cowork.personInput(["com.apple.calculator"]);
+  await time.sleeping();
+  time.advance(3_000);
+  const acted = await acting;
+  expect(acted.result.isError).toBeFalsy();
+  expect(acted.text).toContain("Waited 5 s while the person used Calculator.");
+  expect(await acts(ops)).toHaveLength(2);
+});
+
+it("in cowork a look never waits for the person", async () => {
+  const time = coworkClock();
+  const cowork = new ScreenCowork({ clock: time.clock });
+  const { call } = await world({ toolkit: { cowork } });
+  cowork.personInput(["com.apple.calculator"]);
+  const looked = await call("screen_state", { app: "Calculator" });
+  expect(looked.text).toContain("button 7");
+});
+
+it("after a minute of the person's use the act gives up with person_busy and nothing ran", async () => {
+  const time = coworkClock();
+  const cowork = new ScreenCowork({ clock: time.clock });
+  const { call, ops } = await world({ toolkit: { cowork } });
+  await call("screen_state", { app: "Calculator" });
+  cowork.personInput(["com.apple.calculator"]);
+  const acting = call("screen_act", { app: "Calculator", actions: [{ type: "type", text: "1" }] });
+  await time.sleeping();
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 1));
+  for (let second = 0; second < 62; second++) {
+    time.advance(1_000);
+    cowork.personInput(["com.apple.calculator"]);
+    await tick();
+  }
+  const refused = await acting;
+  expect(refused.result.isError).toBe(true);
+  expect(refused.text).toContain("The person is using Calculator; nothing was done.");
+  expect(await acts(ops)).toEqual([]);
+});
+
+it("the person typing on the machine while the app is frontmost holds the agent back", async () => {
+  const time = coworkClock();
+  let typingUntil = time.clock.now() + 4_000;
+  const cowork = new ScreenCowork({
+    clock: time.clock,
+    // The machine's idle source: the person keeps typing into frontmost Calculator.
+    physical: {
+      lastInputAt: async () => Math.min(time.clock.now(), typingUntil),
+      frontmost: async () => "com.apple.calculator",
+    },
+  });
+  const { call, ops } = await world({ toolkit: { cowork } });
+  await call("screen_state", { app: "Calculator" });
+  // TextEdit is in the background: typing into Calculator doesn't hold it.
+  const background = await call("screen_act", {
+    app: "TextEdit",
+    actions: [{ type: "key", key: "Escape" }],
+  });
+  expect(background.text).not.toContain("Waited");
+  const acting = call("screen_act", {
+    app: "Calculator",
+    actions: [{ type: "key", key: "Escape" }],
+  });
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
+  await time.sleeping();
+  time.advance(3_000);
+  await tick();
+  typingUntil = time.clock.now();
+  for (let step = 0; step < 4; step++) {
+    time.advance(3_000);
+    await tick();
+  }
+  const acted = await acting;
+  expect(acted.text).toMatch(/Waited \d+ s while the person used Calculator\./);
+  expect((await acts(ops)).length).toBe(2);
+});
+
+it("an agent's click is the pointer viewers draw for that app", async () => {
+  const time = coworkClock();
+  const cowork = new ScreenCowork({ clock: time.clock });
+  const { call } = await world({ toolkit: { cowork } });
+  await call("screen_state", { app: "Calculator" });
+  await call("screen_act", { app: "Calculator", actions: [{ type: "click", x: 40, y: 60 }] });
+  expect(cowork.pointer(["com.apple.calculator"])).toEqual({
+    x: 40,
+    y: 60,
+    kind: "click",
+    at: time.clock.now(),
+  });
 });

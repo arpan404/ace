@@ -30,6 +30,8 @@ import {
   type ComputerToolName,
 } from "./schemas.ts";
 import { ComputerActResult, ComputerApps, ComputerState } from "./wire.ts";
+import type { ScreenCowork } from "../cowork.ts";
+import { actsOnApp, lastPoint } from "./cowork-steps.ts";
 import { z } from "zod";
 
 type Content = (
@@ -57,6 +59,11 @@ export interface ComputerToolkitOptions {
   lockedUse?: LockedUseGate;
   /** With a route, every tool also takes `machine` to use another paired machine's apps. */
   route?: ComputerMachineRoute;
+  /**
+   * Cowork (ADR 0143): an act waits while the person uses the same app, and says where the
+   * agent's pointer went. Absent, acts run at once as before.
+   */
+  cowork?: ScreenCowork;
 }
 
 /**
@@ -265,6 +272,25 @@ export function computerToolkit(
           `${resolved.name} is not running. Call screen_state first to open it.`,
         );
       const expanded = expandConditions(actions);
+      // The person is using this app: wait until they pause, or give up having done nothing.
+      let waited: string | undefined;
+      if (options.cowork && actsOnApp(actions)) {
+        const outcome = await options.cowork.yield(
+          resolved.bundleId,
+          resolved.name,
+          context.signal,
+        );
+        if (outcome.busy)
+          throw new ComputerError(
+            "person_busy",
+            `The person is using ${resolved.name}; nothing was done. Try again shortly, or work in another app meanwhile.`,
+          );
+        waited = outcome.note;
+      }
+      const pointed = lastPoint(actions);
+      const point = () => {
+        if (pointed) options.cowork?.acted(resolved.bundleId, pointed.point, pointed.kind);
+      };
       let result: ComputerActResult;
       try {
         result = ComputerActResult.parse(
@@ -280,22 +306,26 @@ export function computerToolkit(
         // Overdue or cancelled after some steps ran: say which, then why it stopped.
         const partial =
           error instanceof ComputerError ? ComputerActResult.safeParse(error.result) : undefined;
-        if (error instanceof ComputerError && partial?.success && partial.data.done.length)
+        if (error instanceof ComputerError && partial?.success && partial.data.done.length) {
+          point();
           return {
             isError: true,
             content: [
               {
                 type: "text",
                 text: [
+                  ...(waited ? [waited] : []),
                   ...actLog(actions, expanded, { done: partial.data.done }),
                   error.message,
                 ].join("\n"),
               },
             ],
           };
+        }
         throw error;
       }
-      const log = actLog(actions, expanded, result).join("\n");
+      point();
+      const log = [...(waited ? [waited] : []), ...actLog(actions, expanded, result)].join("\n");
       // A batch that stopped early failed, even when some steps ran.
       const failed = result.error ? { isError: true } : {};
       if (!result.state) return { content: [{ type: "text", text: log }], ...failed };
