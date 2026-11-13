@@ -8,6 +8,7 @@ import {
   macPhysicalInput,
   windowsPhysicalInput,
   ScreenCowork,
+  type ScreenCoworkOptions,
   screenConnection,
   type Simulators,
 } from "@ace/screen";
@@ -17,12 +18,19 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { LockedUseRuntime, lockedUseSocketPath } from "../locked-use-runtime.ts";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { performance } from "node:perf_hooks";
 import { ComputerUsingThreads } from "../computer-using.ts";
 import { resolveScreenHelper } from "../screen-helper-path.ts";
 import { ScreenSettings } from "../screen-settings.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
-export async function startScreen({ config, options, resources, services, store }: ServiceContext) {
+export async function startScreen(
+  { config, options, resources, services, store, now: epochNow }: ServiceContext,
+  clock: ScreenCoworkOptions["clock"] = {
+    now: () => performance.now(),
+    set: nodeScheduler.after,
+  },
+) {
   const helper = resolveScreenHelper({
     platform: process.platform,
     configured: config.screenHelper,
@@ -34,15 +42,16 @@ export async function startScreen({ config, options, resources, services, store 
   const session =
     process.platform === "linux" ? graphicalSessionEnvironment({ env: process.env }) : undefined;
   // Cowork (ADR 0143): one lease per app for the live view and the agent tools. On a Mac the
-  // person's own keyboard and mouse count while that app is frontmost; Windows reads
-  // GetLastInputInfo through its helper. Linux counts only input routed through ace.
+  // person's own keyboard and mouse count while that app is frontmost. Windows uses filtered
+  // hooks seeded once from GetLastInputInfo. Linux counts only input routed through ace.
   const cowork = new ScreenCowork({
-    clock: { now: Date.now, set: nodeScheduler.after },
+    clock,
+    epochNow,
     // Injected screens and engines (tests) never read this machine's own input.
     ...(process.platform === "darwin" && !options.screen && !options.computer
       ? {
           physical: macPhysicalInput({
-            now: Date.now,
+            now: clock.now,
             ioreg: (args) => output("/usr/sbin/ioreg", args),
             apps: async () => services.computer?.request("apps", {}),
           }),
@@ -50,7 +59,7 @@ export async function startScreen({ config, options, resources, services, store 
       : process.platform === "win32" && !options.screen && !options.computer
         ? {
             physical: windowsPhysicalInput({
-              now: Date.now,
+              now: clock.now,
               idle: async () => services.computer?.request("physical_input", {}),
               apps: async () => services.computer?.request("apps", {}),
             }),

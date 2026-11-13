@@ -257,3 +257,33 @@ it("a simulator clipboard read does not wait for the person's lease or queued in
   release();
   await running;
 });
+
+it("thirty-two waiting agents leave a separately bounded lane for human input", async () => {
+  const { service, taps, advance, holdTap } = await fixture();
+  await service.request(tap(1), person);
+  const agents = Array.from({ length: 32 }, () => service.request(tap(2), agent));
+  await tick();
+  await expect(service.request(tap(3), agent)).rejects.toMatchObject({ code: "busy" });
+  // Even with every agent slot occupied, the person's input reaches the device.
+  await service.request(tap(4), person);
+  expect(taps).toEqual(["1", "4"]);
+  const release = holdTap(90);
+  const humans = [service.request(tap(90), person)];
+  await tick();
+  for (let index = 1; index < 32; index++) humans.push(service.request(tap(5), person));
+  await tick();
+  await expect(service.request(tap(6), person)).rejects.toMatchObject({ code: "busy" });
+  release();
+  await Promise.all(humans);
+  expect(taps.filter((value) => value === "5")).toHaveLength(31);
+  expect(taps).not.toContain("2");
+  expect(taps).not.toContain("3");
+  expect(taps).not.toContain("6");
+  await advance(3_000);
+  await Promise.all(agents);
+  expect(taps.filter((value) => value === "2")).toHaveLength(32);
+  // Completion frees each lane's admission slots for later requests.
+  await service.request(tap(7), agent);
+  await service.request(tap(8), person);
+  expect(taps.slice(-2)).toEqual(["7", "8"]);
+});

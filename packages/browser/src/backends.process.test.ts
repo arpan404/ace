@@ -1,6 +1,7 @@
 import { once } from "node:events";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { setImmediate } from "node:timers/promises";
 import { expect, it } from "vitest";
 import { z } from "zod";
 import { backendFixture } from "./backend-test-support.ts";
@@ -11,6 +12,7 @@ import {
   BrowserBackendRequest,
 } from "@ace/protocol";
 import { keepAgentsOut } from "./collaboration-test-support.ts";
+import { TestNavigationClock } from "./navigation-test-clock.ts";
 
 const snapshot = z.object({ nodes: z.array(z.object({ ref: z.string() })) });
 it("prefers the socket desktop while a per-thread override routes another thread headlessly", async () => {
@@ -259,6 +261,75 @@ it("a waiting agent input says how long it waited for the person", async () => {
   const result = await f.service.execute("thread", { action: "type", ref, text: "agent" });
   expect(result).toMatchObject({ waited: "Waited 1 s while the person used this tab." });
 });
+it.each([0, 3_000])(
+  "fill_form sums waits between fields without counting held field execution (initial wait %i ms)",
+  async (initialWait) => {
+    const clock = new TestNavigationClock();
+    const f = await backendFixture({ backendPreference: () => "headless", navigationClock: clock });
+    await f.open();
+    const ref = snapshot.parse(await f.service.execute("thread", { action: "snapshot" })).nodes[0]
+      ?.ref;
+    const page = f.headless.pages[0];
+    if (!ref || !page) throw new Error("Missing field");
+    clock.advance(10_000);
+    await f.service.input("thread", key("x"), "person");
+    if (!initialWait) clock.advance(3_000);
+    const first = Promise.withResolvers<void>();
+    const second = Promise.withResolvers<void>();
+    const releaseFirst = Promise.withResolvers<void>();
+    const releaseSecond = Promise.withResolvers<void>();
+    const started: string[] = [];
+    const send = page.cdp.send;
+    page.cdp.send = async (method, params) => {
+      if (
+        method === "Runtime.callFunctionOn" &&
+        String(params?.["functionDeclaration"]).includes("execCommand('insertText'")
+      ) {
+        const args = z.array(z.object({ value: z.string() })).parse(params?.["arguments"]);
+        started.push(args[0]?.value ?? "");
+        if (started.length === 1) {
+          first.resolve();
+          await releaseFirst.promise;
+        } else if (started.length === 2) {
+          second.resolve();
+          await releaseSecond.promise;
+        }
+      }
+      return send(method, params);
+    };
+    const filling = f.service.execute("thread", {
+      action: "fill_form",
+      fields: ["a", "b", "c"].map((value) => ({ ref, value })),
+    });
+    await setImmediate();
+    if (initialWait) clock.advance(initialWait);
+    await first.promise;
+    // Time spent executing a field must not appear as time waiting for the person.
+    clock.advance(5_000);
+    await f.service.input("thread", key("y"), "person");
+    releaseFirst.resolve();
+    await setImmediate();
+    clock.advance(2_999);
+    await setImmediate();
+    expect(started).toEqual(["a"]);
+    clock.advance(1);
+    await second.promise;
+    clock.advance(4_000);
+    await f.service.input("thread", key("z"), "person");
+    releaseSecond.resolve();
+    await setImmediate();
+    clock.advance(2_999);
+    await setImmediate();
+    expect(started).toEqual(["a", "b"]);
+    clock.advance(1);
+    expect(await filling).toMatchObject({
+      filled: 3,
+      waited: `Waited ${initialWait / 1000 + 6} s while the person used this tab.`,
+    });
+    expect(started).toEqual(["a", "b", "c"]);
+    expect(page.text).toBe("xyazbc");
+  },
+);
 it("agent input gives up with person_busy while the person never pauses", async () => {
   const f = await backendFixture({ collaboration: quick });
   await f.open();

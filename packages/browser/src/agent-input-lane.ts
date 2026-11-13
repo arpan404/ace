@@ -41,15 +41,23 @@ export class AgentInputLane {
     this.closed = true;
     for (const wake of this.wakers) wake();
   }
-  /** Runs `steps` in order, after earlier inputs, each once the person has paused. */
-  run<T>(signal: AbortSignal | undefined, steps: (step: Stepper) => Promise<T>): Promise<T> {
+  /**
+   * Runs steps in order once the person pauses; reports only presence waits, never queue or
+   * execution time. All fields and dequeue retries share the original deadline.
+   */
+  run<T>(
+    signal: AbortSignal | undefined,
+    steps: (step: Stepper) => Promise<T>,
+    waited?: (ms: number) => void,
+  ): Promise<T> {
     if (this.closed) return Promise.reject(new BrowserActionError("browser_closed"));
     if (this.pending >= laneLimit) return Promise.reject(new BrowserActionError("queue_full"));
     this.pending++;
     const since = this.clock.now();
     const stepper: Stepper = async (step) => {
       for (;;) {
-        await this.personIdle(since, signal);
+        const ms = await this.personIdle(since, signal);
+        waited?.(ms);
         const result = await step();
         if (result !== personReturned) return result;
       }
@@ -66,13 +74,14 @@ export class AgentInputLane {
   quiet(): boolean {
     return this.humanAt() + this.timing.quietMs <= this.clock.now();
   }
-  private async personIdle(since: number, signal: AbortSignal | undefined): Promise<void> {
+  private async personIdle(since: number, signal: AbortSignal | undefined): Promise<number> {
+    const started = this.clock.now();
     for (;;) {
       signal?.throwIfAborted();
       if (this.closed) throw new BrowserActionError("browser_closed");
       const delay = agentInputDelay(this.clock.now(), this.humanAt(), since, this.timing);
       if (delay === "give_up") throw new BrowserActionError("person_busy");
-      if (delay === 0) return;
+      if (delay === 0) return this.clock.now() - started;
       await new Promise<void>((resolve) => {
         const finish = () => {
           cancel();

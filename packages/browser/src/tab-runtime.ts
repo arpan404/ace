@@ -498,11 +498,10 @@ export class TabRuntime {
         return this.run(command, actor, signal, submittedGeneration);
       })();
     const waits = actor.kind === "agent" && waitsForPerson(command);
-    // When the first step of a waiting input began, to say how long it waited for the person.
-    // Only an input that found the person busy says so; time behind its own queue doesn't count.
-    const arrived = this.host.options.navigationClock.now();
-    const personWasBusy = waits && !this.lane.quiet();
-    let began: number | undefined;
+    let waitedMs = 0;
+    const waited = (ms: number) => {
+      waitedMs += ms;
+    };
     // One queue turn for a command, or for one step of it (a field of an agent's fill_form).
     const jobFor = (part: TabCommand) => async () => {
       signal?.throwIfAborted();
@@ -522,7 +521,6 @@ export class TabRuntime {
       if (waits) {
         // The person came back while this input waited for its turn: it waits again, outside.
         if (!this.lane.quiet()) return personReturned;
-        began ??= this.host.options.navigationClock.now();
         await this.agentSync;
       } else if (actor.kind === "agent" && (part.action === "resize" || part.action === "emulate"))
         // The backend sizes a shown tab for an agent only once it knows the agent uses it.
@@ -550,10 +548,7 @@ export class TabRuntime {
     };
     // An agent's input waits for the person in its own lane, so reads never queue behind it.
     const noted = (result: unknown) => {
-      const note =
-        (!personWasBusy && this.humanAt < arrived) || began === undefined
-          ? undefined
-          : waitedNote(began - arrived, "this tab");
+      const note = waitedNote(waitedMs, "this tab");
       if (!note || Array.isArray(result)) return result;
       return typeof result === "object" && result !== null
         ? { ...result, waited: note }
@@ -561,12 +556,17 @@ export class TabRuntime {
     };
     if (waits && command.action === "fill_form")
       return this.lane
-        .run(signal, (step) =>
-          fillFieldByField(command.fields, (field) => step(() => this.enqueue(jobFor(field)))),
+        .run(
+          signal,
+          (step) =>
+            fillFieldByField(command.fields, (field) => step(() => this.enqueue(jobFor(field)))),
+          waited,
         )
         .then(noted);
     if (waits)
-      return this.lane.run(signal, (step) => step(() => this.enqueue(jobFor(command)))).then(noted);
+      return this.lane
+        .run(signal, (step) => step(() => this.enqueue(jobFor(command))), waited)
+        .then(noted);
     return this.enqueue(jobFor(command));
   }
   screenshot(

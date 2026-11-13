@@ -20,11 +20,12 @@ export async function enqueueDeviceInput<T>(
 ): Promise<T> {
   owner.authorize(session, actor);
   const ticket = session.lease.ticket(actor);
-  if (session.pending >= 32)
+  if (session.pendingInput[actor.kind] >= 32)
     throw new DeviceError("busy", "Device input queue is full", "Wait for pending device actions.");
   // Waiting for the person retains this ticket too; a takeover still invalidates it.
   const release = session.lease.retain(actor, ticket);
   session.pending++;
+  session.pendingInput[actor.kind]++;
   const guard = () => {
     owner.authorize(session, actor);
     session.lease.assert(actor, ticket);
@@ -58,6 +59,7 @@ export async function enqueueDeviceInput<T>(
   } finally {
     release();
     session.pending--;
+    session.pendingInput[actor.kind]--;
   }
 }
 
@@ -73,9 +75,10 @@ export function enqueueSharedInput<T>(
   owner: LifecycleOwner,
 ): Promise<T> {
   owner.authorize(session, actor);
-  if (session.pending >= 32)
+  if (session.pendingInput[actor.kind] >= 32)
     throw new DeviceError("busy", "Device input queue is full", "Wait for pending device actions.");
   session.pending++;
+  session.pendingInput[actor.kind]++;
   const guard = () => {
     owner.authorize(session, actor);
     // Shared input queued before a Take control must respect its new exclusive holder.
@@ -89,6 +92,7 @@ export function enqueueSharedInput<T>(
     })
     .finally(() => {
       session.pending--;
+      session.pendingInput[actor.kind]--;
     });
   session.tail = next.then(
     () => {},

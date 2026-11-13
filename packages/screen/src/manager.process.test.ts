@@ -3,7 +3,7 @@ import { helperGate } from "./testing/gate.ts";
 import { afterEach, expect, it } from "vitest";
 import { computerUseHandler, type Frame } from "./index.ts";
 import { deferred, manager, ready, target } from "./testing/support.ts";
-import { ScreenCowork } from "./cowork.ts";
+import { ScreenCowork, type PhysicalInput } from "./cowork.ts";
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()));
@@ -182,10 +182,11 @@ it("in cowork the person's live-view input reaches an agent's session without it
 });
 
 /** Hold A in the real helper while B clears its first presence check and queues behind it. */
-async function queuedCowork() {
+async function queuedCowork(physical?: PhysicalInput) {
   let now = 1_000;
   const timers = new Set<{ at: number; run: () => void }>();
   const cowork = new ScreenCowork({
+    ...(physical ? { physical } : {}),
     clock: {
       now: () => now,
       set(ms, run) {
@@ -228,7 +229,12 @@ async function queuedCowork() {
     await first;
     await person;
   };
-  return { screen, id, second, advance, typed, personArrives };
+  const release = async () => {
+    gate.release();
+    await first;
+    await setImmediate();
+  };
+  return { screen, id, second, advance, typed, personArrives, input, release };
 }
 
 it("a queued agent yields its slot when the person returns, then delivers input with a wait note", async () => {
@@ -263,4 +269,46 @@ it("takeover and re-delegation while an agent waits cannot revive its queued inp
   await test.advance(3_000);
   await refused;
   expect(await test.typed()).toBe("Aperson");
+});
+
+it("physical typing that starts behind a held queue yields the slot before agent dispatch", async () => {
+  let nativeAt: number | undefined;
+  const sampled = deferred<void>();
+  const test = await queuedCowork({
+    lastInputAt: async () => nativeAt,
+    frontmost: async () => {
+      sampled.resolve();
+      return "dev.ace.test";
+    },
+  });
+  // B's first sample saw no input. The person starts typing while A still holds the queue.
+  nativeAt = 1_000;
+  await test.release();
+  await sampled.promise;
+  expect(await test.typed()).toBe("A");
+  // Routed human input must still get through while B waits for physical activity to lapse.
+  await test.input("human", "person");
+  expect(await test.typed()).toBe("Aperson");
+  await test.advance(3_000);
+  await test.second;
+  expect(await test.typed()).toBe("ApersonB");
+});
+
+it("human input held beyond its entry lease renews presence when it is dispatched", async () => {
+  const test = await queuedCowork();
+  const person = test.input("human", "person");
+  await test.advance(4_000);
+  expect(test.screen.state(test.id).personActive).toBeUndefined();
+  await test.release();
+  await test.second;
+  await person;
+  expect(test.screen.state(test.id).personActive).toBe(true);
+  expect(await test.typed()).toBe("ABperson");
+  const following = test.input("agent", "C");
+  await setImmediate();
+  await test.advance(2_999);
+  expect(await test.typed()).toBe("ABperson");
+  await test.advance(1);
+  await following;
+  expect(await test.typed()).toBe("ABpersonC");
 });

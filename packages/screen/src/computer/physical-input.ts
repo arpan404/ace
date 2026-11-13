@@ -23,6 +23,7 @@ export function frontmostApp(apps: unknown): string | undefined {
 }
 
 export interface MacPhysicalInputPorts {
+  /** The same monotonic millisecond clock used for cowork leases and deadlines. */
   now(): number;
   /** Runs `ioreg` with these arguments and returns its output. */
   ioreg(args: readonly string[]): Promise<string>;
@@ -43,8 +44,9 @@ export function macPhysicalInput(ports: MacPhysicalInputPorts): PhysicalInput {
 }
 
 export interface WindowsPhysicalInputPorts {
+  /** The same monotonic millisecond clock used for cowork leases and deadlines. */
   now(): number;
-  /** The helper's `physical_input` reply, carrying GetLastInputInfo idle milliseconds. */
+  /** The helper's `physical_input` reply, carrying filtered idle milliseconds (initially seeded from GetLastInputInfo). */
   idle(): Promise<unknown>;
   /** The computer-use helper's `apps` reply, or undefined while there is no helper. */
   apps(): Promise<unknown>;

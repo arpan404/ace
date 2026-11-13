@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { computerWorld, type WorldOptions } from "./testing/world.ts";
 import { ScreenCowork } from "../cowork.ts";
+import { helperGate } from "../testing/gate.ts";
+import { deferred } from "../testing/support.ts";
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
@@ -526,4 +528,172 @@ it("exclusive control is rechecked after locked-use preparation immediately befo
   expect(refused.result.isError).toBe(true);
   expect(JSON.parse(refused.text)).toMatchObject({ code: "person_driving" });
   expect(await acts(ops)).toEqual([]);
+});
+
+it.each([false, true])(
+  "a native queued action rechecks the person at dispatch (exclusive %s)",
+  async (takeover) => {
+    const time = coworkClock();
+    const cowork = new ScreenCowork({ clock: time.clock });
+    const gate = await helperGate();
+    cleanups.push(gate.close);
+    let exclusive = false;
+    let armed = false;
+    const queued = deferred<void>();
+    const { call, ops } = await world({
+      env: { FAKE_ACT_GATE_PORT: gate.port },
+      toolkit: {
+        cowork,
+        personExclusive: () => exclusive,
+        lockedUse: async (scope, send) => {
+          const result = send(scope.signal);
+          if (armed) queued.resolve();
+          return result;
+        },
+      },
+    });
+    await call("screen_state", { app: "Calculator" });
+    const first = call("screen_act", {
+      app: "Calculator",
+      actions: [{ type: "key", key: "Escape" }],
+    });
+    await gate.reached;
+    armed = true;
+    const second = call("screen_act", {
+      app: "Calculator",
+      actions: [{ type: "type", text: "2" }],
+    });
+    await queued.promise;
+    armed = false;
+    cowork.personInput(["com.apple.calculator"]);
+    exclusive = takeover;
+    gate.release();
+    await first;
+    // A read passes the parked action, proving it released the native queue slot.
+    const read = await call("screen_state", { app: "Calculator" });
+    expect(read.result.isError).toBeFalsy();
+    expect(await acts(ops)).toHaveLength(1);
+    if (takeover) {
+      expect(JSON.parse((await second).text)).toMatchObject({ code: "person_driving" });
+    } else {
+      time.advance(3_000);
+      const result = await second;
+      expect(result.result.isError).toBeFalsy();
+      expect(result.text).toContain("Waited 3 s while the person used Calculator.");
+      expect(await acts(ops)).toHaveLength(2);
+    }
+  },
+);
+
+it("person input during locked-use preparation is checked before native dispatch", async () => {
+  const time = coworkClock();
+  const cowork = new ScreenCowork({ clock: time.clock });
+  let armed = false;
+  const { call, ops } = await world({
+    toolkit: {
+      cowork,
+      lockedUse: async (scope, send) => {
+        if (armed) cowork.personInput(["com.apple.calculator"]);
+        return send(scope.signal);
+      },
+    },
+  });
+  await call("screen_state", { app: "Calculator" });
+  armed = true;
+  const acting = call("screen_act", { app: "Calculator", actions: [{ type: "type", text: "1" }] });
+  // The read queues after the act, then passes it once its dispatch gate yields.
+  await tick();
+  armed = false;
+  await call("screen_state", { app: "Calculator" });
+  expect(await acts(ops)).toEqual([]);
+  time.advance(3_000);
+  expect((await acting).result.isError).toBeFalsy();
+  expect(await acts(ops)).toHaveLength(1);
+});
+
+it("native queue retries keep the original minute budget", async () => {
+  const time = coworkClock();
+  const cowork = new ScreenCowork({ clock: time.clock });
+  const gate = await helperGate();
+  cleanups.push(gate.close);
+  let armed = false;
+  const queued = deferred<void>();
+  const { call, ops } = await world({
+    env: { FAKE_ACT_GATE_PORT: gate.port },
+    toolkit: {
+      cowork,
+      lockedUse: async (scope, send) => {
+        const result = send(scope.signal);
+        if (armed) queued.resolve();
+        return result;
+      },
+    },
+  });
+  await call("screen_state", { app: "Calculator" });
+  const first = call("screen_act", {
+    app: "Calculator",
+    actions: [{ type: "key", key: "Escape" }],
+  });
+  await gate.reached;
+  armed = true;
+  const second = call("screen_act", { app: "Calculator", actions: [{ type: "type", text: "2" }] });
+  await queued.promise;
+  armed = false;
+  time.advance(58_000);
+  cowork.personInput(["com.apple.calculator"]);
+  gate.release();
+  await first;
+  await call("screen_state", { app: "Calculator" });
+  time.advance(2_000);
+  expect(JSON.parse((await second).text)).toMatchObject({ code: "person_busy" });
+  expect(await acts(ops)).toHaveLength(1);
+});
+
+it("a helper exiting during dispatch sampling fails promptly and the next read restarts it", async () => {
+  const time = coworkClock();
+  const sampled = deferred<void>();
+  const release = deferred<void>();
+  let hold = false;
+  let armed = false;
+  const cowork = new ScreenCowork({
+    clock: time.clock,
+    physical: {
+      lastInputAt: async () => {
+        if (hold) {
+          sampled.resolve();
+          await release.promise;
+        }
+        return undefined;
+      },
+      frontmost: async () => undefined,
+    },
+  });
+  cleanups.push(() => release.resolve());
+  const { call, client, children, exited, ops } = await world({
+    toolkit: {
+      cowork,
+      lockedUse: async (scope, send) => {
+        if (armed) hold = true;
+        return send(scope.signal);
+      },
+    },
+  });
+  await call("screen_state", { app: "Calculator" });
+  const pid = await client.helperProcessId("com.apple.calculator");
+  const child = children.find((entry) => entry.pid === pid);
+  if (!child) throw new Error("Missing app helper");
+  armed = true;
+  const acting = call("screen_act", {
+    app: "Calculator",
+    actions: [{ type: "key", key: "Escape" }],
+  });
+  await sampled.promise;
+  child.kill();
+  await exited(child);
+  hold = false;
+  armed = false;
+  release.resolve();
+  expect((await acting).text).toContain("helper stopped");
+  expect(await acts(ops)).toEqual([]);
+  expect((await call("screen_state", { app: "Calculator" })).result.isError).toBeFalsy();
 });

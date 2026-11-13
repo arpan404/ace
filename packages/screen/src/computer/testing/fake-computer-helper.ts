@@ -12,6 +12,7 @@
  * outline comes back partial, not responding), Huge (its outline is enormous).
  */
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { connect } from "node:net";
 import { createInterface } from "node:readline";
 
 const env = process.env;
@@ -89,7 +90,18 @@ interface Action {
   when?: { text?: string; gone?: boolean };
 }
 
+let heldFirstAct = false;
 async function act(request: Request, app: App): Promise<unknown> {
+  const port = env["FAKE_ACT_GATE_PORT"];
+  if (port && !heldFirstAct) {
+    heldFirstAct = true;
+    await new Promise<void>((resolve, reject) => {
+      const socket = connect(Number(port), "127.0.0.1", () => socket.write("reached\n"));
+      socket.once("end", resolve);
+      socket.once("error", reject);
+      socket.resume();
+    });
+  }
   const actions = (request["actions"] ?? []) as Action[];
   const done: string[] = [];
   for (const [index, action] of actions.entries()) {

@@ -8,7 +8,7 @@ import { actLog, ranSteps, sentInput } from "./act-log.ts";
 import { expandConditions, type WireAction } from "./conditions.ts";
 import { appNote } from "./app-notes.ts";
 import { lookAtDisplays } from "./displays.ts";
-import { ComputerError, type ComputerClient } from "./client.ts";
+import { ComputerError, type ComputerClient, type RequestDispatch } from "./client.ts";
 import { ComputerMemory, type ResolvedApp } from "./memory.ts";
 import {
   baselineOf,
@@ -176,6 +176,7 @@ export function computerToolkit(
     context: ToolContext,
     op: "state" | "act",
     payload: Record<string, unknown>,
+    dispatch?: RequestDispatch,
   ): Promise<unknown> => {
     const done =
       op === "state" ? options.using?.(context.caller.threadId, app.name, app.bundleId) : undefined;
@@ -184,7 +185,11 @@ export function computerToolkit(
         // A take-over may happen during the cowork wait or locked-use preparation.
         if (op === "act" && options.personExclusive?.(app.bundleId))
           throw new PublicToolError("person_driving");
-        return localClient().request(op, payload, { signal, app: app.bundleId });
+        return localClient().request(op, payload, {
+          signal,
+          app: app.bundleId,
+          ...(dispatch ? { dispatch } : {}),
+        });
       };
       if (!options.lockedUse) return await send(context.signal);
       const { threadId, agentId } = context.caller;
@@ -282,17 +287,33 @@ export function computerToolkit(
       const done = options.using?.(context.caller.threadId, resolved.name, resolved.bundleId);
       try {
         const expanded = expandConditions(actions);
-        // The person is using this app: wait until they pause, or give up having done nothing.
+        // This turn's budget survives locked-use preparation and every native queue retry.
+        const turn =
+          options.cowork && actsOnApp(actions)
+            ? options.cowork.turn([resolved.bundleId], resolved.name)
+            : undefined;
         let waited: string | undefined;
-        if (options.cowork && actsOnApp(actions)) {
-          const outcome = await options.cowork.yield(
-            resolved.bundleId,
-            resolved.name,
-            context.signal,
+        const authorize = () => {
+          context.signal.throwIfAborted();
+          if (options.personExclusive?.(resolved.bundleId))
+            throw new PublicToolError("person_driving");
+          return !turn?.busy();
+        };
+        const wait = async (signal?: AbortSignal) => {
+          authorize();
+          const outcome = await turn?.wait(
+            signal ? AbortSignal.any([context.signal, signal]) : context.signal,
           );
-          if (outcome.busy) throw new PublicToolError("person_busy");
-          waited = outcome.note;
-        }
+          authorize();
+          if (outcome?.busy) throw new PublicToolError("person_busy");
+          waited = outcome?.note;
+        };
+        await wait();
+        const dispatch: RequestDispatch = {
+          ready: async () => (turn ? turn.ready() : true),
+          authorize,
+          wait,
+        };
         const point = (completed: readonly string[]) => {
           const pointed = lastPoint(ranSteps(expanded.wire, completed));
           if (pointed) options.cowork?.acted(resolved.bundleId, pointed.point, pointed.kind);
@@ -300,13 +321,19 @@ export function computerToolkit(
         let result: ComputerActResult;
         try {
           result = ComputerActResult.parse(
-            await use(resolved, context, "act", {
-              app: resolved.bundleId,
-              actions: expanded.wire,
-              ...(window !== undefined ? { window } : {}),
-              screenshot: !!screenshot,
-              ...(observe === false ? { observe: false } : {}),
-            }),
+            await use(
+              resolved,
+              context,
+              "act",
+              {
+                app: resolved.bundleId,
+                actions: expanded.wire,
+                ...(window !== undefined ? { window } : {}),
+                screenshot: !!screenshot,
+                ...(observe === false ? { observe: false } : {}),
+              },
+              dispatch,
+            ),
           );
         } catch (error) {
           // Overdue or cancelled after some steps ran: say which, then why it stopped.

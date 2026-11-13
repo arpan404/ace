@@ -17,6 +17,8 @@ type ActionRuntime = {
   /** The person's input needs no controls (cowork, ADR 0143). */
   cowork?: boolean;
   personBusy?(): boolean;
+  personReady?(): Promise<boolean>;
+  onDispatch?(): void;
 };
 /** Per-session ordering; only foreground input and clipboard work share a host lane. */
 export function executeSessionAction<T>(
@@ -61,7 +63,9 @@ export function executeSessionAction<T>(
         const failure = actionPermissionFailure(permissions, access);
         if (failure) throw new HelperCommandError("permission_denied", failure);
         validate();
-        if (runtime.personBusy?.()) return personReturned;
+        const ready = await runtime.personReady?.();
+        validate();
+        if (ready === false || runtime.personBusy?.()) return personReturned;
         if (
           actor === "agent" &&
           session.state.mode === "background" &&
@@ -72,7 +76,12 @@ export function executeSessionAction<T>(
             "Helper cannot guarantee background input",
           );
         try {
-          const result = await dispatch(session, validate);
+          const validateDispatch = () => {
+            validate();
+            runtime.onDispatch?.();
+          };
+          validateDispatch();
+          const result = await dispatch(session, validateDispatch);
           if (actor === "agent") runtime.audit(auditState, actionName, "completed");
           return result;
         } catch (error) {

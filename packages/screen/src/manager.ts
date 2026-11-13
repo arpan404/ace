@@ -791,7 +791,8 @@ export class ScreenManager {
         {
           host: this.host,
           cowork: cowork !== undefined,
-          ...(turn ? { personBusy: turn.busy } : {}),
+          ...(turn ? { personBusy: turn.busy, personReady: turn.ready } : {}),
+          ...(actor === "human" && cowork ? { onDispatch: () => cowork.personInput(apps) } : {}),
           authorize,
           emit: (current) => this.emit(current),
           fail: (current, error) => this.fail(current, error),

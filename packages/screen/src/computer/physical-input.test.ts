@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import { ScreenCowork } from "../cowork.ts";
 import {
   frontmostApp,
   hidIdleMs,
@@ -77,3 +78,76 @@ it("Windows propagates an idle-source failure to the presence boundary", async (
   });
   await expect(input.lastInputAt()).rejects.toThrow("helper unavailable");
 });
+
+const activeNotes = async () => ({
+  apps: [{ bundleId: "notes", name: "Notes", running: true, active: true }],
+});
+
+it.each(["Windows", "macOS"])(
+  "%s physical leases, waits and deadlines ignore wall clock jumps; pointers keep epoch time",
+  async (platform) => {
+    let monotonic = 10_000;
+    let epoch = 1_800_000_000_000;
+    let lastPersonAt = monotonic;
+    const timers = new Set<{ at: number; run: () => void }>();
+    let leaseScheduled: (() => void) | undefined;
+    const physical =
+      platform === "Windows"
+        ? windowsPhysicalInput({
+            now: () => monotonic,
+            idle: async () => ({ idleMs: monotonic - lastPersonAt }),
+            apps: activeNotes,
+          })
+        : macPhysicalInput({
+            now: () => monotonic,
+            ioreg: async () => `"HIDIdleTime" = ${(monotonic - lastPersonAt) * 1_000_000}`,
+            apps: activeNotes,
+          });
+    const clock = {
+      now: () => monotonic,
+      set(ms: number, run: () => void) {
+        const timer = { at: monotonic + ms, run };
+        timers.add(timer);
+        if (ms === 3_000) leaseScheduled?.();
+        return () => void timers.delete(timer);
+      },
+    };
+    const advance = (ms: number) => {
+      monotonic += ms;
+      for (const timer of timers) {
+        if (timer.at <= monotonic && timers.delete(timer)) timer.run();
+      }
+    };
+    const cowork = new ScreenCowork({ clock, epochNow: () => epoch, physical });
+    const sampled = new Promise<void>((resolve) => {
+      leaseScheduled = resolve;
+    });
+    const turn = cowork.turn(["notes"]);
+    const waiting = turn.wait();
+    await sampled;
+    epoch -= 86_400_000;
+    advance(1_000);
+    expect(cowork.personActive(["notes"])).toBe(true);
+    expect(await physical.lastInputAt()).toBe(lastPersonAt);
+    epoch += 172_800_000;
+    expect(cowork.personActive(["notes"])).toBe(true);
+    advance(2_000);
+    expect(await waiting).toMatchObject({ busy: false, waitedMs: 3_000 });
+    expect(cowork.personActive(["notes"])).toBe(false);
+    cowork.acted("notes", { x: 5, y: 7 }, "click");
+    expect(cowork.pointer(["notes"])).toMatchObject({ at: epoch });
+
+    // A wall-clock jump cannot reset a request's minute budget across retries.
+    const bounded = cowork.turn(["notes"]);
+    lastPersonAt = monotonic;
+    cowork.personInput(["notes"]);
+    const boundedWait = bounded.wait();
+    epoch -= 86_400_000;
+    advance(60_000);
+    lastPersonAt = monotonic;
+    cowork.personInput(["notes"]);
+    expect(await boundedWait).toMatchObject({ busy: true });
+    epoch += 172_800_000;
+    expect(await bounded.wait()).toMatchObject({ busy: true });
+  },
+);
