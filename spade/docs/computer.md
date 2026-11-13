@@ -51,18 +51,30 @@ the bot's open turn at its next safe point: a streaming step finishes, tools cut
 reply. A working bot's status is `Paused while you have the computer`. Stop still closes the
 reply.
 
-**Handing back** stores `{"type":"computer_handed_back","text"}`, removes the file, and resumes:
-the paused turn carries on, or the waiting messages open a reply. The note doesn't open a reply
-by itself. `text` lists the lines the person entered at the shell's prompt (50 at most, then a
-count), the workspace files new, changed or removed since the take-over (30 at most, then a
-count), and "They used your browser/screen" when ace reported `person_acted`. The model reads it
-as `<computer_handed_back from="spade">…</computer_handed_back>`, after the results of any calls
-still open, like a job's result. The app may show it as a small system line.
+**Handing back** stores `{"type":"computer_handed_back","text","data"?}`, removes the file, and
+resumes: the paused turn carries on, or the waiting messages open a reply. The note doesn't open
+a reply by itself.
 
-A line counts as entered at the prompt when the terminal's foreground process group is the
-shell's at the moment the person presses Return. A line typed into a running program (`sudo`'s
-password prompt) is never kept. Tab completion and history are the shell's, so a line is what
-the person typed, not always what ran.
+- `text` is Spade's words. It names the lines the person entered at the shell's prompt (50 at
+  most, then a count; theirs, so trusted), says how many workspace files are new, changed or
+  removed since the take-over and how many addresses they visited, opened or closed in the
+  browser, and adds "They used your browser/screen" when ace reported it.
+- `data` holds the names themselves, `new: path` or `went to: address` (30 files at most, 10
+  addresses per list), because whoever made a file or a page chose its name. A hand-back with
+  `data` counts as untrusted content for the rest of the conversation's view, exactly like a
+  fetched page (approvals, notes, proposals).
+- The model reads `<computer_handed_back from="spade">…</computer_handed_back>`, then, when there
+  is data, `<handback_data untrusted="true">` with the names as a JSON array. It comes after the
+  results of any calls still open, like a job's result. The app may show it as a small system
+  line.
+
+A line counts as a command only when it answers the shell's prompt. The person's shell draws a
+mark before each prompt (an OSC sequence terminals ignore, `ESC ]777;spade-prompt;<token> BEL`).
+The token is new for each shell and set as the prompt in a startup file (`ENV`), which is deleted
+once the first prompt is drawn. It is never exported, so no program the shell starts sees it. The
+first Return after a mark answers it; any other Return doesn't. So a line typed into a program
+(`sudo`'s password prompt, `read`) or a second line pasted after a command is never kept. Tab
+completion and history are the shell's, so a line is what the person typed, not always what ran.
 
 ## ace's side: browser and screen
 
@@ -96,8 +108,9 @@ The daemon keeps each bot's browser and screen in a hidden thread of its own
 ## The terminal
 
 On macOS and Linux each bot has one `/bin/sh -i` in a pseudo-terminal (`portable-pty`), started
-in its workspace when first used. Its environment is the one-shot shell's (see
-[workspace.md](workspace.md)) with `TERM=xterm-256color` and `PS1='$ '`. The size starts at
+in its workspace when first viewed or typed in. It is the person's. Its environment is the
+one-shot shell's (see [workspace.md](workspace.md)) with `TERM=xterm-256color`, and its prompt is
+`$ ` after the mark above. The size starts at
 120×32. The last 2 MiB of output is kept as numbered chunks. Numbers start from the clock, so
 they keep growing across Spade restarts.
 
@@ -108,7 +121,7 @@ also ended when the bot is deleted and when Spade stops. The next use starts a n
 | Method and path                      | Body / query         | Answer                                                         |
 | ------------------------------------ | -------------------- | -------------------------------------------------------------- |
 | `GET /agents/{id}/terminal/live`     | `?after=N`           | SSE (below); starts the shell if it isn't running              |
-| `POST /agents/{id}/terminal/input`   | `{"data_b64"}`       | `204`; `409` unless the person drives; `413` past 64 KiB       |
+| `POST /agents/{id}/terminal/input`   | `{"data_b64"}`       | `204`; `409` unless the person drives, or while a bot command is still stopping; `413` past 64 KiB |
 | `POST /agents/{id}/terminal/resize`  | `{"cols", "rows"}`   | `204`; clamped to 2–1000 × 1–1000                              |
 
 SSE events: first `resize {"cols","rows"}`, then each kept `output {"seq","data_b64"}` with `seq`
@@ -118,21 +131,28 @@ closed and comes back with its last `seq`.
 
 ### The bot's `shell` tool
 
-On macOS and Linux it runs in the terminal. Asking, "always" for the exact command, the timeouts,
-the 4 MiB output cap, large output kept as a file, and untrusted output are all as in
-[workspace.md](workspace.md). How a command runs:
+On macOS and Linux it is shown in the terminal and keeps its folder and variables between
+commands. Asking, "always" for the exact command, the timeouts, the 4 MiB output caps, the
+`[stderr]` part, large output kept as a file, and untrusted output are all as in
+[workspace.md](workspace.md). A bot command never goes through the person's shell:
 
 1. One command at a time per bot. It is refused (an error result) while the person has the
-   computer, and while a program other than the shell holds the foreground.
-2. The command goes to `<data folder>/terminal/<agent>/<nonce>.cmd`, plus a runner `<nonce>.sh`:
-   `printf` of `ESC ]777;spade;<nonce>;start BEL`, `. '<nonce>.cmd' </dev/null`, then `printf` of
-   `ESC ]777;spade;<nonce>;end;$? BEL`. The terminal gets Ctrl-U (dropping anything half typed),
-   then ` . '<nonce>.sh'`.
-3. The output between the markers, with escape sequences removed, `\r\n` as `\n` and redrawn
-   lines kept as last drawn, is what the model reads. stdout and stderr arrive merged, so there
-   is no `[stderr]` part. Both files are removed afterwards.
-4. Past the deadline it gets Ctrl-C, then after 1 s the foreground job's group is killed. If the
-   shell itself exits (`exit`), the result says so and the next command starts a new one.
+   computer.
+2. It runs as the one-shot shell does: `/bin/sh -c`, its own process group, the built
+   environment, stdin from `/dev/null`. Two things change. It starts in the folder the bot's last
+   command ended in (the workspace at first), and with the variables that command exported. These
+   are never carried: `PATH`, `HOME`, `SHELL`, `ENV`, `BASH_ENV`, `IFS`, `CDPATH`, the prompts,
+   `TERM`, `PWD`, `TMPDIR`, `LANG`, `USER`, `LOGNAME`, `LD_*`, `DYLD_*`, `BASH_FUNC_*`. So a
+   command allowed always still runs the same program. At most 200 variables (64 KiB) are carried.
+   An `EXIT` trap writes the folder and `env -0` to two files in
+   `<data folder>/terminal/<agent>/`, which Spade reads and removes.
+3. Its output goes to the model as before, and is copied into the terminal's view as it comes,
+   after a `[bot] $ <first line>` line and before `[bot] exit N`.
+4. A supervisor owns it, so it ends when its process ends. Past the deadline, or when the call is
+   dropped (a take-over or Stop), its whole process group is killed, the supervisor waits (up to
+   5 s) until no process is left in it, and only then does the next command start or the person
+   get to type. Completion is the process's own exit, so nothing a command prints can end it
+   early.
 
 On Windows the `shell` tool runs each command on its own, as in workspace.md, and the terminal
 routes answer `503`.

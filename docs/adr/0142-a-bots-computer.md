@@ -44,20 +44,21 @@ take over.
 4. **One shell per bot, kept between commands.** An interactive `/bin/sh` in a pseudo-terminal,
    started in the bot's workspace with the same clean environment as the one-shot shell of
    ADR 0130 (none of Spade's secrets, system folders on `PATH`, `HOME` the workspace) plus a
-   terminal type. A folder change or a variable set by one command is there for the next. The
-   last 2 MiB of output is kept for viewers. The shell is ended after 6 hours unused, unless the
+   terminal type. It is the person's. The last 2 MiB of output is kept for viewers. The shell is ended after 6 hours unused, unless the
    person has the computer; it is also ended when the bot is deleted and when Spade stops, and
    everything in its session goes with it. The next use starts a new one.
-5. **The bot's `shell` tool types into that terminal.** Each command is written to a file in
-   Spade's own scratch folder and sourced, with stdin from `/dev/null`, between two marker
-   sequences that terminals don't display. What lies between the markers is the command's
-   output, and the end marker carries its exit status. Everything ADR 0130 sets for the shell
-   still holds: every command asks first, "always" allows that exact command only, output past
-   4 MiB is dropped, the deadline is 60 s by default and 110 s at most, and output is untrusted
-   (as is every file a command makes). A command past its deadline gets Ctrl-C, then its job is
-   killed, and the shell stays. When a program other than the shell holds the terminal's
-   foreground (the person left one open), the bot's command is refused rather than typed into
-   that program.
+5. **The bot's `shell` commands show in that terminal and keep their state.** A bot command
+   never goes through the person's shell. Each runs as Spade's own child, as the one-shot shell
+   of ADR 0130 does (its own process group, stdin from `/dev/null`). It starts in the folder the
+   last one ended in, with the variables it exported, never those that decide which program a
+   name runs (`PATH`, `LD_*`, `DYLD_*` and the like), and its output is copied into the
+   terminal's view. A supervisor owns each command: when the command finishes, times out or is
+   dropped (by a take-over or Stop), its whole process group is gone before the next command
+   starts or the person types. Completion is the process's own exit, never something printed,
+   so a command can't fake its end. Everything ADR 0130 sets for the shell still holds: every
+   command asks first, "always" allows that exact command only, output past 4 MiB is dropped,
+   the deadline is 60 s by default and 110 s at most, and output is untrusted (as is every file a
+   command makes).
 6. **Windows keeps the one-shot shell for now.** It has no bot terminal yet; its `shell` runs each
    command on its own, as before.
 
@@ -74,9 +75,12 @@ take over.
    ace, and change files through the app.
 9. **Handing back resumes the bot with a note.** Spade stores `computer_handed_back` with its
    summary of what the person did: the lines they entered at the shell's prompt (as typed; never
-   keystrokes, and never a line typed into a running program such as a password prompt), the
-   workspace files that are new, changed or removed since the take-over, and whether ace said
-   they used the browser or the screen. Then the paused turn carries on, or the waiting messages
+   keystrokes), the workspace files that are new, changed or removed since the take-over, and
+   whether ace said they used the browser or the screen. A line counts only when it answers a
+   prompt the shell drew, recognised by a mark with a token no program sees, so a password typed
+   into `sudo` or `read` is never kept. File names and addresses are chosen by whoever made the
+   file or page, so they go apart from Spade's words as data, and a note with them counts as
+   untrusted content like a fetched page. Then the paused turn carries on, or the waiting messages
    are answered. The daemon hands the browser and screen back first and says what the person did
    there (addresses visited, tabs opened and closed, whether the screen was used); the note
    names addresses only, never page titles. The model reads the note as Spade's, wrapped in
@@ -105,8 +109,8 @@ take over.
 
 - The app can show the bot's work as it happens and hand the person the controls without a
   message round trip.
-- A bot's shell now keeps state between commands. Background processes a command starts stay
-  until the terminal ends; before, they were killed when the command ended.
+- A bot's commands now keep their folder and exported variables between commands. As before,
+  nothing a command starts outlives it.
 - The note costs a few hundred tokens per hand-back, and the model loses nothing it needs to
   carry on.
 - ace reports each bot's browser and screen to Spade (`PUT .../computer/surfaces/{kind}`), and
