@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { TerminalSource } from "../sources.ts";
 import { TerminalSessions } from "./sessions.ts";
 import { TerminalView } from "./terminal-view.tsx";
@@ -22,8 +22,10 @@ export interface StandaloneTerminalProps {
 }
 
 export default function StandaloneTerminal(props: StandaloneTerminalProps) {
-  // One screen per source: a new source (another bot) starts a fresh one.
+  // One screen per source: a new source (another bot) starts a fresh one. When this view goes,
+  // its streams go with it; nothing stays parked behind it.
   const [sessions] = useState(() => new TerminalSessions(props.source));
+  useEffect(() => () => sessions.dispose(), [sessions]);
   return (
     <TerminalView
       sessions={sessions}

@@ -70,9 +70,8 @@ export function spadeTerminalSource(deps: TerminalSourceDeps): SpadeTerminalSour
       };
       const open = () => {
         if (stopped || close) return;
+        // Not now: the listener below opens it once the way is back.
         if (!deps.transport.canOpen()) return;
-        stopWaiting?.();
-        stopWaiting = undefined;
         close = deps.transport.open(`/v1/agents/${segment(deps.bot)}/terminal/live?after=${seq}`, {
           frame(event, data) {
             const frame = parseSpadeTerminalFrame(event, data);
@@ -99,6 +98,8 @@ export function spadeTerminalSource(deps: TerminalSourceDeps): SpadeTerminalSour
           },
         });
       };
+      // Kept until detach: whenever the daemon or Spade is back, the stream opens again after
+      // the last `seq` drawn.
       stopWaiting = deps.transport.onOpenable(open);
       open();
       return () => {

@@ -37,17 +37,30 @@ export default function BotScreen(props: BotScreenProps) {
   const state = botSession(snapshot.states, props.threadId);
   const sessionId = state?.sessionId;
   const refused = useEffectEvent((error: unknown) => props.onProblem(error));
-  // The person's controls while they drive, let go once they hand back.
   const human = state?.controller === "human";
+  // The person's controls while they drive. They are let go when the person hands back, when
+  // this view goes (another surface, another bot) or the session changes, and when the answer to
+  // taking them arrives after any of those.
   useEffect(() => {
-    if (!session || !sessionId) return;
-    if (props.driving && !human)
-      void session
-        .request({ op: "controller", sessionId, controller: "human" })
-        .catch((error: unknown) => refused(error));
-    if (!props.driving && human)
+    if (!session || !sessionId || !props.driving) return;
+    let gone = false;
+    let held = false;
+    const letGo = () =>
       void session.request({ op: "controller", sessionId, controller: "none" }).catch(() => {});
-  }, [session, sessionId, props.driving, human]);
+    session.request({ op: "controller", sessionId, controller: "human" }).then(
+      () => {
+        held = true;
+        if (gone) letGo();
+      },
+      (error: unknown) => {
+        if (!gone) refused(error);
+      },
+    );
+    return () => {
+      gone = true;
+      if (held) letGo();
+    };
+  }, [session, sessionId, props.driving]);
   if (snapshot.unavailable)
     return (
       <p className="grid h-full place-items-center px-6 text-center text-ui text-muted-foreground">
