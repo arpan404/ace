@@ -111,6 +111,8 @@ export interface Services {
   spadeGrantVerify?: (bearer: string) => boolean;
   /** Spade's bots on the person's other machines (ADR 0132). */
   spadeRemote?: import("../spade/remote.ts").SpadeRemote;
+  /** Spade's bots' browsers and screen use (`spade.computer.*`). */
+  spadeComputers?: import("../spade/computers.ts").SpadeComputers;
   commands?: CommandLibrary;
   files?: FilesService;
   supportFiles?: FilesService;

@@ -92,6 +92,8 @@ export interface ServerOptions {
   spadeGrantVerify?: import("./services/types.ts").Services["spadeGrantVerify"];
   /** Spade's bots on the person's other machines (ADR 0132). */
   spadeRemote?: import("./spade/remote.ts").SpadeRemote | undefined;
+  /** Spade's bots' browsers and screen use (`spade.computer.*`). */
+  spadeComputers?: import("./spade/computers.ts").SpadeComputers | undefined;
   commands?: CommandService | undefined;
   files?: FilesService;
   threadFiles?: import("./files-workspaces.ts").FilesWorkspaces;

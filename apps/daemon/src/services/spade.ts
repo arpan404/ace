@@ -15,6 +15,7 @@ import { aceSpadeService, type SpadeServiceControl } from "../spade/service-cont
 import { watchFeatures, type FeaturesWatchRuntime } from "../spade/features-file.ts";
 import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
 import { spadeHostThread } from "./spade-host.ts";
+import { startSpadeComputers } from "./spade-computers.ts";
 import { spadeSwitch } from "./spade-switch.ts";
 import type { ServiceContext } from "./types.ts";
 
@@ -58,6 +59,11 @@ export async function startSpade(context: ServiceContext): Promise<void> {
   services.spade = link;
   context.resources.own(() => link.close(), "spade");
   const host = spadeHostThread(context, link, dataDir);
+  services.spadeComputers = startSpadeComputers(
+    context,
+    () => host.current(),
+    join(dataDir, "workspace"),
+  );
   // `features.json` (ADR 0139): while Spade is hidden it gets no service, grant or forwarding,
   // whatever `spade.enabled` says. Applied below, once the switch exists.
   let onFeatures: ((shown: boolean) => void) | undefined;

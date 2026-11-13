@@ -3,6 +3,7 @@ export * from "./skill-library.ts";
 export * from "./spade.ts";
 export * from "./spade-brains.ts";
 export * from "./spade-remote.ts";
+export * from "./spade-computer.ts";
 export * from "./provider-error-details.ts";
 export * from "./agent.ts";
 export * from "./background.ts";

@@ -44,6 +44,11 @@ export const ScreenState = z.object({
   mode: ScreenMode.default("background"),
   secureInputAllowed: z.boolean().default(false),
   holder: ScreenAgentScope.optional(),
+  /**
+   * The thread the session was started for (`start` with `threadId`), for its whole life:
+   * unlike `holder`, it stays when control moves to the person or to nobody.
+   */
+  threadId: ScreenAgentScope.shape.threadId.optional(),
   indicator: z.boolean(),
   target: ScreenTarget,
   permissions: ScreenPermissions,
