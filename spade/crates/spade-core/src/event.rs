@@ -447,6 +447,10 @@ pub struct FromRoutine {
     /// steers counts as untrusted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub event: Option<String>,
+    /// The routine was set up or changed in a turn that had untrusted content in view
+    /// (ADR 0144): its instruction may have been planted, so a turn it starts is untrusted.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub untrusted: bool,
 }
 
 /// An attached image, as stored in an event: its SHA-256 (hex), media type and size.

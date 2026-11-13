@@ -773,11 +773,12 @@ pub fn untrusted_event(event: &Event, registry: &Registry) -> bool {
             from_group: Some(from),
             ..
         }) if from.untrusted => true,
-        // A routine fired by an ace event carries that event's text (a thread's title).
+        // A routine fired by an ace event carries that event's text (a thread's title); one set
+        // up or changed after reading untrusted content carries that taint (ADR 0144).
         Event::Known(Known::UserMessage {
             from_routine: Some(from),
             ..
-        }) if from.event.is_some() => true,
+        }) if from.event.is_some() || from.untrusted => true,
         Event::Known(Known::ToolFinished {
             untrusted: true, ..
         }) => true,

@@ -93,7 +93,7 @@ impl Tool for ConnectorCall {
         self.def.clone()
     }
 
-    fn class(&self) -> spade_core::autonomy::Class {
+    fn class(&self, arguments: &Value) -> spade_core::autonomy::Class {
         spade_core::autonomy::classify(
             &self.tool.tool.name,
             self.def.risk,
@@ -102,6 +102,7 @@ impl Tool for ConnectorCall {
                 annotated: self.tool.tool.annotated,
                 open_world: self.tool.tool.open_world,
             }),
+            arguments,
         )
     }
 

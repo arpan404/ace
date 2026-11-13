@@ -76,8 +76,24 @@ pub enum Sensitive {
     Publish,
     DeleteOutside,
     Credentials,
-    /// Spade can't tell what the call does.
+    /// Spade can't tell what the tool does.
     Unknown,
+    /// A command sends data over the network.
+    Network,
+    /// A command writes or moves files outside the bot's folder.
+    WriteOutside,
+    /// A command changes something on a server (a deploy, a cluster, infrastructure).
+    RemoteChange,
+    /// A command drives other apps.
+    Automation,
+    /// A command runs with administrator rights or changes the system.
+    Admin,
+    /// Spade can't read everything a command does.
+    Unclear,
+    /// A routine set up or changed after reading untrusted content.
+    TaintedRoutine,
+    /// An app's tool that says it only reads, but whose name says it acts.
+    Mislabelled,
 }
 
 impl Sensitive {
@@ -90,6 +106,18 @@ impl Sensitive {
             Self::DeleteOutside => "It deletes something outside the bot's folder, so you decide.",
             Self::Credentials => "It changes sign-ins, keys or who has access, so you decide.",
             Self::Unknown => "Spade can't tell what this tool does, so you decide.",
+            Self::Network => "It sends data over the network, so you decide.",
+            Self::WriteOutside => "It changes files outside the bot's folder, so you decide.",
+            Self::RemoteChange => "It changes something on a server, so you decide.",
+            Self::Automation => "It drives other apps on this computer, so you decide.",
+            Self::Admin => "It needs administrator rights or changes the system, so you decide.",
+            Self::Unclear => "Spade can't tell everything this command does, so you decide.",
+            Self::TaintedRoutine => {
+                "It sets up standing work after reading untrusted content, so you decide."
+            }
+            Self::Mislabelled => {
+                "Its app says it only reads, but its name says it acts, so you decide."
+            }
         }
     }
 }
@@ -130,7 +158,6 @@ pub struct AppHints<'a> {
 const INSIDE: &[&str] = &[
     "workspace_write",
     "workspace_edit",
-    "shell",
     "memory_save",
     "memory_update",
     "memory_forget",
@@ -147,13 +174,35 @@ const INSIDE: &[&str] = &[
 /// Spade's own tools that reach another bot.
 const OUTWARD: &[&str] = &["bot_message", "group_ask"];
 
-/// What a call can reach, from the tool's name, risk and source. Reads are inside: they change
-/// nothing.
-pub fn classify(name: &str, risk: Risk, source: Source<'_>) -> Class {
+/// What a call can reach, from the tool's name, risk, source and arguments. An app's word for
+/// itself (its annotations) is a hint from a server Spade doesn't control: a tool whose name or
+/// description says it acts is classed by that even when it claims to only read.
+pub fn classify(name: &str, risk: Risk, source: Source<'_>, arguments: &Value) -> Class {
+    if let Source::App(hints) = source
+        && risk == Risk::Read
+    {
+        if acts(name, hints.description) {
+            return Class::Sensitive(Sensitive::Mislabelled);
+        }
+        // Reading a password or a token is no harmless read, whatever the app says.
+        if words_say(name, hints.description) == Some(Sensitive::Credentials) {
+            return Class::Sensitive(Sensitive::Credentials);
+        }
+    }
     if risk == Risk::Read {
         return Class::Inside;
     }
     match source {
+        Source::Spade if name == SHELL => {
+            match arguments.get("command").and_then(Value::as_str) {
+                None => Class::Sensitive(Sensitive::Unclear),
+                // Reading credentials is refused on its own (`reaches_credentials`).
+                Some(command) => match shell::assess(command) {
+                    Some(shell::Finding::Sensitive(kind)) => Class::Sensitive(kind),
+                    Some(shell::Finding::Credentials) | None => Class::Inside,
+                },
+            }
+        }
         Source::Spade if INSIDE.contains(&name) => Class::Inside,
         Source::Spade if OUTWARD.contains(&name) => Class::Outward,
         Source::Spade => Class::Sensitive(Sensitive::Unknown),
@@ -170,6 +219,30 @@ pub fn classify(name: &str, risk: Risk, source: Source<'_>) -> Class {
             None => Class::Outward,
         },
     }
+}
+
+/// The shell tool.
+pub const SHELL: &str = "shell";
+
+/// Spade's tools that set up standing work: in a turn that read untrusted content they always go
+/// to the person, since what they set up runs later with no one watching.
+pub const STANDING: &[&str] = &["routine_save", "routine_delete"];
+
+/// Verbs that act, in an app tool's name or the first word of its description.
+const ACTIONS: &[&str] = &[
+    "send", "sends", "reply", "forward", "post", "posts", "publish", "tweet", "share", "comment",
+    "upload", "pay", "pays", "purchase", "buy", "charge", "refund", "transfer", "invite", "delete",
+    "deletes", "remove", "removes", "trash", "destroy", "create", "creates", "update", "updates",
+    "write", "writes", "edit", "edits", "set", "sets", "grant", "revoke", "merge", "deploy",
+];
+
+/// Whether an app tool's name, or the first word of its description, says it acts.
+fn acts(name: &str, description: &str) -> bool {
+    let first = words(description).into_iter().next();
+    words(name)
+        .iter()
+        .chain(first.as_ref())
+        .any(|w| ACTIONS.contains(&w.as_str()))
 }
 
 /// The sensitive kind a tool's name (split into words) names, else its description's first
@@ -286,39 +359,11 @@ fn sensitive_in(words: &[String]) -> Option<Sensitive> {
     .find_map(|(list, kind)| has(list).then_some(kind))
 }
 
-/// Places where the person's CLI sign-ins and provider credentials live (ADR 0002): no level lets
-/// a bot read them. A plain match on the call's arguments, so it is a guard rail, not a sandbox.
-const CREDENTIAL_PLACES: &[&str] = &[
-    ".codex/auth",
-    ".claude/.credentials",
-    ".claude.json",
-    ".config/gh/hosts",
-    "gh auth token",
-    ".gemini/oauth",
-    ".config/opencode",
-    ".local/share/opencode",
-    ".cursor/",
-    ".aws/credentials",
-    ".config/gcloud",
-    ".azure/",
-    ".netrc",
-    ".git-credentials",
-    ".docker/config.json",
-    ".npmrc",
-    ".pypirc",
-    ".ssh/",
-    ".gnupg",
-    "security find-generic-password",
-    "security find-internet-password",
-    "security dump-keychain",
-    "secret-tool lookup",
-    "login.keychain",
-];
-
-/// Whether a call's arguments name a place where sign-ins or credentials live.
+/// Whether a call's arguments reach sign-ins or credentials: a path where they live, read by any
+/// program, or a command that reads secrets ([`secrets`]). Checked on every level and for every
+/// call, reads included. A denylist can't be complete; it is a guard rail, not a sandbox.
 pub fn reaches_credentials(arguments: &Value) -> bool {
-    let text = arguments.to_string().to_lowercase().replace("\\\\", "/");
-    CREDENTIAL_PLACES.iter().any(|place| text.contains(place))
+    secrets::reaches(arguments)
 }
 
 /// What the result of a call refused for reaching credentials says.
@@ -343,35 +388,65 @@ pub struct Call {
     pub access: Access,
     /// What the rule gate (ADR 0130) decided.
     pub rule: Decision,
+    pub risk: Risk,
     pub class: Class,
-    /// The turn read untrusted content.
+    /// Untrusted content is in the model's view: this turn's, an earlier turn's since the last
+    /// compaction, or a summary drawn from it.
     pub tainted: bool,
-    /// It changes something and its arguments name a place where sign-ins or credentials live.
+    /// Its arguments reach sign-ins or credentials.
     pub credentials: bool,
+    /// It sets up standing work (a routine).
+    pub standing: bool,
+    /// Its arguments fit the reviewer's prompt whole.
+    pub fits: bool,
 }
 
 pub fn route(call: Call) -> Route {
+    // On every level, before anything else.
+    if call.credentials {
+        return Route::Refuse(CREDENTIALS_REFUSED.to_owned());
+    }
+    if call.standing && call.tainted {
+        return Route::Ask(Some(Sensitive::TaintedRoutine.reason().to_owned()));
+    }
+    if call.access == Access::FullAccess {
+        return Route::Run;
+    }
+    // An app's tool that claims to read but says it acts: the rule gate would run it.
+    if call.risk == Risk::Read
+        && let Class::Sensitive(kind) = call.class
+    {
+        return Route::Ask(Some(kind.reason().to_owned()));
+    }
     if call.access == Access::Ask {
         return match call.rule {
             Decision::Run => Route::Run,
             Decision::Ask => Route::Ask(None),
         };
     }
-    if call.credentials {
-        return Route::Refuse(CREDENTIALS_REFUSED.to_owned());
-    }
-    if call.access == Access::FullAccess || call.rule == Decision::Run {
+    if call.rule == Decision::Run {
         return Route::Run;
     }
     match call.class {
         Class::Sensitive(kind) => Route::Ask(Some(kind.reason().to_owned())),
         Class::Outward if call.tainted => Route::Ask(Some(TAINTED_OUTWARD.to_owned())),
+        _ if !call.fits => Route::Ask(Some(TOO_LONG.to_owned())),
         Class::Inside | Class::Outward => Route::Review,
     }
 }
 
 const TAINTED_OUTWARD: &str =
     "It acts outside the bot's folder after reading untrusted content, so you decide.";
+const TOO_LONG: &str = "It is too long for the reviewer to read whole, so you decide.";
+
+/// The longest arguments (as JSON) the reviewer reads; longer ones go to the person, since the
+/// reviewer must see everything that would run.
+pub const LONGEST_ARGUMENTS: usize = 32_000;
+
+/// Whether a call's arguments fit the reviewer's prompt whole.
+pub fn fits_review(arguments: &Value) -> bool {
+    arguments.to_string().chars().count() <= LONGEST_ARGUMENTS
+}
 
 /// The reviewer's answer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
@@ -390,8 +465,7 @@ pub struct Judgment {
     /// One plain sentence: for the bot when refused, for the person when escalated.
     pub reason: String,
     /// The call reaches outside the bot's folder or can't be undone (for a shell command:
-    /// network, other folders, installs, deletes).
-    #[serde(default)]
+    /// network, other folders, installs, deletes). Required: an answer without it escalates.
     pub outward_or_irreversible: bool,
 }
 
@@ -442,7 +516,7 @@ pub struct Case<'a> {
     pub bot: &'a str,
     pub task: &'a str,
     pub person: Vec<String>,
-    /// What untrusted content the turn read, in a few words each; empty when none.
+    /// Untrusted content still in the model's view, in a few words each; empty when none.
     pub untrusted: Vec<String>,
     pub folder: &'a str,
     pub tool: &'a str,
@@ -451,7 +525,6 @@ pub struct Case<'a> {
 }
 
 const TASK_CHARS: usize = 4_000;
-const ARGUMENT_CHARS: usize = 6_000;
 
 pub fn prompt(case: &Case<'_>) -> Prompt {
     let person = if case.person.is_empty() {
@@ -496,7 +569,8 @@ pub fn prompt(case: &Case<'_>) -> Prompt {
             quoted(case.folder, 500),
             quoted(case.tool, 200),
             quoted(case.description, 1_000),
-            quoted(&case.arguments.to_string(), ARGUMENT_CHARS),
+            // Whole: the reviewer must see everything that would run ([`fits_review`]).
+            quoted(&case.arguments.to_string(), usize::MAX),
         ))
         .max_tokens(300)
 }
@@ -511,6 +585,9 @@ fn quoted(text: &str, longest: usize) -> String {
     };
     format!("{}{more}", cut.replace('<', "‹").replace('>', "›"))
 }
+
+pub mod secrets;
+pub mod shell;
 
 #[cfg(test)]
 mod tests;

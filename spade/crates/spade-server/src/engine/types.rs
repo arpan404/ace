@@ -169,6 +169,9 @@ pub struct AgentInput {
     pub task: String,
     pub model: String,
     pub avatar: Option<AvatarInput>,
+    /// The level it starts on (ADR 0144), stored with it in one write; the new-bot level when
+    /// `None`.
+    pub access: Option<spade_core::autonomy::Access>,
 }
 
 /// What changing an agent takes; `None` keeps the value.

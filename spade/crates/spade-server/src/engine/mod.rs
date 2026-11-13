@@ -155,6 +155,8 @@ pub struct Engine {
     allowed_scopes: Mutex<HashMap<String, String>>,
     /// The step of each bot's task waiting to start, by conversation (ADR 0144, `continuation`).
     continuations: Mutex<HashMap<String, String>>,
+    /// Each conversation's access level once folded (ADR 0144, `autonomy`).
+    levels: Mutex<HashMap<String, spade_core::autonomy::Access>>,
 }
 
 /// What `starting` says until setup has run long enough to say more.
@@ -215,6 +217,7 @@ impl Engine {
             computers: std::sync::OnceLock::new(),
             allowed_scopes: Mutex::default(),
             continuations: Mutex::default(),
+            levels: Mutex::default(),
         });
         handle.set(&engine);
         engine.sync_endpoints()?;

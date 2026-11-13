@@ -258,3 +258,40 @@ fn the_task_state_is_the_latest_valid_task_status_call() {
         })
     );
 }
+
+#[test]
+fn a_routine_firing_keeps_the_tasks_budget_and_its_pause() {
+    use crate::event::FromRoutine;
+    let policy = Policy {
+        max_steps: 1,
+        ..Policy::default()
+    };
+    let mut events = opened();
+    add(&mut events, 1, true);
+    events.push(k(Known::TaskPaused {
+        reason: PauseReason::Budget,
+        steps: 1,
+    }));
+    events.push(k(Known::UserMessage {
+        text: "Check the build".into(),
+        context: None,
+        images: Vec::new(),
+        documents: Vec::new(),
+        voice: None,
+        from_agent: None,
+        from_routine: Some(Box::new(FromRoutine {
+            id: "rt1".into(),
+            name: "Check".into(),
+            run: "run1".into(),
+            label: "9:00".into(),
+            heartbeat: false,
+            event: None,
+            untrusted: false,
+        })),
+        from_group: None,
+    }));
+    events.push(started("r9"));
+    events.push(step("r9", vec![]));
+    events.push(finished("r9"));
+    assert_eq!(next(&events, &policy), Next::Nothing, "still paused");
+}

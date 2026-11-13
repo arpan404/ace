@@ -190,6 +190,7 @@ pub(super) async fn create(State(state): State<AppState>, Body(body): Body<NewAg
                 task: body.task,
                 model,
                 avatar,
+                access: level,
             };
             return match crate::teams::from_template(
                 &state.engine,
@@ -198,20 +199,11 @@ pub(super) async fn create(State(state): State<AppState>, Body(body): Body<NewAg
                 named,
                 body.time_zone,
             ) {
-                Ok(made) => {
-                    let agent = match level {
-                        Some(level) => match state.engine.set_access(&made.agent.agent.id, level) {
-                            Ok(view) => view,
-                            Err(error) => return agent_problem(&error),
-                        },
-                        None => made.agent,
-                    };
-                    (
-                        StatusCode::CREATED,
-                        Json(json!({ "agent": agent_json(&agent), "left_out": made.left_out })),
-                    )
-                        .into_response()
-                }
+                Ok(made) => (
+                    StatusCode::CREATED,
+                    Json(json!({ "agent": agent_json(&made.agent), "left_out": made.left_out })),
+                )
+                    .into_response(),
                 Err(crate::teams::PortableError::NotFound) => {
                     problem(StatusCode::NOT_FOUND, "no such template")
                 }
@@ -224,21 +216,15 @@ pub(super) async fn create(State(state): State<AppState>, Body(body): Body<NewAg
             task: body.task,
             model: body.model.unwrap_or_else(|| state.engine.default_model()),
             avatar,
+            access: level,
         };
-        create_now(&state, input, level)
+        create_now(&state, input)
     })
     .await
 }
 
-fn create_now(state: &AppState, input: AgentInput, level: Option<Access>) -> Response {
-    let made = state
-        .engine
-        .create_agent(input)
-        .and_then(|view| match level {
-            Some(level) => state.engine.set_access(&view.agent.id, level),
-            None => Ok(view),
-        });
-    match made {
+fn create_now(state: &AppState, input: AgentInput) -> Response {
+    match state.engine.create_agent(input) {
         Ok(view) => (
             StatusCode::CREATED,
             Json(json!({ "agent": agent_json(&view) })),

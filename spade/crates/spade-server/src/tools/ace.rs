@@ -191,11 +191,12 @@ impl Tool for AceCall {
         self.def.clone()
     }
 
-    fn class(&self) -> spade_core::autonomy::Class {
+    fn class(&self, arguments: &Value) -> spade_core::autonomy::Class {
         spade_core::autonomy::classify(
             &self.def.spec.name,
             self.def.risk,
             spade_core::autonomy::Source::Ace,
+            arguments,
         )
     }
 

@@ -135,12 +135,13 @@ pub trait Tool: Send + Sync {
     }
     /// What a call of this tool can reach, for the auto-review (ADR 0144). Spade's own tools are
     /// classed by name; ace's and the person's apps' tools say more about themselves.
-    fn class(&self) -> spade_core::autonomy::Class {
+    fn class(&self, arguments: &Value) -> spade_core::autonomy::Class {
         let def = self.def();
         spade_core::autonomy::classify(
             &def.spec.name,
             def.risk,
             spade_core::autonomy::Source::Spade,
+            arguments,
         )
     }
 }

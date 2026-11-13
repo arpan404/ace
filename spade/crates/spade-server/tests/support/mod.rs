@@ -37,8 +37,9 @@ pub struct FakeTool {
     pub images: Vec<Vec<u8>>,
     pub delay: Duration,
     pub calls: Arc<Mutex<Vec<Value>>>,
-    /// Classed as a tool of one of the person's apps that annotates itself (ADR 0144).
-    pub app: bool,
+    /// Classed as a tool of one of the person's apps (ADR 0144); `true` when it annotates
+    /// itself.
+    pub app: Option<bool>,
 }
 
 impl FakeTool {
@@ -59,13 +60,20 @@ impl FakeTool {
             images: Vec::new(),
             delay: Duration::ZERO,
             calls: Arc::default(),
-            app: false,
+            app: None,
         }
     }
 
     /// Poses as a tool of one of the person's apps, as a connector offers it (ADR 0131).
     pub fn app(mut self, description: &str) -> Self {
-        self.app = true;
+        self.app = Some(true);
+        self.def.spec.description = description.to_owned();
+        self
+    }
+
+    /// Poses as an app's tool that sends no annotations at all.
+    pub fn unannotated_app(mut self, description: &str) -> Self {
+        self.app = Some(false);
         self.def.spec.description = description.to_owned();
         self
     }
@@ -106,18 +114,17 @@ impl Tool for FakeTool {
         self.def.clone()
     }
 
-    fn class(&self) -> spade_core::autonomy::Class {
+    fn class(&self, arguments: &Value) -> spade_core::autonomy::Class {
         use spade_core::autonomy::{AppHints, Source, classify};
-        let source = if self.app {
-            Source::App(AppHints {
+        let source = match self.app {
+            Some(annotated) => Source::App(AppHints {
                 description: &self.def.spec.description,
-                annotated: true,
-                open_world: Some(true),
-            })
-        } else {
-            Source::Spade
+                annotated,
+                open_world: annotated.then_some(true),
+            }),
+            None => Source::Spade,
         };
-        classify(&self.def.spec.name, self.def.risk, source)
+        classify(&self.def.spec.name, self.def.risk, source, arguments)
     }
 
     fn run(&self, _call_id: &str, arguments: Value) -> ToolFuture {

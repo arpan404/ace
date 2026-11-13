@@ -67,6 +67,7 @@ fn day() -> Vec<Event> {
                 label: "9:00".into(),
                 heartbeat: false,
                 event: None,
+                untrusted: false,
             })),
             from_group: None,
         }),

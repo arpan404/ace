@@ -70,7 +70,7 @@ impl PauseReason {
 /// How far a task goes on its own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Policy {
-    /// Steps Spade starts by itself before pausing, counted from the latest message.
+    /// Steps Spade starts by itself before pausing, counted from the person's latest message.
     pub max_steps: u32,
     /// Steps in a row with no effect (no change made, no plan changed) before pausing.
     pub idle_limit: u32,
@@ -148,10 +148,21 @@ pub fn next(events: &[Event], policy: &Policy) -> Next {
     if state(events).map(|s| s.status) != Some(Status::Working) {
         return Next::Nothing;
     }
-    // The run started at the latest message from anyone: the person, a bot or a routine.
+    // The run started at the person's latest message. A bot's message or a routine's firing
+    // carries on the task it belongs to, with its budget and any pause.
     let run_start = events
         .iter()
-        .rposition(|e| matches!(e, Event::Known(Known::UserMessage { .. })))
+        .rposition(|e| {
+            matches!(
+                e,
+                Event::Known(Known::UserMessage {
+                    from_agent: None,
+                    from_routine: None,
+                    from_group: None,
+                    ..
+                })
+            )
+        })
         .unwrap_or(0);
     let run = &events[run_start..];
     if run

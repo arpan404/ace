@@ -148,7 +148,7 @@ async fn a_refusal_reaches_the_bot_as_a_result_with_the_reason_and_nothing_runs(
         vec![
             Script::reply("").call("c1", "shell", json!({ "command": "rm -rf tests" })),
             Script::reply("").plain(
-                r#"{"verdict":"refuse","reason":"That deletes the tests the person wants kept."}"#,
+                r#"{"verdict":"refuse","reason":"That deletes the tests the person wants kept.","outward_or_irreversible":false}"#,
             ),
             Script::reply("Understood, I'll leave the tests."),
             Script::reply("").plain(TITLE),

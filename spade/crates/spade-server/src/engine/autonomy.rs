@@ -32,14 +32,14 @@ pub(super) fn access_of(stored: &[StoredEvent], unset: Access) -> Access {
         .unwrap_or(unset)
 }
 
-/// The task state folded from stored events.
+/// The task state folded from stored events: the latest valid `task_status`, the same history the
+/// continuation reads, so a later call with arguments that don't parse never hides it.
 pub(super) fn task_of(stored: &[StoredEvent]) -> Option<TaskState> {
     let events: Vec<Event> = stored
         .iter()
-        .rev()
-        .find(|e| task_call(&e.event))
-        .map(|e| vec![e.event.clone()])
-        .unwrap_or_default();
+        .filter(|e| task_call(&e.event))
+        .map(|e| e.event.clone())
+        .collect();
     task::state(&events)
 }
 
@@ -86,6 +86,10 @@ impl Engine {
                     &Event::Known(Known::AccessChanged { level }),
                 )?;
             }
+            self.levels
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .insert(found.conversation.clone(), level);
         }
         self.agent_view(agent)?.ok_or(AgentError::NotFound)
     }
@@ -93,6 +97,16 @@ impl Engine {
     /// The level of the conversation whose events these are.
     pub(super) fn access(&self, events: &[Event]) -> Access {
         autonomy::access(events, self.limits.new_bot_access)
+    }
+
+    /// The conversation's level now, read for each call: kept in memory once folded and changed
+    /// as the person changes it, so a change made while a step's calls are decided holds from
+    /// the next one.
+    pub(super) fn level(&self, id: &str, events: &[Event]) -> Access {
+        let mut levels = self.levels.lock().unwrap_or_else(|p| p.into_inner());
+        *levels
+            .entry(id.to_owned())
+            .or_insert_with(|| self.access(events))
     }
 
     /// Once, the first time a build with access levels opens a database: every conversation it
@@ -179,7 +193,9 @@ pub(super) async fn review(
     });
     let folder =
         format!("its own workspace folder (workspace/{agent_id}), where shell commands run");
-    let untrusted = context::untrusted_sources(events, registry);
+    // Everything untrusted the prompt still shows, from any turn since compaction: the same view
+    // the memory gate answers to, so a page read before the person's latest message still counts.
+    let untrusted = context::untrusted_in_view(events, registry);
     let case = Case {
         bot,
         task,
@@ -208,8 +224,20 @@ pub(super) async fn review(
                 answer = tokio::time::timeout(
                     engine.limits.review_timeout,
                     engine.models.generate::<Judgment>(&model, &prompt),
-                ) => answer,
-                _ = stop.wait_for(|stopped| *stopped) => return Reviewed::Stopped,
+                ) => Some(answer),
+                _ = stop.wait_for(|stopped| *stopped) => None,
+            };
+            // A call cut off before its usage came is still paid for: at least its prompt.
+            let estimate = || {
+                super::ledger::likely_usage(
+                    super::ledger::prompt_tokens(&prompt),
+                    Default::default(),
+                    0,
+                )
+            };
+            let Some(asked) = asked else {
+                admitted.settle(&estimate());
+                return Reviewed::Stopped;
             };
             match asked {
                 Ok(Ok(generated)) => {
@@ -221,7 +249,11 @@ pub(super) async fn review(
                     )
                 }
                 Ok(Err(error)) => {
-                    let cost = admitted.settle_if(error.usage());
+                    let cost = match error.usage() {
+                        Some(usage) => admitted.settle(&usage),
+                        None if error.may_have_billed() => admitted.settle(&estimate()),
+                        None => admitted.settle_if(None),
+                    };
                     (
                         Outcome::Escalate(format!("The review couldn't run: {error}")),
                         cost,
@@ -229,7 +261,7 @@ pub(super) async fn review(
                 }
                 Err(_) => (
                     Outcome::Escalate("The review took too long, so you decide.".to_owned()),
-                    0,
+                    admitted.settle(&estimate()),
                 ),
             }
         }

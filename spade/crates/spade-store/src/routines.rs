@@ -33,6 +33,9 @@ pub struct StoredRoutine {
     pub created_by: String,
     pub created_ms: i64,
     pub updated_ms: i64,
+    /// Set up or changed in a turn with untrusted content in view (ADR 0144); once set, it
+    /// stays. Its firings count as untrusted.
+    pub untrusted: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,7 +56,7 @@ pub struct StoredRun {
 }
 
 const COLUMNS: &str = "id, agent_id, kind, name, instruction, trigger, time_zone, paused, secret,
-    next_due_ms, created_by, created_ms, updated_ms";
+    next_due_ms, created_by, created_ms, updated_ms, untrusted";
 
 fn routine(row: &Row<'_>) -> rusqlite::Result<StoredRoutine> {
     Ok(StoredRoutine {
@@ -70,6 +73,7 @@ fn routine(row: &Row<'_>) -> rusqlite::Result<StoredRoutine> {
         created_by: row.get(10)?,
         created_ms: row.get(11)?,
         updated_ms: row.get(12)?,
+        untrusted: row.get(13)?,
     })
 }
 
@@ -94,8 +98,9 @@ impl Store {
         let connection = self.lock()?;
         let inserted = connection.execute(
             "INSERT OR IGNORE INTO routines (id, agent_id, kind, name, instruction, trigger,
-                 time_zone, paused, secret, next_due_ms, created_by, created_ms, updated_ms)
-             SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13
+                 time_zone, paused, secret, next_due_ms, created_by, created_ms, updated_ms,
+                 untrusted)
+             SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14
              WHERE EXISTS (SELECT 1 FROM agents WHERE id = ?2)",
             params![
                 r.id,
@@ -110,7 +115,8 @@ impl Store {
                 r.next_due_ms,
                 r.created_by,
                 r.created_ms,
-                r.updated_ms
+                r.updated_ms,
+                r.untrusted
             ],
         )?;
         Ok(inserted == 1)
@@ -121,7 +127,8 @@ impl Store {
     pub fn update_routine(&self, r: &StoredRoutine) -> Result<bool> {
         let changed = self.lock()?.execute(
             "UPDATE routines SET name = ?2, instruction = ?3, trigger = ?4, time_zone = ?5,
-                 paused = ?6, secret = ?7, next_due_ms = ?8, updated_ms = ?9
+                 paused = ?6, secret = ?7, next_due_ms = ?8, updated_ms = ?9,
+                 untrusted = (untrusted OR ?10)
              WHERE id = ?1",
             params![
                 r.id,
@@ -132,7 +139,8 @@ impl Store {
                 r.paused,
                 r.secret,
                 r.next_due_ms,
-                r.updated_ms
+                r.updated_ms,
+                r.untrusted
             ],
         )?;
         Ok(changed == 1)
@@ -370,6 +378,7 @@ mod tests {
             created_by: "person".into(),
             created_ms: 1,
             updated_ms: 1,
+            untrusted: false,
         }
     }
 

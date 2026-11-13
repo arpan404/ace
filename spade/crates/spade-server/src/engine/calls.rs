@@ -123,17 +123,24 @@ pub(super) async fn handle_calls(
                     let rule = gate::decide(def.risk, always, tainted);
                     // The bot's access level (ADR 0144) decides what happens to a call the
                     // rule gate would ask about: the person, the reviewer, or neither.
-                    let access = engine.access(events);
+                    // Read now, for this call: a change the person made while earlier calls
+                    // of the step were decided holds from here (ADR 0144).
+                    let access = engine.level(id, events);
                     let route = autonomy::route(autonomy::Call {
                         access,
                         rule,
+                        risk: def.risk,
                         class: engine
                             .tools
                             .get_for(id, &name)
-                            .map_or(Class::Sensitive(Sensitive::Unknown), |tool| tool.class()),
-                        tainted: untrusted,
-                        credentials: def.risk != Risk::Read
-                            && autonomy::reaches_credentials(&arguments),
+                            .map_or(Class::Sensitive(Sensitive::Unknown), |tool| {
+                                tool.class(&arguments)
+                            }),
+                        // Anything untrusted the prompt shows, from any turn since compaction.
+                        tainted: !in_view.is_empty(),
+                        credentials: autonomy::reaches_credentials(&arguments),
+                        standing: autonomy::STANDING.contains(&name.as_str()),
+                        fits: autonomy::fits_review(&arguments),
                     });
                     let mut reviewer_reason = None;
                     let rule_ran = route == Route::Run;

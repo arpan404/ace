@@ -131,6 +131,11 @@ const MIGRATIONS: &[Migration] = &[
         sql: "",
         backfill: Some(crate::agents::character_faces),
     },
+    Migration {
+        // ADR 0144: a routine set up or changed with untrusted content in view.
+        sql: "ALTER TABLE routines ADD COLUMN untrusted INTEGER NOT NULL DEFAULT 0;",
+        backfill: None,
+    },
 ];
 
 /// The schema version this build brings a database up to.

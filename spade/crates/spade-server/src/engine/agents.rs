@@ -132,7 +132,7 @@ impl Engine {
         let conversation = self.ids.next("c");
         // The task the first turn reads. With none there is nothing to read: the model is named
         // by each `reply_started`.
-        let configured: Vec<Event> = (!task.is_empty())
+        let mut configured: Vec<Event> = (!task.is_empty())
             .then(|| {
                 Event::Known(Known::AgentConfigured {
                     task: task.clone(),
@@ -141,6 +141,10 @@ impl Engine {
             })
             .into_iter()
             .collect();
+        // A level chosen at creation is stored with the bot, in the same write (ADR 0144).
+        if let Some(level) = input.access {
+            configured.push(Event::Known(Known::AccessChanged { level }));
+        }
         self.store.create_agent(
             NewAgent {
                 id: &id,
