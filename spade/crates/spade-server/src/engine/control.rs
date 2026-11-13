@@ -33,7 +33,13 @@ impl Engine {
             .cloned()
             .collect();
         // What is running now, from storage and from memory, so a read failure still stops it.
-        let loaded = self.load(id).map(|events| Transcript::fold(&events));
+        // Read under the lock a task's next step is registered and started under (ADR 0144): a
+        // step registered before this is called off here; one decided after it sees the stop.
+        let (loaded, pending) = {
+            let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+            let loaded = self.load(id).map(|events| Transcript::fold(&events));
+            (loaded, self.drop_continuation(id))
+        };
         let (open, mut jobs, busy) = match &loaded {
             Ok(t) => (
                 t.open_reply().and_then(|m| m.reply.clone()),
@@ -48,9 +54,8 @@ impl Engine {
                 jobs.push(job.clone());
             }
         }
-        // A step of the bot's task waiting to start (ADR 0144) is called off, and the stop is
+        // A step of the bot's task waiting to start (ADR 0144) was called off above; the stop is
         // stored so nothing reopens it.
-        let pending = self.drop_continuation(id);
         if !busy && reply.is_none() && jobs.is_empty() && !pending {
             return loaded.map(|_| false);
         }
