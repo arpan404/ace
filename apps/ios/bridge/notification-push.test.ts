@@ -96,22 +96,44 @@ it("a new token re-registers on the same connection, and no token goes back to t
   expect(daemon.notifications.address(device)).toEqual({ channel: "websocket", platform: "phone" });
 });
 
-it("an older daemon that refuses the push address still gets the websocket address", async () => {
-  const { daemon, act, settle, of } = await phone();
-  daemon.notifications.refusePush();
-  act({
-    type: "notifications.sync",
-    enabled: true,
-    appState: "foreground",
-    cursor: 0,
-    push: pushKey("ab".repeat(32)),
-  });
-  await vi.waitFor(() => expect(of("notifications.feed")).toHaveLength(1));
-  expect(daemon.notifications.address(device)).toEqual({ channel: "websocket", platform: "phone" });
-  // It can't read acks either, so it isn't sent any; alerts still reach Swift.
-  daemon.notify(alert("n:old"));
-  await vi.waitFor(() => expect(of("notifications.alert")).toHaveLength(1));
-  act({ type: "notifications.delivered", id: "n:old" });
+it.each(["invalid_message", "unsupported"] as const)(
+  "an older daemon that refuses the push address (%s) still gets the websocket address",
+  async (code) => {
+    const { daemon, act, settle, of } = await phone();
+    daemon.notifications.refusePush(code);
+    act({
+      type: "notifications.sync",
+      enabled: true,
+      appState: "foreground",
+      cursor: 0,
+      push: pushKey("ab".repeat(32)),
+    });
+    await vi.waitFor(() => expect(of("notifications.feed")).toHaveLength(1));
+    expect(daemon.notifications.address(device)).toEqual({
+      channel: "websocket",
+      platform: "phone",
+    });
+    // It can't read acks either, so it isn't sent any; alerts still reach Swift.
+    daemon.notify(alert("n:old"));
+    await vi.waitFor(() => expect(of("notifications.alert")).toHaveLength(1));
+    act({ type: "notifications.delivered", id: "n:old" });
+    await settle();
+    expect(daemon.notifications.acknowledged(device)).toEqual([]);
+  },
+);
+
+it("a daemon that rejects one registration still registers push when the phone syncs again", async () => {
+  const { daemon, act, settle } = await phone();
+  const push = pushKey("ab".repeat(32));
+  const sync = () =>
+    act({ type: "notifications.sync", enabled: true, appState: "foreground", cursor: 0, push });
+  daemon.notifications.rejectRegistrations(1);
+  sync();
   await settle();
-  expect(daemon.notifications.acknowledged(device)).toEqual([]);
+  expect(daemon.notifications.address(device)).toBeUndefined();
+  // A current daemon that failed once is not an older one: the push address stays wanted.
+  sync();
+  await vi.waitFor(() =>
+    expect(daemon.notifications.address(device)).toMatchObject({ channel: "push" }),
+  );
 });

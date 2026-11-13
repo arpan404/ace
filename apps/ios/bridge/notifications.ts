@@ -341,9 +341,10 @@ export class NotificationBridge {
         else await this.#client.request({ type: "notification.register", device: want });
       } catch (error) {
         if (connection !== this.#connection) return;
-        // A daemon older than the push channel can't parse the address and refuses it
-        // (`invalid_message`); alerts keep working on the socket address.
-        if (want !== "unregistered" && want.channel === "push" && refused(error)) {
+        // A daemon older than the push channel can't parse the address and refuses it; alerts
+        // keep working on the socket address. Any other failure, such as a current daemon's
+        // `notification_rejected`, retries the push address on the next sync.
+        if (want !== "unregistered" && want.channel === "push" && unparsable(error)) {
           this.#pushRefused = true;
           return this.#reconcile();
         }
@@ -554,7 +555,15 @@ export class NotificationBridge {
   }
 }
 
-/** The daemon answered and said no, as opposed to the request not getting through. */
-function refused(error: unknown): boolean {
-  return error instanceof ClientError && error.code === "daemon";
+/**
+ * The daemon couldn't parse the request, as one older than ADR 0106 answers a push address:
+ * `invalid_message`, or `unsupported` from builds of 2026-11-01 to 11-05, which answered any
+ * malformed known request that way. The client keeps the server's code as the error's message.
+ */
+function unparsable(error: unknown): boolean {
+  return (
+    error instanceof ClientError &&
+    error.code === "daemon" &&
+    (error.message === "invalid_message" || error.message === "unsupported")
+  );
 }

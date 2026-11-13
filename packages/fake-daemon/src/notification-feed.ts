@@ -17,7 +17,8 @@ export class FakeNotificationFeed {
   private head = 0;
   private addresses = new Map<string, NotificationAddress>();
   private acks: { device: string; id: string }[] = [];
-  private pushRefused = false;
+  private pushRefused: "invalid_message" | "unsupported" | false = false;
+  private rejections = 0;
   /** The address `device` registered last; none once it unregisters. */
   address(device: string): NotificationAddress | undefined {
     return this.addresses.get(device);
@@ -28,10 +29,15 @@ export class FakeNotificationFeed {
   }
   /**
    * Answer push addresses as a daemon older than ADR 0106 does: its schema lacks the `push`
-   * channel, so the frame doesn't parse and it refuses it with `invalid_message`.
+   * channel, so the frame doesn't parse and it refuses it with `invalid_message`, or with
+   * `unsupported` from a daemon built between 2026-11-01 and 2026-11-05.
    */
-  refusePush(refuse = true): void {
-    this.pushRefused = refuse;
+  refusePush(code: "invalid_message" | "unsupported" | false = "invalid_message"): void {
+    this.pushRefused = code;
+  }
+  /** The next `count` registrations fail as a daemon's store can (`notification_rejected`). */
+  rejectRegistrations(count = 1): void {
+    this.rejections = count;
   }
   record(notification: Notification): void {
     if (this.entries.some((entry) => entry.notification.id === notification.id)) return;
@@ -53,8 +59,18 @@ export class FakeNotificationFeed {
       if (this.pushRefused && message.device.channel === "push") {
         emit({
           type: "error",
-          code: "invalid_message",
+          code: this.pushRefused,
           message: "Message does not match the protocol",
+          ...(message.requestId ? { requestId: message.requestId } : {}),
+        });
+        return true;
+      }
+      if (this.rejections > 0) {
+        this.rejections--;
+        emit({
+          type: "error",
+          code: "notification_rejected",
+          message: "Notification update rejected",
           ...(message.requestId ? { requestId: message.requestId } : {}),
         });
         return true;

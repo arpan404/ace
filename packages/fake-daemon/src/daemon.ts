@@ -413,7 +413,10 @@ export class FakeDaemon implements Host {
     for (const connection of this.connections)
       if (connection.authenticated) connection.push(message);
   }
-  get notifications(): Pick<FakeNotificationFeed, "address" | "acknowledged" | "refusePush"> {
+  get notifications(): Pick<
+    FakeNotificationFeed,
+    "address" | "acknowledged" | "refusePush" | "rejectRegistrations"
+  > {
     return this.servicesWire.notificationFeed;
   }
   /** Stands in for the daemon's recheck: a retracted alert leaves catch-up. */
