@@ -157,6 +157,9 @@ it cannot infer every secret in arbitrary prose.
 
 ## Collaboration (amendment, 2026-10-17)
 
+Amended by [ADR 0143](0143-cowork-computer-use.md): the quiet window is 3 s, an agent waits up
+to 60 s, and giving up is `person_busy` (was `human_active`), the same for every surface.
+
 The owner tested take over / hand back and rejected it: "we must have proper human–AI working
 together, no need of taking over or handing back." The rules now are:
 
