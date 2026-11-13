@@ -1,5 +1,6 @@
-//! The person's changes to a bot's files (ADR 0142, docs/computer.md): write, upload, make a
-//! folder, move. Confined like every workspace operation. What the person writes is theirs, so
+//! The person's changes to a bot's files (ADR 0142, ADR 0143, docs/computer.md): write, upload,
+//! make a folder, move. In cowork they need no take-over: a write carries the revision the person
+//! opened (`base`) and is refused `409 changed` when the file moved on since. Confined like every workspace operation. What the person writes is theirs, so
 //! it is trusted (ADR 0130's allowlist records it); a move keeps what was trusted trusted.
 
 use axum::Router;
@@ -41,13 +42,15 @@ struct At {
     path: String,
 }
 
-/// `{"text"}` or `{"data_b64"}`.
+/// `{"text"}` or `{"data_b64"}`, with `base`: the revision the person opened.
 #[derive(Deserialize)]
 struct Content {
     #[serde(default)]
     text: Option<String>,
     #[serde(default)]
     data_b64: Option<String>,
+    #[serde(default)]
+    base: Option<String>,
 }
 
 impl Content {
@@ -86,7 +89,7 @@ pub(super) async fn person_files<T: Send + 'static>(
     let id = id.to_owned();
     match tokio::task::spawn_blocking(move || {
         let Some(computers) = computers else {
-            return Err("take over the bot's computer before changing its files");
+            return Err("this Spade has no computers");
         };
         computers.person_file_write(&id, work)
     })
@@ -102,8 +105,15 @@ pub(super) async fn person_files<T: Send + 'static>(
     }
 }
 
-/// Writes `bytes` at `path` as the person's, then tells the bot's computer.
-async fn person_writes(state: AppState, id: String, path: String, bytes: Vec<u8>) -> Response {
+/// Writes `bytes` at `path` as the person's, then tells the bot's computer. With `base`, only
+/// while the file is still that revision (`409 changed` otherwise, and nothing is written).
+async fn person_writes(
+    state: AppState,
+    id: String,
+    path: String,
+    bytes: Vec<u8>,
+    base: Option<String>,
+) -> Response {
     if bytes.len() > LARGEST_UPLOAD {
         return too_large();
     }
@@ -113,15 +123,21 @@ async fn person_writes(state: AppState, id: String, path: String, bytes: Vec<u8>
     };
     let written = person_files(&state, &id, move || {
         let path = workspace.normal(&path)?;
+        workspace.check_base(&path, base.as_deref())?;
+        let how = if workspace.revision(&path).ok().flatten().is_some() {
+            "changed"
+        } else {
+            "new"
+        };
         workspace.write_bytes(&path, &bytes, LARGEST_UPLOAD)?;
         workspace.trust().record_person(&path, &bytes);
-        Ok(path)
+        Ok((path, how))
     })
     .await;
     match written {
-        Ok(path) => {
+        Ok((path, how)) => {
             if let Some(computers) = state.engine.computers() {
-                computers.person_wrote(&id, &path);
+                computers.person_changed(&id, &[(path, how)]);
             }
             StatusCode::NO_CONTENT.into_response()
         }
@@ -135,8 +151,9 @@ async fn write(
     Query(at): Query<At>,
     Body(body): Body<Content>,
 ) -> Response {
+    let base = body.base.clone();
     match body.bytes() {
-        Ok(bytes) => person_writes(state, id, at.path, bytes).await,
+        Ok(bytes) => person_writes(state, id, at.path, bytes, base).await,
         Err(response) => *response,
     }
 }
@@ -145,6 +162,8 @@ async fn write(
 struct Upload {
     path: String,
     data_b64: String,
+    #[serde(default)]
+    base: Option<String>,
 }
 
 async fn upload(
@@ -153,7 +172,7 @@ async fn upload(
     Body(body): Body<Upload>,
 ) -> Response {
     match decode(&body.data_b64) {
-        Ok(bytes) => person_writes(state, id, body.path, bytes).await,
+        Ok(bytes) => person_writes(state, id, body.path, bytes, body.base).await,
         Err(response) => *response,
     }
 }
@@ -170,7 +189,7 @@ async fn mkdir(
     match person_files(&state, &id, move || workspace.mkdir(&at.path)).await {
         Ok(path) => {
             if let Some(computers) = state.engine.computers() {
-                computers.person_wrote(&id, &path);
+                computers.person_changed(&id, &[(path, "new")]);
             }
             StatusCode::NO_CONTENT.into_response()
         }
@@ -182,6 +201,9 @@ async fn mkdir(
 struct Move {
     from: String,
     to: String,
+    /// The revision of the file at `from` the person saw (files only).
+    #[serde(default)]
+    base: Option<String>,
 }
 
 async fn rename(
@@ -194,6 +216,7 @@ async fn rename(
         Err(response) => return *response,
     };
     let moved = person_files(&state, &id, move || {
+        workspace.check_base(&workspace.normal(&body.from)?, body.base.as_deref())?;
         let (from, to) = workspace.rename(&body.from, &body.to)?;
         workspace.trust().moved(&from, &to);
         Ok::<_, PathError>((from, to))
@@ -202,7 +225,7 @@ async fn rename(
     match moved {
         Ok((from, to)) => {
             if let Some(computers) = state.engine.computers() {
-                computers.files_changed(&id, Some(vec![from, to]));
+                computers.person_changed(&id, &[(from, "removed"), (to, "new")]);
             }
             StatusCode::NO_CONTENT.into_response()
         }

@@ -216,8 +216,9 @@ struct Input {
     data_b64: String,
 }
 
-/// The person types into the terminal: only while they have the computer (`409` otherwise),
-/// so nothing the person types is ever mixed into the bot's command.
+/// The person types into their shell in the terminal, in cowork or exclusive mode. The bot's
+/// commands are separate processes with no input, so nothing the person types reaches them. In
+/// exclusive mode it waits (`409`) until the bot's last command is gone.
 async fn input(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -227,12 +228,6 @@ async fn input(
         Ok(computers) => computers,
         Err(response) => return *response,
     };
-    if computers.driver(&id) != Driver::Person {
-        return problem(
-            StatusCode::CONFLICT,
-            "take over the bot's computer before typing in its terminal",
-        );
-    }
     let Ok(data) = base64::engine::general_purpose::STANDARD.decode(body.data_b64.as_bytes())
     else {
         return problem(StatusCode::BAD_REQUEST, "data_b64 is not base64");
@@ -247,8 +242,9 @@ async fn input(
         Ok(terminal) => terminal,
         Err(error) => return problem(StatusCode::SERVICE_UNAVAILABLE, &error),
     };
-    // The bot's last command is still being stopped: nothing the person types may reach it.
-    if terminal.bot_running() {
+    // A take-over: the bot's last command is still being stopped, and the person gets the
+    // controls only once it is gone.
+    if computers.driver(&id) == Driver::Person && terminal.bot_running() {
         return problem(
             StatusCode::CONFLICT,
             "the bot's command is still stopping; try again in a moment",

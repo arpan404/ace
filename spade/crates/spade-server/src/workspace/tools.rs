@@ -36,6 +36,18 @@ impl Place {
         }
     }
 
+    /// The bot yields to the person (cowork, ADR 0143): a file the person changed a moment ago
+    /// is theirs for now, so the bot's write or edit of it is not run.
+    fn yields(&self, key: &str, path: &str) -> Option<ToolOutput> {
+        let (engine, bot) = (self.bots.get()?, self.bots.agent_for_key(key)?);
+        let ago = engine.computers()?.person_changed_recently(&bot, path)?;
+        Some(ToolOutput::ok(format!(
+            "Not run: the person changed {path} {ago} seconds ago and may still be working on \
+             it; they come first. Leave it for now: work on something else and read it again \
+             before you change it."
+        )))
+    }
+
     fn workspace(&self, key: &str) -> Result<Workspace, ToolOutput> {
         let bot = self
             .bots
@@ -314,6 +326,9 @@ impl Tool for WorkspaceWrite {
         let (place, key) = (self.0.clone(), key.to_owned());
         blocking(&self.0, &key.clone(), move |workspace| {
             let path = workspace.normal(&args.path)?;
+            if let Some(yielded) = place.yields(&key, &path) {
+                return Ok(yielded);
+            }
             let bytes = workspace.write(&path, &args.content)?;
             workspace
                 .trust()
@@ -361,6 +376,9 @@ impl Tool for WorkspaceEdit {
         let (place, key) = (self.0.clone(), key.to_owned());
         blocking(&self.0, &key.clone(), move |workspace| {
             let path = workspace.normal(&args.path)?;
+            if let Some(yielded) = place.yields(&key, &path) {
+                return Ok(yielded);
+            }
             let (before, after) = workspace.edit(&path, &args.old, &args.new)?;
             workspace.trust().record_edit(
                 &path,

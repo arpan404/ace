@@ -55,6 +55,10 @@ pub enum PathError {
     Exists(String),
     #[error("{0}")]
     Io(String),
+    /// The file is no longer the revision the person opened (cowork, ADR 0143): its revision now,
+    /// `None` when nothing is there.
+    #[error("it changed since you opened it")]
+    Changed(Option<String>),
 }
 
 impl PathError {

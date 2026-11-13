@@ -29,6 +29,9 @@ pub(super) fn routes() -> Router<AppState> {
 struct At {
     #[serde(default)]
     path: String,
+    /// The revision the person opened (delete only): refused with `409 changed` if it moved on.
+    #[serde(default)]
+    base: Option<String>,
 }
 
 /// The agent's workspace, or the problem to answer: `404` for an unknown agent, `503` when this
@@ -57,6 +60,19 @@ pub(super) fn known(state: &AppState, id: &str) -> Result<(), Box<Response>> {
 }
 
 pub(super) fn path_problem(error: &PathError) -> Response {
+    if let PathError::Changed(revision) = error {
+        // `error` is the code the app reads; `revision` is the file's now, for "Reload".
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({
+                "error": "changed",
+                "code": "changed",
+                "message": "The file changed since you opened it.",
+                "revision": revision,
+            })),
+        )
+            .into_response();
+    }
     let status = match error {
         PathError::Missing(_) => StatusCode::NOT_FOUND,
         PathError::Exists(_) => StatusCode::CONFLICT,
@@ -65,6 +81,7 @@ pub(super) fn path_problem(error: &PathError) -> Response {
         | PathError::Outside(_)
         | PathError::Unusable(_) => StatusCode::BAD_REQUEST,
         PathError::Io(_) => StatusCode::UNPROCESSABLE_ENTITY,
+        PathError::Changed(_) => StatusCode::CONFLICT,
     };
     problem(status, &error.to_string())
 }
@@ -144,8 +161,20 @@ async fn delete(
         Ok(workspace) => workspace,
         Err(response) => return *response,
     };
-    match super::files::person_files(&state, &id, move || workspace.delete(&at.path)).await {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+    let deleted = super::files::person_files(&state, &id, move || {
+        let path = workspace.normal(&at.path)?;
+        workspace.check_base(&path, at.base.as_deref())?;
+        workspace.delete(&path)?;
+        Ok(path)
+    })
+    .await;
+    match deleted {
+        Ok(path) => {
+            if let Some(computers) = state.engine.computers() {
+                computers.person_changed(&id, &[(path, "removed")]);
+            }
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(response) => *response,
     }
 }
