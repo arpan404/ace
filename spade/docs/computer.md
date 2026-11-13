@@ -1,7 +1,7 @@
 # A bot's computer
 
 Date: 2026-11-13. As built for [ADR 0142](../../docs/adr/0142-a-bots-computer.md) and
-[ADR 0143](../../docs/adr/0143-cowork-on-a-bots-computer.md) (cowork), in
+[ADR 0143](../../docs/adr/0143-cowork-computer-use.md) (cowork), in
 `spade-server` (`computer/`, `engine/computer.rs`, `api/computer.rs`, `api/files.rs`). Extends
 [workspace.md](workspace.md) and [agents.md](agents.md).
 
