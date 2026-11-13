@@ -104,6 +104,8 @@ pub struct AceLink {
     /// Every client made since the grant last changed. A grant change closes them all, so a call
     /// still holding an old one (a tool kept by a running turn) sends nothing more with it.
     clients: Mutex<Vec<Weak<AceTools>>>,
+    /// Finds the bot each of ace's tools is called for (ADR 0142), set once the engine exists.
+    bots: std::sync::OnceLock<super::EngineHandle>,
 }
 
 /// How to reach ace, with the grant generation its credential belongs to.
@@ -136,9 +138,15 @@ impl AceLink {
             connected: AtomicBool::new(false),
             wake: Notify::new(),
             clients: Mutex::default(),
+            bots: std::sync::OnceLock::new(),
         });
         tokio::spawn(link.clone().run());
         link
+    }
+
+    /// Names the bot on each call to ace's tools from now on (`ace/acting-for`, ADR 0142).
+    pub fn act_for(&self, bots: super::EngineHandle) {
+        let _ = self.bots.set(bots);
     }
 
     /// Whether ace's tools are reachable now.
@@ -365,7 +373,7 @@ impl AceLink {
             return false;
         }
         *current = Some(Connected {
-            tools: super::ace::tools(client, list),
+            tools: super::ace::tools(client, list, self.bots.get()),
             skills: skills.clone(),
         });
         self.connected.store(true, Ordering::SeqCst);
@@ -460,6 +468,48 @@ impl ToolSource for AceLink {
 }
 
 const AWAY: &str = "ace is not running, or Spade is not connected to it yet";
+
+/// Each bot's browser and screen through the daemon (ADR 0142).
+impl crate::computer::daemon::Daemon for AceLink {
+    fn drive<'a>(
+        &'a self,
+        bot: &'a str,
+        driver: crate::computer::Driver,
+    ) -> crate::computer::daemon::BoxFuture<
+        'a,
+        Result<Option<crate::computer::daemon::Handback>, String>,
+    > {
+        let skills = self.skills();
+        Box::pin(async move {
+            let skills = skills.ok_or_else(|| AWAY.to_owned())?;
+            let driver = match driver {
+                crate::computer::Driver::Bot => "bot",
+                crate::computer::Driver::Person => "person",
+            };
+            let answer = skills
+                .spade_computer_drive(bot, driver)
+                .await
+                .map_err(|e| e.to_string())?;
+            crate::computer::daemon::drive_answer(&answer)
+        })
+    }
+
+    fn computer<'a>(
+        &'a self,
+        bot: &'a str,
+    ) -> crate::computer::daemon::BoxFuture<'a, Result<crate::computer::daemon::AceComputer, String>>
+    {
+        let skills = self.skills();
+        Box::pin(async move {
+            let skills = skills.ok_or_else(|| AWAY.to_owned())?;
+            let answer = skills
+                .spade_computer(bot)
+                .await
+                .map_err(|e| e.to_string())?;
+            crate::computer::daemon::computer_answer(&answer)
+        })
+    }
+}
 
 /// Other machines through the daemon (ADR 0132, docs/teams.md "What ace adds").
 impl crate::teams::Remote for AceLink {
@@ -599,6 +649,7 @@ mod tests {
             connected: AtomicBool::new(false),
             wake: Notify::new(),
             clients: Mutex::default(),
+            bots: std::sync::OnceLock::new(),
         }
     }
 

@@ -65,19 +65,38 @@ fn takeover_problem(error: &TakeOverError) -> Response {
     problem(status, &error.to_string())
 }
 
+/// Spade pauses the bot first, then ace hands the person its browser and screen.
 async fn take_over(State(state): State<AppState>, Path(id): Path<String>) -> Response {
-    off_thread(move || match state.engine.take_over(&id) {
+    let engine = state.engine.clone();
+    let agent = id.clone();
+    let response = off_thread(move || match engine.take_over(&agent) {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => takeover_problem(&error),
     })
-    .await
+    .await;
+    if response.status() == StatusCode::NO_CONTENT
+        && let Some(computers) = state.engine.computers()
+    {
+        computers.ace_takes_over(&id).await;
+    }
+    response
 }
 
+/// ace hands the browser and screen back first and says what the person did there; then Spade
+/// stores the note and the bot carries on.
 async fn hand_back(State(state): State<AppState>, Path(id): Path<String>) -> Response {
-    off_thread(move || match state.engine.hand_back(&id) {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => takeover_problem(&error),
-    })
+    let handback = match state.engine.computers() {
+        Some(computers) if computers.driver(&id) == Driver::Person => {
+            computers.ace_hands_back(&id).await
+        }
+        _ => None,
+    };
+    off_thread(
+        move || match state.engine.hand_back(&id, handback.as_ref()) {
+            Ok(()) => StatusCode::NO_CONTENT.into_response(),
+            Err(error) => takeover_problem(&error),
+        },
+    )
     .await
 }
 

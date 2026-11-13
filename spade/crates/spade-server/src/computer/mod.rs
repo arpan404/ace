@@ -5,6 +5,8 @@
 //! Who drives is kept in `<data folder>/computer/<bot id>.json` while the person does, so a
 //! restart keeps the bot paused. Surfaces are what is happening now and live in memory.
 
+mod ace_sync;
+pub mod daemon;
 pub mod note;
 pub mod plain;
 pub mod ring;
@@ -24,6 +26,7 @@ use tokio::sync::broadcast;
 
 use crate::clock::Clock;
 use crate::workspace::{Snapshot, Workspaces, changes};
+pub use ace_sync::RESYNC;
 pub use terminal::Terminals;
 
 /// Where the bots' `shell` commands run here: in each bot's terminal, or (Windows, which has no
@@ -201,6 +204,12 @@ pub struct Computers {
     sent: Mutex<HashMap<String, View>>,
     /// Bots with a task waiting to send their surfaces going quiet.
     watched: Mutex<HashSet<String>>,
+    /// ace's daemon, for the browser and screen (`ace_sync`).
+    daemon: std::sync::OnceLock<Arc<dyn daemon::Daemon>>,
+    /// Bots handed back whose release ace hasn't confirmed yet.
+    releasing: Mutex<HashSet<String>>,
+    /// Bots whose browser and screen haven't been read from ace since Spade started.
+    unread: Mutex<HashSet<String>>,
     changes: broadcast::Sender<Change>,
     me: Weak<Self>,
 }
@@ -266,6 +275,9 @@ impl Computers {
             threads: Mutex::default(),
             sent: Mutex::default(),
             watched: Mutex::default(),
+            daemon: std::sync::OnceLock::new(),
+            releasing: Mutex::default(),
+            unread: Mutex::default(),
             changes: broadcast::channel(1024).0,
             me: me.clone(),
         });
@@ -536,7 +548,7 @@ impl Computers {
     }
 
     /// The note for the bot about the person's turn, or `None` when the bot drives.
-    pub fn note(&self, agent: &str) -> Option<String> {
+    pub fn note(&self, agent: &str, handback: Option<&daemon::Handback>) -> Option<String> {
         let record = lock(&self.records).get(agent).cloned()?;
         let now = self
             .workspaces
@@ -555,6 +567,7 @@ impl Computers {
             more_commands: record.more_commands,
             files: &files,
             used: &used,
+            handback,
         }))
     }
 

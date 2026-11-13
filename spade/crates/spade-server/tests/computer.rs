@@ -15,7 +15,10 @@ use futures_util::StreamExt;
 use serde_json::{Value, json};
 use spade_core::tools::Risk;
 use spade_server::clock::SystemClock;
-use spade_server::computer::{Computers, Terminals};
+use spade_server::computer::daemon::{
+    AceComputer, BoxFuture, Browser, Daemon, Handback, Screen, Tab,
+};
+use spade_server::computer::{Computers, Driver, Terminals};
 use spade_server::tools::{EngineHandle, Tool};
 use spade_server::workspace::shell::Shell;
 use spade_server::workspace::{Workspaces, workspace_tools};
@@ -571,5 +574,167 @@ async fn the_bots_terminal_commands_still_ask_and_always_allows_only_that_comman
         .collect();
     assert_eq!(asked, vec![&json!("c1"), &json!("c3")]);
     machine.terminals.end_all();
+    Ok(())
+}
+
+/// ace's daemon, as the computers see it: keeps who drives in memory (and forgets it, as a
+/// restarted daemon does), answers a hand-back with what the person did, and holds each bot's
+/// browser and screen.
+#[derive(Default)]
+struct FakeDaemon {
+    drivers: std::sync::Mutex<std::collections::HashMap<String, Driver>>,
+    drives: std::sync::Mutex<Vec<(String, Driver)>>,
+    computer: std::sync::Mutex<Option<AceComputer>>,
+}
+
+impl FakeDaemon {
+    fn forget(&self) {
+        self.drivers
+            .lock()
+            .map(|mut d| d.clear())
+            .unwrap_or_default();
+    }
+
+    fn driver(&self, bot: &str) -> Driver {
+        self.drivers
+            .lock()
+            .ok()
+            .and_then(|d| d.get(bot).copied())
+            .unwrap_or(Driver::Bot)
+    }
+}
+
+impl Daemon for FakeDaemon {
+    fn drive<'a>(
+        &'a self,
+        bot: &'a str,
+        driver: Driver,
+    ) -> BoxFuture<'a, std::result::Result<Option<Handback>, String>> {
+        Box::pin(async move {
+            if let Ok(mut drives) = self.drives.lock() {
+                drives.push((bot.to_owned(), driver));
+            }
+            let was = self
+                .drivers
+                .lock()
+                .ok()
+                .and_then(|mut d| d.insert(bot.to_owned(), driver));
+            let handed_back = driver == Driver::Bot && was == Some(Driver::Person);
+            Ok(handed_back.then(|| Handback {
+                driven_ms: 60_000,
+                visited: vec!["https://bank.example/login".to_owned()],
+                opened: Vec::new(),
+                closed: Vec::new(),
+                screen_used: true,
+            }))
+        })
+    }
+
+    fn computer<'a>(
+        &'a self,
+        _bot: &'a str,
+    ) -> BoxFuture<'a, std::result::Result<AceComputer, String>> {
+        Box::pin(async move {
+            self.computer
+                .lock()
+                .ok()
+                .and_then(|c| c.clone())
+                .ok_or_else(|| "ace is away".to_owned())
+        })
+    }
+}
+
+#[tokio::test]
+async fn ace_hears_who_drives_again_after_it_forgets_and_its_handback_reaches_the_note() -> Result {
+    let machine = Machine::new()?;
+    let bots = EngineHandle::default();
+    let options = support::Options {
+        workspaces: Some(machine.workspaces.clone()),
+        ..support::Options::default()
+    };
+    let spade = Spade::start_with(
+        vec![Script::reply("Hi")],
+        machine.tools(&bots, Vec::new()),
+        options,
+    )
+    .await?;
+    bots.set(&spade.engine);
+    let computers = machine.computers();
+    spade.engine.set_computers(computers.clone());
+    let (agent, conversation) = bot(&spade).await?;
+    let daemon = Arc::new(FakeDaemon::default());
+    if let Ok(mut held) = daemon.computer.lock() {
+        *held = Some(AceComputer {
+            driver: Driver::Bot,
+            thread_id: Some("th_bot".to_owned()),
+            browser: Browser {
+                tabs: vec![Tab {
+                    tab_id: "tab_1".to_owned(),
+                    title: "Docs".to_owned(),
+                    url: "https://docs.example/".to_owned(),
+                }],
+            },
+            screen: Screen::default(),
+        });
+    }
+    computers.set_daemon(
+        daemon.clone(),
+        vec![agent.clone()],
+        Duration::from_millis(50),
+    );
+
+    // What ace kept while Spade was down is read at start.
+    let mut view = Value::Null;
+    for _ in 0..100 {
+        view = spade.get(&format!("/v1/agents/{agent}/computer")).await?.1;
+        if view["thread_id"] == "th_bot" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(view["thread_id"], "th_bot", "{view}");
+    let browser = view["surfaces"]
+        .as_array()
+        .and_then(|s| s.iter().find(|s| s["kind"] == "browser"))
+        .cloned();
+    assert_eq!(browser.map(|b| b["tab_id"].clone()), Some(json!("tab_1")));
+
+    let (status, _) = spade
+        .post(&format!("/v1/agents/{agent}/computer/take-over"), json!({}))
+        .await?;
+    assert_eq!(status, 204);
+    assert_eq!(daemon.driver(&agent), Driver::Person);
+    // The daemon restarts and forgets; Spade tells it again.
+    daemon.forget();
+    for _ in 0..100 {
+        if daemon.driver(&agent) == Driver::Person {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(daemon.driver(&agent), Driver::Person);
+
+    let (status, _) = spade
+        .post(&format!("/v1/agents/{agent}/computer/hand-back"), json!({}))
+        .await?;
+    assert_eq!(status, 204);
+    assert_eq!(daemon.driver(&agent), Driver::Bot);
+    let events = spade
+        .wait_for(&conversation, "computer_handed_back")
+        .await?;
+    let note = events
+        .iter()
+        .find(|e| e["type"] == "computer_handed_back")
+        .and_then(|e| e["text"].as_str())
+        .unwrap_or_default()
+        .to_owned();
+    assert!(
+        note.contains("they went to: `https://bank.example/login`"),
+        "{note}"
+    );
+    assert!(note.contains("They used your screen."), "{note}");
+    // Once handed back, Spade stops telling ace the person drives.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(daemon.driver(&agent), Driver::Bot);
     Ok(())
 }

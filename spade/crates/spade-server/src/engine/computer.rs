@@ -68,10 +68,15 @@ impl Engine {
     /// The person hands `agent`'s computer back: the note is stored first, so a crash before
     /// the release leaves the person driving (handing back again only adds a second note), then
     /// the bot carries on. Blocking; repeat calls change nothing.
-    pub fn hand_back(self: &Arc<Self>, agent: &str) -> Result<(), TakeOverError> {
+    /// `handback` is what ace said the person did in the browser and screen, when it answered.
+    pub fn hand_back(
+        self: &Arc<Self>,
+        agent: &str,
+        handback: Option<&crate::computer::daemon::Handback>,
+    ) -> Result<(), TakeOverError> {
         let computers = self.computers.get().ok_or(TakeOverError::Unavailable)?;
         let conversation = self.conversation_of_agent(agent)?;
-        let Some(text) = computers.note(agent) else {
+        let Some(text) = computers.note(agent, handback) else {
             return Ok(());
         };
         self.record(

@@ -208,6 +208,9 @@ async fn run() -> Result<(), Failure> {
     let search = Arc::new(search);
     // Tools that find the calling bot through the engine, set once it exists (ADR 0130).
     let bots = EngineHandle::default();
+    if let Some(link) = &ace {
+        link.act_for(bots.clone());
+    }
     let mut core: Vec<Arc<dyn Tool>> = vec![
         Arc::new(WebSearch {
             search: search.clone(),
@@ -333,6 +336,13 @@ async fn run() -> Result<(), Failure> {
     bots.set(&engine);
     // Before work opens: a bot the person had when Spade stopped stays paused.
     engine.set_computers(computers.clone());
+    if let Some(link) = &ace {
+        let agents = engine
+            .agents()
+            .map(|views| views.into_iter().map(|v| v.agent.id).collect())
+            .unwrap_or_default();
+        computers.set_daemon(link.clone(), agents, spade_server::computer::RESYNC);
+    }
     computers.reap_idle(spade_server::computer::terminal::IDLE);
     // The person's own SearXNG, as they set it in Spade's settings.
     match engine.searxng_url() {

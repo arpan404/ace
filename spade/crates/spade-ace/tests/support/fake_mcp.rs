@@ -8,7 +8,7 @@
 //!   fake refuses both with 400;
 //! - each bearer holds at most four sessions; a fifth replaces the oldest.
 //!
-//! Tools: `echo`, `snap` (text + image), `fail` (tool error), `slow` (never in time),
+//! Tools: `whoami` (the call's `ace/acting-for`), `echo`, `snap` (text + image), `fail` (tool error), `slow` (never in time),
 //! `decorated` (blocks and result with fields the SDK doesn't model), anything else a protocol
 //! error. It can restart on the same port, expire every session, and count `tools/call` frames.
 
@@ -387,11 +387,21 @@ impl ServerHandler for Fake {
     async fn call_tool(
         &self,
         request: CallToolRequestParams,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
         self.0.tool_runs.fetch_add(1, Ordering::SeqCst);
-        let args = request.arguments.unwrap_or_default();
+        let args = request.arguments.clone().unwrap_or_default();
         let result = match request.name.as_ref() {
+            // Answers whom the call named itself as made for (`_meta` `ace/acting-for`).
+            "whoami" => {
+                let meta = serde_json::to_value(&context.meta).unwrap_or_default();
+                CallToolResult::success(vec![ContentBlock::text(
+                    meta.get("ace/acting-for")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("nobody")
+                        .to_owned(),
+                )])
+            }
             "echo" => CallToolResult::success(vec![ContentBlock::text(
                 args.get("say")
                     .and_then(|v| v.as_str())
