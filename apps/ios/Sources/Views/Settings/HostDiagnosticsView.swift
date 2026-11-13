@@ -155,7 +155,9 @@ struct HostDiagnosticsView: View {
 
     /// Checks are going: this page's own request, or a run on the machine it joins.
     private var running: Bool { checking || checks?.state == "running" }
-    private var joiningRun: String? { checks?.state == "running" ? checks?.runId : nil }
+    private var joiningRun: HostChecksJoin? {
+        HostChecksJoin(checks: checks, reconnects: model.reads.reconnects, generation: model.readGeneration(Self.read))
+    }
 
     private func load() async {
         do {
@@ -175,7 +177,7 @@ struct HostDiagnosticsView: View {
         }
     }
     private func join() async {
-        guard let runId = joiningRun else { return }
+        guard let runId = joiningRun?.runId else { return }
         do {
             checks = try await model.service(["type": "host.checks.join", "runId": runId], as: HostChecksReply.self, timeout: .seconds(16 * 60 + 30))
             checksProblem = nil
