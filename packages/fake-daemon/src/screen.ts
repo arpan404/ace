@@ -57,6 +57,8 @@ export class FakeScreen {
   readonly acks: ScreenAck[] = [];
   /** Every stream a view asked a session for, in order. */
   readonly streamRequests: { sessionId: string; settings: ScreenStreamSettings }[] = [];
+  /** While set, every change of a session's controls waits for it (`holdControl`). */
+  private controlHeld: Promise<void> | undefined;
   /** The person's input that reached a session, in order. */
   readonly inputs: { sessionId: string; input: unknown }[] = [];
   private messageIds = 0;
@@ -265,6 +267,15 @@ export class FakeScreen {
     // Each drop removes itself from the set, so walk a copy.
     for (const drop of Array.from(this.drops)) drop();
   }
+  /** Holds every change of controls until the result is called, in the order asked. */
+  holdControl(): () => void {
+    const held = Promise.withResolvers<void>();
+    this.controlHeld = held.promise;
+    return () => {
+      this.controlHeld = undefined;
+      held.resolve();
+    };
+  }
   enable(enabled: boolean): void {
     const changed = this.enabled !== enabled;
     this.enabled = enabled;
@@ -381,6 +392,7 @@ export class FakeScreen {
     this.requireEnabled();
     switch (op.op) {
       case "controller": {
+        if (this.controlHeld) await this.controlHeld;
         const watchOnly = session.state.capabilities?.watchOnly;
         if (op.controller === "human" && watchOnly)
           throw new FakeScreenError("not_supported", watchOnly);

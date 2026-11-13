@@ -1,7 +1,7 @@
 import type { ScreenInput, ScreenState } from "@ace/protocol";
 import { useEffect, useEffectEvent } from "react";
 import { LiveView } from "./live-view.tsx";
-import { useScreenSession } from "./screen-session.ts";
+import { useScreenSession, type ScreenSession } from "./screen-session.ts";
 
 /*
  * A Spade bot's screen, live: the app session its hidden thread started (or holds now), drawn by
@@ -23,6 +23,21 @@ export interface BotScreenProps {
 
 const shown = new Set<ScreenState["lifecycle"]>(["starting", "live"]);
 
+/**
+ * The latest taking of each session's controls, per screen channel: a number each view takes
+ * when it asks for them. Only the holder of the latest may let them go.
+ */
+const takings = new WeakMap<ScreenSession, Map<string, number>>();
+function claim(session: ScreenSession, sessionId: string): number {
+  const bySession = takings.get(session) ?? new Map<string, number>();
+  takings.set(session, bySession);
+  const next = (bySession.get(sessionId) ?? 0) + 1;
+  bySession.set(sessionId, next);
+  return next;
+}
+const owns = (session: ScreenSession, sessionId: string, taking: number) =>
+  takings.get(session)?.get(sessionId) === taking;
+
 /** The bot's session: the one its thread holds now, else the newest its thread started. */
 export function botSession(states: readonly ScreenState[], threadId: string) {
   const live = states.filter((state) => shown.has(state.lifecycle));
@@ -40,13 +55,17 @@ export default function BotScreen(props: BotScreenProps) {
   const human = state?.controller === "human";
   // The person's controls while they drive. They are let go when the person hands back, when
   // this view goes (another surface, another bot) or the session changes, and when the answer to
-  // taking them arrives after any of those.
+  // taking them arrives after any of those; but only by the latest taking of that session, so a
+  // late answer or cleanup never lets go of controls taken again since.
   useEffect(() => {
     if (!session || !sessionId || !props.driving) return;
+    const mine = claim(session, sessionId);
     let gone = false;
     let held = false;
-    const letGo = () =>
+    const letGo = () => {
+      if (!owns(session, sessionId, mine)) return;
       void session.request({ op: "controller", sessionId, controller: "none" }).catch(() => {});
+    };
     session.request({ op: "controller", sessionId, controller: "human" }).then(
       () => {
         held = true;
