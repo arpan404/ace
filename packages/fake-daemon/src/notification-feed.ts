@@ -5,6 +5,12 @@ import type {
   ServerMessage,
 } from "@ace/protocol";
 
+/** What tests read and set on the feed through `FakeDaemon.notifications`. */
+export type FakeNotificationControls = Pick<
+  FakeNotificationFeed,
+  "address" | "acknowledged" | "refusePush" | "rejectRegistrations"
+>;
+
 /**
  * The fixture's catch-up feed: every pushed alert, with a growing cursor. Tests and the iOS spike
  * withdraw one with `retract` to stand in for the daemon's canonical-state recheck. A device that

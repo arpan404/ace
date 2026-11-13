@@ -5,7 +5,7 @@ import { fakeRemoteStatus } from "./remote-status.ts";
 import { projectIntent } from "./project-intents.ts";
 import { fakeGoalUpdate } from "./goal-commands.ts";
 import type { FakeHistory } from "./history-wire.ts";
-import type { FakeNotificationFeed } from "./notification-feed.ts";
+import type { FakeNotificationControls } from "./notification-feed.ts";
 import type { FakeMachineUpdate } from "./machine-update-wire.ts";
 import { EntitiesPage, ItemId, MachineIcon, type EntityCollection } from "@ace/protocol";
 import { regeneratedTitle } from "./title-regenerate.ts";
@@ -413,10 +413,7 @@ export class FakeDaemon implements Host {
     for (const connection of this.connections)
       if (connection.authenticated) connection.push(message);
   }
-  get notifications(): Pick<
-    FakeNotificationFeed,
-    "address" | "acknowledged" | "refusePush" | "rejectRegistrations"
-  > {
+  get notifications(): FakeNotificationControls {
     return this.servicesWire.notificationFeed;
   }
   /** Stands in for the daemon's recheck: a retracted alert leaves catch-up. */
