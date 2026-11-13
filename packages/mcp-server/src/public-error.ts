@@ -40,6 +40,7 @@ export const PublicToolCode = z.enum([
   "human_active",
   "human_private",
   "needs_person",
+  "person_driving",
   "browser_paused",
   "browser_closed",
   "backend_changed",
@@ -257,6 +258,10 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   human_private: {
     message: "The person keeps agents out of this tab",
     hint: "Use another tab (browser_tabs open for a new one), or ask the person to let agents into this one.",
+  },
+  person_driving: {
+    message: "The person is driving this computer",
+    hint: "They took over your browser and screen. Don't retry or work around it: carry on with work that needs neither, or end your turn saying where you were. You'll be told what they did when they hand back.",
   },
   needs_person: {
     message: "This page needs the person",

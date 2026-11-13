@@ -35,7 +35,13 @@ export interface SessionTools {
    * client does not list every tool, where `tools_call` is offered (`toolsets.ts`).
    */
   readonly dispatch?:
-    | ((name: string, input: unknown, signal: AbortSignal) => Promise<CallToolResult>)
+    | ((
+        name: string,
+        input: unknown,
+        signal: AbortSignal,
+        /** The outer call's `actingFor`, so a dispatched call acts for the same one. */
+        actingFor?: string,
+      ) => Promise<CallToolResult>)
     | undefined;
 }
 
@@ -54,7 +60,33 @@ export interface ToolContext {
   readonly callBudgetSeconds?: number;
   /** Set by the server for the meta tools only. */
   readonly session?: SessionTools;
+  /**
+   * Whom the caller's own MCP client says this call is for (`_meta` `ace/acting-for` on
+   * `tools/call`), never the model's arguments. Only a `CallActor` that trusts that client reads it.
+   */
+  readonly actingFor?: string;
 }
+/**
+ * Whom one call runs as, when the host swaps the caller's attribution for another it owns
+ * (Spade's bots each act as their own hidden thread, `spade/computers.ts` in the daemon).
+ * Aborting `signal` cancels the call; `settled` is called once the tool's work has ended,
+ * however it ended, so the host can wait for its calls to drain.
+ */
+export interface CallAct {
+  readonly caller: McpAttribution;
+  readonly signal?: AbortSignal;
+  readonly settled?: () => void;
+}
+/**
+ * Decides whom one call runs as, or refuses it by throwing a `PublicToolError`. Undefined: the
+ * call runs as the caller.
+ */
+export type CallActor = (
+  tool: string,
+  capability: McpCapability | null,
+  caller: McpAttribution,
+  actingFor: string | undefined,
+) => CallAct | undefined | Promise<CallAct | undefined>;
 export type CallObserver = (
   name: string,
   input: unknown,
@@ -177,6 +209,7 @@ export class ToolRegistry {
   readonly observeCall: CallObserver | undefined;
   private reportFailure: ToolFailureReporter | undefined;
   private callSignal: CallSignal | undefined;
+  private actAs: CallActor | undefined;
   constructor(options: {
     scheduler: Scheduler;
     maxTools?: number;
@@ -185,9 +218,11 @@ export class ToolRegistry {
     observeCall?: CallObserver;
     reportFailure?: ToolFailureReporter;
     callSignal?: CallSignal;
+    actAs?: CallActor;
   }) {
     this.scheduler = options.scheduler;
     this.callSignal = options.callSignal;
+    this.actAs = options.actAs;
     this.observeCall = options.observeCall;
     this.reportFailure = options.reportFailure;
     this.maxTools = options.maxTools ?? 128;
@@ -417,17 +452,21 @@ export class ToolRegistry {
       client?: AceClient;
       callBudgetSeconds?: number;
       session?: SessionTools;
+      actingFor?: string;
     } = {},
   ): Promise<CallToolResult> {
     if (principal.signal.aborted) return failure("session_ended");
     const { sessionId, threadId, agentId } = principal.scope;
     const controller = new AbortController();
+    // Aborted with the host's own signal for this call, once `actAs` has given one.
+    const acted = new AbortController();
     const entry = this.entry(name);
     const host = entry && this.callSignal?.(entry.name, entry.capability, principal.scope);
     const signal = AbortSignal.any([
       principal.signal,
       requestSignal,
       controller.signal,
+      acted.signal,
       ...(host ? [host] : []),
     ]);
     const context: ToolContext = {
@@ -438,6 +477,7 @@ export class ToolRegistry {
       ...(options.client ? { client: options.client } : {}),
       ...(options.callBudgetSeconds ? { callBudgetSeconds: options.callBudgetSeconds } : {}),
       ...(options.session ? { session: options.session } : {}),
+      ...(options.actingFor ? { actingFor: options.actingFor } : {}),
     };
     const observe = this.observeCall?.(name, input, context);
     const finish = async (result: CallToolResult) => {
@@ -457,6 +497,22 @@ export class ToolRegistry {
     )
       return finish(failure("calls_limit"));
     if (signal.aborted) return finish(failure("cancelled"));
+    let act: CallAct | undefined;
+    try {
+      act = await this.actAs?.(entry.name, entry.capability, context.caller, context.actingFor);
+    } catch (caught: unknown) {
+      return finish(toolFailure(caught, this.report(entry.name, context.caller, caught)));
+    }
+    if (act?.signal) {
+      const forward = () => acted.abort();
+      if (act.signal.aborted) forward();
+      else act.signal.addEventListener("abort", forward, { once: true });
+    }
+    if (signal.aborted) {
+      act?.settled?.();
+      return finish(failure("cancelled"));
+    }
+    const runAs = act ? { ...context, caller: act.caller } : context;
     this.active++;
     this.activeThreads.set(threadId, (this.activeThreads.get(threadId) ?? 0) + 1);
     let executionSettled = false;
@@ -482,7 +538,7 @@ export class ToolRegistry {
       });
     });
     const executing = Promise.resolve()
-      .then(() => entry.execute(input, { ...context, signal }))
+      .then(() => entry.execute(input, { ...runAs, signal }))
       .catch((caught: unknown) => {
         if (caught instanceof ResultBudgetExceeded) return failure("result_too_large");
         const error =
@@ -493,6 +549,7 @@ export class ToolRegistry {
       })
       .finally(() => {
         executionSettled = true;
+        act?.settled?.();
         release();
       });
     // An uncooperative backend retains its slot until it settles, bounding detached work.

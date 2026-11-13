@@ -411,13 +411,14 @@ async function createHandler(
         family: options.registry.toolset(tool.name),
       }));
     /** One call exactly as the client made it: the path `tools_call` dispatches through too. */
-    const direct = (name: string, args: unknown, signal: AbortSignal) => {
+    const direct = (name: string, args: unknown, signal: AbortSignal, actingFor?: string) => {
       const registry = registryFor(name);
       return registry.call(name, args, principal, signal, {
         listing,
         ...(client ? { client } : {}),
         ...(callBudget ? { callBudgetSeconds: callBudget } : {}),
         ...(registry === meta ? { session } : {}),
+        ...(actingFor ? { actingFor } : {}),
       });
     };
     const session: SessionTools = {
@@ -576,6 +577,7 @@ async function createHandler(
           name,
           args,
           AbortSignal.any([context.mcpReq.signal, controller.signal]),
+          actingForOf(request.params["_meta"]),
         ).finally(stopBeats);
         // Only this session's list grows, and only it needs to reload.
         if (!result.isError && grows(name, args, result)) announce(principal);
@@ -637,6 +639,16 @@ async function createHandler(
   return { handler, legacy, fetch, nodeHandler, validateHost, validateOrigin };
 }
 function noop(): void {}
+
+/** `_meta` key a client names whom one call is for (`ToolContext.actingFor`). */
+export const actingForMetaKey = "ace/acting-for";
+
+/** The client's `ace/acting-for`, when it is a short id; anything else is ignored. */
+export function actingForOf(meta: unknown): string | undefined {
+  if (typeof meta !== "object" || meta === null) return undefined;
+  const value: unknown = Reflect.get(meta, actingForMetaKey);
+  return typeof value === "string" && /^[A-Za-z0-9_.:-]{1,128}$/.test(value) ? value : undefined;
+}
 
 /** A listed tool whose annotations say it never reaches a destructive tool. */
 function notDestructive<T extends { annotations?: Record<string, unknown> | undefined }>(

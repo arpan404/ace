@@ -196,3 +196,9 @@ export function storedEntity<C extends StoredEntityCollection>(
   // Trusted: this build's writer produced this JSON from a value folded from validated events.
   return trust.trusted ? (value as StoredEntity<C>) : decodeStoredEntity(collection, value);
 }
+
+/** A take-over row in `spade_computer_drivers`; only this build's driver store writes them. */
+export function storedTakeover(json: string): import("./spade/computer-drivers.ts").Takeover {
+  // Trusted: written by `storedTakeovers` from a Takeover this daemon built.
+  return JSON.parse(json) as import("./spade/computer-drivers.ts").Takeover;
+}

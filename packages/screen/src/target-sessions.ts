@@ -152,6 +152,7 @@ export class TargetSessions {
         this.nextGeneration,
       );
       session.humanView = humanView;
+      if (scope) session.state = { ...session.state, threadId: scope.threadId };
       this.sessions.set(id, session);
       session.state.permissions = await helper.permissions();
       if (!session.state.permissions.screenRecording)

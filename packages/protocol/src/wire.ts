@@ -118,6 +118,12 @@ import {
   SpadeRemoteRequest,
   SpadeRemoteResult,
 } from "./spade-remote.ts";
+import {
+  SpadeComputerDrive,
+  SpadeComputerDriveResult,
+  SpadeComputerGet,
+  SpadeComputerResult,
+} from "./spade-computer.ts";
 import { z } from "zod";
 import { CoreClientMessage, CoreServerMessage } from "./wire-core.ts";
 
@@ -284,6 +290,8 @@ export const ClientMessage = z.discriminatedUnion("type", [
   ...SpadeClientMessage.options,
   SpadeMachinesRequest,
   SpadeRemoteRequest,
+  SpadeComputerGet,
+  SpadeComputerDrive,
   ...AccountsRequest.options,
   ...ProviderAccountsRequest.options,
   ...CursorAuthRequest.options,
@@ -397,6 +405,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
   ...SpadeServerMessage.options,
   SpadeMachinesResult,
   SpadeRemoteResult,
+  SpadeComputerResult,
+  SpadeComputerDriveResult,
   ...AccountsResponse.options,
   ProviderAccountsResult,
   ...CursorAuthEvent.options,
