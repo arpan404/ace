@@ -158,11 +158,14 @@ pub struct Engine {
     /// Each conversation's access level once folded (ADR 0144, `autonomy`).
     levels: Mutex<HashMap<String, spade_core::autonomy::Access>>,
     /// Awaited by a turn's worker after its reply ends and before it decides the task's next
-    /// step; none outside tests, which hold a worker there to order a Stop against it.
+    /// step; none outside tests, which hold a worker there to order a Stop against it. Only with
+    /// the `test-hooks` feature.
+    #[cfg(feature = "test-hooks")]
     turn_end_hold: Mutex<Option<TurnEndHold>>,
 }
 
 /// What [`Engine::hold_turn_ends`] runs, given the conversation.
+#[cfg(feature = "test-hooks")]
 pub type TurnEndHold =
     Arc<dyn Fn(&str) -> std::pin::Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
@@ -225,6 +228,7 @@ impl Engine {
             allowed_scopes: Mutex::default(),
             continuations: Mutex::default(),
             levels: Mutex::default(),
+            #[cfg(feature = "test-hooks")]
             turn_end_hold: Mutex::default(),
         });
         handle.set(&engine);
@@ -731,11 +735,14 @@ impl Engine {
     }
 
     /// Every turn's worker awaits `hold` once its reply has ended, before it decides whether the
-    /// bot's task carries on (ADR 0144). For tests that order a Stop against that moment.
+    /// bot's task carries on (ADR 0144). For tests that order a Stop against that moment; only
+    /// with the `test-hooks` feature.
+    #[cfg(feature = "test-hooks")]
     pub fn hold_turn_ends(&self, hold: TurnEndHold) {
         *self.turn_end_hold.lock().unwrap_or_else(|p| p.into_inner()) = Some(hold);
     }
 
+    #[cfg(feature = "test-hooks")]
     pub(super) async fn turn_ended(&self, id: &str) {
         let hold = self
             .turn_end_hold
@@ -746,6 +753,10 @@ impl Engine {
             hold(id).await;
         }
     }
+
+    /// Without the `test-hooks` feature nothing holds a worker.
+    #[cfg(not(feature = "test-hooks"))]
+    pub(super) async fn turn_ended(&self, _id: &str) {}
 
     fn spawn_turn(self: &Arc<Self>, id: &str) {
         if self.deleting(id) {
