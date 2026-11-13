@@ -16,6 +16,7 @@ export {
   type ToolContext,
   type CallObserver,
   type CallSignal,
+  type CallActor,
   type ToolFailureReporter,
   type ToolDefinition,
   type ToolMetadata,

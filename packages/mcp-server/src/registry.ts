@@ -54,7 +54,23 @@ export interface ToolContext {
   readonly callBudgetSeconds?: number;
   /** Set by the server for the meta tools only. */
   readonly session?: SessionTools;
+  /**
+   * Whom the caller's own MCP client says this call is for (`_meta` `ace/acting-for` on
+   * `tools/call`), never the model's arguments. Only a `CallActor` that trusts that client reads it.
+   */
+  readonly actingFor?: string;
 }
+/**
+ * The attribution one call runs as. The host may swap the caller's for another it owns (Spade's
+ * bots each act as their own hidden thread, `spade/computers.ts` in the daemon) or refuse the call by throwing a
+ * `PublicToolError`. Undefined: the call runs as the caller.
+ */
+export type CallActor = (
+  tool: string,
+  capability: McpCapability | null,
+  caller: McpAttribution,
+  actingFor: string | undefined,
+) => McpAttribution | undefined | Promise<McpAttribution | undefined>;
 export type CallObserver = (
   name: string,
   input: unknown,
@@ -177,6 +193,7 @@ export class ToolRegistry {
   readonly observeCall: CallObserver | undefined;
   private reportFailure: ToolFailureReporter | undefined;
   private callSignal: CallSignal | undefined;
+  private actAs: CallActor | undefined;
   constructor(options: {
     scheduler: Scheduler;
     maxTools?: number;
@@ -185,9 +202,11 @@ export class ToolRegistry {
     observeCall?: CallObserver;
     reportFailure?: ToolFailureReporter;
     callSignal?: CallSignal;
+    actAs?: CallActor;
   }) {
     this.scheduler = options.scheduler;
     this.callSignal = options.callSignal;
+    this.actAs = options.actAs;
     this.observeCall = options.observeCall;
     this.reportFailure = options.reportFailure;
     this.maxTools = options.maxTools ?? 128;
@@ -417,6 +436,7 @@ export class ToolRegistry {
       client?: AceClient;
       callBudgetSeconds?: number;
       session?: SessionTools;
+      actingFor?: string;
     } = {},
   ): Promise<CallToolResult> {
     if (principal.signal.aborted) return failure("session_ended");
@@ -438,6 +458,7 @@ export class ToolRegistry {
       ...(options.client ? { client: options.client } : {}),
       ...(options.callBudgetSeconds ? { callBudgetSeconds: options.callBudgetSeconds } : {}),
       ...(options.session ? { session: options.session } : {}),
+      ...(options.actingFor ? { actingFor: options.actingFor } : {}),
     };
     const observe = this.observeCall?.(name, input, context);
     const finish = async (result: CallToolResult) => {
@@ -482,7 +503,15 @@ export class ToolRegistry {
       });
     });
     const executing = Promise.resolve()
-      .then(() => entry.execute(input, { ...context, signal }))
+      .then(async () => {
+        const actor = await this.actAs?.(
+          entry.name,
+          entry.capability,
+          context.caller,
+          context.actingFor,
+        );
+        return entry.execute(input, { ...context, ...(actor ? { caller: actor } : {}), signal });
+      })
       .catch((caught: unknown) => {
         if (caught instanceof ResultBudgetExceeded) return failure("result_too_large");
         const error =

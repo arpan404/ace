@@ -96,6 +96,39 @@ it("negotiates the legacy handshake with the monolithic SDK client", async () =>
   );
 });
 
+it("a call's acting-for comes from the client's _meta, never from the tool's arguments", async () => {
+  const h = await harness(cleanups);
+  h.registry.register({
+    name: "ace_whom",
+    description: "Whom",
+    input: z.object({ for: z.string().optional() }),
+    output: z.object({ actingFor: z.string() }),
+    capability: null,
+    timeoutMs: 1000,
+    async run(_value, context) {
+      return { actingFor: context.actingFor ?? "nobody" };
+    },
+  });
+  // Spade's client: the legacy SDK with a session and its list-change stream.
+  const lease = h.credentials.issue(scope(), new AbortController().signal);
+  const client = new LegacyClient({ name: "spade", version: "1" });
+  cleanups.push(() => client.close());
+  const transport = new LegacyTransport(new URL(h.server.url), {
+    requestInit: {
+      headers: { Authorization: `Bearer ${lease.bearer}`, "X-Ace-Notifications": "stream" },
+    },
+  });
+  await client.connect(legacyWire(transport));
+  const whom = async (params: {
+    arguments?: Record<string, unknown>;
+    _meta?: Record<string, unknown>;
+  }) => (await client.callTool({ name: "ace_whom", ...params })).structuredContent;
+  expect(await whom({ _meta: { "ace/acting-for": "fares" } })).toEqual({ actingFor: "fares" });
+  expect(await whom({ arguments: { for: "fares" } })).toEqual({ actingFor: "nobody" });
+  // A name that isn't a short id is ignored rather than passed on.
+  expect(await whom({ _meta: { "ace/acting-for": "../x y" } })).toEqual({ actingFor: "nobody" });
+});
+
 it("filters unauthorized tools and rejects direct capability bypasses", async () => {
   const h = await harness(cleanups);
   const effects: string[] = [];

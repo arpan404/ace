@@ -60,6 +60,7 @@ const during: Record<InputKind, string> = {
 const readAgain = (thing: string) => `The agent should read the ${thing} again before retrying.`;
 
 const screen: Record<string, Wording> = {
+  person_driving: () => ({ title: "You were driving, so the bot waited" }),
   not_supported: (app, { input = "other", mode }) => ({
     title: `${app} didn't accept ${refused[input]}${mode === "background" ? " in the background" : ""}`,
     hint:
@@ -193,6 +194,7 @@ const browser: Record<string, Wording> = {
   recording_active: () => ({ title: "The browser is already recording" }),
   recording_inactive: () => ({ title: "The browser wasn't recording" }),
   recording_failed: () => ({ title: "The recording couldn't be saved" }),
+  person_driving: () => ({ title: "You were driving, so the bot waited" }),
   needs_person: (site) => ({
     title: `${site} needs you`,
     hint: "It shows a warning only you can get past, in the Browser panel.",
