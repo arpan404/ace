@@ -30,6 +30,7 @@ export function ComputerTile(props: {
       : undefined,
   );
   const heading = spadeSurfaceHeading(surface, props.machine.name);
+  const line = spadeSurfaceLine(surface);
   return (
     <section
       aria-label={`${heading}, live`}
@@ -58,7 +59,7 @@ export function ComputerTile(props: {
           <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-status-working" />
           <span className="truncate">{heading}</span>
         </p>
-        {surface.title && <p className="truncate text-xs text-muted-foreground">{surface.title}</p>}
+        {line && <p className="truncate text-xs text-muted-foreground">{line}</p>}
       </div>
       {!props.driving && !props.compact && (
         <Button size="sm" variant="ghost" disabled={props.pending} onClick={props.onTakeOver}>
