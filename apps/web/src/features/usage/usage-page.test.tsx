@@ -147,7 +147,11 @@ test("a window used faster than it runs is red with when it runs out; one that l
   report(app.daemon, "codex-team", { five_hour: [10, 4 * hour, 300] });
   await app.open("/usage");
   const personal = await accountBlock("Codex", "Personal");
-  expect(personal.textContent).toMatch(new RegExp(`Runs out around ${clock}`));
+  // The row stays one line: a short "Out around <time>", with the full sentence for screen readers.
+  expect(personal.textContent).toMatch(new RegExp(`Out around ${clock}`));
+  expect(
+    within(personal).getByRole("group", { name: new RegExp(`Runs out around ${clock}`) }),
+  ).toBeTruthy();
   const session = await meter("Codex", "Personal", "Session (5h)");
   expect(session.querySelector("[data-runs-out]")).not.toBeNull();
   // The week, barely touched, lasts: no red, and its pace still uses some of what is left.

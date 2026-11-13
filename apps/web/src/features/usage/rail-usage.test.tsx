@@ -104,6 +104,22 @@ test("an account out for the week reads out in the icon's name; the card names w
   );
 });
 
+test("the card says when a window runs out as a countdown, like the reset waits beside it", async () => {
+  const app = harness();
+  // Nine tenths of the session gone in its first hour: out in about seven minutes.
+  session(app.daemon, "codex-personal", 90, 4 * 60, 10);
+  app.daemon.services.usage.sources = [source("codex", "codex-personal", 900_000)];
+  await app.open("/new");
+  const usage = await within(await appNav()).findByRole("link", {
+    name: /^Usage: Codex · Personal/,
+  });
+  await userEvent.hover(usage);
+  const card = (await screen.findByRole("link", { name: "Open Usage ›" })).closest(
+    "[data-slot=usage-card]",
+  ) as HTMLElement;
+  expect(within(card).getByText("Out in 7m")).toBeTruthy();
+});
+
 test("with no limits read, the icon shows empty bars and says so", async () => {
   const app = harness();
   for (const account of app.daemon.services.accounts) account.quota.windows = {};
