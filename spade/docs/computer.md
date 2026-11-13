@@ -63,6 +63,34 @@ shell's at the moment the person presses Return. A line typed into a running pro
 password prompt) is never kept. Tab completion and history are the shell's, so a line is what
 the person typed, not always what ran.
 
+## ace's side: browser and screen
+
+The daemon keeps each bot's browser and screen in a hidden thread of its own
+(`packages/protocol/src/spade-computer.ts`).
+
+- **Acting for a bot.** Every ace MCP `tools/call` Spade makes for a bot carries
+  `_meta: {"ace/acting-for": "<agent id>"}`. CLI bots' `spade_call`s that reach ace's tools carry
+  it too. The id comes from the call's key, which Spade made for the turn, never from the model's
+  arguments. ace honours it on Spade's grant only.
+- **While the person drives**, ace answers the bot's `browser_*` and `screen_*` calls with the
+  public error `person_driving`. Spade gives the model a not-run result that is not an error ("the
+  person took over your computer … don't retry"), so it never counts as a failure to try again.
+- **Take-over** also sends `spade.computer.drive {requestId, bot, driver: "person"}` over the
+  daemon's loopback socket (5 s wait, failure tolerated). **Hand-back** first sends
+  `driver: "bot"`. The answer's `handback {drivenMs, visited, opened, closed, screenUsed}` goes
+  into the note as addresses only, never page titles, which are the pages' own text: at most 10
+  per list, 200 characters each, no spaces or backticks. "They used your screen" is added when
+  `screenUsed`. When ace can't be reached the note goes without it, and the bot is marked as
+  releasing.
+- **Kept in step.** The daemon keeps the driver in memory only. Every 10 s Spade sends
+  `driver: "person"` again for every bot the person has, and `driver: "bot"` for every hand-back
+  ace hasn't confirmed (or that ace still shows as the person's), so a daemon that restarted
+  learns it back.
+- **At start** Spade reads every bot's `spade.computer.get` until each answers: `threadId` becomes
+  `thread_id`, the last tab becomes the browser surface (`title`, `url`, `tab_id`), and apps in
+  use make the screen live (`title` is the apps, comma-joined). After that the daemon's
+  `PUT …/computer/surfaces/{kind}` reports keep them current.
+
 ## The terminal
 
 On macOS and Linux each bot has one `/bin/sh -i` in a pseudo-terminal (`portable-pty`), started
