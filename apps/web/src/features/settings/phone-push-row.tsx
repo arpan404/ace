@@ -1,4 +1,5 @@
 import { useConnectionState } from "@ace/client-react";
+import { remotePushSwitch } from "@ace/ui-core";
 import { useId } from "react";
 import { SettingRow } from "@/components/setting-row.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
@@ -17,12 +18,7 @@ export function PhonePushRow() {
   const [on, setOn] = useDaemonSetting("notifications.remotePush");
   const row = settingRow("notifications.remotePush");
   return (
-    <SettingRow
-      {...row}
-      description="Goes through ace's push service, which sees only encrypted data."
-      htmlFor={id}
-      inline
-    >
+    <SettingRow {...row} description={remotePushSwitch.description} htmlFor={id} inline>
       <Switch
         id={id}
         checked={on === true}
