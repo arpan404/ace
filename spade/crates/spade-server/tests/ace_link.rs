@@ -304,3 +304,62 @@ async fn after_a_connection_worked_the_backoff_starts_over() -> Result {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn an_action_the_person_was_busy_for_reaches_the_model_as_not_run_and_not_a_failure() -> Result
+{
+    let home = tempfile::tempdir()?;
+    let mcp = FakeMcp::start(vec![tool("browser_busy", Some(false), None)]).await;
+    daemon_files(home.path(), &mcp)?;
+    let spade = Spade::start_with(
+        vec![
+            Script::reply("").call(
+                "c1",
+                "call_tool",
+                json!({ "name": "browser_busy", "arguments": {} }),
+            ),
+            Script::reply("I'll come back to the page."),
+            Script::reply("").plain(r#"{"title":"Page"}"#),
+        ],
+        Vec::new(),
+        with_ace(home.path()),
+    )
+    .await?;
+    spade
+        .put("/v1/ace", json!({ "grant": fake_mcp::TOKEN }))
+        .await?;
+    wait_connected(&spade, true).await?;
+    let id = spade.ask("Click the button").await?;
+    // A browser action changes things, so it asks first.
+    spade.wait_for(&id, "approval_requested").await?;
+    let (status, _) = spade
+        .post(
+            &format!("/v1/conversations/{id}/approvals/c1"),
+            json!({ "allowed": true }),
+        )
+        .await?;
+    assert_eq!(status, 202);
+    let events = spade.wait_for(&id, "reply_finished").await?;
+    let finished = events
+        .iter()
+        .find(|e| e["type"] == "tool_finished" && e["call_id"] == "c1")
+        .ok_or("c1 never finished")?;
+    let content = finished["content"].as_str().unwrap_or_default();
+    assert!(
+        content.starts_with("Not run: the person is using"),
+        "{content}"
+    );
+    assert_eq!(
+        finished["is_error"], false,
+        "not a failure to retry at once"
+    );
+    let read = spade
+        .fake
+        .seen()
+        .iter()
+        .map(|s| s.body.to_string())
+        .rfind(|body| !body.contains("Write a short title"))
+        .unwrap_or_default();
+    assert!(read.contains("don't retry it straight away"), "{read}");
+    Ok(())
+}
