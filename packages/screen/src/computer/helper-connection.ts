@@ -26,6 +26,13 @@ export interface HelperConnectionOptions {
   timing?: { now: () => number; report: (timing: ComputerRequestTiming) => void };
 }
 
+/** Checks at native dispatch; waiting releases this connection's queue slot. */
+export interface RequestDispatch {
+  ready(): Promise<boolean>;
+  authorize(): boolean;
+  wait(signal: AbortSignal): Promise<void>;
+}
+
 interface Job {
   id: string;
   op: string;
@@ -38,6 +45,7 @@ interface Job {
   child?: ChildProcessWithoutNullStreams;
   /** Set once the request is being stopped: why, for the error it ends with. */
   ending?: "cancelled" | "timeout";
+  dispatch?: RequestDispatch;
   stops: (() => void)[];
   timing?: ComputerRequestSpan;
   outcome?: "ok" | "error";
@@ -57,6 +65,7 @@ export class HelperConnection {
   private readonly options: HelperConnectionOptions;
   private readonly queue: Job[] = [];
   private current: Job | undefined;
+  private readonly parked = new Set<Job>();
   private child: ChildProcessWithoutNullStreams | undefined;
   private starting: Promise<ChildProcessWithoutNullStreams> | undefined;
   private closed = false;
@@ -67,7 +76,7 @@ export class HelperConnection {
 
   /** Running or waiting requests. */
   busy(): boolean {
-    return this.current !== undefined || this.queue.length > 0;
+    return this.current !== undefined || this.queue.length > 0 || this.parked.size > 0;
   }
 
   /** The helper's process id, starting the helper if none is running. */
@@ -81,6 +90,7 @@ export class HelperConnection {
     payload: Record<string, unknown>,
     deadlineMs: number,
     signal: AbortSignal | undefined,
+    dispatch?: RequestDispatch,
   ): Promise<unknown> {
     if (this.closed) return Promise.reject(new ComputerError("closed", "Computer use stopped."));
     // An abort that already happened fires no `abort` event, so it is honoured here: the
@@ -101,6 +111,7 @@ export class HelperConnection {
         resolve,
         reject,
         stops: [],
+        ...(dispatch ? { dispatch } : {}),
         ...(timing ? { timing } : {}),
       };
       if (signal) {
@@ -120,6 +131,8 @@ export class HelperConnection {
     this.closed = true;
     const error = new ComputerError("closed", "Computer use stopped.");
     for (const job of this.queue.splice(0)) this.settle(job, () => job.reject(error));
+    for (const job of this.parked) this.settle(job, () => job.reject(error));
+    this.parked.clear();
     const job = this.current;
     if (job) this.finish(job, () => job.reject(error));
     this.kill();
@@ -129,7 +142,7 @@ export class HelperConnection {
     if (this.current || this.closed) return;
     const job = this.queue.shift();
     if (!job) {
-      this.options.idle(true);
+      if (this.parked.size === 0) this.options.idle(true);
       return;
     }
     this.current = job;
@@ -156,6 +169,25 @@ export class HelperConnection {
     }
     // Cancelled while the helper started.
     if (this.current !== job || job.ending) return;
+    try {
+      const dispatch = job.dispatch;
+      if (dispatch) {
+        const ready = await dispatch.ready();
+        if (this.current !== job || job.ending) return;
+        if (!ready || !dispatch.authorize()) {
+          this.park(job, dispatch);
+          return;
+        }
+      }
+    } catch (error) {
+      if (this.current === job) this.finish(job, () => job.reject(this.dispatchError(error)));
+      return;
+    }
+    if (this.child !== child || child.exitCode !== null || child.killed) {
+      this.finish(job, () => job.reject(new ComputerError("helper_exited", exitedMessage)));
+      return;
+    }
+    // No await between the final authority check and writing native stdin.
     job.child = child;
     job.timing?.ready();
     job.stops.push(this.options.scheduler.after(job.deadlineMs, () => this.cancel(job, "timeout")));
@@ -164,10 +196,39 @@ export class HelperConnection {
     });
   }
 
+  private park(job: Job, dispatch: RequestDispatch): void {
+    this.parked.add(job);
+    this.current = undefined;
+    this.pump();
+    const stop = new AbortController();
+    job.stops.push(() => stop.abort());
+    void dispatch.wait(stop.signal).then(
+      () => {
+        if (!this.parked.delete(job)) return;
+        this.queue.push(job);
+        this.pump();
+      },
+      (error: unknown) => {
+        if (!this.parked.delete(job)) return;
+        this.settle(job, () => job.reject(this.dispatchError(error)));
+        this.pump();
+      },
+    );
+  }
+
+  private dispatchError(error: unknown): Error {
+    return error instanceof Error ? error : new ComputerError("cancelled", "Cancelled.");
+  }
+
   /** Stops a request: unsent ones end now; sent ones get a cancel and a grace period. */
   private cancel(job: Job, why: "cancelled" | "timeout"): void {
     if (job.ending) return;
     job.ending = why;
+    if (this.parked.delete(job)) {
+      this.settle(job, () => job.reject(endingError(job)));
+      this.pump();
+      return;
+    }
     const queued = this.queue.indexOf(job);
     if (queued !== -1) {
       this.queue.splice(queued, 1);

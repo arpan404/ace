@@ -266,6 +266,7 @@ test("Spade names a bot on its own calls: the person driving that bot's computer
       type: "spade.computer.drive.result",
       requestId: "take",
       driver: "person",
+      mode: "exclusive",
       stopped: true,
     });
     const refused = await client.callTool({
@@ -281,7 +282,13 @@ test("Spade names a bot on its own calls: the person driving that bot's computer
     ).toEqual({
       type: "spade.computer.result",
       requestId: "get",
-      computer: { bot: "fares", driver: "person", browser: { tabs: [] }, screen: { apps: [] } },
+      computer: {
+        bot: "fares",
+        driver: "person",
+        mode: "exclusive",
+        browser: { tabs: [] },
+        screen: { apps: [] },
+      },
     });
     expect(daemon.spade?.status().thread?.id).toBe(spade.hostId);
 

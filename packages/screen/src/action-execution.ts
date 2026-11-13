@@ -5,12 +5,20 @@ import type { HelperHost } from "./helper-host.ts";
 import { authorizeInput } from "./policy.ts";
 import type { Session } from "./session.ts";
 
+/** A queue attempt yielded before dispatch; retry only after releasing its slot. */
+export const personReturned = Symbol("person returned");
+
 type ActionRuntime = {
   host: HelperHost;
   authorize(session: Session): void;
   emit(session: Session): void;
   fail(session: Session, error: Error): void;
   audit(state: ScreenState, action: string, outcome: string): void;
+  /** The person's input needs no controls (cowork, ADR 0143). */
+  cowork?: boolean;
+  personBusy?(): boolean;
+  personReady?(): Promise<boolean>;
+  onDispatch?(): void;
 };
 /** Per-session ordering; only foreground input and clipboard work share a host lane. */
 export function executeSessionAction<T>(
@@ -21,9 +29,9 @@ export function executeSessionAction<T>(
   dispatch: (session: Session, validate: () => void) => Promise<T>,
   actionName: string,
   access: "input" | "semantic",
-): Promise<T> {
+): Promise<T | typeof personReturned> {
   runtime.authorize(session);
-  authorizeInput(session, actor, owner);
+  authorizeInput(session, actor, owner, runtime.cowork);
   session.controllerBinding?.authorize();
   if (session.queuedActions >= 16) throw new Error("Input queue limit");
   session.queuedActions++;
@@ -33,7 +41,7 @@ export function executeSessionAction<T>(
     if (session.epoch !== epoch || session.state.lifecycle !== "live")
       throw new Error("Controller changed");
     runtime.authorize(session);
-    authorizeInput(session, actor, owner);
+    authorizeInput(session, actor, owner, runtime.cowork);
     session.controllerBinding?.authorize();
   };
   const action = session.actionTail
@@ -43,7 +51,8 @@ export function executeSessionAction<T>(
         session.state.mode === "foreground"
           ? runtime.host.executeShared.bind(runtime.host)
           : runtime.host.execute.bind(runtime.host);
-      return execute(validate, async () => {
+      return execute(validate, async (): Promise<T | typeof personReturned> => {
+        if (runtime.personBusy?.()) return personReturned;
         const permissions = await session.helper.permissions();
         if (JSON.stringify(session.state.permissions) !== JSON.stringify(permissions)) {
           session.state.permissions = permissions;
@@ -54,6 +63,9 @@ export function executeSessionAction<T>(
         const failure = actionPermissionFailure(permissions, access);
         if (failure) throw new HelperCommandError("permission_denied", failure);
         validate();
+        const ready = await runtime.personReady?.();
+        validate();
+        if (ready === false || runtime.personBusy?.()) return personReturned;
         if (
           actor === "agent" &&
           session.state.mode === "background" &&
@@ -64,7 +76,12 @@ export function executeSessionAction<T>(
             "Helper cannot guarantee background input",
           );
         try {
-          const result = await dispatch(session, validate);
+          const validateDispatch = () => {
+            validate();
+            runtime.onDispatch?.();
+          };
+          validateDispatch();
+          const result = await dispatch(session, validateDispatch);
           if (actor === "agent") runtime.audit(auditState, actionName, "completed");
           return result;
         } catch (error) {

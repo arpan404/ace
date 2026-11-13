@@ -16,9 +16,10 @@ import { SessionControllers } from "./session-controllers.ts";
 import { TargetSessions } from "./target-sessions.ts";
 import { startSessionRecording, stopSessionRecording } from "./session-recording.ts";
 import { AppLaunches } from "./app-launches.ts";
-import { executeSessionAction } from "./action-execution.ts";
+import { executeSessionAction, personReturned } from "./action-execution.ts";
 import { ScreenStreamSettings } from "@ace/protocol";
 import { HelperCommandError } from "./helper.ts";
+import { PublicToolError } from "@ace/mcp-server";
 import type { ScreenAccess } from "./access.ts";
 import { captureModelImage } from "./model-capture.ts";
 import { dispatchLegacyAction } from "./legacy-input.ts";
@@ -34,7 +35,7 @@ import {
   type ScreenState,
 } from "@ace/protocol";
 import { type Frame, type FrameSink } from "./frames.ts";
-import { ScreenPolicy, bundles, replaceableSession } from "./policy.ts";
+import { ScreenPolicy, authorizeInput, bundles, replaceableSession } from "./policy.ts";
 import { actOnElement } from "./semantic.ts";
 import { shutdownFailure } from "./shutdown-failure.ts";
 import { HelperHost } from "./helper-host.ts";
@@ -59,6 +60,7 @@ export class ScreenManager {
   private readonly observations: SessionObservations;
   private agentPaused = false;
   private captureGeneration = 0;
+  private readonly stopCowork: (() => void) | undefined;
 
   constructor(options: ScreenOptions) {
     this.options = options;
@@ -101,6 +103,11 @@ export class ScreenManager {
       onFailure: (error) => {
         for (const session of this.sessions.values()) this.fail(session, error);
       },
+    });
+    // The person's lease or the agent's pointer changed in an app: its sessions show it.
+    this.stopCowork = options.cowork?.subscribe((app) => {
+      for (const session of this.sessions.values())
+        if (bundles(session.state.target).includes(app)) this.emit(session);
     });
     this.observations = new SessionObservations({
       host: this.host,
@@ -492,10 +499,10 @@ export class ScreenManager {
     return this.lifecycle.start(input, fps, scope);
   }
   states(): ScreenState[] {
-    return [...this.sessions.values()].map((session) => structuredClone(session.state));
+    return [...this.sessions.values()].map((session) => this.view(session));
   }
   state(id: string): ScreenState {
-    return structuredClone(this.get(id).state);
+    return this.view(this.get(id));
   }
   watch(listener: (state: ScreenState) => void): () => void {
     if (this.listeners.size >= 64) throw new Error("State subscriber limit");
@@ -762,21 +769,50 @@ export class ScreenManager {
     actionName = "input",
     access: "input" | "semantic" = "input",
   ): Promise<T> {
-    return executeSessionAction(
-      {
-        host: this.host,
-        authorize: (session) => this.authorize(session.state.target),
-        emit: (session) => this.emit(session),
-        fail: (session, error) => this.fail(session, error),
-        audit: (state, action, outcome) => this.accessPolicy.access?.audit(state, action, outcome),
-      },
-      this.live(id),
-      actor,
-      owner,
-      dispatch,
-      actionName,
-      access,
-    );
+    const cowork = this.options.cowork;
+    const session = this.live(id);
+    const epoch = session.epoch;
+    const apps = bundles(session.state.target);
+    if (actor === "human") cowork?.personInput(apps);
+    const turn = actor === "agent" && cowork ? cowork.turn(apps) : undefined;
+    const authorize = () => {
+      if (session.epoch !== epoch || session.state.lifecycle !== "live")
+        throw new Error("Controller changed");
+      this.authorize(session.state.target);
+      authorizeInput(session, actor, owner, cowork !== undefined);
+      session.controllerBinding?.authorize();
+    };
+    for (;;) {
+      authorize();
+      const outcome = await turn?.wait();
+      authorize();
+      if (outcome?.busy) throw new PublicToolError("person_busy");
+      const result = await executeSessionAction(
+        {
+          host: this.host,
+          cowork: cowork !== undefined,
+          ...(turn ? { personBusy: turn.busy, personReady: turn.ready } : {}),
+          ...(actor === "human" && cowork ? { onDispatch: () => cowork.personInput(apps) } : {}),
+          authorize,
+          emit: (current) => this.emit(current),
+          fail: (current, error) => this.fail(current, error),
+          audit: (state, action, status) => this.accessPolicy.access?.audit(state, action, status),
+        },
+        session,
+        actor,
+        owner,
+        dispatch,
+        actionName,
+        access,
+      );
+      if (result === personReturned) continue;
+      return outcome?.note &&
+        typeof result === "object" &&
+        result !== null &&
+        !Array.isArray(result)
+        ? { ...result, waited: outcome.note }
+        : result;
+    }
   }
 
   releaseController(owner: string): void {
@@ -800,6 +836,7 @@ export class ScreenManager {
         await this.host.close();
         await this.lifecycle.hostClosed();
       } finally {
+        this.stopCowork?.();
         this.listeners.clear();
         this.enabledListeners.clear();
       }
@@ -815,10 +852,24 @@ export class ScreenManager {
     if (session.state.lifecycle !== "live") throw new Error("Screen session is not live");
     return session;
   }
+  /** A session's state as clients read it: with cowork's sharing, pointer and person (ADR 0143). */
+  private view(session: Session): ScreenState {
+    const state = structuredClone(session.state);
+    const cowork = this.options.cowork;
+    if (!cowork) return state;
+    const apps = bundles(state.target);
+    const pointer = cowork.pointer(apps);
+    return {
+      ...state,
+      sharing: state.controller === "human" ? "exclusive" : "cowork",
+      ...(pointer ? { agentPointer: pointer } : {}),
+      ...(cowork.personActive(apps) ? { personActive: true } : {}),
+    };
+  }
   private emit(session: Session): void {
     for (const listener of this.listeners) {
       try {
-        listener(this.state(session.state.sessionId));
+        listener(this.view(session));
       } catch {
         /* An observer cannot change session safety. */
       }
