@@ -16,7 +16,9 @@ function shellCommand(name: string, args: unknown): string | undefined {
  * A bot's oldest open request in the strip above the composer, as ace shows an agent's: its
  * face, who wants to do what to whom, the first line of what it would send, then Review (the
  * whole call, and "Always allow this command" for a command), the answer that lets it go, and
- * the one that doesn't. What the bot drafted stays in the conversation above.
+ * the one that doesn't. A request the review sent to the person says why in one quiet line; a
+ * call it refused never reaches the person (it is in the activity log). What the bot drafted
+ * stays in the conversation above.
  */
 export function SpadeRequestStrip(props: {
   bot: { name: string; avatar: SpadeAvatar };
@@ -53,9 +55,6 @@ export function SpadeRequestStrip(props: {
             {words.detail && (
               <p className="truncate text-xs text-muted-foreground">{words.detail}</p>
             )}
-            {approval.reason && (
-              <p className="truncate text-xs text-muted-foreground">{`Asked because ${approval.reason}`}</p>
-            )}
           </div>
           <div className="flex shrink-0 items-center gap-1">
             {details && (
@@ -86,6 +85,11 @@ export function SpadeRequestStrip(props: {
             </Button>
           </div>
         </div>
+        {approval.reason && (
+          // Why the reviewer asked the person rather than approve it, in its own words ("It
+          // could spend money, so you decide."): one quiet line across the strip, never cut.
+          <p className="pl-8 text-xs text-muted-foreground">{approval.reason}</p>
+        )}
         {open && details && (
           <div className="flex flex-col gap-1.5">
             <pre

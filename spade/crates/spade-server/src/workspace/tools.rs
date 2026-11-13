@@ -36,6 +36,18 @@ impl Place {
         }
     }
 
+    /// The bot yields to the person (cowork, ADR 0143): a file the person changed a moment ago
+    /// is theirs for now, so the bot's write or edit of it is not run.
+    fn yields(&self, key: &str, path: &str) -> Option<ToolOutput> {
+        let (engine, bot) = (self.bots.get()?, self.bots.agent_for_key(key)?);
+        let ago = engine.computers()?.person_changed_recently(&bot, path)?;
+        Some(ToolOutput::ok(format!(
+            "Not run: the person changed {path} {ago} seconds ago and may still be working on \
+             it; they come first. Leave it for now: work on something else and read it again \
+             before you change it."
+        )))
+    }
+
     fn workspace(&self, key: &str) -> Result<Workspace, ToolOutput> {
         let bot = self
             .bots
@@ -314,12 +326,22 @@ impl Tool for WorkspaceWrite {
         let (place, key) = (self.0.clone(), key.to_owned());
         blocking(&self.0, &key.clone(), move |workspace| {
             let path = workspace.normal(&args.path)?;
-            let bytes = workspace.write(&path, &args.content)?;
-            workspace
-                .trust()
-                .record_write(&path, args.content.as_bytes(), untrusted.as_deref());
-            place.files_changed(&key, Some(vec![path.clone()]));
-            Ok(ToolOutput::ok(format!("Wrote {bytes} bytes to {path}.")))
+            // Checked and written under the workspace's file lock, so the person's write can't
+            // land between (ADR 0143).
+            workspace.changing(|| {
+                if let Some(yielded) = place.yields(&key, &path) {
+                    return Ok(yielded);
+                }
+                workspace.before_bot_commit(&path);
+                let bytes = workspace.write(&path, &args.content)?;
+                workspace.trust().record_write(
+                    &path,
+                    args.content.as_bytes(),
+                    untrusted.as_deref(),
+                );
+                place.files_changed(&key, Some(vec![path.clone()]));
+                Ok(ToolOutput::ok(format!("Wrote {bytes} bytes to {path}.")))
+            })
         })
     }
 }
@@ -361,15 +383,21 @@ impl Tool for WorkspaceEdit {
         let (place, key) = (self.0.clone(), key.to_owned());
         blocking(&self.0, &key.clone(), move |workspace| {
             let path = workspace.normal(&args.path)?;
-            let (before, after) = workspace.edit(&path, &args.old, &args.new)?;
-            workspace.trust().record_edit(
-                &path,
-                before.as_bytes(),
-                after.as_bytes(),
-                untrusted.as_deref(),
-            );
-            place.files_changed(&key, Some(vec![path.clone()]));
-            Ok(ToolOutput::ok(format!("Changed {path}.")))
+            workspace.changing(|| {
+                if let Some(yielded) = place.yields(&key, &path) {
+                    return Ok(yielded);
+                }
+                workspace.before_bot_commit(&path);
+                let (before, after) = workspace.edit(&path, &args.old, &args.new)?;
+                workspace.trust().record_edit(
+                    &path,
+                    before.as_bytes(),
+                    after.as_bytes(),
+                    untrusted.as_deref(),
+                );
+                place.files_changed(&key, Some(vec![path.clone()]));
+                Ok(ToolOutput::ok(format!("Changed {path}.")))
+            })
         })
     }
 }
@@ -403,6 +431,41 @@ impl Tool for ShellTool {
             // makes or changes (only Spade's file tools make trusted files).
             true,
         )
+    }
+
+    /// Classed by what the command runs, from the folder it would start in: where the bot's
+    /// terminal is now, else its workspace. The scripts it runs are read so the reviewer sees
+    /// them (ADR 0144); with no workspace to read, none can be shown.
+    fn classed(&self, key: &str, arguments: &Value) -> spade_core::autonomy::Classed {
+        let workspace = self
+            .place
+            .workspace(key)
+            .ok()
+            .and_then(|workspace| workspace.path().ok());
+        let Some(workspace) = workspace else {
+            return spade_core::autonomy::classify_shell(
+                arguments,
+                &spade_core::autonomy::shell::Lexical,
+            );
+        };
+        let start = match &self.shell {
+            Commands::Terminal(terminals) => self
+                .place
+                .bots
+                .agent_for_key(key)
+                .and_then(|bot| terminals.of(&bot).ok())
+                .map(|terminal| terminal.start_dir())
+                .filter(|dir| !dir.as_os_str().is_empty()),
+            Commands::OneShot(_) => None,
+        }
+        .unwrap_or_else(|| workspace.clone());
+        match super::place::FsPlace::new(start, &workspace) {
+            Some(place) => spade_core::autonomy::classify_shell(arguments, &place),
+            None => spade_core::autonomy::classify_shell(
+                arguments,
+                &spade_core::autonomy::shell::Lexical,
+            ),
+        }
     }
 
     /// "Always" allows this exact command, nothing like it.

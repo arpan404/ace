@@ -334,6 +334,7 @@ test("starting from a template fills the form and sends the template with the ti
       {
         name: "Morning digest",
         task: "Summarise my feeds.",
+        access: "auto_review",
         template: "digest",
         time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         avatar: {

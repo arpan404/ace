@@ -190,6 +190,7 @@ pub fn import(
         task: file.task.clone(),
         model,
         avatar: avatar.clone(),
+        access: None,
     };
     let model = if wanted == default || engine.model_usable(&wanted) {
         wanted
@@ -302,6 +303,7 @@ fn add_routine(engine: &Engine, agent: &str, r: &FileRoutine) -> Result<(), Stri
             trigger: Some(trigger),
             time_zone: r.time_zone.clone(),
             paused: Some(r.paused),
+            untrusted: false,
         },
         By::Person,
     )
@@ -373,6 +375,7 @@ pub fn from_template(
                 }),
                 time_zone: time_zone.clone(),
                 paused: Some(false),
+                untrusted: false,
             },
             By::Person,
         );

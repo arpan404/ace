@@ -2,6 +2,7 @@
 //! inputs, so it is tested directly.
 
 pub mod activity;
+pub mod autonomy;
 pub mod brain;
 pub mod checkpoint;
 pub mod compaction;
@@ -19,6 +20,7 @@ pub mod review;
 pub mod routine;
 pub mod skills;
 pub mod spending;
+pub mod task;
 pub mod title;
 pub mod tools;
 pub mod transcript;

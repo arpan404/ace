@@ -212,6 +212,9 @@ export class FakeScreen {
       mode: "background",
       secureInputAllowed: false,
       indicator: controller === "agent",
+      // The person's Take control is exclusive; otherwise the session is shared (ADR 0143).
+      sharing: controller === "human" ? "exclusive" : undefined,
+      personActive: undefined,
     };
     return this.publish(session);
   }
@@ -256,6 +259,19 @@ export class FakeScreen {
       target: { ...target, picked: answer },
       ...(this.watchOnly ? { capabilities: watchOnlyCapabilities(this.watchOnly) } : {}),
     };
+    return this.publish(session);
+  }
+  /**
+   * The agent acted in a session at a point of its picture (`agentPointer`), or the person's input
+   * made it wait (`personActive`), as the daemon reports both in the session's state.
+   */
+  agentActivity(
+    sessionId: string,
+    activity: Pick<ScreenState, "agentPointer" | "personActive">,
+  ): ScreenState | undefined {
+    const session = this.sessions.get(sessionId);
+    if (!session) return undefined;
+    session.state = { ...session.state, ...activity };
     return this.publish(session);
   }
   /** The person at the machine answers its sharing dialog: what they picked, or declined. */
@@ -436,18 +452,26 @@ export class FakeScreen {
         return;
       case "action":
       case "input":
-      case "ui.act":
-        if (session.state.controller !== "human" || session.owner !== channel)
-          throw new FakeScreenError("denied", "Controller lease required");
+      case "ui.act": {
+        const held = session.state.controller === "human" && session.owner === channel;
+        // Shared (cowork): the person's input goes in while an agent or nobody holds it, and the
+        // agent waits while it is recent.
+        const shared = op.op === "input" && session.state.controller !== "human";
+        if (!held && !shared) throw new FakeScreenError("denied", "Controller lease required");
         if (!this.permissions.accessibility)
           throw new FakeScreenError("permission_denied", "Accessibility permission required");
         if (op.op === "input") this.inputs.push({ sessionId: op.sessionId, input: op.input });
+        if (shared && session.state.controller === "agent" && !session.state.personActive) {
+          session.state = { ...session.state, personActive: true };
+          this.publish(session);
+        }
         this.paint(session);
         return {
           mode: session.state.mode,
           snapshot: { nodes: [], truncated: false },
           fallback: false,
         };
+      }
       case "ui.tree":
       case "ui.find":
         return { nodes: [], truncated: false };

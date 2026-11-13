@@ -425,10 +425,13 @@ fn initials_avatars_become_faces_seeded_by_the_agent_and_pictures_stay() -> Resu
             "UPDATE agents SET avatar = ?1 WHERE id = 'a_two'",
             [&picture],
         )?;
+        // Back to before the faces migration; the one after it (routines' `untrusted`) is
+        // undone so it can run again.
+        connection.execute("ALTER TABLE routines DROP COLUMN untrusted", [])?;
         connection.pragma_update(
             None,
             "user_version",
-            crate::schema::current_version() as i64 - 1,
+            crate::schema::current_version() as i64 - 2,
         )?;
     }
     let store = Store::open(&path)?;

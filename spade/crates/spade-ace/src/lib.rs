@@ -34,6 +34,7 @@ pub use skills::{
 };
 pub use spade_mcp::Secret;
 pub use tools::{
-    ACTING_FOR, AceTool, AceToolResult, AceTools, PERSON_DRIVING, Part, Risk, ToolsError,
+    ACTING_FOR, AceTool, AceToolResult, AceTools, PERSON_BUSY, PERSON_DRIVING, Part, Risk,
+    ToolsError,
 };
 pub use url::{LoopbackUrl, UrlError, UrlKind};

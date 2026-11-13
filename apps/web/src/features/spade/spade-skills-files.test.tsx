@@ -1,4 +1,4 @@
-import type { FakeSpadeApi } from "@ace/fake-daemon";
+import { fakeFileRevision, type FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryHistory } from "@tanstack/react-router";
@@ -156,7 +156,7 @@ test("Files lists the bot's folder, opens a file and deletes after confirming", 
       spade.requests
         .filter((request) => request.method === "DELETE" && request.path.includes("/workspace"))
         .map((request) => request.path),
-    ).toEqual(["/v1/agents/writer/workspace?path=todo.txt"]),
+    ).toEqual([`/v1/agents/writer/workspace?path=todo.txt&base=${fakeFileRevision("milk")}`]),
   );
   await waitFor(() => expect(screen.queryByText("todo.txt")).toBeNull());
 });

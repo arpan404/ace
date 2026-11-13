@@ -4,11 +4,13 @@
 
 mod adopt;
 mod agents;
+mod autonomy;
 mod bots;
 mod brain;
 mod calls;
 mod compact;
 mod computer;
+mod continuation;
 mod control;
 mod endpoints;
 mod group_run;
@@ -151,7 +153,21 @@ pub struct Engine {
     /// The scope each call about to run was allowed with, by call key, for the tool to check
     /// again where it runs (a terminal command's folder and variables, ADR 0142).
     allowed_scopes: Mutex<HashMap<String, String>>,
+    /// The step of each bot's task waiting to start, by conversation (ADR 0144, `continuation`).
+    continuations: Mutex<HashMap<String, String>>,
+    /// Each conversation's access level once folded (ADR 0144, `autonomy`).
+    levels: Mutex<HashMap<String, spade_core::autonomy::Access>>,
+    /// Awaited by a turn's worker after its reply ends and before it decides the task's next
+    /// step; none outside tests, which hold a worker there to order a Stop against it. Only with
+    /// the `test-hooks` feature.
+    #[cfg(feature = "test-hooks")]
+    turn_end_hold: Mutex<Option<TurnEndHold>>,
 }
+
+/// What [`Engine::hold_turn_ends`] runs, given the conversation.
+#[cfg(feature = "test-hooks")]
+pub type TurnEndHold =
+    Arc<dyn Fn(&str) -> std::pin::Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 /// What `starting` says until setup has run long enough to say more.
 const STARTING: &str = "setting up endpoints";
@@ -210,10 +226,16 @@ impl Engine {
             teams: crate::teams::Shared::default(),
             computers: std::sync::OnceLock::new(),
             allowed_scopes: Mutex::default(),
+            continuations: Mutex::default(),
+            levels: Mutex::default(),
+            #[cfg(feature = "test-hooks")]
+            turn_end_hold: Mutex::default(),
         });
         handle.set(&engine);
         engine.sync_endpoints()?;
-        // Spade exists from the first answer, whatever setup does later.
+        // Bots from before access levels keep asking (ADR 0144); then Spade exists from the first
+        // answer, whatever setup does later.
+        engine.pin_levels()?;
         engine.ensure_main()?;
         for conversation in engine.store.conversations()? {
             let events = engine.load(&conversation.id)?;
@@ -320,6 +342,9 @@ impl Engine {
             last_message: roster::last_message(&stored),
             waiting_for: memory::waiting_for(&transcript),
             problem: spade_core::brain::problem(stored.iter().map(|e| &e.event)).map(str::to_owned),
+            access: autonomy::access_of(&stored, self.limits.new_bot_access),
+            task: autonomy::task_of(&stored),
+            continued: transcript.open_reply().is_some() && autonomy::continued(&stored),
         };
         self.activity
             .lock()
@@ -702,9 +727,36 @@ impl Engine {
         };
         if open {
             self.spawn_turn(id);
+        } else {
+            // A task left working when Spade closed carries on (ADR 0144).
+            self.carry_on(id);
         }
         Ok(())
     }
+
+    /// Every turn's worker awaits `hold` once its reply has ended, before it decides whether the
+    /// bot's task carries on (ADR 0144). For tests that order a Stop against that moment; only
+    /// with the `test-hooks` feature.
+    #[cfg(feature = "test-hooks")]
+    pub fn hold_turn_ends(&self, hold: TurnEndHold) {
+        *self.turn_end_hold.lock().unwrap_or_else(|p| p.into_inner()) = Some(hold);
+    }
+
+    #[cfg(feature = "test-hooks")]
+    pub(super) async fn turn_ended(&self, id: &str) {
+        let hold = self
+            .turn_end_hold
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        if let Some(hold) = hold {
+            hold(id).await;
+        }
+    }
+
+    /// Without the `test-hooks` feature nothing holds a worker.
+    #[cfg(not(feature = "test-hooks"))]
+    pub(super) async fn turn_ended(&self, _id: &str) {}
 
     fn spawn_turn(self: &Arc<Self>, id: &str) {
         if self.deleting(id) {

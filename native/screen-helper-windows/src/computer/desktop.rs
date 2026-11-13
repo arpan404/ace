@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use windows::Win32::{
     Foundation::*,
     Security::*,
-    System::{LibraryLoader::GetModuleHandleW, Threading::*},
+    System::{LibraryLoader::GetModuleHandleW, SystemInformation::GetTickCount, Threading::*},
     UI::{Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
 };
 
@@ -84,6 +84,8 @@ static EPOCH: OnceLock<Instant> = OnceLock::new();
 static LAST_PERSON_INPUT: AtomicU64 = AtomicU64::new(0);
 static ESCAPES: AtomicU32 = AtomicU32::new(0);
 static WATCHING: OnceLock<()> = OnceLock::new();
+// Seed input that preceded the hooks once; later injected input must never refresh this age.
+static INITIAL_PERSON_INPUT: OnceLock<Option<(Instant, Duration)>> = OnceLock::new();
 /// Tests only: count input other programs synthesize as the person's, so a test can stand in
 /// for the person. Never set by the daemon; it only makes the engine more cautious.
 static COUNT_INJECTED: OnceLock<bool> = OnceLock::new();
@@ -132,6 +134,18 @@ unsafe extern "system" fn mouse(code: i32, wparam: WPARAM, lparam: LPARAM) -> LR
 /// only records times. It never stops early, so nothing waits on it.
 pub fn watch_person() {
     WATCHING.get_or_init(|| {
+        INITIAL_PERSON_INPUT.get_or_init(|| unsafe {
+            let mut input = LASTINPUTINFO {
+                cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32,
+                dwTime: 0,
+            };
+            GetLastInputInfo(&mut input).as_bool().then(|| {
+                (
+                    Instant::now(),
+                    Duration::from_millis(u64::from(GetTickCount().wrapping_sub(input.dwTime))),
+                )
+            })
+        });
         COUNT_INJECTED.get_or_init(|| {
             std::env::var("ACE_COMPUTER_COUNT_INJECTED_INPUT").is_ok_and(|v| v == "1")
         });
@@ -164,16 +178,23 @@ pub fn escapes() -> u32 {
 }
 
 /// How long ago the person last used the keyboard or mouse, as the hooks saw it. Only real
-/// input counts: the system's last-input time also includes input other programs (and UI
-/// Automation proxies) synthesize, so it is not used.
+/// input counts after the hooks start. Before their first event, the one-time system sample
+/// ages on Instant; the system counter is never reread after ace may have injected input.
 pub fn since_person_input() -> Option<Duration> {
     let hooked = LAST_PERSON_INPUT.load(Ordering::Relaxed);
-    (hooked > 0).then(|| {
+    if hooked > 0 {
         let epoch = *EPOCH.get_or_init(Instant::now);
-        epoch
-            .elapsed()
-            .saturating_sub(Duration::from_millis(hooked - 1))
-    })
+        Some(
+            epoch
+                .elapsed()
+                .saturating_sub(Duration::from_millis(hooked - 1)),
+        )
+    } else {
+        INITIAL_PERSON_INPUT
+            .get()
+            .and_then(|initial| initial.as_ref())
+            .map(|(sampled, age)| age.saturating_add(sampled.elapsed()))
+    }
 }
 
 /// Whether the person used the keyboard or mouse in the last `window`.

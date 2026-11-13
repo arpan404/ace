@@ -133,6 +133,14 @@ pub(super) async fn run(
             close_durably(&engine, &id, &reply, &event).await;
         }
     }
+    // A task still working carries on by itself (ADR 0144). The step is registered while this
+    // worker still owns the conversation, so a Stop pressed once it lets go calls it off.
+    let planned = if paused {
+        None
+    } else {
+        engine.turn_ended(&id).await;
+        engine.plan_carry_on(&id)
+    };
     *live.stop.lock().unwrap_or_else(|p| p.into_inner()) = None;
     *live.current.lock().unwrap_or_else(|p| p.into_inner()) = None;
     live.waiting_on_you.store(false, Ordering::SeqCst);
@@ -156,6 +164,9 @@ pub(super) async fn run(
     name_if_untitled(&engine, &id).await;
     // A turn (or its title) that took the bot to its cap says so, once.
     engine.note_if_capped(&id);
+    if let Some(planned) = planned {
+        engine.carry_on_as(&id, planned);
+    }
 }
 
 /// Closes `reply`, retrying until it is closed. The worker still owns the reply meanwhile, so no
@@ -269,6 +280,11 @@ async fn drive(
                     continue;
                 }
                 if super::memory::index_if_due(engine, id, &events) {
+                    continue;
+                }
+                // What the person did on the bot's computer meanwhile (cowork), before the step's
+                // prompt is built, so the step reads it.
+                if engine.offer_person_activity(id) {
                     continue;
                 }
                 if cli {

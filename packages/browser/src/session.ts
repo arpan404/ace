@@ -790,7 +790,7 @@ export class BrowserSession {
     if (actor.kind === "agent")
       for (const tab of this.tabs.all()) {
         tab.readCheck(actor);
-        if (tab.humanWithin(this.timing.quietMs)) throw new BrowserActionError("human_active");
+        if (tab.humanWithin(this.timing.quietMs)) throw new BrowserActionError("person_busy");
       }
     this.options.forgetTabs?.();
     return this.close();

@@ -35,7 +35,8 @@ turn's total.
 - **Handle calls** otherwise: each open call is new (to the gate), awaiting, allowed, declined or
   running. The gate runs reads; asks for writes unless allowed always; always asks for
   destructive calls and for any write in a turn that read untrusted output (`web_search`,
-  `web_fetch`, email). Allowed calls run in parallel (at most 4) with a timeout; results are cut
+  `web_fetch`, email). That is the `ask` level; on `auto_review` and `full_access` what the gate
+  would ask goes to a reviewer model or runs ([autonomy.md](autonomy.md)). Allowed calls run in parallel (at most 4) with a timeout; results are cut
   to 20,000 characters. A declined call returns "The person declined this action."
 - **Steering:** a message sent mid-turn is stored at once and the next model call sees it, placed
   after any running tools' results, and after the step it arrived during. A turn finishes only if
@@ -79,7 +80,8 @@ turn's total.
 
 Spade's own tools are always offered in full, in name order: `web_search` (SearXNG, then Brave),
 `web_fetch` (one page as text, a window at a time, refusing local and private addresses),
-`todo`, `research` (a background job that reads many sources and writes a cited report,
+`todo`, `task_status` (the bot's task state; while `working`, Spade starts its next step after a
+reply, [autonomy.md](autonomy.md)), `research` (a background job that reads many sources and writes a cited report,
 [oversight.md](oversight.md)), the workspace tools and `shell` ([workspace.md](workspace.md)), and, when Spade knows where
 ace is (`SPADE_ACE_HOME`), `skill_search`, `skill_load`, `skill_propose` and `skill_feedback`
 (they say ace is away while it is). Output from `web_search`,

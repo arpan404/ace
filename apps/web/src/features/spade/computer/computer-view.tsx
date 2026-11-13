@@ -38,8 +38,9 @@ export interface FilesAt {
 }
 
 /**
- * The bot's computer in the main column: a switcher of what it uses now (Files always), who
- * drives with Take over or Hand back, and the surface itself. On a phone it is the whole screen,
+ * The bot's computer in the main column: a switcher of what it uses now (Files always), who has
+ * it (cowork with Take over, or exclusive with Hand back), and the surface itself, which takes the
+ * person's input in cowork without taking over. On a phone it is the whole screen,
  * with ‹ Chat at the top and who drives at the bottom.
  */
 export function ComputerView(props: {
@@ -123,6 +124,7 @@ export function ComputerView(props: {
             kind={props.open}
             surface={surface}
             threadId={state.computer?.threadId}
+            mayAct={state.mayAct}
             driving={state.driving}
             label={`${bot.name}'s ${props.open === "browser" ? "browser" : "screen"}`}
           />
@@ -133,7 +135,7 @@ export function ComputerView(props: {
                 Still ending the last command
               </p>
             )}
-            <BotTerminal bot={bot} driving={state.driving} />
+            <BotTerminal bot={bot} mayType={state.mayAct} />
           </>
         ) : (
           <FileManager
@@ -142,7 +144,7 @@ export function ComputerView(props: {
             file={props.files.file}
             onOpen={props.onFiles}
             side={props.side}
-            writable={state.driving}
+            writable={state.mayAct}
           />
         )}
       </div>

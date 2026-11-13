@@ -51,6 +51,7 @@ impl RoutineBody {
             trigger: self.trigger,
             time_zone: self.time_zone,
             paused: self.paused,
+            untrusted: false,
         }
     }
 }

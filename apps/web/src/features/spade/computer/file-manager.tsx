@@ -13,25 +13,37 @@ import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import type { ConversationFollow } from "../conversation-follow.ts";
 import { saveAs } from "../save-as.ts";
+import { SpadeRequestError } from "../spade-requests.ts";
 import { message } from "../spade-screen-parts.tsx";
 import { useSpadeClient, useSpadeMachine } from "../spade-machine.tsx";
 import {
   deletePath,
   downloadFile,
+  readFile,
   readFolder,
   type SpadeFileEntry,
 } from "../spade-workspace-api.ts";
-import { makeFolder, movePath, uploadFile } from "./computer-api.ts";
-import { FileEditor, takeOverToChange } from "./file-editor.tsx";
+import { changedSinceOpened, makeFolder, movePath, uploadFile } from "./computer-api.ts";
+import { FileEditor, notNowToChange } from "./file-editor.tsx";
 
 /**
  * A bot's files as a file manager: one folder at a time under a trail that leads back up, Upload
  * and New folder beside it. A row opens its folder or file; its ⋯ downloads, renames or moves
  * (typing a path with folders moves it), or deletes after asking. A text file opens to edit and
  * save. The list reads again when the bot's stream says its files changed. Browsing and downloads
- * always work; every change needs the person driving (`writable`), checked again right before it
- * goes, so nothing written lands after they hand back.
+ * always work; every change needs the person able to act (`writable`: cowork, or exclusive while
+ * they drive), checked again right before it goes, so nothing lands while the computer changes
+ * hands.
  */
+/** What the person saw of a file before changing it. */
+type Seen =
+  | { kind: "revision"; revision: string | undefined }
+  | { kind: "gone" }
+  | { kind: "unchecked" };
+/** A folder, or a name with no file: nothing to name a revision of. */
+const unseen: Seen = { kind: "revision", revision: undefined };
+const couldntCheck = "Couldn't check the file. Try again.";
+
 export function FileManager(props: {
   bot: { id: string; name: string };
   folder: string;
@@ -39,7 +51,7 @@ export function FileManager(props: {
   /** Shows another folder, or a file in it. */
   onOpen(to: { folder: string; file?: string | undefined }): void;
   side: Pick<ConversationFollow, "onSide" | "onEnded"> | undefined;
-  /** The person drives: their changes may go to Spade. */
+  /** The person may act: their changes may go to Spade. */
   writable: boolean;
 }) {
   const { bot, folder } = props;
@@ -69,22 +81,68 @@ export function FileManager(props: {
     [props.side, cache],
   );
   const failed = (title: string) => (error: unknown) =>
-    toast.error({ title, description: message(error) });
+    toast.error({
+      title,
+      description: changedSinceOpened(error)
+        ? "It changed since you opened it. Look again, then try once more."
+        : message(error),
+    });
+  /**
+   * A file as the person sees it now, read when they begin a change (opening Delete's question,
+   * starting a rename, picking a file to replace): the change names its revision and is refused
+   * if the file moves on before it goes. Fails closed: when the read fails, nothing is sent.
+   */
+  const seenOf = (path: string): Promise<Seen> =>
+    readFile(client, bot.id, path).then(
+      (file): Seen => ({ kind: "revision", revision: file.revision }),
+      (error: unknown): Seen =>
+        error instanceof SpadeRequestError && error.status === 404
+          ? { kind: "gone" }
+          : { kind: "unchecked" },
+    );
+  /** What the person saw of the file a rename started from. */
+  const renameSeen = useRef<Promise<Seen>>(undefined);
   const inFolder = (name: string) => (folder ? `${folder}/${name}` : name);
   /** Whether a change may go now; says why not when it can't. */
   const mayWrite = () => {
     if (writable.current) return true;
-    toast.error({ title: takeOverToChange });
+    toast.error({ title: notNowToChange });
     return false;
+  };
+  /**
+   * The revision a change of `name` goes with, or undefined after saying why it can't go: the
+   * file couldn't be checked, or (for a change of the file itself) it is gone.
+   */
+  const baseFor = (saw: Seen, name: string): { revision: string | undefined } | undefined => {
+    if (saw.kind === "revision") return { revision: saw.revision };
+    if (saw.kind === "unchecked") toast.error({ title: couldntCheck });
+    else {
+      toast.error({ title: `${name} is gone`, description: "It was deleted or moved meanwhile." });
+      refresh();
+    }
+    return undefined;
   };
 
   const upload = async (files: FileList) => {
     for (const file of files) {
       if (!mayWrite()) break;
+      const path = inFolder(file.name);
+      // Replacing a file shown here: only the one the person saw.
+      const replaced = listing.data?.entries.some(
+        (entry) => entry.kind === "file" && entry.path === path,
+      );
+      const seen = replaced ? seenOf(path) : Promise.resolve(unseen);
       const bytes = new Uint8Array(await file.arrayBuffer());
+      const saw = await seen;
+      // Gone since: a new file, which needs no revision. Unreadable: not this one.
+      if (saw.kind === "unchecked") {
+        toast.error({ title: couldntCheck, description: file.name });
+        continue;
+      }
       // Reading took a while: the person may have handed back meanwhile.
       if (!mayWrite()) break;
-      await uploadFile(client, bot.id, inFolder(file.name), bytes).catch(
+      const opened = saw.kind === "revision" ? saw.revision : undefined;
+      await uploadFile(client, bot.id, path, bytes, opened).catch(
         failed(`Couldn't upload ${file.name}`),
       );
     }
@@ -95,7 +153,12 @@ export function FileManager(props: {
       (blob) => saveAs(blob, path.split("/").at(-1) ?? "file"),
       failed("Couldn't download the file"),
     );
-  const remove = (entry: Pick<SpadeFileEntry, "path" | "name" | "kind">) =>
+  /** Asks first; `opened` is the revision the person saw (the open file's), else read now. */
+  const remove = (entry: Pick<SpadeFileEntry, "path" | "name" | "kind">, opened?: string) => {
+    const seen: Promise<Seen> =
+      entry.kind === "file" && opened === undefined
+        ? seenOf(entry.path)
+        : Promise.resolve({ kind: "revision", revision: opened });
     setConfirming({
       title: `Delete ${entry.name}?`,
       body:
@@ -106,27 +169,47 @@ export function FileManager(props: {
       run: () => {
         // Asked first: the person may have handed back while the question was open.
         if (!mayWrite()) return;
-        void deletePath(client, bot.id, entry.path).then(
-          () => {
-            if (props.file === entry.path) props.onOpen({ folder });
-            refresh();
-          },
-          failed(`Couldn't delete ${entry.name}`),
-        );
+        void seen.then((saw) => {
+          const base = baseFor(saw, entry.name);
+          // Checked again once the revision is in, right before it goes.
+          if (!base || !mayWrite()) return;
+          return deletePath(client, bot.id, entry.path, base.revision).then(
+            () => {
+              if (props.file === entry.path) props.onOpen({ folder });
+              refresh();
+            },
+            failed(`Couldn't delete ${entry.name}`),
+          );
+        });
       },
     });
+  };
   // Paths go as typed: Spade keeps them inside the workspace.
+  const startRename = (entry: Pick<SpadeFileEntry, "path" | "kind">) => {
+    renameSeen.current = entry.kind === "file" ? seenOf(entry.path) : Promise.resolve(unseen);
+    setRenaming(entry.path);
+  };
   const move = (from: string, to: string) => {
     setRenaming(undefined);
+    const seen = renameSeen.current ?? Promise.resolve(unseen);
+    renameSeen.current = undefined;
     if (!to || to === from || !mayWrite()) return;
-    void movePath(client, bot.id, from, to).then(refresh, failed(`Couldn't move ${from}`));
+    void seen.then((saw) => {
+      const base = baseFor(saw, from);
+      // Checked again once the revision is in, right before it goes.
+      if (!base || !mayWrite()) return;
+      return movePath(client, bot.id, from, to, base.revision).then(
+        refresh,
+        failed(`Couldn't move ${from}`),
+      );
+    });
   };
   const create = (name: string) => {
     setMaking(false);
     if (!name || !mayWrite()) return;
     void makeFolder(client, bot.id, inFolder(name)).then(refresh, failed(`Couldn't make ${name}`));
   };
-  const reason = props.writable ? undefined : takeOverToChange;
+  const reason = props.writable ? undefined : notNowToChange;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -181,12 +264,15 @@ export function FileManager(props: {
           writable={props.writable}
           mayWrite={mayWrite}
           onDownload={() => download(props.file ?? "")}
-          onDelete={() =>
-            remove({
-              path: props.file ?? "",
-              name: props.file?.split("/").at(-1) ?? "",
-              kind: "file",
-            })
+          onDelete={(opened) =>
+            remove(
+              {
+                path: props.file ?? "",
+                name: props.file?.split("/").at(-1) ?? "",
+                kind: "file",
+              },
+              opened,
+            )
           }
         />
       ) : (
@@ -264,7 +350,7 @@ export function FileManager(props: {
                         <MenuItem
                           disabled={!props.writable}
                           reason={reason}
-                          onClick={() => setRenaming(entry.path)}
+                          onClick={() => startRename(entry)}
                         >
                           Rename or move
                         </MenuItem>

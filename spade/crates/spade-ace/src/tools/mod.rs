@@ -27,6 +27,10 @@ pub const ACTING_FOR: &str = "ace/acting-for";
 /// computer (`person_driving` in `packages/mcp-server/src/public-error.ts`).
 pub const PERSON_DRIVING: &str = "person_driving";
 
+/// The public error code ace answers in cowork when the person kept using the same browser tab
+/// or screen for as long as the bot's action waited (ADR 0143): not run, worth trying later.
+pub const PERSON_BUSY: &str = "person_busy";
+
 pub struct AceTools(McpClient);
 
 impl AceTools {

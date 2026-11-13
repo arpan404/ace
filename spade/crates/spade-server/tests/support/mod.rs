@@ -37,6 +37,9 @@ pub struct FakeTool {
     pub images: Vec<Vec<u8>>,
     pub delay: Duration,
     pub calls: Arc<Mutex<Vec<Value>>>,
+    /// Classed as a tool of one of the person's apps (ADR 0144); `true` when it annotates
+    /// itself.
+    pub app: Option<bool>,
 }
 
 impl FakeTool {
@@ -57,7 +60,22 @@ impl FakeTool {
             images: Vec::new(),
             delay: Duration::ZERO,
             calls: Arc::default(),
+            app: None,
         }
+    }
+
+    /// Poses as a tool of one of the person's apps, as a connector offers it (ADR 0131).
+    pub fn app(mut self, description: &str) -> Self {
+        self.app = Some(true);
+        self.def.spec.description = description.to_owned();
+        self
+    }
+
+    /// Poses as an app's tool that sends no annotations at all.
+    pub fn unannotated_app(mut self, description: &str) -> Self {
+        self.app = Some(false);
+        self.def.spec.description = description.to_owned();
+        self
     }
 
     pub fn untrusted(mut self) -> Self {
@@ -94,6 +112,19 @@ impl FakeTool {
 impl Tool for FakeTool {
     fn def(&self) -> ToolDef {
         self.def.clone()
+    }
+
+    fn class(&self, arguments: &Value) -> spade_core::autonomy::Class {
+        use spade_core::autonomy::{AppHints, Source, classify};
+        let source = match self.app {
+            Some(annotated) => Source::App(AppHints {
+                description: &self.def.spec.description,
+                annotated,
+                open_world: annotated.then_some(true),
+            }),
+            None => Source::Spade,
+        };
+        classify(&self.def.spec.name, self.def.risk, source, arguments)
     }
 
     fn run(&self, _call_id: &str, arguments: Value) -> ToolFuture {
@@ -182,6 +213,9 @@ pub struct Options {
     pub model_retry: Option<spade_server::engine::Retry>,
     /// The real `web_search` over these backends, with Brave's key from the mock keychain.
     pub search: Option<spade_search::SearchConfig>,
+    /// The level new bots start on. `ask` here, so tests of the person's approvals keep asking;
+    /// the access tests choose (ADR 0144).
+    pub new_bot_access: spade_core::autonomy::Access,
 }
 
 /// A clock a test sets by hand.
@@ -279,6 +313,7 @@ impl Default for Options {
             brains: None,
             model_retry: None,
             search: None,
+            new_bot_access: spade_core::autonomy::Access::Ask,
         }
     }
 }
@@ -508,6 +543,7 @@ impl Spade {
                     first_wait: Duration::from_millis(10),
                     longest: Duration::from_secs(1),
                 }),
+                new_bot_access: options.new_bot_access,
                 ..options.limits
             },
             skills: options.skills,

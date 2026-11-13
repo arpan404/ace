@@ -213,6 +213,7 @@ fn message(run: &str, heartbeat: bool) -> Event {
             label: "9:00".into(),
             heartbeat,
             event: None,
+            untrusted: false,
         })),
         from_group: None,
     })

@@ -1,5 +1,5 @@
 import type { FakeSpade, FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
-import { FakeSpadeComputer } from "./spade-computer.ts";
+import { FakeSpadeComputer, fakeFileRevision, fakeStale } from "./spade-computer.ts";
 import { FakeSpadeConnectors } from "./spade-connectors-api.ts";
 import { FakeSpadeNotes } from "./spade-notes.ts";
 import { FakeSpadeSearch } from "./spade-search.ts";
@@ -42,6 +42,14 @@ export interface FakeSpadeAgent {
   /** Its spend and caps (ADR 0135); left out, as an older Spade does, until set. */
   spending?: FakeSpadeSpending;
   review?: boolean | null;
+  /** How much it may do without asking; left out, as a Spade before access levels does. */
+  access?: "ask" | "auto_review" | "full_access";
+  /** Its task: on it, waiting on the person, or done; with whether it carries on by itself. */
+  task_state?: {
+    status: "working" | "waiting" | "blocked_on_person" | "done";
+    note?: string;
+  } | null;
+  continuing?: boolean;
 }
 
 interface Stored {
@@ -71,6 +79,20 @@ export class FakeSpadeApi implements FakeSpadeServer {
   keychain = true;
   /** A status every key write answers with, to stage a failure. */
   keyFailure: number | undefined;
+  /** A status every read of one file answers with, to stage a failure. */
+  fileReadFailure: number | undefined;
+  /** While set, reads of one file wait for it (`holdFileReads`). */
+  private fileReadsHeld: Promise<void> | undefined;
+
+  /** Holds every read of one file until the result is called, as a slow read would. */
+  holdFileReads(): () => void {
+    const held = Promise.withResolvers<void>();
+    this.fileReadsHeld = held.promise;
+    return () => {
+      this.fileReadsHeld = undefined;
+      held.resolve();
+    };
+  }
   /** True: the keychain hasn't answered (a prompt is open), so keys read as not known yet. */
   keysPending = false;
   characterAvatars = true;
@@ -217,6 +239,31 @@ export class FakeSpadeApi implements FakeSpadeServer {
     args?: unknown,
     id = `r${++this.sequence}`,
   ): void {
+    this.request(agent, { callId, name, args, reply: id });
+  }
+
+  /** A call the auto-review asked the person about rather than approve, with its reason. */
+  escalate(
+    agent: FakeSpadeAgent,
+    callId: string,
+    name: string,
+    args: unknown,
+    reviewerReason: string,
+  ): void {
+    this.request(agent, {
+      callId,
+      name,
+      args,
+      reply: `r${++this.sequence}`,
+      reviewerReason,
+    });
+  }
+
+  private request(
+    agent: FakeSpadeAgent,
+    call: { callId: string; name: string; args: unknown; reply: string; reviewerReason?: string },
+  ): void {
+    const { callId, name, args, reply: id } = call;
     this.store(agent.conversation, { type: "reply_started", reply: id });
     this.store(agent.conversation, {
       type: "step_finished",
@@ -230,6 +277,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
       call_id: callId,
       name,
       ...(args === undefined ? {} : { arguments: args }),
+      ...(call.reviewerReason === undefined ? {} : { reviewer_reason: call.reviewerReason }),
     });
     this.status(agent, "waiting", "Waiting for you");
   }
@@ -308,8 +356,15 @@ export class FakeSpadeApi implements FakeSpadeServer {
         new URLSearchParams(query),
         body,
       );
-    if (root === "agents" && id && sub === "workspace")
-      return this.workspaceRoute(request.method, id, subId, new URLSearchParams(query));
+    if (root === "agents" && id && sub === "workspace") {
+      const reading = request.method === "GET" && subId === "file";
+      if (reading && this.fileReadFailure !== undefined)
+        return problem(this.fileReadFailure, "Spade couldn't read the file.");
+      const answered = this.workspaceRoute(request.method, id, subId, new URLSearchParams(query));
+      // Held: answers as the file was when asked, once let go.
+      const held = this.fileReadsHeld;
+      return reading && held ? held.then(() => answered) : answered;
+    }
     if (root === "agents" && id && sub === "skill-proposals")
       return this.proposalRoute(request.method, id, subId, body);
     if (root === "agents" && id && sub === "connectors") {
@@ -417,6 +472,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
         name: String(body.name ?? ""),
         task: String(body.task ?? ""),
         model: String(body.model ?? ""),
+        // A new bot starts on Auto-review unless the person picked another level.
+        access: accessOf(body.access) ?? "auto_review",
         ...(avatar?.kind === "image"
           ? { avatar: { kind: "image", sha256: "a".repeat(64) } }
           : avatar?.kind === "character"
@@ -432,6 +489,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
         return problem(400, "Spade's name and face can't change.");
       for (const key of ["name", "task", "model"] as const)
         if (typeof body[key] === "string") agent[key] = body[key];
+      const access = accessOf(body.access);
+      if (access) agent.access = access;
       if (body.avatar && typeof body.avatar === "object") {
         const avatar = body.avatar as Json;
         agent.avatar =
@@ -460,6 +519,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
       return problem(400, "paths may not use `..`");
     if (method === "DELETE") {
       if (!path) return problem(422, "the workspace itself cannot be deleted");
+      const stale = fakeStale(files, path, query.get("base") ?? undefined);
+      if (stale) return stale;
       for (const name of Object.keys(files))
         if (name === path || name.startsWith(`${path}/`)) delete files[name];
       const folders = this.folders.get(agent);
@@ -470,7 +531,13 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (view === "file") {
       const text = files[path];
       if (text === undefined) return problem(404, `${path} does not exist`);
-      return reply({ path, size: text.length, text, unreadable: null });
+      return reply({
+        path,
+        size: text.length,
+        text,
+        unreadable: null,
+        revision: fakeFileRevision(text),
+      });
     }
     const prefix = path ? `${path}/` : "";
     const entries = new Map<string, Json>();
@@ -638,6 +705,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
         allowed: body.allowed === true,
         always: body.always === true,
       });
+      if (agent?.task_state?.status === "blocked_on_person")
+        agent.task_state = { status: "working" };
       if (agent) this.status(agent, "working", null);
       return reply({});
     }
@@ -650,6 +719,9 @@ export class FakeSpadeApi implements FakeSpadeServer {
     return problem(404, "Not found.");
   }
 }
+
+const accessLevels = ["ask", "auto_review", "full_access"] as const;
+const accessOf = (value: unknown) => accessLevels.find((level) => level === value);
 
 /** What Spade names an upload by: the SHA-256 of its bytes, and their count. */
 function uploadIdentity(data: unknown) {

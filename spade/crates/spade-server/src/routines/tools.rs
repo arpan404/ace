@@ -150,6 +150,17 @@ impl Tool for RoutineSave {
     }
 
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {
+        self.save(key, arguments, false)
+    }
+
+    /// A routine saved with untrusted content in view is marked untrusted (ADR 0144).
+    fn run_in(&self, key: &str, arguments: Value, turn: &crate::tools::TurnFacts) -> ToolFuture {
+        self.save(key, arguments, turn.untrusted.is_some())
+    }
+}
+
+impl RoutineSave {
+    fn save(&self, key: &str, arguments: Value, untrusted: bool) -> ToolFuture {
         let (engine, caller) = (self.0.get(), caller(key));
         Box::pin(async move {
             let Some(engine) = engine else {
@@ -177,6 +188,7 @@ impl Tool for RoutineSave {
                 trigger,
                 time_zone: args.time_zone,
                 paused: args.paused,
+                untrusted,
             };
             let saved = match &args.id {
                 Some(id) => super::owned_by(&engine, &caller, id)

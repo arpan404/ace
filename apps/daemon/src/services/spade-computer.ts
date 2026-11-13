@@ -40,7 +40,13 @@ export function createSpadeComputerSession(context: SpadeComputerSocket): Socket
         return true;
       }
       // Answered once the bot's calls in flight have stopped, without holding up the socket.
-      const task = computers.drive(bot, message.driver).then((result) => {
+      // `mode` wins over `driver`: exclusive is the person's take-over, cowork hands back.
+      const driver = message.mode
+        ? message.mode === "exclusive"
+          ? ("person" as const)
+          : ("bot" as const)
+        : (message.driver ?? "bot");
+      const task = computers.drive(bot, driver).then((result) => {
         if (context.connected())
           context.send({ type: "spade.computer.drive.result", requestId, ...result });
       });

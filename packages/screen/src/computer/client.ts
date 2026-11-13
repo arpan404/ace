@@ -9,10 +9,11 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { systemScheduler, type Scheduler } from "../runtime.ts";
 import { ComputerError } from "./errors.ts";
-import { HelperConnection } from "./helper-connection.ts";
+import { HelperConnection, type RequestDispatch } from "./helper-connection.ts";
 import { performance } from "node:perf_hooks";
 import type { ComputerRequestTiming } from "./timing.ts";
 
+export type { RequestDispatch } from "./helper-connection.ts";
 export { ComputerError } from "./errors.ts";
 export type { ComputerRequestTiming } from "./timing.ts";
 
@@ -59,6 +60,8 @@ export interface ComputerRequestOptions {
   signal?: AbortSignal | undefined;
   /** The app the request acts on; defaults to the payload's `app` for state and act. */
   app?: string | undefined;
+  /** Rechecked just before native stdin; waits release the helper queue. */
+  dispatch?: RequestDispatch;
 }
 
 /** Ops about the computer as a whole rather than one app. */
@@ -99,7 +102,7 @@ export class ComputerClient {
   async request(
     op: string,
     payload: Record<string, unknown>,
-    { signal, app }: ComputerRequestOptions = {},
+    { signal, app, dispatch }: ComputerRequestOptions = {},
   ): Promise<unknown> {
     if (this.closed) throw new ComputerError("closed", "Computer use is shutting down.");
     signal?.throwIfAborted();
@@ -112,6 +115,7 @@ export class ComputerClient {
       payload,
       (this.options.deadlineMs ?? defaultDeadlineMs)(op),
       signal,
+      dispatch,
     );
   }
 

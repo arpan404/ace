@@ -1,13 +1,15 @@
 //! A step's tool calls: the gate, approvals, running allowed calls in parallel (or as background
 //! jobs), and storing each result.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
 use serde_json::Value;
+use spade_core::autonomy::{self, Access, Class, Route, Sensitive};
 use spade_core::context;
+use spade_core::event::Verdict;
 use spade_core::event::{Call, Known};
 use spade_core::gate::{self, Decision};
 use spade_core::maintenance::{Pause, Point, halts};
@@ -18,6 +20,7 @@ use spade_core::{Event, Transcript};
 use tokio::sync::watch;
 
 use super::Engine;
+use super::autonomy::Reviewed;
 use crate::tools::{ToolOutput, TurnFacts};
 
 const DECLINED: &str = "The person declined this action.";
@@ -64,6 +67,9 @@ pub(super) async fn handle_calls(
         memory_suggests: summary_only,
     };
     let mut runnable: Vec<(Call, String, Value)> = Vec::new();
+    // Calls approved by the reviewer with the files they run, by call id: the hash of those
+    // files as it read them (ADR 0144).
+    let mut bound: HashMap<String, Option<String>> = HashMap::new();
     let mut waiting = false;
     // Started with no stored result. This worker runs every call it starts to its stored end, so
     // such a call ran in an earlier worker that was cut off: its outcome is unknown.
@@ -117,10 +123,127 @@ pub(super) async fn handle_calls(
                         Risk::Memory => untrusted_memory || (summary_only && !suggestible(&name)),
                         _ => untrusted,
                     };
-                    let mut decision = gate::decide(def.risk, always, tainted);
+                    let rule = gate::decide(def.risk, always, tainted);
+                    // The bot's access level (ADR 0144) decides what happens to a call the
+                    // rule gate would ask about: the person, the reviewer, or neither.
+                    // Read now, for this call: a change the person made while earlier calls
+                    // of the step were decided holds from here (ADR 0144).
+                    let access = engine.level(id, events);
+                    // What the call reaches, and the files it runs that the reviewer must read.
+                    let Some(classed) = classify(engine, id, &name, &key, &arguments, stop).await
+                    else {
+                        return Handled::Stopped;
+                    };
+                    let route = autonomy::route(autonomy::Call {
+                        access,
+                        rule,
+                        risk: def.risk,
+                        class: classed.class,
+                        // Anything untrusted the prompt shows, from any turn since compaction.
+                        tainted: !in_view.is_empty(),
+                        // Its arguments reach a credential place, or the tool itself says it
+                        // hands back secrets: refused on every level.
+                        credentials: classed.credentials
+                            || autonomy::reaches_credentials(&arguments)
+                            || autonomy::reads_credentials(
+                                &def.spec.name,
+                                &def.spec.description,
+                                def.risk,
+                            ),
+                        standing: autonomy::STANDING.contains(&name.as_str()),
+                        fits: autonomy::fits_review(&arguments, &classed.shown),
+                    });
+                    let mut reviewer_reason = None;
+                    let rule_ran = route == Route::Run;
+                    let mut decision = match route {
+                        Route::Run => Decision::Run,
+                        Route::Ask(reason) => {
+                            if let Some(reason) = &reason {
+                                let escalated = Verdict::Escalate;
+                                match rule_verdict(
+                                    engine,
+                                    id,
+                                    reply,
+                                    events,
+                                    &pending.call,
+                                    &name,
+                                    escalated,
+                                    reason,
+                                ) {
+                                    Ok(true) => {}
+                                    Ok(false) => return Handled::Stopped,
+                                    Err(error) => return Handled::Failed(error.to_string()),
+                                }
+                            }
+                            reviewer_reason = reason;
+                            Decision::Ask
+                        }
+                        Route::Refuse(reason) => {
+                            match rule_verdict(
+                                engine,
+                                id,
+                                reply,
+                                events,
+                                &pending.call,
+                                &name,
+                                Verdict::Refuse,
+                                &reason,
+                            ) {
+                                Ok(true) => {}
+                                Ok(false) => return Handled::Stopped,
+                                Err(error) => return Handled::Failed(error.to_string()),
+                            }
+                            let refused = ToolOutput::ok(autonomy::refused(&reason));
+                            finish_tool(engine, id, reply, &pending.call, &name, refused).await;
+                            continue;
+                        }
+                        Route::Review => {
+                            let def = def.clone();
+                            let under = super::autonomy::Under {
+                                call: &pending.call,
+                                name: &name,
+                                arguments: &arguments,
+                                def: &def,
+                                shell: name == "shell",
+                                shown: &classed.shown,
+                            };
+                            // An approval is bound to the files as the reviewer read them: the
+                            // stored one's, or these when this review is the first.
+                            let expected = match review::stored(events, &pending.call.id) {
+                                Some(_) => review::bound(events, &pending.call.id),
+                                None => super::autonomy::binding(&classed.shown),
+                            };
+                            if expected.is_some() || !classed.shown.is_empty() {
+                                bound.insert(pending.call.id.clone(), expected);
+                            }
+                            match super::autonomy::review(
+                                engine, id, reply, events, &registry, under, stop,
+                            )
+                            .await
+                            {
+                                Reviewed::Run => Decision::Run,
+                                Reviewed::Escalate(reason) => {
+                                    reviewer_reason = Some(reason);
+                                    Decision::Ask
+                                }
+                                Reviewed::Refuse(reason) => {
+                                    let refused = ToolOutput::ok(autonomy::refused(&reason));
+                                    finish_tool(engine, id, reply, &pending.call, &name, refused)
+                                        .await;
+                                    continue;
+                                }
+                                Reviewed::Stopped => return Handled::Stopped,
+                            }
+                        }
+                    };
                     // The model review (ADR 0135) may turn a run into a question, never the
-                    // other way round.
-                    if review::reviewed(def.risk, decision) && engine.review_on(id) {
+                    // other way round. Full access has nothing ask; a call the auto-review
+                    // approved was reviewed already.
+                    if rule_ran
+                        && access != Access::FullAccess
+                        && review::reviewed(def.risk, decision)
+                        && engine.review_on(id)
+                    {
                         let def = def.clone();
                         match super::review::call(
                             engine,
@@ -157,6 +280,7 @@ pub(super) async fn handle_calls(
                                 name,
                                 arguments,
                                 scope,
+                                reviewer_reason,
                             });
                             // Never asked once the reply is stopped, so no answer can allow it.
                             match engine.record_unless_stopped(id, reply, &asked) {
@@ -189,7 +313,7 @@ pub(super) async fn handle_calls(
         finish_tool(engine, id, reply, &call, &name, unknown).await;
     }
     if !runnable.is_empty() {
-        return run_tools(engine, id, reply, runnable, &facts, stop, pause).await;
+        return run_tools(engine, id, reply, runnable, &bound, &facts, stop, pause).await;
     }
     if waiting {
         let live = engine.live(id);
@@ -213,6 +337,25 @@ pub(super) async fn handle_calls(
         return handled;
     }
     Handled::Continue
+}
+
+/// Stores a verdict the rules reached (ADR 0144) unless one is stored for the call already, as
+/// after a restart. `Ok(false)` when the reply was stopped.
+#[allow(clippy::too_many_arguments)]
+fn rule_verdict(
+    engine: &Engine,
+    id: &str,
+    reply: &str,
+    events: &[Event],
+    call: &Call,
+    name: &str,
+    verdict: Verdict,
+    reason: &str,
+) -> Result<bool, spade_store::StoreError> {
+    if review::stored(events, &call.id).is_some() {
+        return Ok(true);
+    }
+    super::autonomy::record_rule(engine, id, reply, call, name, verdict, reason)
 }
 
 /// Whether the person answered "always" to an earlier call of `name` with the same scope (for
@@ -263,11 +406,13 @@ fn resolve(call: &Call) -> (String, Value) {
     (call.name.clone(), call.arguments.clone())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_tools(
     engine: &Arc<Engine>,
     id: &str,
     reply: &str,
     calls: Vec<(Call, String, Value)>,
+    bound: &HashMap<String, Option<String>>,
     facts: &TurnFacts,
     stop: &mut watch::Receiver<bool>,
     pause: &mut watch::Receiver<Pause>,
@@ -294,6 +439,18 @@ async fn run_tools(
             let Some((call, name, arguments)) = queue.next() else {
                 break;
             };
+            // A file the reviewer read changed since: not run, and the bot asks again.
+            if let Some(expected) = bound.get(&call.id) {
+                let key = format!("{id}.{}", call.id);
+                let Some(now) = classify(engine, id, &name, &key, &arguments, stop).await else {
+                    return Handled::Stopped;
+                };
+                if &super::autonomy::binding(&now.shown) != expected {
+                    let changed = ToolOutput::ok(autonomy::refused(SCRIPT_CHANGED));
+                    finished.push_back((call, name, changed));
+                    continue;
+                }
+            }
             // A tool runs only once its start is stored, so a restart can never mistake a call
             // that ran for one that did not.
             // What the tool is now is stored with its start, so compaction reads a write as one
@@ -383,6 +540,39 @@ async fn run_tools(
         }
     }
 }
+
+/// The longest a call's classification may take (reading the scripts and makefiles it runs)
+/// before it goes to the person as unclear.
+const CLASSIFY_TIME: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// What a call reaches (ADR 0144), worked out off the turn's thread: reading a command's files is
+/// blocking work, bounded by the classifier's budget and here by [`CLASSIFY_TIME`]. Stop is
+/// heard meanwhile: `None` when it was pressed.
+async fn classify(
+    engine: &Engine,
+    id: &str,
+    name: &str,
+    key: &str,
+    arguments: &Value,
+    stop: &mut watch::Receiver<bool>,
+) -> Option<autonomy::Classed> {
+    let Some(tool) = engine.tools.get_for(id, name) else {
+        return Some(Class::Sensitive(Sensitive::Unknown).into());
+    };
+    let (key, arguments) = (key.to_owned(), arguments.clone());
+    let work = tokio::task::spawn_blocking(move || tool.classed(&key, &arguments));
+    tokio::select! {
+        done = tokio::time::timeout(CLASSIFY_TIME, work) => Some(match done {
+            Ok(Ok(classed)) => classed,
+            // Took too long, or panicked: the person decides.
+            _ => Class::Sensitive(Sensitive::Unclear).into(),
+        }),
+        _ = stop.wait_for(|stopped| *stopped) => None,
+    }
+}
+
+/// Why a reviewed call whose files changed before it started didn't run.
+const SCRIPT_CHANGED: &str = "A file it runs changed after it was reviewed.";
 
 /// A result being stored (see `finish_tool`).
 type Storing<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>>;
