@@ -93,6 +93,8 @@ export const DeviceFailure = z.object({
     "lease_required",
     "stale_ref",
     "limit",
+    /** Cowork (ADR 0143): the person kept using the device; the agent's input was not sent. */
+    "person_busy",
   ]),
   message: z.string().max(2048),
   hint: z.string().max(2048),

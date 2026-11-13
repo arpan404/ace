@@ -29,7 +29,8 @@ import { createSession, type DeviceSession } from "./session.ts";
 import type { Actor } from "./lease.ts";
 import { performDeviceAction } from "./actions.ts";
 import { bindDevice, disableDeviceSessions } from "./binding.ts";
-import { enqueueDeviceInput } from "./input-queue.ts";
+import { enqueueDeviceInput, enqueueSharedInput } from "./input-queue.ts";
+import { DeviceCowork } from "./device-cowork.ts";
 import type { spawnSupervised } from "@ace/provider-kit/process";
 import { mirrorDeviceController } from "./screen-controller.ts";
 import { InventoryWatch, sameDevice, type DeviceLog, type Inventory } from "./inventory.ts";
@@ -48,6 +49,12 @@ export interface DevicesOptions extends LifecycleOptions {
   inventoryIntervalMs?: number;
   /** Whether devices start on (default); the daemon passes the saved `devices.enabled`. */
   enabled?: boolean;
+  /**
+   * Cowork (ADR 0143): the person's input from a device view goes in while an agent holds the
+   * device, and the agent's input waits while the person uses it. Off: the person takes the
+   * controls first, as before.
+   */
+  cowork?: boolean;
 }
 export class DevicesService {
   /** Element refs and how-to state for device agents, shared by the sim_* tools and `ace sim`. */
@@ -65,8 +72,15 @@ export class DevicesService {
   private inventoryViews = 0;
   private readonly enabledListeners = new Set<(enabled: boolean) => void>();
   private readonly inventory: InventoryWatch;
+  private readonly cowork: DeviceCowork | undefined;
   constructor(options: DevicesOptions) {
     this.options = options;
+    this.cowork = options.cowork
+      ? new DeviceCowork(options.runtime, (deviceId) => {
+          const session = this.sessions.get(deviceId);
+          if (session) this.emit(session);
+        })
+      : undefined;
     this.enabled = options.enabled ?? true;
     this.inventory = new InventoryWatch({
       read: () => this.list(),
@@ -166,6 +180,10 @@ export class DevicesService {
     return session;
   }
   state(session: DeviceSession): DeviceState {
+    const state = this.bareState(session);
+    return this.cowork ? this.cowork.view(state) : state;
+  }
+  private bareState(session: DeviceSession): DeviceState {
     return DeviceState.parse({
       device: session.device,
       enabled: this.enabled,
@@ -211,6 +229,7 @@ export class DevicesService {
     if (!session) return;
     session.activitySequence++;
     session.activity = { ...activity, sequence: session.activitySequence };
+    this.cowork?.acted(deviceId, activity);
     this.emit(session);
   }
   /** Devices are on for this machine; a client with no device sessions yet needs this too. */
@@ -338,12 +357,31 @@ export class DevicesService {
         "Call sim_start to take this simulator first.",
       );
   }
-  private enqueue<T>(
+  private async enqueue<T>(
     session: DeviceSession,
     actor: Actor,
     run: (authorize: () => void) => Promise<T>,
   ): Promise<T> {
+    const cowork = this.cowork;
+    if (cowork && actor.kind === "human" && session.lease.current()?.kind !== "human") {
+      cowork.personInput(session.device.id);
+      return enqueueSharedInput(session, actor, run, this.lifecycleOwner());
+    }
+    // The agent's input waits outside the queue, so the person's own never waits behind it.
+    if (cowork && actor.kind === "agent") {
+      this.authorize(session, actor);
+      await cowork.yield(session.device.id, session.device.name);
+    }
     return enqueueDeviceInput(session, actor, run, this.lifecycleOwner());
+  }
+  /**
+   * Waits while the person uses the device (cowork); the note a waited action's result carries,
+   * if it waited. Without cowork, nothing waits.
+   */
+  async yieldToPerson(deviceId: string, signal?: AbortSignal): Promise<string | undefined> {
+    const session = this.sessions.get(deviceId);
+    if (!this.cowork || !session) return undefined;
+    return this.cowork.yield(deviceId, session.device.name, signal);
   }
   async request(raw: DeviceOperation, actor: Actor): Promise<unknown> {
     const operation = DeviceOperation.parse(raw);

@@ -41,6 +41,8 @@ async function buildDevices(context: ServiceContext, enabled: boolean): Promise<
   const frameEncoder = await deviceHelper(context);
   return new DevicesService({
     enabled,
+    // The person and agents share devices; agents wait while the person uses one (ADR 0143).
+    cowork: true,
     platform: new DevicePlatform({
       platform: process.platform,
       arch: process.arch,

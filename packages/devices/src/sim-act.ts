@@ -84,6 +84,14 @@ export async function simAct(
   args: SimAct,
   actor: Actor,
 ): Promise<unknown> {
+  // Cowork: wait here while the person uses the device, so the result can say it waited.
+  const waited = await service.yieldToPerson(args.simId);
+  const noted = (result: unknown) =>
+    !waited
+      ? result
+      : typeof result === "object" && result !== null && !Array.isArray(result)
+        ? { ...result, waited }
+        : { result, waited };
   const request = (operation: unknown) => service.request(DeviceOperation.parse(operation), actor);
   const noteActivity = (element?: SimElement) => {
     const activity = simActivity(args, element);
@@ -92,7 +100,7 @@ export async function simAct(
   if (args.ref === undefined) {
     const result = await request(directOperation(args));
     noteActivity();
-    return result;
+    return noted(result);
   }
   const deviceId = args.simId;
   const known = state.refs.element(actor.owner, deviceId, args.ref);
@@ -158,5 +166,10 @@ export async function simAct(
       );
   }
   noteActivity(element);
-  return { ref: `@${args.ref.replace(/^@/, "")}`, role: element.role, name: element.name, result };
+  return noted({
+    ref: `@${args.ref.replace(/^@/, "")}`,
+    role: element.role,
+    name: element.name,
+    result,
+  });
 }
