@@ -121,10 +121,60 @@ import UserNotifications
 
     @Test func anAlertWithMissingOptionalFieldsAndUnknownOnesStillReads() throws {
         let key = PushKey.generate()
-        let text = #"{"v":1,"hostId":"studio","later":true,"notification":{"id":"n:9","threadId":"t-1","title":"Ship","status":"done","newField":{"x":1}}}"#
+        let text = #"{"v":1,"hostId":"studio","later":true,"notification":{"id":"n:9","threadId":"t-1","title":"Ship","status":"done","backgroundCount":0,"actions":[],"newField":{"x":1}}}"#
         let shown = try #require(PushAlert.rewritten(try sealedPush(text, to: key), key: key))
         #expect(shown.title == "Ship")
         #expect(shown.body == "Done")
+    }
+
+    /// Each field the protocol's `Notification` requires, missing or of the wrong type or size, and
+    /// each optional one present but wrong. Done must never come from a payload the daemon
+    /// couldn't have sent: the generic text stays.
+    @Test(arguments: [
+        #""threadId":"t-1","title":"Ship","status":"done","backgroundCount":0,"actions":[]"#,
+        #""id":"","threadId":"t-1","title":"Ship","status":"done","backgroundCount":0,"actions":[]"#,
+        #""id":9,"threadId":"t-1","title":"Ship","status":"done","backgroundCount":0,"actions":[]"#,
+        #""id":"\#(String(repeating: "n", count: 201))","threadId":"t-1","title":"Ship","status":"done","backgroundCount":0,"actions":[]"#,
+        #""id":"n:9","title":"Ship","status":"done","backgroundCount":0,"actions":[]"#,
+        #""id":"n:9","threadId":"","title":"Ship","status":"done","backgroundCount":0,"actions":[]"#,
+        #""id":"n:9","threadId":["t-1"],"title":"Ship","status":"done","backgroundCount":0,"actions":[]"#,
+        #""id":"n:9","threadId":"t-1","status":"done","backgroundCount":0,"actions":[]"#,
+        #""id":"n:9","threadId":"t-1","title":7,"status":"done","backgroundCount":0,"actions":[]"#,
+        #""id":"n:9","threadId":"t-1","title":"\#(String(repeating: "x", count: 201))","status":"done","backgroundCount":0,"actions":[]"#,
+        #""id":"n:9","threadId":"t-1","title":"Ship","backgroundCount":0,"actions":[]"#,
+        #""id":"n:9","threadId":"t-1","title":"Ship","status":true,"backgroundCount":0,"actions":[]"#,
+        #""id":"n:9","threadId":"t-1","title":"Ship","status":"done","actions":[]"#,
+        #""id":"n:9","threadId":"t-1","title":"Ship","status":"done","backgroundCount":"0","actions":[]"#,
+        #""id":"n:9","threadId":"t-1","title":"Ship","status":"done","backgroundCount":1.5,"actions":[]"#,
+        #""id":"n:9","threadId":"t-1","title":"Ship","status":"done","backgroundCount":-1,"actions":[]"#,
+        #""id":"n:9","threadId":"t-1","title":"Ship","status":"done","backgroundCount":1000001,"actions":[]"#,
+        #""id":"n:9","threadId":"t-1","title":"Ship","status":"done","backgroundCount":false,"actions":[]"#,
+        #""id":"n:9","threadId":"t-1","title":"Ship","status":"done","backgroundCount":0"#,
+        #""id":"n:9","threadId":"t-1","title":"Ship","status":"done","backgroundCount":0,"actions":{}"#,
+        #""id":"n:9","threadId":"t-1","title":"Ship","status":"done","backgroundCount":0,"actions":[{"action":"approve"}]"#,
+        #""id":"n:9","threadId":"t-1","title":"Ship","status":"done","backgroundCount":0,"actions":[{"action":"merge","optionId":"m"}]"#,
+        #""id":"n:9","threadId":"t-1","title":"Ship","status":"done","backgroundCount":0,"actions":["approve"]"#,
+        #""id":"n:9","threadId":"t-1","title":"Ship","status":"done","backgroundCount":0,"actions":[{"action":"approve","optionId":"a"},{"action":"deny","optionId":"d"},{"action":"deny","optionId":"e"}]"#,
+        #""id":"n:9","threadId":"t-1","title":"Ship","status":"done","backgroundCount":0,"actions":[],"interactionId":7"#,
+        #""id":"n:9","threadId":"t-1","title":"Ship","status":"done","backgroundCount":0,"actions":[],"interactionId":"""#,
+        #""id":"n:9","threadId":"t-1","title":"Ship","status":"done","backgroundCount":0,"actions":[],"preview":3"#,
+        #""id":"n:9","threadId":"t-1","title":"Ship","status":"done","backgroundCount":0,"actions":[],"preview":"\#(String(repeating: "p", count: 301))""#,
+        #""id":"n:9","threadId":"t-1","title":"Ship","status":"done","backgroundCount":0,"actions":[],"message":null"#,
+        #""id":"n:9","threadId":"t-1","title":"Ship","status":"done","backgroundCount":0,"actions":[],"threadIds":[]"#,
+    ])
+    func anAlertMissingARequiredFieldOrWithAWrongOneKeepsTheGenericText(_ fields: String) throws {
+        let key = PushKey.generate()
+        let text = #"{"v":1,"hostId":"studio","notification":{\#(fields)}}"#
+        #expect(PushAlert.rewritten(try sealedPush(text, to: key), key: key) == nil)
+    }
+
+    @Test func anAlertWithEveryFieldAtItsBoundsStillReads() throws {
+        let key = PushKey.generate()
+        let title = String(repeating: "x", count: 200)
+        let text = #"{"v":1,"hostId":"studio","notification":{"id":"n:9","threadId":"t-1","title":"\#(title)","status":"needs_you","interactionId":"i-1","backgroundCount":1000000,"actions":[{"action":"approve","optionId":"a"},{"action":"deny","optionId":"d"}],"preview":"\#(String(repeating: "p", count: 300))","message":"m","threadIds":["t-1"]}}"#
+        let shown = try #require(PushAlert.rewritten(try sealedPush(text, to: key), key: key))
+        #expect(shown.title == title)
+        #expect(shown.body == "Needs you")
     }
 
     @Test func anUnknownStatusNeverClaimsDone() throws {

@@ -56,18 +56,50 @@ enum PushAlert {
         return Read(content: content, pushedId: content.identifier, standsFor: content.identifier)
     }
 
-    /// The protocol's bounded `Notification`, read field by field.
+    /// The protocol's bounded `Notification` (`packages/protocol/src/notifications.ts`), read field
+    /// by field: every required field present with its type and bounds, each optional one absent
+    /// or valid, unknown ones ignored. Anything else is nil, so the generic text stays. `status`
+    /// is any string: one this build doesn't know reads as "New activity", never as done.
     private static func alert(_ value: [String: Any]) -> AlertNotification? {
-        guard let id = value["id"] as? String, !id.isEmpty, let threadId = value["threadId"] as? String, !threadId.isEmpty,
-              let status = value["status"] as? String else { return nil }
-        let actions = (value["actions"] as? [[String: Any]] ?? []).compactMap { action -> AlertNotification.Action? in
-            guard let name = action["action"] as? String, let option = action["optionId"] as? String else { return nil }
-            return AlertNotification.Action(action: name, optionId: option)
+        guard let id = text(value["id"], 1...200), let threadId = text(value["threadId"], 1...200),
+              let title = text(value["title"], 0...200), let status = value["status"] as? String,
+              let backgroundCount = integer(value["backgroundCount"], 0...1_000_000),
+              let listed = value["actions"] as? [Any], listed.count <= 2,
+              let interactionId = optional(value["interactionId"], { text($0, 1...200) }),
+              let preview = optional(value["preview"], { text($0, 0...300) }),
+              let message = optional(value["message"], { text($0, 0...300) }),
+              optional(value["threadIds"], { threadIds($0) }) != nil else { return nil }
+        var actions: [AlertNotification.Action] = []
+        for entry in listed {
+            guard let action = entry as? [String: Any], let name = action["action"] as? String, name == "approve" || name == "deny",
+                  let option = text(action["optionId"], 1...200) else { return nil }
+            actions.append(AlertNotification.Action(action: name, optionId: option))
         }
-        return AlertNotification(id: id, threadId: threadId, title: value["title"] as? String ?? "", status: status,
-                                 interactionId: value["interactionId"] as? String,
-                                 backgroundCount: value["backgroundCount"] as? Int ?? 0, actions: actions,
-                                 preview: value["preview"] as? String, message: value["message"] as? String)
+        return AlertNotification(id: id, threadId: threadId, title: title, status: status, interactionId: interactionId,
+                                 backgroundCount: backgroundCount, actions: actions, preview: preview, message: message)
+    }
+    /// A string whose length, in UTF-16 units as Zod counts it, is within `bounds`.
+    private static func text(_ value: Any?, _ bounds: ClosedRange<Int>) -> String? {
+        guard let text = value as? String, bounds.contains(text.utf16.count) else { return nil }
+        return text
+    }
+    /// A JSON integer within `bounds`; booleans, fractions and strings are not numbers here.
+    private static func integer(_ value: Any?, _ bounds: ClosedRange<Int>) -> Int? {
+        guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+              let integer = value as? Int, bounds.contains(integer) else { return nil }
+        return integer
+    }
+    /// A catch-up alert's threads: 1 to 100 thread ids.
+    private static func threadIds(_ value: Any) -> [String]? {
+        guard let list = value as? [Any], (1...100).contains(list.count) else { return nil }
+        let ids = list.compactMap { text($0, 1...200) }
+        return ids.count == list.count ? ids : nil
+    }
+    /// An optional field: absent reads as `.some(nil)`; present, `read` must accept it or the
+    /// whole alert is nil. JSON null is not absent, as Zod's `optional()` doesn't take it.
+    private static func optional<T>(_ value: Any?, _ read: (Any) -> T?) -> T?? {
+        guard let value else { return .some(nil) }
+        return read(value).map { .some($0) }
     }
 }
 
