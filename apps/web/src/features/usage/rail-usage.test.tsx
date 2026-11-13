@@ -89,7 +89,15 @@ test("an account out for the week reads out in the icon's name; the card names w
   // Both Codex accounts have spent their week; the first comes back when its week resets.
   const card = await screen.findByText("Codex is out; it's back in 3d.");
   const body = card.closest("[data-slot=usage-card]");
-  expect(body && within(body as HTMLElement).getByRole("region", { name: "Codex" })).toBeTruthy();
+  const codex =
+    body && within(body as HTMLElement).getByRole("region", { name: "Codex · Personal" });
+  expect(codex).toBeTruthy();
+  // Each account the bars draw is named, with its limits as the Usage page draws them.
+  expect(
+    within(codex as HTMLElement)
+      .getAllByRole("meter")
+      .map((each) => [each.getAttribute("aria-label"), each.getAttribute("aria-valuenow")]),
+  ).toContainEqual(["Weekly", "0"]);
   await userEvent.click(within(body as HTMLElement).getByRole("link", { name: "Open Usage ›" }));
   await waitFor(() =>
     expect(screen.getByRole("heading", { level: 2, name: "Usage" })).toBeTruthy(),
@@ -126,4 +134,35 @@ test("Settings › General switches the rail's bars between each account's week 
       name: /^Usage: Codex · Personal 62% of the session left, Claude Code · Personal 38%/,
     }),
   ).toBeTruthy();
+});
+
+test("accounts pinned on the Usage page are the rail's, its card says so, and unpinning gives back the most used", async () => {
+  const app = harness();
+  session(app.daemon, "codex-personal", 30, 120, 20);
+  session(app.daemon, "codex-team", 50, 120, 40);
+  session(app.daemon, "claude-personal", 10, 200, 10);
+  app.daemon.services.usage.sources = [source("claude", "claude-personal", 900_000)];
+  await app.open("/usage");
+  const team = await screen.findByRole("article", { name: /^Codex · Team · / });
+  await userEvent.click(within(team).getByRole("button", { name: "Pin Codex · Team to the rail" }));
+  const usage = await within(await appNav()).findByRole("link", {
+    name: "Usage: Codex · Team 60% of the week left",
+  });
+  await userEvent.hover(usage);
+  const card = (await screen.findByText("Pinned")).closest("[data-slot=usage-card]") as HTMLElement;
+  expect(
+    within(card)
+      .getAllByRole("region")
+      .map((each) => each.getAttribute("aria-label")),
+  ).toEqual(["Codex · Team"]);
+  await userEvent.click(
+    within(team).getByRole("button", { name: "Unpin Codex · Team from the rail" }),
+  );
+  await waitFor(() =>
+    expect(
+      within(screen.getByRole("navigation", { name: "App" }))
+        .getByRole("link", { name: /^Usage: / })
+        .getAttribute("aria-label"),
+    ).toMatch(/^Usage: Claude Code/),
+  );
 });
