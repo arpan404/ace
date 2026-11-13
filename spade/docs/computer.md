@@ -153,21 +153,42 @@ commands. Asking, the timeouts, the 4 MiB output caps, the
    5 s) until no process is left in it, and only then does the next command start or the person
    get to type. Completion is the process's own exit, so nothing a command prints can end it
    early.
-5. **Everything it started ends with it, sessions of their own included.** Each command carries
-   `SPADE_RUN=<random>`, which whatever it starts inherits. At its end, by deadline, drop or
-   finish, every process descended from it or carrying the mark is stopped (`SIGSTOP`, so none
-   can start another), looked for again until none is new, then killed with the group. On Linux
-   the mark is read from `/proc/*/environ`, and Spade is a child subreaper (`PR_SET_CHILD_SUBREAPER`),
-   so an orphan is reparented to Spade and reaped once killed. **The limit:** macOS shows no
-   other process's environment, so there only the tree is followed. A process that detached
-   (`setsid`) and was reparented away before the end can survive there, such as a daemon left
-   by a command that finished. On Linux the same holds only for one that also cleared its
-   environment and started another program.
+5. **Everything it started ends with it, sessions of their own included.** At its end (by
+   deadline, drop or finish) the processes that are provably the command's are chosen:
+   - the leader, while it is not yet reaped;
+   - the live descendants of anything chosen, by parent chain;
+   - the members of its process group (on macOS only those started while it ran, so a later
+     group that reused the number is not taken);
+   - on Linux, orphans Spade adopted as child subreaper (`PR_SET_CHILD_SUBREAPER`, parent is
+     Spade) that carry this run's `SPADE_RUN=<random>`, which everything the command starts
+     inherits. The mark alone never chooses a process.
+
+   Each one is recorded with its identity when found: a pidfd on Linux, which every signal goes
+   through, and its start time on macOS, checked again right before every signal and skipped on
+   a mismatch. So a pid another process has taken is never signalled, and the leader's number is
+   never used once reaped. Everything chosen is stopped (`SIGSTOP`). The look is repeated until
+   nothing new turns up and each one is *seen* stopped or gone (Linux `/proc/<pid>/stat` state
+   `T`/`t`/`Z`/`X`, macOS `ps` state `T`/`Z`), then all of it is killed. Adopted ones are reaped,
+   each by its own pid, never `waitpid(-1)`. When that doesn't settle within 8 passes, what is
+   known is killed anyway, the end is logged, the tool result adds "Not every process this
+   command started could be seen to stop; some may still be running", and the terminal starts
+   afresh (a new shell, nothing carried).
+
+   **The limits.** On macOS, a process that detached (`setsid`) and was reparented away before
+   the end can survive, such as a daemon left by a command that finished. macOS shows no other
+   process's environment and has no subreaper. On Linux, only one that also cleared its
+   environment and started another program before its parent exited can. Start times on macOS
+   come in whole seconds, so a pid reused within the same second would read as the same process.
 6. **"Always" holds only in the state it was given in.** Answering `always` covers the exact
    command run from the same folder with the same carried variables. The approval stores that
    scope (`approval_requested.scope`: the command and a digest of the folder and variables), and
    when either has changed, the same command asks again. A carried `NODE_OPTIONS` or `PYTHONPATH`
-   would change what it runs.
+   would change what it runs. The scope a call was allowed with, always or by the person's
+   answer, is checked again under the terminal's command lock, right before it runs. When an
+   earlier call in the same response, or a restart, changed the state since, the call is not run.
+   Its result says so ("Not run: your terminal's folder or carried variables changed…"), and the
+   model's next call of it asks. A call is never asked again in place, because its start is
+   already stored by then.
 
 On Windows the `shell` tool runs each command on its own, as in workspace.md, and the terminal
 routes answer `503`.

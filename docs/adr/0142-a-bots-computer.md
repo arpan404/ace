@@ -54,13 +54,17 @@ take over.
    name runs (`PATH`, `LD_*`, `DYLD_*` and the like), and its output is copied into the
    terminal's view. A supervisor owns each command: when the command finishes, times out or is
    dropped (by a take-over or Stop), everything it started is gone before the next command
-   starts or the person types. That includes children in sessions of their own: each command
-   carries a mark its descendants inherit, and its tree is frozen and then killed (on Linux,
-   Spade is also a child subreaper). On macOS a process that detached and was reparented away
-   before the end, such as a daemon left by a finished command, can survive. Completion is the
-   process's own exit, never something printed, so a command can't fake its end. "Always" holds
-   for the exact command run from the same folder with the same carried variables; when either
-   changes, it asks again. Everything else ADR 0130 sets for the shell still holds: every command
+   starts or the person types. That includes children in sessions of their own. Only processes
+   provably the command's are signalled: its unreaped leader, descendants by parent chain, its
+   group, and on Linux orphans Spade adopted as child subreaper that carry the run's mark. Each
+   is held by identity (a pidfd on Linux, its start time on macOS), so a reused pid is never
+   signalled. They are stopped, seen stopped, then killed. When that doesn't settle, the result
+   says some may still run and the terminal starts afresh. On macOS a process that detached and
+   was reparented away before the end, such as a daemon left by a finished command, can survive.
+   Completion is the process's own exit, never something printed, so a command can't fake its
+   end. "Always" holds for the exact command run from the same folder with the same carried
+   variables, checked again under the terminal's lock right before it runs. When an earlier call
+   changed them, the call is not run, and its next call asks. Everything else ADR 0130 sets for the shell still holds: every command
    asks first, output past 4 MiB is dropped, the deadline is 60 s by default and 110 s at most,
    and output is untrusted (as is every file a command makes).
 6. **Windows keeps the one-shot shell for now.** It has no bot terminal yet; its `shell` runs each
