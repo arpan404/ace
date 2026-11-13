@@ -12,6 +12,7 @@ use super::{AppState, off_thread, problem};
 use crate::engine::{
     AgentChange, AgentError, AgentInput, AgentView, AvatarInput, State as AgentState,
 };
+use spade_core::autonomy::Access;
 
 /// An agent body may carry one avatar image as base64 (3.75 MB, a third larger encoded).
 pub(super) const AGENT_BODY: usize = 6 * 1024 * 1024;
@@ -58,6 +59,9 @@ pub(super) struct NewAgent {
     model: Option<String>,
     #[serde(default)]
     avatar: Option<AvatarBody>,
+    /// `ask`, `auto_review` or `full_access` (ADR 0144); the new-bot level when absent.
+    #[serde(default)]
+    access: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -70,6 +74,22 @@ pub(super) struct Change {
     model: Option<String>,
     #[serde(default)]
     avatar: Option<AvatarBody>,
+    /// `ask`, `auto_review` or `full_access` (ADR 0144). Holds from the bot's next tool call.
+    #[serde(default)]
+    access: Option<String>,
+}
+
+/// The access level a body names; a word Spade doesn't know is refused.
+fn access(word: Option<&str>) -> Result<Option<Access>, Box<Response>> {
+    match word {
+        None => Ok(None),
+        Some(word) => Access::parse(word).map(Some).ok_or_else(|| {
+            Box::new(problem(
+                StatusCode::BAD_REQUEST,
+                "access must be ask, auto_review or full_access",
+            ))
+        }),
+    }
 }
 
 #[derive(Deserialize)]
@@ -107,7 +127,7 @@ pub(super) fn agent_json(view: &AgentView) -> Value {
         "problem": view.problem,
         "last_message": last_message,
     });
-    // `spending` and `review` (ADR 0135).
+    // `spending` and `review` (ADR 0135); `access`, `task_state` and `continuing` (ADR 0144).
     if let (Some(shown), Some(extra)) = (shown.as_object_mut(), view.oversight.as_object()) {
         for (key, value) in extra {
             shown.insert(key.clone(), value.clone());
@@ -148,6 +168,10 @@ pub(super) async fn list(State(state): State<AppState>) -> Response {
 }
 
 pub(super) async fn create(State(state): State<AppState>, Body(body): Body<NewAgent>) -> Response {
+    let level = match access(body.access.as_deref()) {
+        Ok(level) => level,
+        Err(response) => return *response,
+    };
     let avatar = match body.avatar.map(AvatarBody::input).transpose() {
         Ok(avatar) => avatar,
         Err(response) => return *response,
@@ -174,11 +198,20 @@ pub(super) async fn create(State(state): State<AppState>, Body(body): Body<NewAg
                 named,
                 body.time_zone,
             ) {
-                Ok(made) => (
-                    StatusCode::CREATED,
-                    Json(json!({ "agent": agent_json(&made.agent), "left_out": made.left_out })),
-                )
-                    .into_response(),
+                Ok(made) => {
+                    let agent = match level {
+                        Some(level) => match state.engine.set_access(&made.agent.agent.id, level) {
+                            Ok(view) => view,
+                            Err(error) => return agent_problem(&error),
+                        },
+                        None => made.agent,
+                    };
+                    (
+                        StatusCode::CREATED,
+                        Json(json!({ "agent": agent_json(&agent), "left_out": made.left_out })),
+                    )
+                        .into_response()
+                }
                 Err(crate::teams::PortableError::NotFound) => {
                     problem(StatusCode::NOT_FOUND, "no such template")
                 }
@@ -192,13 +225,20 @@ pub(super) async fn create(State(state): State<AppState>, Body(body): Body<NewAg
             model: body.model.unwrap_or_else(|| state.engine.default_model()),
             avatar,
         };
-        create_now(&state, input)
+        create_now(&state, input, level)
     })
     .await
 }
 
-fn create_now(state: &AppState, input: AgentInput) -> Response {
-    match state.engine.create_agent(input) {
+fn create_now(state: &AppState, input: AgentInput, level: Option<Access>) -> Response {
+    let made = state
+        .engine
+        .create_agent(input)
+        .and_then(|view| match level {
+            Some(level) => state.engine.set_access(&view.agent.id, level),
+            None => Ok(view),
+        });
+    match made {
         Ok(view) => (
             StatusCode::CREATED,
             Json(json!({ "agent": agent_json(&view) })),
@@ -217,13 +257,24 @@ pub(super) async fn update(
         Ok(avatar) => avatar,
         Err(response) => return *response,
     };
+    let level = match access(body.access.as_deref()) {
+        Ok(level) => level,
+        Err(response) => return *response,
+    };
     let change = AgentChange {
         name: body.name,
         task: body.task,
         model: body.model,
         avatar,
     };
-    match state.engine.update_agent(&id, change) {
+    let changed = state
+        .engine
+        .update_agent(&id, change)
+        .and_then(|view| match level {
+            Some(level) => state.engine.set_access(&id, level),
+            None => Ok(view),
+        });
+    match changed {
         Ok(view) => Json(json!({ "agent": agent_json(&view) })).into_response(),
         Err(error) => agent_problem(&error),
     }

@@ -191,6 +191,14 @@ impl Tool for AceCall {
         self.def.clone()
     }
 
+    fn class(&self) -> spade_core::autonomy::Class {
+        spade_core::autonomy::classify(
+            &self.def.spec.name,
+            self.def.risk,
+            spade_core::autonomy::Source::Ace,
+        )
+    }
+
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {
         let (client, name) = (self.client.clone(), self.def.spec.name.clone());
         let arguments = prepare_delegate(&name, key, arguments);
@@ -217,6 +225,8 @@ mod tests {
             description: format!("{name} tool"),
             input_schema: json!({ "type": "object" }),
             risk,
+            annotated: true,
+            open_world: None,
         }
     }
 

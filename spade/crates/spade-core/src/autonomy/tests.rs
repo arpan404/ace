@@ -11,16 +11,17 @@ fn app(description: &str) -> Source<'_> {
 }
 
 #[test]
-fn a_bot_without_a_level_is_on_ask_and_the_latest_change_holds() {
+fn a_bot_without_a_stored_level_is_on_the_new_bot_level_and_the_latest_change_holds() {
     let mut events = vec![Event::user_message("hi")];
-    assert_eq!(access(&events), Access::Ask);
+    assert_eq!(access(&events, Access::NEW_BOT), Access::AutoReview);
+    assert!(!has_level(&events));
     events.push(Event::Known(Known::AccessChanged {
         level: Access::FullAccess,
     }));
     events.push(Event::Known(Known::AccessChanged {
         level: Access::AutoReview,
     }));
-    assert_eq!(access(&events), Access::AutoReview);
+    assert_eq!(access(&events, Access::Ask), Access::AutoReview);
     assert_eq!(Access::parse("full_access"), Some(Access::FullAccess));
     assert_eq!(Access::parse("everything"), None);
 }

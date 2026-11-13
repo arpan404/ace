@@ -86,7 +86,7 @@ pub(super) async fn call(
                 Ok(Ok(generated)) => {
                     let cost = admitted.settle(&generated.usage);
                     let reason = generated.value.reason.trim().to_owned();
-                    (generated.value.verdict, reason, cost)
+                    (Verdict::from(generated.value.verdict), reason, cost)
                 }
                 Ok(Err(error)) => {
                     let cost = admitted.settle_if(error.usage());
@@ -124,6 +124,7 @@ pub(super) async fn call(
 fn of(verdict: Verdict) -> Reviewed {
     match verdict {
         Verdict::Allow => Reviewed::Allow,
-        Verdict::Escalate => Reviewed::Escalate,
+        // This review never refuses; a refusal stored for the call is still not a run.
+        Verdict::Escalate | Verdict::Refuse => Reviewed::Escalate,
     }
 }

@@ -7,7 +7,9 @@ use std::sync::Arc;
 use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
 use serde_json::Value;
+use spade_core::autonomy::{self, Access, Class, Route, Sensitive};
 use spade_core::context;
+use spade_core::event::Verdict;
 use spade_core::event::{Call, Known};
 use spade_core::gate::{self, Decision};
 use spade_core::maintenance::{Pause, Point, halts};
@@ -18,6 +20,7 @@ use spade_core::{Event, Transcript};
 use tokio::sync::watch;
 
 use super::Engine;
+use super::autonomy::Reviewed;
 use crate::tools::{ToolOutput, TurnFacts};
 
 const DECLINED: &str = "The person declined this action.";
@@ -117,10 +120,102 @@ pub(super) async fn handle_calls(
                         Risk::Memory => untrusted_memory || (summary_only && !suggestible(&name)),
                         _ => untrusted,
                     };
-                    let mut decision = gate::decide(def.risk, always, tainted);
+                    let rule = gate::decide(def.risk, always, tainted);
+                    // The bot's access level (ADR 0144) decides what happens to a call the
+                    // rule gate would ask about: the person, the reviewer, or neither.
+                    let access = engine.access(events);
+                    let route = autonomy::route(autonomy::Call {
+                        access,
+                        rule,
+                        class: engine
+                            .tools
+                            .get_for(id, &name)
+                            .map_or(Class::Sensitive(Sensitive::Unknown), |tool| tool.class()),
+                        tainted: untrusted,
+                        credentials: def.risk != Risk::Read
+                            && autonomy::reaches_credentials(&arguments),
+                    });
+                    let mut reviewer_reason = None;
+                    let rule_ran = route == Route::Run;
+                    let mut decision = match route {
+                        Route::Run => Decision::Run,
+                        Route::Ask(reason) => {
+                            if let Some(reason) = &reason {
+                                let escalated = Verdict::Escalate;
+                                match rule_verdict(
+                                    engine,
+                                    id,
+                                    reply,
+                                    events,
+                                    &pending.call,
+                                    &name,
+                                    escalated,
+                                    reason,
+                                ) {
+                                    Ok(true) => {}
+                                    Ok(false) => return Handled::Stopped,
+                                    Err(error) => return Handled::Failed(error.to_string()),
+                                }
+                            }
+                            reviewer_reason = reason;
+                            Decision::Ask
+                        }
+                        Route::Refuse(reason) => {
+                            match rule_verdict(
+                                engine,
+                                id,
+                                reply,
+                                events,
+                                &pending.call,
+                                &name,
+                                Verdict::Refuse,
+                                &reason,
+                            ) {
+                                Ok(true) => {}
+                                Ok(false) => return Handled::Stopped,
+                                Err(error) => return Handled::Failed(error.to_string()),
+                            }
+                            let refused = ToolOutput::ok(autonomy::refused(&reason));
+                            finish_tool(engine, id, reply, &pending.call, &name, refused).await;
+                            continue;
+                        }
+                        Route::Review => {
+                            let def = def.clone();
+                            let under = super::autonomy::Under {
+                                call: &pending.call,
+                                name: &name,
+                                arguments: &arguments,
+                                def: &def,
+                                shell: name == "shell",
+                            };
+                            match super::autonomy::review(
+                                engine, id, reply, events, &registry, under, stop,
+                            )
+                            .await
+                            {
+                                Reviewed::Run => Decision::Run,
+                                Reviewed::Escalate(reason) => {
+                                    reviewer_reason = Some(reason);
+                                    Decision::Ask
+                                }
+                                Reviewed::Refuse(reason) => {
+                                    let refused = ToolOutput::ok(autonomy::refused(&reason));
+                                    finish_tool(engine, id, reply, &pending.call, &name, refused)
+                                        .await;
+                                    continue;
+                                }
+                                Reviewed::Stopped => return Handled::Stopped,
+                            }
+                        }
+                    };
                     // The model review (ADR 0135) may turn a run into a question, never the
-                    // other way round.
-                    if review::reviewed(def.risk, decision) && engine.review_on(id) {
+                    // other way round. Full access has nothing ask; a call the auto-review
+                    // approved was reviewed already.
+                    if rule_ran
+                        && access != Access::FullAccess
+                        && review::reviewed(def.risk, decision)
+                        && engine.review_on(id)
+                    {
                         let def = def.clone();
                         match super::review::call(
                             engine,
@@ -157,6 +252,7 @@ pub(super) async fn handle_calls(
                                 name,
                                 arguments,
                                 scope,
+                                reviewer_reason,
                             });
                             // Never asked once the reply is stopped, so no answer can allow it.
                             match engine.record_unless_stopped(id, reply, &asked) {
@@ -213,6 +309,25 @@ pub(super) async fn handle_calls(
         return handled;
     }
     Handled::Continue
+}
+
+/// Stores a verdict the rules reached (ADR 0144) unless one is stored for the call already, as
+/// after a restart. `Ok(false)` when the reply was stopped.
+#[allow(clippy::too_many_arguments)]
+fn rule_verdict(
+    engine: &Engine,
+    id: &str,
+    reply: &str,
+    events: &[Event],
+    call: &Call,
+    name: &str,
+    verdict: Verdict,
+    reason: &str,
+) -> Result<bool, spade_store::StoreError> {
+    if review::stored(events, &call.id).is_some() {
+        return Ok(true);
+    }
+    super::autonomy::record_rule(engine, id, reply, call, name, verdict, reason)
 }
 
 /// Whether the person answered "always" to an earlier call of `name` with the same scope (for

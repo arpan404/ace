@@ -48,7 +48,10 @@ impl Engine {
                 jobs.push(job.clone());
             }
         }
-        if !busy && reply.is_none() && jobs.is_empty() {
+        // A step of the bot's task waiting to start (ADR 0144) is called off, and the stop is
+        // stored so nothing reopens it.
+        let pending = self.drop_continuation(id);
+        if !busy && reply.is_none() && jobs.is_empty() && !pending {
             return loaded.map(|_| false);
         }
         // The stop names what it stops, so a late write never reaches newer work.
@@ -82,7 +85,7 @@ impl Engine {
         }
         loaded?;
         stored?;
-        Ok(turn || stopped_jobs > 0 || reply.is_some())
+        Ok(turn || stopped_jobs > 0 || reply.is_some() || pending)
     }
 
     /// Closes `reply` with `close` (stopped or failed). Anything that arrived for the model and

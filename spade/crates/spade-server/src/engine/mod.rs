@@ -4,11 +4,13 @@
 
 mod adopt;
 mod agents;
+mod autonomy;
 mod bots;
 mod brain;
 mod calls;
 mod compact;
 mod computer;
+mod continuation;
 mod control;
 mod endpoints;
 mod group_run;
@@ -151,6 +153,8 @@ pub struct Engine {
     /// The scope each call about to run was allowed with, by call key, for the tool to check
     /// again where it runs (a terminal command's folder and variables, ADR 0142).
     allowed_scopes: Mutex<HashMap<String, String>>,
+    /// The step of each bot's task waiting to start, by conversation (ADR 0144, `continuation`).
+    continuations: Mutex<HashMap<String, String>>,
 }
 
 /// What `starting` says until setup has run long enough to say more.
@@ -210,10 +214,13 @@ impl Engine {
             teams: crate::teams::Shared::default(),
             computers: std::sync::OnceLock::new(),
             allowed_scopes: Mutex::default(),
+            continuations: Mutex::default(),
         });
         handle.set(&engine);
         engine.sync_endpoints()?;
-        // Spade exists from the first answer, whatever setup does later.
+        // Bots from before access levels keep asking (ADR 0144); then Spade exists from the first
+        // answer, whatever setup does later.
+        engine.pin_levels()?;
         engine.ensure_main()?;
         for conversation in engine.store.conversations()? {
             let events = engine.load(&conversation.id)?;
@@ -320,6 +327,9 @@ impl Engine {
             last_message: roster::last_message(&stored),
             waiting_for: memory::waiting_for(&transcript),
             problem: spade_core::brain::problem(stored.iter().map(|e| &e.event)).map(str::to_owned),
+            access: autonomy::access_of(&stored, self.limits.new_bot_access),
+            task: autonomy::task_of(&stored),
+            continued: transcript.open_reply().is_some() && autonomy::continued(&stored),
         };
         self.activity
             .lock()
@@ -702,6 +712,9 @@ impl Engine {
         };
         if open {
             self.spawn_turn(id);
+        } else {
+            // A task left working when Spade closed carries on (ADR 0144).
+            self.carry_on(id);
         }
         Ok(())
     }

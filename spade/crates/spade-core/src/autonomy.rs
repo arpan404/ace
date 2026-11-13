@@ -17,10 +17,10 @@ use crate::tools::Risk;
 pub enum Access {
     /// Today's rules (ADR 0130, 0133, 0135, 0142): the gate asks the person. What a bot made
     /// before access levels existed is on.
-    #[default]
     Ask,
     /// What the gate would ask about goes to a reviewer model, which approves, refuses or leaves
-    /// it to the person. A few kinds of call always go to the person.
+    /// it to the person. A few kinds of call always go to the person. What a new bot starts on.
+    #[default]
     AutoReview,
     /// Nothing asks. Caps, the activity log, Stop and the trust allowlist for skills still hold.
     FullAccess,
@@ -48,8 +48,9 @@ impl Access {
     }
 }
 
-/// The bot's level: the latest `access_changed`, else `ask`.
-pub fn access(events: &[Event]) -> Access {
+/// The bot's level: the latest `access_changed`, else `unset` (the new-bot level: every bot made
+/// before levels existed had `ask` stored for it when Spade first started with them).
+pub fn access(events: &[Event], unset: Access) -> Access {
     events
         .iter()
         .rev()
@@ -57,7 +58,14 @@ pub fn access(events: &[Event]) -> Access {
             Event::Known(Known::AccessChanged { level }) => Some(*level),
             _ => None,
         })
-        .unwrap_or_default()
+        .unwrap_or(unset)
+}
+
+/// Whether any level is stored.
+pub fn has_level(events: &[Event]) -> bool {
+    events
+        .iter()
+        .any(|e| matches!(e, Event::Known(Known::AccessChanged { .. })))
 }
 
 /// Calls the auto-review never approves: they always go to the person.

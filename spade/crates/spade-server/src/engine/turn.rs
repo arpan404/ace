@@ -156,6 +156,8 @@ pub(super) async fn run(
     name_if_untitled(&engine, &id).await;
     // A turn (or its title) that took the bot to its cap says so, once.
     engine.note_if_capped(&id);
+    // A task still working carries on by itself (ADR 0144).
+    engine.carry_on(&id);
 }
 
 /// Closes `reply`, retrying until it is closed. The worker still owns the reply meanwhile, so no

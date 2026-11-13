@@ -8,6 +8,7 @@ mod cloud_account;
 mod connectors;
 mod memory;
 mod skills;
+mod task;
 mod todo;
 mod web_fetch;
 mod web_search;
@@ -30,6 +31,7 @@ pub use skills::{
     AceLibrary, LibraryFuture, SkillLibrary, SkillLoad, SkillSearch, SkillSource, WriteError,
     WriteFuture, body_of,
 };
+pub use task::TaskStatus;
 pub use todo::Todo;
 pub use web_fetch::WebFetch;
 pub use web_search::{NOT_SET_UP, WebSearch};
@@ -130,6 +132,16 @@ pub trait Tool: Send + Sync {
     /// call asks, so an earlier "always" is matched against it as it was then.
     fn always_scope_in(&self, _key: &str, arguments: &Value) -> Option<String> {
         self.always_scope(arguments)
+    }
+    /// What a call of this tool can reach, for the auto-review (ADR 0144). Spade's own tools are
+    /// classed by name; ace's and the person's apps' tools say more about themselves.
+    fn class(&self) -> spade_core::autonomy::Class {
+        let def = self.def();
+        spade_core::autonomy::classify(
+            &def.spec.name,
+            def.risk,
+            spade_core::autonomy::Source::Spade,
+        )
     }
 }
 

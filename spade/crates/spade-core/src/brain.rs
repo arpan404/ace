@@ -164,6 +164,8 @@ pub fn next_turn(events: &[Event]) -> Option<Turn> {
                 is_error,
                 ..
             }) => Some(context::job_result(job, name, content, *is_error)),
+            // Spade carrying the bot's task on (ADR 0144) reaches a CLI turn the same way.
+            Event::Known(Known::TaskContinued { nudge, .. }) => Some(nudge.clone()),
             _ => None,
         })
         .collect();
