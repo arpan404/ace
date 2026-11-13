@@ -83,10 +83,29 @@ The default. The bot is not paused and keeps answering. The person:
   `person_busy`, and Spade tells the model "Not run: the person is using this part of your
   computer … they come first … don't retry it straight away". Not a failure; reads never wait.
 
-**The bot yields files.** A bot `workspace_write` or `workspace_edit` of a path the person
+**The bot yields files.** A bot `workspace_write` or `workspace_edit` of a file the person
 changed through the app in the last 30 s is not run: "Not run: the person changed `<path>` N
-seconds ago … read it again before you change it". It is a result, not an error. Its terminal
-commands are not checked (Spade can't tell which files a command touches).
+seconds ago … read it again before you change it". It is a result, not an error.
+
+- "The same file" is by identity, not by the path as written: the path with links in its folders
+  followed, compared without case on a volume that ignores case (found by looking up the
+  workspace folder's own name with its case swapped), or the same device and inode where the
+  file exists. So `Notes.txt` and `notes.txt` on such a volume, or `alias/a.txt` through a link
+  to `real/`, are one file, and a file the person deleted still counts when the bot makes it
+  again. Linux folders with case folding switched on (ext4 `casefold`) are not detected; there
+  the inode still matches a file that exists.
+- The changes and their times are kept in `<data folder>/computer/recent/<bot>.json` (replaced
+  whole through a temporary file, without waiting for the disk), so a restart keeps the window.
+  Expired entries are dropped when it is read. Changes made in exclusive mode count too.
+
+**One lock per workspace.** The person's file routes (write, upload, mkdir, move, delete) and the
+bot's file tools (`workspace_write`, `workspace_edit`) each run their checks (mode, stopping, the
+revision, the person's recent changes), their change and its record while holding the
+workspace's file lock. So neither lands between the other's check and its write: when both go
+for the same file at once, exactly one wins and the other gets `409 changed` or "Not run".
+**Terminal commands can't take this lock.** They are other processes, the bot's and the
+person's alike, and Spade can't see which files they touch. A command can change a file between
+the person's revision check and their write, and nothing a command does is yielded.
 
 **The bot hears what the person did, as it happens.** Spade gathers it per bot: the surfaces they
 used (the terminal when they typed, never what; the browser and screen when ace reports
@@ -101,7 +120,8 @@ stored while the bot isn't working: it waits for its next turn. It opens no repl
 - `data` holds the names, `changed: path` or `went to: address`, kept apart exactly as a
   hand-back's are, and makes the event untrusted content like a fetched page.
 - The model reads `<person_activity from="spade">…</person_activity>`, then, with data,
-  `<activity_data untrusted="true">` with the names as a JSON array.
+  `<activity_data untrusted="true">` with the names as a JSON array. A bot on a subscription
+  (CLI brain) gets the same text in its next turn's message, once, as it gets a hand-back note.
 - What was gathered lives in memory: a restart loses a summary not yet offered.
 
 In exclusive mode none of this is gathered: the take-over record collects it for the hand-back
@@ -276,13 +296,12 @@ The workspace routes in [workspace.md](workspace.md) (list, open, download, dele
   file's content (absent past 32 MiB). A write, upload, move or delete may send it back as
   `base`. When the file at `path` (a move's `from`) is no longer that revision, or is gone, the
   route answers `409 {"error":"changed","code":"changed","message","revision"}` (`revision` is
-  the file's now, or null) and changes nothing. Without `base` the change goes ahead: a new file,
+  the file's now, or null when it is gone or has grown past 32 MiB) and changes nothing. Without `base` the change goes ahead: a new file,
   or the person chose to overwrite. A `base` for a folder is `422`.
 - Reading and downloading always work. In cowork every file change works at once. In exclusive
   mode a change also needs `stopping: false`, else `409` with the terminal input route's error
-  shape. The checks (mode, stopping, revision) run under the computer lock right before the
-  change, holding it through the change; a bot tool's write doesn't take that lock, so a bot
-  write in the same instant can still land between the check and the person's write.
+  shape. The checks run under the workspace's file lock and the computer lock right before the
+  change, holding both through it (see "One lock per workspace" above).
 - Files are 32 MiB at most (`413`).
 - Writes go through a temporary file renamed into place, as for the tools. A file the person
   writes or uploads is recorded as trusted (path and SHA-256 in the trust record). A move carries

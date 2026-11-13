@@ -6,12 +6,14 @@
 //! Exclusive mode is the take-over of ADR 0142: while a take-over record exists the mode is
 //! `exclusive`, otherwise `cowork`. So the mode survives restarts with the record.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::{Computers, Kind, lock, note};
+use crate::workspace::Identity;
 
 /// How long the person counts as active on the terminal or files after they last used it.
 pub const PERSON_ACTIVE: Duration = Duration::from_secs(10);
@@ -39,6 +41,50 @@ pub(super) struct Activity {
     /// Paths and how, in the order they changed, without repeats.
     files: Vec<(String, &'static str)>,
     visited: Vec<String>,
+}
+
+/// A file the person changed, and when: the bot leaves it alone for [`FILE_YIELD`]. Kept in
+/// `<data folder>/computer/recent/<bot>.json`, so a restart keeps the window.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(super) struct Recent {
+    file: Identity,
+    at: i64,
+}
+
+/// The folder the recent changes are kept in, beside the take-over records.
+fn recent_dir(root: &Path) -> PathBuf {
+    root.join("recent")
+}
+
+/// Every bot's recent changes under `root` still inside the window at `now`.
+pub(super) fn load_recent(root: &Path, now: i64) -> HashMap<String, Vec<Recent>> {
+    let mut all = HashMap::new();
+    let Ok(entries) = std::fs::read_dir(recent_dir(root)) else {
+        return all;
+    };
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        let Some(bot) = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .and_then(|n| n.strip_suffix(".json"))
+            .map(str::to_owned)
+        else {
+            continue;
+        };
+        let recent: Vec<Recent> = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_default();
+        let recent: Vec<Recent> = recent
+            .into_iter()
+            .filter(|r| now - r.at < millis(FILE_YIELD))
+            .collect();
+        if !recent.is_empty() {
+            all.insert(bot, recent);
+        }
+    }
+    all
 }
 
 impl Activity {
@@ -87,6 +133,10 @@ impl Computers {
         files: &[(String, &'static str)],
         visited: Option<&str>,
     ) {
+        // In both modes: a bot handed back a moment after the person saved still leaves it.
+        if !files.is_empty() {
+            self.remember_changes(agent, files);
+        }
         if self.mode(agent) != Mode::Cowork {
             return;
         }
@@ -106,25 +156,50 @@ impl Computers {
                 activity.visited.remove(0);
             }
         }
-        drop(all);
-        if !files.is_empty() {
-            let now = self.clock.now_ms();
-            let mut changed = lock(&self.person_files);
-            let paths = changed.entry(agent.to_owned()).or_default();
-            for (path, _) in files {
-                paths.insert(path.clone(), now);
-            }
-            paths.retain(|_, at| now - *at < millis(FILE_YIELD));
+    }
+
+    /// Notes when the person changed these files, by identity, and keeps it on disk.
+    fn remember_changes(&self, agent: &str, files: &[(String, &'static str)]) {
+        let workspace = self.workspaces.of(agent).ok();
+        let now = self.clock.now_ms();
+        let mut changed = lock(&self.person_files);
+        let recent = changed.entry(agent.to_owned()).or_default();
+        recent.retain(|r| now - r.at < millis(FILE_YIELD));
+        for (path, _) in files {
+            let file = workspace
+                .as_ref()
+                .and_then(|w| w.identity(path).ok())
+                .unwrap_or_else(|| Identity {
+                    name: path.clone(),
+                    file: None,
+                });
+            recent.retain(|r| r.file != file);
+            recent.push(Recent { file, at: now });
+        }
+        // Written under the lock, so an older list never lands over a newer one.
+        let text = serde_json::to_string(recent).unwrap_or_default();
+        let place = recent_dir(&self.root);
+        let written = crate::atomic::replace_whole(&place.join(format!("{agent}.json")), &text)
+            .map_err(|e| e.to_string());
+        if let Err(error) = written {
+            tracing::warn!(%agent, %error, "the person's recent changes could not be kept");
         }
     }
 
-    /// How many seconds ago the person changed `path` in `agent`'s workspace, when it was within
-    /// [`FILE_YIELD`]: the bot leaves it alone until then.
+    /// How many seconds ago the person changed the file at `path` in `agent`'s workspace, when
+    /// it was within [`FILE_YIELD`]: the bot leaves it alone until then. The same file by any
+    /// spelling (case on a volume that ignores it, a link to its folder) or after it was made
+    /// again counts. Blocking: it looks at the file.
     pub fn person_changed_recently(&self, agent: &str, path: &str) -> Option<u64> {
         let now = self.clock.now_ms();
-        let at = *lock(&self.person_files).get(agent)?.get(path)?;
-        let ago = now - at;
-        (ago < millis(FILE_YIELD)).then(|| u64::try_from(ago / 1000).unwrap_or(0))
+        let recent = lock(&self.person_files).get(agent).cloned()?;
+        let file = self.workspaces.of(agent).ok()?.identity(path).ok()?;
+        let at = recent
+            .iter()
+            .filter(|r| now - r.at < millis(FILE_YIELD) && r.file.same(&file))
+            .map(|r| r.at)
+            .max()?;
+        Some(u64::try_from((now - at) / 1000).unwrap_or(0))
     }
 
     /// The summary of what the person did since the bot was last told, taken, when there is one
@@ -164,6 +239,7 @@ impl Computers {
         lock(&self.activity).remove(agent);
         lock(&self.offered).remove(agent);
         lock(&self.person_files).remove(agent);
+        let _ = std::fs::remove_file(recent_dir(&self.root).join(format!("{agent}.json")));
         lock(&self.person_seen).retain(|(a, _), _| a != agent);
         lock(&self.reported_active).retain(|(a, _), _| a != agent);
     }

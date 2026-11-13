@@ -47,6 +47,14 @@ impl Workspace {
         let Some(base) = base else {
             return Ok(());
         };
+        // Grown past the largest file a revision is taken of: it can't be the one they opened.
+        let cleaned = clean(relative)?;
+        if let Ok(meta) = self.dir()?.metadata(&cleaned)
+            && meta.is_file()
+            && meta.len() > LARGEST_REVISION
+        {
+            return Err(PathError::Changed(None));
+        }
         let now = self.revision(relative)?;
         if now.as_deref() == Some(base) {
             Ok(())

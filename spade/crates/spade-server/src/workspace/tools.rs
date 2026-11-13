@@ -326,15 +326,22 @@ impl Tool for WorkspaceWrite {
         let (place, key) = (self.0.clone(), key.to_owned());
         blocking(&self.0, &key.clone(), move |workspace| {
             let path = workspace.normal(&args.path)?;
-            if let Some(yielded) = place.yields(&key, &path) {
-                return Ok(yielded);
-            }
-            let bytes = workspace.write(&path, &args.content)?;
-            workspace
-                .trust()
-                .record_write(&path, args.content.as_bytes(), untrusted.as_deref());
-            place.files_changed(&key, Some(vec![path.clone()]));
-            Ok(ToolOutput::ok(format!("Wrote {bytes} bytes to {path}.")))
+            // Checked and written under the workspace's file lock, so the person's write can't
+            // land between (ADR 0143).
+            workspace.changing(|| {
+                if let Some(yielded) = place.yields(&key, &path) {
+                    return Ok(yielded);
+                }
+                workspace.before_bot_commit(&path);
+                let bytes = workspace.write(&path, &args.content)?;
+                workspace.trust().record_write(
+                    &path,
+                    args.content.as_bytes(),
+                    untrusted.as_deref(),
+                );
+                place.files_changed(&key, Some(vec![path.clone()]));
+                Ok(ToolOutput::ok(format!("Wrote {bytes} bytes to {path}.")))
+            })
         })
     }
 }
@@ -376,18 +383,21 @@ impl Tool for WorkspaceEdit {
         let (place, key) = (self.0.clone(), key.to_owned());
         blocking(&self.0, &key.clone(), move |workspace| {
             let path = workspace.normal(&args.path)?;
-            if let Some(yielded) = place.yields(&key, &path) {
-                return Ok(yielded);
-            }
-            let (before, after) = workspace.edit(&path, &args.old, &args.new)?;
-            workspace.trust().record_edit(
-                &path,
-                before.as_bytes(),
-                after.as_bytes(),
-                untrusted.as_deref(),
-            );
-            place.files_changed(&key, Some(vec![path.clone()]));
-            Ok(ToolOutput::ok(format!("Changed {path}.")))
+            workspace.changing(|| {
+                if let Some(yielded) = place.yields(&key, &path) {
+                    return Ok(yielded);
+                }
+                workspace.before_bot_commit(&path);
+                let (before, after) = workspace.edit(&path, &args.old, &args.new)?;
+                workspace.trust().record_edit(
+                    &path,
+                    before.as_bytes(),
+                    after.as_bytes(),
+                    untrusted.as_deref(),
+                );
+                place.files_changed(&key, Some(vec![path.clone()]));
+                Ok(ToolOutput::ok(format!("Changed {path}.")))
+            })
         })
     }
 }

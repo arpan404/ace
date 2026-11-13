@@ -161,22 +161,13 @@ async fn delete(
         Ok(workspace) => workspace,
         Err(response) => return *response,
     };
-    let deleted = super::files::person_files(&state, &id, move || {
+    super::files::person_files(&state, &id, workspace, move |workspace| {
         let path = workspace.normal(&at.path)?;
         workspace.check_base(&path, at.base.as_deref())?;
         workspace.delete(&path)?;
-        Ok(path)
+        Ok(vec![(path, "removed")])
     })
-    .await;
-    match deleted {
-        Ok(path) => {
-            if let Some(computers) = state.engine.computers() {
-                computers.person_changed(&id, &[(path, "removed")]);
-            }
-            StatusCode::NO_CONTENT.into_response()
-        }
-        Err(response) => *response,
-    }
+    .await
 }
 
 async fn proposals(State(state): State<AppState>, Path(id): Path<String>) -> Response {

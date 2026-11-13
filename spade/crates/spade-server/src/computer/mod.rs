@@ -259,7 +259,7 @@ pub struct Computers {
     /// When each bot was last offered a summary.
     offered: Mutex<HashMap<String, i64>>,
     /// Paths the person changed in cowork and when, so the bot leaves them alone a while.
-    person_files: Mutex<HashMap<String, HashMap<String, i64>>>,
+    person_files: Mutex<HashMap<String, Vec<cowork::Recent>>>,
     changes: broadcast::Sender<Change>,
     me: Weak<Self>,
 }
@@ -314,6 +314,7 @@ impl Computers {
                 }
             }
         }
+        let person_files = cowork::load_recent(&root, clock.now_ms());
         let computers = Arc::new_cyclic(|me| Self {
             root,
             workspaces,
@@ -336,7 +337,7 @@ impl Computers {
             reported_active: Mutex::default(),
             activity: Mutex::default(),
             offered: Mutex::default(),
-            person_files: Mutex::default(),
+            person_files: Mutex::new(person_files),
             changes: broadcast::channel(1024).0,
             me: me.clone(),
         });
