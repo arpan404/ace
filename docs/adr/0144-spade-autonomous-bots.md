@@ -81,7 +81,11 @@ data, credentials) still come to them.
      the file's hash: changed before the call starts, it isn't run. A script outside the folder,
      unreadable or too long goes to the person. Inline code goes to the reviewer, unless it
      names the network or starts programs. Each command is a fresh `sh -c`: no shell function
-     carries to the next.
+     carries to the next. A file the same command writes and runs, a git alias, hooks moved
+     elsewhere, a folder change it can't resolve, and make features it doesn't follow are all
+     unclear rather than modelled. Make and just are read only for the goals asked for.
+   - A credential read found anywhere in a command or what it runs is refused before any other
+     finding, on every level.
    - The reviewer reads the whole call; one too long for its prompt goes to the person. Taint is
      anything untrusted still in the model's view, from any turn since compaction.
    - A routine saved or changed while untrusted content is in view always asks the person, on
