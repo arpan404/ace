@@ -91,8 +91,15 @@ first, then Spade:
   the SHA-256 of the canonical `SPADE_ACE_HOME`, so each ace home keeps its own grant), never in
   its database or logs, and starts using it. Spade reads the keychain after it is listening, never
   before, so a keychain prompt can't hold up its start.
-  `DELETE /v1/ace` forgets it. `GET /v1/ace` answers `{"grant":true|false,"connected":bool}`
-  and never returns the token. If Spade is not running when the grant is made, the daemon hands it
+  Handoff retries reuse the same token until acknowledged: a timed-out HTTP request can
+  still finish its keychain write, so rotating on retry could restore an already revoked token.
+  `DELETE /v1/ace` forgets it. `GET /v1/ace` answers
+  `{"grant":true|false,"connected":bool,"refused":bool}`
+  and never returns the token. Three consecutive authentication refusals with the current
+  credential set `refused`; a new grant or a successful connection clears it. The daemon
+  checks every five seconds while Spade is ready and replaces a refused credential at most
+  once a minute, revoking its predecessor. A grant the person revoked stays revoked.
+  If Spade is not running when the grant is made, the daemon hands it
   over when Spade's `server.json` next appears.
 - **Finding the daemon.** Spade reads `<SPADE_ACE_HOME>/daemon-endpoint` (the daemon's
   `http://127.0.0.1:PORT`) each time it connects: MCP at `<endpoint>/mcp` with the grant as the
