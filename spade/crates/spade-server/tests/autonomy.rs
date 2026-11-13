@@ -221,7 +221,10 @@ async fn a_reviewer_that_takes_too_long_leaves_the_call_to_the_person() -> Resul
     let spade = Spade::start_with(
         vec![
             Script::reply("").call("c1", "shell", json!({ "command": "make" })),
-            Script::reply("").plain(r#"{"verdict":"approve","reason":"fine"}"#),
+            // Slower than the timeout, so the timeout always wins.
+            Script::reply("")
+                .plain(r#"{"verdict":"approve","reason":"fine","outward_or_irreversible":false}"#)
+                .held(Duration::from_secs(5)),
         ],
         vec![Arc::new(tool) as Arc<dyn Tool>],
         options,

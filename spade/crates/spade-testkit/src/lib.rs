@@ -61,6 +61,8 @@ pub struct Script {
     pub chunks: usize,
     /// Pause before each streamed piece.
     pub delay: Duration,
+    /// Pause before answering at all, streamed or plain.
+    pub hold: Duration,
     /// Answer with this HTTP status instead.
     pub fail: Option<u16>,
     /// With `fail`, the `retry-after` header sent with it.
@@ -83,6 +85,7 @@ impl Script {
             plain: text.to_owned(),
             chunks: 2,
             delay: Duration::ZERO,
+            hold: Duration::ZERO,
             fail: None,
             retry_after: None,
             raw: None,
@@ -105,6 +108,12 @@ impl Script {
 
     pub fn delay(mut self, pause: Duration) -> Self {
         self.delay = pause;
+        self
+    }
+
+    /// Waits `pause` before answering, streamed or plain: a model slower than a timeout.
+    pub fn held(mut self, pause: Duration) -> Self {
+        self.hold = pause;
         self
     }
 
@@ -294,6 +303,9 @@ async fn answer(
             response.headers_mut().insert("retry-after", wait);
         }
         return response;
+    }
+    if !script.hold.is_zero() {
+        tokio::time::sleep(script.hold).await;
     }
     if let (Some(body), false) = (&script.raw, streamed) {
         return json_response(body.clone());
