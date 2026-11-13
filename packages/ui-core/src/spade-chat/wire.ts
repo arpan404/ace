@@ -164,6 +164,15 @@ const known = z.discriminatedUnion("type", [
     jobs: z.array(z.string()).optional().default([]),
   }),
   z.object({ type: z.literal("renamed"), title: z.string() }),
+  /**
+   * The person handed the bot's computer back: Spade's narration of what they did (never what
+   * they typed), and the names involved as untrusted data (`new: path`, `went to: address`).
+   */
+  z.object({
+    type: z.literal("computer_handed_back"),
+    text: z.string(),
+    data: z.array(z.unknown()).optional(),
+  }),
 ]);
 
 export type SpadeKnownEvent = z.infer<typeof known>;
@@ -275,4 +284,12 @@ const problemShape = z.object({ error: z.string() });
 export function spadeProblem(body: string): string | undefined {
   const parsed = problemShape.safeParse(json(body));
   return parsed.success ? parsed.data.error : undefined;
+}
+
+/** What a refusal says the request still needs (`client_id`, `ace_account`, …), if it says. */
+const needsShape = z.object({ needs: z.string() });
+
+export function spadeProblemNeeds(body: string): string | undefined {
+  const parsed = needsShape.safeParse(json(body));
+  return parsed.success ? parsed.data.needs : undefined;
 }

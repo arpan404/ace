@@ -4,7 +4,7 @@ import { expect, onTestFinished, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import { searchSettings } from "./settings-index.ts";
 
-const firstHit = (query: string) => searchSettings(query)[0];
+const firstHit = (query: string) => searchSettings(query, true)[0];
 
 test.each([
   ["device frame", "Show device frame", "/settings/simulators"],
@@ -31,7 +31,7 @@ test.each([
   ["computer connection", "Computer connection", "/settings/remote"],
   ["diagnostics", "Machine diagnostics", "/settings/advanced"],
 ])("searching %j finds %s on %s", (query, title, page) => {
-  const hit = searchSettings(query).find((entry) => entry.title === title);
+  const hit = searchSettings(query, true).find((entry) => entry.title === title);
   expect(hit?.page).toBe(page);
 });
 

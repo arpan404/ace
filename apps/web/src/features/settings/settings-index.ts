@@ -99,6 +99,29 @@ const entries = [
     ],
   },
   {
+    id: "providers.codex.toolSource",
+    page: "/settings/providers",
+    title: "Codex tool folder",
+    keywords: [
+      "codex",
+      "plugins",
+      "marketplaces",
+      "mcp",
+      "computer use",
+      "chrome",
+      "browser",
+      "node_repl",
+      "config.toml",
+      "accounts",
+    ],
+  },
+  {
+    id: "providers.claude.chrome",
+    page: "/settings/providers",
+    title: "Claude in Chrome",
+    keywords: ["claude", "chrome", "browser", "extension", "--chrome"],
+  },
+  {
     id: "source-control",
     page: "/settings/source-control",
     title: "Source control",
@@ -725,11 +748,14 @@ function matches(entry: SettingEntry, query: string): boolean {
   return words(query).every((word) => haystack.some((candidate) => candidate.startsWith(word)));
 }
 
-/** Settings rows matching `query`, titles that start with it first. Empty for an empty query. */
-export function searchSettings(query: string): SettingEntry[] {
+/**
+ * Settings rows matching `query`, titles that start with it first, on the pages this machine
+ * shows (`spadeShown`: Spade's too). Empty for an empty query.
+ */
+export function searchSettings(query: string, spadeShown: boolean): SettingEntry[] {
   const text = query.trim().toLowerCase();
   if (!text) return [];
-  const visible = visibleSettingsPages();
+  const visible = visibleSettingsPages(spadeShown);
   const found = settingsIndex.filter(
     (entry) =>
       visible.some((page) => page.to === entry.page) &&

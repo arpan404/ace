@@ -1,6 +1,8 @@
 # 0111: An ace account opens every machine on it
 
-Status: accepted. Date: 2026-11-02. Owner decision of 2026-11-02. Amends
+Status: accepted. Date: 2026-11-02. Owner decision of 2026-11-02. Amended by
+[ADR 0141](0141-ace-cloud.md): the account backend is ace cloud at cloud.acehq.dev
+(relay.acehq.dev still answers). Amends
 [ADR 0100](0100-ace-account-backend.md), where an account granted no machine access, and
 [ADR 0110](0110-cloudflare-relay.md), whose relay admitted any proven host. Pairing codes,
 LAN, Tailscale and self-hosted relays are unchanged and need no account.

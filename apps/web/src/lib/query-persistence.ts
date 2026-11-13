@@ -26,6 +26,7 @@ const keptKeys: readonly { prefix: readonly string[]; exact?: true }[] = [
   { prefix: ["project", "base-refs"] },
   { prefix: ["permissions", "capabilities"] },
   { prefix: ["skills"], exact: true },
+  { prefix: ["spade", "shown"], exact: true },
   { prefix: ["automations", "list"], exact: true },
   { prefix: storageUsageKey, exact: true },
 ];

@@ -101,7 +101,7 @@ function InThisWindow() {
     <SettingSection label="In this window">
       <SettingRow
         {...settingRow("devices.frame")}
-        description="Draws the phone or tablet around its screen. Off shows the screen alone."
+        description="The phone or tablet around its screen."
         htmlFor={frameId}
         inline
       >

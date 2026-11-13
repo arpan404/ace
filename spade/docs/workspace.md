@@ -37,6 +37,10 @@ Text files are read up to 4 MiB; anything not UTF-8 is reported as binary.
 
 ### The shell
 
+On macOS and Linux the bot's commands now run in its persistent terminal, which the person can
+watch and take over; see [computer.md](computer.md). What follows is the one-shot shell, which
+Windows still uses, and the rules both share.
+
 - `/bin/sh -c <command>` on macOS and Linux, `%SystemRoot%\System32\cmd.exe /D /S /C <command>`
   on Windows (`workspace/shell.rs`, the one platform branch).
 - Contained: on macOS and Linux its own process group (`process_group(0)`), killed with

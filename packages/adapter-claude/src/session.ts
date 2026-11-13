@@ -159,6 +159,9 @@ export async function openSession(
             })),
           }
         : {}),
+      ...(ctx.chrome !== undefined
+        ? { extraArgs: ctx.chrome ? { chrome: null } : { "no-chrome": null } }
+        : {}),
       cwd: ctx.cwd,
       ...(ctx.model ? { model: ctx.model } : {}),
       ...(ctx.fork

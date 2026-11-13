@@ -88,6 +88,15 @@ export class BrowserService {
   get hasActiveSessions(): boolean {
     return this.sessions.size > 0 || this.opening.size > 0 || this.recoveries.size > 0;
   }
+  /**
+   * The tabs kept for a thread whose browser isn't loaded, as a restart left them; it restores
+   * them when it next opens. Empty when none were kept. Throws when the store can't be read.
+   */
+  savedTabs(threadId: string): { tabId: string; url: string; title: string }[] {
+    return (this.options.tabStore?.load(threadId) ?? [])
+      .toSorted((a, b) => a.position - b.position)
+      .map(({ tabId, url, title }) => ({ tabId, url, title }));
+  }
   hasActiveSession(threadId: string): boolean {
     return (
       this.sessions.has(threadId) || this.opening.has(threadId) || this.recoveries.has(threadId)

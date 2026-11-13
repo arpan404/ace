@@ -127,6 +127,8 @@ fn connect_problem(error: &ConnectError) -> Response {
         ConnectError::Invalid(_) => (StatusCode::BAD_REQUEST, None),
         ConnectError::NotFound => (StatusCode::NOT_FOUND, None),
         ConnectError::NeedsClient => (StatusCode::CONFLICT, Some("client_id")),
+        // The app signs in through Spade Cloud, and this machine isn't signed in to ace.
+        ConnectError::NeedsAceAccount => (StatusCode::CONFLICT, Some("ace_account")),
         ConnectError::Refused => (StatusCode::UNPROCESSABLE_ENTITY, Some("token")),
         ConnectError::NoKeychain => (StatusCode::SERVICE_UNAVAILABLE, None),
         ConnectError::Unsupported(_) => (StatusCode::UNPROCESSABLE_ENTITY, None),

@@ -1,5 +1,5 @@
-import { initials } from "@ace/ui-core";
 import {
+  parseSpadeAvatar,
   spadeGroupWaiting,
   type SpadeAvatar,
   type SpadeGroupBot,
@@ -22,10 +22,10 @@ export interface GroupFace {
 const bubble =
   "min-w-0 max-w-[80%] rounded-lg px-3 py-2 font-prose text-prose leading-[1.5] wrap-anywhere";
 
-/** A member the group names that this window doesn't know: its initials on slate. */
+/** A member the group names that this window doesn't know: the face its id seeds. */
 export const unknownFace = (bot: SpadeGroupBot): GroupFace => ({
   name: bot.name,
-  avatar: { kind: "generated", initials: initials(bot.name) || "?", color: "slate" },
+  avatar: parseSpadeAvatar(undefined, bot.id),
   open: undefined,
 });
 
@@ -35,7 +35,7 @@ export const unknownFace = (bot: SpadeGroupBot): GroupFace => ({
  * (`Spade asked Research`) and a queued, failed or stopped ask as one short muted line. Never a
  * tool call. While the group works, one line under the last bubble: the answering member's face
  * with moving eyes, the group's few words, `Open <bot>` when that bot waits for the person in
- * its own chat (the member the status names, `spadeGroupWaiting`), and Stop.
+ * its own chat (the member the status names, `spadeGroupWaiting`). Stop is the composer's.
  */
 export function SpadeGroupChat(props: {
   name: string;
@@ -43,8 +43,6 @@ export function SpadeGroupChat(props: {
   /** The group's members, to find the one that waits for the person. */
   members: readonly SpadeGroupBot[];
   faceOf(bot: SpadeGroupBot): GroupFace;
-  stopping: boolean;
-  onStop(): void;
 }) {
   const { view } = props;
   const waiting = view.state === "waiting";
@@ -64,7 +62,11 @@ export function SpadeGroupChat(props: {
       {view.busy && (
         <div role="status" className="flex items-center gap-2.5">
           {working ? (
-            <SpadeFace avatar={working.avatar} size={28} working={!waiting} />
+            <SpadeFace
+              avatar={working.avatar}
+              size={28}
+              state={waiting ? "needs-you" : view.status === "Thinking" ? "thinking" : "working"}
+            />
           ) : (
             <span aria-hidden className="w-7 shrink-0" />
           )}
@@ -81,15 +83,6 @@ export function SpadeGroupChat(props: {
               {`Open ${working.name}`}
             </Button>
           )}
-          <Button
-            size="xs"
-            variant="ghost"
-            disabled={props.stopping}
-            aria-label={`Stop ${props.name}`}
-            onClick={props.onStop}
-          >
-            {props.stopping ? "Stopping…" : "Stop"}
-          </Button>
         </div>
       )}
     </div>

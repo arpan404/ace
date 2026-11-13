@@ -153,7 +153,7 @@ export function SpadeRoutines(props: { bot: RosterBot }) {
 }
 
 /** `Weekdays at 9:00 · Next: Fri 9:00`, then how the last run went. */
-function RoutineFacts(props: { routine: SpadeRoutine; now: number }) {
+export function RoutineFacts(props: { routine: SpadeRoutine; now: number }) {
   const { routine, now } = props;
   const next = routine.paused
     ? "Paused"

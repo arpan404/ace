@@ -58,6 +58,7 @@ export function bindLiveServices(serverOptions: ServerOptions, services: Service
     "fleet",
     "mcp",
     "spadeBrains",
+    "spadeGrantVerify",
     "notifications",
     "notificationPublicKey",
     "review",
@@ -87,6 +88,7 @@ export function bindLiveServices(serverOptions: ServerOptions, services: Service
     "userBrowser",
     "spade",
     "spadeRemote",
+    "spadeComputers",
   ] as const)
     Object.defineProperty(serverOptions, key, {
       enumerable: true,
@@ -205,6 +207,9 @@ export function daemonHandle({
     },
     get spadeRemote() {
       return services.spadeRemote;
+    },
+    get spadeComputers() {
+      return services.spadeComputers;
     },
     get commands() {
       return services.commands;

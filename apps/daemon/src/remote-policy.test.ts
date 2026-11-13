@@ -3,7 +3,7 @@ import { remotePlan, type RemotePreferences } from "./remote-policy.ts";
 import { directAdvertisement } from "./remote-direct-policy.ts";
 import type { RemoteListener } from "./network.ts";
 
-const acesRelay = "wss://relay.acehq.dev";
+const acesRelay = "wss://cloud.acehq.dev";
 const own = "wss://relay.example.com/";
 const config = { listen: "local" as const, listenOverride: false, hostedRelayUrl: acesRelay };
 const on: RemotePreferences = {
@@ -51,6 +51,13 @@ test.each([
   {
     name: "ace's relay named as the person's own is registered once",
     preferences: { ...on, "remote.relay": true, "remote.relayUrl": `${acesRelay}/` },
+    account: "acct",
+    direct: { lan: true, tailscale: false },
+    relays: [{ url: `${acesRelay}/`, hosted: true, chosen: true, accountId: "acct" }],
+  },
+  {
+    name: "ace's relay saved at its former address runs as ace's relay at the current one",
+    preferences: { ...on, "remote.relay": true, "remote.relayUrl": "wss://relay.acehq.dev/" },
     account: "acct",
     direct: { lan: true, tailscale: false },
     relays: [{ url: `${acesRelay}/`, hosted: true, chosen: true, accountId: "acct" }],

@@ -2,7 +2,7 @@ import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { botRow, roster, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, openNew, roster, spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -18,7 +18,7 @@ function team(spade: FakeSpadeApi) {
   spade.addAgent({
     id: "research",
     name: "Research",
-    avatar: { kind: "generated", initials: "RE", color: "teal" },
+    avatar: { kind: "character", v: 1, body: "round", pair: "lagoon" },
   });
 }
 const studio = {
@@ -28,7 +28,7 @@ const studio = {
     void spade.addAgent({
       id: "writer",
       name: "Writer",
-      avatar: { kind: "generated", initials: "WR", color: "violet" },
+      avatar: { kind: "character", v: 1, body: "fox", pair: "ember" },
     }),
 };
 
@@ -83,7 +83,11 @@ test("a group's row stacks its members' faces and reads its last message with wh
   const row = await (await roster()).findByRole("link", { name: /^Trips/ });
   expect(row.textContent).toContain("Research: Three options");
   // Writer's face comes from Studio Mac's roster once it answers.
-  await waitFor(() => expect(row.querySelector("[data-group-faces]")?.textContent).toBe("REWR"));
+  const faces = () =>
+    [...row.querySelectorAll("[data-group-faces] svg.bot-face")].map((face) =>
+      face.getAttribute("data-face"),
+    );
+  await waitFor(() => expect(faces()).toEqual(["round lagoon", "fox ember"]));
 });
 
 test("a group's chat shows the person, each member's name and face once per run, and handoffs as lines, never tool calls", async () => {
@@ -96,12 +100,15 @@ test("a group's chat shows the person, each member's name and face once per run,
   // The name above the first of the run, the face beside the last.
   expect(chat.getAllByRole("article", { name: "Research" }).map((row) => row.textContent)).toEqual([
     "ResearchThree options",
-    "RETuesday is cheapest",
+    "Tuesday is cheapest",
   ]);
+  const [firstRun, lastRun] = chat.getAllByRole("article", { name: "Research" });
+  expect(firstRun?.querySelector("svg.bot-face")).toBeNull();
+  expect(lastRun?.querySelector("svg.bot-face")?.getAttribute("data-face")).toBe("round lagoon");
   expect(chat.queryByText(/web_search/)).toBeNull();
 });
 
-test("the group's status shows under the last bubble, with the waiting member's chat a click away, and Stop ends the run", async () => {
+test("the group's status shows under the last bubble, with the waiting member's chat a click away, and the composer's Stop ends the run", async () => {
   const { spade } = await spadeApp("/spade", withGroup, { machines: [studio] });
   const chat = await openTrips();
   const [trips] = spade.teams.groups;
@@ -109,7 +116,9 @@ test("the group's status shows under the last bubble, with the waiting member's 
   spade.teams.status(trips, "waiting", "Research is waiting for you");
   const status = await chat.findByRole("status");
   await within(status).findByText("Research is waiting for you");
-  await userEvent.click(within(status).getByRole("button", { name: "Stop Trips" }));
+  // Stop is the composer's.
+  expect(within(status).queryByRole("button", { name: /^Stop/ })).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Stop the agent" }));
   await waitFor(() => expect(spade.sent("POST", "/v1/groups/trips/stop")).toEqual([{}]));
   await chat.findByText("Stopped");
 });
@@ -202,7 +211,7 @@ test("a message in a group posts to the group", async () => {
 
 test("New group posts its name, members of both machines and the lead", async () => {
   const { spade } = await spadeApp("/spade", team, { machines: [studio] });
-  await userEvent.click(await screen.findByRole("button", { name: "New group" }));
+  await openNew("New group");
   const form = within(await screen.findByRole("dialog", { name: "New group" }));
   await userEvent.type(form.getByRole("textbox", { name: "Name" }), "Trips");
   await userEvent.click(await form.findByRole("checkbox", { name: "Research" }));
@@ -258,7 +267,7 @@ test("making Spade lead a group it isn't in adds Spade to the members and names 
 
 test("a group on a machine without Spade offers only that machine's bots to lead and names the lead", async () => {
   const { others } = await spadeApp("/spade", team, { machines: [studio] });
-  await userEvent.click(await screen.findByRole("button", { name: "New group" }));
+  await openNew("New group");
   const form = within(await screen.findByRole("dialog", { name: "New group" }));
   await userEvent.click(form.getByRole("combobox", { name: "Lives on" }));
   await userEvent.click(await screen.findByRole("option", { name: "Studio Mac" }));
@@ -308,12 +317,12 @@ test("starting from a template fills the form and sends the template with the ti
       name: "Morning digest",
       blurb: "Reads your feeds each morning",
       task: "Summarise my feeds.",
-      color: "amber",
+      face: { kind: "character", v: 1, body: "bird", pair: "sky", marking: "cap" },
       model_kind: "fast",
       routines: [],
     });
   });
-  await userEvent.click(await screen.findByRole("button", { name: "New bot" }));
+  await openNew("New bot");
   const form = within(await screen.findByRole("dialog", { name: "New bot" }));
   await userEvent.click(await form.findByRole("button", { name: /^Morning digest/ }));
   expect(form.getByRole<HTMLInputElement>("textbox", { name: "Name" }).value).toBe(
@@ -327,7 +336,18 @@ test("starting from a template fills the form and sends the template with the ti
         task: "Summarise my feeds.",
         template: "digest",
         time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        avatar: { kind: "generated", color: "amber" },
+        avatar: {
+          kind: "character",
+          v: 1,
+          body: "bird",
+          pair: "sky",
+          ears: "none",
+          marking: "cap",
+          eyes: "egg",
+          mouth: "none",
+          cheeks: "none",
+          accessory: "none",
+        },
       },
     ]),
   );
@@ -359,7 +379,7 @@ test("Import bot sends the file to the machine, says what it left out, then open
     team(seed);
     seed.teams.leftOut = ["The Linear app isn't connected here."];
   });
-  await userEvent.click(await screen.findByRole("button", { name: "New bot" }));
+  await openNew("New bot");
   const form = within(await screen.findByRole("dialog", { name: "New bot" }));
   const file = new File(
     [JSON.stringify({ format: "spade-bot", version: 1, name: "Scout", task: "Scout news" })],
@@ -380,7 +400,7 @@ test("Import bot sends the file to the machine, says what it left out, then open
 
 test("Import bot refuses a file over 6 MB without reading or sending it", async () => {
   const { spade } = await spadeApp("/spade", team);
-  await userEvent.click(await screen.findByRole("button", { name: "New bot" }));
+  await openNew("New bot");
   const form = within(await screen.findByRole("dialog", { name: "New bot" }));
   const file = new File([new Uint8Array(6 * 1024 * 1024 + 1)], "Huge.spade-bot.json", {
     type: "application/json",
@@ -403,14 +423,14 @@ test("an imported bot opens on the machine it was sent to, even if Runs on moved
     },
     { machines: [studio] },
   );
-  await userEvent.click(await screen.findByRole("button", { name: "New bot" }));
+  await openNew("New bot");
   const form = within(await screen.findByRole("dialog", { name: "New bot" }));
   const file = new File(["{}"], "Scout.spade-bot.json", { type: "application/json" });
   const read = Promise.withResolvers<string>();
   vi.spyOn(file, "text").mockReturnValue(read.promise);
   await userEvent.upload(form.getByLabelText("Bot file"), file);
   // While the file is still being read, the person picks another machine.
-  await userEvent.click(form.getByRole("combobox", { name: "Runs on" }));
+  await userEvent.click(form.getByRole("combobox", { name: "Machine" }));
   await userEvent.click(await screen.findByRole("option", { name: "Studio Mac" }));
   read.resolve(
     JSON.stringify({ format: "spade-bot", version: 1, name: "Scout", task: "Scout news" }),

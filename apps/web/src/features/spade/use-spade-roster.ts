@@ -1,7 +1,7 @@
 import type { ClientApi } from "@ace/client";
 import { spadeHostPlan, spadeRoster, type SpadeAgent } from "@ace/ui-core/spade-chat";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { primaryMachineId, useMachines, type Machine } from "@/lib/machines.ts";
 import { readAgents, setMainHosted } from "./spade-api.ts";
 import { SpadeRequestError } from "./spade-requests.ts";
@@ -203,4 +203,21 @@ export function useOneSpade({ machines, fresh, settled }: SpadeHosting) {
     // Turning Spade back on waits for every machine's answer: one not heard yet may show it.
     if (plan.enable !== undefined && settled) tell(plan.enable, true);
   }, [machines, fresh, settled, cache]);
+}
+
+/**
+ * The colour pairs the bots this window has read wear, `except` left out: what Shuffle avoids
+ * while it can. Read once from what the roster already holds.
+ */
+export function useWornPairs(except?: string): readonly string[] {
+  const cache = useQueryClient();
+  const [pairs] = useState(() =>
+    cache
+      .getQueriesData<readonly SpadeAgent[]>({ queryKey: agentsKey })
+      .flatMap(([, agents]) => agents ?? [])
+      .flatMap((agent) =>
+        agent.id !== except && agent.avatar.kind === "character" ? [agent.avatar.face.pair] : [],
+      ),
+  );
+  return pairs;
 }

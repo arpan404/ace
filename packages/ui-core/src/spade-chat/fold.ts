@@ -119,7 +119,9 @@ export type SpadeEntry =
       files: readonly string[];
     }
   /** The bot reached a spending cap (ADR 0135): one bubble of the bot's, once per period. */
-  | { kind: "cap"; key: string; scope: "daily" | "monthly"; capMicros: number };
+  | { kind: "cap"; key: string; scope: "daily" | "monthly"; capMicros: number }
+  /** The person handed the computer back: Spade's narration, and the names as plain data. */
+  | { kind: "handback"; key: string; text: string; data: readonly string[] };
 
 /** How a background job ended: on its own, with an error, or because the person pressed Stop. */
 export type SpadeJobOutcome = "done" | "failed" | "stopped";
@@ -442,6 +444,14 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       return closeReply(state, event.reply, { kind: "interrupted" }, event.text);
     case "context_compacted":
       state.entries.push({ kind: "compacted", key });
+      return true;
+    case "computer_handed_back":
+      state.entries.push({
+        kind: "handback",
+        key,
+        text: event.text,
+        data: (event.data ?? []).filter((item): item is string => typeof item === "string"),
+      });
       return true;
     // Stop's own record: the reply's end and the jobs' ends that follow it say what happened.
     case "stop_requested": {

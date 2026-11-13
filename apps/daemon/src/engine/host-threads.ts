@@ -19,6 +19,8 @@ export interface HostThreadInput {
   access: AccessMode;
   cwd: string;
   host: "spade";
+  /** Which of Spade's host threads: absent for Spade's own, `computer:<bot>` for a bot's. */
+  hostKey?: string;
 }
 
 /**
@@ -51,6 +53,7 @@ export class HostThreads {
           silenceMs: 60_000,
           client: {
             host: input.host,
+            ...(input.hostKey ? { hostKey: input.hostKey } : {}),
             details: {
               workspace: {
                 id: input.workspaceId,

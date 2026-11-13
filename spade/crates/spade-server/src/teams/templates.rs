@@ -21,8 +21,8 @@ pub struct Template {
     pub name: String,
     pub blurb: String,
     pub task: String,
-    /// One of the generated avatars' colours.
-    pub color: String,
+    /// Its character face, as stored (`{"kind":"character", ...}`).
+    pub face: serde_json::Value,
     /// `fast` (the person's fast model) or `capable` (their default).
     pub model_kind: String,
     pub routines: Vec<TemplateRoutine>,
@@ -54,12 +54,22 @@ mod tests {
     fn every_shipped_template_is_usable() {
         let all = templates();
         assert!(all.len() >= 8, "{} templates", all.len());
+        let mut pairs: Vec<_> = all.iter().filter_map(|t| t.face["pair"].as_str()).collect();
+        pairs.sort_unstable();
+        pairs.dedup();
+        assert_eq!(
+            pairs.len(),
+            all.len(),
+            "each template wears its own colours"
+        );
         for template in all {
-            assert!(
-                spade_store::AVATAR_COLORS.contains(&template.color.as_str()),
-                "{}: colour {}",
-                template.id,
-                template.color
+            let face = spade_core::face::repair(&template.face);
+            assert!(spade_core::face::is_valid(&face));
+            assert_eq!(
+                face.to_json(),
+                template.face,
+                "{}: the face as drawn",
+                template.id
             );
             assert!(matches!(template.model_kind.as_str(), "fast" | "capable"));
             assert!(template.task.chars().count() <= crate::engine::TASK_CHARS);

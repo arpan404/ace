@@ -35,16 +35,20 @@ struct RelaySession: Sendable {
     }
 
     /// The encrypted WebSocket messages for one JSON text (kind 0/1).
-    mutating func seal(text: String) throws -> [Data] { try seal(Data(text.utf8), kind: 0) }
+    mutating func seal(text: String) throws -> [Data] { try fragments(text: text).map { try seal(plain: $0) } }
     /// The encrypted WebSocket messages for one binary message (kind 2/3).
     mutating func seal(binary: Data) throws -> [Data] {
         guard !binary.isEmpty, binary.count <= Self.binaryLimit else { throw RelayFrameError.tooLarge }
-        return try seal(binary, kind: 2)
+        return try Self.fragments(binary, kind: 2).map { try seal(plain: $0) }
     }
     /// The daemon's side of kind 4/5: JSON already deflated. The phone never sends it; the
     /// fixture relay host and tests do.
-    mutating func seal(deflated: Data) throws -> [Data] { try seal(deflated, kind: 4) }
-    private mutating func seal(_ data: Data, kind: UInt8) throws -> [Data] {
+    mutating func seal(deflated: Data) throws -> [Data] { try Self.fragments(deflated, kind: 4).map { try seal(plain: $0) } }
+
+    /// One JSON text's plaintext fragments, not yet encrypted: a flow-controlled sender seals
+    /// each only when its window has room, so a credit can still go out ahead of them.
+    func fragments(text: String) throws -> [Data] { try Self.fragments(Data(text.utf8), kind: 0) }
+    private static func fragments(_ data: Data, kind: UInt8) throws -> [Data] {
         guard data.count <= Self.logicalLimit else { throw RelayFrameError.tooLarge }
         var out: [Data] = []
         out.reserveCapacity(data.count / Self.chunkSize + 1)
@@ -54,20 +58,44 @@ struct RelaySession: Sendable {
             var plain = Data(capacity: end - offset + 1)
             plain.append(kind + (end == data.endIndex ? 1 : 0))
             plain.append(data[offset..<end])
-            out.append(try transport.send.encrypt(plain))
-            sent += 1
-            if sent % rekeyEvery == 0 { try transport.send.rekey() }
+            out.append(plain)
             offset = end
         } while offset < data.endIndex
         return out
     }
+    /// Encrypt the next fragment (data or credit), in the order it goes on the wire.
+    mutating func seal(plain: Data) throws -> Data {
+        let frame = try transport.send.encrypt(plain)
+        sent += 1
+        if sent % rekeyEvery == 0 { try transport.send.rekey() }
+        return frame
+    }
 
-    /// Decrypt one WebSocket message. Returns a logical message once its last fragment arrives.
-    /// Any error is fatal for the channel: the caller closes it.
+    /// One decrypted WebSocket message: the peer's credit, or a data fragment with its flow cost
+    /// and, on a message's last fragment, the whole message.
+    enum Received: Equatable {
+        case credit(Int)
+        case data(cost: Int, message: RelayMessage?)
+    }
+
+    /// Decrypt one WebSocket message. Returns a logical message once its last fragment arrives;
+    /// a credit fragment returns nil. Any error is fatal for the channel: the caller closes it.
     mutating func open(_ ciphertext: Data) throws -> RelayMessage? {
+        guard case .data(_, let message) = try receive(ciphertext) else { return nil }
+        return message
+    }
+    /// Decrypt one WebSocket message, credit fragments included. Any error is fatal.
+    mutating func receive(_ ciphertext: Data) throws -> Received {
         let plain = try transport.receive.decrypt(ciphertext)
         received += 1
         if received % rekeyEvery == 0 { try transport.receive.rekey() }
+        if plain.first == RelayFlow.creditTag {
+            guard let amount = RelayFlow.readCredit(plain) else { throw RelayFrameError.invalidFragment }
+            return .credit(amount)
+        }
+        return .data(cost: RelayFlow.cost(plain.count), message: try assemble(plain))
+    }
+    private mutating func assemble(_ plain: Data) throws -> RelayMessage? {
         guard plain.count >= 2, let flag = plain.first, flag <= 5 else { throw RelayFrameError.invalidFragment }
         // Only a message's last fragment may be short.
         if flag % 2 == 0 && plain.count != noiseMaxMessage - 16 { throw RelayFrameError.invalidFragment }

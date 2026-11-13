@@ -1,5 +1,6 @@
 import { FakeSpadeApi, type FakeDaemon } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { expect } from "vitest";
 import type { RouterHistory } from "@tanstack/react-router";
 import { harness } from "./harness.tsx";
@@ -80,4 +81,10 @@ export async function roster() {
 /** A bot's row in the panel, by the name it starts with. */
 export async function botRow(name: string) {
   return (await roster()).findByRole("link", { name: new RegExp(`^${name}`) });
+}
+
+/** + in the Spade list's header, then one of its items: "New bot", "New group", "Import bot…". */
+export async function openNew(item: string) {
+  await userEvent.click(await screen.findByRole("button", { name: "New" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: item }));
 }

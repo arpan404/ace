@@ -6,3 +6,5 @@ export { SpadeAgentScreen, SpadeHomeScreen } from "./spade-screens.tsx";
 export { SpadeGroupScreen } from "./spade-group-screen.tsx";
 /** Settings › Spade, at `/settings/spade`. */
 export { SpadeSettingsScreen } from "./spade-settings-screen.tsx";
+/** The live pictures of the bots' browsers and screens, as the app supplies them. */
+export { BotStreamsContext, type BotStreams } from "./computer/bot-streams.ts";

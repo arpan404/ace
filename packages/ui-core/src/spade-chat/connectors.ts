@@ -16,7 +16,15 @@ export interface SpadeCatalogueEntry {
   url: string;
   signIn: SpadeSignIn[];
   notes: string;
+  /** `cloud`: signs in through Spade Cloud with the person's ace account (ADR 0140). */
+  via: "cloud" | undefined;
 }
+
+/**
+ * Why a connector signed in through Spade Cloud can't renew its sign-in now. It keeps working
+ * until its token expires.
+ */
+export type SpadeCloudNotice = "cloud_unreachable" | "ace_signed_out" | "ace_unreachable";
 
 export type SpadeConnectorState =
   | "connected"
@@ -42,6 +50,9 @@ export interface SpadeConnector {
   problem: string | undefined;
   /** A device sign-in in progress or just ended: the code the person enters, and where. */
   device: SpadeDeviceSignIn | undefined;
+  /** `cloud`: signs in through Spade Cloud. */
+  via: "cloud" | undefined;
+  notice: SpadeCloudNotice | undefined;
 }
 
 /**
@@ -76,6 +87,8 @@ export interface SpadeConnectorAccess {
 const text = z.string().nullish().catch(undefined);
 const signIns = ["oauth", "oauth_client", "token"] as const;
 const states = ["connected", "connecting", "unreachable", "needs_reconnect", "signing_in"] as const;
+const via = z.literal("cloud").nullish().catch(undefined);
+const notices = ["cloud_unreachable", "ace_signed_out", "ace_unreachable"] as const;
 
 const entryShape = z.object({
   id: z.string().min(1),
@@ -83,6 +96,7 @@ const entryShape = z.object({
   url: z.string().min(1),
   sign_in: z.array(z.unknown()).catch([]).default([]),
   notes: text,
+  via,
 });
 
 function entryOf(raw: unknown): SpadeCatalogueEntry | undefined {
@@ -97,6 +111,7 @@ function entryOf(raw: unknown): SpadeCatalogueEntry | undefined {
       (signIns as readonly unknown[]).includes(kind),
     ),
     notes: entry.notes ?? "",
+    via: entry.via ?? undefined,
   };
 }
 
@@ -113,6 +128,9 @@ const connectorShape = z.object({
   tools: z.number().int().nonnegative().catch(0).default(0),
   problem: text,
   device: z.unknown().optional(),
+  via,
+  // A notice this client doesn't know is left out: the row then reads as it would without one.
+  notice: z.enum(notices).nullish().catch(undefined),
 });
 
 /** Only https: the page goes straight to the person's browser. */
@@ -147,6 +165,8 @@ export function parseSpadeConnectorValue(raw: unknown): SpadeConnector | undefin
     tools: connector.tools,
     problem: connector.problem || undefined,
     device: deviceOf(connector.device),
+    via: connector.via ?? undefined,
+    notice: connector.notice ?? undefined,
   };
 }
 
@@ -213,6 +233,24 @@ export function spadeConnectorLine(connector: SpadeConnector): string {
       return "Signed out";
     case "unreachable":
       return connector.problem ? `Can't reach it: ${connector.problem}` : "Can't reach it";
+  }
+}
+
+/**
+ * The quiet line of a connector signed in through Spade Cloud: that it does, or why it can't
+ * renew now. Undefined for every other connector.
+ */
+export function spadeCloudLine(connector: SpadeConnector): string | undefined {
+  if (connector.via !== "cloud") return undefined;
+  switch (connector.notice) {
+    case "cloud_unreachable":
+      return "Spade Cloud can't be reached. It keeps working until its sign-in runs out.";
+    case "ace_signed_out":
+      return "Sign in to ace to keep it signed in through Spade Cloud.";
+    case "ace_unreachable":
+      return "ace can't be reached to renew its sign-in. It keeps working until then.";
+    case undefined:
+      return "Signs in through Spade Cloud";
   }
 }
 

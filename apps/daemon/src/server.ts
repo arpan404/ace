@@ -288,10 +288,9 @@ export async function startServer(options: ServerOptions): Promise<{
     /** A relayed main channel, whose hello the relay host already authenticated. */
     relayed?: RelayedMain,
   ) => {
-    const peer: ClosePeer = {
-      client: clientAgent(request?.headers["user-agent"]),
-      remote: !isLocal,
-    };
+    const peer: ClosePeer = relayed
+      ? { client: "unknown", remote: true, route: "relay" }
+      : { client: clientAgent(request?.headers["user-agent"]), remote: !isLocal };
     socket.on("error", (error) => {
       options.log?.(error);
       // A protocol error (an oversized frame is 1009) already started a close with its code;

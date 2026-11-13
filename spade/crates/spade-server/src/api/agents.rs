@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use super::body::Body;
 use super::{AppState, off_thread, problem};
 use crate::engine::{
-    AgentChange, AgentError, AgentInput, AgentView, AvatarInput, State as AgentState, roster,
+    AgentChange, AgentError, AgentInput, AgentView, AvatarInput, State as AgentState,
 };
 
 /// An agent body may carry one avatar image as base64 (3.75 MB, a third larger encoded).
@@ -22,10 +22,10 @@ enum AvatarBody {
     Image {
         data: String,
     },
-    Generated {
-        #[serde(default)]
-        color: Option<String>,
-    },
+    /// A character face; any value it doesn't know is repaired.
+    Character(serde_json::Map<String, Value>),
+    /// Initials from an older client (its colour is ignored): Spade picks a face.
+    Generated {},
 }
 
 impl AvatarBody {
@@ -34,7 +34,8 @@ impl AvatarBody {
             Self::Image { data } => crate::images::decode(&data)
                 .map(AvatarInput::Image)
                 .map_err(|e| Box::new(problem(StatusCode::BAD_REQUEST, &e.to_string()))),
-            Self::Generated { color } => Ok(AvatarInput::Generated(color)),
+            Self::Character(fields) => Ok(AvatarInput::Character(Value::Object(fields))),
+            Self::Generated {} => Ok(AvatarInput::Generated),
         }
     }
 }
@@ -79,14 +80,7 @@ pub(super) struct Main {
 /// An agent as the API shows it. The task is the person's own text, sent back only to them.
 pub(super) fn agent_json(view: &AgentView) -> Value {
     let agent = &view.agent;
-    let mut avatar: Value =
-        serde_json::from_str(&agent.avatar).unwrap_or_else(|_| json!({ "kind": "generated" }));
-    if avatar["kind"] == "generated" {
-        avatar["initials"] = Value::String(roster::initials(&agent.name));
-        if !avatar["color"].is_string() {
-            avatar["color"] = json!(spade_store::generated_color(&agent.id));
-        }
-    }
+    let avatar = spade_core::face::shown_avatar(&agent.id, &agent.avatar);
     let last_message = view.last_message.as_ref().map(|m| {
         json!({
             "from": if m.by_agent { "agent" } else { "person" },
@@ -134,8 +128,21 @@ fn agent_problem(error: &AgentError) -> Response {
 
 pub(super) async fn list(State(state): State<AppState>) -> Response {
     match state.engine.agents() {
-        Ok(views) => Json(json!({ "agents": views.iter().map(agent_json).collect::<Vec<_>>() }))
-            .into_response(),
+        Ok(views) => {
+            let computers = state.engine.computers();
+            let agents: Vec<Value> = views
+                .iter()
+                .map(|view| {
+                    let mut agent = agent_json(view);
+                    // What its computer is doing, so the roster needs no request per bot.
+                    if let Some(computers) = computers {
+                        agent["computer"] = json!(computers.view(&view.agent.id));
+                    }
+                    agent
+                })
+                .collect();
+            Json(json!({ "agents": agents })).into_response()
+        }
         Err(error) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
     }
 }
@@ -227,7 +234,11 @@ pub(super) async fn delete(State(state): State<AppState>, Path(id): Path<String>
         Ok(()) => {
             // Its workspace and proposals go with it (ADR 0130).
             let (workspaces, learning) = (state.workspaces.clone(), state.learning.clone());
+            let computers = state.engine.computers().cloned();
             let forgotten = tokio::task::spawn_blocking(move || {
+                if let Some(computers) = computers {
+                    computers.remove(&id);
+                }
                 if let Some(learning) = learning {
                     learning.forget(&id);
                 }

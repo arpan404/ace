@@ -106,6 +106,7 @@ const publish = (type, data, directory = "/one", extra = {}) => {
 const nativeMcp = new Map();
 let toolCatalog = [];
 let readinessRequested = false;
+let readinessRefusals = 0;
 const transforms = [];
 let readiness;
 const pluginPath = configuration.plugins?.find(
@@ -301,6 +302,20 @@ const server = createServer(async (req, res) => {
   }
   if (path === "/api/rpc/ace.mcp.readiness/ready") {
     readinessRequested = true;
+    // OpenCode 2.2.7 answers this way until it has activated the plugin; "always" stands for a
+    // plugin that never loads. The body is OpenCode's own wire shape.
+    const unavailable = process.env.ACE_TEST_READINESS_UNAVAILABLE;
+    if (unavailable === "always" || readinessRefusals < Number(unavailable ?? 0)) {
+      readinessRefusals += 1;
+      res.writeHead(400, { "content-type": "application/json" }).end(
+        JSON.stringify({
+          _tag: "RpcError",
+          type: "rpc.unavailable",
+          message: "RPC is unavailable: ace.mcp.readiness",
+        }),
+      );
+      return;
+    }
     if (!readiness) throw new Error("ace native readiness plugin did not load");
     const controller = new AbortController();
     res.on("close", () => controller.abort());
@@ -315,6 +330,7 @@ const server = createServer(async (req, res) => {
   if (path === "/test/mcp-tools") {
     json({
       readinessRequested,
+      readinessRefusals,
       tools: toolCatalog.map((tool) => ({ name: tool.id, description: tool.description })),
       plugins: configuration.plugins ?? [],
     });
@@ -394,7 +410,11 @@ const server = createServer(async (req, res) => {
   if (path === "/test/events") {
     for (const event of body) {
       if (event.raw) for (const stream of streams) stream.write(event.raw);
-      else publish(event.type, event.data, event.directory ?? "/one", event.extra ?? {});
+      else {
+        // A rebuilt location loses runtime MCP servers, as OpenCode 2.2.6 does on eviction.
+        if (event.type === "location.shutdown") nativeMcp.clear();
+        publish(event.type, event.data, event.directory ?? "/one", event.extra ?? {});
+      }
     }
     json(true);
     return;

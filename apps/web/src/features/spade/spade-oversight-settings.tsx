@@ -1,4 +1,4 @@
-import { spadeCapsWords, spadeMoney, type SpadeOversight } from "@ace/ui-core/spade-chat";
+import { spadeMoney, type SpadeOversight } from "@ace/ui-core/spade-chat";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useMemo, useState } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
@@ -8,7 +8,6 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { SpadeModelPicker } from "./spade-model-picker.tsx";
 import { oversightKey, readOversight, setOversight } from "./spade-oversight-api.ts";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
-import { useSpadeRoster } from "./use-spade-roster.ts";
 import { useTellZone } from "./use-spade-zone.ts";
 import { LoadingRows } from "./spade-settings-loading.tsx";
 
@@ -17,7 +16,7 @@ const fault = (error: unknown) => (error instanceof Error ? error.message : "Try
 /**
  * Settings › Spade › Spending and review (ADR 0135): the review default and its model, the
  * service's daily cap (read only) and what every bot spent together, then one line per bot with
- * its spend and caps. Each bot's own caps and review are in its edit form.
+ * Each bot's own spend, caps and review are on its page.
  */
 export function OversightSettings(props: { ready: boolean }) {
   const client = useSpadeClient();
@@ -31,8 +30,6 @@ export function OversightSettings(props: { ready: boolean }) {
     queryFn: ({ signal }) => readOversight(client, signal),
     enabled: props.ready,
   });
-  const roster = useSpadeRoster(true);
-  const bots = roster.bots.filter((bot) => bot.machine.key === machine);
   const change = (what: string, next: Parameters<typeof setOversight>[1]) =>
     void setOversight(client, next).then(
       (saved) => cache.setQueryData([...oversightKey, machine], saved),
@@ -86,18 +83,6 @@ export function OversightSettings(props: { ready: boolean }) {
             : `Daily cap ${spadeMoney(data.dailyCapMicros)}`}
         </span>
       </SettingRow>
-      {bots.map((bot) => (
-        <SettingRow
-          key={bot.id}
-          title={bot.name}
-          density="compact"
-          description={
-            bot.spending
-              ? `${spadeMoney(bot.spending.todayMicros)} today · ${spadeMoney(bot.spending.monthMicros)} this month · ${spadeCapsWords(bot.spending)}`
-              : "No spending recorded"
-          }
-        />
-      ))}
     </SettingSection>
   );
 }

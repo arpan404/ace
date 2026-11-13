@@ -8,6 +8,7 @@ import {
   body,
   claudeEvents,
   codexEvents,
+  codexKeySegment,
   expandRoot,
   nativeHooks,
   outputFile,
@@ -287,7 +288,8 @@ export function projectPlugins(
           }),
         ),
       );
-      override(projection, `plugins.${JSON.stringify(`${name}@ace`)}.enabled`, true);
+      if (codexKeySegment(`${name}@ace`)) override(projection, `plugins.${name}@ace.enabled`, true);
+      else projection.unsupported.push(`${name}: Codex can't enable a plugin with this name`);
     } else
       for (const hook of plugin.manifest.hooks)
         projection.unsupported.push(`${name}: ${provider} cannot inject hook ${hook.event}`);
@@ -320,8 +322,12 @@ export function projectPlugins(
         projection.unsupported.push(`${key}: Codex does not support SSE MCP`);
         continue;
       }
+      if (!codexKeySegment(key)) {
+        projection.unsupported.push(`${key}: Codex can't name an MCP server this way`);
+        continue;
+      }
       const { type: _type, headers, ...config } = server;
-      override(projection, `mcp_servers.${JSON.stringify(key)}`, {
+      override(projection, `mcp_servers.${key}`, {
         ...config,
         ...(headers ? { http_headers: headers } : {}),
       });

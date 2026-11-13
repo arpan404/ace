@@ -1,6 +1,8 @@
 # 0110: The relay on Cloudflare Workers and Durable Objects
 
-Status: accepted. Date: 2026-11-02. Owner decision of 2026-11-02. Builds on
+Status: accepted. Date: 2026-11-02. Owner decision of 2026-11-02. Amended by
+[ADR 0141](0141-ace-cloud.md): the Worker is now ace cloud at cloud.acehq.dev, still also
+serving relay.acehq.dev, and its code is in `apps/cloud`. Builds on
 [ADR 0070](0070-runtime-remote-access.md) and the relay contract in
 [docs/relay](../relay/README.md). Amends [ADR 0002](0002-local-cli-providers.md) with a
 second narrow hosted exception, alongside [ADR 0106](0106-ios-remote-push-gateway.md).
@@ -31,7 +33,7 @@ ace runs the relay at a public `wss://` address. It is a forwarder only:
 
 ### Shape
 
-- A Worker (`apps/relay-cloudflare`) validates the path and query and routes each upgrade to
+- A Worker (`apps/cloud`) validates the path and query and routes each upgrade to
   a Durable Object named by the host id. Everything for one daemon (its control socket,
   waiting clients and paired streams) lives in that one object, so forwarding never crosses
   objects.

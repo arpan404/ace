@@ -15,6 +15,14 @@ pub enum SignIn {
     Token,
 }
 
+/// Who signs in for an entry other than Spade itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Via {
+    /// Spade Cloud, which holds the app's client secret (ADR 0140).
+    Cloud,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
     pub id: String,
@@ -25,6 +33,9 @@ pub struct Entry {
     pub notes: String,
     /// The maker's page the address was checked against.
     pub source: String,
+    /// Signs in through Spade Cloud rather than as Spade's own client.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub via: Option<Via>,
     /// Its sign-in may use local addresses. Never read from the shipped file, so catalogue
     /// servers never are; tests set it to point an entry at a fake app on 127.0.0.1.
     #[serde(skip)]
@@ -56,6 +67,17 @@ pub fn with_apps(mut entries: Vec<Entry>, apps: &[crate::apps::App]) -> Vec<Entr
             .iter()
             .any(|app| app.connector == entry.id && !app.client_id.is_empty());
         if shipped && !entry.sign_in.contains(&SignIn::Oauth) {
+            entry.sign_in.insert(0, SignIn::Oauth);
+        }
+    }
+    entries
+}
+
+/// The catalogue with Spade Cloud applied: an entry marked `via: "cloud"` signs in with one click
+/// when the cloud is on, so `oauth` leads its ways in. The person's own client ID stays offered.
+pub fn with_cloud(mut entries: Vec<Entry>, cloud: bool) -> Vec<Entry> {
+    for entry in &mut entries {
+        if cloud && entry.via == Some(Via::Cloud) && !entry.sign_in.contains(&SignIn::Oauth) {
             entry.sign_in.insert(0, SignIn::Oauth);
         }
     }
@@ -109,5 +131,27 @@ mod tests {
         assert_eq!(ways("asana"), [SignIn::OauthClient], "no client ID yet");
         assert_eq!(ways("linear"), [SignIn::Oauth, SignIn::Token]);
         Ok(())
+    }
+
+    #[test]
+    fn the_four_apps_that_need_a_secret_sign_in_through_spade_cloud_when_it_is_on() {
+        let ways = |entries: &[Entry], id: &str| {
+            entries
+                .iter()
+                .find(|e| e.id == id)
+                .map(|e| e.sign_in.clone())
+                .unwrap_or_default()
+        };
+        let on = with_cloud(shipped(), true);
+        for id in ["asana", "box", "canva", "hubspot"] {
+            assert_eq!(ways(&on, id), [SignIn::Oauth, SignIn::OauthClient], "{id}");
+        }
+        assert_eq!(
+            ways(&on, "huggingface"),
+            [SignIn::Token],
+            "only entries marked via cloud"
+        );
+        let off = with_cloud(shipped(), false);
+        assert_eq!(ways(&off, "asana"), [SignIn::OauthClient]);
     }
 }

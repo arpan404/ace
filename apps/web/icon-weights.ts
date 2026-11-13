@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join, relative, sep } from "node:path";
 import type { Plugin } from "vite";
 import { parseAst } from "vite";
 import { weightProblems } from "./icon-weight-guard.ts";
@@ -102,7 +102,8 @@ function readSources(web: string): Map<string, string> {
     for (const file of files)
       if (/\.(?:ts|tsx|js|jsx|mjs)$/.test(file) && !/\.test\.|\.d\.ts$/.test(file)) {
         const path = join(root, file);
-        sources.set(relative(web, path), readFileSync(path, "utf8"));
+        // Keyed with "/" on every OS, as glyphTables and the guard's exemptions are.
+        sources.set(relative(web, path).split(sep).join("/"), readFileSync(path, "utf8"));
       }
   }
   return sources;

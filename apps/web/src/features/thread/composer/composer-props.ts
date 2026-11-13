@@ -78,6 +78,13 @@ export interface ComposerProps {
   /** Model and effort controls beside Stop and send on the main action row. */
   trailing?: ReactNode;
   /**
+   * In the primary slot while the draft is empty and nothing can be stopped (a mic): Send takes
+   * its place once there are words.
+   */
+  idleAction?: ReactNode;
+  /** An empty draft is one capsule row at every width, not only on a phone. */
+  capsule?: boolean | undefined;
+  /**
    * The tab attached to the composer (what the agents are doing, their plan, an
    * agent's question): drawn above it, narrower and tucked behind its top edge. It reads
    * `useComposerCompact()` too.

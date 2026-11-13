@@ -38,6 +38,8 @@ pub struct ConnectRequest {
 }
 
 /// How connecting went on.
+// Made once per connect and matched at once; boxing the view would buy nothing.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Started {
     /// Connected already (a token, or a server that needs no sign-in).
@@ -64,6 +66,9 @@ pub enum ConnectError {
     NeedsClient,
     #[error("this machine has no keychain Spade can use, so it cannot keep a sign-in")]
     NoKeychain,
+    /// The app signs in through Spade Cloud, which needs this machine signed in to ace.
+    #[error("sign in to your ace account on this machine to connect this app through Spade Cloud")]
+    NeedsAceAccount,
     #[error("the server refused this token")]
     Refused,
     #[error("{0}")]
@@ -138,6 +143,8 @@ pub(crate) struct SignedIn {
     pub resource: String,
     pub client: oauth::Client,
     pub shipped: bool,
+    /// Signed in through Spade Cloud.
+    pub cloud: bool,
     pub scopes: Vec<String>,
     pub tokens: oauth::Tokens,
 }
@@ -171,6 +178,9 @@ impl Connectors {
             .filter(|t| !t.is_empty())
         {
             return self.connect_with_token(target, token.to_owned()).await;
+        }
+        if let Some(app) = self.cloud_app(&target, &request) {
+            return self.start_cloud(target, app).await;
         }
         let challenge = oauth::probe(&net, &target.url).await.map_err(from_oauth)?;
         let Some(challenge) = challenge else {
@@ -234,6 +244,7 @@ impl Connectors {
         // One sign-in per connector: a newer one replaces an older one, and stale ones go.
         pending.retain(|_, p| p.id != target.id && now - p.started_ms < SIGN_IN_WINDOW_MS);
         self.drop_device(&target.id);
+        self.drop_cloud(&target.id);
         pending.insert(
             attempt.state.clone(),
             Pending {
@@ -311,6 +322,7 @@ impl Connectors {
             resource: pending.attempt.resource,
             client,
             shipped: pending.shipped,
+            cloud: false,
             scopes: pending.attempt.scopes,
             tokens,
         };
@@ -361,6 +373,7 @@ impl Connectors {
                 client_auth: client.auth_method.clone(),
                 registered_redirect: client.registered_redirect.clone(),
                 shipped: signed.shipped,
+                cloud: signed.cloud,
                 scopes: signed.scopes,
                 expires_at_ms: tokens.expires_in.map(|s| self.now() + seconds_ms(s)),
             }),
@@ -385,7 +398,9 @@ impl Connectors {
             let before = pending.len();
             pending.retain(|_, p| p.id != id);
             before != pending.len()
-        } | self.drop_device(id);
+        } | self.drop_device(id)
+            | self.drop_cloud(id);
+        self.clear_cloud_notice(id);
         let removed = {
             let mut records = lock(&self.records);
             let next: Vec<Record> = records.iter().filter(|r| r.id != id).cloned().collect();

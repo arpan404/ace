@@ -220,7 +220,7 @@ test("signing out of the default profile keeps a provider usable through its oth
   const cli = await providersList(app);
   expect(await within(cli).findByText("Signed in")).toBeTruthy();
   await userEvent.click(within(cli).getByRole("button", { name: "Manage Your CLI login" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Sign out" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Log out" }));
   expect(await screen.findByText("Signed out of Codex")).toBeTruthy();
   await waitFor(
     () => expect(screen.queryByRole("dialog", { name: "Sign out of Codex" })).toBeNull(),
@@ -250,7 +250,7 @@ test("a sign-out that leaves something still signed in says so after it finishes
   app.daemon.services.providerLogin.successNotes.codex = note;
   const cli = await providersList(app);
   await userEvent.click(within(cli).getByRole("button", { name: "Manage Your CLI login" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Sign out" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Log out" }));
   expect(await screen.findByText("Signed out of Codex")).toBeTruthy();
   expect(await screen.findByText(note)).toBeTruthy();
 }, 30_000);

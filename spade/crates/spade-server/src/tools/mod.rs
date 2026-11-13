@@ -4,6 +4,7 @@
 mod ace;
 mod ace_link;
 mod bots;
+mod cloud_account;
 mod connectors;
 mod memory;
 mod skills;
@@ -22,6 +23,7 @@ use spade_core::tools::{Registry, ToolDef};
 
 pub use ace_link::{AceLink, AceTarget, GrantError, Retry, grant_slot};
 pub use bots::{BotMessage, BotsList, EngineHandle};
+pub use cloud_account::CloudAccount;
 pub use connectors::ConnectorSource;
 pub use memory::{AskUser, MemoryTool};
 pub use skills::{
@@ -122,6 +124,12 @@ pub trait Tool: Send + Sync {
     /// means only calls with the same scope (a shell command allows only that exact command).
     fn always_scope(&self, _arguments: &Value) -> Option<String> {
         None
+    }
+    /// [`Tool::always_scope`] for the call with `key`, for tools whose scope depends on more
+    /// than the arguments (where the bot's terminal is, ADR 0142). The scope is stored when the
+    /// call asks, so an earlier "always" is matched against it as it was then.
+    fn always_scope_in(&self, _key: &str, arguments: &Value) -> Option<String> {
+        self.always_scope(arguments)
     }
 }
 

@@ -60,6 +60,26 @@
         "ws": "^8.22.0",
       },
     },
+    "apps/cloud": {
+      "name": "@ace/cloud",
+      "dependencies": {
+        "@ace/account-grant": "workspace:*",
+        "@ace/protocol": "workspace:*",
+        "@ace/relay": "workspace:*",
+        "@ace/secure-channel": "workspace:*",
+        "@noble/ciphers": "2.0.1",
+        "@noble/curves": "2.0.1",
+        "@noble/hashes": "2.0.1",
+        "zod": "^4.6.5",
+      },
+      "devDependencies": {
+        "@ace/client": "workspace:*",
+        "@cloudflare/workers-types": "^5.20261102.1",
+        "@types/ws": "^8.18.1",
+        "wrangler": "^4.156.2",
+        "ws": "^8.18.3",
+      },
+    },
     "apps/daemon": {
       "name": "@ace/daemon",
       "bin": {
@@ -125,9 +145,9 @@
       "devDependencies": {
         "@ace/adapter-testkit": "workspace:*",
         "@ace/client-worker": "workspace:*",
+        "@ace/cloud": "workspace:*",
         "@ace/fake-daemon": "workspace:*",
         "@ace/perf-kit": "workspace:*",
-        "@ace/relay-cloudflare": "workspace:*",
         "@cursor/sdk": "1.0.35",
         "@modelcontextprotocol/client": "2.2.0",
         "@modelcontextprotocol/sdk": "1.31.0",
@@ -138,7 +158,7 @@
     },
     "apps/desktop": {
       "name": "@ace/desktop",
-      "version": "0.0.20",
+      "version": "0.0.21",
       "dependencies": {
         "@ace/browser": "workspace:*",
         "@ace/client": "workspace:*",
@@ -228,23 +248,6 @@
       },
       "devDependencies": {
         "@types/ws": "^8.18.1",
-      },
-    },
-    "apps/relay-cloudflare": {
-      "name": "@ace/relay-cloudflare",
-      "dependencies": {
-        "@ace/account-grant": "workspace:*",
-        "@ace/protocol": "workspace:*",
-        "@ace/relay": "workspace:*",
-        "@ace/secure-channel": "workspace:*",
-        "zod": "^4.6.5",
-      },
-      "devDependencies": {
-        "@ace/client": "workspace:*",
-        "@cloudflare/workers-types": "^5.20261102.1",
-        "@types/ws": "^8.18.1",
-        "wrangler": "^4.156.2",
-        "ws": "^8.18.3",
       },
     },
     "apps/web": {
@@ -834,6 +837,7 @@
       "dependencies": {
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
+        "smol-toml": "^1.4.2",
         "yaml": "^2.8.1",
         "zod": "^4.6.5",
       },
@@ -1182,6 +1186,8 @@
 
     "@ace/client-worker": ["@ace/client-worker@workspace:packages/client-worker"],
 
+    "@ace/cloud": ["@ace/cloud@workspace:apps/cloud"],
+
     "@ace/commands": ["@ace/commands@workspace:packages/commands"],
 
     "@ace/context": ["@ace/context@workspace:packages/context"],
@@ -1263,8 +1269,6 @@
     "@ace/redaction": ["@ace/redaction@workspace:packages/redaction"],
 
     "@ace/relay": ["@ace/relay@workspace:apps/relay"],
-
-    "@ace/relay-cloudflare": ["@ace/relay-cloudflare@workspace:apps/relay-cloudflare"],
 
     "@ace/release": ["@ace/release@workspace:tools/release"],
 
@@ -2176,7 +2180,7 @@
 
     "@sinclair/typebox": ["@sinclair/typebox@0.27.12", "", {}, "sha512-hhyNJ+nbR6ZR7pToHvllEFun9TL0sbL+tk/ON75lo+Xas054uez98qRbsuNt7MBCyZKK4+8Yli/OAGZhmfBZ/g=="],
 
-    "@sindresorhus/is": ["@sindresorhus/is@4.6.0", "", {}, "sha512-t09vSN3MdfsyCHoFcTRCH/iUtG7OJ0CsjzB8cjAmKc/va/kIgeDI/TxsigdncE/4be734m0cvIYwNaV4i2XqAw=="],
+    "@sindresorhus/is": ["@sindresorhus/is@7.2.0", "", {}, "sha512-P1Cz1dWaFfR4IR+U13mqqiGsLFf1KbayybWwdd2vfctdV6hDpUkgCY0nKOLLTMSoRd/jJNjtbqzf13K8DCCXQw=="],
 
     "@speed-highlight/core": ["@speed-highlight/core@1.2.24", "", {}, "sha512-qeW2e1l78afw8VhRPfPQ1Gjj+KU5XFQ/OFV5ti6eTa9bruO7mJyZtA4vw0ofqmA3tKCkROE9xLk3VZoeRc98nw=="],
 
@@ -4348,8 +4352,6 @@
 
     "@poppinss/colors/kleur": ["kleur@4.1.5", "", {}, "sha512-o+NO+8WrRiQEE4/7nwRJhN1HWpVmJm511pBHUxPLtp0BUISzlBplORYSmTclCnJvQq2tKu/sgl3xVpkc7ZWuQQ=="],
 
-    "@poppinss/dumper/@sindresorhus/is": ["@sindresorhus/is@7.2.0", "", {}, "sha512-P1Cz1dWaFfR4IR+U13mqqiGsLFf1KbayybWwdd2vfctdV6hDpUkgCY0nKOLLTMSoRd/jJNjtbqzf13K8DCCXQw=="],
-
     "@poppinss/dumper/supports-color": ["supports-color@10.2.2", "", {}, "sha512-SS+jx45GF1QjgEXQx4NJZV9ImqmO2NPz5FNsIHrsDjh2YsHnawpan7SNQ1o8NuhrbHZy9AZhIoCUiCeaW/C80g=="],
 
     "@react-native/babel-preset/@react-native/babel-plugin-codegen": ["@react-native/babel-plugin-codegen@0.87.1", "", { "dependencies": { "@babel/traverse": "^7.29.0", "@react-native/codegen": "0.87.1" } }, "sha512-DfnyLAHG7jH4pqeID7ib6AeD6gG8T+KvM3c/w/yEa5ONkfRcHvTC8JMIRdhUqs4ruA+8xbYcNVQzewYRCPm1Xw=="],
@@ -4497,6 +4499,8 @@
     "form-data/mime-types": ["mime-types@2.1.35", "", { "dependencies": { "mime-db": "1.52.0" } }, "sha512-ZDY+bPm5zTTF+YpCrAU9nK0UgICYPT0QtT1NZWFv4s++TNkcgVaT0g6+4R2uI4MjQjzysHB1zxuWL50hzaeXiw=="],
 
     "global-agent/serialize-error": ["serialize-error@7.0.1", "", { "dependencies": { "type-fest": "^0.13.1" } }, "sha512-8I8TjW5KMOKsZQTvoxjuSIa7foAwPWGOts+6o7sgjz41/qMD9VQHEDxi6PBvK2l0MXUmqZyNpUK+T2tQaaElvw=="],
+
+    "got/@sindresorhus/is": ["@sindresorhus/is@4.6.0", "", {}, "sha512-t09vSN3MdfsyCHoFcTRCH/iUtG7OJ0CsjzB8cjAmKc/va/kIgeDI/TxsigdncE/4be734m0cvIYwNaV4i2XqAw=="],
 
     "h3/cookie-es": ["cookie-es@1.2.3", "", {}, "sha512-lXVyvUvrNXblMqzIRrxHb57UUVmqsSWlxqt3XIjCkUP0wDAf6uicO6KMbEgYrMNtEvWgWHwe42CKxPu9MYAnWw=="],
 

@@ -1,5 +1,5 @@
 {
-  "checked": "2026-11-10",
+  "checked": "2026-11-13",
   "roles": {
     "main": "opencode-go/kimi-k3.1-pro",
     "fast": "opencode-go-anthropic/claude-haiku-5-5",
@@ -20,7 +20,13 @@
           "context": 1048576,
           "capabilities": ["tools", "images"]
         },
-        { "id": "glm-5.3", "name": "GLM-5.3", "context": 1000000, "capabilities": ["tools"] }
+        { "id": "glm-5.3", "name": "GLM-5.3", "context": 1000000, "capabilities": ["tools"] },
+        {
+          "id": "deepseek-v4.1-flash",
+          "name": "DeepSeek V4.1 Flash",
+          "context": 1048576,
+          "capabilities": ["tools"]
+        }
       ]
     },
     {

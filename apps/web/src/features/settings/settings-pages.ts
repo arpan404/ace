@@ -15,7 +15,6 @@ import {
   WrenchIcon,
 } from "@phosphor-icons/react";
 import { ComputerUseIcon, SpadeIcon } from "@/components/ace-icons.tsx";
-import { spadeAvailable } from "@/lib/spade-available.ts";
 import type { IconGlyph } from "@/components/icon.tsx";
 
 export type SettingsPath =
@@ -71,9 +70,7 @@ export const settingsPages: readonly SettingsPage[] = [
   },
   { to: "/settings/browser", title: "Browser", icon: GlobeSimpleIcon, group: "machine" },
   { to: "/settings/computer-use", title: "Computer use", icon: ComputerUseIcon, group: "machine" },
-  ...(spadeAvailable
-    ? [{ to: "/settings/spade", title: "Spade", icon: SpadeIcon, group: "machine" } as const]
-    : []),
+  { to: "/settings/spade", title: "Spade", icon: SpadeIcon, group: "machine" },
   { to: "/settings/simulators", title: "Simulators", icon: DeviceMobileIcon, group: "machine" },
   { to: "/settings/storage", title: "Storage", icon: DatabaseIcon, group: "machine" },
   { to: "/settings/advanced", title: "Advanced", icon: WrenchIcon, group: "machine" },
@@ -84,8 +81,9 @@ export const settingsPages: readonly SettingsPage[] = [
   { to: "/settings/remote", title: "Fleet", icon: DevicesIcon, group: "network" },
 ];
 
-export function visibleSettingsPages(): readonly SettingsPage[] {
-  return settingsPages;
+/** The pages this machine shows: Spade's only while the daemon shows Spade (ADR 0139). */
+export function visibleSettingsPages(spadeShown: boolean): readonly SettingsPage[] {
+  return spadeShown ? settingsPages : settingsPages.filter((page) => page.to !== "/settings/spade");
 }
 
 /** The page a path belongs to: itself, or the page it's a sub-page of. */

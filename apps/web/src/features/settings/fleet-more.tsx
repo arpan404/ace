@@ -43,7 +43,7 @@ function OwnRelay() {
       ? live.error
       : own
         ? `On through ${addressWords(url.value)}.`
-        : "On through ace's relay.";
+        : "On through ace cloud.";
   const busy = relay.offline || relay.pending || url.pending;
   const save = async () => {
     const next = draft.trim();

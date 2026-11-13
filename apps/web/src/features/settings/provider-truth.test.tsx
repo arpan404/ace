@@ -28,7 +28,7 @@ test("Codex's usable sibling and Gemini's daily quota agree on Usage and provide
     within(accounts)
       .getByRole("meter", { name: "Session (5h) window" })
       .getAttribute("aria-valuenow"),
-  ).toBe("38");
+  ).toBe("62");
 });
 
 test("API-key reauthentication clears input and refreshes the account without storing the key", async () => {
@@ -81,7 +81,7 @@ test("leaving a provider page during update resumes the same job in the Provider
   await within(group).findByRole("progressbar");
   app.daemon.services.providerInstalls.complete("fake-install-1");
   await waitFor(() => expect(within(group).queryByRole("progressbar")).toBeNull());
-  expect(await within(group).findByText("Installed")).toBeTruthy();
+  expect(await within(group).findByText("Updated")).toBeTruthy();
 });
 
 test("live limits replace a signed-in meter without losing the reason or resetless blocker", async () => {
@@ -111,7 +111,6 @@ test("live limits replace a signed-in meter without losing the reason or resetle
 test("Cursor shows its SDK version and never offers CLI uninstall or a CLI path", async () => {
   await harness().open("/settings/providers/cursor");
   await screen.findByRole("list", { name: "Cursor accounts" });
-  await userEvent.click(screen.getByText("Advanced", { selector: "summary" }));
   const about = await screen.findByRole("region", { name: "About" });
   expect(within(about).getByText("SDK version")).toBeTruthy();
   expect(within(about).getByText("1.0.35")).toBeTruthy();

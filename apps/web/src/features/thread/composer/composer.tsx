@@ -199,9 +199,8 @@ function ComposerBody({
   // An empty composer on a narrow phone is one pill row: + · message · model · send. A narrow
   // column on a desktop or tablet (a docked panel, say) keeps the full composer and approvals.
   const pill =
-    handheld &&
+    (props.capsule || (handheld && width < pillWidth)) &&
     width > 0 &&
-    width < pillWidth &&
     empty &&
     !props.unavailable &&
     suggestions.state === "closed";
@@ -487,6 +486,7 @@ function ComposerBody({
               otherHint={props.otherSend?.hint}
               describedBy={props.unavailable?.describedBy ?? props.sendBlocked?.describedBy}
               canStop={canStop && empty && !props.stopInStrip}
+              idleAction={empty ? props.idleAction : undefined}
               stopping={!!props.stopping}
               onSend={footer.onSend}
               onStop={footer.onStop}

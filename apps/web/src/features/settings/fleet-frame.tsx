@@ -26,10 +26,15 @@ export function useFleetAdd() {
 
 /**
  * Fleet's frame, the same on Overview and Map so switching views only changes what's under the
- * tabs: one column width, the title, a warning line only when this computer is hard to reach,
- * one Add menu and the tabs. `/pair` lands here with #pair and opens the pairing code.
+ * tabs: the title row on the standard column, where every settings page has it, a warning line
+ * only when this computer is hard to reach, one Add menu and the tabs. `/pair` lands here with #pair and opens the pairing code.
  */
-export function FleetFrame(props: { onAdded?(hostId: string): void; children: ReactNode }) {
+export function FleetFrame(props: {
+  onAdded?(hostId: string): void;
+  /** The map draws: its content widens, the title row stays on the standard column. */
+  wide?: boolean;
+  children: ReactNode;
+}) {
   const hash = useLocation({ select: (location) => location.hash });
   const [adding, setAdding] = useState<Adding | undefined>(hash === "pair" ? "code" : undefined);
   const enabled = useSettingControl(settingKeys.remoteEnabled, "Remote access");
@@ -46,7 +51,7 @@ export function FleetFrame(props: { onAdded?(hostId: string): void; children: Re
   return (
     <SettingsBody
       page="Fleet"
-      wide
+      wide={props.wide ?? false}
       tabs={<FleetTabs />}
       lede={warning}
       titleActions={<AddMenu onPick={setAdding} />}

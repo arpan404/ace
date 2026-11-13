@@ -104,27 +104,16 @@ async function rows(
   return (await client.request({ type, query }, { signal })).result;
 }
 
-/** The "Where it went" lists each machine answers with its own query. */
-export const breakdownDimensions = ["workspace", "account", "skill", "automation", "role"] as const;
-export type BreakdownDimension = (typeof breakdownDimensions)[number];
-
 /** One environment's usage over the span, and its days before, for growth. */
 export interface EnvironmentRead {
   usage: EnvironmentUsage;
   /** The same number of days just before the span, per day and provider. */
   previous: readonly UsageRow[];
-  /**
-   * Rows per breakdown dimension; undefined for one this daemon can't group by (an older
-   * daemon that doesn't record skills or automations), so the list says so instead of failing.
-   */
-  breakdowns: Partial<Record<BreakdownDimension, readonly UsageRow[]>>;
   /** The daemon's price table: its version ("litellm-…") and the day its prices are from. */
   prices: { priceVersion: string; priceAsOf: string | undefined };
 }
 
-const breakdownLimit = 200;
-
-/** One environment's usage over the span: per day and provider, per model, and each list. */
+/** One environment's usage over the span: per day and provider, and per model. */
 async function readUsage(
   client: ClientApi,
   span: UsageSpan,
@@ -132,37 +121,16 @@ async function readUsage(
   signal: AbortSignal,
 ): Promise<EnvironmentRead> {
   const before = { ...previousSpan(span.from, span.to), ready: span.ready };
-  const lists = Promise.all(
-    breakdownDimensions.map(async (dimension) => {
-      try {
-        const result = await rows(
-          client,
-          "summary",
-          span,
-          [dimension],
-          filters,
-          signal,
-          breakdownLimit,
-        );
-        return [dimension, result.rows] as const;
-      } catch (error) {
-        if (signal.aborted) throw error;
-        return [dimension, undefined] as const;
-      }
-    }),
-  );
-  const [daily, models, earlier, breakdowns] = await Promise.all([
+  const [daily, models, earlier] = await Promise.all([
     rows(client, "series", span, ["day", "provider"], filters, signal),
     rows(client, "summary", span, ["model", "provider"], filters, signal),
     rows(client, "series", before, ["day", "provider"], filters, signal),
-    lists,
   ]);
   return {
     // The page shows no per-thread figures, so threads aren't read.
     usage: { daily: daily.rows, models: models.rows, threads: [], threadsTruncated: false },
     previous: earlier.rows,
     prices: { priceVersion: daily.priceVersion, priceAsOf: daily.priceAsOf },
-    breakdowns: Object.fromEntries(breakdowns.filter((entry) => entry[1] !== undefined)),
   };
 }
 

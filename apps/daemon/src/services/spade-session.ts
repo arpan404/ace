@@ -20,8 +20,16 @@ interface Stream {
   reason?: SpadeLiveEndReason;
 }
 
-function unavailable(host: SpadeAccess | undefined): string {
+function unavailable(host: SpadeAccess | undefined): {
+  code: "hidden" | "unavailable";
+  message: string;
+} {
   const status = host?.status();
+  if (status?.hidden) return { code: "hidden", message: "Spade is hidden on this machine." };
+  return { code: "unavailable", message: unavailableWords(status) };
+}
+
+function unavailableWords(status: SpadeStatus | undefined): string {
   if (!status || status.state === "off") return status?.reason ?? "Spade is off on this machine.";
   if (status.state === "starting") return "Spade is starting. Try again in a moment.";
   return status.reason ?? "Spade isn't running.";
@@ -62,6 +70,7 @@ export function createSpadeSession(context: SpadeSocket): SocketService {
     watching = true;
     stops.push(
       spade.subscribe((status) => {
+        if (status.hidden) for (const requestId of streams.keys()) stopStream(requestId, "hidden");
         if (context.connected() && context.authorize("read"))
           context.send({ type: "spade.status.changed", status });
       }),
@@ -80,7 +89,7 @@ export function createSpadeSession(context: SpadeSocket): SocketService {
     if (streams.size >= maxStreams) return end(requestId, "limit");
     const spade = host();
     const ready = spade?.ready();
-    if (!spade || !ready) return end(requestId, "unavailable");
+    if (!spade || !ready) return end(requestId, unavailable(spade).code);
     watch(spade);
     const stream: Stream = { controller: new AbortController(), generation: ready.generation };
     streams.set(requestId, stream);

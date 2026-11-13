@@ -65,7 +65,34 @@ export const ACE_APP_SIGN_IN_RETURN = "ace://account/signed-in";
  * ace's own account backend, which also serves ace's hosted relay as `wss://` on the same host
  * (ADR 0110, 0111). Apps and daemons use it unless their settings name another.
  */
-export const ACE_HOSTED_ACCOUNT_ORIGIN = "https://relay.acehq.dev";
+export const ACE_HOSTED_ACCOUNT_ORIGIN = "https://cloud.acehq.dev";
+/**
+ * Where ace's backend was served before. The same backend still answers there, with the same
+ * sessions, machines and relay, so what an app or daemon stored under one of these is still good.
+ */
+export const ACE_FORMER_HOSTED_ACCOUNT_ORIGINS: readonly string[] = ["https://relay.acehq.dev"];
+
+const currentHost = new URL(ACE_HOSTED_ACCOUNT_ORIGIN).host;
+const formerHosts = new Set(
+  ACE_FORMER_HOSTED_ACCOUNT_ORIGINS.map((origin) => new URL(origin).host),
+);
+function onCurrentHost(value: string): string {
+  const parts = /^(https|wss):\/\/([^/?#]+)(.*)$/is.exec(value);
+  if (!parts?.[1] || !parts[2] || !formerHosts.has(parts[2].toLowerCase())) return value;
+  return `${parts[1].toLowerCase()}://${currentHost}${parts[3] ?? ""}`;
+}
+
+/**
+ * An account origin read back from storage (a session file, a saved session's key): a former
+ * address of ace's backend reads as the current one, so nobody looks signed out after a move.
+ */
+export const StoredAceAccountOrigin = AceAccountOrigin.transform(onCurrentHost);
+/**
+ * An `https://` or `wss://` address that may be on a former host of ace's backend (a saved
+ * machine's relay, a relay setting), read as the same address on the current host. Any other
+ * address is returned unchanged.
+ */
+export const HostedAddress = z.string().transform(onCurrentHost);
 export const ACE_WEB_SIGN_IN_PATH = "/account/signed-in";
 
 /** `POST /v1/account/login`; the body is optional. */
@@ -92,6 +119,7 @@ export const AceLoginStatus = z.discriminatedUnion("status", [
 
 /** `POST /v1/grants` (ADR 0111), authenticated by the ace session token. */
 export const AceGrantRequest = z.object({
+  purpose: z.literal("spade-cloud").optional(),
   kind: z.enum(["machine", "device"]),
   /** The machine's host id, or the requesting device's device id. */
   subject: z.string().min(1).max(128),

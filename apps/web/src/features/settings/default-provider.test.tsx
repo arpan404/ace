@@ -38,8 +38,9 @@ test("the Providers list trusts working models for unreported login and refreshe
   await app.open("/settings/providers");
 
   const row = await screen.findByRole("group", { name: "Codex" }, { timeout: 10_000 });
-  // It lists models, so it works; nothing in the list calls it unknown.
-  expect(within(row).queryByText("Ready")).toBeNull();
+  // It lists models, so it works: the list says Ready, never unknown.
+  expect(await within(row).findByText("Ready")).toBeTruthy();
+  expect(within(row).queryByText(/unknown|not reported/i)).toBeNull();
   codex.auth = "logged_out";
   await userEvent.click(screen.getByRole("button", { name: "Check again" }));
   await within(row).findByRole("button", { name: "Sign in to Codex" });
@@ -100,7 +101,5 @@ test("with no default picked, Settings shows the installed provider new threads 
     scope: {},
   });
   expect(reply.entries[0]?.provenance).toBe("defaults");
-  expect(
-    screen.getByText("The provider new threads start with. You can choose another in each thread."),
-  ).toBeTruthy();
+  expect(screen.getByText("Each thread can switch.")).toBeTruthy();
 });

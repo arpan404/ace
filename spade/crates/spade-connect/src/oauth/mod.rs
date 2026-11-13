@@ -500,6 +500,13 @@ async fn post_token_form(
     Ok((status, read_json(response).await?))
 }
 
+/// The tokens in a token response's JSON, as Spade Cloud passes it on sealed.
+pub fn tokens_from_json(bytes: &[u8]) -> Result<Tokens, OauthError> {
+    let answer: Value = serde_json::from_slice(bytes)
+        .map_err(|_| OauthError::Network("the tokens didn't read".into()))?;
+    tokens_from(&answer)
+}
+
 /// The tokens in a token endpoint's successful answer.
 fn tokens_from(answer: &Value) -> Result<Tokens, OauthError> {
     let access = answer

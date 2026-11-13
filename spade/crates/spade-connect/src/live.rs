@@ -301,16 +301,29 @@ impl Connectors {
             )
         };
         let expiring = match &record.auth {
-            Auth::Oauth(facts) => facts
-                .expires_at_ms
-                .is_some_and(|at| at - self.now() < RENEW_AHEAD_MS),
+            Auth::Oauth(facts) => {
+                facts
+                    .expires_at_ms
+                    .is_some_and(|at| at - self.now() < RENEW_AHEAD_MS)
+                    && !self.cloud_waiting_to_renew(&record.id, facts)
+            }
             _ => false,
         };
         if expiring {
-            self.renew(record, generation).await?;
-            return self
-                .current_client(&record.id)
-                .ok_or_else(|| Unready::Other("the renewed session went away".into()));
+            match self.renew(record, generation).await {
+                Ok(()) => {
+                    return self
+                        .current_client(&record.id)
+                        .ok_or_else(|| Unready::Other("the renewed session went away".into()));
+                }
+                // Spade Cloud or ace is away: a token that is still good keeps working until it
+                // expires, and the connector's view says why it can't renew.
+                Err(Unready::Other(why)) if matches!(&record.auth, Auth::Oauth(f) if self.cloud_token_good(f)) =>
+                {
+                    tracing::info!(connector = %record.id, %why, "renewing through Spade Cloud failed; the current token stays in use");
+                }
+                Err(error) => return Err(error),
+            }
         }
         if let Some(client) = existing {
             return Ok((client, generation));
@@ -401,29 +414,37 @@ impl Connectors {
             metadata_document: self.client_metadata.as_deref() == Some(facts.client_id.as_str()),
         };
         let net = self.addresses.for_connector(record.local, self.timeout);
-        let tokens = match oauth::refresh(
-            &net,
-            &facts.token_endpoint,
-            &client,
-            &refresh,
-            &facts.resource,
-        )
-        .await
-        {
-            Ok(tokens) => tokens,
-            Err(OauthError::Refused(_) | OauthError::NeedsClient) => {
-                return Err(Unready::NeedsReconnect);
+        let tokens = if facts.cloud {
+            match self.cloud_refresh(&record, &refresh).await {
+                crate::cloud_sign_in::Renewal::Renewed(tokens) => tokens,
+                crate::cloud_sign_in::Renewal::Refused => return Err(Unready::NeedsReconnect),
+                crate::cloud_sign_in::Renewal::Away(why) => return Err(Unready::Other(why)),
             }
-            Err(error) => {
-                // The sign-in server's words may quote what it was sent.
-                let known = [Some(&refresh), client.secret.as_ref()];
-                let why = known
-                    .into_iter()
-                    .flatten()
-                    .fold(error.to_string(), |text, secret| {
-                        Secret::new(secret.clone()).scrub(text)
-                    });
-                return Err(Unready::Other(why));
+        } else {
+            match oauth::refresh(
+                &net,
+                &facts.token_endpoint,
+                &client,
+                &refresh,
+                &facts.resource,
+            )
+            .await
+            {
+                Ok(tokens) => tokens,
+                Err(OauthError::Refused(_) | OauthError::NeedsClient) => {
+                    return Err(Unready::NeedsReconnect);
+                }
+                Err(error) => {
+                    // The sign-in server's words may quote what it was sent.
+                    let known = [Some(&refresh), client.secret.as_ref()];
+                    let why = known
+                        .into_iter()
+                        .flatten()
+                        .fold(error.to_string(), |text, secret| {
+                            Secret::new(secret.clone()).scrub(text)
+                        });
+                    return Err(Unready::Other(why));
+                }
             }
         };
         // Written only if nothing disconnected it while the refresh was out.

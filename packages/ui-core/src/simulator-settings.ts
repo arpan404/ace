@@ -8,8 +8,7 @@ import type { Toolchain } from "@ace/protocol";
 
 export const devicesSwitch = {
   title: "Use simulators and emulators",
-  description:
-    "Watch and drive this machine's iOS Simulators and Android emulators from any thread, and let agents use them.",
+  description: "Watch and drive them from any thread, and let agents use them.",
   /** Turning devices off ends what agents and live views are doing on them, so it asks first. */
   askOff: {
     title: "Turn off simulators and emulators?",

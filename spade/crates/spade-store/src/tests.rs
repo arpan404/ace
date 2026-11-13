@@ -323,7 +323,20 @@ fn conversations_from_before_agents_become_bots_with_nothing_lost() -> Result<()
             ),
         ]
     );
-    assert!(agents.iter().all(|a| a.avatar.contains("\"generated\"")));
+    let old_face = spade_core::face::face_for_id("a_c_old", &[]);
+    let new_face = spade_core::face::face_for_id(
+        "a_c_new",
+        &old_face.get("pair").into_iter().collect::<Vec<_>>(),
+    );
+    let faces: Vec<serde_json::Value> = agents
+        .iter()
+        .map(|a| serde_json::from_str(&a.avatar).unwrap_or_default())
+        .collect();
+    assert_eq!(
+        faces,
+        vec![new_face.to_json(), old_face.to_json()],
+        "seeded by id, oldest first"
+    );
     assert_eq!(store.events("c_old", 0)?.len(), 3, "every event kept");
     store.fill_missing_models("preset/main")?;
     assert_eq!(
@@ -395,5 +408,45 @@ fn endpoints_models_and_settings_are_kept_and_never_hold_a_key() -> Result<()> {
     assert_eq!(store.setting("fast_model")?, None);
     assert!(store.delete_endpoint("go")?);
     assert!(store.endpoints()?.is_empty());
+    Ok(())
+}
+
+#[test]
+fn initials_avatars_become_faces_seeded_by_the_agent_and_pictures_stay() -> Result<()> {
+    let (_dir, path) = temp();
+    let store = Store::open(&path)?;
+    store.create_agent(bot("a_one", "c_one", "m/x"), &[], 1)?;
+    store.create_agent(bot("a_two", "c_two", "m/x"), &[], 2)?;
+    drop(store);
+    let picture = json!({ "kind": "image", "sha256": "ab".repeat(32) }).to_string();
+    {
+        let connection = rusqlite::Connection::open(&path)?;
+        connection.execute(
+            "UPDATE agents SET avatar = ?1 WHERE id = 'a_two'",
+            [&picture],
+        )?;
+        connection.pragma_update(
+            None,
+            "user_version",
+            crate::schema::current_version() as i64 - 1,
+        )?;
+    }
+    let store = Store::open(&path)?;
+    let one = store.agent("a_one")?.map(|a| a.avatar).unwrap_or_default();
+    let two = store.agent("a_two")?.map(|a| a.avatar).unwrap_or_default();
+    assert_eq!(
+        one,
+        spade_core::face::face_for_id("a_one", &[])
+            .to_json()
+            .to_string()
+    );
+    assert_eq!(two, picture, "a picture is kept");
+    drop(store);
+    // Opening again changes nothing: the migration ran once.
+    let store = Store::open(&path)?;
+    assert_eq!(
+        store.agent("a_one")?.map(|a| a.avatar).unwrap_or_default(),
+        one
+    );
     Ok(())
 }

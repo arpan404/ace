@@ -1,6 +1,12 @@
 import { createServer } from "node:http";
 import { expect, test } from "vitest";
-import { DeviceId, type DeviceScope, type ServerMessage, SpadeClientMessage } from "@ace/protocol";
+import {
+  DeviceId,
+  type DeviceScope,
+  type ServerMessage,
+  type SpadeStatus,
+  SpadeClientMessage,
+} from "@ace/protocol";
 import type { z } from "zod";
 import { SpadeLink } from "../spade/link.ts";
 import { createSpadeSession } from "./spade-session.ts";
@@ -36,8 +42,26 @@ function session(scopes: readonly DeviceScope[]) {
     revocations++;
     return true;
   });
-  return { handle, sent, revocations: () => revocations };
+  return { handle, sent, spade, revocations: () => revocations };
 }
+
+test("while Spade is hidden the daemon says so and refuses every request with hidden", async () => {
+  const { handle, spade } = session(["read", "operate"]);
+  spade.setHidden(true);
+  expect(await handle({ type: "spade.status", requestId: "s" })).toMatchObject({
+    status: { state: "off", hidden: true },
+  });
+  expect(
+    await handle({ type: "spade.http", requestId: "h", method: "GET", path: "/v1/conversations" }),
+  ).toMatchObject({ result: { kind: "error", code: "hidden" } });
+  expect(
+    await handle({ type: "spade.live.subscribe", requestId: "l", path: "/v1/live" }),
+  ).toMatchObject({ type: "spade.live.ended", reason: "hidden" });
+  spade.setHidden(false);
+  expect(
+    await handle({ type: "spade.http", requestId: "h2", method: "GET", path: "/v1/conversations" }),
+  ).toMatchObject({ result: { kind: "error", code: "unavailable" } });
+});
 
 test("only an administrator can revoke Spade's grant", async () => {
   for (const [scopes, revoked] of [
@@ -344,4 +368,49 @@ test("media as large as Spade takes passes both ways, and a text window keeps th
   close();
   spade.closeAllConnections();
   await new Promise((resolve) => spade.close(resolve));
+});
+
+test("hiding Spade ends streams that were already open with hidden", async ({ onTestFinished }) => {
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { "Content-Type": "text/event-stream" });
+    response.write("event: ready\ndata: {}\n\n");
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  onTestFinished(() => {
+    server.closeAllConnections();
+    server.close();
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("No port");
+  let statusChanged: ((status: SpadeStatus) => void) | undefined;
+  const sent: ServerMessage[] = [];
+  const service = createSpadeSession({
+    options: {
+      spade: {
+        ready: () => ({
+          connection: { host: "127.0.0.1", port: address.port, token: "t".repeat(64) },
+          generation: 1,
+        }),
+        status: () => ({ state: "ready" }),
+        subscribe: (listener) => {
+          statusChanged = listener;
+          return () => {};
+        },
+        onRunEnded: () => () => {},
+      },
+    },
+    authorize: () => true,
+    connected: () => true,
+    send: (message) => sent.push(message as ServerMessage),
+  });
+  onTestFinished(() => service.close?.());
+  await service.handle?.(
+    SpadeClientMessage.parse({ type: "spade.live.subscribe", requestId: "live", path: "/v1/live" }),
+    DeviceId.parse("device"),
+  );
+  await expect.poll(() => sent.some((message) => message.type === "spade.live.frame")).toBe(true);
+  statusChanged?.({ state: "off", hidden: true });
+  await expect
+    .poll(() => sent.find((message) => message.type === "spade.live.ended"))
+    .toEqual({ type: "spade.live.ended", requestId: "live", reason: "hidden" });
 });

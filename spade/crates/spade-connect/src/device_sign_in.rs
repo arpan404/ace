@@ -231,6 +231,7 @@ impl Connectors {
             resource: poller.resource.clone(),
             client: poller.client.clone(),
             shipped: true,
+            cloud: false,
             scopes: poller.scopes.clone(),
             tokens,
         })
@@ -300,6 +301,8 @@ impl Connectors {
                         _ => None,
                     },
                     device: Some(device),
+                    via: None,
+                    notice: None,
                 })
             })
             .collect()

@@ -130,7 +130,7 @@ test("storage reads its usage in words and a cleanup names what goes before remo
     rows: expect.arrayContaining([
       { kind: "logs", title: "Logs and support bundles", detail: "2 items", size: "3 KB" },
     ]),
-    database: { size: "4.0 MB", detail: "1.0 MB can be reclaimed by compacting." },
+    database: { size: "4.0 MB", detail: "1.0 MB can be reclaimed." },
   });
 
   const preview = await call(services, sink, {

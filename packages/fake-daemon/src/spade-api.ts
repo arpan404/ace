@@ -1,4 +1,5 @@
 import type { FakeSpade, FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
+import { FakeSpadeComputer } from "./spade-computer.ts";
 import { FakeSpadeConnectors } from "./spade-connectors-api.ts";
 import { FakeSpadeNotes } from "./spade-notes.ts";
 import { FakeSpadeSearch } from "./spade-search.ts";
@@ -6,6 +7,7 @@ import { FakeSpadeOversight, type FakeSpadeSpending } from "./spade-oversight.ts
 import { FakeSpadeRoutines } from "./spade-routines.ts";
 import { base64Bytes, sha256Hex } from "./sha256.ts";
 import { FakeSpadeTeams } from "./spade-teams.ts";
+import { faceForId, repairFace, storedBotFace } from "@ace/ui-core/bot-face";
 
 /*
  * A stateful stand-in for Spade's local API (ADR 0126, 0127), in Spade's own JSON: agents with
@@ -71,6 +73,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
   keyFailure: number | undefined;
   /** True: the keychain hasn't answered (a prompt is open), so keys read as not known yet. */
   keysPending = false;
+  characterAvatars = true;
   /** `PUT /v1/main`: false leaves the main agent out of the list, as Spade does. */
   mainEnabled = true;
   /** The person's subscriptions as ace lists them (ADR 0133), in Spade's JSON. */
@@ -79,6 +82,10 @@ export class FakeSpadeApi implements FakeSpadeServer {
   liveModels = new Map<string, Json[] | number>();
   /** Each agent's workspace files (ADR 0130), by path relative to it; folders are implied. */
   files = new Map<string, Record<string, string>>();
+  /** Empty folders made in each agent's workspace, by agent id. */
+  folders = new Map<string, Set<string>>();
+  /** Each bot's computer: driver, surfaces, terminal and file writes. */
+  readonly computer: FakeSpadeComputer;
   /** Each agent's skill proposals, in Spade's JSON. */
   proposals = new Map<string, Json[]>();
   /** What the bots remember, their own and the shared ones (ADR 0128). */
@@ -122,6 +129,28 @@ export class FakeSpadeApi implements FakeSpadeServer {
         ),
       now,
     });
+    const conversationOf = (id: string) =>
+      this.agents.find((agent) => agent.id === id)?.conversation;
+    this.computer = new FakeSpadeComputer({
+      now,
+      emitConversation: (agent, event, data) => {
+        const conversation = conversationOf(agent);
+        if (conversation) this.spade.emit(`/v1/conversations/${conversation}/live`, event, data);
+      },
+      emitTerminal: (agent, event, data) =>
+        this.spade.emit(`/v1/agents/${encodeURIComponent(agent)}/terminal/live`, event, data),
+      files: (agent) => {
+        const files = this.files.get(agent) ?? {};
+        this.files.set(agent, files);
+        return files;
+      },
+      folders: (agent) => {
+        const folders = this.folders.get(agent) ?? new Set<string>();
+        this.folders.set(agent, folders);
+        return folders;
+      },
+      exists: (agent) => this.agents.some((candidate) => candidate.id === agent),
+    });
     spade.serve(this);
   }
 
@@ -136,7 +165,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
     const agent: FakeSpadeAgent = {
       kind: "bot",
       task: "",
-      avatar: { kind: "generated", initials: fields.name.slice(0, 2).toUpperCase(), color: "teal" },
+      avatar: storedBotFace(faceForId(id)) as Json,
       model: "openrouter/saved/model",
       conversation: `c-${id}`,
       created_at: this.now(),
@@ -238,6 +267,9 @@ export class FakeSpadeApi implements FakeSpadeServer {
   }
 
   open(path: string): { event: string; data: string }[] {
+    const terminal = /^\/v1\/agents\/([^/]+)\/terminal\/live\?after=(\d+)/.exec(path);
+    if (terminal)
+      return this.computer.backlog(decodeURIComponent(terminal[1] ?? ""), Number(terminal[2]));
     const match = /^\/v1\/conversations\/([^/]+)\/live\?after=(\d+)/.exec(path);
     if (!match) return [];
     const conversation = decodeURIComponent(match[1] ?? "");
@@ -255,15 +287,27 @@ export class FakeSpadeApi implements FakeSpadeServer {
       ...(agent
         ? [{ event: "status", data: JSON.stringify({ state: agent.state, status: agent.status }) }]
         : []),
+      // A bot's computer once on connect, then on every change.
+      ...(agent && this.agents.some((bot) => bot === agent)
+        ? [{ event: "computer", data: JSON.stringify(this.computer.of(agent.id)) }]
+        : []),
     ];
   }
 
-  answer(request: FakeSpadeRequest): FakeSpadeAnswer {
+  answer(request: FakeSpadeRequest): FakeSpadeAnswer | Promise<FakeSpadeAnswer> {
     this.requests.push(request);
     const [path = "", query = ""] = request.path.split("?");
     const parts = path.split("/").slice(2).map(decodeURIComponent);
     const body = request.body ? (JSON.parse(request.body) as Json) : {};
     const [root, id, sub, subId] = parts;
+    if (root === "agents" && id && (sub === "computer" || sub === "terminal" || sub === "files"))
+      return this.computer.route(
+        request.method,
+        id,
+        parts.slice(2),
+        new URLSearchParams(query),
+        body,
+      );
     if (root === "agents" && id && sub === "workspace")
       return this.workspaceRoute(request.method, id, subId, new URLSearchParams(query));
     if (root === "agents" && id && sub === "skill-proposals")
@@ -304,6 +348,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
           ? this.endpoints.map((endpoint) => ({ ...endpoint, key_set: null, key_source: null }))
           : this.endpoints,
         keys_pending: this.keysPending,
+        ...(this.characterAvatars ? { character_avatars: true } : {}),
         presets: this.presets,
         fast_model: this.fastModel,
         transcription_model: this.transcriptionModel,
@@ -363,7 +408,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
             (a, b) =>
               Number(b.kind === "main") - Number(a.kind === "main") ||
               b.last_activity - a.last_activity,
-          ),
+          )
+          .map((agent) => Object.assign({}, agent, { computer: this.computer.of(agent.id) })),
       });
     if (!id && method === "POST") {
       const avatar = body.avatar as Json | undefined;
@@ -371,16 +417,11 @@ export class FakeSpadeApi implements FakeSpadeServer {
         name: String(body.name ?? ""),
         task: String(body.task ?? ""),
         model: String(body.model ?? ""),
-        avatar:
-          avatar?.kind === "image"
-            ? { kind: "image", sha256: "a".repeat(64) }
-            : {
-                kind: "generated",
-                initials: String(body.name ?? "")
-                  .slice(0, 2)
-                  .toUpperCase(),
-                color: avatar?.color ?? "slate",
-              },
+        ...(avatar?.kind === "image"
+          ? { avatar: { kind: "image", sha256: "a".repeat(64) } }
+          : avatar?.kind === "character"
+            ? { avatar: storedBotFace(repairFace(avatar)) as Json }
+            : {}),
       });
       return reply({ agent }, 201);
     }
@@ -391,7 +432,11 @@ export class FakeSpadeApi implements FakeSpadeServer {
         return problem(400, "Spade's name and face can't change.");
       for (const key of ["name", "task", "model"] as const)
         if (typeof body[key] === "string") agent[key] = body[key];
-      if (body.avatar && typeof body.avatar === "object") agent.avatar = body.avatar as Json;
+      if (body.avatar && typeof body.avatar === "object") {
+        const avatar = body.avatar as Json;
+        agent.avatar =
+          avatar.kind === "character" ? (storedBotFace(repairFace(avatar)) as Json) : avatar;
+      }
       return reply({ agent });
     }
     if (method === "DELETE") {
@@ -417,6 +462,9 @@ export class FakeSpadeApi implements FakeSpadeServer {
       if (!path) return problem(422, "the workspace itself cannot be deleted");
       for (const name of Object.keys(files))
         if (name === path || name.startsWith(`${path}/`)) delete files[name];
+      const folders = this.folders.get(agent);
+      for (const folder of folders ?? [])
+        if (folder === path || folder.startsWith(`${path}/`)) folders?.delete(folder);
       return { status: 204 };
     }
     if (view === "file") {
@@ -437,6 +485,18 @@ export class FakeSpadeApi implements FakeSpadeServer {
         size: folder ? 0 : text.length,
         modified_at: null,
       });
+    }
+    for (const folder of this.folders.get(agent) ?? []) {
+      if (!folder.startsWith(prefix)) continue;
+      const [first = ""] = folder.slice(prefix.length).split("/");
+      if (!entries.has(first))
+        entries.set(first, {
+          name: first,
+          path: `${prefix}${first}`,
+          kind: "folder",
+          size: 0,
+          modified_at: null,
+        });
     }
     const list = [...entries.values()].toSorted(
       (a, b) =>

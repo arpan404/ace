@@ -144,26 +144,6 @@ pub const RETRYING: &str = "Retrying";
 pub const WAITING_FOR_YOU: &str = "Waiting for you";
 pub const IN_BACKGROUND: &str = "Working in the background";
 
-/// Initials for a generated avatar: the first letters of the first two words, else the first two
-/// letters of the one word, upper case.
-pub fn initials(name: &str) -> String {
-    let words: Vec<Vec<char>> = name
-        .split_whitespace()
-        .map(|w| {
-            w.chars()
-                .filter(|c| c.is_alphanumeric())
-                .collect::<Vec<_>>()
-        })
-        .filter(|w| !w.is_empty())
-        .collect();
-    let picked: Vec<char> = match words.as_slice() {
-        [] => vec!['?'],
-        [one] => one.iter().take(2).copied().collect(),
-        [first, second, ..] => vec![first[0], second[0]],
-    };
-    picked.into_iter().flat_map(char::to_uppercase).collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -225,12 +205,5 @@ mod tests {
         let text = last_message(&events).map(|m| m.text).unwrap_or_default();
         assert_eq!(text.chars().count(), PREVIEW);
         assert!(text.ends_with('…'));
-    }
-
-    #[test]
-    fn initials_come_from_the_name() {
-        assert_eq!(initials("research bot"), "RB");
-        assert_eq!(initials("Atlas"), "AT");
-        assert_eq!(initials("  "), "?");
     }
 }

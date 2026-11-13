@@ -27,6 +27,13 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
         capabilities: ["images", "tools"],
         source: "typed",
       },
+      {
+        id: "openai/gpt-6.1-mini",
+        name: "GPT-6.1 Mini",
+        context: 400_000,
+        capabilities: ["images", "tools"],
+        source: "typed",
+      },
     ],
   };
   here.endpoints.push(endpoint);
@@ -93,13 +100,35 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
   const inbox = here.addAgent({
     id: "inbox",
     name: "Inbox",
-    avatar: { kind: "generated", initials: "IN", color: "teal" },
+    avatar: {
+      kind: "character",
+      v: 1,
+      body: "ghost",
+      pair: "mint",
+      ears: "none",
+      marking: "none",
+      eyes: "sleepy",
+      mouth: "smile",
+      cheeks: "blush",
+      accessory: "headphones",
+    },
     last_activity: minutes(11),
   });
   const notes = here.addAgent({
     id: "notes",
     name: "Release notes",
-    avatar: { kind: "generated", initials: "RN", color: "indigo" },
+    avatar: {
+      kind: "character",
+      v: 1,
+      body: "bot",
+      pair: "stone",
+      ears: "none",
+      marking: "none",
+      eyes: "round",
+      mouth: "none",
+      cheeks: "none",
+      accessory: "none",
+    },
     last_activity: minutes(44),
   });
   const garden = here.addAgent({
@@ -107,7 +136,18 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     name: "Garden",
     model: "cli:codex@work/gpt-6.1-sol",
     problem: "Codex is signed out. Sign in to it in ace, then send again.",
-    avatar: { kind: "generated", initials: "GA", color: "green" },
+    avatar: {
+      kind: "character",
+      v: 1,
+      body: "sprout",
+      pair: "mint",
+      ears: "none",
+      marking: "none",
+      eyes: "egg",
+      mouth: "smile",
+      cheeks: "blush",
+      accessory: "none",
+    },
     last_activity: minutes(60 * 20),
     last_message: {
       from: "person",
@@ -116,6 +156,44 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
       from_agent: null,
     },
   });
+  // A group of three, one of them working, and templates to start a bot from.
+  here.teams.addGroup({
+    id: "launch",
+    name: "Launch crew",
+    members: [notes, inbox, garden].map((bot) => ({
+      agent: bot.id,
+      machine: null,
+      name: bot.name,
+      avatar: bot.avatar,
+      away: false,
+    })),
+    last_activity: minutes(60),
+  });
+  here.teams.templates.push(
+    template("research", "Research", "Finds and checks sources.", {
+      body: "round",
+      pair: "lagoon",
+      marking: "muzzle",
+      mouth: "smile",
+      cheeks: "blush",
+      accessory: "glasses",
+    }),
+    template("travel", "Travel", "Plans trips and watches fares.", {
+      body: "fox",
+      pair: "ember",
+      eyes: "almond",
+      mouth: "smile",
+      accessory: "scarf",
+    }),
+    template("writing", "Writing", "Drafts and edits with you.", {
+      body: "cloud",
+      pair: "lilac",
+      eyes: "big",
+      mouth: "smile",
+      cheeks: "blush",
+      accessory: "flower",
+    }),
+  );
   const say = (text: string) => here.store(spade.conversation, { type: "user_message", text });
   say("Can you plan my Lisbon trip, the 14th to the 18th? Keep hotels under €180 a night.");
   here.reply(
@@ -182,17 +260,49 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     inbox,
     "Drafted it:\n\n“Hi Marta, Thursday works for the plumber. Any time after 2pm is fine. Thanks, Arpan”",
   );
-  here.ask(inbox, "k-mail", "send_email");
+  here.ask(inbox, "k-mail", "send_email", {
+    to: { name: "Marta Reyes", email: "marta@example.com" },
+    subject: "Plumber",
+    body: "Hi Marta, Thursday works for the plumber. Any time after 2pm is fine. Thanks, Arpan",
+  });
 
-  here.store(notes.conversation, { type: "user_message", text: "Draft the notes for v0.0.21." });
+  here.store(notes.conversation, {
+    type: "user_message",
+    text: "Draft the 0.0.22 release notes from everything merged since the 6th.",
+  });
+  here.reply(
+    notes,
+    "On it. I'll write them in TextEdit on this Mac so you can watch, then send you the file.",
+  );
   here.store(notes.conversation, { type: "reply_started", reply: "r-notes" });
-  here.status(notes, "working", "Reading the merged pull requests");
+  here.status(notes, "working", "Writing the Fixes section");
 
   // Flights watches fares: two replies in a run, then a reply that couldn't reach the endpoint.
   const flights = here.addAgent({
     id: "flights",
     name: "Flights",
-    avatar: { kind: "generated", initials: "FL", color: "amber" },
+    task: "Watch fares to Lisbon for the 14th to the 18th and tell me when it's worth booking.",
+    model: "openrouter/openai/gpt-6.1-mini",
+    spending: {
+      today_micros: 180_000,
+      month_micros: 1_240_000,
+      daily_cap_micros: 1_000_000,
+      monthly_cap_micros: null,
+      capped: null,
+      resets_at: null,
+    },
+    avatar: {
+      kind: "character",
+      v: 1,
+      body: "fox",
+      pair: "ember",
+      ears: "none",
+      marking: "stripes",
+      eyes: "almond",
+      mouth: "smile",
+      cheeks: "none",
+      accessory: "none",
+    },
     last_activity: minutes(3),
   });
   here.store(flights.conversation, {
@@ -268,11 +378,65 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     "forecast.json": '{"tomorrow": {"rain_mm": 2}}',
   });
 
+  seedComputers(here, now);
+  // Flights checks fares on its own.
+  for (const routine of [
+    {
+      name: "Fare check",
+      instruction: "Check fares to Lisbon for the 14th to the 18th.",
+      trigger: { kind: "schedule", schedule: "daily at 18:00" },
+    },
+    {
+      name: "Weekday summary",
+      instruction: "Summarise last week's fares.",
+      trigger: { kind: "schedule", schedule: "weekdays at 9:00" },
+    },
+  ])
+    here.routines.agentRoute("POST", "flights", "routines", routine);
+  here.oversight.activity.set(
+    "flights",
+    [
+      { kind: "tool", name: "web_search", summary: "Checked 6 airlines", outcome: "ok", ago: 3 },
+      { kind: "tool", name: "web_fetch", summary: "Found €212 on TAP", outcome: "ok", ago: 3 },
+      {
+        kind: "routine",
+        name: "Fare check",
+        summary: "Fare check ran",
+        outcome: "finished",
+        ago: 540,
+      },
+    ].map((fields, index) =>
+      Object.assign({}, fields, {
+        id: `act-${index}`,
+        seq: 3 - index,
+        at: minutes(fields.ago),
+        cost_micros: null,
+      }),
+    ),
+  );
+  for (const text of [
+    "Home airport is OPO",
+    "Prefers aisle seats and morning flights",
+    "Budget: under €220 return",
+  ])
+    here.notes.add({ text, agent: "flights", scope: "agent", source: "bot" });
+
   const remote = running(server);
   remote.addAgent({
     id: "research",
     name: "Research",
-    avatar: { kind: "generated", initials: "RE", color: "violet" },
+    avatar: {
+      kind: "character",
+      v: 1,
+      body: "blob",
+      pair: "rose",
+      ears: "cat",
+      marking: "none",
+      eyes: "big",
+      mouth: "cat",
+      cheeks: "blush",
+      accessory: "none",
+    },
     last_activity: minutes(60 * 24 * 2),
     last_message: {
       from: "agent",
@@ -288,6 +452,62 @@ function running(daemon: FakeDaemon) {
   daemon.spade.status = { state: "ready", version: "0.6.0" };
   daemon.services.settings.write("spade.enabled", true);
   return new FakeSpadeApi(daemon.spade, () => Date.now());
+}
+
+/**
+ * What the bots do on their computers: Spade compares hotels in its browser, Release notes
+ * writes in TextEdit with its terminal open, Flights used its browser and terminal earlier.
+ */
+function seedComputers(spade: FakeSpadeApi, now: number) {
+  const { computer } = spade;
+  computer.use("spade", {
+    kind: "browser",
+    live: true,
+    title: "Comparing four hotels under €180",
+    url: "https://www.staybook.com/lisbon?in=14-11&out=18-11&max=180",
+  });
+  computer.use("notes", {
+    kind: "screen",
+    live: true,
+    title: "Writing the Fixes section in TextEdit",
+  });
+  computer.use("notes", { kind: "terminal", live: true, title: "git log --oneline v0.0.21.." });
+  computer.print(
+    "notes",
+    "$ git log --oneline v0.0.21..\r\n" +
+      "\x1b[33m8f2c1a0\x1b[0m Spade: character faces for bots\r\n" +
+      "\x1b[33m3b9e771\x1b[0m Provider tool status: read an unknown state\r\n" +
+      "\x1b[33m51d0ce4\x1b[0m Zod guard: load every browser worker\r\n" +
+      "\x1b[33mc07a9e2\x1b[0m Fix the composer's paste jump\r\n$ ",
+  );
+  computer.use("flights", {
+    kind: "browser",
+    live: false,
+    title: "Flights to Lisbon",
+    url: "https://www.google.com/travel/flights",
+    last: now - 3 * 60_000,
+  });
+  computer.use("flights", {
+    kind: "terminal",
+    live: false,
+    title: "python fares.py",
+    last: now - 3 * 60_000,
+  });
+  computer.print(
+    "flights",
+    "$ python fares.py --to LIS --from OPO\r\nCheapest: €212 TAP 07:40\r\n$ ",
+  );
+  spade.files.set("spade", {
+    "lisbon-trip.md":
+      "# Lisbon, 14–18 Nov\n\n- Flights: TAP TP1351\n- Hotel: under €180 near Chiado\n- Day 2: Sintra\n",
+    "hotels.csv": "name,price\nCasa do Largo,178\nHotel Lusa,164\nBrasileira Suites,171\n",
+    "receipts/tap-qx7k2p.txt": "TAP booking QX7K2P\n",
+  });
+  spade.files.set("flights", {
+    "flights.md": "# Fares to Lisbon\n\nCheapest so far: €212 return on TAP.\n",
+    "fares-history.csv": "date,price\n2026-11-10,239\n2026-11-11,224\n2026-11-12,212\n",
+  });
+  spade.files.set("notes", { "release-notes-0.0.22.md": "# ace 0.0.22\n\n## Fixes\n\n" });
 }
 
 /** A few apps from the catalogue, two of them connected and one signed out (ADR 0131). */
@@ -354,3 +574,14 @@ function seedConnectors(spade: FakeSpadeApi) {
   );
   spade.connectors.access.set("inbox", { all: false, connectors: ["notion"] });
 }
+
+/** A template with its own face, as Spade ships them. */
+const template = (id: string, name: string, blurb: string, face: Record<string, string>) => ({
+  id,
+  name,
+  blurb,
+  task: blurb,
+  face: { kind: "character", v: 1, ...face },
+  model_kind: "capable",
+  routines: [],
+});

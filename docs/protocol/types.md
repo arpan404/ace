@@ -32747,7 +32747,7 @@ Example:
 
 [JSON Schema](schema/SpadeErrorCode.json), input validation.
 
-Type: ["forbidden","invalid_path","unavailable","too_large","invalid_body","failed","limit"]. See JSON Schema for constraints.
+Type: ["forbidden","invalid_path","unavailable","hidden","too_large","invalid_body","failed","limit"]. See JSON Schema for constraints.
 
 Example:
 
@@ -32966,7 +32966,7 @@ Example:
 
 [JSON Schema](schema/SpadeLiveEndReason.json), input validation.
 
-Type: ["closed","restarted","unsubscribed","refused","forbidden","invalid_path","unavailable","too_large","invalid_body","limit"]. See JSON Schema for constraints.
+Type: ["closed","restarted","unsubscribed","refused","forbidden","invalid_path","unavailable","hidden","too_large","invalid_body","limit"]. See JSON Schema for constraints.
 
 Example:
 

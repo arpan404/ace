@@ -103,11 +103,12 @@ test("a command the bot wants to run shows itself, and can be allowed always as 
     api.ask(writer, "k1", "shell", { command: "npm test" });
   });
   await userEvent.click(await botRow("Writer"));
-  const ask = await screen.findByText("Writer wants to run a command.");
-  const bubble = ask.closest("[role=article]");
-  if (!(bubble instanceof HTMLElement)) throw new Error("no bubble");
-  expect(within(bubble).getByLabelText("Command").textContent).toBe("npm test");
-  await userEvent.click(within(bubble).getByRole("button", { name: "Always allow this command" }));
+  const request = within(
+    await screen.findByRole("group", { name: "Writer wants to run a command" }),
+  );
+  await userEvent.click(request.getByRole("button", { name: "Review" }));
+  expect(request.getByLabelText("Command").textContent).toBe("npm test");
+  await userEvent.click(request.getByRole("button", { name: "Always allow this command" }));
   await waitFor(() =>
     expect(spade.sent("POST", "/v1/conversations/c-writer/approvals/k1")).toEqual([
       { allowed: true, always: true },
@@ -115,24 +116,30 @@ test("a command the bot wants to run shows itself, and can be allowed always as 
   );
 });
 
-test("Files lists the bot's folder, opens a file read-only and deletes after confirming", async () => {
+test("Files lists the bot's folder, opens a file and deletes after confirming", async () => {
   const { spade } = await spadeApp("/spade/writer", (api) => {
     withWriter(api);
     api.files.set("writer", { "notes/plan.md": "# Plan\nShip it.", "todo.txt": "milk" });
   });
   await screen.findByRole("feed", { name: "Conversation with Writer" });
-  await userEvent.click(await screen.findByRole("button", { name: /more|menu|⋯/i }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Files" }));
+  // From the bot's page: its Files, all of them.
+  await userEvent.click(await screen.findByRole("link", { name: /^Writer on .*open its page$/ }));
+  const section = within(await screen.findByRole("region", { name: "Files" }));
+  await userEvent.click(section.getByRole("button", { name: "All" }));
+  // Changing files needs the person driving.
+  await userEvent.click(await screen.findByRole("button", { name: "Take over" }));
+  await screen.findByRole("button", { name: "Hand back" });
   const files = within(await screen.findByRole("list", { name: "Files" }));
   expect(files.getAllByRole("listitem").map((row) => row.textContent?.split(/\d/)[0])).toEqual([
-    expect.stringContaining("notes/"),
+    expect.stringContaining("notes"),
     expect.stringContaining("todo.txt"),
   ]);
 
-  await userEvent.click(files.getByRole("button", { name: /^notes\// }));
+  await userEvent.click(files.getByRole("button", { name: /^notes/ }));
   const inner = within(await screen.findByRole("list", { name: "Files" }));
   await userEvent.click(await inner.findByRole("button", { name: /^plan\.md/ }));
-  expect((await screen.findByLabelText("notes/plan.md")).textContent).toBe("# Plan\nShip it.");
+  const opened = await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "notes/plan.md" });
+  await waitFor(() => expect(opened.value).toBe("# Plan\nShip it."));
 
   await userEvent.click(
     within(screen.getByRole("navigation", { name: "Folder" })).getByText("Files"),
@@ -140,7 +147,8 @@ test("Files lists the bot's folder, opens a file read-only and deletes after con
   const top = within(await screen.findByRole("list", { name: "Files" }));
   const todo = top.getAllByRole("listitem").find((row) => row.textContent?.includes("todo.txt"));
   if (!todo) throw new Error("no todo.txt row");
-  await userEvent.click(within(todo).getByRole("button", { name: "Delete" }));
+  await userEvent.click(within(todo).getByRole("button", { name: "More for todo.txt" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
   const confirm = within(await screen.findByRole("dialog", { name: "Delete todo.txt?" }));
   await userEvent.click(confirm.getByRole("button", { name: "Delete" }));
   await waitFor(() =>
@@ -163,12 +171,15 @@ test("moving to another folder closes the open file, and Delete names the file's
     },
     { history },
   );
+  await userEvent.click(await screen.findByRole("button", { name: "Take over" }));
+  await screen.findByRole("button", { name: "Hand back" });
   const inner = within(await screen.findByRole("list", { name: "Files" }));
   const plan = (await inner.findAllByRole("listitem")).find((row) =>
     row.textContent?.includes("plan.md"),
   );
   if (!plan) throw new Error("no plan.md row");
-  await userEvent.click(within(plan).getByRole("button", { name: "Delete" }));
+  await userEvent.click(within(plan).getByRole("button", { name: "More for plan.md" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
   const confirm = await screen.findByRole("dialog", { name: "Delete plan.md?" });
   expect(confirm.textContent).toContain("This deletes notes/plan.md from Writer's files.");
   await userEvent.click(within(confirm).getByRole("button", { name: "Cancel" }));

@@ -76,7 +76,7 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
         busy = true
         defer { busy = false }
         do {
-            guard let saved = try secrets.get(key) else { return }
+            guard let saved = try AceHostedOrigins.savedToken(secrets, key: key) else { return }
             let session: AccountSession = try await call("session", token: saved)
             guard session.expiresAt > now() else { throw AccountFailure.expired }
             token = saved; account = session.account

@@ -1,4 +1,6 @@
-import { basename, dirname } from "node:path";
+import { readFile } from "node:fs/promises";
+import { z } from "zod";
+import { basename, dirname, join } from "node:path";
 import { PinnedDirectory } from "@ace/workspace/pinned-directory";
 import { runProcess, type Runner } from "./process.ts";
 import type { SpadeServicePlan } from "./spade-plan.ts";
@@ -8,10 +10,23 @@ export type SpadeServiceState = "absent" | "stopped" | "running";
 
 /** The service manager and a clock, injected so tests can stand in for both. */
 export interface SpadeServicePorts {
+  /** Visibility check; custom runtimes without one manage visibility themselves. */
+  shown?(home: string): Promise<boolean>;
   run: Runner;
   wait(ms: number): Promise<void>;
 }
+const spadeVisibility = z.object({ spade: z.boolean() });
+
 export const systemSpadePorts: SpadeServicePorts = {
+  async shown(home) {
+    try {
+      const value: unknown = JSON.parse(await readFile(join(home, "features.json"), "utf8"));
+      const parsed = spadeVisibility.safeParse(value);
+      return parsed.success && parsed.data.spade;
+    } catch {
+      return false;
+    }
+  },
   run: runProcess,
   wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 };

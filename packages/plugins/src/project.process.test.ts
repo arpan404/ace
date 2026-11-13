@@ -74,7 +74,7 @@ test("Codex loads skills through an ace marketplace and passes TOML MCP override
   const root = join(f.root, "codex");
   const projection = projectPlugins("codex", await f.manager.installed(), { root });
   await materializeProjection(projection, { root });
-  expect(projection.args).toContain('plugins."sample@ace".enabled=true');
+  expect(projection.args).toContain("plugins.sample@ace.enabled=true");
   expect(projection.args).toContain('marketplaces.ace.source_type="local"');
   expect(projection.args).toContain(
     `marketplaces.ace.source=${JSON.stringify(join(root, "generated"))}`,
@@ -87,7 +87,7 @@ test("Codex loads skills through an ace marketplace and passes TOML MCP override
     await readFile(join(root, "generated/plugins/sample/skills/review/SKILL.md"), "utf8"),
   ).toContain("Check the behavior.");
   expect(projection.args).toContain(
-    `mcp_servers."ace-sample__tools"={"command"="node","args"=[${JSON.stringify(join(root, "generated/plugins/sample/payload/scripts/server.js"))},"a quote: \\""],"env"={"MODE"="local"}}`,
+    `mcp_servers.ace-sample__tools={"command"="node","args"=[${JSON.stringify(join(root, "generated/plugins/sample/payload/scripts/server.js"))},"a quote: \\""],"env"={"MODE"="local"}}`,
   );
   expect(projection.args).toContain('developer_instructions="Use TypeScript."');
   expect(await json(join(root, "generated/plugins/sample/hooks/hooks.json"))).toEqual({
@@ -322,7 +322,7 @@ test
         : provider === "cursor"
           ? await readFile(join(root, "generated/plugins/sample/mcp.json"), "utf8")
           : provider === "codex"
-            ? projection.args.find((arg) => arg.startsWith('mcp_servers."ace-sample__tools"='))
+            ? projection.args.find((arg) => arg.startsWith("mcp_servers.ace-sample__tools="))
             : provider === "opencode"
               ? projection.env.OPENCODE_CONFIG_CONTENT
               : JSON.stringify(projection.sessionConfig.mcpServers);

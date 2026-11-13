@@ -29,7 +29,8 @@ test("OpenCode stays quiet without a Sign in action while another source needs a
   const app = fixture();
   await app.open("/settings/providers");
   const row = await screen.findByRole("group", { name: "OpenCode" });
-  expect(within(row).queryByText("Ready")).toBeNull();
+  expect(await within(row).findByText("Ready")).toBeTruthy();
+  expect(within(row).queryByText("Needs attention")).toBeNull();
   expect(within(row).queryByRole("button", { name: /Sign in/ })).toBeNull();
   await userEvent.click(within(row).getByRole("link", { name: "OpenCode" }));
   const accounts = await screen.findByRole("list", { name: "OpenCode accounts" });

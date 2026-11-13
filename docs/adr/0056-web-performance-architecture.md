@@ -249,3 +249,19 @@ Phosphor icons now keep only the weights they are drawn in. `iconWeights` (regul
 | Thread route | 338.0 KB | 328.5 KB | ≤ 345 KB |
 
 Both initial and first screen remain over. Coverage of the startup chunk on an open thread (`--mode perf`) puts the rest in a long tail: about 85 KB minified, roughly 25 KB gzip, across 77 shell modules each under 10 % run, beside React DOM, the router, Zod and Base UI's tooltip roots. The thread route's unrun code is transcript content (steps, subagents, attachments, ace tool specs) that a thread holding such items draws on its first paint, so deferring it would make content appear late.
+
+## Amendment (2026-11-12): worker budgets reset; page budgets kept
+
+Both workers outgrew the 102 KB budget for a worker with the chunks it loads later: the client worker measured 126.1 KB and the machine worker 129.4 KB. Their eager scripts stayed near their size at the October reset (81.2 and 84.7 KB); the growth is about 28 KB of later chunks the two share, loaded through `loadServiceWire()`. Part of it is the service schemas of features added since (machine codes, relay pairing, admission, updates, transfers, outside clients, locked use, Skills, Spade), which the workers keep parsing because the socket is a trust boundary (ADR 0125). The rest is transport: the portable relay with its Noise handshake and flow control, which `relay-route.ts` loads on demand. These chunks are not in the page's static closure and run off the main thread, though `ClientCore.start()` asks for the service schemas at once, so they can download while the first screen loads.
+
+The owner chose to reset the worker budgets to today's sizes plus a little headroom: a worker with its later chunks 135 KB, a worker's eager script 87 KB. Both a worker's eager script and its total stay budgeted: the first guards a worker's startup, the second keeps moving bytes behind `import()` from passing the check. The bundle report now also prints each worker's later chunks alone, without a budget of its own.
+
+Initial JS (335 KB), first screen (680 KB), routes (345 KB) and CSS (30 KB) stay as they are. Initial JS is 30 KB over and the first screen 15 KB over; moving startup code into the thread route can't close both, as that route has only 15 KB left, so the round that follows removes code from startup rather than relocating it, starting with the classic Zod schemas startup still reaches.
+
+## Amendment (2026-11-12): round budgets
+
+The owner asked for round bundle budgets, and whole kilobytes in the report: initial JS 350 KB, first screen 700 KB, route 350 KB, CSS 30 KB, a worker's eager script 90 KB, a worker with its later chunks 140 KB. They replace the numbers above (335, 680, 345, 30, 87 and 135). The check still compares exact sizes. The first screen (693 KB) now passes; initial JS (364 KB) stays over until startup code comes out.
+
+## Amendment (2026-11-12): initial JS budget 365 KB
+
+The startup round got initial JS from 364 to 361 KB. Zod stays at startup because the thread route needs it too, so taking it out of startup only moves it into that route. The rest would need the tooltip and hover-card code out of startup (about 17 KB), either as ace's own smaller implementation or by swapping triggers in after their code loads, both UI risks. The owner chose to stop here and set the initial JS budget to 365 KB. The other budgets are unchanged.

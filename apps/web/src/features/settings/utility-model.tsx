@@ -3,9 +3,10 @@ import { choiceForModel, pickerModelsFromChoices, pickerProviders } from "@ace/u
 import { CaretDownIcon, CheckIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
-import { Button } from "@/components/ui/button.tsx";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
+import { selectTrigger } from "@/components/ui/select.tsx";
+import { cn } from "@/lib/cn.ts";
 import { ModelPickerPanel } from "@/features/model-picker/index.ts";
 import { useModelChoices, useModelCatalogState } from "@/features/models/index.ts";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
@@ -55,18 +56,23 @@ function UtilityModelRow() {
       <DaemonSlot control={{ loaded: choice !== undefined, offline, pending: write.pending }}>
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger
-            render={<Button type="button" variant="secondary" size="sm" disabled={offline} />}
+            // Drawn as a Select, so it lines up with the selects on the page.
+            data-slot="select"
+            disabled={offline}
+            className={cn(selectTrigger, "min-w-36")}
             aria-label={`${row.title}: ${label}`}
           >
-            {resolved && (
-              <ProviderAccountIcon
-                provider={resolved.provider}
-                instance={resolved.instance}
-                size={14}
-                accountLabel={false}
-              />
-            )}
-            <span className="max-w-48 truncate">{label}</span>
+            <span className="inline-flex min-w-0 items-center gap-2">
+              {resolved && (
+                <ProviderAccountIcon
+                  provider={resolved.provider}
+                  instance={resolved.instance}
+                  size={14}
+                  accountLabel={false}
+                />
+              )}
+              <span className="truncate">{label}</span>
+            </span>
             <CaretDownIcon aria-hidden size={12} className="text-subtle-foreground" />
           </PopoverTrigger>
           <PopoverContent aria-label={row.title} className="overflow-hidden p-0">

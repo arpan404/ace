@@ -2,7 +2,7 @@ import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
-import { botRow, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, openNew, spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -13,7 +13,7 @@ const withSpade = (spade: FakeSpadeApi) => {
 };
 
 async function newBot() {
-  await userEvent.click(await screen.findByRole("button", { name: "New bot" }));
+  await openNew("New bot");
   return within(await screen.findByRole("dialog", { name: "New bot" }));
 }
 
@@ -47,8 +47,9 @@ test("New bot creates the bot on the machine chosen for it and opens its convers
   const form = await newBot();
   await userEvent.type(form.getByRole("textbox", { name: "Name" }), "Travel");
   await userEvent.type(form.getByRole("textbox", { name: "Task" }), "Plan and book my trips");
-  await userEvent.click(form.getByRole("radio", { name: "violet" }));
-  await choose(form, "Runs on", "Studio Mac");
+  await userEvent.click(form.getByRole("radio", { name: "Creature: fox" }));
+  await userEvent.click(form.getByRole("radio", { name: "Colours: cocoa" }));
+  await choose(form, "Machine", "Studio Mac");
   await userEvent.click(form.getByRole("button", { name: "Model" }));
   await userEvent.click(await screen.findByRole("option", { name: /^Sonnet/ }));
   await userEvent.click(form.getByRole("button", { name: "Create bot" }));
@@ -59,7 +60,7 @@ test("New bot creates the bot on the machine chosen for it and opens its convers
         name: "Travel",
         task: "Plan and book my trips",
         model: "openrouter/anthropic/sonnet",
-        avatar: { kind: "generated", color: "violet" },
+        avatar: expect.objectContaining({ kind: "character", v: 1, body: "fox", pair: "cocoa" }),
       },
     ]),
   );

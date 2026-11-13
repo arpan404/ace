@@ -34,7 +34,7 @@ const ProfilePage = lazy(() =>
   import("./profile/page.tsx").then((module) => ({ default: module.ProfilePage })),
 );
 
-/** Profile is its own wide, centred page rather than a column of settings. */
+/** Profile names itself (its own `SettingsBody`) once its page has loaded. */
 export function ProfileSettingsScreen() {
   return (
     <Suspense fallback={null}>
@@ -131,7 +131,7 @@ export function RemoteSettingsScreen() {
   return (
     <Suspense
       fallback={
-        <SettingsBody page="Fleet" wide tabs={<FleetTabs />}>
+        <SettingsBody page="Fleet" tabs={<FleetTabs />}>
           <ListSkeleton label="fleet" shape="row" rows={4} />
         </SettingsBody>
       }

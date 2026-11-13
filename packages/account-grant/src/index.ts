@@ -34,6 +34,30 @@ export const GrantClaims = z.strictObject({
 export type GrantClaims = z.infer<typeof GrantClaims>;
 export type GrantKind = GrantClaims["kind"];
 
+/** Cloud credentials deliberately fail the relay's strict GrantClaims parser. */
+export const CloudGrantClaims = GrantClaims.extend({
+  kind: z.literal("machine"),
+  aud: z.literal("cloud.acehq.dev"),
+  purpose: z.literal("spade-cloud"),
+});
+export type CloudGrantClaims = z.infer<typeof CloudGrantClaims>;
+const AnyGrantClaims = z.union([GrantClaims, CloudGrantClaims]);
+
+export function signCloudGrant(
+  claims: Omit<GrantClaims, "v" | "kid">,
+  key: GrantSigningKey,
+): string {
+  const full = CloudGrantClaims.parse({
+    ...claims,
+    v: 1,
+    kid: key.id,
+    aud: "cloud.acehq.dev",
+    purpose: "spade-cloud",
+  });
+  const body = new TextEncoder().encode(JSON.stringify(full));
+  return `${encodeBase64url(body)}.${encodeBase64url(ed25519.sign(body, key.privateKey))}`;
+}
+
 /** `GET /v1/keys` on the account backend. */
 export const GrantKeySet = z.object({
   keys: z
@@ -83,13 +107,32 @@ export function verifyGrant(
   now: number,
   kind: GrantKind,
 ): GrantClaims {
+  return verifySigned(token, keys, now, kind, GrantClaims);
+}
+
+/**
+ * Verify a cloud credential (ADR 0140, 0141): a `machine` grant that also names the cloud
+ * audience and purpose. A general machine or device grant is refused, as `verifyGrant` refuses
+ * a cloud credential.
+ */
+export function verifyCloudGrant(token: string, keys: GrantKeySet, now: number): CloudGrantClaims {
+  return verifySigned(token, keys, now, "machine", CloudGrantClaims);
+}
+
+function verifySigned<Claims extends GrantClaims>(
+  token: string,
+  keys: GrantKeySet,
+  now: number,
+  kind: GrantKind,
+  schema: z.ZodType<Claims>,
+): Claims {
   const [body, signature, extra] = token.split(".");
   if (!body || !signature || extra !== undefined || token.length > 2048)
     throw new GrantError("Malformed grant");
   const bytes = decodeBase64url(body);
-  let claims: GrantClaims;
+  let claims: Claims;
   try {
-    claims = GrantClaims.parse(
+    claims = schema.parse(
       JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes)),
     );
   } catch {
@@ -118,7 +161,9 @@ export function verifyGrant(
 export function grantLifetimeMs(token: string): number | undefined {
   try {
     const body = token.split(".")[0] ?? "";
-    const claims = GrantClaims.parse(JSON.parse(new TextDecoder().decode(decodeBase64url(body))));
+    const claims = AnyGrantClaims.parse(
+      JSON.parse(new TextDecoder().decode(decodeBase64url(body))),
+    );
     return claims.exp - claims.iat;
   } catch {
     return undefined;

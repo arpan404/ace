@@ -248,12 +248,21 @@ async function content(): Promise<ReactNode> {
     if (!profileName(local)) setProfileName(local, fake.profileName);
     await client.start();
     const machines = await fake.machines;
-    const { fakeAccountBackend, fakeAccountConnector } = await import("./boot/fake-account.ts");
+    const [
+      { fakeAccountBackend, fakeAccountConnector },
+      { BotStreamsContext },
+      { fakeBotStreams },
+    ] = await Promise.all([
+      import("./boot/fake-account.ts"),
+      import("./features/spade/index.ts"),
+      import("./boot/fake-bot-streams.ts"),
+    ]);
     return (
       <DaemonConnectionContext.Provider value={fake.connection}>
         <AceAccountBackendContext value={() => fakeAccountBackend(session, Date.now)}>
           <AccountMachineConnectorContext value={fakeAccountConnector(Date.now)}>
-            {app(client, machines)}
+            {/* The bots' browser and screen pictures, drawn in the page. */}
+            <BotStreamsContext value={fakeBotStreams()}>{app(client, machines)}</BotStreamsContext>
           </AccountMachineConnectorContext>
         </AceAccountBackendContext>
       </DaemonConnectionContext.Provider>

@@ -403,3 +403,21 @@ async fn a_closed_client_sends_nothing_more_with_its_credential() {
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(fake.tool_call_frames(), 0);
 }
+
+#[tokio::test]
+async fn a_call_made_for_a_bot_names_it_to_ace_and_a_plain_call_names_nobody() {
+    let fake = FakeMcp::start(vec![tool("whoami", Some(true), None)]).await;
+    let client = client(&fake, TOKEN, Duration::from_secs(5));
+    let text = |result: Result<spade_ace::AceToolResult, ToolsError>| match result {
+        Ok(result) => match result.parts.first() {
+            Some(Part::Text { text, .. }) => text.clone(),
+            other => panic!("{other:?}"),
+        },
+        Err(error) => panic!("{error}"),
+    };
+    assert_eq!(
+        text(client.call_for("whoami", json!({}), "a_7").await),
+        "a_7"
+    );
+    assert_eq!(text(client.call("whoami", json!({})).await), "nobody");
+}

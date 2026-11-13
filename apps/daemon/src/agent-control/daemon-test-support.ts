@@ -1,3 +1,4 @@
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readConfig, startDaemon } from "@ace/daemon";
 import type { McpAttribution, AgentControlOperation } from "@ace/protocol";
@@ -69,6 +70,14 @@ export async function daemonFixture(
       },
     });
   const daemon = await boot();
+  // A daemon given Spade's seams is one whose features.json shows Spade (ADR 0139), written
+  // once the daemon has made its home.
+  if (options.spade) {
+    writeFileSync(join(h.home, "daemon", "features.json"), '{"spade": true}');
+    const deadline = Date.now() + 5000;
+    while (daemon.spade?.status().hidden === true && Date.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, 20));
+  }
   let current = daemon;
   /** What a person would have set up before: settings persist, the scripted catalog is seeded. */
   const prepare = async (started: Awaited<ReturnType<typeof boot>>) => {

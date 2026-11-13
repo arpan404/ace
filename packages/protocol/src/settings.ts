@@ -55,6 +55,24 @@ export const SettingsValues = z.object({
   "providers.verifier.model": name,
   "providers.verifier.tier": tier,
   "providers.verifier.reasoningEffort": effort,
+  /**
+   * Where Codex accounts take the person's tool setup from (ADR 0138): an absolute folder
+   * holding a Codex `config.toml`. Its `[marketplaces]`, `[plugins]` and `[mcp_servers]` are
+   * passed to every Codex account whose home is another folder, as launch overrides. Null is the
+   * default Codex home (`CODEX_HOME`, else `~/.codex`). A folder without a readable
+   * `config.toml` adds nothing, and the Codex status row says why. Global, admin only.
+   */
+  "providers.codex.toolSource": z
+    .string()
+    .min(1)
+    .max(4096)
+    .refine((path) => path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path), "Absolute path")
+    .nullable(),
+  /**
+   * Whether Claude Code starts with Claude in Chrome (`--chrome`): `auto` follows
+   * `claudeInChromeDefaultEnabled` in the person's Claude config. Global, admin only.
+   */
+  "providers.claude.chrome": z.enum(["auto", "on", "off"]),
   "browser.backend": z.enum(["auto", "embedded", "headless"]),
   "browser.backendLoss": z.enum(["pause", "headless"]),
   /** A thread's browser keeps its own cookies and storage, or opens privately in memory. */
@@ -176,7 +194,7 @@ export const SettingsValues = z.object({
   "remote.hostedPairingLink": z.boolean(),
   /**
    * Whether outside MCP clients, such as hosted assistants, reach this machine through ace's
-   * relay at `https://relay.acehq.dev/m/<hostId>/` (ADR 0122). Off by default. On this path the
+   * relay at `https://cloud.acehq.dev/m/<hostId>/` (ADR 0122). Off by default. On this path the
    * relay ends TLS and carries the requests in plain text; the daemon authorizes every one.
    */
   "remote.relayMcp": z.boolean(),

@@ -1,5 +1,13 @@
 import { expect, test } from "vitest";
-import { accountOrigin, hostedRelayUrl, signInReturnTo } from "./account-config.ts";
+import type { KeyValueStorage } from "@ace/ui-core";
+import {
+  accountOrigin,
+  accountSessionKey,
+  hostedRelayUrl,
+  sameAccountOrigin,
+  signInReturnTo,
+  windowAccountSession,
+} from "./account-config.ts";
 
 const env = (values: Partial<ImportMetaEnv>) =>
   ({ ...import.meta.env, ...values }) as ImportMetaEnv;
@@ -29,8 +37,8 @@ function build(prod: boolean, values: Partial<ImportMetaEnv> = {}): ImportMetaEn
 }
 
 test("a release build uses ace's own account backend unless told otherwise", () => {
-  expect(accountOrigin(build(true))).toBe("https://relay.acehq.dev");
-  expect(hostedRelayUrl(build(true))).toBe("wss://relay.acehq.dev");
+  expect(accountOrigin(build(true))).toBe("https://cloud.acehq.dev");
+  expect(hostedRelayUrl(build(true))).toBe("wss://cloud.acehq.dev");
   expect(accountOrigin(build(true, { VITE_ACE_ACCOUNT_URL: "https://accounts.example" }))).toBe(
     "https://accounts.example",
   );
@@ -46,4 +54,44 @@ test("sign-in returns to the desktop app by its link and to a browser by its own
     "https://app.acehq.dev/account/signed-in",
   );
   expect(signInReturnTo({ desktop: false, origin: "null" })).toBeUndefined();
+});
+
+function keyValue(initial: Record<string, string> = {}) {
+  const values = new Map(Object.entries(initial));
+  const storage: KeyValueStorage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => void values.set(key, value),
+    removeItem: (key) => void values.delete(key),
+  };
+  return { storage, values };
+}
+const grant = (token: string) =>
+  JSON.stringify({
+    token: token.repeat(43),
+    account: { id: "user_a", email: "a@example.com", name: "A" },
+    expiresAt: 2_000_000_000_000,
+  });
+
+test("a window signed in under ace's former address stays signed in at the current one", () => {
+  const { storage, values } = keyValue({
+    "ace.account.session:https://relay.acehq.dev": grant("a"),
+  });
+  expect(windowAccountSession(storage, "https://cloud.acehq.dev")?.token).toBe("a".repeat(43));
+  expect([...values.keys()]).toEqual([accountSessionKey("https://cloud.acehq.dev")]);
+});
+
+test("a window session under ace's current address wins over one left under the former", () => {
+  const { storage } = keyValue({
+    "ace.account.session:https://relay.acehq.dev": grant("a"),
+    "ace.account.session:https://cloud.acehq.dev": grant("b"),
+  });
+  expect(windowAccountSession(storage, "https://cloud.acehq.dev")?.token).toBe("b".repeat(43));
+  // Another backend never takes ace's session.
+  expect(windowAccountSession(storage, "https://accounts.example")).toBeNull();
+});
+
+test("a machine chosen on ace's former address is on the same backend; another backend is not", () => {
+  expect(sameAccountOrigin("https://cloud.acehq.dev", "https://relay.acehq.dev")).toBe(true);
+  expect(sameAccountOrigin("https://cloud.acehq.dev", "https://cloud.acehq.dev")).toBe(true);
+  expect(sameAccountOrigin("https://cloud.acehq.dev", "https://accounts.example")).toBe(false);
 });

@@ -4,6 +4,33 @@ import { ApiKeySupport, AccountAuthMethod } from "./account-auth.ts";
 import { ProviderKind } from "./provider.ts";
 import { CliVersionCheck } from "./cli-version.ts";
 
+/**
+ * One of a provider's own tools (Codex computer use, Claude in Chrome), as ace can tell from the
+ * config and files it reads, never from a session (ADR 0138). `reason` says why it isn't ready.
+ * States a newer daemon adds read as `unknown`.
+ */
+export const NativeToolStatus = z.object({
+  id: z.string().min(1).max(64),
+  label: z.string().min(1).max(128),
+  // A union, not `.catch()`: browser workers load this schema and leave `.catch()` out.
+  state: z.union([
+    z.enum(["ready", "unavailable", "unknown"]),
+    z.unknown().transform(() => "unknown" as const),
+  ]),
+  reason: z.string().max(512).optional(),
+});
+export type NativeToolStatus = z.infer<typeof NativeToolStatus>;
+/**
+ * Where a provider's accounts take the person's tool setup from (`providers.codex.toolSource`).
+ * `usable: false` means launches add nothing from it; `reason` says why.
+ */
+export const NativeToolSource = z.object({
+  path: z.string().min(1).max(4096),
+  usable: z.boolean(),
+  reason: z.string().max(512).optional(),
+});
+export type NativeToolSource = z.infer<typeof NativeToolSource>;
+
 /** Local runtime discovery is independent of ace's account registry and adapter capabilities. */
 export const ProviderStatus = z.object({
   provider: ProviderKind,
@@ -45,6 +72,10 @@ export const ProviderStatus = z.object({
   state: z.literal("not_configured").optional(),
   error: z.string().max(1024).optional(),
   checkedAt: z.number().nonnegative().optional(),
+  /** The provider's own tools for the selected account; absent from older daemons. */
+  nativeTools: z.array(NativeToolStatus).max(16).optional(),
+  /** Codex: the tool source folder its accounts read; absent for other providers. */
+  toolSource: NativeToolSource.optional(),
   stale: z.boolean(),
   refreshing: z.boolean(),
 });

@@ -99,6 +99,29 @@ export function machineAccount(options: {
   };
   const client = (origin: string) => aceAccountClient({ origin, fetch: options.fetch });
 
+  async function obtainGrant(
+    hostId: string,
+    purpose: "spade-cloud" | undefined,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    const current = active();
+    if (!current) throw new Error("Sign in to ace on this machine to use ace's relay.");
+    const timeout = AbortSignal.timeout(10_000);
+    try {
+      const grant = await client(current.origin).grant(
+        current.token,
+        { kind: "machine", subject: hostId, ...(purpose ? { purpose } : {}) },
+        signal ? AbortSignal.any([signal, timeout]) : timeout,
+      );
+      return grant.token;
+    } catch (error) {
+      // The backend no longer knows this session: the machine is signed out.
+      if (error instanceof AceAccountError && error.status === 401 && session === current)
+        await adopt(undefined);
+      throw error;
+    }
+  }
+
   return {
     async load(): Promise<void> {
       session = await readSession(options.dataDir);
@@ -229,24 +252,13 @@ export function machineAccount(options: {
           .catch(() => {});
       return this.status();
     },
-    /** A fresh machine grant for ace's relay `/host`. Throws while signed out. */
-    async machineGrant(hostId: string, signal?: AbortSignal): Promise<string> {
-      const current = active();
-      if (!current) throw new Error("Sign in to ace on this machine to use ace's relay.");
-      const timeout = AbortSignal.timeout(10_000);
-      try {
-        const grant = await client(current.origin).grant(
-          current.token,
-          { kind: "machine", subject: hostId },
-          signal ? AbortSignal.any([signal, timeout]) : timeout,
-        );
-        return grant.token;
-      } catch (error) {
-        // The backend no longer knows this session: the machine is signed out.
-        if (error instanceof AceAccountError && error.status === 401 && session === current)
-          await adopt(undefined);
-        throw error;
-      }
+    /** A fresh machine grant for ace's relay `/host`. */
+    machineGrant(hostId: string, signal?: AbortSignal): Promise<string> {
+      return obtainGrant(hostId, undefined, signal);
+    },
+    /** A credential restricted to Spade Cloud, rejected by the relay. */
+    cloudGrant(hostId: string, signal?: AbortSignal): Promise<string> {
+      return obtainGrant(hostId, "spade-cloud", signal);
     },
     /** Admit a hello's device grant, asking for the machine code when one is set. */
     async admitDevice(hello: {

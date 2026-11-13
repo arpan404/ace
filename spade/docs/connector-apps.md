@@ -150,9 +150,10 @@ code and Open. The person's own token and own client ID keep working as before.
 
 ## Asana, Box, Canva, HubSpot
 
-Nothing to register for Spade: each requires a client secret, and a secret shipped in Spade would
-be public. These stay on "Use your own client ID", where the person registers an app with the
-maker and types its client ID and secret into Spade, which keeps the secret in the keychain (ADR
-0131). Their catalogue notes say so in one sentence. Revisit this page if a maker starts
+Each requires a client secret, and a secret shipped in Spade would be public. Since ADR 0140 they
+sign in through the broker in [ace cloud](cloud.md) (ADR 0141), which holds Spade's secrets for
+them; the owner registers each app with redirect `https://cloud.acehq.dev/v1/oauth/callback/<app>` (steps in
+cloud.md). "Use your own client ID" stays: the person registers an app with the maker and types
+its client ID and secret into Spade, which keeps the secret in the keychain (ADR 0131). Revisit this page if a maker starts
 advertising `none` as a token endpoint auth method, a device authorization endpoint, or client ID
 metadata documents.

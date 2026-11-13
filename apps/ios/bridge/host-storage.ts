@@ -108,7 +108,7 @@ export function usageView(usage: StorageUsage): StorageUsageView {
     })),
     database: {
       size: formatBytes(usage.databaseBytes),
-      detail: `${formatBytes(usage.reclaimableDatabaseBytes)} can be reclaimed by compacting.`,
+      detail: `${formatBytes(usage.reclaimableDatabaseBytes)} can be reclaimed.`,
     },
     partial: usage.complete ? null : "Measurement incomplete. Refresh to try again.",
     backups: failedBackupsView(usage.backups),
@@ -132,7 +132,7 @@ export function planView(plan: StoragePlan, applied?: StorageApply): StoragePlan
     title: worktrees ? "Worktree deletion preview" : "Cleanup preview",
     summary: plan.items.length
       ? `${itemCount(remove.length)} to remove · ${formatBytes(plan.bytes)} of data. ${kept} protected.${plan.complete ? "" : " This is a bounded batch. Preview again after cleanup to find more data."}`
-      : "Nothing to clean up. No data was found in these storage categories.",
+      : "Nothing to clean up.",
     items: plan.items.map((item) => {
       const result = applied?.items.find((entry) => entry.id === item.id);
       return {

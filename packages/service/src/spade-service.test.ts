@@ -148,3 +148,50 @@ test("restart starts Spade again on the current binary", async ({ onTestFinished
   expect(fake.calls.at(-1)).toBe("launchctl kickstart -k gui/501/dev.ace.next.spade");
   expect(await spadeServiceState(plan, fake.ports)).toBe("running");
 });
+
+test("hiding waits for an updater restart and leaves no running Spade", async ({
+  onTestFinished,
+}) => {
+  const { root, home, plan } = await setup("linux", onTestFinished);
+  await withBinary(root, home);
+  const fake = manager(plan);
+  await installSpadeService(plan, fake.ports);
+  let shown = true;
+  let release: (() => void) | undefined;
+  let reached: (() => void) | undefined;
+  const restarting = new Promise<void>((resolve) => {
+    reached = resolve;
+  });
+  const blocked = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const ports = {
+    ...fake.ports,
+    shown: async () => shown,
+    wait: async (ms: number) => {
+      release?.();
+      await new Promise<void>((resolve) => setTimeout(resolve, ms));
+    },
+    run: async (...args: Parameters<Runner>) => {
+      if (args[1].includes("restart")) {
+        reached?.();
+        await blocked;
+      }
+      const result = await fake.ports.run(...args);
+      if (args[1].includes("stop")) release?.();
+      return result;
+    },
+  };
+  const restart = restartSpadeService(plan, ports);
+  await restarting;
+  shown = false;
+  const removal = removeSpadeService(plan, ports);
+  await Promise.all([restart, removal]);
+  expect(await spadeServiceState(plan, fake.ports)).toBe("absent");
+  const stopped = fake.calls.findIndex((call) => call.includes(" stop "));
+  expect(fake.calls.slice(stopped + 1).some((call) => call.includes(" restart "))).toBe(false);
+  // Neither a later updater restart nor registration may start a hidden service.
+  await restartSpadeService(plan, ports);
+  expect(await installSpadeService(plan, ports)).toBe("absent");
+  expect(await spadeServiceState(plan, fake.ports)).toBe("absent");
+});

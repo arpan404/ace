@@ -1,8 +1,10 @@
-# ace accounts on the hosted relay
+# ace accounts in ace cloud
 
-ace's account backend runs in the same Cloudflare Worker as the hosted relay
-(`apps/relay-cloudflare`, [ADR 0110](../adr/0110-cloudflare-relay.md)). One domain
-serves the account API over HTTPS and the relay over WSS. WorkOS AuthKit handles
+ace cloud is ace's one hosted Cloudflare Worker (`apps/cloud`,
+[ADR 0110](../adr/0110-cloudflare-relay.md), [ADR 0141](../adr/0141-ace-cloud.md)): the account
+API over HTTPS, the relay over WSS, and Spade's connector sign-in broker
+([spade/docs/cloud.md](../../spade/docs/cloud.md)), all at `cloud.acehq.dev`. The same Worker
+still answers at `relay.acehq.dev`, the name apps released before the rename use. WorkOS AuthKit handles
 sign-in ([ADR 0100](../adr/0100-ace-account-backend.md)); a signed-in device opens
 every machine on its account ([ADR 0111](../adr/0111-account-machine-access.md)).
 Local ace use, pairing codes, LAN, Tailscale and the self-hosted Node relay need no
@@ -11,16 +13,16 @@ on the person's machine.
 
 ## Deploy
 
-`apps/relay-cloudflare/scripts/deploy-wizard.sh` walks through the first deploy and
+`apps/cloud/scripts/deploy-wizard.sh` walks through the first deploy and
 can be re-run: it asks for the domain and allowed origins, signs in to Cloudflare,
 creates the D1 database, applies migrations, deploys, takes the WorkOS keys, sets
 the secrets and runs the smoke check. Public values it captures stay in the
-git-ignored `apps/relay-cloudflare/.deploy.env`; secrets go only to Cloudflare.
+git-ignored `apps/cloud/.deploy.env`; secrets go only to Cloudflare.
 
 The production settings live in `wrangler.jsonc` under `env.production`; the top
 level is for local development and tests. The wizard replaces its placeholders
 (`RELAY_DOMAIN`, `ALLOWED_ORIGINS`, `PRODUCTION_DATABASE_ID`); commit the result.
-By hand, from `apps/relay-cloudflare`:
+By hand, from `apps/cloud`:
 
 1. `bunx wrangler d1 create ace-accounts`, then put the printed id in
    `env.production.d1_databases[0].database_id`.
@@ -49,11 +51,38 @@ By hand, from `apps/relay-cloudflare`:
    account: it answers, publishes grant keys, starts and cancels a sign-in, and
    refuses relay upgrades that carry no grant.
 
+### Moving production to cloud.acehq.dev
+
+The production Worker keeps its script name, `ace-relay`: its relay Durable Objects belong to
+that name (ADR 0141). The first deploy with ace cloud adds the `cloud.acehq.dev` custom domain
+beside `relay.acehq.dev`, the `SignInObject` class (migration `v2`) and two rate limits, and
+sets `ACE_ACCOUNT_PUBLIC_URL` to `https://cloud.acehq.dev` for broker callbacks and
+`ACE_ACCOUNT_PUBLIC_ORIGINS` to `https://cloud.acehq.dev,https://relay.acehq.dev` for account
+sign-in. Account requests select their own origin from that allowlist, keeping login links,
+continue forms, WorkOS callbacks and host-only browser cookies on the same hostname.
+Unlisted hosts are refused. Single-host deployments can omit the allowlist and keep using
+`ACE_ACCOUNT_PUBLIC_URL`. In order, from `apps/cloud`, with
+`XDG_CONFIG_HOME=~/.ace-cloudflare` so wrangler uses ace's Cloudflare login:
+
+1. In WorkOS, add `https://cloud.acehq.dev/v1/account/callback` as a redirect of the AuthKit
+   application. Keep `https://relay.acehq.dev/v1/account/callback` registered too: existing
+   apps and sign-in pages opened before the deploy continue on that hostname.
+2. `bunx wrangler d1 migrations apply ACCOUNTS --remote --env production` (none are new, but it
+   is the release job's order).
+3. `bunx wrangler deploy --env production`. Wrangler creates the `cloud.acehq.dev` custom domain
+   and its DNS record in the `acehq.dev` zone; nothing to do at the DNS host by hand.
+   If a `cloud` record already exists in the zone (a CNAME made for ADR 0140's Railway service),
+   delete it first, or the custom domain can't be added.
+4. `bun run smoke https://cloud.acehq.dev` and `bun run smoke https://relay.acehq.dev`.
+5. Only then ship app releases that default to cloud.acehq.dev.
+
+Keep `relay.acehq.dev` on the Worker while any installed app or outside MCP client still uses it.
+
 ### Releases deploy it
 
 After the first deploy, each release tag (`v*`) deploys production from that tag: the
-`relay` job in `.github/workflows/release.yml` applies D1 migrations, runs
-`wrangler deploy --env production` and then the smoke check. A manual run of the
+`cloud` job in `.github/workflows/release.yml` applies D1 migrations, runs
+`wrangler deploy --env production` and then the smoke check on both hostnames. A manual run of the
 workflow leaves production alone. Secrets set in Cloudflare are untouched by deploys.
 
 The job needs the `CLOUDFLARE_API_TOKEN` repository secret, and fails saying so
@@ -188,7 +217,7 @@ off, or an older daemon on LAN or Tailscale alone) isn't in `machines`.
 ## Public HTTP to a machine
 
 Hosted assistants reach a machine's outside MCP endpoint over plain HTTPS at
-`https://relay.acehq.dev/m/<hostId>/…` ([ADR 0122](../adr/0122-outside-mcp-clients.md)).
+`https://cloud.acehq.dev/m/<hostId>/…` ([ADR 0122](../adr/0122-outside-mcp-clients.md)).
 Everything under `/m/<hostId>/` goes to that machine with the prefix removed: the MCP
 endpoint, its OAuth endpoints and their metadata. RFC 9728 and RFC 8414 metadata URLs
 with the path inserted, `/.well-known/<name>/m/<hostId>/…` for `oauth-protected-resource`,

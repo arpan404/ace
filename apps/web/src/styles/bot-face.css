@@ -1,0 +1,435 @@
+/*
+ * Bot faces (`BotFace`, ui-core `bot-face`): the colour roles for the page's scheme, each state's
+ * held pose, and its motion. Only working and thinking loop; every other state moves once and
+ * holds its last pose, which is also what reduced motion shows.
+ */
+.bot-face {
+  --b: var(--b-light);
+  --a: var(--a-light);
+  --bs: var(--bs-light);
+  --as: var(--as-light);
+  --bl: var(--bl-light);
+  --visor: var(--visor-light);
+  --mask: var(--mask-light);
+  --blush: var(--blush-light);
+  --tongue: var(--tongue-light);
+  display: block;
+  flex: none;
+  overflow: visible;
+}
+[data-scheme="dark"] .bot-face {
+  --b: var(--b-dark);
+  --a: var(--a-dark);
+  --bs: var(--bs-dark);
+  --as: var(--as-dark);
+  --bl: var(--bl-dark);
+  --visor: var(--visor-dark);
+  --mask: var(--mask-dark);
+  --blush: var(--blush-dark);
+  --tongue: var(--tongue-dark);
+}
+
+/* ---------- Held poses (also the reduced-motion poses) ---------- */
+.bot-face :is(.bf-ey, .bf-pu, .bf-hp, .bf-sp1, .bf-sp2, .bf-sweat) {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.bot-face .bf-hd {
+  transform-box: view-box;
+  transform-origin: 12px 22px;
+}
+.bot-face .bf-pu {
+  transform: translate(calc(var(--ax) * -0.2), calc(var(--ay) * 0.98));
+  transition: transform 160ms var(--ease-out);
+}
+.bot-face[data-look] .bf-pu {
+  transform: translate(calc(var(--ax) * var(--lx)), calc(var(--ay) * var(--ly)));
+}
+.bot-face .bf-lid {
+  transform: translateY(calc(var(--eh) * var(--l0)));
+}
+.bot-face :is(.bf-hp, .bf-spark, .bf-sweat, .bf-m-done, .bf-m-fail, .bf-m-wait) {
+  opacity: 0;
+}
+
+.bot-face[data-state="acknowledge"] .bf-pu {
+  transform: translate(0px, calc(var(--ay) * -0.15));
+}
+.bot-face[data-state="thinking"] .bf-pu {
+  transform: translate(calc(var(--ax) * 0.6), calc(var(--ay) * -0.8));
+}
+.bot-face[data-state="thinking"] .bf-lid {
+  transform: translateY(calc(var(--eh) * max(var(--l0), 0.2)));
+}
+.bot-face[data-state="thinking"] .bf-hd {
+  transform: rotate(-3deg);
+}
+.bot-face[data-state="working"] .bf-pu {
+  transform: translate(calc(var(--ax) * 0.45), calc(var(--ay) * 0.7));
+}
+.bot-face[data-state="working"] .bf-hd {
+  transform: rotate(2.5deg);
+}
+.bot-face[data-state="needs-you"] .bf-pu {
+  transform: translate(calc(var(--ax) * 0.1), calc(var(--ay) * -0.8)) scale(1.24);
+}
+.bot-face[data-state="needs-you"] .bf-ey {
+  transform: scale(1.07, 1.12);
+}
+.bot-face[data-state="needs-you"] .bf-lid {
+  transform: translateY(calc(var(--eh) * var(--l0) * 0.3));
+}
+.bot-face[data-state="needs-you"] .bf-hd {
+  transform: translateY(-0.7px) rotate(7deg);
+}
+.bot-face[data-state="blocked"] .bf-pu {
+  transform: translate(calc(var(--ax) * -0.15), calc(var(--ay) * 1));
+}
+.bot-face[data-state="blocked"] .bf-lid {
+  transform: translateY(calc(var(--eh) * 0.48));
+}
+.bot-face[data-state="blocked"] .bf-hd {
+  transform: translateY(0.5px) scale(1.02, 0.97);
+}
+.bot-face[data-state="blocked"] .bf-sweat {
+  opacity: 1;
+}
+.bot-face[data-state="done"] .bf-ey {
+  opacity: 0;
+}
+.bot-face[data-state="done"] .bf-hp {
+  opacity: 1;
+}
+.bot-face:is([data-state="done"], [data-state="blocked"], [data-state="needs-you"]) .bf-m-own {
+  opacity: 0;
+}
+.bot-face[data-state="done"] .bf-m-done,
+.bot-face[data-state="blocked"] .bf-m-fail,
+.bot-face[data-state="needs-you"] .bf-m-wait {
+  opacity: 1;
+}
+.bot-face[data-cue="blink"] .bf-ey {
+  animation: bf-blink-once 200ms ease-in-out;
+}
+/* A part of the editor's big face steps on click. */
+.bot-face[data-editable] [data-part] {
+  cursor: pointer;
+}
+
+/* ---------- Motion ---------- */
+:root:not([data-reduce-motion]) .bot-face {
+  &[data-state="acknowledge"] .bf-hd {
+    animation: bf-hop-ack 650ms var(--ease-out) both;
+  }
+  &[data-state="acknowledge"] .bf-ey {
+    animation: bf-widen 650ms var(--ease-out) both;
+  }
+  &[data-state="acknowledge"] .bf-pu {
+    animation: bf-to-person 480ms 120ms var(--ease-spring) both;
+  }
+  &[data-state="thinking"] .bf-pu {
+    animation: bf-think 3.2s ease-in-out infinite;
+  }
+  &[data-state="thinking"] .bf-ey {
+    animation: bf-blink-mid 3.2s ease-in-out infinite;
+  }
+  &[data-state="thinking"] .bf-hd {
+    animation: bf-sway 3.2s ease-in-out infinite;
+  }
+  &[data-state="working"] .bf-pu {
+    animation: bf-dart 2.4s var(--ease-out) infinite;
+  }
+  &[data-state="working"] .bf-ey {
+    animation: bf-blink 4.8s ease-in-out infinite;
+  }
+  &[data-state="working"] .bf-hd {
+    animation: bf-bob 1.2s ease-in-out infinite;
+  }
+  &[data-state="needs-you"] .bf-hd {
+    animation: bf-rise 700ms var(--ease-spring) both;
+  }
+  &[data-state="needs-you"] .bf-ey {
+    animation: bf-from-rest 520ms 80ms var(--ease-spring) both;
+  }
+  &[data-state="needs-you"] .bf-pu {
+    animation: bf-plead 600ms 80ms var(--ease-spring) both;
+  }
+  &[data-state="blocked"] .bf-hd {
+    animation: bf-shake-sag 760ms var(--ease-out) both;
+  }
+  &[data-state="blocked"] .bf-lid {
+    animation: bf-lid-down 420ms 300ms var(--ease-out) both;
+  }
+  &[data-state="blocked"] .bf-pu {
+    animation: bf-look-down 420ms 300ms var(--ease-out) both;
+  }
+  &[data-state="blocked"] .bf-sweat {
+    animation: bf-sweat 600ms 420ms var(--ease-out) both;
+  }
+  &[data-state="done"] .bf-hd {
+    animation: bf-hop-done 800ms var(--ease-out) both;
+  }
+  &[data-state="done"] .bf-ey {
+    animation: bf-close 260ms 120ms var(--ease-out) both;
+  }
+  &[data-state="done"] .bf-hp {
+    animation: bf-happy 420ms 340ms var(--ease-spring) both;
+  }
+  &[data-state="done"] .bf-spark {
+    animation: bf-spark-show 900ms 300ms both;
+  }
+  &[data-state="done"] .bf-sp1 {
+    animation: bf-spark 900ms 300ms var(--ease-out) both;
+  }
+  &[data-state="done"] .bf-sp2 {
+    animation: bf-spark 900ms 420ms var(--ease-out) both;
+  }
+  /* The editor's face hops when something changes. */
+  &[data-cue="hop"] .bf-hd {
+    animation: bf-hop-ack 650ms var(--ease-out) both;
+  }
+}
+/* Each face inherits its viewport observer's pause state. */
+.bot-face * {
+  animation-play-state: var(--bf-play-state, running) !important;
+}
+:root[data-reduce-motion] .bot-face * {
+  animation: none !important;
+  transition: none !important;
+}
+
+@keyframes bf-hop-ack {
+  0% {
+    transform: none;
+  }
+  20% {
+    transform: scale(1.07, 0.9);
+  }
+  48% {
+    transform: translateY(-1.4px) scale(0.95, 1.07);
+  }
+  72% {
+    transform: scale(1.03, 0.97);
+  }
+  100% {
+    transform: none;
+  }
+}
+@keyframes bf-widen {
+  0%,
+  100% {
+    transform: none;
+  }
+  50% {
+    transform: scale(1.08, 1.18);
+  }
+}
+@keyframes bf-to-person {
+  from {
+    transform: translate(calc(var(--ax) * -0.2), calc(var(--ay) * 0.98));
+  }
+}
+@keyframes bf-think {
+  0%,
+  12%,
+  42%,
+  100% {
+    transform: translate(calc(var(--ax) * -0.55), calc(var(--ay) * -0.8));
+  }
+  56%,
+  88% {
+    transform: translate(calc(var(--ax) * 0.6), calc(var(--ay) * -0.8));
+  }
+}
+@keyframes bf-sway {
+  0%,
+  100% {
+    transform: rotate(-3deg);
+  }
+  50% {
+    transform: rotate(2deg);
+  }
+}
+@keyframes bf-blink-mid {
+  0%,
+  46%,
+  54%,
+  100% {
+    transform: none;
+  }
+  50% {
+    transform: scaleY(0.1);
+  }
+}
+@keyframes bf-dart {
+  0%,
+  22%,
+  100% {
+    transform: translate(calc(var(--ax) * -0.7), calc(var(--ay) * 0.55));
+  }
+  27%,
+  47% {
+    transform: translate(calc(var(--ax) * 0.75), calc(var(--ay) * 0.45));
+  }
+  52%,
+  72% {
+    transform: translate(calc(var(--ax) * 0.2), calc(var(--ay) * 0.9));
+  }
+  77%,
+  95% {
+    transform: translate(calc(var(--ax) * -0.6), calc(var(--ay) * -0.1));
+  }
+}
+@keyframes bf-blink {
+  0%,
+  60%,
+  66%,
+  100% {
+    transform: none;
+  }
+  63% {
+    transform: scaleY(0.1);
+  }
+}
+@keyframes bf-blink-once {
+  50% {
+    transform: scaleY(0.1);
+  }
+}
+@keyframes bf-bob {
+  0%,
+  100% {
+    transform: rotate(2.5deg);
+  }
+  50% {
+    transform: translateY(0.45px) rotate(2.5deg) scale(1.01, 0.985);
+  }
+}
+@keyframes bf-rise {
+  0% {
+    transform: none;
+  }
+  30% {
+    transform: scale(1.04, 0.94);
+  }
+  100% {
+    transform: translateY(-0.7px) rotate(7deg);
+  }
+}
+@keyframes bf-from-rest {
+  from {
+    transform: none;
+  }
+}
+@keyframes bf-plead {
+  from {
+    transform: translate(calc(var(--ax) * -0.2), calc(var(--ay) * 0.98)) scale(1);
+  }
+}
+@keyframes bf-shake-sag {
+  0% {
+    transform: none;
+  }
+  10% {
+    transform: translateX(-1px);
+  }
+  22% {
+    transform: translateX(0.9px);
+  }
+  34% {
+    transform: translateX(-0.6px);
+  }
+  46% {
+    transform: translateX(0.25px);
+  }
+  100% {
+    transform: translateY(0.5px) scale(1.02, 0.97);
+  }
+}
+@keyframes bf-lid-down {
+  from {
+    transform: translateY(calc(var(--eh) * var(--l0)));
+  }
+}
+@keyframes bf-look-down {
+  from {
+    transform: translate(calc(var(--ax) * -0.2), calc(var(--ay) * 0.98));
+  }
+}
+@keyframes bf-sweat {
+  from {
+    opacity: 0;
+    transform: translateY(-1.2px) scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes bf-hop-done {
+  0% {
+    transform: none;
+  }
+  16% {
+    transform: scale(1.08, 0.88);
+  }
+  40% {
+    transform: translateY(-2.4px) scale(0.94, 1.08);
+  }
+  62% {
+    transform: scale(1.07, 0.92);
+  }
+  80% {
+    transform: scale(0.98, 1.02);
+  }
+  100% {
+    transform: none;
+  }
+}
+@keyframes bf-close {
+  0% {
+    transform: none;
+    opacity: 1;
+  }
+  90% {
+    transform: scaleY(0.1);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleY(0.1);
+    opacity: 0;
+  }
+}
+@keyframes bf-happy {
+  from {
+    opacity: 0;
+    transform: scale(0.8, 0.3);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes bf-spark-show {
+  0%,
+  99% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes bf-spark {
+  0% {
+    transform: scale(0) rotate(0deg);
+    opacity: 1;
+  }
+  45% {
+    transform: scale(1.15) rotate(30deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.4) rotate(60deg);
+    opacity: 0;
+  }
+}

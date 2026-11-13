@@ -146,8 +146,11 @@ pub enum AgentError {
 pub enum AvatarInput {
     /// Image bytes, checked and stored like an attached image.
     Image(Vec<u8>),
-    /// Initials on a colour; a colour picked from the agent's id when none is given.
-    Generated(Option<String>),
+    /// A character face (`{"kind":"character", ...}`), repaired before it is stored.
+    Character(serde_json::Value),
+    /// A face picked for the agent: seeded by its id, in a colour pair no other agent wears
+    /// when one is left. What an older client's initials avatar asks for.
+    Generated,
 }
 
 /// What creating an agent takes.

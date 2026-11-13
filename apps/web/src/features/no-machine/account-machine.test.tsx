@@ -268,7 +268,7 @@ test("an account machine the relay can't reach says so and never opens the app o
   for (const run of deadlines.splice(0)) act(run);
   expect(
     await screen.findByText(
-      "Couldn't reach Travel laptop through ace's relay. Is it on, with ace running? ace keeps trying.",
+      "Couldn't reach Travel laptop through ace cloud. Is it on, with ace running? ace keeps trying.",
     ),
   ).toBeTruthy();
   expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();

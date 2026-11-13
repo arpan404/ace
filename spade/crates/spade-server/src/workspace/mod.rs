@@ -8,6 +8,11 @@
 //! place, and a file with more than one hard link is never written.
 
 mod files;
+mod person;
+#[cfg(unix)]
+mod reap;
+#[cfg(unix)]
+pub use reap::adopt_orphans;
 pub mod shell;
 mod tools;
 pub mod trust;
@@ -19,9 +24,10 @@ use cap_std::ambient_authority;
 use cap_std::fs::Dir;
 
 pub use files::{Entry, EntryKind, FileView, Listing};
+pub use person::{Seen, Snapshot, changes};
 pub use tools::{
-    ShellTool, WorkspaceEdit, WorkspaceList, WorkspaceRead, WorkspaceSearch, WorkspaceWrite,
-    tools as workspace_tools,
+    Commands, ShellTool, WorkspaceEdit, WorkspaceList, WorkspaceRead, WorkspaceSearch,
+    WorkspaceWrite, tools as workspace_tools,
 };
 pub use trust::Trust;
 
@@ -45,6 +51,8 @@ pub enum PathError {
     Unusable(String),
     #[error("{0} does not exist")]
     Missing(String),
+    #[error("{0} is already there")]
+    Exists(String),
     #[error("{0}")]
     Io(String),
 }

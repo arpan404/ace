@@ -24,7 +24,6 @@ function missing(provider: ProviderKind, method: InstallMethod = "npm") {
   );
   return app;
 }
-const codexRow = () => screen.getByRole("group", { name: "Codex" });
 
 async function expectSignedIn(app: ReturnType<typeof harness>, provider: ProviderKind) {
   expect(
@@ -99,19 +98,22 @@ test.each(providers)(
   30_000,
 );
 
-test("Settings installs on the list, a failed attempt offers Retry and Details, and cancellation keeps Install available", async () => {
+test("Settings installs on the list, a failed attempt offers Retry and Details, cancellation keeps Install, and success offers Set up", async () => {
   const app = missing("codex");
   app.daemon.services.providerInstalls.scenarios.codex = "failure";
   await app.open("/settings/providers");
-  const item = codexRow;
+  // The row under ACP agents, where a provider not on this computer is offered.
+  const hub = await screen.findByRole("region", { name: "ACP agents" }, { timeout: 10_000 });
+  const item = () => within(hub).getByRole("group", { name: "Codex" });
   await userEvent.click(
-    await within(await screen.findByRole("group", { name: "Codex" })).findByRole("button", {
+    await within(await within(hub).findByRole("group", { name: "Codex" })).findByRole("button", {
       name: "Install",
     }),
   );
   await within(item()).findByRole("progressbar");
   app.daemon.services.providerInstalls.complete("fake-install-1");
   await within(item()).findByRole("button", { name: "Retry" });
+  expect(within(item()).getByText("Install failed")).toBeTruthy();
   // The daemon's own reason, not a generic line, says why the attempt failed.
   expect(within(item()).getByText("The official installer failed. Try again.")).toBeTruthy();
   await userEvent.click(within(item()).getByRole("button", { name: "Codex installation details" }));
@@ -125,8 +127,12 @@ test("Settings installs on the list, a failed attempt offers Retry and Details, 
   );
   await within(item()).findByRole("button", { name: "Install" });
   await userEvent.click(within(item()).getByRole("button", { name: "Install" }));
+  expect(await within(item()).findByText("Installing…")).toBeTruthy();
   app.daemon.services.providerInstalls.complete("fake-install-3");
-  expect(await screen.findByRole("button", { name: "Sign in to Codex" })).toBeTruthy();
+  // The row stays where it was installed, saying so, with the way to its page.
+  expect(await within(item()).findByText("Installed")).toBeTruthy();
+  await userEvent.click(within(item()).getByRole("link", { name: "Set up Codex" }));
+  expect(await screen.findByRole("heading", { level: 2, name: "Codex" })).toBeTruthy();
 }, 30_000);
 
 test("a missing prerequisite opens its official download and retry continues with installation", async () => {

@@ -605,6 +605,7 @@ async fn connectors_survive_a_restart_and_reopen_from_the_keychain() -> Result {
         client_metadata: None,
         apps: Vec::new(),
         tick: Duration::from_secs(1),
+        cloud: None,
     })?;
     again.start();
     wait_for(|| {

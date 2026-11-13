@@ -1,3 +1,4 @@
+import { faceForId, storedBotFace } from "../bot-face/index.ts";
 import { describe, expect, test } from "vitest";
 import {
   emptySpadeConversation,
@@ -225,7 +226,11 @@ describe("groups as Spade lists them", () => {
         agent: "writer",
         machine: "studio-host",
         name: "Writer",
-        avatar: { kind: "generated", initials: "W", color: "slate" },
+        avatar: {
+          kind: "character",
+          face: faceForId("writer"),
+          raw: storedBotFace(faceForId("writer")),
+        },
         away: true,
       },
     ]);
@@ -241,17 +246,18 @@ describe("groups as Spade lists them", () => {
   });
 });
 
-test("templates read with their colour, an unknown colour as slate", () => {
-  expect(
-    parseSpadeTemplates(
-      JSON.stringify({
-        templates: [
-          { id: "digest", name: "Digest", blurb: "Mornings", task: "Read", color: "teal" },
-          { id: "odd", name: "Odd", blurb: "", task: "", color: "chartreuse" },
-        ],
-      }),
-    )?.map((template) => `${template.id}:${template.color}`),
-  ).toEqual(["digest:teal", "odd:slate"]);
+test("templates read with their face, one without a readable face gets the one its id seeds", () => {
+  const owl = { kind: "character", v: 1, body: "bird", pair: "sky" };
+  const read = parseSpadeTemplates(
+    JSON.stringify({
+      templates: [
+        { id: "digest", name: "Digest", blurb: "Mornings", task: "Read", face: owl },
+        { id: "odd", name: "Odd", blurb: "", task: "", color: "chartreuse" },
+      ],
+    }),
+  );
+  expect(read?.[0]?.face).toMatchObject({ body: "bird", pair: "sky" });
+  expect(read?.[1]?.face).toEqual(faceForId("odd"));
 });
 
 test("an import's answer keeps each line the machine left out", () => {

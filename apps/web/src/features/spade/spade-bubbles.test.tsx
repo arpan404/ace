@@ -9,11 +9,9 @@ afterEach(() => vi.unstubAllGlobals());
 
 const feed = (name: string) => screen.findByRole("feed", { name: `Conversation with ${name}` });
 
-/** The face drawn beside a bot's bubble: its initials, decorative. */
-const faceIn = (article: HTMLElement, initials: string) =>
-  [...article.querySelectorAll<HTMLElement>("[aria-hidden]")].find(
-    (element) => element.textContent === initials,
-  );
+/** The face drawn beside a bot's bubble, decorative. */
+const faceIn = (article: HTMLElement) =>
+  article.querySelector<SVGSVGElement>("svg.bot-face") ?? undefined;
 
 test("a bot's face sits beside the last bubble of its run, in that bubble's row", async () => {
   // With speech, Read aloud sits under each reply: the face stays by the bubble, not by it.
@@ -33,9 +31,11 @@ test("a bot's face sits beside the last bubble of its run, in that bubble's row"
   const [first, last] = [articles.at(-2), articles.at(-1)];
   if (!first || !last) throw new Error("expected two of Garden's bubbles");
   // Only the last of the run has the face, and it shares the bubble's row.
-  expect(faceIn(first, "GA")).toBeUndefined();
-  const face = faceIn(last, "GA");
-  expect(face?.parentElement?.textContent).toBe("GAMulch it after.");
+  expect(faceIn(first)).toBeUndefined();
+  const face = faceIn(last);
+  expect(face?.parentElement?.parentElement?.textContent).toBe("Mulch it after.");
+  // Its reply finished while the person watched: the face shows done, then rests.
+  expect(face?.getAttribute("data-state")).toMatch(/^(done|idle)$/);
 });
 
 test("another bot's run shows its name above the first message and its face by the last", async () => {
@@ -55,7 +55,7 @@ test("another bot's run shows its name above the first message and its face by t
     true,
     false,
   ]);
-  expect(runs.map((article) => faceIn(article, "WE") !== undefined)).toEqual([false, true]);
+  expect(runs.map((article) => faceIn(article) !== undefined)).toEqual([false, true]);
 });
 
 test("a failed reply says what went wrong in one plain sentence, and Try again sends the message again", async () => {

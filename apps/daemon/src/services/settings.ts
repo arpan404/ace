@@ -60,6 +60,8 @@ export function createSettingsSession(context: SocketContext): SocketService {
           (!key.startsWith("storage.") || authorize("admin")) &&
           (!key.startsWith("browser.download") || authorize("admin")) &&
           ((key !== "computer.blockedApps" &&
+            key !== "providers.codex.toolSource" &&
+            key !== "providers.claude.chrome" &&
             key !== "computer.lockedUse" &&
             key !== "spade.enabled") ||
             authorize("admin")),
@@ -130,6 +132,9 @@ function allowedWrite(key: string, layer: string, authorize: SocketContext["auth
     key === "computer.blockedApps" ||
     // Whether agents may operate this Mac while it is locked.
     key === "computer.lockedUse" ||
+    // Which plugins, MCP servers and Chrome access providers start with (ADR 0138).
+    key === "providers.codex.toolSource" ||
+    key === "providers.claude.chrome" ||
     key.startsWith("host.") ||
     key.startsWith("remote.");
   if (!adminOnly) return authorize("operate");

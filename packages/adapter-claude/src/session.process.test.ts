@@ -235,6 +235,28 @@ test("resume initializes the requested native session before any input is sent",
     await h.session.close("shutdown");
   }
 });
+test.each([
+  [true, "--chrome", "--no-chrome"],
+  [false, "--no-chrome", "--chrome"],
+] as const)("Claude in Chrome set to %s reaches the CLI as %s", async (chrome, present, absent) => {
+  const h = await harness(undefined, "root", {}, { chrome });
+  try {
+    const argv = object((await h.wait(subtype("fake_control"))).data)["argv"];
+    expect(argv).toEqual(expect.arrayContaining([present]));
+    expect(argv).not.toEqual(expect.arrayContaining([absent]));
+  } finally {
+    await h.session.close("shutdown");
+  }
+});
+test("Claude in Chrome left to Claude passes neither flag", async () => {
+  const h = await harness();
+  try {
+    const argv = list(object((await h.wait(subtype("fake_control"))).data)["argv"]);
+    expect(argv.filter((arg) => String(arg).includes("chrome"))).toEqual([]);
+  } finally {
+    await h.session.close("shutdown");
+  }
+});
 test("approving a plan returns the native allow answer without overriding the harness mode", async () => {
   const h = await harness();
   try {

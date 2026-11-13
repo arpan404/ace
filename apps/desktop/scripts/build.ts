@@ -38,7 +38,7 @@ import { verifyNatives } from "./verify-natives.ts";
  *   packages (playwright-core, the Claude SDK), `descriptor.node` and `desktop-app.json` (the app's version, so the bundled `ace update` defers to the app);
  * - `helpers/`: the screen helper for this platform;
  * - `bin/rg`: ripgrep for workspace search;
- * - `spade/`: Spade's server (`spade-server`), unless `DISABLE_SPADE=1`;
+ * - `spade/`: Spade's server (`spade-server`), always (`features.json` hides it at run time);
  * - `runtime/`: the pinned Bun runtime the daemon runs on.
  * Native code is built for the host, so a build targets the host's OS and architecture
  * (`--arch` must match it; release CI builds each architecture on its own runner). Before it

@@ -27,6 +27,8 @@ export const ComposerFooter = memo(function ComposerFooter(props: {
   describedBy: string | undefined;
   /** The agent works and the draft is empty: the primary slot shows Stop. */
   canStop: boolean;
+  /** Shown instead of Send while the draft is empty and nothing can be stopped. */
+  idleAction?: ReactNode;
   stopping: boolean;
   onSend(): void;
   onStop(): void;
@@ -67,6 +69,8 @@ export const ComposerFooter = memo(function ComposerFooter(props: {
       <div data-slot="composer-primary" className="flex shrink-0 items-center gap-1">
         {props.canStop ? (
           <StopAction stopping={props.stopping} onStop={props.onStop} />
+        ) : props.idleAction ? (
+          props.idleAction
         ) : (
           <PrimaryAction
             mode={props.mode}

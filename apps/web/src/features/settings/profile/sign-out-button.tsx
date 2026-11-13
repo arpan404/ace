@@ -2,10 +2,16 @@ import { useState } from "react";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { accountSignOutQuestion } from "@/features/ace-account/index.ts";
-import type { ProfileAccount } from "./account.tsx";
 
 /** Profile's Sign out: it asks first, saying what stops and that the person's work stays. */
-export function SignOutButton(props: { account: ProfileAccount }) {
+/** What Sign out needs from the account: whether it's mid-change, and how to sign out. */
+export interface SignOutTarget {
+  busy: boolean;
+  restoring: boolean;
+  signOut(): Promise<unknown> | void;
+}
+
+export function SignOutButton(props: { account: SignOutTarget }) {
   const { account } = props;
   const [confirming, setConfirming] = useState<Confirming>();
   return (
