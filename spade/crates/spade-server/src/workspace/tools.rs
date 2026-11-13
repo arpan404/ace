@@ -430,7 +430,7 @@ impl Tool for ShellTool {
             .and_then(|bot| terminals.of(&bot).ok())
             .map(|terminal| terminal.state_digest())
             .unwrap_or_default();
-        Some(format!("{command}\n[terminal state {digest}]"))
+        Some(format!("{command}{STATE}{digest}]"))
     }
 
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {
@@ -483,7 +483,11 @@ impl Tool for ShellTool {
     }
 }
 
-/// Runs the bot's command in its terminal; refused while the person has its computer.
+/// How a terminal command's scope names the state it was allowed in.
+const STATE: &str = "\n[terminal state ";
+
+/// Runs the bot's command in its terminal; refused while the person has its computer, and when
+/// the terminal is no longer in the state the command was allowed in.
 async fn in_terminal(
     place: &Place,
     key: &str,
@@ -505,7 +509,20 @@ async fn in_terminal(
             "The person has your computer right now; wait until they hand it back.".to_owned(),
         );
     }
-    terminals.of(&bot)?.run(command, timeout).await
+    // The folder and variables the call was allowed with, if it was allowed for them.
+    let expected = place
+        .bots
+        .get()
+        .and_then(|engine| engine.allowed_scope(key))
+        .and_then(|scope| {
+            scope
+                .rsplit_once(STATE)
+                .map(|(_, digest)| digest.trim_end_matches(']').to_owned())
+        });
+    terminals
+        .of(&bot)?
+        .run_in_state(command, timeout, expected.as_deref())
+        .await
 }
 
 /// A run as the model reads it: how it ended, then its output.
@@ -533,6 +550,12 @@ fn describe(ran: &Ran, timeout: Duration) -> String {
     if ran.cut {
         text.push_str(
             "\n[Some output was dropped: past 4 MiB, or still coming when the command ended.]",
+        );
+    }
+    if ran.incomplete {
+        text.push_str(
+            "\n[Not every process this command started could be seen to stop; some may still \
+             be running.]",
         );
     }
     text

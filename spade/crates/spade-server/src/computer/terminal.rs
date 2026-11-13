@@ -16,7 +16,7 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -30,8 +30,6 @@ use crate::workspace::shell::{Job, Ran, Shell, Tee};
 
 /// How long a terminal may sit unused before it is ended; the next use starts a new one.
 pub const IDLE: Duration = Duration::from_secs(6 * 60 * 60);
-/// How long a stopped command's process group may take to be gone.
-const GONE: Duration = Duration::from_secs(5);
 /// The size a terminal starts at, until a viewer says otherwise.
 const START_SIZE: (u16, u16) = (120, 32);
 /// Most variables a bot's commands carry over, and their total size.
@@ -137,7 +135,7 @@ impl Terminals {
             frames: broadcast::channel(1024).0,
             commands: Arc::new(tokio::sync::Mutex::new(())),
             running: AtomicBool::new(false),
-            group: AtomicU32::new(0),
+            supervisor: Mutex::default(),
             changed: lock(&self.changed).clone(),
         });
         all.insert(bot.to_owned(), terminal.clone());
@@ -288,8 +286,8 @@ pub struct Terminal {
     commands: Arc<tokio::sync::Mutex<()>>,
     /// A bot command runs, or is being stopped.
     running: AtomicBool,
-    /// The running command's process group.
-    group: AtomicU32,
+    /// The running command's supervisor, so removing the bot ends its command.
+    supervisor: Mutex<Option<tokio::task::AbortHandle>>,
     changed: Option<Changed>,
 }
 
@@ -487,9 +485,9 @@ impl Terminal {
                 *writer = None;
             }
         }
-        if let Some(pid) = pid {
-            kill_session(pid);
-        }
+        // The shell was reaped: its number may be another process's now, so nothing is signalled
+        // by it. What the person left running in its session is theirs.
+        let _ = pid;
         let _ = self.frames.send(Frame::Exit { code });
         self.touched();
     }
@@ -509,11 +507,11 @@ impl Terminal {
         }
     }
 
-    /// Kills the running bot command's process group, if any.
+    /// Ends the running bot command, if any: its supervisor is dropped, and the command with it
+    /// (everything it started ends as the command's run is dropped).
     fn stop_command(&self) {
-        let group = self.group.load(Ordering::SeqCst);
-        if group > 1 {
-            kill_group(i64::from(group));
+        if let Some(supervisor) = lock(&self.supervisor).take() {
+            supervisor.abort();
         }
     }
 
@@ -586,28 +584,44 @@ impl Terminal {
     }
 
     /// Runs the bot's `command` for at most `timeout`, shown in the terminal as it runs. Its
-    /// supervisor owns it: if this call is dropped, the command's whole process group is killed,
-    /// and the next command starts only once that group is gone.
+    /// supervisor owns it: if this call is dropped, the command and everything it started are
+    /// ended, and the next command starts only once that is done.
     pub async fn run(self: &Arc<Self>, command: &str, timeout: Duration) -> Result<Ran, String> {
+        self.run_in_state(command, timeout, None).await
+    }
+
+    /// [`Terminal::run`], only while the terminal is in the state `expected` names (a
+    /// [`Terminal::state_digest`]): checked under the command lock, right before it runs, so no
+    /// command in between can change what it would run. Otherwise it is not run.
+    pub async fn run_in_state(
+        self: &Arc<Self>,
+        command: &str,
+        timeout: Duration,
+        expected: Option<&str>,
+    ) -> Result<Ran, String> {
         let one = self.commands.clone().lock_owned().await;
+        if let Some(expected) = expected
+            && self.state_digest() != expected
+        {
+            return Err(
+                "Not run: your terminal's folder or carried variables changed since this \
+                        command was allowed, so it could run something else now. Call it again \
+                        to be asked."
+                    .to_owned(),
+            );
+        }
         let (answer, answered) = oneshot::channel();
         let (held, abandoned) = oneshot::channel::<()>();
         let terminal = self.clone();
         let command = command.to_owned();
         self.running.store(true, Ordering::SeqCst);
-        tokio::spawn(async move {
+        let supervisor = tokio::spawn(async move {
+            // Dropped, the command's run ends everything it started before this goes on: the
+            // next command, or the person's typing, waits for that.
             let finished = tokio::select! {
                 ran = terminal.supervised(&command, timeout) => Some(ran),
                 _ = abandoned => None,
             };
-            // Dropped, the command's future killed its group; wait until no process is left. (A
-            // command that finished was reaped and its group killed already, and its id may be
-            // another process's by now, so it is left alone.)
-            if finished.is_none() {
-                terminal.stop_command();
-                terminal.wait_gone().await;
-            }
-            terminal.group.store(0, Ordering::SeqCst);
             terminal.running.store(false, Ordering::SeqCst);
             drop(one);
             terminal.touched();
@@ -615,23 +629,11 @@ impl Terminal {
                 let _ = answer.send(ran);
             }
         });
+        *lock(&self.supervisor) = Some(supervisor.abort_handle());
         let _held = held;
         answered
             .await
             .unwrap_or_else(|_| Err("the command was stopped".to_owned()))
-    }
-
-    /// Waits until the running command's process group has no process left.
-    async fn wait_gone(&self) {
-        let group = self.group.load(Ordering::SeqCst);
-        if group <= 1 {
-            return;
-        }
-        let until = Instant::now() + GONE;
-        while group_alive(group) && Instant::now() < until {
-            kill_group(i64::from(group));
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
     }
 
     async fn supervised(self: &Arc<Self>, command: &str, timeout: Duration) -> Result<Ran, String> {
@@ -670,8 +672,6 @@ impl Terminal {
                 terminal.show(&as_terminal(chunk));
             }
         });
-        let group = &self.group;
-        let started = move |pid: u32| group.store(pid, Ordering::SeqCst);
         let ran = self
             .shell
             .run_from(
@@ -682,7 +682,7 @@ impl Terminal {
                     timeout,
                     env: &carried.env,
                     tee: Some(tee),
-                    started: Some(&started),
+                    started: None,
                 },
             )
             .await;
@@ -694,6 +694,15 @@ impl Terminal {
                 (false, None) => "[bot] ended by a signal\n".to_owned(),
             };
             self.show(&as_terminal(ending.as_bytes()));
+            if ran.incomplete {
+                // Something of it may still run: the terminal starts afresh.
+                tracing::warn!(bot = %self.bot, "a bot command did not settle; restarting its terminal");
+                self.show(&as_terminal(
+                    b"[bot] some of what it started may still run; the terminal starts afresh\n",
+                ));
+                self.end();
+                *lock(&self.carried) = Carried::default();
+            }
         }
         ran
     }
@@ -763,11 +772,6 @@ fn kill_group(group: i64) {
     if group > 1 {
         quiet("/bin/kill", &["-KILL", "--", &format!("-{group}")]);
     }
-}
-
-/// Whether any process is left in `group`.
-fn group_alive(group: u32) -> bool {
-    group > 1 && quiet("/bin/kill", &["-0", "--", &format!("-{group}")])
 }
 
 /// Kills everything in the session `leader` leads: its own group and every job's.

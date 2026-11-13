@@ -50,6 +50,8 @@ pub struct Ran {
     pub timed_out: bool,
     /// Output past [`MOST_OUTPUT`] was dropped, or a pipe stayed open past the end.
     pub cut: bool,
+    /// Not everything the command started could be seen to stop: some may still run.
+    pub incomplete: bool,
 }
 
 #[derive(Clone)]
@@ -146,17 +148,21 @@ impl Shell {
             .stderr
             .take()
             .map(|pipe| readers.read(pipe, job.tee.clone()));
-        let (status, timed_out) = match tokio::time::timeout(timeout, child.wait()).await {
-            Ok(status) => (status.ok(), false),
+        let (status, timed_out, settled) = match tokio::time::timeout(timeout, child.wait()).await {
+            Ok(status) => {
+                contained.reaped();
+                (status.ok(), false, true)
+            }
             Err(_) => {
-                contained.kill();
+                // The leader is still there: it goes first, with everything it started.
+                let settled = contained.kill().await;
                 let _ = child.start_kill();
                 let status = tokio::time::timeout(DRAIN, child.wait()).await;
-                (status.ok().and_then(Result::ok), true)
+                (status.ok().and_then(Result::ok), true, settled)
             }
         };
         // Whatever it left running in the background goes now, before the pipes are drained.
-        contained.kill();
+        let settled = contained.kill().await && settled;
         let pipes_closed = readers.finish(DRAIN).await;
         let (stdout, out_cut) = stdout.map(|o| o.take()).unwrap_or_default();
         let (stderr, err_cut) = stderr.map(|o| o.take()).unwrap_or_default();
@@ -166,6 +172,7 @@ impl Shell {
             code: status.and_then(|s| s.code()),
             timed_out,
             cut: out_cut || err_cut || !pipes_closed,
+            incomplete: !settled,
         })
     }
 }
@@ -268,28 +275,61 @@ mod platform {
     }
 
     pub(super) use super::super::reap::MARK;
+    use super::super::reap::{Run, end};
 
     /// The command (it leads its own process group) and the mark everything it starts carries;
-    /// all of it is ended on drop.
-    pub(super) struct Contained(Option<(u32, String)>);
+    /// all of it is ended once, by `kill` or else on drop.
+    pub(super) struct Contained(Option<Run>);
+
+    fn now_secs() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs())
+    }
 
     pub(super) fn contain(child: &Child, mark: &str) -> Contained {
-        Contained(child.id().map(|pid| (pid, mark.to_owned())))
+        Contained(
+            child
+                .id()
+                .and_then(|pid| i32::try_from(pid).ok())
+                .map(|leader| Run {
+                    leader,
+                    mark: mark.to_owned(),
+                    reaped: false,
+                    started_secs: now_secs(),
+                    ended_secs: None,
+                }),
+        )
     }
 
     impl Contained {
-        /// Ends the command and everything it started, sessions of their own included.
-        pub(super) fn kill(&mut self) {
-            if let Some((pid, mark)) = &self.0 {
-                super::super::reap::end(*pid, mark);
+        /// The leader was reaped: its number is never signalled again.
+        pub(super) fn reaped(&mut self) {
+            if let Some(run) = self.0.as_mut() {
+                run.reaped = true;
+                run.ended_secs = Some(now_secs());
             }
+        }
+
+        /// Ends the command and everything it started, sessions of their own included, off the
+        /// async threads. Disarms: later calls and the drop do nothing. Answers whether it all
+        /// stopped.
+        pub(super) async fn kill(&mut self) -> bool {
+            let Some(run) = self.0.take() else {
+                return true;
+            };
+            tokio::task::spawn_blocking(move || end(&run))
+                .await
+                .unwrap_or(false)
         }
     }
 
     impl Drop for Contained {
+        /// The run was dropped (a take-over or Stop): ended here, at once.
         fn drop(&mut self) {
-            self.kill();
-            self.0 = None;
+            if let Some(run) = self.0.take() {
+                end(&run);
+            }
         }
     }
 }
@@ -374,9 +414,13 @@ mod platform {
     }
 
     impl Contained {
-        pub(super) fn kill(&mut self) {
+        /// Nothing to note: the job holds the command whatever its number.
+        pub(super) fn reaped(&mut self) {}
+
+        pub(super) async fn kill(&mut self) -> bool {
             // Closing the last handle with kill-on-close set ends every process in the job.
             self.0 = None;
+            true
         }
     }
 }
