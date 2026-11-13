@@ -1,17 +1,7 @@
 import { ProviderKind } from "@ace/protocol";
-import {
-  providerNames,
-  rankBreakdown,
-  rankLines,
-  roleLabels,
-  pricedUsd,
-  usageTokens,
-  type AccountView,
-  type BreakdownKind,
-} from "@ace/ui-core";
+import { providerNames, roleLabels, type AccountView, type BreakdownKind } from "@ace/ui-core";
 import type { Machine } from "@/lib/machines.ts";
-import { breakdownDimensions, type EnvironmentRead } from "./usage-data.ts";
-import type { BreakdownLists } from "./where-it-went.tsx";
+import type { EnvironmentRead } from "./usage-data.ts";
 
 type MachineRead = EnvironmentRead & { environment: Machine };
 
@@ -35,37 +25,6 @@ export function withCanonicalModels(
       }),
     },
   }));
-}
-
-/**
- * Every "Where it went" list from the machines read: each daemon's own breakdown rows, the
- * model rows the report already reads, and one figure per machine.
- */
-export function breakdownLists(machines: readonly MachineRead[]): BreakdownLists {
-  const lists: BreakdownLists = {
-    model: rankBreakdown(
-      machines.map((read) => read.usage.models),
-      "model",
-    ),
-    machine: rankLines(
-      machines
-        .map((read) => ({
-          key: read.environment.id,
-          tokens: read.usage.daily.reduce((sum, row) => sum + usageTokens(row.totals), 0),
-          usd: read.usage.daily.reduce((sum, row) => sum + pricedUsd(row.totals), 0),
-        }))
-        .filter((line) => line.tokens > 0),
-    ),
-  };
-  for (const dimension of breakdownDimensions) {
-    const answered = machines.flatMap((read) => {
-      const rows = read.breakdowns[dimension];
-      return rows ? [rows] : [];
-    });
-    // Machines whose daemon doesn't record the dimension are left out, not counted as zero.
-    if (answered.length) lists[dimension] = rankBreakdown(answered, dimension);
-  }
-  return lists;
 }
 
 const providerName = (id: string) => {

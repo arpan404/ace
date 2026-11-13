@@ -1,26 +1,34 @@
-import { ArrowsClockwiseIcon, ChartBarIcon, DevicesIcon, XIcon } from "@phosphor-icons/react";
+import { ArrowsClockwiseIcon, ChartBarIcon, DevicesIcon } from "@phosphor-icons/react";
 import {
   catalogModelIds,
   catalogModelNames,
   dayRange,
   formatAgo,
+  formatTokens,
+  growthSentence,
   previousSpan,
+  priceNote,
+  tokenTable,
+  usagePercent,
   usageAccounts,
   usageDay,
   usageLimits,
-  priceNote,
   usageMoney,
-  usageQueryFilters,
   usageReport,
+  type AccountLimits,
+  type LedgerGroup,
+  type LedgerStep,
   type MachineAccounts,
-  type UsageFilter,
+  type UsageReport,
 } from "@ace/ui-core";
+import { ProviderKind } from "@ace/protocol";
 import { Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
+import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { daemonErrorCode, describeDaemonError } from "@/lib/daemon-command.ts";
@@ -29,12 +37,14 @@ import { primaryMachineId, useMachines, type Machine } from "@/lib/machines.ts";
 import { useModelCatalog } from "@/lib/model-catalog.ts";
 import { useProjectName } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
+import { useRailPins } from "@/lib/rail-pins.ts";
 import { useUsageTimeZone } from "@/lib/usage-timezone.ts";
 import { listAutomations } from "@/features/automation-data/index.ts";
 import { Screen } from "@/features/shell/index.ts";
-import { breakdownLists, breakdownNamer, withCanonicalModels } from "./breakdown-lists.ts";
 import { LimitsView } from "./limits-view.tsx";
-import { SpendSection, type Metric } from "./spend-section.tsx";
+import { breakdownNamer, withCanonicalModels } from "./breakdown-lists.ts";
+import { Ledger, type Metric } from "./ledger.tsx";
+import { useLedger } from "./ledger-data.ts";
 import { TokensSection } from "./tokens-section.tsx";
 import {
   accountsCoverage,
@@ -44,21 +54,32 @@ import {
   type UsageSpan,
 } from "./usage-data.ts";
 import { SectionHeading } from "./usage-parts.tsx";
-import { WhereItWent } from "./where-it-went.tsx";
 
-type Range = "1" | "30" | "90";
+type Range = "1" | "7" | "30" | "90";
 const ranges = [
   { value: "1", label: "Today" },
+  { value: "7", label: "7 days" },
   { value: "30", label: "30 days" },
   { value: "90", label: "90 days" },
 ] as const satisfies readonly { value: Range; label: string }[];
-const periods: Record<Range, string> = { "1": "Today", "30": "Last 30 days", "90": "Last 90 days" };
+const periods: Record<Range, string> = {
+  "1": "today",
+  "7": "last 7 days",
+  "30": "last 30 days",
+  "90": "last 90 days",
+};
+const metrics = [
+  { value: "cost", label: "Cost" },
+  { value: "tokens", label: "Tokens" },
+] as const satisfies readonly { value: Metric; label: string }[];
 const all = "all";
+/** Spend reads everything on the machines shown; a row opens to its parts in place. */
+const noFilters = {};
 
 /**
- * Usage (`/usage`), one page top to bottom: Limits per provider and account, Spend, Tokens and
- * Where it went. A row in Where it went (or a provider in the legend) narrows the whole page to
- * it through the usage queries' own filters.
+ * Usage (`/usage`): Limits as availability on one timeline, then Spend as one ledger to drill
+ * into. Clicking an account's name drills Spend into that account; Limits always list every
+ * account, whatever Spend is scoped to.
  */
 export function UsagePage() {
   const now = useNow();
@@ -66,7 +87,10 @@ export function UsagePage() {
   const [range, setRange] = useState<Range>("30");
   const [metric, setMetric] = useState<Metric>("cost");
   const [environmentId, setEnvironmentId] = useState<string>(all);
-  const [filter, setFilter] = useState<UsageFilter>();
+  const [openRow, setOpenRow] = useState<string>();
+  const [pins, setPins] = useRailPins();
+  const [group, setGroup] = useState<LedgerGroup>("provider");
+  const [tokenTypes, setTokenTypes] = useState(false);
   const machines = useMachines();
   // Offline machines stay in scope so the coverage line names them; nothing reads from them.
   const environments = machines.filter(
@@ -80,12 +104,16 @@ export function UsagePage() {
     to: usageDay(now, zone.timeZone),
     ready: zone.ready,
   };
-  const queryFilters = useMemo(() => usageQueryFilters(filter), [filter]);
-  const usage = useEnvironmentUsage(environments, span, queryFilters);
+  const usage = useEnvironmentUsage(environments, span, noFilters);
   const refresh = useRefreshUsage(online);
   const catalog = useModelCatalog();
   const modelName = useMemo(() => catalogModelNames(catalog ?? []), [catalog]);
   const modelId = useMemo(() => catalogModelIds(catalog ?? []), [catalog]);
+  const canonicalModel = useCallback(
+    (owner: string, model: string) => modelId(owner, model) ?? model,
+    [modelId],
+  );
+  const ledger = useLedger(environments, span, noFilters, group, canonicalModel);
   const project = useProjectName();
   const automations = useDaemonQuery({
     queryKey: ["usage-page", "automations"],
@@ -100,11 +128,8 @@ export function UsagePage() {
     // An offline machine's last accounts aren't counted: the coverage line names it instead.
     accounts: entry.environment.client ? entry.accounts : undefined,
   }));
-  // Limits follow a provider or account filter; the other filters are about spend only.
-  const listed = usageAccounts(
-    machineAccounts,
-    filter?.kind === "provider" ? filter.key : undefined,
-  ).filter((entry) => filter?.kind !== "account" || entry.account.id === filter.key);
+  // Limits always list every account; Spend's scope narrows Spend only.
+  const listed = usageAccounts(machineAccounts);
   const limits = usageLimits(listed, now);
   const days = useMemo(() => dayRange(span.from, span.to), [span.from, span.to]);
   const report = useMemo(
@@ -129,8 +154,7 @@ export function UsagePage() {
       ),
     [usage.data, modelId],
   );
-  const lists = useMemo(() => usage.data && breakdownLists(read), [usage.data, read]);
-  const name = breakdownNamer({
+  const namer = breakdownNamer({
     machines: read,
     accounts: listed.map((entry) => entry.account),
     machineList: machines,
@@ -141,6 +165,23 @@ export function UsagePage() {
       )?.automation.title,
     modelName,
   });
+  const name = (kind: LedgerGroup, key: string, parent: LedgerStep | undefined) => {
+    if (kind === "skill") return key;
+    const full = namer(kind, key);
+    // Under its provider, an account is just its own name: "Personal", not "Codex · Personal".
+    const prefix = parent?.group === "provider" ? `${parent.label} · ` : "";
+    return prefix && full.startsWith(prefix) ? full.slice(prefix.length) : full;
+  };
+  const icon = (kind: LedgerGroup, key: string) => {
+    const provider =
+      kind === "provider"
+        ? key
+        : kind === "account"
+          ? listed.find((entry) => entry.account.id === key)?.account.provider
+          : undefined;
+    const parsed = ProviderKind.safeParse(provider);
+    return parsed.success ? <ProviderIcon provider={parsed.data} size={16} decorative /> : null;
+  };
   const accountsLoaded = !limitsCoverage.missing.some((entry) => entry.reach === "loading");
   // Nothing to list only when no machine's accounts could be read.
   const accountsFailed =
@@ -156,19 +197,29 @@ export function UsagePage() {
   );
   const machineFor = (id: string | undefined): Machine | undefined =>
     machines.find((machine) => (id === primaryMachineId ? machine.primary : machine.id === id));
-  const applyFilter = (next: UsageFilter) => {
-    if (next.kind === "machine") {
-      setEnvironmentId(next.key);
-      return;
-    }
-    setFilter((current) =>
-      current?.kind === next.kind && current.key === next.key ? undefined : next,
-    );
+  // An account chosen in Limits: Spend lists accounts with that one open, and comes into view.
+  const showAccount = (entry: AccountLimits) => {
+    setGroup("account");
+    setOpenRow(entry.account.id);
+    document.getElementById("usage-spend")?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
+  const value = (figure: { usd: number; tokens: number }) =>
+    metric === "cost" ? money(figure.usd) : formatTokens(figure.tokens);
+  const change =
+    report && previous
+      ? growthSentence(
+          metric === "cost" ? report.usd : report.tokens,
+          metric === "cost" ? previous.usd : previous.tokens,
+          Number(range),
+        )
+      : undefined;
   return (
     <Screen title="Usage">
       <div className="h-full overflow-auto">
-        <div className="mx-auto px-4 pt-6 pb-20 sm:px-10" style={{ maxWidth: 960 }}>
+        <div
+          className="@container/usage mx-auto px-4 pt-6 pb-20 sm:px-10"
+          style={{ maxWidth: 960 }}
+        >
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2">
             <h2 className="mr-auto text-2xl leading-8 font-semibold tracking-title">Usage</h2>
             <FilterMenu
@@ -195,13 +246,6 @@ export function UsagePage() {
               ]}
               onValueChange={setEnvironmentId}
             />
-            <SegmentedControl
-              label="Range"
-              size="sm"
-              value={range}
-              options={ranges}
-              onValueChange={(next) => setRange(next)}
-            />
           </div>
           {/* The machine filter names what is shown; only a machine left out is worth a line. */}
           {machines.length > 1 && !usage.coverage.complete && (
@@ -213,21 +257,8 @@ export function UsagePage() {
               {usage.coverage.line}
             </p>
           )}
-          {filter && (
-            <p className="mt-3 flex items-center gap-2 text-ui text-muted-foreground">
-              Showing {filter.label} only
-              <button
-                type="button"
-                onClick={() => setFilter(undefined)}
-                className="inline-flex items-center gap-1 rounded-xs text-foreground hover:underline focus-ring"
-              >
-                <XIcon size={12} aria-hidden />
-                Clear
-              </button>
-            </p>
-          )}
           <SectionHeading id="usage-limits" title="Limits">
-            {observedAt > 0 && <span>Updated {formatAgo(observedAt, now)}</span>}
+            {observedAt > 0 && <span>Read {formatAgo(observedAt, now)}</span>}
             <button
               type="button"
               aria-label="Refresh limits"
@@ -241,7 +272,7 @@ export function UsagePage() {
             {accountsFailed ? (
               <Failed error={accountsFailed} retry={() => void refresh()} />
             ) : !accountsLoaded ? (
-              <ListSkeleton label="limits" shape="row" rows={4} className="min-h-48" />
+              <ListSkeleton label="limits" shape="row" rows={3} className="min-h-48" />
             ) : listed.length === 0 && !limitsCoverage.complete ? (
               <EmptyState
                 icon={ChartBarIcon}
@@ -263,6 +294,13 @@ export function UsagePage() {
               <LimitsView
                 limits={limits}
                 now={now}
+                onAccount={showAccount}
+                machineOf={(entry) => machineFor(entry.environmentId)}
+                pins={{
+                  ids: pins,
+                  toggle: (id) =>
+                    setPins(pins.includes(id) ? pins.filter((each) => each !== id) : [...pins, id]),
+                }}
                 redeem={async (entry, idempotencyKey) => {
                   const machine = machineFor(entry.environmentId);
                   if (!machine?.client) throw new Error("Machine is offline");
@@ -277,47 +315,103 @@ export function UsagePage() {
               />
             )}
           </div>
-          {usage.error ? (
-            <div className="mt-8">
+          <SectionHeading id="usage-spend" title="Spend">
+            <SegmentedControl
+              label="Range"
+              size="sm"
+              value={range}
+              options={ranges}
+              onValueChange={(next) => setRange(next)}
+            />
+            <SegmentedControl
+              label="Show"
+              size="sm"
+              value={metric}
+              options={metrics}
+              onValueChange={(next) => setMetric(next)}
+            />
+          </SectionHeading>
+          <section aria-labelledby="usage-spend">
+            {usage.error ? (
               <Failed error={usage.error} retry={usage.retry} />
-            </div>
-          ) : !report || !lists ? (
-            <ListSkeleton label="usage" shape="row" rows={6} className="mt-8 min-h-80" />
-          ) : (
-            <>
-              <SpendSection
-                report={report}
-                previous={previous}
-                period={periods[range]}
-                days={Number(range)}
-                money={money}
-                prices={prices}
-                metric={metric}
-                onMetric={setMetric}
-                providerName={(id) => name("provider", id)}
-                onProvider={(id) =>
-                  applyFilter({ kind: "provider", key: id, label: name("provider", id) })
-                }
-              />
-              <TokensSection
-                report={report}
-                period={periods[range]}
-                money={money}
-                prices={prices}
-              />
-              <WhereItWent
-                lists={lists}
-                metric={metric}
-                money={money}
-                name={name}
-                current={filter}
-                onFilter={applyFilter}
-              />
-            </>
-          )}
+            ) : !report ? (
+              <ListSkeleton label="usage" shape="row" rows={6} className="min-h-80" />
+            ) : (
+              <>
+                <p
+                  data-testid="usage-total"
+                  className="mb-5 flex flex-wrap items-baseline gap-x-2.5"
+                >
+                  <span className="text-3xl leading-10 font-semibold tracking-title tabular-nums">
+                    {value(report)}
+                  </span>
+                  <span className="text-ui text-muted-foreground">
+                    {periods[range]}
+                    {change ? `. ${change}` : ""}
+                  </span>
+                </p>
+                <Ledger
+                  lines={ledger.lines}
+                  loading={ledger.loading}
+                  group={group}
+                  onGroup={(next) => {
+                    setOpenRow(undefined);
+                    setGroup(next);
+                  }}
+                  open={openRow}
+                  machines={environments}
+                  canonicalModel={canonicalModel}
+                  span={span}
+                  metric={metric}
+                  money={money}
+                  name={name}
+                  icon={icon}
+                />
+                <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border pt-3.5 text-ui tabular-nums">
+                  <span>{formatTokens(report.tokens)} tokens</span>
+                  <CacheLine report={report} money={money} />
+                  {prices && metric === "cost" && (
+                    <span className="text-xs text-subtle-foreground">{prices}</span>
+                  )}
+                  <button
+                    type="button"
+                    aria-expanded={tokenTypes}
+                    onClick={() => setTokenTypes((open) => !open)}
+                    className="ml-auto rounded-xs font-medium hover:underline focus-ring"
+                  >
+                    {tokenTypes ? "Hide token types" : "Token types"}
+                  </button>
+                </div>
+                {tokenTypes && (
+                  <TokensSection
+                    report={report}
+                    period={periods[range]}
+                    money={money}
+                    prices={prices}
+                  />
+                )}
+              </>
+            )}
+          </section>
         </div>
       </div>
     </Screen>
+  );
+}
+
+/** "71% of input came from cache, saving $3,410": what the cache did, when there was input. */
+function CacheLine(props: { report: UsageReport; money(value: number): string }) {
+  const table = tokenTable(props.report);
+  if (table.cacheHitRate <= 0) return null;
+  return (
+    <span className="text-muted-foreground">
+      {usagePercent(table.cacheHitRate)} of input came from cache
+      {table.cacheSavingsUsd > 0 && (
+        <>
+          , saving <span className="text-status-done">{props.money(table.cacheSavingsUsd)}</span>
+        </>
+      )}
+    </span>
   );
 }
 

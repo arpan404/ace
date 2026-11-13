@@ -54,3 +54,22 @@
 [data-provider="antigravity"] {
   --provider: var(--usage-antigravity);
 }
+
+/*
+ * What a limit's pace will still use before it resets: an amber net over a faint amber wash, so
+ * it reads as projected, apart from the solid spare and the solid red of a limit that runs out.
+ */
+.usage-pace {
+  background-color: color-mix(in oklab, var(--status-needs-you) 22%, transparent);
+  background-image:
+    repeating-linear-gradient(
+      45deg,
+      color-mix(in oklab, var(--status-needs-you) 60%, transparent) 0 1px,
+      transparent 1px 4px
+    ),
+    repeating-linear-gradient(
+      -45deg,
+      color-mix(in oklab, var(--status-needs-you) 60%, transparent) 0 1px,
+      transparent 1px 4px
+    );
+}
