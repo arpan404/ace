@@ -159,3 +159,101 @@ test("delete, move and replacing upload name the revision the person saw, and ar
     ]),
   );
 });
+
+/** Spade's file writes and deletes the app sent so far. */
+const writes = (spade: FakeSpadeApi) =>
+  spade.requests.filter(
+    (request) =>
+      (request.method === "POST" && request.path.includes("/files/")) ||
+      (request.method === "DELETE" && request.path.includes("/workspace")),
+  );
+
+async function menu(name: string, item: string) {
+  const files = await screen.findByRole("list", { name: "Files" });
+  await userEvent.click(within(files).getByRole("button", { name: `More for ${name}` }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: item }));
+}
+
+async function rename(from: string, to: string) {
+  await menu(from, "Rename or move");
+  const name = screen.getByRole("textbox", { name: `New name or path for ${from}` });
+  await userEvent.clear(name);
+  await userEvent.type(name, `${to}{Enter}`);
+}
+
+test("a file that can't be checked is never deleted, moved or replaced unchecked", async () => {
+  const { spade } = await spadeApp("/spade/scout?computer=files", seed);
+  await screen.findByRole("list", { name: "Files" });
+  spade.fileReadFailure = 500;
+
+  await menu("plan.md", "Delete");
+  const confirm = within(await screen.findByRole("dialog", { name: "Delete plan.md?" }));
+  await userEvent.click(confirm.getByRole("button", { name: "Delete" }));
+  await screen.findAllByText("Couldn't check the file. Try again.");
+
+  await rename("plan.md", "trip.md");
+  fireEvent.change(screen.getByLabelText("Files to upload"), {
+    target: { files: [new File(["new"], "plan.md"), new File(["n"], "notes.txt")] },
+  });
+  // Only the new file goes; nothing that needed the check was sent.
+  await waitFor(() =>
+    expect(spade.sent("POST", "/v1/agents/scout/files/upload")).toEqual([
+      { path: "notes.txt", data_b64: btoa("n") },
+    ]),
+  );
+  expect(writes(spade).map((request) => request.path)).toEqual(["/v1/agents/scout/files/upload"]);
+  expect(spade.files.get("scout")?.["plan.md"]).toBe("# Plan\n");
+});
+
+test("a file gone since: delete says so and sends nothing, an upload writes it as new", async () => {
+  const { spade } = await spadeApp("/spade/scout?computer=files", seed);
+  await screen.findByRole("list", { name: "Files" });
+  // The bot deletes it; the list still shows it.
+  delete spade.files.get("scout")?.["plan.md"];
+
+  await menu("plan.md", "Delete");
+  const confirm = within(await screen.findByRole("dialog", { name: "Delete plan.md?" }));
+  await userEvent.click(confirm.getByRole("button", { name: "Delete" }));
+  await screen.findAllByText("plan.md is gone");
+  expect(writes(spade)).toEqual([]);
+
+  // Read again: the list no longer has it.
+  await screen.findByText("Scout hasn't kept any files yet.");
+  fireEvent.change(screen.getByLabelText("Files to upload"), {
+    target: { files: [new File(["back"], "plan.md")] },
+  });
+  await waitFor(() =>
+    expect(spade.sent("POST", "/v1/agents/scout/files/upload")).toEqual([
+      { path: "plan.md", data_b64: btoa("back") },
+    ]),
+  );
+});
+
+test("a move whose file is gone since says so and sends nothing", async () => {
+  const { spade } = await spadeApp("/spade/scout?computer=files", seed);
+  await screen.findByRole("list", { name: "Files" });
+  delete spade.files.get("scout")?.["plan.md"];
+  await rename("plan.md", "trip.md");
+  await screen.findAllByText("plan.md is gone");
+  expect(writes(spade)).toEqual([]);
+});
+
+test("a delete or move waits for the file's check, and goes only if the person may still act", async () => {
+  const { spade } = await spadeApp("/spade/scout?computer=files", seed);
+  await screen.findByRole("list", { name: "Files" });
+  const release = spade.holdFileReads();
+
+  await menu("plan.md", "Delete");
+  const confirm = within(await screen.findByRole("dialog", { name: "Delete plan.md?" }));
+  await userEvent.click(confirm.getByRole("button", { name: "Delete" }));
+  await rename("plan.md", "trip.md");
+  // While the checks are out, a take-over begins: the bot's work is still stopping.
+  spade.computer.stopping("scout", true);
+  spade.answer({ method: "POST", path: "/v1/agents/scout/computer/take-over", body: undefined });
+  await screen.findByText("Stopping Scout…");
+  release();
+  await screen.findAllByText("Files can change once the computer is yours or shared again");
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(writes(spade)).toEqual([]);
+  expect(spade.files.get("scout")?.["plan.md"]).toBe("# Plan\n");
+});

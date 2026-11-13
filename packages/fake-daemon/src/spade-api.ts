@@ -71,6 +71,20 @@ export class FakeSpadeApi implements FakeSpadeServer {
   keychain = true;
   /** A status every key write answers with, to stage a failure. */
   keyFailure: number | undefined;
+  /** A status every read of one file answers with, to stage a failure. */
+  fileReadFailure: number | undefined;
+  /** While set, reads of one file wait for it (`holdFileReads`). */
+  private fileReadsHeld: Promise<void> | undefined;
+
+  /** Holds every read of one file until the result is called, as a slow read would. */
+  holdFileReads(): () => void {
+    const held = Promise.withResolvers<void>();
+    this.fileReadsHeld = held.promise;
+    return () => {
+      this.fileReadsHeld = undefined;
+      held.resolve();
+    };
+  }
   /** True: the keychain hasn't answered (a prompt is open), so keys read as not known yet. */
   keysPending = false;
   characterAvatars = true;
@@ -308,8 +322,15 @@ export class FakeSpadeApi implements FakeSpadeServer {
         new URLSearchParams(query),
         body,
       );
-    if (root === "agents" && id && sub === "workspace")
-      return this.workspaceRoute(request.method, id, subId, new URLSearchParams(query));
+    if (root === "agents" && id && sub === "workspace") {
+      const reading = request.method === "GET" && subId === "file";
+      if (reading && this.fileReadFailure !== undefined)
+        return problem(this.fileReadFailure, "Spade couldn't read the file.");
+      const answered = this.workspaceRoute(request.method, id, subId, new URLSearchParams(query));
+      // Held: answers as the file was when asked, once let go.
+      const held = this.fileReadsHeld;
+      return reading && held ? held.then(() => answered) : answered;
+    }
     if (root === "agents" && id && sub === "skill-proposals")
       return this.proposalRoute(request.method, id, subId, body);
     if (root === "agents" && id && sub === "connectors") {
