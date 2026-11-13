@@ -7,54 +7,15 @@ protocol NotificationCenterPort: AnyObject, Sendable {
     func withdraw(_ identifiers: [String])
 }
 
-enum NotificationKeys {
-    static let threadId = "threadId"
-    static let interactionId = "interactionId"
-    static let approve = "approveOption"
-    static let deny = "denyOption"
-    /// The machine that raised the alert, so a tap or an answer goes back to it.
-    static let hostId = "hostId"
-    /// "0" when the alert should go to the list without a banner over the open app.
-    static let banner = "banner"
-    /// The question a choice or Reply answers, and the option ids of its buttons, in order.
-    static let questionId = "questionId"
-    static let choices = "choices"
-    static let choiceSeparator: Character = "\u{1F}"
-    /// An outside app's sign-in (`AccessAlert`): which request, who asks and when it ends.
-    static let accessRequestId = "accessRequestId"
-    static let accessClient = "accessClient"
-    static let accessExpiresAt = "accessExpiresAt"
-}
-
 final class SystemNotificationCenter: NotificationCenterPort {
     func post(_ alert: AlertContent) async {
         let content = UNMutableNotificationContent()
-        content.title = alert.title
-        content.body = alert.body
-        content.threadIdentifier = alert.threadIdentifier
-        if !alert.threadId.isEmpty { content.targetContentIdentifier = alert.threadId }
-        content.categoryIdentifier = alert.category
-        switch alert.level {
-        case .passive: content.interruptionLevel = .passive
-        case .active: content.interruptionLevel = .active; content.sound = .default
-        case .timeSensitive: content.interruptionLevel = .timeSensitive; content.sound = .default
-        }
-        // The finished summary names no thread: a tap opens ace where it was.
-        var info: [String: String] = alert.threadId.isEmpty ? [:] : [NotificationKeys.threadId: alert.threadId]
-        info[NotificationKeys.interactionId] = alert.interactionId
-        info[NotificationKeys.approve] = alert.approveOption
-        info[NotificationKeys.deny] = alert.denyOption
-        info[NotificationKeys.hostId] = alert.hostId
-        info[NotificationKeys.banner] = alert.banner ? "1" : "0"
-        info[NotificationKeys.questionId] = alert.questionId
+        alert.fill(content)
         if !alert.choices.isEmpty {
-            info[NotificationKeys.choices] = alert.choices.map(\.id).joined(separator: String(NotificationKeys.choiceSeparator))
             // The buttons' titles are the options' labels: their category goes in first.
             let shape = NotificationCategories.Shape(labels: alert.choices.map(\.label), reply: alert.takesWords)
             UNUserNotificationCenter.current().setNotificationCategories(NotificationCategories.remember(shape, defaults: .standard))
         }
-        if let access = alert.access { info.merge(access.info) { $1 } }
-        content.userInfo = info
         // The stable daemon id, within its machine, is the request identifier, so a repeat
         // replaces rather than stacks, and another machine's equal id doesn't replace it.
         let request = UNNotificationRequest(identifier: alert.identifier, content: content, trigger: nil)

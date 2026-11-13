@@ -48,6 +48,8 @@ targets:
     sources:
       - path: Sources
       - path: Shared
+      # Alert wording and presentation, kept apart from the app for an extension to share.
+      - path: Alerts
       # The handoff queue the share extension and the intents write and the app sends from.
       - path: Handoff
       - path: Resources

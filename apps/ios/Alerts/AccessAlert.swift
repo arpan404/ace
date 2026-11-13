@@ -54,10 +54,3 @@ struct AccessAlert: Decodable, Equatable, Sendable {
         ["type": "outside.open", "requestId": requestId, "clientName": clientName, "expiresAt": expiresAt]
     }
 }
-
-extension OutsideClientsModel.Access {
-    var alert: AccessAlert {
-        AccessAlert(requestId: requestId, clientName: clientName, domain: verified ? domain : nil,
-                    matchCode: matchCode, expiresAt: expiresAt)
-    }
-}
