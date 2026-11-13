@@ -2,6 +2,7 @@ import { ThreadId } from "@ace/protocol";
 import type { Toolkit } from "@ace/mcp-server";
 import {
   computerToolkit,
+  screenTargetApps,
   type ComputerClient,
   type ComputerMachineRoute,
   type ComputerPlatform,
@@ -37,7 +38,7 @@ export function daemonComputerToolkit(
    * Who is told a caller is using an app. Default: the task list's mark for the caller's thread;
    * outside clients (ADR 0122) have their own line instead.
    */
-  using?: (threadId: string, app: string) => () => void,
+  using?: (threadId: string, app: string, appId?: string) => () => void,
 ): Toolkit {
   const lockedUse = computerLockedUseGate(services);
   return computerToolkit(computer, {
@@ -45,10 +46,16 @@ export function daemonComputerToolkit(
     enabled: () => services.screen?.isEnabled() ?? false,
     // Read on every call, so a change in Settings applies to the next one.
     blockedApps: async () => (await services.settings?.get("computer.blockedApps"))?.value ?? [],
+    personExclusive: (appId) =>
+      services.screen
+        ?.states()
+        .some(
+          (state) => state.controller === "human" && screenTargetApps(state.target).includes(appId),
+        ) ?? false,
     using:
       using ??
-      ((threadId, app) =>
-        services.computerUsing?.begin(ThreadId.parse(threadId), app) ?? (() => {})),
+      ((threadId, app, appId) =>
+        services.computerUsing?.begin(ThreadId.parse(threadId), app, appId) ?? (() => {})),
     ...(lockedUse ? { lockedUse } : {}),
     ...(route ? { route } : {}),
     ...(services.screenCowork ? { cowork: services.screenCowork } : {}),

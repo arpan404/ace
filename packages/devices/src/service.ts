@@ -50,7 +50,7 @@ export interface DevicesOptions extends LifecycleOptions {
   /** Whether devices start on (default); the daemon passes the saved `devices.enabled`. */
   enabled?: boolean;
   /**
-   * Cowork (ADR 0143): the person's input from a device view goes in while an agent holds the
+   * Cowork is on by default (ADR 0143): the person's input from a device view goes in while an agent holds the
    * device, and the agent's input waits while the person uses it. Off: the person takes the
    * controls first, as before.
    */
@@ -75,12 +75,13 @@ export class DevicesService {
   private readonly cowork: DeviceCowork | undefined;
   constructor(options: DevicesOptions) {
     this.options = options;
-    this.cowork = options.cowork
-      ? new DeviceCowork(options.runtime, (deviceId) => {
-          const session = this.sessions.get(deviceId);
-          if (session) this.emit(session);
-        })
-      : undefined;
+    this.cowork =
+      (options.cowork ?? true)
+        ? new DeviceCowork(options.runtime, (deviceId) => {
+            const session = this.sessions.get(deviceId);
+            if (session) this.emit(session);
+          })
+        : undefined;
     this.enabled = options.enabled ?? true;
     this.inventory = new InventoryWatch({
       read: () => this.list(),
@@ -365,24 +366,27 @@ export class DevicesService {
     const cowork = this.cowork;
     if (cowork && actor.kind === "human" && session.lease.current()?.kind !== "human") {
       cowork.personInput(session.device.id);
-      return enqueueSharedInput(session, actor, run, this.lifecycleOwner());
+      return enqueueSharedInput(
+        session,
+        actor,
+        (guard) => {
+          cowork.personInput(session.device.id);
+          return run(guard);
+        },
+        this.lifecycleOwner(),
+      );
     }
-    // The agent's input waits outside the queue, so the person's own never waits behind it.
-    if (cowork && actor.kind === "agent") {
-      this.authorize(session, actor);
-      await cowork.yield(session.device.id, session.device.name);
-    }
-    return enqueueDeviceInput(session, actor, run, this.lifecycleOwner());
+    return enqueueDeviceInput(
+      session,
+      actor,
+      run,
+      this.lifecycleOwner(),
+      actor.kind === "agent"
+        ? cowork?.inputWait(session.device.id, session.device.name)
+        : undefined,
+    );
   }
-  /**
-   * Waits while the person uses the device (cowork); the note a waited action's result carries,
-   * if it waited. Without cowork, nothing waits.
-   */
-  async yieldToPerson(deviceId: string, signal?: AbortSignal): Promise<string | undefined> {
-    const session = this.sessions.get(deviceId);
-    if (!this.cowork || !session) return undefined;
-    return this.cowork.yield(deviceId, session.device.name, signal);
-  }
+
   async request(raw: DeviceOperation, actor: Actor): Promise<unknown> {
     const operation = DeviceOperation.parse(raw);
     try {
@@ -578,6 +582,12 @@ export class DevicesService {
         return this.state(session);
       case "screenshot":
         return await this.screenshot(session.device.id, actor);
+      case "clipboard.get":
+        return this.ui(session, actor, () =>
+          performDeviceAction(this.options.platform, session, actor, operation, () =>
+            this.authorize(session, actor),
+          ),
+        );
       case "ui.tree":
         return this.ui(session, actor, () =>
           session.capture?.ui

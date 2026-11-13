@@ -1,7 +1,8 @@
 import type { AgentPointer, AgentPointerKind, DeviceActivity, DeviceState } from "@ace/protocol";
-import { PersonPresence, waitedNote } from "@ace/interaction/presence";
+import { PersonPresence, personWaitMs, waitedNote } from "@ace/interaction/presence";
 import { DeviceError } from "./sdk.ts";
 import type { DeviceRuntime } from "./runtime.ts";
+import type { DeviceInputWait } from "./input-queue.ts";
 
 /*
  * Cowork on a simulator or emulator (ADR 0143): the person's input from a device view goes in
@@ -23,9 +24,11 @@ const pointerKinds: Record<string, AgentPointerKind> = {
 export class DeviceCowork {
   private readonly presence: PersonPresence;
   private readonly now: () => number;
+  private readonly after: DeviceRuntime["after"];
   private readonly pointers = new Map<string, AgentPointer>();
   constructor(runtime: Pick<DeviceRuntime, "now" | "after">, changed: (deviceId: string) => void) {
     this.now = runtime.now;
+    this.after = runtime.after;
     this.presence = new PersonPresence({
       clock: { now: runtime.now, set: runtime.after },
       changed: (surface) => changed(surface.slice("device:".length)),
@@ -50,6 +53,37 @@ export class DeviceCowork {
         "Try again shortly, or work elsewhere meanwhile.",
       );
     return waitedNote(outcome.waitedMs, name);
+  }
+
+  /** One deadline for the initial wait and any retries after losing a queue turn. */
+  inputWait(deviceId: string, name: string): DeviceInputWait {
+    const deadline = this.now() + personWaitMs;
+    let waitedMs = 0;
+    const active = () => this.presence.active(surfaceOf(deviceId));
+    const busy = () =>
+      new DeviceError(
+        "person_busy",
+        `The person is using ${name}; nothing was done`,
+        "Try again shortly, or work elsewhere meanwhile.",
+      );
+    return {
+      active,
+      waited: () => waitedNote(waitedMs, name),
+      yield: async () => {
+        if (!active()) return;
+        const left = deadline - this.now();
+        if (left <= 0) throw busy();
+        const controller = new AbortController();
+        const cancel = this.after(left, () => controller.abort(busy()));
+        const since = this.now();
+        try {
+          await this.yield(deviceId, name, controller.signal);
+        } finally {
+          waitedMs += this.now() - since;
+          cancel();
+        }
+      },
+    };
   }
 
   /** An agent acted on the device; a point there becomes the pointer viewers draw. */

@@ -16,7 +16,7 @@ import { SessionControllers } from "./session-controllers.ts";
 import { TargetSessions } from "./target-sessions.ts";
 import { startSessionRecording, stopSessionRecording } from "./session-recording.ts";
 import { AppLaunches } from "./app-launches.ts";
-import { executeSessionAction } from "./action-execution.ts";
+import { executeSessionAction, personReturned } from "./action-execution.ts";
 import { ScreenStreamSettings } from "@ace/protocol";
 import { HelperCommandError } from "./helper.ts";
 import { PublicToolError } from "@ace/mcp-server";
@@ -35,7 +35,7 @@ import {
   type ScreenState,
 } from "@ace/protocol";
 import { type Frame, type FrameSink } from "./frames.ts";
-import { ScreenPolicy, bundles, replaceableSession } from "./policy.ts";
+import { ScreenPolicy, authorizeInput, bundles, replaceableSession } from "./policy.ts";
 import { actOnElement } from "./semantic.ts";
 import { shutdownFailure } from "./shutdown-failure.ts";
 import { HelperHost } from "./helper-host.ts";
@@ -770,32 +770,48 @@ export class ScreenManager {
     access: "input" | "semantic" = "input",
   ): Promise<T> {
     const cowork = this.options.cowork;
-    if (cowork) {
-      const session = this.live(id);
-      const apps = bundles(session.state.target);
-      if (actor === "human") cowork.personInput(apps);
-      // An agent's input waits while the person uses the app; a Take control refuses it below.
-      else if (session.state.controller === "agent" && apps[0]) {
-        const outcome = await cowork.yield(apps[0], apps[0]);
-        if (outcome.busy) throw new PublicToolError("person_busy");
-      }
+    const session = this.live(id);
+    const epoch = session.epoch;
+    const apps = bundles(session.state.target);
+    if (actor === "human") cowork?.personInput(apps);
+    const turn = actor === "agent" && cowork ? cowork.turn(apps) : undefined;
+    const authorize = () => {
+      if (session.epoch !== epoch || session.state.lifecycle !== "live")
+        throw new Error("Controller changed");
+      this.authorize(session.state.target);
+      authorizeInput(session, actor, owner, cowork !== undefined);
+      session.controllerBinding?.authorize();
+    };
+    for (;;) {
+      authorize();
+      const outcome = await turn?.wait();
+      authorize();
+      if (outcome?.busy) throw new PublicToolError("person_busy");
+      const result = await executeSessionAction(
+        {
+          host: this.host,
+          cowork: cowork !== undefined,
+          ...(turn ? { personBusy: turn.busy } : {}),
+          authorize,
+          emit: (current) => this.emit(current),
+          fail: (current, error) => this.fail(current, error),
+          audit: (state, action, status) => this.accessPolicy.access?.audit(state, action, status),
+        },
+        session,
+        actor,
+        owner,
+        dispatch,
+        actionName,
+        access,
+      );
+      if (result === personReturned) continue;
+      return outcome?.note &&
+        typeof result === "object" &&
+        result !== null &&
+        !Array.isArray(result)
+        ? { ...result, waited: outcome.note }
+        : result;
     }
-    return executeSessionAction(
-      {
-        host: this.host,
-        cowork: cowork !== undefined,
-        authorize: (session) => this.authorize(session.state.target),
-        emit: (session) => this.emit(session),
-        fail: (session, error) => this.fail(session, error),
-        audit: (state, action, outcome) => this.accessPolicy.access?.audit(state, action, outcome),
-      },
-      this.live(id),
-      actor,
-      owner,
-      dispatch,
-      actionName,
-      access,
-    );
   }
 
   releaseController(owner: string): void {

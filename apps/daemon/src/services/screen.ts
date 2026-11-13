@@ -6,6 +6,7 @@ import {
   linuxComputerEnvironment,
   localScreenManager,
   macPhysicalInput,
+  windowsPhysicalInput,
   ScreenCowork,
   screenConnection,
   type Simulators,
@@ -33,8 +34,8 @@ export async function startScreen({ config, options, resources, services, store 
   const session =
     process.platform === "linux" ? graphicalSessionEnvironment({ env: process.env }) : undefined;
   // Cowork (ADR 0143): one lease per app for the live view and the agent tools. On a Mac the
-  // person's own keyboard and mouse count while that app is frontmost; elsewhere only input
-  // routed through ace does (Windows' and Linux's idle sources are not read yet).
+  // person's own keyboard and mouse count while that app is frontmost; Windows reads
+  // GetLastInputInfo through its helper. Linux counts only input routed through ace.
   const cowork = new ScreenCowork({
     clock: { now: Date.now, set: nodeScheduler.after },
     // Injected screens and engines (tests) never read this machine's own input.
@@ -46,7 +47,15 @@ export async function startScreen({ config, options, resources, services, store 
             apps: async () => services.computer?.request("apps", {}),
           }),
         }
-      : {}),
+      : process.platform === "win32" && !options.screen && !options.computer
+        ? {
+            physical: windowsPhysicalInput({
+              now: Date.now,
+              idle: async () => services.computer?.request("physical_input", {}),
+              apps: async () => services.computer?.request("apps", {}),
+            }),
+          }
+        : {}),
   });
   const manager =
     options.screen ??

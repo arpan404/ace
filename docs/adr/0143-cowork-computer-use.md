@@ -1,8 +1,10 @@
 # 0143: Cowork: the person and agents share computer use
 
-Status: accepted. Date: 2026-11-13. Decided by: the owner (2026-11-13: "ai agent and human can
-cowork instead of one at a time"). Amends [ADR 0142](0142-a-bots-computer.md) (a bot's computer)
-and the collaboration rules of [ADR 0067](0067-browser-parity.md). Builds on
+Status: Accepted. Date: 2026-11-13. Decided by: the owner (2026-11-13: "ai agent and human can
+cowork instead of one at a time"; the agent yields to the person; all ace computer use). Amends [ADR 0142](0142-a-bots-computer.md) (a bot's computer)
+and the controller rules of [ADR 0067](0067-background-computer-use.md) and
+[ADR 0087](0087-background-computer-use-engine.md) where human input takes control, plus
+the collaboration rules of [ADR 0067](0067-browser-parity.md). Builds on
 [ADR 0011](0011-screen-and-computer-use.md), [ADR 0064](0064-in-app-devices.md),
 [ADR 0087](0087-background-computer-use-engine.md) and [ADR 0104](0104-browser-tab-ownership.md).
 
@@ -15,6 +17,12 @@ gave them back. A Spade bot's computer (ADR 0142) worked the same way: take over
 
 The owner wants the person and the agent to work at once, with one rule for every surface: when
 both act on the same thing, the agent yields to the person.
+
+## Options considered
+
+- Keep one driver at a time. Simple fencing, but helping in one app stops useful work elsewhere.
+- Allow simultaneous input without priority. Fast, but the agent can interrupt the person's work.
+- Default to cowork with a person lease per surface. The person comes first locally, and explicit take-over remains available.
 
 ## Decision
 
@@ -44,9 +52,9 @@ both act on the same thing, the agent yields to the person.
    `ioreg -c IOHIDSystem`, the same counter `CGEventSourceSecondsSinceLastEventType` reads). That
    needs no permission. It is read only when an agent is about to act and when a lease would
    lapse, never on a timer, and the frontmost app is asked for only after recent input.
-   On Windows and Linux only input routed through ace counts for now. Windows' `GetLastInputInfo`
-   needs a native call the helper does not make yet; Linux has no idle source that works on every
-   desktop.
+   Windows samples `GetLastInputInfo` through its native helper and attributes recent input to
+   the frontmost app. Linux counts only ace-routed input; it has no idle source that works on
+   every desktop.
 
 ### Agents yield
 
@@ -122,9 +130,9 @@ both act on the same thing, the agent yields to the person.
       The bot's shell commands aren't checked.
     - In cowork Spade gathers what the person did (the surfaces used, the terminal as "typed"
       but never what was typed, files changed through the app, up to 10 browser addresses) and
-      stores a `person_activity` event before a model step, never mid-call, at most once a
+      stores a `person_activity {text, data}` event before a model step, never mid-call, at most once a
       minute per bot. It opens no reply. The model reads it as `<person_activity from="spade">`
-      with its data as untrusted, like hand-back data. It is kept in memory only, so a restart
+      with its data separated as `<activity_data untrusted="true">`, like hand-back data. It is kept in memory only, so a restart
       drops a summary not yet offered. Bots on CLI brains get it (and the hand-back note) once,
       in their next turn's message. Nothing is gathered in exclusive mode; the hand-back note
       works as before.
@@ -147,13 +155,22 @@ both act on the same thing, the agent yields to the person.
 - An agent's next action can now be up to a minute late in a busy tab, app or device, where the
   browser used to give up after 10 s.
 - A Mac's own keyboard and mouse hold back an agent only in the frontmost app. Input into a
-  window behind it, and every physical input on Windows and Linux, counts only when it comes
-  through ace.
+  window behind it counts only through ace. Windows also samples native session idle time;
+  Linux counts physical input only when ace routes it.
 - The screen's pointer has a point only for steps aimed at screenshot pixels. Steps aimed at an
   outline id leave it where it was, because the helper doesn't report where they landed.
 - The legacy session tools (`screen_input` and friends, used where the background engine isn't)
-  wait for the person too but carry no wait note.
+  wait for the person too and attach wait notes to object results.
 - Rejected: stopping the agent's in-flight action on the person's input. Input already sent
   can't be recalled, and the agent's next action waits anyway (as in ADR 0067).
 - Rejected: a per-surface lock the agent takes and the person must ask for. That is the
   take-over the owner asked to replace; it stays only as the explicit exclusive mode.
+
+## Tests
+
+- `packages/interaction/src/presence.test.ts`: renewed leases, independent surfaces, expiry, physical samples, cancellation and the 60-second budget.
+- Browser process tests: action priority, reads bypass waiting actions, not-run timeout, waited results, and pointer/person state.
+- Screen physical-input, toolkit and manager tests: native idle decoding, foreground attribution, reads, waits, controller fencing and dispatch-time lease checks.
+- Device cowork tests: human input without controller transfer, queue rechecks, retained controller tickets, exclusive takeover, read bypass and not-run timeout.
+- Daemon Spade computer tests: modes, take-over compatibility and native-app person activity in reads and reports.
+- Spade PR #1917 covers terminal cowork, stale base revisions changing nothing, the shared workspace lock, persisted file-identity yielding, trusted summaries with untrusted data, rate limits and `person_busy` as not-run. Those Rust tests belong to that PR.

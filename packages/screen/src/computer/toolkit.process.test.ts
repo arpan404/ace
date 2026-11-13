@@ -316,7 +316,7 @@ function coworkClock() {
   const advance = (ms: number) => {
     const end = now + ms;
     for (;;) {
-      const due = timers.filter((timer) => timer.at <= end).sort((a, b) => a.at - b.at)[0];
+      const due = timers.filter((timer) => timer.at <= end).toSorted((a, b) => a.at - b.at)[0];
       if (!due) break;
       timers = timers.filter((timer) => timer !== due);
       now = due.at;
@@ -326,6 +326,9 @@ function coworkClock() {
   };
   return { clock, sleeping, advance };
 }
+
+/** Lets the helper's replies and the waiters' next looks run. */
+const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
 
 const acts = async (ops: () => Promise<string[]>) =>
   (await ops()).filter((op) => op.startsWith("act"));
@@ -376,7 +379,6 @@ it("after a minute of the person's use the act gives up with person_busy and not
   cowork.personInput(["com.apple.calculator"]);
   const acting = call("screen_act", { app: "Calculator", actions: [{ type: "type", text: "1" }] });
   await time.sleeping();
-  const tick = () => new Promise((resolve) => setTimeout(resolve, 1));
   for (let second = 0; second < 62; second++) {
     time.advance(1_000);
     cowork.personInput(["com.apple.calculator"]);
@@ -384,7 +386,7 @@ it("after a minute of the person's use the act gives up with person_busy and not
   }
   const refused = await acting;
   expect(refused.result.isError).toBe(true);
-  expect(refused.text).toContain("The person is using Calculator; nothing was done.");
+  expect(JSON.parse(refused.text)).toMatchObject({ code: "person_busy" });
   expect(await acts(ops)).toEqual([]);
 });
 
@@ -411,7 +413,6 @@ it("the person typing on the machine while the app is frontmost holds the agent 
     app: "Calculator",
     actions: [{ type: "key", key: "Escape" }],
   });
-  const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
   await time.sleeping();
   time.advance(3_000);
   await tick();
@@ -437,4 +438,92 @@ it("an agent's click is the pointer viewers draw for that app", async () => {
     kind: "click",
     at: time.clock.now(),
   });
+});
+
+it("failed and skipped steps never move the agent pointer to an unexecuted point", async () => {
+  const time = coworkClock();
+  const cowork = new ScreenCowork({ clock: time.clock });
+  const { call } = await world({ toolkit: { cowork } });
+  await call("screen_state", { app: "Calculator" });
+  await call("screen_act", {
+    app: "Calculator",
+    actions: [
+      { type: "click", x: 10, y: 20 },
+      { type: "menu", path: ["Fiel", "New"] },
+      { type: "click", x: 90, y: 100 },
+    ],
+  });
+  expect(cowork.pointer(["com.apple.calculator"])).toMatchObject({ x: 10, y: 20 });
+  await call("screen_act", {
+    app: "Calculator",
+    actions: [
+      { type: "if", text: "Save changes?" },
+      { type: "click", x: 90, y: 100 },
+    ],
+  });
+  expect(cowork.pointer(["com.apple.calculator"])).toMatchObject({ x: 10, y: 20 });
+});
+
+it("a person's exclusive app control refuses actions but allows reads and another app", async () => {
+  const { call, ops } = await world({
+    toolkit: { personExclusive: (appId) => appId === "com.apple.calculator" },
+  });
+  const looked = await call("screen_state", { app: "Calculator" });
+  expect(looked.text).toContain("button 7");
+  const refused = await call("screen_act", {
+    app: "Calculator",
+    actions: [{ type: "key", key: "Escape" }],
+  });
+  expect(refused.result.isError).toBe(true);
+  expect(JSON.parse(refused.text)).toMatchObject({ code: "person_driving" });
+  expect(await acts(ops)).toEqual([]);
+  const other = await call("screen_act", {
+    app: "TextEdit",
+    actions: [{ type: "key", key: "Escape" }],
+  });
+  expect(other.result.isError).toBeFalsy();
+  expect(await acts(ops)).toHaveLength(1);
+});
+
+it("taking exclusive control during a cowork wait prevents the waiting action from dispatching", async () => {
+  const time = coworkClock();
+  const cowork = new ScreenCowork({ clock: time.clock });
+  let exclusive = false;
+  const { call, ops } = await world({ toolkit: { cowork, personExclusive: () => exclusive } });
+  await call("screen_state", { app: "Calculator" });
+  cowork.personInput(["com.apple.calculator"]);
+  const acting = call("screen_act", {
+    app: "Calculator",
+    actions: [{ type: "key", key: "Escape" }],
+  });
+  await time.sleeping();
+  exclusive = true;
+  time.advance(3_000);
+  const refused = await acting;
+  expect(refused.result.isError).toBe(true);
+  expect(JSON.parse(refused.text)).toMatchObject({ code: "person_driving" });
+  expect(await acts(ops)).toEqual([]);
+});
+
+it("exclusive control is rechecked after locked-use preparation immediately before dispatch", async () => {
+  let exclusive = false;
+  let takeOver = false;
+  const { call, ops } = await world({
+    toolkit: {
+      personExclusive: () => exclusive,
+      lockedUse: async (scope, send) => {
+        if (takeOver) exclusive = true;
+        return send(scope.signal);
+      },
+    },
+  });
+  await call("screen_state", { app: "Calculator" });
+  takeOver = true;
+  const refused = await call("screen_act", {
+    app: "Calculator",
+    actions: [{ type: "key", key: "Escape" }],
+  });
+  expect(refused.result.isError).toBe(true);
+  expect(JSON.parse(refused.text)).toMatchObject({ code: "person_driving" });
+  expect(await acts(ops)).toEqual([]);
 });

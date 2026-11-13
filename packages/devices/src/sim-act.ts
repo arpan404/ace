@@ -84,15 +84,24 @@ export async function simAct(
   args: SimAct,
   actor: Actor,
 ): Promise<unknown> {
-  // Cowork: wait here while the person uses the device, so the result can say it waited.
-  const waited = await service.yieldToPerson(args.simId);
+  let waited: string | undefined;
   const noted = (result: unknown) =>
     !waited
       ? result
       : typeof result === "object" && result !== null && !Array.isArray(result)
         ? { ...result, waited }
         : { result, waited };
-  const request = (operation: unknown) => service.request(DeviceOperation.parse(operation), actor);
+  const request = async (operation: unknown) => {
+    const result = await service.request(DeviceOperation.parse(operation), actor);
+    if (
+      typeof result === "object" &&
+      result !== null &&
+      "waited" in result &&
+      typeof result.waited === "string"
+    )
+      waited = result.waited;
+    return result;
+  };
   const noteActivity = (element?: SimElement) => {
     const activity = simActivity(args, element);
     if (activity) service.noteAgentActivity(args.simId, activity);

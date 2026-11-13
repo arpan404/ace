@@ -2,6 +2,8 @@ import { AccessMode, ThreadId, type BrowserState, type SpadeComputerTab } from "
 import { SpadeComputers, botOfHostKey, tabOf, type ActiveTab } from "../spade/computers.ts";
 import { spadeRequest } from "../spade/forward.ts";
 import type { BrowserService } from "@ace/browser";
+import type { ComputerUsingThreads } from "../computer-using.ts";
+import type { ScreenCowork } from "@ace/screen";
 import type { ScreenManager } from "@ace/screen";
 import type { TakeoverStore } from "../spade/computer-drivers.ts";
 import type { SpadeHostThread } from "../spade/host-thread.ts";
@@ -60,13 +62,15 @@ export function startSpadeComputers(
       services.computerUsing?.threads().find((entry) => entry.threadId === threadId)?.apps ?? [],
     activeTab: (threadId) => browsers.activeTab(threadId),
     screenPersonActive: (threadId) =>
-      services.screen
+      nativeScreenPersonActive(threadId, services.computerUsing, services.screenCowork) ||
+      (services.screen
         ?.states()
         .some(
           (state) =>
             state.personActive === true &&
             (state.holder?.threadId === threadId || state.threadId === threadId),
-        ) ?? false,
+        ) ??
+        false),
     botOf(threadId) {
       const id = ThreadId.safeParse(threadId);
       const thread = id.success ? store.getThread(id.data) : undefined;
@@ -106,6 +110,9 @@ export function startSpadeComputers(
     browsers.watch((state, backend) => computers.browserChanged(state, backend)),
     services.computerUsing?.subscribe((threads) => computers.appsChanged(threads)),
     services.screen && watchScreenUse(services.screen, computers),
+    services.computerUsing &&
+      services.screenCowork &&
+      watchNativeScreenUse(services.computerUsing, services.screenCowork, computers),
   ];
   context.resources.own(() => {
     for (const stop of stops) stop?.();
@@ -200,4 +207,22 @@ export function watchScreenUse(
   computers: Pick<SpadeComputers, "screenChanged">,
 ): () => void {
   return screen.watch((state) => computers.screenChanged(state));
+}
+
+/** Native app actions have no legacy live-view session; their identities own cowork presence. */
+export function nativeScreenPersonActive(
+  threadId: ThreadId,
+  using: Pick<ComputerUsingThreads, "appIds"> | undefined,
+  cowork: Pick<ScreenCowork, "personActive"> | undefined,
+): boolean {
+  return cowork?.personActive(using?.appIds(threadId) ?? []) ?? false;
+}
+
+/** Native app lease changes reach Spade even when nobody opened a screen live view. */
+export function watchNativeScreenUse(
+  using: Pick<ComputerUsingThreads, "threads">,
+  cowork: Pick<ScreenCowork, "subscribe">,
+  computers: Pick<SpadeComputers, "appsChanged">,
+): () => void {
+  return cowork.subscribe(() => computers.appsChanged(using.threads()));
 }

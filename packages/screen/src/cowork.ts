@@ -2,6 +2,7 @@ import type { AgentPointer, AgentPointerKind } from "@ace/protocol";
 import {
   PersonPresence,
   personQuietMs,
+  personWaitMs,
   waitedNote,
   type PresenceClock,
   type PresenceTiming,
@@ -45,10 +46,12 @@ const appOf = (surface: string) => (surface.startsWith("app:") ? surface.slice(4
 export class ScreenCowork {
   private readonly presence: PersonPresence;
   private readonly clock: PresenceClock;
+  private readonly maxWaitMs: number;
   private readonly listeners = new Set<(app: string) => void>();
   private readonly pointers = new Map<string, AgentPointer>();
   constructor(options: ScreenCoworkOptions) {
     this.clock = options.clock;
+    this.maxWaitMs = options.timing?.maxWaitMs ?? personWaitMs;
     const physical = options.physical;
     this.presence = new PersonPresence({
       clock: options.clock,
@@ -91,6 +94,41 @@ export class ScreenCowork {
   async yield(app: string, name: string, signal?: AbortSignal): Promise<ScreenYield> {
     const result = await this.presence.yield(surfaceOf(app), signal);
     return { ...result, note: result.busy ? undefined : waitedNote(result.waitedMs, name) };
+  }
+
+  /** One request's deadline and accumulated waits, kept across queue retries. */
+  turn(apps: readonly string[]): { wait(): Promise<ScreenYield>; busy(): boolean } {
+    const deadline = this.clock.now() + this.maxWaitMs;
+    let waitedMs = 0;
+    const result = (busy: boolean): ScreenYield => ({
+      busy,
+      waitedMs,
+      note: busy ? undefined : waitedNote(waitedMs, apps[0] ?? "this app"),
+    });
+    return {
+      busy: () => this.personActive(apps),
+      wait: async () => {
+        const left = deadline - this.clock.now();
+        if (left <= 0) return result(this.personActive(apps));
+        const began = this.clock.now();
+        const controller = new AbortController();
+        const expired = Symbol("person wait expired");
+        const cancel = this.clock.set(left, () => controller.abort(expired));
+        try {
+          const outcomes = await Promise.all(
+            apps.map((app) => this.presence.yield(surfaceOf(app), controller.signal)),
+          );
+          waitedMs += this.clock.now() - began;
+          return result(outcomes.some((outcome) => outcome.busy));
+        } catch (error) {
+          if (error !== expired) throw error;
+          waitedMs += this.clock.now() - began;
+          return result(true);
+        } finally {
+          cancel();
+        }
+      },
+    };
   }
 
   /** The agent acted in `app`; with a point, viewers draw its cursor there. */

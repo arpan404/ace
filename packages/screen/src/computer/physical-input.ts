@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { PhysicalInput } from "../cowork.ts";
 import { ComputerApps } from "./wire.ts";
 
@@ -34,6 +35,29 @@ export function macPhysicalInput(ports: MacPhysicalInputPorts): PhysicalInput {
     async lastInputAt() {
       const idle = hidIdleMs(await ports.ioreg(["-c", "IOHIDSystem", "-d", "4", "-r"]));
       return idle === undefined ? undefined : ports.now() - idle;
+    },
+    async frontmost() {
+      return frontmostApp(await ports.apps());
+    },
+  };
+}
+
+export interface WindowsPhysicalInputPorts {
+  now(): number;
+  /** The helper's `physical_input` reply, carrying GetLastInputInfo idle milliseconds. */
+  idle(): Promise<unknown>;
+  /** The computer-use helper's `apps` reply, or undefined while there is no helper. */
+  apps(): Promise<unknown>;
+}
+
+const windowsIdle = z.looseObject({ idleMs: z.number().int().min(0).max(0xffff_ffff) });
+
+/** Windows' session-local input clock, attributed to the helper's frontmost app. */
+export function windowsPhysicalInput(ports: WindowsPhysicalInputPorts): PhysicalInput {
+  return {
+    async lastInputAt() {
+      const reply = windowsIdle.safeParse(await ports.idle());
+      return reply.success ? ports.now() - reply.data.idleMs : undefined;
     },
     async frontmost() {
       return frontmostApp(await ports.apps());

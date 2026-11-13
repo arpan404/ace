@@ -106,6 +106,7 @@ impl Service {
                     "capabilities": CAPABILITIES,
                 }))
             }
+            "physical_input" => Ok(json!({"idleMs": super::physical_input::idle_ms()})),
             "apps" => self.apps(body.get("query").and_then(Value::as_str)),
             "resolve" => {
                 let found =

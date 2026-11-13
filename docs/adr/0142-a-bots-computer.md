@@ -1,6 +1,6 @@
 # 0142: A bot's computer
 
-Status: accepted. Date: 2026-11-13. Decided by: the owner (2026-11-13: "i want full computer
+Status: accepted. Amended by [ADR 0143](0143-cowork-computer-use.md). Date: 2026-11-13. Decided by: the owner (2026-11-13: "i want full computer
 control and terminal, files, etc.", the pinned live view design). Builds on
 [ADR 0123](0123-spade-runs-as-its-own-service.md) (Spade's service and data folder),
 [ADR 0126](0126-spade-agents.md) (bots, one conversation each),

@@ -551,7 +551,9 @@ export class TabRuntime {
     // An agent's input waits for the person in its own lane, so reads never queue behind it.
     const noted = (result: unknown) => {
       const note =
-        !personWasBusy || began === undefined ? undefined : waitedNote(began - arrived, "this tab");
+        (!personWasBusy && this.humanAt < arrived) || began === undefined
+          ? undefined
+          : waitedNote(began - arrived, "this tab");
       if (!note || Array.isArray(result)) return result;
       return typeof result === "object" && result !== null
         ? { ...result, waited: note }

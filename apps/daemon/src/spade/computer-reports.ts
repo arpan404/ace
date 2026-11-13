@@ -44,9 +44,9 @@ export function browserReport(
         }
       : {}),
     thread_id: threadId,
-    ...(personDriving ? { person_acted: true } : {}),
+    ...(personDriving || tab?.personActive ? { person_acted: true } : {}),
     mode: personDriving ? "exclusive" : "cowork",
-    ...(tab?.personActive ? { person_active: true } : {}),
+    person_active: tab?.personActive ?? false,
   };
 }
 
@@ -61,9 +61,9 @@ export function screenReport(
     live: apps.length > 0,
     ...(apps.length ? { title: apps.join(", ") } : {}),
     thread_id: threadId,
-    ...(personDriving ? { person_acted: true } : {}),
+    ...(personDriving || personActive ? { person_acted: true } : {}),
     mode: personDriving ? "exclusive" : "cowork",
-    ...(personActive ? { person_active: true } : {}),
+    person_active: personActive,
   };
 }
 

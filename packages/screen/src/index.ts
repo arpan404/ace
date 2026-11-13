@@ -24,7 +24,7 @@ export {
 } from "./computer/toolkit.ts";
 export { computerToolNames } from "./computer/schemas.ts";
 export { ScreenCowork, type PhysicalInput, type ScreenCoworkOptions } from "./cowork.ts";
-export { macPhysicalInput } from "./computer/physical-input.ts";
+export { macPhysicalInput, windowsPhysicalInput } from "./computer/physical-input.ts";
 export type { ComputerPlatform } from "./computer/schemas.ts";
 export { ComputerClient, ComputerError, type ComputerClientOptions } from "./computer/client.ts";
 export type { ComputerRequestTiming } from "./computer/client.ts";
@@ -90,3 +90,5 @@ export {
   type LockedUseGatePorts,
   type LockedUseTurnScope,
 } from "./computer/locked-use-gate.ts";
+
+export { bundles as screenTargetApps } from "./policy.ts";

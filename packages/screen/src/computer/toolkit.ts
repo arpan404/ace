@@ -3,7 +3,7 @@
  * screen_display. They drive the helper's background engine; each caller gets its own diff
  * baseline per app.
  */
-import type { Toolkit, ToolContext } from "@ace/mcp-server";
+import { PublicToolError, type Toolkit, type ToolContext } from "@ace/mcp-server";
 import { actLog, ranSteps, sentInput } from "./act-log.ts";
 import { expandConditions, type WireAction } from "./conditions.ts";
 import { appNote } from "./app-notes.ts";
@@ -50,8 +50,10 @@ export interface ComputerToolkitOptions {
   enabled?: () => boolean;
   /** The person's own list of apps agents can't use: app ids or names. */
   blockedApps?: () => readonly string[] | Promise<readonly string[]>;
+  /** True while the person explicitly holds this app's controls, across every thread. */
+  personExclusive?: (appId: string) => boolean;
   /** Told while a thread's agent looks at or acts in an app; the returned function ends it. */
-  using?: (threadId: string, app: string) => () => void;
+  using?: (threadId: string, app: string, appId?: string) => () => void;
   /**
    * Locked computer use: decides whether a state or act runs inside a protected interval on a
    * locked Mac. Absent, every request goes to the helper as it is.
@@ -175,10 +177,15 @@ export function computerToolkit(
     op: "state" | "act",
     payload: Record<string, unknown>,
   ): Promise<unknown> => {
-    const done = options.using?.(context.caller.threadId, app.name);
+    const done =
+      op === "state" ? options.using?.(context.caller.threadId, app.name, app.bundleId) : undefined;
     try {
-      const send = (signal: AbortSignal) =>
-        localClient().request(op, payload, { signal, app: app.bundleId });
+      const send = (signal: AbortSignal) => {
+        // A take-over may happen during the cowork wait or locked-use preparation.
+        if (op === "act" && options.personExclusive?.(app.bundleId))
+          throw new PublicToolError("person_driving");
+        return localClient().request(op, payload, { signal, app: app.bundleId });
+      };
       if (!options.lockedUse) return await send(context.signal);
       const { threadId, agentId } = context.caller;
       return await options.lockedUse(
@@ -266,76 +273,82 @@ export function computerToolkit(
     async screen_act(args, context) {
       const { app, actions, window, screenshot, observe } = computerSchemas.screen_act.parse(args);
       const resolved = await target(app, context);
+      if (options.personExclusive?.(resolved.bundleId)) throw new PublicToolError("person_driving");
       if (resolved.running === false)
         throw new ComputerError(
           "app_not_running",
           `${resolved.name} is not running. Call screen_state first to open it.`,
         );
-      const expanded = expandConditions(actions);
-      // The person is using this app: wait until they pause, or give up having done nothing.
-      let waited: string | undefined;
-      if (options.cowork && actsOnApp(actions)) {
-        const outcome = await options.cowork.yield(
-          resolved.bundleId,
-          resolved.name,
-          context.signal,
-        );
-        if (outcome.busy)
-          throw new ComputerError(
-            "person_busy",
-            `The person is using ${resolved.name}; nothing was done. Try again shortly, or work in another app meanwhile.`,
-          );
-        waited = outcome.note;
-      }
-      const pointed = lastPoint(actions);
-      const point = () => {
-        if (pointed) options.cowork?.acted(resolved.bundleId, pointed.point, pointed.kind);
-      };
-      let result: ComputerActResult;
+      const done = options.using?.(context.caller.threadId, resolved.name, resolved.bundleId);
       try {
-        result = ComputerActResult.parse(
-          await use(resolved, context, "act", {
-            app: resolved.bundleId,
-            actions: expanded.wire,
-            ...(window !== undefined ? { window } : {}),
-            screenshot: !!screenshot,
-            ...(observe === false ? { observe: false } : {}),
-          }),
-        );
-      } catch (error) {
-        // Overdue or cancelled after some steps ran: say which, then why it stopped.
-        const partial =
-          error instanceof ComputerError ? ComputerActResult.safeParse(error.result) : undefined;
-        if (error instanceof ComputerError && partial?.success && partial.data.done.length) {
-          point();
-          return {
-            isError: true,
-            content: [
-              {
-                type: "text",
-                text: [
-                  ...(waited ? [waited] : []),
-                  ...actLog(actions, expanded, { done: partial.data.done }),
-                  error.message,
-                ].join("\n"),
-              },
-            ],
-          };
+        const expanded = expandConditions(actions);
+        // The person is using this app: wait until they pause, or give up having done nothing.
+        let waited: string | undefined;
+        if (options.cowork && actsOnApp(actions)) {
+          const outcome = await options.cowork.yield(
+            resolved.bundleId,
+            resolved.name,
+            context.signal,
+          );
+          if (outcome.busy) throw new PublicToolError("person_busy");
+          waited = outcome.note;
         }
-        throw error;
+        const point = (completed: readonly string[]) => {
+          const pointed = lastPoint(ranSteps(expanded.wire, completed));
+          if (pointed) options.cowork?.acted(resolved.bundleId, pointed.point, pointed.kind);
+        };
+        let result: ComputerActResult;
+        try {
+          result = ComputerActResult.parse(
+            await use(resolved, context, "act", {
+              app: resolved.bundleId,
+              actions: expanded.wire,
+              ...(window !== undefined ? { window } : {}),
+              screenshot: !!screenshot,
+              ...(observe === false ? { observe: false } : {}),
+            }),
+          );
+        } catch (error) {
+          // Overdue or cancelled after some steps ran: say which, then why it stopped.
+          const partial =
+            error instanceof ComputerError ? ComputerActResult.safeParse(error.result) : undefined;
+          if (error instanceof ComputerError && partial?.success && partial.data.done.length) {
+            point(partial.data.done);
+            return {
+              isError: true,
+              content: [
+                {
+                  type: "text",
+                  text: [
+                    ...(waited ? [waited] : []),
+                    ...actLog(actions, expanded, { done: partial.data.done }),
+                    error.message,
+                  ].join("\n"),
+                },
+              ],
+            };
+          }
+          throw error;
+        }
+        point(result.done);
+        const log = [...(waited ? [waited] : []), ...actLog(actions, expanded, result)].join("\n");
+        // A batch that stopped early failed, even when some steps ran.
+        const failed = result.error ? { isError: true } : {};
+        if (!result.state) return { content: [{ type: "text", text: log }], ...failed };
+        const observed = describe(
+          result.state,
+          `${callerOf(context)}/${result.state.app.bundleId}`,
+          {
+            ran: ranSteps(expanded.wire, result.done),
+          },
+        );
+        return {
+          content: [{ type: "text", text: `${log}\n\n${textOf(observed)}` }, ...observed.slice(1)],
+          ...failed,
+        };
+      } finally {
+        done?.();
       }
-      point();
-      const log = [...(waited ? [waited] : []), ...actLog(actions, expanded, result)].join("\n");
-      // A batch that stopped early failed, even when some steps ran.
-      const failed = result.error ? { isError: true } : {};
-      if (!result.state) return { content: [{ type: "text", text: log }], ...failed };
-      const observed = describe(result.state, `${callerOf(context)}/${result.state.app.bundleId}`, {
-        ran: ranSteps(expanded.wire, result.done),
-      });
-      return {
-        content: [{ type: "text", text: `${log}\n\n${textOf(observed)}` }, ...observed.slice(1)],
-        ...failed,
-      };
     },
   };
 

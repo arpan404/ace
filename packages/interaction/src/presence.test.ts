@@ -139,3 +139,22 @@ describe("PersonPresence", () => {
     await expect(waiting).rejects.toThrow("stopped");
   });
 });
+
+it("lease expiry keeps streams active while physical input continues", async () => {
+  const { clock, advance } = fakeClock();
+  let typing = true;
+  const changes: boolean[] = [];
+  const presence = new PersonPresence({
+    clock,
+    sample: async () => (typing ? clock.now() : undefined),
+    changed: (_surface, active) => changes.push(active),
+  });
+  presence.input("app:editor");
+  await advance(personQuietMs);
+  expect(presence.active("app:editor")).toBe(true);
+  expect(changes).not.toContain(false);
+  typing = false;
+  await advance(personQuietMs);
+  expect(presence.active("app:editor")).toBe(false);
+  expect(changes.at(-1)).toBe(false);
+});

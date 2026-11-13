@@ -104,7 +104,11 @@ export class PersonPresence {
     const cancel = this.clock.set(at + this.timing.quietMs - this.clock.now(), () => {
       if (this.lapses.get(surface) !== cancel) return;
       this.lapses.delete(surface);
-      if (!this.active(surface)) this.options.changed?.(surface, false);
+      const publish = () => {
+        if (!this.active(surface)) this.options.changed?.(surface, false);
+      };
+      if (this.options.sample) void this.refresh(surface).then(publish);
+      else publish();
     });
     this.lapses.set(surface, cancel);
     if (!wasActive) this.options.changed?.(surface, true);

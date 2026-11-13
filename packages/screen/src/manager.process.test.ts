@@ -1,3 +1,4 @@
+import { setImmediate } from "node:timers/promises";
 import { helperGate } from "./testing/gate.ts";
 import { afterEach, expect, it } from "vitest";
 import { computerUseHandler, type Frame } from "./index.ts";
@@ -170,6 +171,7 @@ it("in cowork the person's live-view input reaches an agent's session without it
     sharing: "cowork",
     personActive: true,
   });
+  expect((await screen.uiFind(id, { query: { name: "Typed text" } })).nodes[0]?.value).toBe("hi");
   // A person's Take control is exclusive: another person's input stays out, as before.
   now += 10_000;
   screen.controller(id, "human", "human-1");
@@ -177,4 +179,88 @@ it("in cowork the person's live-view input reaches an agent's session without it
   await expect(
     screen.input(id, "human", { kind: "text.type", text: "x" }, "human-2"),
   ).rejects.toThrow("ownership");
+});
+
+/** Hold A in the real helper while B clears its first presence check and queues behind it. */
+async function queuedCowork() {
+  let now = 1_000;
+  const timers = new Set<{ at: number; run: () => void }>();
+  const cowork = new ScreenCowork({
+    clock: {
+      now: () => now,
+      set(ms, run) {
+        const timer = { at: now + ms, run };
+        timers.add(timer);
+        return () => {
+          timers.delete(timer);
+        };
+      },
+    },
+  });
+  const gate = await helperGate();
+  cleanups.push(gate.close);
+  const test = await manager({ FAKE_V2: "1", ACTION_GATE_PORT: gate.port }, { cowork });
+  cleanups.push(test.close);
+  const screen = test.screen;
+  const { sessionId: id } = await ready(screen);
+  screen.controller(id, "agent", "agent");
+  const input = (actor: "human" | "agent", text: string) =>
+    screen.input(id, actor, { kind: "text.type", text }, actor);
+  const first = input("agent", "A");
+  await gate.reached;
+  const second = input("agent", "B");
+  // Drain the initial presence check without releasing the helper's running action.
+  await setImmediate();
+  const advance = async (ms: number) => {
+    now += ms;
+    for (const timer of timers) {
+      if (timer.at > now) continue;
+      timers.delete(timer);
+      timer.run();
+    }
+    await setImmediate();
+  };
+  const typed = async () =>
+    (await screen.uiFind(id, { query: { name: "Typed text" } })).nodes[0]?.value;
+  const personArrives = async () => {
+    const person = input("human", "person");
+    gate.release();
+    await first;
+    await person;
+  };
+  return { screen, id, second, advance, typed, personArrives };
+}
+
+it("a queued agent yields its slot when the person returns, then delivers input with a wait note", async () => {
+  const test = await queuedCowork();
+  await test.personArrives();
+  expect(await test.typed()).toBe("Aperson");
+  await test.advance(2_999);
+  expect(await test.typed()).toBe("Aperson");
+  await test.advance(1);
+  expect(await test.second).toMatchObject({
+    waited: "Waited 3 s while the person used dev.ace.test.",
+  });
+  expect(await test.typed()).toBe("ApersonB");
+});
+
+it("a dequeue retry keeps the original minute deadline and never sends the expired input", async () => {
+  const test = await queuedCowork();
+  const refused = expect(test.second).rejects.toMatchObject({ code: "person_busy" });
+  await test.advance(59_000);
+  await test.personArrives();
+  await test.advance(1_000);
+  await refused;
+  expect(await test.typed()).toBe("Aperson");
+});
+
+it("takeover and re-delegation while an agent waits cannot revive its queued input", async () => {
+  const test = await queuedCowork();
+  const refused = expect(test.second).rejects.toThrow("Controller changed");
+  await test.personArrives();
+  test.screen.controller(test.id, "human", "human");
+  test.screen.controller(test.id, "agent", "agent");
+  await test.advance(3_000);
+  await refused;
+  expect(await test.typed()).toBe("Aperson");
 });
