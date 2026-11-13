@@ -1,8 +1,8 @@
 import { parseSpadeComputerBody, spadeBase64, type SpadeComputer } from "@ace/ui-core/spade-chat";
-import { segment, spadeHttp, type SpadeTarget } from "../spade-requests.ts";
+import { SpadeRequestError, segment, spadeHttp, type SpadeTarget } from "../spade-requests.ts";
 
 /*
- * A bot's computer (who drives it, take over, hand back), its terminal's input and size, and the
+ * A bot's computer (who has it, take over, hand back), its terminal's input and size, and the
  * file manager's writes. Reads of files stay on the workspace routes (`spade-workspace-api.ts`).
  */
 
@@ -40,12 +40,25 @@ export async function resizeTerminal(target: SpadeTarget, bot: string, cols: num
   await spadeHttp(target, "POST", `${base(bot)}/terminal/resize`, { body: { cols, rows } });
 }
 
-/** A text file saved as the person edited it. */
-export async function saveFile(target: SpadeTarget, bot: string, path: string, text: string) {
+/**
+ * A text file saved as the person edited it. `opened` is the revision they opened: Spade refuses
+ * the save (`409 changed`, `changedSinceOpened`) when the file moved on since, writing nothing.
+ */
+export async function saveFile(
+  target: SpadeTarget,
+  bot: string,
+  path: string,
+  text: string,
+  opened: string | undefined,
+) {
   await spadeHttp(target, "PUT", `${base(bot)}/files?path=${encodeURIComponent(path)}`, {
-    body: { text },
+    body: opened === undefined ? { text } : { text, base: opened },
   });
 }
+
+/** Spade refused a write because the file changed since the person opened it. */
+export const changedSinceOpened = (error: unknown) =>
+  error instanceof SpadeRequestError && error.status === 409 && error.message === "changed";
 
 /** A file from the person's computer, put at `path`. */
 export async function uploadFile(

@@ -1,20 +1,14 @@
 /*
  * Cowork: the person and an agent use one computer at the same time (a screen, a browser tab, a
- * simulator, a Spade bot's computer). When both act on it, the agent yields: its actions wait
+ * simulator, a Spade bot's computer; ADR 0143). When both act on it, the agent yields: its actions wait
  * while the person's input is recent. Exclusive (Take over, Take control) is the explicit mode
  * where only the person acts and the agent is paused. These are the words and the pointer every
  * view of it shares.
  */
 
-export type AgentPointerKind = "move" | "click" | "drag" | "scroll" | "type";
+import type { AgentPointer, AgentPointerKind } from "@ace/protocol";
 
-/** Where the agent last acted, in the surface's own coordinates, and when (ms since the epoch). */
-export interface AgentPointer {
-  x: number;
-  y: number;
-  kind: AgentPointerKind;
-  at: number;
-}
+export type { AgentPointer } from "@ace/protocol";
 
 /** How long the agent's pointer stays after its last action, then fades. */
 export const agentPointerFadeMs = 1500;

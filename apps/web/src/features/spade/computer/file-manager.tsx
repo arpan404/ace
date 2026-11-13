@@ -22,15 +22,16 @@ import {
   type SpadeFileEntry,
 } from "../spade-workspace-api.ts";
 import { makeFolder, movePath, uploadFile } from "./computer-api.ts";
-import { FileEditor, takeOverToChange } from "./file-editor.tsx";
+import { FileEditor, notNowToChange } from "./file-editor.tsx";
 
 /**
  * A bot's files as a file manager: one folder at a time under a trail that leads back up, Upload
  * and New folder beside it. A row opens its folder or file; its ⋯ downloads, renames or moves
  * (typing a path with folders moves it), or deletes after asking. A text file opens to edit and
  * save. The list reads again when the bot's stream says its files changed. Browsing and downloads
- * always work; every change needs the person driving (`writable`), checked again right before it
- * goes, so nothing written lands after they hand back.
+ * always work; every change needs the person able to act (`writable`: cowork, or exclusive while
+ * they drive), checked again right before it goes, so nothing lands while the computer changes
+ * hands.
  */
 export function FileManager(props: {
   bot: { id: string; name: string };
@@ -39,7 +40,7 @@ export function FileManager(props: {
   /** Shows another folder, or a file in it. */
   onOpen(to: { folder: string; file?: string | undefined }): void;
   side: Pick<ConversationFollow, "onSide" | "onEnded"> | undefined;
-  /** The person drives: their changes may go to Spade. */
+  /** The person may act: their changes may go to Spade. */
   writable: boolean;
 }) {
   const { bot, folder } = props;
@@ -74,7 +75,7 @@ export function FileManager(props: {
   /** Whether a change may go now; says why not when it can't. */
   const mayWrite = () => {
     if (writable.current) return true;
-    toast.error({ title: takeOverToChange });
+    toast.error({ title: notNowToChange });
     return false;
   };
 
@@ -126,7 +127,7 @@ export function FileManager(props: {
     if (!name || !mayWrite()) return;
     void makeFolder(client, bot.id, inFolder(name)).then(refresh, failed(`Couldn't make ${name}`));
   };
-  const reason = props.writable ? undefined : takeOverToChange;
+  const reason = props.writable ? undefined : notNowToChange;
 
   return (
     <div className="flex h-full min-h-0 flex-col">

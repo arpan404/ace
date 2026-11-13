@@ -16,10 +16,11 @@ const later = (delay: number, run: () => void) => {
 };
 
 /**
- * The bot's terminal, attached to its PTY in ace's terminal view. Everyone sees the same shell;
- * keys go to it only while the person drives (Take over), and the view says so.
+ * The bot's terminal, attached to its PTY in ace's terminal view. Everyone sees the same shell,
+ * the person's own: the bot's commands run apart from it and show in it. Keys go to it whenever
+ * the person may act, in cowork with no take-over, and in exclusive mode while they drive.
  */
-export function BotTerminal(props: { bot: { id: string; name: string }; driving: boolean }) {
+export function BotTerminal(props: { bot: { id: string; name: string }; mayType: boolean }) {
   const client = useSpadeClient();
   const toast = useToast();
   const [source] = useState(() =>
@@ -34,7 +35,7 @@ export function BotTerminal(props: { bot: { id: string; name: string }; driving:
       later,
     }),
   );
-  useEffect(() => source.setDriving(props.driving), [source, props.driving]);
+  useEffect(() => source.setTyping(props.mayType), [source, props.mayType]);
   return (
     <div className="flex h-full min-h-0 flex-col p-4">
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-code p-2 shadow-[inset_0_0_0_1px_var(--border)]">
@@ -49,8 +50,8 @@ export function BotTerminal(props: { bot: { id: string; name: string }; driving:
             source={source}
             id={`spade:${props.bot.id}`}
             label={`${props.bot.name}'s`}
-            readOnly={!props.driving}
-            autoFocus={props.driving}
+            readOnly={!props.mayType}
+            autoFocus={props.mayType}
           />
         </Suspense>
       </div>

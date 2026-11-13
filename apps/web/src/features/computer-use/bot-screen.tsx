@@ -1,19 +1,27 @@
 import type { ScreenInput, ScreenState } from "@ace/protocol";
+import { agentInitial } from "@ace/ui-core/cowork";
 import { useEffect, useEffectEvent } from "react";
 import { LiveView } from "./live-view.tsx";
 import { useScreenSession, type ScreenSession } from "./screen-session.ts";
 
 /*
  * A Spade bot's screen, live: the app session its hidden thread started (or holds now), drawn by
- * computer use's live view. While the person drives they take the session's controls, so their
- * clicks and keys reach the app; when they hand back, the controls are let go for the bot to take
- * again. While the bot drives the view only shows.
+ * computer use's live view, with the bot's pointer where it last acted. In cowork the person's
+ * clicks and keys go straight to the app while the bot keeps the session (the daemon makes the
+ * bot wait while the person's input is recent). In exclusive mode, while the person drives, they
+ * take the session's controls; when they hand back, the controls are let go for the bot to take
+ * again.
  */
 
 export interface BotScreenProps {
   /** The bot's hidden thread. */
   threadId: string;
+  /** The person's input goes in now (cowork, or exclusive while they drive). */
+  mayAct: boolean;
+  /** Exclusive mode is the person's now: the session's controls are taken for them. */
   driving: boolean;
+  /** The bot's name, for its pointer. */
+  agent: string;
   label: string;
   /** Said while no session of the bot's shows. */
   waiting: string;
@@ -94,13 +102,20 @@ export default function BotScreen(props: BotScreenProps) {
     );
   const send = (input: ScreenInput) =>
     void session.request({ op: "input", sessionId, input }).catch(props.onProblem);
+  // Exclusive: only once the controls are the person's. Cowork: straight away, no claim.
+  const acts = props.driving ? human : props.mayAct;
   return (
     <LiveView
       session={session}
       sessionId={sessionId}
       label={props.label}
       className="size-full"
-      onInput={props.driving && human ? send : undefined}
+      onInput={acts ? send : undefined}
+      agent={{
+        name: props.agent,
+        pointer: state?.agentPointer,
+        mark: agentInitial(props.agent),
+      }}
     />
   );
 }

@@ -32,6 +32,8 @@ export interface SpadeFileView {
   size: number;
   text: string | undefined;
   unreadable: "binary" | "too_large" | undefined;
+  /** The file's revision as opened: a save sends it back as `base`, refused if it moved on. */
+  revision: string | undefined;
 }
 
 /** A JSON object's fields, or undefined for anything else (or text that isn't JSON). */
@@ -90,6 +92,7 @@ function parseFile(body: string): SpadeFileView | undefined {
     size: num(fields.size) ?? 0,
     text: str(fields.text),
     unreadable: unreadable === "binary" || unreadable === "too_large" ? unreadable : undefined,
+    revision: str(fields.revision) ?? num(fields.revision)?.toString(),
   };
 }
 

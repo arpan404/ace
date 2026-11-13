@@ -8,20 +8,23 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { message } from "../spade-screen-parts.tsx";
 import { useSpadeClient, useSpadeMachine } from "../spade-machine.tsx";
 import { readFile } from "../spade-workspace-api.ts";
-import { saveFile } from "./computer-api.ts";
+import { changedSinceOpened, saveFile } from "./computer-api.ts";
 
-/** Why a change to the bot's files can't be made now. */
-export const takeOverToChange = "Take over to change files";
+/** Why a change to the bot's files can't be made now: the computer is changing hands. */
+export const notNowToChange = "Files can change once the computer is yours or shared again";
 
 /**
- * A file of the bot's open: a text file to edit in place while the person drives, Save once it
- * changed (⌘S too); a file
- * that isn't text, or is too large, says so with Download. Download and Delete stay beside it.
+ * A file of the bot's open: a text file to edit in place whenever the person may act (cowork, or
+ * exclusive while they drive), Save once it changed (⌘S too). A save carries the revision the
+ * person opened; when the bot (or anything) changed the file since, nothing is written and it says
+ * "Changed since you opened it" with Reload (their draft goes, the file as it is now shows) and
+ * Overwrite (their draft is saved over it). A file that isn't text, or is too large, says so with
+ * Download. Download and Delete stay beside it.
  */
 export function FileEditor(props: {
   bot: string;
   path: string;
-  /** The person drives: the file can be edited and saved. */
+  /** The person may act: the file can be edited and saved. */
   writable: boolean;
   /** Whether a change may go right now, said again just before saving. */
   mayWrite(): boolean;
@@ -39,16 +42,21 @@ export function FileEditor(props: {
   });
   const [draft, setDraft] = useState<string>();
   const [saving, setSaving] = useState(false);
+  /** The last save was refused: the file changed since it was opened. */
+  const [conflict, setConflict] = useState(false);
   const text = file.data?.text;
   const changed = draft !== undefined && draft !== text;
-  const reason = props.writable ? undefined : takeOverToChange;
-  const save = () => {
-    if (!changed || saving || !props.mayWrite()) return;
+  const reason = props.writable ? undefined : notNowToChange;
+  /** Saves the draft over the revision `opened` (the one shown, unless Overwrite read anew). */
+  const save = (opened = file.data?.revision) => {
+    if (draft === undefined || (!changed && !conflict) || saving || !props.mayWrite()) return;
     setSaving(true);
     const sent = draft;
-    void saveFile(client, props.bot, props.path, sent).then(
+    void saveFile(client, props.bot, props.path, sent, opened).then(
       () => {
         setSaving(false);
+        setConflict(false);
+        // Until the read below says the new revision, nothing later is saved over another.
         cache.setQueryData(key, { ...file.data, text: sent, size: sent.length });
         // Words typed while it saved stay as the draft; only what was saved is done.
         setDraft((now) => (now === sent ? undefined : now));
@@ -56,9 +64,22 @@ export function FileEditor(props: {
       },
       (error: unknown) => {
         setSaving(false);
-        toast.error({ title: `Couldn't save ${props.path}`, description: message(error) });
+        if (changedSinceOpened(error)) setConflict(true);
+        else toast.error({ title: `Couldn't save ${props.path}`, description: message(error) });
       },
     );
+  };
+  /** The file as it is now; the draft goes. */
+  const reload = () => {
+    setConflict(false);
+    setDraft(undefined);
+    void file.refetch();
+  };
+  /** The draft, saved over the file as it is now. */
+  const overwrite = () => {
+    void file.refetch().then((now) => {
+      if (now.data) save(now.data.revision);
+    });
   };
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -69,7 +90,7 @@ export function FileEditor(props: {
               size="xs"
               variant={changed ? "primary" : "ghost"}
               disabled={!changed || saving || !props.writable}
-              onClick={save}
+              onClick={() => save()}
             >
               {saving ? "Saving…" : "Save"}
             </Button>
@@ -89,6 +110,19 @@ export function FileEditor(props: {
           </span>
         )}
       </div>
+      {conflict && (
+        <div role="alert" className="flex shrink-0 items-center gap-1 px-4 pb-2">
+          <p className="min-w-0 flex-1 truncate text-ui text-foreground">
+            Changed since you opened it
+          </p>
+          <Button size="xs" variant="ghost" disabled={saving} onClick={reload}>
+            Reload
+          </Button>
+          <Button size="xs" variant="ghost" disabled={saving} onClick={overwrite}>
+            Overwrite
+          </Button>
+        </div>
+      )}
       {file.isPending ? (
         <LoadingRegion label="File" className="px-4">
           <Skeleton className="h-40 w-full rounded-md" />

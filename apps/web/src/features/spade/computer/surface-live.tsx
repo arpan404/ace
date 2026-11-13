@@ -89,7 +89,6 @@ export function SurfaceLive(props: {
           tabId={props.surface?.tabId}
           mayAct={props.mayAct}
           driving={props.driving}
-          agent={bot.name}
           waiting={waiting}
         />
       ) : (
