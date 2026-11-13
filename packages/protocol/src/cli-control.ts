@@ -73,7 +73,8 @@ export const CliTree = z
   .max(65);
 export type CliTree = z.infer<typeof CliTree>;
 export const CliTaskStatus = AgentTaskView.extend({
-  state: AgentTaskView.shape.state.or(z.literal("unresponsive")),
+  // A union, not `.or()`: browser workers load protocol schemas and leave `.or()` out.
+  state: z.union([AgentTaskView.shape.state, z.literal("unresponsive")]),
   status: ThreadStatus,
   outcome: DelegationOutcome.optional(),
 });
