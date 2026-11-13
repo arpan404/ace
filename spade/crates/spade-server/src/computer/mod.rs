@@ -226,6 +226,12 @@ pub struct Computers {
     daemon: std::sync::OnceLock<Arc<dyn daemon::Daemon>>,
     /// Bots handed back whose release ace hasn't confirmed yet.
     releasing: Mutex<HashSet<String>>,
+    /// Who each bot's latest take-over or hand-back asked ace to make the driver.
+    wanted: Mutex<HashMap<String, Driver>>,
+    /// One change of driver at a time per bot, in ace.
+    transit: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// What ace said the person did, kept for the hand-back that asked.
+    handbacks: Mutex<HashMap<String, daemon::Handback>>,
     /// Bots the person took over whose work ace hasn't yet said has stopped.
     stopping: Mutex<HashSet<String>>,
     /// Bots whose browser and screen haven't been read from ace since Spade started.
@@ -298,6 +304,9 @@ impl Computers {
             daemon: std::sync::OnceLock::new(),
             releasing: Mutex::default(),
             stopping: Mutex::default(),
+            wanted: Mutex::default(),
+            transit: Mutex::default(),
+            handbacks: Mutex::default(),
             unread: Mutex::default(),
             changes: broadcast::channel(1024).0,
             me: me.clone(),
@@ -632,6 +641,8 @@ impl Computers {
         lock(&self.files).remove(agent);
         lock(&self.threads).remove(agent);
         lock(&self.stopping).remove(agent);
+        lock(&self.wanted).remove(agent);
+        lock(&self.handbacks).remove(agent);
         lock(&self.sent).remove(agent);
         self.terminals.remove(agent);
     }

@@ -1028,3 +1028,47 @@ async fn the_person_gets_the_controls_only_once_ace_says_the_bots_work_stopped()
     assert_eq!(view["stopping"], false, "{view}");
     Ok(())
 }
+
+#[tokio::test]
+async fn handing_back_while_ace_still_answers_the_take_over_leaves_the_bot_driving() -> Result {
+    let machine = Machine::new()?;
+    let spade = start(&machine, vec![Script::reply("Hi")], Vec::new()).await?;
+    let (agent, conversation) = bot(&spade).await?;
+    let computers = spade.engine.computers().cloned().ok_or("no computers")?;
+    let daemon = Arc::new(FakeDaemon {
+        take_over_takes: Duration::from_millis(800),
+        ..FakeDaemon::default()
+    });
+    // Rounds far apart, so only the take-over and hand-back themselves talk to ace.
+    computers.set_daemon(daemon.clone(), Vec::new(), Duration::from_secs(60));
+    let (status, _) = spade
+        .post(&format!("/v1/agents/{agent}/computer/take-over"), json!({}))
+        .await?;
+    assert_eq!(status, 204);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    // ace is still draining the bot's calls for the take-over.
+    let (status, _) = spade
+        .post(&format!("/v1/agents/{agent}/computer/hand-back"), json!({}))
+        .await?;
+    assert_eq!(status, 204);
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    assert_eq!(
+        daemon.driver(&agent),
+        Driver::Bot,
+        "a late take-over undid the hand-back"
+    );
+    let events = spade
+        .wait_for(&conversation, "computer_handed_back")
+        .await?;
+    let note = events
+        .iter()
+        .find(|e| e["type"] == "computer_handed_back")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(
+        note["data"],
+        json!(["went to: https://bank.example/login"]),
+        "{note}"
+    );
+    Ok(())
+}

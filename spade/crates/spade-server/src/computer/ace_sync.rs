@@ -52,17 +52,12 @@ impl Computers {
         let Some(daemon) = self.daemon() else {
             return;
         };
-        for bot in self.held() {
-            let answer = tokio::time::timeout(ASK, daemon.drive(&bot, Driver::Person)).await;
-            if let Ok(Ok(answer)) = answer {
-                self.ace_stopped(&bot, answer.stopped);
-            }
-        }
-        let releasing: Vec<String> = lock(&self.releasing).iter().cloned().collect();
-        for bot in releasing {
-            if let Ok(Ok(_)) = tokio::time::timeout(ASK, daemon.drive(&bot, Driver::Bot)).await {
-                lock(&self.releasing).remove(&bot);
-            }
+        let mut bots = self.held();
+        bots.extend(lock(&self.releasing).iter().cloned());
+        bots.sort();
+        bots.dedup();
+        for bot in bots {
+            self.reconcile(&bot).await;
         }
         let unread: Vec<String> = lock(&self.unread).iter().cloned().collect();
         for bot in unread {
@@ -76,13 +71,60 @@ impl Computers {
     /// Tells ace the person drives `agent`'s browser and screen. Not reaching it is fine: the
     /// next round tells it again.
     pub async fn ace_takes_over(&self, agent: &str) {
+        lock(&self.wanted).insert(agent.to_owned(), Driver::Person);
         lock(&self.releasing).remove(agent);
-        if let Some(daemon) = self.daemon() {
-            let answer = tokio::time::timeout(ASK, daemon.drive(agent, Driver::Person)).await;
-            if let Ok(Ok(answer)) = answer {
-                self.ace_stopped(agent, answer.stopped);
+        self.reconcile(agent).await;
+    }
+
+    /// Who should drive `agent` in ace: the latest take-over or hand-back asked for, else
+    /// Spade's own record.
+    fn wanted(&self, agent: &str) -> Driver {
+        lock(&self.wanted)
+            .get(agent)
+            .copied()
+            .unwrap_or_else(|| self.driver(agent))
+    }
+
+    /// Tells ace who should drive `agent`, one change at a time per bot, until ace's answer is
+    /// for the latest wish: a take-over still waiting on ace when the person hands back is
+    /// followed by the hand-back, never left as the last word. Answers whether ace has it.
+    async fn reconcile(&self, agent: &str) -> bool {
+        let Some(daemon) = self.daemon() else {
+            return false;
+        };
+        let gate = lock(&self.transit)
+            .entry(agent.to_owned())
+            .or_default()
+            .clone();
+        let _one = gate.lock().await;
+        // Each round answers one wish; a few are enough for any burst of clicks.
+        for _ in 0..4 {
+            let want = self.wanted(agent);
+            let answer = tokio::time::timeout(ASK, daemon.drive(agent, want)).await;
+            let reached = match answer {
+                Ok(Ok(answer)) => {
+                    if let Some(handback) = answer.handback {
+                        lock(&self.handbacks).insert(agent.to_owned(), handback);
+                    }
+                    if want == Driver::Person {
+                        self.ace_stopped(agent, answer.stopped);
+                    }
+                    true
+                }
+                _ => false,
+            };
+            if want == Driver::Bot {
+                if reached {
+                    lock(&self.releasing).remove(agent);
+                } else {
+                    lock(&self.releasing).insert(agent.to_owned());
+                }
+            }
+            if self.wanted(agent) == want {
+                return reached;
             }
         }
+        false
     }
 
     /// ace said whether the bot's work there has stopped since the person took over.
@@ -98,17 +140,10 @@ impl Computers {
     /// Hands `agent`'s browser and screen back to the bot in ace; answers what the person did
     /// there. When ace can't be reached, later rounds hand back again and the note goes without.
     pub async fn ace_hands_back(&self, agent: &str) -> Option<Handback> {
-        let daemon = self.daemon()?;
-        match tokio::time::timeout(ASK, daemon.drive(agent, Driver::Bot)).await {
-            Ok(Ok(answer)) => {
-                lock(&self.releasing).remove(agent);
-                answer.handback
-            }
-            _ => {
-                lock(&self.releasing).insert(agent.to_owned());
-                None
-            }
-        }
+        self.daemon()?;
+        lock(&self.wanted).insert(agent.to_owned(), Driver::Bot);
+        self.reconcile(agent).await;
+        lock(&self.handbacks).remove(agent)
     }
 
     /// The bot's browser and screen as ace keeps them.
