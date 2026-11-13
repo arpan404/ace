@@ -1,3 +1,4 @@
+import { coworkLine } from "./cowork.ts";
 import type {
   AppDevice,
   DeviceFailure,
@@ -108,7 +109,7 @@ export interface DeviceControls {
   inControl: boolean;
   /** Milliseconds left on your lease; 0 when you don't hold one. */
   leaseLeftMs: number;
-  /** One line: "Live · You're in control", "Shut down", "Live · The agent is in control". */
+  /** One line: "Live · You're in control", "Shut down", "Live · The agent is working here". */
   status: string;
   /** Where the device is, without who controls it: "Live", "Booting…", "Shut down". */
   where: string;
@@ -204,7 +205,8 @@ export function deviceControls(
   const who = inControl
     ? "You're in control"
     : controller === "agent"
-      ? "The agent is in control"
+      ? // Shared: the agent works on it, and waits while the person's input is recent.
+        coworkLine(state?.personActive ? "waiting" : "working", "The agent")
       : controller === "human"
         ? remaining > 0
           ? "Another connection is in control"

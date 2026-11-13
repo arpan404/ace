@@ -132,7 +132,7 @@ impl Engine {
         let conversation = self.ids.next("c");
         // The task the first turn reads. With none there is nothing to read: the model is named
         // by each `reply_started`.
-        let configured: Vec<Event> = (!task.is_empty())
+        let mut configured: Vec<Event> = (!task.is_empty())
             .then(|| {
                 Event::Known(Known::AgentConfigured {
                     task: task.clone(),
@@ -141,6 +141,10 @@ impl Engine {
             })
             .into_iter()
             .collect();
+        // A level chosen at creation is stored with the bot, in the same write (ADR 0144).
+        if let Some(level) = input.access {
+            configured.push(Event::Known(Known::AccessChanged { level }));
+        }
         self.store.create_agent(
             NewAgent {
                 id: &id,
@@ -295,7 +299,20 @@ impl Engine {
     fn view_of(&self, agent: Agent) -> Result<AgentView, StoreError> {
         let activity = self.activity(&agent.conversation)?;
         let status = self.status_for(&agent.conversation, &activity);
-        let oversight = self.oversight_json(&agent)?;
+        let mut oversight = self.oversight_json(&agent)?;
+        // Its access level and task (ADR 0144).
+        if let Some(shown) = oversight.as_object_mut() {
+            shown.insert("access".into(), activity.access.name().into());
+            shown.insert(
+                "task_state".into(),
+                serde_json::to_value(&activity.task).unwrap_or_default(),
+            );
+            shown.insert(
+                "continuing".into(),
+                self.continuing(&agent.conversation, activity.continued)
+                    .into(),
+            );
+        }
         Ok(AgentView {
             oversight,
             state: activity.state,

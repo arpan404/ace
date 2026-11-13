@@ -107,6 +107,9 @@ pub struct RoutineInput {
     pub trigger: Option<Trigger>,
     pub time_zone: Option<String>,
     pub paused: Option<bool>,
+    /// Saved by a bot in a turn with untrusted content in view (ADR 0144): the routine is marked
+    /// untrusted for good.
+    pub untrusted: bool,
 }
 
 /// The heartbeat's settings; absent fields stay as they are.
@@ -263,6 +266,7 @@ pub fn create(
         .to_owned(),
         created_ms: now,
         updated_ms: now,
+        untrusted: input.untrusted,
     };
     r.next_due_ms = next_slot(engine, &r)?;
     if !engine.store().insert_routine(&r)? {
@@ -283,6 +287,7 @@ pub fn update(
         .filter(|r| r.kind == ROUTINE)
         .ok_or(RoutineError::NotFound)?;
     let was = (r.trigger.clone(), r.time_zone.clone(), r.paused);
+    r.untrusted |= change.untrusted;
     if let Some(name) = change.name {
         r.name = one_line(&name, routine::NAME_CHARS, "name")?;
     }
@@ -427,6 +432,7 @@ pub fn set_heartbeat(
                 created_by: "person".to_owned(),
                 created_ms: now,
                 updated_ms: now,
+                untrusted: false,
             };
             r.next_due_ms = next_slot(engine, &r)?;
             engine.store().insert_routine(&r)?;

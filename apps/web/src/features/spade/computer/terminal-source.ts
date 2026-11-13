@@ -10,7 +10,8 @@ import type { LiveEnd, SpadeTransport } from "../spade-transport.ts";
  * twice; output the ring dropped meanwhile is marked as dropped. Every screen attached follows
  * its own position in the stream. The PTY starts again on demand,
  * so its exit is a line in the output, never the end of the view. Typing goes to Spade only while
- * the person drives (`setDriving`); Spade refuses it otherwise.
+ * the person may type (`setTyping`: cowork, or exclusive while they drive); Spade refuses it
+ * otherwise.
  */
 
 export interface TerminalSourceDeps {
@@ -26,16 +27,16 @@ export interface TerminalSourceDeps {
 
 const resumable = new Set<LiveEnd>(["restarted", "closed", "unavailable", "limit"]);
 
-/** The source, and whether the person drives now: keys and the size go to Spade only then. */
-export type SpadeTerminalSource = TerminalSource & { setDriving(driving: boolean): void };
+/** The source, and whether the person may type now: keys and the size go to Spade only then. */
+export type SpadeTerminalSource = TerminalSource & { setTyping(typing: boolean): void };
 
 export function spadeTerminalSource(deps: TerminalSourceDeps): SpadeTerminalSource {
-  let driving = false;
+  let typing = false;
   const id = `spade:${deps.bot}`;
   const info: TerminalInfo = { id, threadId: "", name: deps.name, exited: false };
   return {
-    setDriving: (on) => {
-      driving = on;
+    setTyping: (on) => {
+      typing = on;
     },
     link: "connected",
     version: 0,
@@ -110,11 +111,11 @@ export function spadeTerminalSource(deps: TerminalSourceDeps): SpadeTerminalSour
       };
     },
     write(_terminal, data) {
-      if (!driving) return;
+      if (!typing) return;
       deps.type(data).catch(deps.failed);
     },
     resize(_terminal, cols, rows) {
-      if (!driving) return;
+      if (!typing) return;
       deps.resize(cols, rows).catch(() => {});
     },
   };

@@ -1,3 +1,4 @@
+import type { AgentPointerKind } from "@ace/protocol";
 import { z } from "zod";
 import { pageHistory, traverseHistory, findPageText } from "./page-navigation.ts";
 import {
@@ -85,7 +86,7 @@ interface CommandContext {
   /** The person used the tab within `quietMs`: an agent's multi-step input stops. */
   personBusy?(): boolean;
   /** An agent pointed at this spot (CSS pixels); viewers draw its cursor there. */
-  point?(point: { x: number; y: number }): void;
+  point?(point: { x: number; y: number }, kind?: AgentPointerKind): void;
   /**
    * The agent's cursor in the page, while one is drawn; each resolves once the cursor has
    * landed, so the input that follows happens under it.
@@ -312,7 +313,7 @@ export async function executeBrowserCommand(
       const dispatch = context.refDispatch(command.ref, actor, signal, generation);
       const { point } = await context.refs.target(command.ref, dispatch.prepare);
       dispatch.send();
-      context.point?.(point);
+      context.point?.(point, "move");
       await context.cursor?.point(point);
       await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...point });
       return { ok: true };
@@ -323,7 +324,7 @@ export async function executeBrowserCommand(
       const document = context.refs.documentGuard();
       const start = (await context.refs.target(command.ref, from.prepare)).point,
         end = (await context.refs.target(command.toRef, to.prepare)).point;
-      context.point?.(end);
+      context.point?.(end, "drag");
       await context.cursor?.drag(start, end);
       await dragRefs(
         cdp,
@@ -333,7 +334,7 @@ export async function executeBrowserCommand(
           from.send();
           to.send();
           // The person came back mid-drag: the agent lets go rather than drag across them.
-          if (context.personBusy?.()) throw new BrowserActionError("human_active");
+          if (context.personBusy?.()) throw new BrowserActionError("person_busy");
         },
         () => {
           context.check(actor, undefined, generation);

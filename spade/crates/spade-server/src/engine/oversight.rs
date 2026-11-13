@@ -440,8 +440,13 @@ fn types_for(kinds: &[Kind]) -> Vec<&'static str> {
         types.push(match kind {
             Kind::Routine => "user_message",
             Kind::Review => "call_reviewed",
+            Kind::Access => "access_changed",
+            Kind::Task => "task_continued",
             _ => "cap_reached",
         });
+        if *kind == Kind::Task {
+            types.push("task_paused");
+        }
     }
     types
 }

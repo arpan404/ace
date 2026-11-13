@@ -1,6 +1,6 @@
 # 0142: A bot's computer
 
-Status: accepted. Date: 2026-11-13. Decided by: the owner (2026-11-13: "i want full computer
+Status: accepted. Amended by [ADR 0143](0143-cowork-computer-use.md). Date: 2026-11-13. Decided by: the owner (2026-11-13: "i want full computer
 control and terminal, files, etc.", the pinned live view design). Builds on
 [ADR 0123](0123-spade-runs-as-its-own-service.md) (Spade's service and data folder),
 [ADR 0126](0126-spade-agents.md) (bots, one conversation each),
@@ -97,12 +97,12 @@ take over.
    `<computer_handed_back from="spade">`, so it never takes the person's work for its own.
    The note is stored before the bot is released, so a crash can only repeat it, never lose it.
 10. **The person's turn survives a restart.** While the person drives,
-   `<data folder>/computer/<bot>.json` holds the take-over: its conversation, the workspace as it
-   was, and the surfaces used so far. A Spade that starts with it keeps the bot
-   paused and its messages waiting until the hand-back. The daemon keeps its driver in memory
-   only, so Spade tells it again every few seconds while the person drives, and while ace has
-   not confirmed a hand-back. Changes of driver go to ace one at a time per bot, ending at the
-   latest asked for, so a take-over ace answers late can't undo a hand-back.
+    `<data folder>/computer/<bot>.json` holds the take-over: its conversation, the workspace as it
+    was, and the surfaces used so far. A Spade that starts with it keeps the bot
+    paused and its messages waiting until the hand-back. The daemon keeps its driver in memory
+    only, so Spade tells it again every few seconds while the person drives, and while ace has
+    not confirmed a hand-back. Changes of driver go to ace one at a time per bot, ending at the
+    latest asked for, so a take-over ace answers late can't undo a hand-back.
 
 ### Safety
 

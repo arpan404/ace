@@ -2,6 +2,7 @@ import { useSeconds } from "@/lib/time.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { DeviceClientError } from "@ace/client/devices";
 import type {
+  AgentPointer,
   DeviceActivity,
   DeviceInput,
   DeviceOperation,
@@ -68,6 +69,10 @@ export interface DevicesView {
   holder: { threadId: string; agentId: string } | undefined;
   /** The last thing an agent did on the selected device. */
   activity: DeviceActivity | undefined;
+  /** The agent using it waits: the person's input on it is recent (cowork, ADR 0143). */
+  personActive: boolean;
+  /** Where the agent using it last acted, in device points. */
+  agentPointer: AgentPointer | undefined;
   stateLoaded: boolean;
   /** Every device's controller and holder, for the list's tiles. */
   controllers: ReadonlyMap<string, Pick<DeviceState, "controller" | "holder" | "ownedHere">>;
@@ -225,6 +230,8 @@ export function useDevices(threadId: string, deviceId?: string) {
     session,
     holder: state?.controller === "agent" ? state.holder : undefined,
     activity: state?.activity,
+    personActive: state?.controller === "agent" && state.personActive === true,
+    agentPointer: state?.controller === "agent" ? state.agentPointer : undefined,
     stateLoaded: state !== undefined,
     controllers: new Map(
       snapshot.states.map((entry) => [
@@ -344,11 +351,15 @@ export function useDevices(threadId: string, deviceId?: string) {
      * One input, resolved once the device acknowledged or refused it (a refusal shows as the
      * problem), so a drag keeps a single move in flight. It never rejects and is never replayed.
      * Input while in control skips the pending count: a drag must not re-render the whole tab.
+     * While an agent uses the device in cowork, the person's input goes straight in with no
+     * claim of control (the agent waits while it is recent, ADR 0143).
      */
     input: async (input: DeviceInput): Promise<void> => {
       if (!target) return;
+      const shared = state?.controller === "agent" && state.sharing !== "exclusive";
       try {
-        if (!controls?.inControl) await withControl({ op: "input", deviceId: target, input });
+        if (!controls?.inControl && !shared)
+          await withControl({ op: "input", deviceId: target, input });
         else {
           if (failed) setFailed(undefined);
           if (!session) throw new DeviceClientError("disconnected", "Devices are offline");

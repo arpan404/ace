@@ -1,7 +1,14 @@
+import type { SpadeAvatar } from "@ace/ui-core/spade-chat";
 import { useEffect, useRef, useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
-import { keyInput, pointerGesture, windowPoint } from "@/features/computer-use/index.ts";
+import {
+  AgentCursor,
+  keyInput,
+  pointerGesture,
+  windowPoint,
+} from "@/features/computer-use/index.ts";
 import { cn } from "@/lib/cn.ts";
+import { SpadeFace } from "../spade-face.tsx";
 import { message } from "../spade-screen-parts.tsx";
 import { useBotStreams, type BotPicture, type BotSurfaceKey } from "./bot-streams.ts";
 
@@ -29,13 +36,16 @@ export function useBotPicture(key: BotSurfaceKey | undefined): {
 }
 
 /**
- * Pictures the app supplies (`BotStreams`, the fake world's): the newest one, and while the person
- * drives, clicks, drags, scrolls and keys over it sent as computer-use input.
+ * Pictures the app supplies (`BotStreams`, the fake world's): the newest one, with the bot's
+ * pointer where it last acted, and while the person may act (cowork, or exclusive while they
+ * drive) clicks, drags, scrolls and keys over it sent as computer-use input.
  */
 export function StreamPicture(props: {
   surfaceKey: BotSurfaceKey;
-  driving: boolean;
+  /** The person's input goes in now. */
+  mayAct: boolean;
   label: string;
+  bot: { name: string; avatar: SpadeAvatar };
 }) {
   const streams = useBotStreams();
   const toast = useToast();
@@ -70,13 +80,13 @@ export function StreamPicture(props: {
   };
   return (
     <div
-      // While the person drives it takes their clicks and keys, as an app in the page.
+      // While the person may act it takes their clicks and keys, as an app in the page.
       role="application"
       aria-label={props.label}
-      tabIndex={props.driving ? 0 : undefined}
-      data-driving={props.driving || undefined}
+      tabIndex={props.mayAct ? 0 : undefined}
+      data-acting={props.mayAct || undefined}
       onPointerDown={(event) => {
-        if (!props.driving) return;
+        if (!props.mayAct) return;
         const at = point(event);
         if (!at) return;
         event.currentTarget.focus();
@@ -90,7 +100,7 @@ export function StreamPicture(props: {
       onPointerUp={(event) => {
         const down = press.current;
         press.current = undefined;
-        if (!props.driving || !down) return;
+        if (!props.mayAct || !down) return;
         const gesture = pointerGesture(
           down,
           { page: { x: event.clientX, y: event.clientY }, at: point(event) },
@@ -99,7 +109,7 @@ export function StreamPicture(props: {
         if (gesture) send(gesture);
       }}
       onWheel={(event) => {
-        if (!props.driving) return;
+        if (!props.mayAct) return;
         const at = point(event);
         if (!at) return;
         send({
@@ -110,7 +120,7 @@ export function StreamPicture(props: {
         });
       }}
       onKeyDown={(event) => {
-        if (!props.driving) return;
+        if (!props.mayAct) return;
         const input = keyInput(event);
         if (!input) return;
         event.preventDefault();
@@ -118,7 +128,7 @@ export function StreamPicture(props: {
       }}
       className={cn(
         "relative grid min-h-0 flex-1 place-items-center bg-background focus-ring-inset",
-        props.driving && "cursor-default",
+        props.mayAct && "cursor-default",
       )}
     >
       {picture ? (
@@ -131,6 +141,16 @@ export function StreamPicture(props: {
         />
       ) : (
         <p className="px-6 text-center text-ui text-muted-foreground">Waiting for the picture…</p>
+      )}
+      {picture && (
+        <AgentCursor
+          pointer={picture.pointer}
+          width={picture.width}
+          height={picture.height}
+          name={props.bot.name}
+          mark={<SpadeFace avatar={props.bot.avatar} size={14} />}
+          align={top ? "top" : "center"}
+        />
       )}
     </div>
   );

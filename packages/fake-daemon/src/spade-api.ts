@@ -1,5 +1,5 @@
 import type { FakeSpade, FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
-import { FakeSpadeComputer } from "./spade-computer.ts";
+import { FakeSpadeComputer, fakeFileRevision, fakeStale } from "./spade-computer.ts";
 import { FakeSpadeConnectors } from "./spade-connectors-api.ts";
 import { FakeSpadeNotes } from "./spade-notes.ts";
 import { FakeSpadeSearch } from "./spade-search.ts";
@@ -79,6 +79,20 @@ export class FakeSpadeApi implements FakeSpadeServer {
   keychain = true;
   /** A status every key write answers with, to stage a failure. */
   keyFailure: number | undefined;
+  /** A status every read of one file answers with, to stage a failure. */
+  fileReadFailure: number | undefined;
+  /** While set, reads of one file wait for it (`holdFileReads`). */
+  private fileReadsHeld: Promise<void> | undefined;
+
+  /** Holds every read of one file until the result is called, as a slow read would. */
+  holdFileReads(): () => void {
+    const held = Promise.withResolvers<void>();
+    this.fileReadsHeld = held.promise;
+    return () => {
+      this.fileReadsHeld = undefined;
+      held.resolve();
+    };
+  }
   /** True: the keychain hasn't answered (a prompt is open), so keys read as not known yet. */
   keysPending = false;
   characterAvatars = true;
@@ -342,8 +356,15 @@ export class FakeSpadeApi implements FakeSpadeServer {
         new URLSearchParams(query),
         body,
       );
-    if (root === "agents" && id && sub === "workspace")
-      return this.workspaceRoute(request.method, id, subId, new URLSearchParams(query));
+    if (root === "agents" && id && sub === "workspace") {
+      const reading = request.method === "GET" && subId === "file";
+      if (reading && this.fileReadFailure !== undefined)
+        return problem(this.fileReadFailure, "Spade couldn't read the file.");
+      const answered = this.workspaceRoute(request.method, id, subId, new URLSearchParams(query));
+      // Held: answers as the file was when asked, once let go.
+      const held = this.fileReadsHeld;
+      return reading && held ? held.then(() => answered) : answered;
+    }
     if (root === "agents" && id && sub === "skill-proposals")
       return this.proposalRoute(request.method, id, subId, body);
     if (root === "agents" && id && sub === "connectors") {
@@ -498,6 +519,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
       return problem(400, "paths may not use `..`");
     if (method === "DELETE") {
       if (!path) return problem(422, "the workspace itself cannot be deleted");
+      const stale = fakeStale(files, path, query.get("base") ?? undefined);
+      if (stale) return stale;
       for (const name of Object.keys(files))
         if (name === path || name.startsWith(`${path}/`)) delete files[name];
       const folders = this.folders.get(agent);
@@ -508,7 +531,13 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (view === "file") {
       const text = files[path];
       if (text === undefined) return problem(404, `${path} does not exist`);
-      return reply({ path, size: text.length, text, unreadable: null });
+      return reply({
+        path,
+        size: text.length,
+        text,
+        unreadable: null,
+        revision: fakeFileRevision(text),
+      });
     }
     const prefix = path ? `${path}/` : "";
     const entries = new Map<string, Json>();

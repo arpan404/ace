@@ -50,6 +50,37 @@ test("apps the person lists are saved as the apps agents can't use, each once", 
   expect((field as HTMLInputElement).value).toBe("Messages, com.apple.mail");
 });
 
+test("the person acts in an agent's app with no take-over, and sees the agent's pointer and that it waits", async () => {
+  const { app, world } = await openSettings();
+  const sessionId = await world.agentApp("com.apple.TextEdit");
+  await app.open("/settings/computer-use");
+  const card = await screen.findByRole("article", { name: "TextEdit" });
+  await userEvent.click(within(card).getByRole("button", { expanded: false }));
+  const live = within(card).getByRole("img", { name: "TextEdit live view" });
+  await waitFor(() => expect(browser.draws(live)).toBeGreaterThan(0));
+
+  // The agent clicked a quarter of the way across and halfway down its window.
+  app.daemon.screen.agentActivity(sessionId, {
+    agentPointer: { x: 97.5, y: 422, kind: "click", at: Date.now() },
+  });
+  const pointer = await within(card).findByRole("img", { name: /'s pointer$/ });
+  expect(pointer.style.left).toBe("25%");
+  expect(pointer.style.top).toBe("50%");
+
+  // Shared: the person's key goes straight in, and the agent says it waits for them.
+  await waitFor(() => expect(live.getAttribute("tabindex")).toBe("0"));
+  fireEvent.keyDown(live, { key: "a" });
+  await waitFor(() =>
+    expect(app.daemon.screen.inputs).toEqual([
+      { sessionId, input: { kind: "text.type", text: "a" } },
+    ]),
+  );
+  await waitFor(() =>
+    expect(within(card).getByRole("status").textContent).toMatch(/is waiting for you/),
+  );
+  expect(within(card).getByRole("button", { name: "Take over" })).toBeTruthy();
+});
+
 test("secure input says what it is from the session menu, and once allowed, on the card", async () => {
   const { app, world } = await openSettings();
   const sessionId = await world.agentApp("com.apple.TextEdit");
@@ -86,7 +117,7 @@ test("an agent's app shows live in the background; taking over and handing back 
   expect(within(card).getByText("Background")).toBeTruthy();
   expect(within(card).getByText("Capturing")).toBeTruthy();
   await waitFor(() =>
-    expect(within(card).getByRole("status").textContent).toMatch(/is in control/),
+    expect(within(card).getByRole("status").textContent).toMatch(/is working here/),
   );
   const live = within(card).getByRole("img", { name: "TextEdit live view" });
   await waitFor(() => expect(browser.draws(live)).toBeGreaterThan(0));

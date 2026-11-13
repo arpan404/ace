@@ -516,6 +516,8 @@ function seedComputers(spade: FakeSpadeApi, now: number) {
     title: "Writing the Fixes section in TextEdit",
   });
   computer.use("notes", { kind: "terminal", live: true, title: "git log --oneline v0.0.21.." });
+  // The person types in TextEdit too: Release notes waits for them (cowork, ADR 0143).
+  computer.personActive("notes", "screen", true);
   computer.print(
     "notes",
     "$ git log --oneline v0.0.21..\r\n" +
@@ -546,12 +548,25 @@ function seedComputers(spade: FakeSpadeApi, now: number) {
       "# Lisbon, 14–18 Nov\n\n- Flights: TAP TP1351\n- Hotel: under €180 near Chiado\n- Day 2: Sintra\n",
     "hotels.csv": "name,price\nCasa do Largo,178\nHotel Lusa,164\nBrasileira Suites,171\n",
     "receipts/tap-qx7k2p.txt": "TAP booking QX7K2P\n",
+    "fares-checked.md": "# Fares\n\nLast checked just now: TAP €212 return.\n",
   });
   spade.files.set("flights", {
     "flights.md": "# Fares to Lisbon\n\nCheapest so far: €212 return on TAP.\n",
     "fares-history.csv": "date,price\n2026-11-10,239\n2026-11-11,224\n2026-11-12,212\n",
   });
   spade.files.set("notes", { "release-notes-0.0.22.md": "# ace 0.0.22\n\n## Fixes\n\n" });
+  // Spade keeps its fare check in the trip notes, every few seconds: a save of the file opened
+  // before the last check is refused as changed since (the file conflict scene).
+  setInterval(() => {
+    const files = spade.files.get("spade");
+    if (!files) return;
+    const checked = new Date().toLocaleTimeString("en-GB", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+    files["fares-checked.md"] = `# Fares\n\nLast checked ${checked}: TAP €212 return.\n`;
+  }, 4000);
 }
 
 /** A few apps from the catalogue, two of them connected and one signed out (ADR 0131). */

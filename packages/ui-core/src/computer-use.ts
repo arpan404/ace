@@ -1,5 +1,6 @@
 import type { ScreenPermissions, ScreenState } from "@ace/protocol";
 import { appName } from "./app-names.ts";
+import { coworkLine } from "./cowork.ts";
 import type { Tone } from "./status.ts";
 
 /*
@@ -121,8 +122,15 @@ export function screenSession(
       tone = "failed";
       break;
     default:
+      // Shared (cowork): the agent works in it, and waits while the person's input is recent.
       status =
-        who === "You" ? "You're in control" : who ? `${who} is in control` : "Nobody is in control";
+        who === "You"
+          ? "You're in control"
+          : state.controller === "agent" && state.sharing !== "exclusive"
+            ? coworkLine(state.personActive ? "waiting" : "working", who ?? "An agent")
+            : who
+              ? `${who} is in control`
+              : "Nobody is in control";
       tone =
         state.controller === "agent"
           ? "working"

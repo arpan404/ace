@@ -175,16 +175,27 @@ export class FakeBrowser {
     this.use(tab, options.agentId);
     this.load(entry, tab, new URL(url).href, "site");
   }
-  /** Scripting: an agent works in a tab (its cursor at `pointer`), marking it in use. */
+  /**
+   * Scripting: an agent works in a tab (its cursor at `pointer`), marking it in use. With `at`
+   * (when it acted), the tab also carries the cowork pointer its fading cursor draws (ADR 0143).
+   */
   agentWorks(
     threadId: string,
-    options: { tabId?: string; agentId?: string; pointer?: { x: number; y: number } } = {},
+    options: {
+      tabId?: string;
+      agentId?: string;
+      pointer?: { x: number; y: number };
+      at?: number;
+    } = {},
   ): void {
     const tab = this.tab(threadId, options.tabId);
     if (!tab || tab.private) throw new Error("Browser tab unavailable");
     this.use(tab, options.agentId);
-    if (options.pointer)
+    if (options.pointer) {
       tab.pointer = { ...options.pointer, sequence: (tab.pointer?.sequence ?? 0) + 1 };
+      if (options.at !== undefined)
+        tab.agentPointer = { ...options.pointer, kind: "click", at: options.at };
+    }
     this.changed();
   }
   /**
@@ -601,6 +612,17 @@ export class FakeBrowser {
     if (tab?.certificate_error?.url !== url) throw new Error("Certificate error no longer shown");
     delete tab.certificate_error;
     tab.url = url;
+    this.changed();
+  }
+  /**
+   * The daemon draws agents' cursors in the page itself (the `page-cursor` feature), so the
+   * frames already show them; or it stops.
+   */
+  setPageCursor(threadId: string, on: boolean): void {
+    const view = this.entries.get(threadId)?.view;
+    if (!view) return;
+    const others = (view.features ?? []).filter((feature) => feature !== "page-cursor");
+    view.features = on ? [...others, "page-cursor"] : others;
     this.changed();
   }
   /** A person's recording of the thread's view starts or stops; the state says so. */

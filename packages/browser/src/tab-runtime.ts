@@ -5,6 +5,8 @@ import {
   type BrowserDialog,
   type BrowserOriginBlock,
   type BrowserState,
+  type AgentPointer,
+  type AgentPointerKind,
   type BrowserAgentPointer,
   type BrowserTab,
   type BrowserTabActor,
@@ -35,6 +37,7 @@ import { TabAccess } from "./tab-access.ts";
 import { waitsForPerson, type CollaborationTiming } from "./collaboration.ts";
 import { AgentInputLane, personReturned } from "./agent-input-lane.ts";
 import { fillFieldByField } from "./typing.ts";
+import { waitedNote } from "@ace/interaction/presence";
 import { PageCursor } from "./page-cursor.ts";
 import { PageInteraction } from "./page-interaction.ts";
 import { defaultCursorStyle } from "@ace/browser-annotate";
@@ -132,6 +135,9 @@ export class TabRuntime {
   private agentRunning = 0;
   private stopInUse: (() => void) | undefined;
   private pointed: BrowserAgentPointer | undefined;
+  private agentPointed: AgentPointer | undefined;
+  /** Ends the person's lease in this tab on time, so viewers see `personActive` clear. */
+  private personLapse: (() => void) | undefined;
   /** The backend knows an agent uses the tab (file choosers, unseen rendering). */
   private agentShown = false;
   private agentSync: Promise<void> = Promise.resolve();
@@ -238,6 +244,14 @@ export class TabRuntime {
   pointer(): BrowserAgentPointer | undefined {
     return this.inUse() ? this.pointed : undefined;
   }
+  /** The agent's latest action point and kind, while it uses the tab (ADR 0143). */
+  agentPointer(): AgentPointer | undefined {
+    return this.inUse() ? this.agentPointed : undefined;
+  }
+  /** The person used this tab within the cowork quiet window: agents' input waits. */
+  personActive(): boolean {
+    return !this.access.private && this.humanWithin(this.host.timing.quietMs);
+  }
   /** The person used this tab within `window` ms. */
   humanWithin(window: number): boolean {
     return this.host.options.navigationClock.now() - this.humanAt < window;
@@ -282,6 +296,7 @@ export class TabRuntime {
     this.closed = true;
     this.lane.close();
     this.stopInUse?.();
+    this.personLapse?.();
     this.identity.close();
     this.history.close();
     this.interaction?.close();
@@ -332,7 +347,14 @@ export class TabRuntime {
   /** The person used the page directly (a native view the daemon does not route). */
   humanActivity(): void {
     this.personDocument = true;
+    const wasActive = this.humanWithin(this.host.timing.quietMs);
     this.humanAt = this.host.options.navigationClock.now();
+    this.personLapse?.();
+    this.personLapse = this.host.options.navigationClock.set(this.host.timing.quietMs, () => {
+      this.personLapse = undefined;
+      if (!this.closed) this.host.emit();
+    });
+    if (!wasActive) this.host.emit();
     this.lastActiveAt = this.host.options.now();
     this.cursor.personActed();
   }
@@ -377,13 +399,16 @@ export class TabRuntime {
     this.agentSync = backend.agentUse(this.id, active).catch(() => {});
   }
   /** An agent pointed here (click, hover, drag); viewers draw its cursor gliding there. */
-  private point(actor: Actor, point: { x: number; y: number }): void {
+  private point(
+    actor: Actor,
+    point: { x: number; y: number },
+    kind: AgentPointerKind = "click",
+  ): void {
     if (actor.kind !== "agent") return;
-    this.pointed = {
-      x: Math.round(point.x),
-      y: Math.round(point.y),
-      sequence: (this.pointed?.sequence ?? 0) + 1,
-    };
+    const x = Math.round(point.x);
+    const y = Math.round(point.y);
+    this.pointed = { x, y, sequence: (this.pointed?.sequence ?? 0) + 1 };
+    this.agentPointed = { x, y, kind, at: Math.max(0, Math.round(this.host.options.now())) };
     this.host.emit();
   }
   private enqueue<T>(work: () => Promise<T>): Promise<T> {
@@ -473,6 +498,10 @@ export class TabRuntime {
         return this.run(command, actor, signal, submittedGeneration);
       })();
     const waits = actor.kind === "agent" && waitsForPerson(command);
+    let waitedMs = 0;
+    const waited = (ms: number) => {
+      waitedMs += ms;
+    };
     // One queue turn for a command, or for one step of it (a field of an agent's fill_form).
     const jobFor = (part: TabCommand) => async () => {
       signal?.throwIfAborted();
@@ -518,11 +547,26 @@ export class TabRuntime {
       return actor.kind === "agent" ? this.popupsInto(result) : result;
     };
     // An agent's input waits for the person in its own lane, so reads never queue behind it.
+    const noted = (result: unknown) => {
+      const note = waitedNote(waitedMs, "this tab");
+      if (!note || Array.isArray(result)) return result;
+      return typeof result === "object" && result !== null
+        ? { ...result, waited: note }
+        : { waited: note };
+    };
     if (waits && command.action === "fill_form")
-      return this.lane.run(signal, (step) =>
-        fillFieldByField(command.fields, (field) => step(() => this.enqueue(jobFor(field)))),
-      );
-    if (waits) return this.lane.run(signal, (step) => step(() => this.enqueue(jobFor(command))));
+      return this.lane
+        .run(
+          signal,
+          (step) =>
+            fillFieldByField(command.fields, (field) => step(() => this.enqueue(jobFor(field)))),
+          waited,
+        )
+        .then(noted);
+    if (waits)
+      return this.lane
+        .run(signal, (step) => step(() => this.enqueue(jobFor(command))), waited)
+        .then(noted);
     return this.enqueue(jobFor(command));
   }
   screenshot(
@@ -693,7 +737,7 @@ export class TabRuntime {
         this.refs.dispatch(ref, () => this.check(actor, signal, generation, epoch)),
       personPresent: () => this.humanWithin(host.timing.presentMs),
       personBusy: () => actor.kind === "agent" && !this.lane.quiet(),
-      point: (point) => this.point(actor, point),
+      point: (point, kind) => this.point(actor, point, kind),
       cursor:
         actor.kind === "agent" && this.cursor.visible
           ? {

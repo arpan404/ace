@@ -68,7 +68,7 @@ test("control is yours only until the lease runs out", () => {
 
 test("an agent driving the device is named in the status", () => {
   expect(deviceControls(iphone, state({ controller: "agent" }), 0).status).toBe(
-    "Running · The agent is in control",
+    "Running · The agent is working here",
   );
   expect(deviceControls(pixel, undefined, 0).status).toBe("Shut down");
 });

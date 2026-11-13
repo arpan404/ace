@@ -13,6 +13,19 @@ import {
 const computer = (surfaces: unknown[], driver = "bot") => parseSpadeComputer({ driver, surfaces });
 
 describe("a bot's computer", () => {
+  test("is shared unless Spade says the person has it alone; an older Spade's person driving is exclusive", () => {
+    expect(parseSpadeComputer({ mode: "cowork", driver: "bot", surfaces: [] })?.mode).toBe(
+      "cowork",
+    );
+    expect(parseSpadeComputer({ mode: "exclusive", driver: "person", surfaces: [] })?.mode).toBe(
+      "exclusive",
+    );
+    expect(computer([], "person")?.mode).toBe("exclusive");
+    expect(computer([])?.mode).toBe("cowork");
+    const yielding = computer([{ kind: "browser", live: true, person_active: true }]);
+    expect(yielding?.surfaces[0]?.personActive).toBe(true);
+  });
+
   test("keeps the surfaces it knows and drops the rest, reading null fields as nothing", () => {
     const parsed = computer([
       { kind: "browser", live: true, title: null, since: null, url: "https://www.staybook.com/x" },
