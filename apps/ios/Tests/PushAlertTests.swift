@@ -171,10 +171,12 @@ import UserNotifications
     @Test func anAlertWithEveryFieldAtItsBoundsStillReads() throws {
         let key = PushKey.generate()
         let title = String(repeating: "x", count: 200)
-        let text = #"{"v":1,"hostId":"studio","notification":{"id":"n:9","threadId":"t-1","title":"\#(title)","status":"needs_you","interactionId":"i-1","backgroundCount":1000000,"actions":[{"action":"approve","optionId":"a"},{"action":"deny","optionId":"d"}],"preview":"\#(String(repeating: "p", count: 300))","message":"m","threadIds":["t-1"]}}"#
+        let preview = String(repeating: "p", count: 300)
+        let text = #"{"v":1,"hostId":"studio","notification":{"id":"n:9","threadId":"t-1","title":"\#(title)","status":"needs_you","interactionId":"i-1","backgroundCount":1000000,"actions":[{"action":"approve","optionId":"a"},{"action":"deny","optionId":"d"}],"preview":"\#(preview)","message":"m","threadIds":["t-1"]}}"#
         let shown = try #require(PushAlert.rewritten(try sealedPush(text, to: key), key: key))
         #expect(shown.title == title)
-        #expect(shown.body == "Needs you")
+        // The same words a local alert with this preview shows.
+        #expect(shown.body == "Needs you: \(preview)")
     }
 
     @Test func anUnknownStatusNeverClaimsDone() throws {
