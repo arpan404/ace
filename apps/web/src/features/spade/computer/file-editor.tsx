@@ -2,6 +2,7 @@ import { formatBytes } from "@ace/ui-core/byte-size";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
+import { DisabledReason } from "@/components/ui/disabled-reason.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { message } from "../spade-screen-parts.tsx";
@@ -9,13 +10,21 @@ import { useSpadeClient, useSpadeMachine } from "../spade-machine.tsx";
 import { readFile } from "../spade-workspace-api.ts";
 import { saveFile } from "./computer-api.ts";
 
+/** Why a change to the bot's files can't be made now. */
+export const takeOverToChange = "Take over to change files";
+
 /**
- * A file of the bot's open: a text file to edit in place, Save once it changed (⌘S too); a file
+ * A file of the bot's open: a text file to edit in place while the person drives, Save once it
+ * changed (⌘S too); a file
  * that isn't text, or is too large, says so with Download. Download and Delete stay beside it.
  */
 export function FileEditor(props: {
   bot: string;
   path: string;
+  /** The person drives: the file can be edited and saved. */
+  writable: boolean;
+  /** Whether a change may go right now, said again just before saving. */
+  mayWrite(): boolean;
   onDownload(): void;
   onDelete(): void;
 }) {
@@ -32,14 +41,17 @@ export function FileEditor(props: {
   const [saving, setSaving] = useState(false);
   const text = file.data?.text;
   const changed = draft !== undefined && draft !== text;
+  const reason = props.writable ? undefined : takeOverToChange;
   const save = () => {
-    if (!changed || saving) return;
+    if (!changed || saving || !props.mayWrite()) return;
     setSaving(true);
-    void saveFile(client, props.bot, props.path, draft).then(
+    const sent = draft;
+    void saveFile(client, props.bot, props.path, sent).then(
       () => {
         setSaving(false);
-        cache.setQueryData(key, { ...file.data, text: draft, size: draft.length });
-        setDraft(undefined);
+        cache.setQueryData(key, { ...file.data, text: sent, size: sent.length });
+        // Words typed while it saved stay as the draft; only what was saved is done.
+        setDraft((now) => (now === sent ? undefined : now));
         void cache.invalidateQueries({ queryKey: ["spade", "workspace", machine.key, props.bot] });
       },
       (error: unknown) => {
@@ -52,21 +64,25 @@ export function FileEditor(props: {
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-10 shrink-0 items-center gap-1 px-2">
         {text !== undefined && (
-          <Button
-            size="xs"
-            variant={changed ? "primary" : "ghost"}
-            disabled={!changed || saving}
-            onClick={save}
-          >
-            {saving ? "Saving…" : "Save"}
-          </Button>
+          <DisabledReason reason={reason}>
+            <Button
+              size="xs"
+              variant={changed ? "primary" : "ghost"}
+              disabled={!changed || saving || !props.writable}
+              onClick={save}
+            >
+              {saving ? "Saving…" : "Save"}
+            </Button>
+          </DisabledReason>
         )}
         <Button size="xs" variant="ghost" onClick={props.onDownload}>
           Download
         </Button>
-        <Button size="xs" variant="ghost" onClick={props.onDelete}>
-          Delete
-        </Button>
+        <DisabledReason reason={reason}>
+          <Button size="xs" variant="ghost" disabled={!props.writable} onClick={props.onDelete}>
+            Delete
+          </Button>
+        </DisabledReason>
         {file.data && (
           <span className="ml-auto pr-2 text-meta text-muted-foreground tabular-nums">
             {formatBytes(file.data.size)}
@@ -90,6 +106,7 @@ export function FileEditor(props: {
       ) : (
         <textarea
           aria-label={props.path}
+          readOnly={!props.writable}
           spellCheck={false}
           value={draft ?? text}
           onChange={(event) => setDraft(event.target.value)}

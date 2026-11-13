@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
+import { DisabledReason } from "@/components/ui/disabled-reason.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
@@ -21,13 +22,15 @@ import {
   type SpadeFileEntry,
 } from "../spade-workspace-api.ts";
 import { makeFolder, movePath, uploadFile } from "./computer-api.ts";
-import { FileEditor } from "./file-editor.tsx";
+import { FileEditor, takeOverToChange } from "./file-editor.tsx";
 
 /**
  * A bot's files as a file manager: one folder at a time under a trail that leads back up, Upload
  * and New folder beside it. A row opens its folder or file; its ⋯ downloads, renames or moves
  * (typing a path with folders moves it), or deletes after asking. A text file opens to edit and
- * save. The list reads again when the bot's stream says its files changed.
+ * save. The list reads again when the bot's stream says its files changed. Browsing and downloads
+ * always work; every change needs the person driving (`writable`), checked again right before it
+ * goes, so nothing written lands after they hand back.
  */
 export function FileManager(props: {
   bot: { id: string; name: string };
@@ -35,9 +38,16 @@ export function FileManager(props: {
   file: string | undefined;
   /** Shows another folder, or a file in it. */
   onOpen(to: { folder: string; file?: string | undefined }): void;
-  side: Pick<ConversationFollow, "onSide"> | undefined;
+  side: Pick<ConversationFollow, "onSide" | "onEnded"> | undefined;
+  /** The person drives: their changes may go to Spade. */
+  writable: boolean;
 }) {
   const { bot, folder } = props;
+  // Read again right before each change goes, after any wait (a confirmation, a file's bytes).
+  const writable = useRef(props.writable);
+  useEffect(() => {
+    writable.current = props.writable;
+  }, [props.writable]);
   const client = useSpadeClient();
   const machine = useSpadeMachine();
   const cache = useQueryClient();
@@ -61,10 +71,19 @@ export function FileManager(props: {
   const failed = (title: string) => (error: unknown) =>
     toast.error({ title, description: message(error) });
   const inFolder = (name: string) => (folder ? `${folder}/${name}` : name);
+  /** Whether a change may go now; says why not when it can't. */
+  const mayWrite = () => {
+    if (writable.current) return true;
+    toast.error({ title: takeOverToChange });
+    return false;
+  };
 
   const upload = async (files: FileList) => {
     for (const file of files) {
+      if (!mayWrite()) break;
       const bytes = new Uint8Array(await file.arrayBuffer());
+      // Reading took a while: the person may have handed back meanwhile.
+      if (!mayWrite()) break;
       await uploadFile(client, bot.id, inFolder(file.name), bytes).catch(
         failed(`Couldn't upload ${file.name}`),
       );
@@ -84,30 +103,30 @@ export function FileManager(props: {
           ? `This deletes ${entry.path} and everything in it from ${bot.name}'s files.`
           : `This deletes ${entry.path} from ${bot.name}'s files.`,
       confirm: "Delete",
-      run: () =>
+      run: () => {
+        // Asked first: the person may have handed back while the question was open.
+        if (!mayWrite()) return;
         void deletePath(client, bot.id, entry.path).then(
           () => {
             if (props.file === entry.path) props.onOpen({ folder });
             refresh();
           },
           failed(`Couldn't delete ${entry.name}`),
-        ),
+        );
+      },
     });
+  // Paths go as typed: Spade keeps them inside the workspace.
   const move = (from: string, to: string) => {
     setRenaming(undefined);
-    const target = to.trim().replace(/^\/+|\/+$/g, "");
-    if (!target || target === from) return;
-    void movePath(client, bot.id, from, target).then(refresh, failed(`Couldn't move ${from}`));
+    if (!to || to === from || !mayWrite()) return;
+    void movePath(client, bot.id, from, to).then(refresh, failed(`Couldn't move ${from}`));
   };
   const create = (name: string) => {
     setMaking(false);
-    const trimmed = name.trim().replace(/^\/+|\/+$/g, "");
-    if (!trimmed) return;
-    void makeFolder(client, bot.id, inFolder(trimmed)).then(
-      refresh,
-      failed(`Couldn't make ${trimmed}`),
-    );
+    if (!name || !mayWrite()) return;
+    void makeFolder(client, bot.id, inFolder(name)).then(refresh, failed(`Couldn't make ${name}`));
   };
+  const reason = props.writable ? undefined : takeOverToChange;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -119,12 +138,26 @@ export function FileManager(props: {
         />
         {!props.file && (
           <span className="ml-auto flex shrink-0 items-center gap-1">
-            <Button size="xs" variant="ghost" onClick={() => picker.current?.click()}>
-              Upload
-            </Button>
-            <Button size="xs" variant="ghost" onClick={() => setMaking(true)}>
-              New folder
-            </Button>
+            <DisabledReason reason={reason}>
+              <Button
+                size="xs"
+                variant="ghost"
+                disabled={!props.writable}
+                onClick={() => picker.current?.click()}
+              >
+                Upload
+              </Button>
+            </DisabledReason>
+            <DisabledReason reason={reason}>
+              <Button
+                size="xs"
+                variant="ghost"
+                disabled={!props.writable}
+                onClick={() => setMaking(true)}
+              >
+                New folder
+              </Button>
+            </DisabledReason>
             <input
               ref={picker}
               type="file"
@@ -145,6 +178,8 @@ export function FileManager(props: {
           key={props.file}
           bot={bot.id}
           path={props.file}
+          writable={props.writable}
+          mayWrite={mayWrite}
           onDownload={() => download(props.file ?? "")}
           onDelete={() =>
             remove({
@@ -226,8 +261,19 @@ export function FileManager(props: {
                         {entry.kind === "file" && (
                           <MenuItem onClick={() => download(entry.path)}>Download</MenuItem>
                         )}
-                        <MenuItem onClick={() => setRenaming(entry.path)}>Rename or move</MenuItem>
-                        <MenuItem danger onClick={() => remove(entry)}>
+                        <MenuItem
+                          disabled={!props.writable}
+                          reason={reason}
+                          onClick={() => setRenaming(entry.path)}
+                        >
+                          Rename or move
+                        </MenuItem>
+                        <MenuItem
+                          danger
+                          disabled={!props.writable}
+                          reason={reason}
+                          onClick={() => remove(entry)}
+                        >
                           Delete
                         </MenuItem>
                       </MenuContent>
