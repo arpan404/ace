@@ -8,7 +8,6 @@
 mod ace_sync;
 pub mod daemon;
 pub mod note;
-pub mod plain;
 pub mod ring;
 #[cfg(unix)]
 pub mod terminal;
@@ -45,7 +44,6 @@ pub fn shell_commands(
 /// How long a surface counts as live after it was last used.
 pub const ACTIVE: Duration = Duration::from_secs(2 * 60);
 /// Most lines the person entered that a hand-back note keeps.
-const MOST_COMMANDS: usize = plain::MOST_LINES;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -183,9 +181,6 @@ struct Record {
     since: i64,
     /// The workspace when they took over.
     snapshot: Snapshot,
-    commands: Vec<String>,
-    #[serde(default)]
-    more_commands: usize,
     /// Surfaces ace said they used.
     #[serde(default)]
     used: BTreeSet<String>,
@@ -539,20 +534,17 @@ impl Computers {
         self.files_changed(agent, Some(vec![path.to_owned()]));
     }
 
-    /// The person entered `lines` at the terminal's prompt.
-    pub fn person_entered(&self, agent: &str, lines: Vec<String>) {
-        if lines.is_empty() {
-            return;
+    /// The person typed in the terminal. What they typed is theirs and never kept: the note
+    /// only says they used it.
+    pub fn person_typed(&self, agent: &str) {
+        let first = lock(&self.records)
+            .get(agent)
+            .is_some_and(|record| !record.used.contains("terminal"));
+        if first {
+            let _ = self.change_record_if_held(agent, |record| {
+                record.used.insert("terminal".to_owned());
+            });
         }
-        let _ = self.change_record_if_held(agent, |record| {
-            for line in lines {
-                if record.commands.len() < MOST_COMMANDS {
-                    record.commands.push(line);
-                } else {
-                    record.more_commands += 1;
-                }
-            }
-        });
         self.files_changed(agent, None);
     }
 
@@ -604,8 +596,8 @@ impl Computers {
         }
         let used: Vec<String> = record.used.iter().cloned().collect();
         Some(note::note(&note::Driven {
-            commands: &record.commands,
-            more_commands: record.more_commands,
+            minutes: u64::try_from((self.clock.now_ms() - record.since).max(0) / 60_000)
+                .unwrap_or(0),
             files: &files,
             used: &used,
             handback,

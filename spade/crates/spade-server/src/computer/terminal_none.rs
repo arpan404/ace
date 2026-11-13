@@ -82,7 +82,7 @@ impl Terminal {
         Err(NONE.to_owned())
     }
 
-    pub async fn input(self: &Arc<Self>, _data: Vec<u8>) -> Result<Vec<String>, String> {
+    pub async fn input(self: &Arc<Self>, _data: Vec<u8>) -> Result<(), String> {
         Err(NONE.to_owned())
     }
 

@@ -264,39 +264,51 @@ async fn nothing_a_command_prints_ends_it_early() -> Result {
 }
 
 #[tokio::test]
-async fn what_the_person_types_into_a_program_never_reaches_the_note() -> Result {
+async fn nothing_the_person_types_reaches_the_note_the_store_or_the_model() -> Result {
     let machine = Machine::new()?;
-    let spade = start(&machine, vec![Script::reply("Hi")], Vec::new()).await?;
+    let spade = start(
+        &machine,
+        vec![
+            Script::reply("Hi"),
+            Script::reply("").plain(r#"{"title":"Hi"}"#),
+            Script::reply("Back."),
+        ],
+        Vec::new(),
+    )
+    .await?;
     let (agent, conversation) = bot(&spade).await?;
     let (status, _) = spade
         .post(&format!("/v1/agents/{agent}/computer/take-over"), json!({}))
         .await?;
     assert_eq!(status, 204);
-    let mut live = prompt(&spade, &agent).await?;
-    // `read` is the shell's own: its foreground is the shell's, but it draws no prompt.
+    let _live = prompt(&spade, &agent).await?;
+    type_in(&spade, &agent, "echo hunter2-secret > typed.txt\r").await?;
     type_in(&spade, &agent, "read -r secret\r").await?;
     tokio::time::sleep(Duration::from_millis(200)).await;
-    type_in(&spade, &agent, "hunter2\r").await?;
-    live.until("output", |frame| decoded(frame).contains("$ "))
-        .await
-        .ok_or("no prompt after read")?;
-    // A command pasted with a password after it: only the first line answered the prompt.
-    type_in(&spade, &agent, "echo first\rhunter3\r").await?;
+    type_in(&spade, &agent, "hunter3-password\r").await?;
     tokio::time::sleep(Duration::from_millis(300)).await;
     let (status, _) = spade
         .post(&format!("/v1/agents/{agent}/computer/hand-back"), json!({}))
         .await?;
     assert_eq!(status, 204);
+    spade.say(&conversation, "Carry on").await?;
+    spade.wait_for(&conversation, "reply_finished").await?;
     let events = spade.events(&conversation).await?;
-    let note = events
-        .iter()
-        .find(|e| e["type"] == "computer_handed_back")
-        .ok_or("no note")?
-        .to_string();
-    assert!(note.contains("`read -r secret`; `echo first`"), "{note}");
-    assert!(
-        !note.contains("hunter2") && !note.contains("hunter3"),
-        "{note}"
+    let stored = serde_json::to_string(&events)?;
+    assert!(stored.contains("They used your terminal."), "{stored}");
+    for secret in ["hunter2", "hunter3", "read -r"] {
+        assert!(!stored.contains(secret), "{secret} reached the store");
+        let seen = spade
+            .fake
+            .seen()
+            .iter()
+            .any(|s| s.body.to_string().contains(secret));
+        assert!(!seen, "{secret} reached the model");
+    }
+    let record = std::fs::read_dir(machine.root.path().join("computer"))?.count();
+    assert_eq!(
+        record, 0,
+        "the take-over record is gone after the hand-back"
     );
     machine.terminals.end_all();
     Ok(())
@@ -313,7 +325,9 @@ async fn a_finished_take_over_never_comes_back_however_its_writes_race() -> Resu
                 let computers = computers.clone();
                 std::thread::spawn(move || {
                     for i in 0..50 {
-                        computers.person_entered("a_1", vec![format!("echo {n}-{i}")]);
+                        let _ = (n, i);
+                        computers.person_typed("a_1");
+                        computers.person_wrote("a_1", "notes.md");
                     }
                 })
             })
@@ -556,7 +570,11 @@ async fn taking_over_pauses_the_bot_at_a_safe_point_and_handing_back_resumes_it_
         .find(|e| e["type"] == "computer_handed_back")
         .ok_or("no note")?;
     let text = note["text"].as_str().unwrap_or_default();
-    assert!(text.contains("`echo hi > made-by-person.txt`"), "{text}");
+    assert!(text.contains("They used your terminal."), "{text}");
+    assert!(
+        !text.contains("echo hi"),
+        "what they typed is never in the note: {text}"
+    );
     assert!(text.contains("1 file in your workspace changed"), "{text}");
     assert_eq!(note["data"], json!(["new: made-by-person.txt"]));
     // The model read the note as Spade's and the waiting message, after its tool's result.

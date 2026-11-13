@@ -255,9 +255,8 @@ async fn input(
         );
     }
     match terminal.input(data).await {
-        Ok(entered) => {
-            let _ =
-                tokio::task::spawn_blocking(move || computers.person_entered(&id, entered)).await;
+        Ok(()) => {
+            let _ = tokio::task::spawn_blocking(move || computers.person_typed(&id)).await;
             StatusCode::NO_CONTENT.into_response()
         }
         Err(error) => problem(StatusCode::SERVICE_UNAVAILABLE, &error),

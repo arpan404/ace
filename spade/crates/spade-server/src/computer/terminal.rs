@@ -11,10 +11,7 @@
 //! Stop), and the next command waits until the whole process group is gone. Nothing a command
 //! prints can end it early or speak for Spade.
 //!
-//! The person's shell draws a mark before each prompt, carrying a token set through a startup
-//! file that is deleted once read and never exported. A line the person enters counts as a
-//! command only when it answers that mark; anything typed into a program (a password prompt,
-//! `read`) is never kept.
+//! What the person types is never read for meaning: it goes to their shell and nowhere else.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -27,7 +24,6 @@ use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_s
 use tokio::sync::{broadcast, oneshot};
 use tokio::time::Instant;
 
-use super::plain::{Lines, PromptMarks, as_terminal, prompt_mark};
 use super::ring::{Ring, SCROLLBACK};
 use crate::clock::Clock;
 use crate::workspace::shell::{Job, Ran, Shell, Tee};
@@ -80,7 +76,7 @@ pub type Changed = Arc<dyn Fn(&str) + Send + Sync>;
 
 /// Every bot's terminal.
 pub struct Terminals {
-    /// Spade's own folder for each bot's startup file and command state, outside every workspace.
+    /// Spade's own folder for each bot's command state, outside every workspace.
     scratch: PathBuf,
     workspaces: crate::workspace::Workspaces,
     shell: Shell,
@@ -135,9 +131,6 @@ impl Terminals {
                 last: None,
                 last_use: Instant::now(),
                 title: None,
-                lines: Lines::default(),
-                marks: None,
-                at_prompt: false,
             }),
             carried: Mutex::default(),
             writer: Mutex::new(None),
@@ -215,7 +208,23 @@ fn environment(shell: &Shell, dir: &Path) -> Vec<(String, String)> {
         .filter(|(name, _)| name != "TERM")
         .collect();
     vars.push(("TERM".to_owned(), "xterm-256color".to_owned()));
+    vars.push(("PS1".to_owned(), "$ ".to_owned()));
     vars
+}
+
+/// Output as a terminal shows it: `\n` becomes `\r\n` (a pipe's output never went through a
+/// terminal's line discipline).
+fn as_terminal(bytes: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(bytes.len() + bytes.len() / 16);
+    let mut previous = 0u8;
+    for &byte in bytes {
+        if byte == b'\n' && previous != b'\r' {
+            out.push(b'\r');
+        }
+        out.push(byte);
+        previous = byte;
+    }
+    out
 }
 
 /// Whether a variable a bot's command exported is carried to its next command: never those that
@@ -299,11 +308,6 @@ struct State {
     last: Option<i64>,
     last_use: Instant,
     title: Option<String>,
-    lines: Lines,
-    /// Finds the running shell's prompt mark.
-    marks: Option<PromptMarks>,
-    /// The shell drew its prompt and no line has answered it yet.
-    at_prompt: bool,
 }
 
 struct Session {
@@ -364,22 +368,16 @@ impl Terminal {
                 pixel_height: 0,
             })
             .map_err(|e| format!("the terminal could not open: {e}"))?;
-        let token = uuid::Uuid::new_v4().simple().to_string();
-        let startup = self.startup_file(&token)?;
         let mut command = CommandBuilder::new("/bin/sh");
         command.arg("-i");
         command.env_clear();
         for (name, value) in &self.environment {
             command.env(name, value);
         }
-        command.env("ENV", &startup);
         command.cwd(&self.dir);
         let mut child = match pty.slave.spawn_command(command) {
             Ok(child) => child,
-            Err(error) => {
-                let _ = std::fs::remove_file(&startup);
-                return Err(format!("the terminal's shell could not start: {error}"));
-            }
+            Err(error) => return Err(format!("the terminal's shell could not start: {error}")),
         };
         drop(pty.slave);
         let pid = child.process_id().unwrap_or(0);
@@ -402,15 +400,12 @@ impl Terminal {
         state.since = Some(now);
         state.last = Some(now);
         state.last_use = Instant::now();
-        state.lines = Lines::default();
-        state.marks = Some(PromptMarks::new(&token));
-        state.at_prompt = false;
         drop(state);
         *lock(&self.writer) = Some((generation, writer));
         let terminal = self.clone();
         std::thread::Builder::new()
             .name("spade-terminal-read".into())
-            .spawn(move || terminal.read_loop(reader, generation, startup))
+            .spawn(move || terminal.read_loop(reader, generation))
             .map_err(|e| format!("the terminal could not be read: {e}"))?;
         let terminal = self.clone();
         std::thread::Builder::new()
@@ -428,52 +423,25 @@ impl Terminal {
         Ok(())
     }
 
-    /// The file the shell reads at start (`ENV`): its prompt, with the mark, set but not
-    /// exported, and `ENV` itself unset. Deleted once the first prompt is drawn.
-    fn startup_file(&self, token: &str) -> Result<PathBuf, String> {
-        let failed = |e: std::io::Error| format!("the terminal could not be prepared: {e}");
-        std::fs::create_dir_all(&self.scratch).map_err(failed)?;
-        let path = self.scratch.join(format!(".{token}.rc"));
-        let mut text = b"PS1='".to_vec();
-        text.extend_from_slice(&prompt_mark(token));
-        text.extend_from_slice(b"$ '\nunset ENV\n");
-        std::fs::write(&path, text).map_err(failed)?;
-        Ok(path)
-    }
-
-    fn read_loop(&self, mut reader: Box<dyn Read + Send>, generation: u64, startup: PathBuf) {
+    fn read_loop(&self, mut reader: Box<dyn Read + Send>, generation: u64) {
         let mut buffer = vec![0u8; 16 * 1024];
-        let mut startup = Some(startup);
         loop {
             let read = match reader.read(&mut buffer) {
-                Ok(0) | Err(_) => break,
+                Ok(0) | Err(_) => return,
                 Ok(read) => read,
             };
             let chunk = &buffer[..read];
-            let prompted = {
-                let mut state = lock(&self.state);
-                if state.generation != generation {
-                    break;
-                }
-                let seq = state.ring.push(chunk);
-                state.last = Some(self.clock.now_ms());
-                state.last_use = Instant::now();
-                let prompted = state.marks.as_mut().is_some_and(|m| m.feed(chunk));
-                if prompted {
-                    state.at_prompt = true;
-                }
-                let _ = self.frames.send(Frame::Output {
-                    seq,
-                    data: Arc::from(chunk),
-                });
-                prompted
-            };
-            if prompted && let Some(file) = startup.take() {
-                let _ = std::fs::remove_file(file);
+            let mut state = lock(&self.state);
+            if state.generation != generation {
+                return;
             }
-        }
-        if let Some(file) = startup {
-            let _ = std::fs::remove_file(file);
+            let seq = state.ring.push(chunk);
+            state.last = Some(self.clock.now_ms());
+            state.last_use = Instant::now();
+            let _ = self.frames.send(Frame::Output {
+                seq,
+                data: Arc::from(chunk),
+            });
         }
     }
 
@@ -487,8 +455,6 @@ impl Terminal {
             let pid = state.session.take().map(|s| s.pid);
             state.since = None;
             state.last = Some(self.clock.now_ms());
-            state.at_prompt = false;
-            state.marks = None;
             pid
         };
         {
@@ -572,26 +538,11 @@ impl Terminal {
         Ok(())
     }
 
-    /// Types the person's input. Answers the lines they entered at the shell's prompt: each
-    /// must answer a prompt the shell drew, so a line typed into a program (a password at a
-    /// `sudo` prompt, `read`) or a second line pasted with the first is never kept.
-    pub async fn input(self: &Arc<Self>, data: Vec<u8>) -> Result<Vec<String>, String> {
+    /// Types the person's input into their shell. Nothing of it is kept or read.
+    pub async fn input(self: &Arc<Self>, data: Vec<u8>) -> Result<(), String> {
         self.ensure()?;
-        let entered = {
-            let mut state = lock(&self.state);
-            state.last_use = Instant::now();
-            let lines = state.lines.feed(&data);
-            let mut kept = Vec::new();
-            for line in lines {
-                let answered_prompt = std::mem::replace(&mut state.at_prompt, false);
-                if answered_prompt && !line.is_empty() {
-                    kept.push(line);
-                }
-            }
-            kept
-        };
-        self.write(data).await?;
-        Ok(entered)
+        lock(&self.state).last_use = Instant::now();
+        self.write(data).await
     }
 
     async fn write(self: &Arc<Self>, data: Vec<u8>) -> Result<(), String> {
