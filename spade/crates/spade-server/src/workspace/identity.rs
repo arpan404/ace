@@ -29,15 +29,37 @@ impl Identity {
 }
 
 /// Whether the volume holding the folder `path` (resolved) treats names that differ only by
-/// case as one: `path` spelt with its last name's case swapped is the same folder. A name with no
-/// letters to swap can't tell, and counts as ignoring case, so the guard errs on matching.
+/// case as one: a folder spelt with its last name's case swapped is the same folder. The probe
+/// uses `path` or the nearest folder above it on the same volume whose name has letters to swap.
+/// When none has, the volume counts as minding case: names then match only as spelt, and files
+/// that exist still match by device and inode.
 fn ignores_case(path: &Path) -> bool {
-    let (Some(name), Some(parent)) = (path.file_name().and_then(|n| n.to_str()), path.parent())
-    else {
-        return true;
-    };
-    let swapped: String = name
-        .chars()
+    let device = file_id(path).map(|(device, _)| device);
+    for folder in path.ancestors() {
+        if file_id(folder).map(|(device, _)| device) != device {
+            break;
+        }
+        let (Some(name), Some(parent)) =
+            (folder.file_name().and_then(|n| n.to_str()), folder.parent())
+        else {
+            break;
+        };
+        let swapped = swap_case(name);
+        if swapped == name {
+            continue;
+        }
+        return match (file_id(folder), file_id(&parent.join(swapped))) {
+            (Some(this), Some(other)) => this == other,
+            (Some(_), None) => false,
+            // Windows (no inode here) ignores case.
+            _ => cfg!(windows),
+        };
+    }
+    cfg!(windows)
+}
+
+fn swap_case(name: &str) -> String {
+    name.chars()
         .map(|c| {
             if c.is_lowercase() {
                 c.to_uppercase().next().unwrap_or(c)
@@ -45,16 +67,7 @@ fn ignores_case(path: &Path) -> bool {
                 c.to_lowercase().next().unwrap_or(c)
             }
         })
-        .collect();
-    if swapped == name {
-        return true;
-    }
-    match (file_id(path), file_id(&parent.join(swapped))) {
-        (Some(this), Some(other)) => this == other,
-        (Some(_), None) => false,
-        // Windows (no inode here) ignores case.
-        _ => cfg!(windows),
-    }
+        .collect()
 }
 
 #[cfg(unix)]
@@ -122,5 +135,23 @@ impl Workspace {
             name: joined,
             file: file_id(&parent.join(name)),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ignores_case;
+
+    #[test]
+    fn a_folder_named_without_letters_judges_case_like_its_volume() -> std::io::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let digits = dir.path().join("12345");
+        let letters = dir.path().join("Workspace");
+        std::fs::create_dir(&digits)?;
+        std::fs::create_dir(&letters)?;
+        let digits = std::fs::canonicalize(digits)?;
+        let letters = std::fs::canonicalize(letters)?;
+        assert_eq!(ignores_case(&digits), ignores_case(&letters));
+        Ok(())
     }
 }
