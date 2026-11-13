@@ -85,14 +85,18 @@ struct SystemAuthorizer: NotificationAuthorizer {
     @ObservationIgnored var pendingAccess: (alert: AccessAlert, hostId: String?)?
     /// The person's name for a machine, for "Claude wants to sign in to studio".
     @ObservationIgnored var machineName: (String) -> String? = { _ in nil }
+    /// This phone's push address (ADR 0106), once iOS gave a token; every machine's sync carries it.
+    @ObservationIgnored var push: PushRegistration?
+    /// Asks iOS for a push token (`registerForRemoteNotifications`); the app delegate sets it.
+    @ObservationIgnored var requestPushToken: @MainActor () -> Void = {}
 
     init(center: any NotificationCenterPort = SystemNotificationCenter(), authorizer: any NotificationAuthorizer = SystemAuthorizer(),
          defaults: UserDefaults = .standard, now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 },
          sleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) },
          makeId: @escaping () -> String = { UUID().uuidString.lowercased() },
          connectInBackground: @escaping @MainActor (NotificationCoordinator) async -> [ClientModel] = BackgroundConnection.connect,
-         lockScreenEdges: LockScreenHub.Edges? = nil) {
-        desk = AlertDesk(center: center, defaults: defaults, now: now)
+         lockScreenEdges: LockScreenHub.Edges? = nil, pushed: PushedAlerts = PushedAlerts(defaults: nil)) {
+        desk = AlertDesk(center: center, defaults: defaults, now: now, pushed: pushed)
         notifier = LocalNotifier(center: center, desk: desk)
         self.center = center
         self.authorizer = authorizer; self.defaults = defaults; self.now = now; self.sleep = sleep
@@ -222,6 +226,8 @@ struct SystemAuthorizer: NotificationAuthorizer {
         var action: [String: Any] = ["type": "notifications.sync", "enabled": delivering(hostId),
                                      "appState": foreground ? "foreground" : "background", "cursor": ledger.ledger.cursor]
         action["phone"] = phone.json
+        // Only to a machine allowed to alert this phone; one turned off here learns no token.
+        if let push, delivering(hostId) { action["push"] = push.json }
         model.notificationAction(action)
     }
     func scene(active: Bool) {
@@ -237,6 +243,7 @@ struct SystemAuthorizer: NotificationAuthorizer {
 
     func refreshPermission() async {
         permission = await authorizer.status()
+        askForPushToken()
         sync()
     }
     /// Asked once, after the first thread arrives from a paired machine; never on first launch.
@@ -254,6 +261,7 @@ struct SystemAuthorizer: NotificationAuthorizer {
         }
         enabled = on && permission == .allowed
         defaults.set(enabled, forKey: Keys.enabled)
+        askForPushToken()
         sync()
     }
 

@@ -26,6 +26,16 @@ final class SystemNotificationCenter: NotificationCenterPort {
         let center = UNUserNotificationCenter.current()
         center.removeDeliveredNotifications(withIdentifiers: identifiers)
         center.removePendingNotificationRequests(withIdentifiers: identifiers)
+        // A push the service extension rewrote has APNs' identifier, not the app's: it names
+        // the alert and the thread it stands for instead (ADR 0106).
+        let wanted = Set(identifiers)
+        center.getDeliveredNotifications { delivered in
+            let pushed = delivered.filter { note in
+                let info = note.request.content.userInfo
+                return [NotificationKeys.pushedAlert, NotificationKeys.standsFor].contains { (info[$0] as? String).map(wanted.contains) ?? false }
+            }
+            if !pushed.isEmpty { center.removeDeliveredNotifications(withIdentifiers: pushed.map(\.request.identifier)) }
+        }
     }
 }
 
@@ -36,6 +46,8 @@ final class SystemNotificationCenter: NotificationCenterPort {
     private let center: any NotificationCenterPort
     private let defaults: UserDefaults?
     private let now: () -> Double
+    /// Alerts the service extension already showed from a push (ADR 0106).
+    let pushed: PushedAlerts
     private(set) var stack: AlertStack
     /// The last post asked for: every post waits for the one before, so they land in order.
     private var effects: Task<Void, Never>?
@@ -47,8 +59,9 @@ final class SystemNotificationCenter: NotificationCenterPort {
     /// Landings whose post is queued or out, by serial, with the notifier that asked for each.
     private var landing: [Int: (owner: ObjectIdentifier, threadId: String, hostId: String?)] = [:]
     private var landings = 0
-    init(center: any NotificationCenterPort, defaults: UserDefaults? = nil, now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 }) {
-        self.center = center; self.defaults = defaults; self.now = now
+    init(center: any NotificationCenterPort, defaults: UserDefaults? = nil, now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 },
+         pushed: PushedAlerts = PushedAlerts(defaults: nil)) {
+        self.center = center; self.defaults = defaults; self.now = now; self.pushed = pushed
         stack = defaults.map(AlertStack.load) ?? AlertStack()
     }
     /// Lands an alert; `owner`'s landings still queued or out can be cancelled (`cancel`).
@@ -57,6 +70,10 @@ final class SystemNotificationCenter: NotificationCenterPort {
         save()
         withdraw(landed.withdraw)
         guard let content = landed.post else { return }
+        // A push already showed this alert (the socket's ack was lost, or catch-up brought it):
+        // the stack keeps it as the thread's, and withdrawing the thread withdraws the push.
+        if content.identifier == AlertStack.thread(alert.threadId, hostId: hostId),
+           pushed.contains(AlertContent.requestId(alert.id, hostId: hostId)) { return }
         landings += 1
         let serial = landings
         if let owner { landing[serial] = (owner, alert.threadId, hostId) }

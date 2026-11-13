@@ -678,21 +678,67 @@ pairing or daemon-restart durability.
 
 ## Notifications
 
-Local only ([ADR 0087](../../docs/adr/0087-ios-local-notifications.md)). `Sources/Notifications/`
+Local notifications ([ADR 0087](../../docs/adr/0087-ios-local-notifications.md)), and remote push
+through ace's push gateway ([ADR 0106](../../docs/adr/0106-ios-remote-push-gateway.md)) when the
+build has the push entitlement. `Sources/Notifications/`
 posts the daemon's canonical `notification` messages and its `notification.feed` catch-up with
 `UNUserNotificationCenter`; `bridge/notifications.ts` registers the phone (and sends `notification.unregister` while that
 machine's alerts are off), reports foreground or
 background presence and runs approval actions through the SDK outbox. With the fixture running,
 `curl -X POST localhost:9841/review/notify -d '{"threadId":"ios-approval"}'` sends an alert and
-`/review/retract -d '{"id":"…"}'` withdraws one. Remote push through APNs or a push gateway remains deferred; see the
+`/review/retract -d '{"id":"…"}'` withdraws one. Live Activity push remains deferred; see the
 [draft](../../docs/adr/drafts/ios-push-notifications.md). Local Live Activities use the
 foreground SDK state described below.
+
+### Remote push
+
+Once alerts are allowed, the app asks iOS for an APNs token. Each paired machine's
+`notifications.sync` then carries `push: { token, environment, p256dh, auth }`: the token in hex,
+`sandbox` or `production` (`AceAPSEnvironment` in Info.plist, from `ACE_APS_ENVIRONMENT`), and
+the public half of the phone's RFC 8291 key. A machine turned off on the phone gets no `push`
+field, and neither does any machine before iOS gives a token.
+
+- **The key** (`Alerts/PushKey.swift`) is a P-256 key pair and a 16-byte auth secret, made once
+  and kept in `push-key.json` in the app group container (`group.app.ace.ios`), with
+  complete-until-first-unlock protection, mode 0600 and no backup. It's a file rather than a
+  keychain item because the extension can share a keychain item only through a team-prefixed
+  access group, which ad-hoc and free-team signing don't give reliably; the app group is shared
+  by every target already. It is never logged. A reinstall or restore makes a new key.
+- **`AceNotificationService`** (`NotificationService/`, bundle id `app.ace.ios.notifications`)
+  decrypts the gateway's `ace.c` with CryptoKit (`Alerts/PushCrypto.swift`) and fills the alert
+  with the same `AlertContent` wording, category, grouping, interruption level and `userInfo`
+  keys a local alert has. It has no JavaScript runtime and no networking. Anything that fails
+  leaves the gateway's "ace" / "New activity", which never says done.
+- **Shown once.** The extension notes each alert it showed in the app group's defaults
+  (`PushedAlerts`); the app skips posting an alert a push already showed, and withdrawing a thread
+  or an alert also removes its pushed copy.
+
+**The entitlement switch.** APNs needs `aps-environment`, which only a paid developer team can
+sign. It is **off by default** (`ACE_PUSH: NO` in `project.yml`), so CI and free Personal Teams
+keep signing and the app runs on local notifications alone: registration fails quietly and no
+machine gets a push address. To build with push, turn it on explicitly:
+
+```sh
+xcodebuild -project Ace.xcodeproj -scheme Ace -configuration Debug ACE_PUSH=YES … build
+```
+
+or set `ACE_PUSH` to `YES` in the Ace target's build settings in Xcode (regenerating the project
+resets it). The app then signs with `Entitlements/AcePush.entitlements`: `development` in Debug
+and Perf, `production` in Release.
+
+**Try it on a simulator.** `xcrun simctl push` needs no token or entitlement. Open the app once so
+it makes its key (allow notifications), then encrypt an alert to the key in the simulator's app
+group container with the repo's own code (`encryptWebPush` and `pushPlaintext` in
+`packages/notify`, wrapped by `alertPush` in `apps/push-gateway`), write the APNs payload with a
+`"Simulator Target Bundle": "app.ace.ios"` key to a `.apns` file and run
+`xcrun simctl push <udid> app.ace.ios <file.apns>`. A payload that doesn't decrypt shows "New
+activity".
 
 Outside apps' sign-ins (ADR 0122) alert too: `NotificationCoordinator+Access.swift` posts one
 alert per request a connected machine lists while ace is in the background, and withdraws it
 when the machine stops listing it. The daemon also pushes each request to admin phones that
-have a push address (`{ v: 1, hostId, access }`, decoded by `AccessAlert.push`), but this app
-doesn't register one yet, since ADR 0106's notification service extension isn't built. A tap
+have a push address (`{ v: 1, hostId, access }`, decoded by `AccessAlert.push`); the service
+extension shows those as the local alert would. A tap
 sends `outside.open` to the bridge, which opens the sheet on that request or says it ended. To
 see it, stage `curl -X POST localhost:9841/review/outside -d '"ask"'`, send the app to the
 background and `xcrun simctl push <udid> app.ace.ios` a payload whose `userInfo` carries
