@@ -717,7 +717,8 @@ field, and neither does any machine before iOS gives a token.
   removes its pushed copy.
 - **Catch-up never goes backwards.** Catch-up lands only each thread's newest missed alert that this phone posts, and
   none for a thread whose live alert is later in the feed or not in it yet (it arrived while the
-  feed was being read). An older "Done" never covers a request that still waits.
+  feed was being read). Catch-ups run one at a time, so a later feed's landings and retractions
+  apply after an earlier one's. An older "Done" never covers a request that still waits.
 - **Acks.** The bridge acks a live `notification` frame (`notification.ack`) only when Swift
   answers its `notifications.alert` patch with `notifications.delivered { id }`: posted, already
   shown from a push, or not wanted by this phone's settings. Before Swift's first
