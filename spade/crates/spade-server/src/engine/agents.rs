@@ -7,7 +7,8 @@ use std::time::{Duration, Instant};
 use serde_json::json;
 use spade_core::Event;
 use spade_core::event::Known;
-use spade_store::{AVATAR_COLORS, Agent, NewAgent, StoreError, generated_color};
+use spade_core::face;
+use spade_store::{Agent, NewAgent, StoreError};
 
 use super::{AgentChange, AgentError, AgentInput, AgentView, AvatarInput, Engine};
 
@@ -98,17 +99,16 @@ impl Engine {
                 let image = self.images.put(&bytes)?;
                 json!({ "kind": "image", "sha256": image.sha256 }).to_string()
             }
-            Some(AvatarInput::Generated(Some(color))) => {
-                if !AVATAR_COLORS.contains(&color.as_str()) {
-                    return Err(AgentError::Invalid(format!(
-                        "the colour must be one of {}",
-                        AVATAR_COLORS.join(", ")
-                    )));
-                }
-                json!({ "kind": "generated", "color": color }).to_string()
-            }
-            Some(AvatarInput::Generated(None)) | None => {
-                json!({ "kind": "generated", "color": generated_color(id) }).to_string()
+            Some(AvatarInput::Character(raw)) => face::repair(&raw).to_json().to_string(),
+            // Initials from an older client, or nothing: a face seeded by the id, in a colour
+            // pair no other agent wears when one is left.
+            Some(AvatarInput::Generated) | None => {
+                let agents = self.store.agents()?;
+                let taken: Vec<&str> = agents
+                    .iter()
+                    .filter_map(|agent| face::worn_pair(&agent.avatar))
+                    .collect();
+                face::face_for_id(id, &taken).to_json().to_string()
             }
         })
     }

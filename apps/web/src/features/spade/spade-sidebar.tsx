@@ -1,3 +1,4 @@
+import { botFaceStateOf } from "@ace/ui-core/bot-face";
 import { formatAge } from "@ace/ui-core";
 import {
   spadeCappedLine,
@@ -18,6 +19,7 @@ import { NewBotDialog } from "./spade-bot-dialog.tsx";
 import { GroupFaces } from "./spade-group-faces.tsx";
 import { NewGroupDialog } from "./spade-group-dialog.tsx";
 import { SpadeFace } from "./spade-face.tsx";
+import { useFaceState } from "./use-face-state.ts";
 import { SpadeStateStrip } from "./spade-state.tsx";
 import { useSpadeEnabled } from "./use-spade-enabled.ts";
 import { useOneSpade, useSpadeRoster, type RosterBot } from "./use-spade-roster.ts";
@@ -141,6 +143,11 @@ export function SpadeSidebar() {
 function Row(props: { bot: RosterBot; current: boolean; now: number }) {
   const { bot } = props;
   const line = rosterLine(bot);
+  // Its face is its status: still while away, moving only while it works.
+  const state = useFaceState(
+    bot.away || bot.unavailable ? null : botFaceStateOf(bot),
+    props.current,
+  );
   return (
     <Link
       to="/spade/$agentId"
@@ -153,7 +160,7 @@ function Row(props: { bot: RosterBot; current: boolean; now: number }) {
       <SpadeFace
         avatar={bot.avatar}
         size={32}
-        working={bot.state === "working" && !bot.away}
+        state={state}
         ring="bg-(--sidebar-panel) shadow-[0_0_0_2px_var(--sidebar-panel)]"
         className={cn((bot.away || bot.unavailable) && "opacity-45")}
       />

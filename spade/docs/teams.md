@@ -170,7 +170,7 @@ status: "online"|"offline"}]}`: the linked machines this daemon can call.
 `GET /v1/templates` → `{"templates": [Template]}`, shipped in the binary
 (`config/templates.json`).
 
-**Template** = `{"id", "name", "blurb", "task", "color", "model_kind": "fast"|"capable",
+**Template** = `{"id", "name", "blurb", "task", "face", "model_kind": "fast"|"capable",
 "routines": [{"name", "instruction", "schedule"}]}`. `schedule` is a phrase routines read
 (`weekdays at 8:00`).
 
@@ -199,7 +199,7 @@ Never the conversation. The main bot can be duplicated; the copy is a bot.
   "version": 1,
   "name": "Research",
   "task": "…",
-  "avatar": { "kind": "generated", "color": "teal" },
+  "avatar": { "kind": "character", "v": 1, "body": "round", "pair": "lagoon", "...": "..." },
   "model": "openrouter/some-model",
   "routines": [
     {

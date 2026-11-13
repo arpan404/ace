@@ -62,6 +62,8 @@ export interface SpadePreset {
 
 /** `GET /v1/models`. */
 export interface SpadeModels {
+  /** Absent on servers predating character faces. */
+  characterAvatars?: boolean;
   endpoints: SpadeEndpoint[];
   presets: SpadePreset[];
   /** `endpoint/model` for titles and other small jobs; undefined: each agent's own. */
@@ -188,6 +190,7 @@ export function parseSpadeModels(body: string): SpadeModels | undefined {
   const record = spadeRecord(spadeJson(body));
   if (!record) return undefined;
   return {
+    characterAvatars: record.character_avatars === true,
     endpoints: listOf(record.endpoints, parseSpadeEndpointValue),
     presets: listOf(record.presets, presetOf),
     fastModel:

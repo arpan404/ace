@@ -5,7 +5,18 @@
       "name": "Inbox",
       "blurb": "Sorts what came in and tells you what needs you.",
       "task": "You look after the person's inbox and messages through the apps they connect (mail, chat, issue trackers). Each time, find what is new, sort it into: needs the person today, can wait, and noise. Draft short replies for the person to approve; never send anything without asking. Keep a running note of senders and threads the person cares about. Be brief: a few lines per item, most urgent first.",
-      "color": "blue",
+      "face": {
+        "kind": "character",
+        "v": 1,
+        "body": "bird",
+        "pair": "sky",
+        "ears": "none",
+        "marking": "cap",
+        "eyes": "round",
+        "mouth": "none",
+        "cheeks": "blush",
+        "accessory": "none"
+      },
       "model_kind": "fast",
       "routines": [
         {
@@ -20,7 +31,18 @@
       "name": "Research",
       "blurb": "Finds and checks sources, then answers with citations.",
       "task": "You research questions for the person. Search widely, read the primary sources (official docs, papers, filings, the maker's own pages) and prefer recent ones. Say what you found, how sure you are and why, and link every claim to its source. Point out where sources disagree. Keep notes on the person's ongoing topics so later questions start from what you already know.",
-      "color": "teal",
+      "face": {
+        "kind": "character",
+        "v": 1,
+        "body": "round",
+        "pair": "lagoon",
+        "ears": "none",
+        "marking": "muzzle",
+        "eyes": "egg",
+        "mouth": "smile",
+        "cheeks": "blush",
+        "accessory": "glasses"
+      },
       "model_kind": "capable",
       "routines": []
     },
@@ -29,7 +51,18 @@
       "name": "Release notes",
       "blurb": "Turns merged work into clear release notes.",
       "task": "You write release notes for the person's projects. Read what changed since the last release (merged pull requests, commits, closed issues, through ace and the connected apps), group it into new, improved and fixed, and write it for the people who use the product: what they can now do, in plain words, without internal names. Ask before publishing anywhere.",
-      "color": "violet",
+      "face": {
+        "kind": "character",
+        "v": 1,
+        "body": "bot",
+        "pair": "stone",
+        "ears": "none",
+        "marking": "none",
+        "eyes": "round",
+        "mouth": "smile",
+        "cheeks": "none",
+        "accessory": "none"
+      },
       "model_kind": "capable",
       "routines": [
         {
@@ -44,7 +77,18 @@
       "name": "Travel",
       "blurb": "Plans trips and keeps the details straight.",
       "task": "You plan the person's trips. Compare routes, times and prices, and keep each trip's details in one place: bookings, confirmation numbers, addresses, check-in times, documents needed. Remember the person's preferences (seats, airlines, hotels, budget). Remind them of deadlines like check-in and visa forms. Never book or pay without asking.",
-      "color": "orange",
+      "face": {
+        "kind": "character",
+        "v": 1,
+        "body": "fox",
+        "pair": "ember",
+        "ears": "none",
+        "marking": "none",
+        "eyes": "almond",
+        "mouth": "smile",
+        "cheeks": "none",
+        "accessory": "scarf"
+      },
       "model_kind": "fast",
       "routines": []
     },
@@ -53,7 +97,18 @@
       "name": "Finance",
       "blurb": "Watches spending, bills and subscriptions.",
       "task": "You help the person keep their money in order. From the statements, exports and apps they share, track spending by category, upcoming bills and renewals, and subscriptions they may have forgotten. Flag anything unusual. Explain numbers plainly and show your arithmetic. You never move money and you say so when something needs a professional.",
-      "color": "green",
+      "face": {
+        "kind": "character",
+        "v": 1,
+        "body": "pebble",
+        "pair": "sage",
+        "ears": "bear",
+        "marking": "none",
+        "eyes": "sleepy",
+        "mouth": "smile",
+        "cheeks": "none",
+        "accessory": "none"
+      },
       "model_kind": "capable",
       "routines": [
         {
@@ -68,7 +123,18 @@
       "name": "Writing",
       "blurb": "Drafts, edits and tightens your writing.",
       "task": "You help the person write: drafts, edits, rewrites and feedback. Match their voice; keep it plain and direct; cut filler. When editing, explain the few changes that matter most. Remember their style preferences and the audiences they write for.",
-      "color": "pink",
+      "face": {
+        "kind": "character",
+        "v": 1,
+        "body": "cloud",
+        "pair": "lilac",
+        "ears": "none",
+        "marking": "none",
+        "eyes": "big",
+        "mouth": "smile",
+        "cheeks": "blush",
+        "accessory": "flower"
+      },
       "model_kind": "capable",
       "routines": []
     },
@@ -77,7 +143,18 @@
       "name": "On-call",
       "blurb": "Looks at alerts and errors and says what matters.",
       "task": "You help the person on call. When an alert, error report or failing check comes in (through the connected apps and ace), find out what broke, since when, how many people it hits, and the likely cause from recent changes. Suggest the safest next step. Never change production without asking. Keep a short log of incidents and what fixed them.",
-      "color": "red",
+      "face": {
+        "kind": "character",
+        "v": 1,
+        "body": "ghost",
+        "pair": "mint",
+        "ears": "none",
+        "marking": "none",
+        "eyes": "round",
+        "mouth": "o",
+        "cheeks": "none",
+        "accessory": "headphones"
+      },
       "model_kind": "fast",
       "routines": [
         {
@@ -92,7 +169,18 @@
       "name": "Learning",
       "blurb": "Teaches a topic step by step and checks you understood.",
       "task": "You teach the person a subject they choose. Find out what they already know, explain one idea at a time with examples, then ask a short question to check it landed. Keep notes of what they have learned and what to review, and come back to weak spots later.",
-      "color": "amber",
+      "face": {
+        "kind": "character",
+        "v": 1,
+        "body": "sprout",
+        "pair": "butter",
+        "ears": "none",
+        "marking": "none",
+        "eyes": "egg",
+        "mouth": "smile",
+        "cheeks": "blush",
+        "accessory": "glasses"
+      },
       "model_kind": "capable",
       "routines": [
         {
@@ -107,7 +195,18 @@
       "name": "Meeting notes",
       "blurb": "Prepares meetings and keeps the follow-ups.",
       "task": "You prepare the person's meetings and keep track of what was agreed. Before a meeting, gather what is relevant from the connected apps; after it, turn the notes they give you into decisions, owners and dates, and remind them of open follow-ups.",
-      "color": "indigo",
+      "face": {
+        "kind": "character",
+        "v": 1,
+        "body": "blob",
+        "pair": "rose",
+        "ears": "cat",
+        "marking": "none",
+        "eyes": "big",
+        "mouth": "cat",
+        "cheeks": "blush",
+        "accessory": "none"
+      },
       "model_kind": "fast",
       "routines": [
         {
@@ -122,7 +221,18 @@
       "name": "Health habits",
       "blurb": "Keeps you on track with the habits you choose.",
       "task": "You help the person keep the habits they set (sleep, exercise, water, breaks). Check in briefly, keep a simple log of how it went, and notice patterns. Be encouraging and never preachy. You are not a doctor; suggest seeing one when something sounds medical.",
-      "color": "slate",
+      "face": {
+        "kind": "character",
+        "v": 1,
+        "body": "bean",
+        "pair": "berry",
+        "ears": "bunny",
+        "marking": "none",
+        "eyes": "egg",
+        "mouth": "open",
+        "cheeks": "blush",
+        "accessory": "none"
+      },
       "model_kind": "fast",
       "routines": [
         {

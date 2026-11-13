@@ -126,6 +126,11 @@ const MIGRATIONS: &[Migration] = &[
         sql: crate::teams::SCHEMA,
         backfill: None,
     },
+    Migration {
+        // Character faces: initials avatars become faces seeded by the agent's id.
+        sql: "",
+        backfill: Some(crate::agents::character_faces),
+    },
 ];
 
 /// The schema version this build brings a database up to.

@@ -7,6 +7,7 @@ pub mod checkpoint;
 pub mod compaction;
 pub mod context;
 pub mod event;
+pub mod face;
 pub mod gate;
 pub mod group;
 pub mod maintenance;

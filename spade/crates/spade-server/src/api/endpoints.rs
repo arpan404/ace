@@ -181,6 +181,7 @@ fn models_now(state: &AppState) -> Response {
     Json(json!({
         "endpoints": views.iter().zip(&known).map(|(v, k)| endpoint_json(v, *k)).collect::<Vec<_>>(),
         // Some keys' keychain reads are still waiting (a prompt): asked again, they may be known.
+        "character_avatars": true,
         "keys_pending": known.iter().any(Option::is_none),
         "presets": presets,
         "fast_model": fast,

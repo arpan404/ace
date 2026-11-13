@@ -108,8 +108,8 @@ pub fn export(
                 let data = base64::engine::general_purpose::STANDARD.encode(bytes);
                 json!({ "kind": "image", "data": format!("data:{media};base64,{data}") })
             }),
-        Some("generated") => Some(json!({ "kind": "generated", "color": stored["color"] })),
-        _ => None,
+        Some("spade") => None,
+        _ => Some(spade_core::face::shown_avatar(&agent.id, &agent.avatar)),
     };
     let mut kept = Vec::new();
     for kind in [ROUTINE, HEARTBEAT] {
@@ -175,13 +175,12 @@ pub fn import(
             Some(Ok(bytes)) => Some(AvatarInput::Image(bytes)),
             _ => {
                 left_out
-                    .push("The picture couldn't be read; the bot has initials instead.".to_owned());
+                    .push("The picture couldn't be read; the bot has a face instead.".to_owned());
                 None
             }
         },
-        Some(a) if a["kind"] == "generated" => Some(AvatarInput::Generated(
-            a["color"].as_str().map(str::to_owned),
-        )),
+        Some(a) if a["kind"] == "character" => Some(AvatarInput::Character(a.clone())),
+        Some(a) if a["kind"] == "generated" => Some(AvatarInput::Generated),
         _ => None,
     };
     let default = engine.default_model();
@@ -204,7 +203,7 @@ pub fn import(
     let agent = match engine.create_agent(input(model.clone())) {
         Err(AgentError::Image(_)) => {
             left_out.push(
-                "The picture isn't an image Spade takes; the bot has initials instead.".to_owned(),
+                "The picture isn't an image Spade takes; the bot has a face instead.".to_owned(),
             );
             engine.create_agent(AgentInput {
                 avatar: None,
@@ -337,7 +336,7 @@ fn copy_name(name: &str) -> String {
     format!("{base}{suffix}")
 }
 
-/// A bot from template `template`: its name, task and colour unless the person gave their own,
+/// A bot from template `template`: its name, task and face unless the person gave their own,
 /// the fast model for a fast template, and its routines in `time_zone`.
 pub fn from_template(
     engine: &Engine,
@@ -357,7 +356,7 @@ pub fn from_template(
         input.task = template.task.clone();
     }
     if input.avatar.is_none() {
-        input.avatar = Some(AvatarInput::Generated(Some(template.color.clone())));
+        input.avatar = Some(AvatarInput::Character(template.face.clone()));
     }
     let agent = engine.create_agent(input)?;
     let id = agent.agent.id.clone();

@@ -1,3 +1,4 @@
+import { faceForId } from "../bot-face/index.ts";
 import { expect, test } from "vitest";
 import {
   mergeSpadeModels,
@@ -70,22 +71,34 @@ test("agents keep fields this client doesn't know, and an agent it can't read is
   expect(parseSpadeAgents("[]")).toBeUndefined();
 });
 
-test("an avatar it can't read becomes a generated one from the agent's name", () => {
+const readAvatar = (avatar: unknown, id = "b9") =>
+  parseSpadeAgent(JSON.stringify({ agent: agent({ id, avatar }) }))?.avatar;
+
+test("a character face reads repaired; initials or an unreadable avatar become the face the id seeds", () => {
   const image = "a".repeat(64);
-  const created = parseSpadeAgent(
-    JSON.stringify({ agent: agent({ avatar: { kind: "image", sha256: image } }) }),
-  );
-  expect(created?.avatar).toEqual({ kind: "image", sha256: image });
-  const odd = parseSpadeAgent(
-    JSON.stringify({ agent: agent({ name: "Ada Lovelace", avatar: { kind: "hologram" } }) }),
-  );
-  expect(odd?.avatar).toEqual({ kind: "generated", initials: "AL", color: "slate" });
-  const offPalette = parseSpadeAgent(
-    JSON.stringify({
-      agent: agent({ avatar: { kind: "generated", initials: "X", color: "gold" } }),
-    }),
-  );
-  expect(offPalette?.avatar).toEqual({ kind: "generated", initials: "X", color: "slate" });
+  expect(readAvatar({ kind: "image", sha256: image })).toEqual({ kind: "image", sha256: image });
+  const fox = readAvatar({
+    kind: "character",
+    v: 1,
+    body: "fox",
+    pair: "ember",
+    ears: "cat",
+    glow: 1,
+  });
+  expect(fox?.kind === "character" && fox.face).toMatchObject({
+    body: "fox",
+    pair: "ember",
+    ears: "none",
+  });
+  expect(fox?.kind === "character" && fox.raw.glow).toBe(1);
+  for (const old of [
+    { kind: "generated", initials: "X", color: "gold" },
+    { kind: "hologram" },
+    undefined,
+  ]) {
+    const shown = readAvatar(old, "bot-1");
+    expect(shown?.kind === "character" && shown.face).toEqual(faceForId("bot-1"));
+  }
 });
 
 test("Spade is named Spade with its own mark whatever it is sent, and lists first", () => {

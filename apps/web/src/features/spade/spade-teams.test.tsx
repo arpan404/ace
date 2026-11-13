@@ -18,7 +18,7 @@ function team(spade: FakeSpadeApi) {
   spade.addAgent({
     id: "research",
     name: "Research",
-    avatar: { kind: "generated", initials: "RE", color: "teal" },
+    avatar: { kind: "character", v: 1, body: "round", pair: "lagoon" },
   });
 }
 const studio = {
@@ -28,7 +28,7 @@ const studio = {
     void spade.addAgent({
       id: "writer",
       name: "Writer",
-      avatar: { kind: "generated", initials: "WR", color: "violet" },
+      avatar: { kind: "character", v: 1, body: "fox", pair: "ember" },
     }),
 };
 
@@ -83,7 +83,11 @@ test("a group's row stacks its members' faces and reads its last message with wh
   const row = await (await roster()).findByRole("link", { name: /^Trips/ });
   expect(row.textContent).toContain("Research: Three options");
   // Writer's face comes from Studio Mac's roster once it answers.
-  await waitFor(() => expect(row.querySelector("[data-group-faces]")?.textContent).toBe("REWR"));
+  const faces = () =>
+    [...row.querySelectorAll("[data-group-faces] svg.bot-face")].map((face) =>
+      face.getAttribute("data-face"),
+    );
+  await waitFor(() => expect(faces()).toEqual(["round lagoon", "fox ember"]));
 });
 
 test("a group's chat shows the person, each member's name and face once per run, and handoffs as lines, never tool calls", async () => {
@@ -96,8 +100,11 @@ test("a group's chat shows the person, each member's name and face once per run,
   // The name above the first of the run, the face beside the last.
   expect(chat.getAllByRole("article", { name: "Research" }).map((row) => row.textContent)).toEqual([
     "ResearchThree options",
-    "RETuesday is cheapest",
+    "Tuesday is cheapest",
   ]);
+  const [firstRun, lastRun] = chat.getAllByRole("article", { name: "Research" });
+  expect(firstRun?.querySelector("svg.bot-face")).toBeNull();
+  expect(lastRun?.querySelector("svg.bot-face")?.getAttribute("data-face")).toBe("round lagoon");
   expect(chat.queryByText(/web_search/)).toBeNull();
 });
 
@@ -308,7 +315,7 @@ test("starting from a template fills the form and sends the template with the ti
       name: "Morning digest",
       blurb: "Reads your feeds each morning",
       task: "Summarise my feeds.",
-      color: "amber",
+      face: { kind: "character", v: 1, body: "bird", pair: "sky", marking: "cap" },
       model_kind: "fast",
       routines: [],
     });
@@ -327,7 +334,18 @@ test("starting from a template fills the form and sends the template with the ti
         task: "Summarise my feeds.",
         template: "digest",
         time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        avatar: { kind: "generated", color: "amber" },
+        avatar: {
+          kind: "character",
+          v: 1,
+          body: "bird",
+          pair: "sky",
+          ears: "none",
+          marking: "cap",
+          eyes: "egg",
+          mouth: "none",
+          cheeks: "none",
+          accessory: "none",
+        },
       },
     ]),
   );

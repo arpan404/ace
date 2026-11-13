@@ -1,0 +1,1055 @@
+{
+ "repair": [
+  {
+   "input": {},
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "kind": "character",
+    "v": 9,
+    "body": "bird",
+    "mouth": "grin",
+    "extra": 1
+   },
+   "output": {
+    "body": "bird",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "body": "sprout",
+    "ears": "cat",
+    "accessory": "beanie",
+    "marking": "cap"
+   },
+   "output": {
+    "body": "sprout",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "body": "round",
+    "ears": "bunny",
+    "accessory": "headphones",
+    "marking": "spots",
+    "cheeks": "freckles"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "freckles",
+    "accessory": "headphones"
+   }
+  },
+  {
+   "input": {
+    "body": 7,
+    "pair": null,
+    "eyes": [
+     "egg"
+    ],
+    "ears": "tuft",
+    "marking": "stripes"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "stripes",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "body": "bot",
+    "marking": "mask",
+    "accessory": "glasses"
+   },
+   "output": {
+    "body": "bot",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "body": "grin",
+    "ears": "tuft",
+    "marking": "glasses",
+    "eyes": "blush",
+    "mouth": "mask",
+    "accessory": "cap"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "tuft",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "body": "",
+    "pair": "cloud",
+    "ears": "grin",
+    "eyes": "cloud",
+    "mouth": "glasses",
+    "cheeks": "tuft",
+    "accessory": "ROUND"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "body": "tuft",
+    "ears": "big",
+    "marking": "grin",
+    "eyes": "bird",
+    "mouth": "cloud",
+    "cheeks": "flower",
+    "accessory": "beanie"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "beanie"
+   }
+  },
+  {
+   "input": {
+    "body": "bead",
+    "pair": "stripes",
+    "ears": "beanie",
+    "marking": "flower",
+    "eyes": "scarf",
+    "cheeks": "lagoon",
+    "accessory": "lagoon"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "body": "sprout",
+    "pair": "spots",
+    "ears": "bow",
+    "eyes": "patch",
+    "cheeks": "patch",
+    "accessory": ""
+   },
+   "output": {
+    "body": "sprout",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "pair": "x",
+    "ears": "none",
+    "marking": "fox",
+    "eyes": "cloud",
+    "mouth": "muzzle",
+    "cheeks": "grin"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "body": "x",
+    "ears": "ROUND",
+    "marking": "sprout",
+    "eyes": "cap",
+    "mouth": "none",
+    "cheeks": "ink"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "body": "x",
+    "pair": "patch",
+    "ears": "mask",
+    "marking": "bunny",
+    "eyes": "spots",
+    "mouth": "bow",
+    "accessory": "bear"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "body": "cat",
+    "ears": "round",
+    "marking": "bow",
+    "cheeks": "cloud",
+    "accessory": "tuft"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "body": "patch",
+    "pair": "beanie",
+    "ears": "spots",
+    "marking": "stripes",
+    "mouth": "x",
+    "cheeks": "tuft",
+    "accessory": "beanie"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "stripes",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "beanie"
+   }
+  },
+  {
+   "input": {
+    "body": "smile",
+    "pair": "scarf",
+    "ears": "spots",
+    "eyes": "ink",
+    "mouth": "ROUND",
+    "cheeks": "mask",
+    "accessory": "beanie"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "beanie"
+   }
+  },
+  {
+   "input": {
+    "body": "scarf",
+    "pair": "tuft",
+    "ears": "cap",
+    "marking": "cap",
+    "eyes": "fox",
+    "mouth": "ink",
+    "cheeks": "patch"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "cap",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "pair": "bunny",
+    "marking": "bead",
+    "mouth": "bunny",
+    "cheeks": "big",
+    "accessory": "headphones"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "headphones"
+   }
+  },
+  {
+   "input": {
+    "body": "x",
+    "pair": "bead",
+    "marking": "bird",
+    "eyes": "tuft",
+    "mouth": "scarf",
+    "cheeks": "x"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "body": "bead",
+    "ears": "spots",
+    "marking": "blush",
+    "eyes": "spots",
+    "cheeks": "cap"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "body": "freckles",
+    "pair": "sprout",
+    "ears": "muzzle",
+    "mouth": "patch",
+    "cheeks": "glasses",
+    "accessory": "bird"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "body": "smile",
+    "pair": "patch",
+    "ears": "bear",
+    "marking": "flower",
+    "eyes": "smile",
+    "mouth": "grin",
+    "cheeks": "cap",
+    "accessory": "bunny"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "bear",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "grin",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "body": "glasses",
+    "pair": "ROUND",
+    "ears": "smile",
+    "marking": "round",
+    "eyes": "lagoon",
+    "mouth": "blush",
+    "cheeks": "",
+    "accessory": "big"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "body": "freckles",
+    "pair": "patch",
+    "ears": "sprout",
+    "eyes": "flower",
+    "mouth": "ROUND",
+    "accessory": "tuft"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "body": "sprout",
+    "pair": "glasses",
+    "ears": "scarf",
+    "marking": "x",
+    "eyes": "headphones",
+    "mouth": "beanie",
+    "accessory": "stripes"
+   },
+   "output": {
+    "body": "sprout",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "ears": "",
+    "mouth": "fox",
+    "accessory": "ink"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "body": "ROUND",
+    "pair": "ROUND",
+    "ears": "stone",
+    "eyes": "cap",
+    "mouth": "scarf",
+    "accessory": "blush"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "body": "blush",
+    "pair": "spots",
+    "ears": "bead",
+    "marking": "blush",
+    "eyes": "bunny",
+    "mouth": "stone",
+    "cheeks": "glasses",
+    "accessory": "nubs"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "body": "patch",
+    "pair": "bead",
+    "marking": "grin",
+    "eyes": "ink",
+    "cheeks": "smile",
+    "accessory": "bow"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "bow"
+   }
+  },
+  {
+   "input": {
+    "body": "",
+    "pair": "tuft",
+    "ears": "cat",
+    "marking": "big",
+    "mouth": "sprout",
+    "cheeks": "glasses",
+    "accessory": "glasses"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "cat",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "glasses"
+   }
+  },
+  {
+   "input": {
+    "pair": "none",
+    "marking": "sprout",
+    "eyes": "mask",
+    "mouth": "beanie",
+    "cheeks": "patch",
+    "accessory": "ink"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "body": "sprout",
+    "pair": "scarf",
+    "marking": "bot",
+    "eyes": "spots",
+    "mouth": "mask",
+    "accessory": "bead"
+   },
+   "output": {
+    "body": "sprout",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "body": "flower",
+    "pair": "muzzle",
+    "ears": "freckles",
+    "marking": "bear",
+    "eyes": "cat",
+    "mouth": "nubs",
+    "cheeks": "blush",
+    "accessory": "ink"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "blush",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "pair": "bunny",
+    "ears": "scarf",
+    "marking": "nubs",
+    "eyes": "cat",
+    "mouth": "cloud",
+    "cheeks": "stripes"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "body": "muzzle",
+    "pair": "stone",
+    "ears": "beanie",
+    "marking": "cap",
+    "eyes": "nubs",
+    "mouth": "blush",
+    "cheeks": "tuft",
+    "accessory": ""
+   },
+   "output": {
+    "body": "round",
+    "pair": "stone",
+    "ears": "none",
+    "marking": "cap",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "body": "bead",
+    "pair": "cat",
+    "marking": "grin",
+    "eyes": "bow",
+    "mouth": "scarf",
+    "cheeks": "x"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "body": "stripes",
+    "pair": "nubs",
+    "ears": "ink",
+    "marking": "ink",
+    "eyes": "blush",
+    "mouth": "smile",
+    "cheeks": "",
+    "accessory": "flower"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "smile",
+    "cheeks": "none",
+    "accessory": "flower"
+   }
+  },
+  {
+   "input": {
+    "body": "none",
+    "pair": "flower",
+    "marking": "cloud",
+    "eyes": "ink",
+    "mouth": "ink",
+    "cheeks": "fox",
+    "accessory": "patch"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "body": "scarf",
+    "pair": "freckles",
+    "ears": "lagoon",
+    "marking": "bow",
+    "mouth": "bird",
+    "cheeks": "ink",
+    "accessory": "grin"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "body": "cat",
+    "pair": "cloud",
+    "eyes": "round",
+    "cheeks": "",
+    "accessory": "scarf"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "round",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "scarf"
+   }
+  },
+  {
+   "input": {
+    "body": "cloud",
+    "ears": "x"
+   },
+   "output": {
+    "body": "cloud",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "body": "sprout",
+    "ears": "ink",
+    "eyes": "nubs",
+    "mouth": "bead",
+    "cheeks": "lagoon",
+    "accessory": "glasses"
+   },
+   "output": {
+    "body": "sprout",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "glasses"
+   }
+  },
+  {
+   "input": {
+    "body": "freckles",
+    "pair": "bird",
+    "ears": "mask",
+    "marking": "freckles",
+    "eyes": "x",
+    "mouth": "bear",
+    "cheeks": "round",
+    "accessory": "blush"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "body": "cloud",
+    "ears": "freckles",
+    "eyes": "cap",
+    "mouth": "ROUND",
+    "accessory": "cloud"
+   },
+   "output": {
+    "body": "cloud",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "input": {
+    "body": "flower",
+    "pair": "smile",
+    "ears": "bead",
+    "marking": "cloud",
+    "eyes": "x",
+    "mouth": "scarf",
+    "cheeks": "fox",
+    "accessory": "bow"
+   },
+   "output": {
+    "body": "round",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "egg",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "bow"
+   }
+  }
+ ],
+ "seeded": [
+  {
+   "id": "a",
+   "output": {
+    "body": "bot",
+    "pair": "sky",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "round",
+    "mouth": "open",
+    "cheeks": "blush",
+    "accessory": "scarf"
+   }
+  },
+  {
+   "id": "bot-1",
+   "output": {
+    "body": "bird",
+    "pair": "berry",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "almond",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "scarf"
+   }
+  },
+  {
+   "id": "01J8ZK3F7Q",
+   "output": {
+    "body": "cloud",
+    "pair": "sky",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "almond",
+    "mouth": "smile",
+    "cheeks": "none",
+    "accessory": "bow"
+   }
+  },
+  {
+   "id": "Research",
+   "output": {
+    "body": "blob",
+    "pair": "cocoa",
+    "ears": "none",
+    "marking": "patch",
+    "eyes": "big",
+    "mouth": "grin",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "id": "ünïcode-ид",
+   "output": {
+    "body": "cloud",
+    "pair": "rose",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "big",
+    "mouth": "none",
+    "cheeks": "blush",
+    "accessory": "none"
+   }
+  },
+  {
+   "id": "",
+   "output": {
+    "body": "bot",
+    "pair": "lagoon",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "sleepy",
+    "mouth": "open",
+    "cheeks": "none",
+    "accessory": "none"
+   }
+  },
+  {
+   "id": "agent_42",
+   "output": {
+    "body": "bot",
+    "pair": "butter",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "round",
+    "mouth": "smile",
+    "cheeks": "none",
+    "accessory": "scarf"
+   }
+  },
+  {
+   "id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "output": {
+    "body": "cloud",
+    "pair": "sky",
+    "ears": "bear",
+    "marking": "none",
+    "eyes": "bead",
+    "mouth": "smile",
+    "cheeks": "none",
+    "accessory": "scarf"
+   }
+  },
+  {
+   "id": "bot-1",
+   "taken": [
+    "lagoon",
+    "sky",
+    "mint",
+    "stone",
+    "butter",
+    "ember",
+    "cocoa",
+    "berry"
+   ],
+   "output": {
+    "body": "bird",
+    "pair": "rose",
+    "ears": "none",
+    "marking": "none",
+    "eyes": "almond",
+    "mouth": "none",
+    "cheeks": "none",
+    "accessory": "scarf"
+   }
+  }
+ ]
+}

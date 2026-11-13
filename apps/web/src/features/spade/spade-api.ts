@@ -8,7 +8,6 @@ import {
   parseSpadeSubscriptions,
   parseSpadeTranscription,
   type SpadeAgent,
-  type SpadeAvatarColor,
   type SpadeEndpoint,
   type SpadeFormat,
   type SpadeModelInfo,
@@ -33,17 +32,19 @@ export async function readAgents(target: SpadeTarget, options: Signal = {}) {
   return sure(parseSpadeAgents(await spadeHttp(target, "GET", "/v1/agents", options)), "agents");
 }
 
-/** An avatar as the person chose it: an image's bytes (base64 or a data: URL), or a colour. */
-export type SpadeAvatarChoice =
-  | { kind: "image"; data: string }
-  | { kind: "generated"; color: SpadeAvatarColor };
+/**
+ * An avatar as the person chose it: an image's bytes (base64 or a data: URL), or a character
+ * face as stored (`storedBotFace`).
+ */
+export type SpadeAvatarChoice = { kind: "image"; data: string } | Record<string, unknown>;
 
 export interface SpadeAgentDraft {
   name: string;
   task: string;
   /** `endpoint/model`. */
   model: string;
-  avatar: SpadeAvatarChoice;
+  /** Absent: Spade picks a face. */
+  avatar?: SpadeAvatarChoice;
 }
 
 /**

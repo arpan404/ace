@@ -1,3 +1,4 @@
+import { botFaceStateOf } from "@ace/ui-core/bot-face";
 import { useNavigate } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
@@ -52,12 +53,13 @@ export function BotScreen(props: {
   const navigate = useNavigate();
   const openBot = useOpenBot(bot);
   const main = bot.kind === "main";
+  const headState = bot.away || bot.unavailable ? "idle" : botFaceStateOf(bot);
   const conversation = !props.files && props.view === undefined;
   const page = props.files ? "Files" : props.view ? viewTitles[props.view] : undefined;
   return (
     <Screen
       title={page ? `${bot.name} · ${page}` : bot.name}
-      mark={<SpadeFace avatar={bot.avatar} size={20} />}
+      mark={<SpadeFace avatar={bot.avatar} size={20} state={headState} />}
       menu={
         bot.away || bot.unavailable ? undefined : (
           <>

@@ -40,13 +40,19 @@ async fn notes(spade: &Spade, agent: &str) -> Result<Vec<String>> {
         .unwrap_or_default())
 }
 
-/// A bot with a task, a coloured face, a paused routine, a webhook, a note and all connectors.
+fn scout() -> Value {
+    json!({ "kind": "character", "v": 1, "body": "round", "pair": "lagoon", "ears": "none",
+        "marking": "muzzle", "eyes": "egg", "mouth": "smile", "cheeks": "blush",
+        "accessory": "glasses" })
+}
+
+/// A bot with a task, a character face, a paused routine, a webhook, a note and all connectors.
 async fn furnished(spade: &Spade) -> Result<Value> {
     let (status, made) = spade
         .post(
             "/v1/agents",
             json!({ "name": "Research", "task": "Find sources.", "model": "fake/m",
-                    "avatar": { "kind": "generated", "color": "teal" } }),
+                    "avatar": scout() }),
         )
         .await?;
     assert_eq!(status, 201, "{made}");
@@ -110,7 +116,7 @@ async fn a_template_makes_a_bot_with_its_task_face_and_routines() -> Result {
     let agent = &made["agent"];
     assert_eq!(agent["name"], "Inbox");
     assert_eq!(agent["task"], inbox["task"]);
-    assert_eq!(agent["avatar"]["color"], inbox["color"]);
+    assert_eq!(agent["avatar"], inbox["face"], "the template's own face");
     let made_routines = routines(&spade, &id(agent)).await?;
     assert_eq!(
         made_routines.len(),
@@ -152,7 +158,7 @@ async fn duplicate_copies_the_bot_but_not_its_conversation() -> Result {
     assert_eq!(copy["name"], "Research copy");
     assert_eq!(copy["task"], "Find sources.");
     assert_eq!(copy["model"], original["model"]);
-    assert_eq!(copy["avatar"]["color"], "teal");
+    assert_eq!(copy["avatar"], scout());
     assert_eq!(
         routines(&spade, &id(copy)).await?,
         routines(&spade, &id(&original)).await?,
@@ -209,7 +215,7 @@ async fn an_export_holds_no_secrets_and_importing_it_elsewhere_recreates_the_bot
     let agent = &made["agent"];
     assert_eq!(agent["name"], "Research");
     assert_eq!(agent["task"], "Find sources.");
-    assert_eq!(agent["avatar"]["color"], "teal");
+    assert_eq!(agent["avatar"], scout(), "the file carries the face");
     assert_eq!(
         routines(&away, &id(agent)).await?,
         routines(&home, &id(&original)).await?
@@ -265,8 +271,8 @@ async fn a_hostile_bot_file_is_bounded_and_checked() -> Result {
     assert_eq!(status, 201, "{made}");
     let agent = &made["agent"];
     assert_eq!(
-        agent["avatar"]["kind"], "generated",
-        "a bad picture becomes initials"
+        agent["avatar"]["kind"], "character",
+        "a bad picture becomes a face"
     );
     assert_ne!(
         agent["model"], "nowhere/model",

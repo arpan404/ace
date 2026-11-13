@@ -1,52 +1,21 @@
 import { z } from "zod";
-import { initials } from "../profile.ts";
+import { faceForId, parseStoredBotFace, storedBotFace, type BotFace } from "../bot-face/index.ts";
 import { spadeJson, spadeRecord } from "./json.ts";
 import { parseSpadeReview, parseSpadeSpending, type SpadeSpending } from "./oversight.ts";
 
 /*
  * Spade's agents (ADR 0126, 0127): Spade itself, the main bot, and the person's bots, each a name,
  * a task, an avatar and a model, with exactly one conversation. Parsed leniently: an agent this client can't read is left out of the list, a
- * field it doesn't know stays in `raw`, and an avatar it can't read becomes a generated one.
+ * field it doesn't know stays in `raw`, and an avatar it can't read becomes the face its id seeds.
  */
-
-/** The colours a generated avatar may use, in the order the picker offers them. */
-export const spadeAvatarColors = [
-  "slate",
-  "red",
-  "orange",
-  "amber",
-  "green",
-  "teal",
-  "blue",
-  "indigo",
-  "violet",
-  "pink",
-] as const;
-export type SpadeAvatarColor = (typeof spadeAvatarColors)[number];
-
-/**
- * Each colour's fill, the same in both schemes: muted enough to sit in a list beside the status
- * hues, dark enough that white initials hold 4.5:1 on every one.
- */
-export const spadeAvatarFill: Record<SpadeAvatarColor, string> = {
-  slate: "#5B6678",
-  red: "#A84B48",
-  orange: "#9E5F2C",
-  amber: "#8A6A1F",
-  green: "#3F7A4E",
-  teal: "#2B7570",
-  blue: "#4569AB",
-  indigo: "#5258A8",
-  violet: "#6A5AAE",
-  pink: "#A0507A",
-};
 
 export type SpadeAvatar =
   /** The main bot's face: the Spade mark. */
   | { kind: "spade" }
   /** An uploaded image, its bytes at `GET /v1/images/{sha256}`. */
   | { kind: "image"; sha256: string }
-  | { kind: "generated"; initials: string; color: SpadeAvatarColor };
+  /** A character face; `raw` keeps the stored fields this client doesn't know. */
+  | { kind: "character"; face: BotFace; raw: Record<string, unknown> };
 
 /** What an agent is doing: nothing, working, or waiting on the person (an approval, a question). */
 export type SpadeAgentState = "idle" | "working" | "waiting";
@@ -91,11 +60,9 @@ export interface SpadeAgent {
   raw: Record<string, unknown>;
 }
 
-const color = z.enum(spadeAvatarColors);
 const avatarShape = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("spade") }),
   z.object({ kind: z.literal("image"), sha256: z.string().regex(/^[0-9a-f]{64}$/) }),
-  z.object({ kind: z.literal("generated"), initials: z.string().nullish(), color: z.unknown() }),
 ]);
 
 const time = z.number().catch(0);
@@ -128,24 +95,25 @@ const agentShape = z.object({
   last_message: lastMessageShape.nullish().catch(undefined),
 });
 
-function avatarOf(raw: unknown, name: string, main: boolean): SpadeAvatar {
+function avatarOf(raw: unknown, seed: string, main: boolean): SpadeAvatar {
   // The main bot's face is always the Spade mark.
   if (main) return { kind: "spade" };
   const parsed = avatarShape.safeParse(raw);
-  if (parsed.success && parsed.data.kind === "image") return parsed.data;
-  if (parsed.success && parsed.data.kind === "spade") return { kind: "spade" };
-  const generated = parsed.success && parsed.data.kind === "generated" ? parsed.data : undefined;
-  const picked = color.safeParse(generated?.color);
-  return {
-    kind: "generated",
-    initials: generated?.initials || initials(name) || "?",
-    color: picked.success ? picked.data : "slate",
-  };
+  if (parsed.success) return parsed.data;
+  const stored = parseStoredBotFace(raw);
+  if (stored) return { kind: "character", ...stored };
+  // Initials from a Spade before faces, or anything unreadable: the face the id seeds, as
+  // Spade's own migration picks it.
+  const face = faceForId(seed);
+  return { kind: "character", face, raw: storedBotFace(face) };
 }
 
-/** A bot's face as Spade sent it anywhere (a group member's, say); unreadable reads as initials. */
-export function parseSpadeAvatar(raw: unknown, name: string): SpadeAvatar {
-  return avatarOf(raw, name, false);
+/**
+ * A bot's face as Spade sent it anywhere (a group member's, say), `seed` its agent id: a
+ * character face repaired, else the face that id seeds.
+ */
+export function parseSpadeAvatar(raw: unknown, seed: string): SpadeAvatar {
+  return avatarOf(raw, seed, false);
 }
 
 /** One agent value; undefined when it has no id or no conversation. */
@@ -161,7 +129,7 @@ export function parseSpadeAgentValue(raw: unknown): SpadeAgent | undefined {
     kind: agent.kind,
     name: main ? "Spade" : agent.name || "Bot",
     task: agent.task ?? "",
-    avatar: avatarOf(agent.avatar, agent.name, main),
+    avatar: avatarOf(agent.avatar, agent.id, main),
     model: agent.model,
     conversation: agent.conversation,
     createdAt: agent.created_at,
