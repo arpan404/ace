@@ -17,11 +17,28 @@ const MESSAGE_CHARS: usize = 1_000;
 const ARGUMENT_CHARS: usize = 4_000;
 const TASK_CHARS: usize = 4_000;
 
+/// What this review may answer: it only ever adds a question, so it has no `refuse`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Stricter {
+    Allow,
+    Escalate,
+}
+
+impl From<Stricter> for Verdict {
+    fn from(answer: Stricter) -> Self {
+        match answer {
+            Stricter::Allow => Self::Allow,
+            Stricter::Escalate => Self::Escalate,
+        }
+    }
+}
+
 /// The reviewer's answer, as typed output.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct Judgment {
     /// `allow` when the step plainly serves what the person asked; `escalate` otherwise.
-    pub verdict: Verdict,
+    pub verdict: Stricter,
     /// One or two sentences the person reads when asked.
     pub reason: String,
 }

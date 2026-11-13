@@ -446,6 +446,13 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
                     held.push((text, Vec::new()));
                 }
             }
+            Known::TaskContinued { nudge, .. } => {
+                if pending.is_empty() {
+                    push_person(&mut out, nudge.clone(), Vec::new());
+                } else {
+                    held.push((nudge.clone(), Vec::new()));
+                }
+            }
             Known::ComputerHandedBack { text, data } => {
                 let text = handed_back(text, data);
                 if pending.is_empty() {
@@ -531,6 +538,7 @@ fn reading_order(events: &[Event], from: usize) -> Vec<&Event> {
                 Known::UserMessage { .. }
                     | Known::JobFinished { .. }
                     | Known::ComputerHandedBack { .. }
+                    | Known::TaskContinued { .. }
             )
         )
     };
@@ -656,6 +664,35 @@ fn ends_with_spade_text(out: &[Message], text: &str) -> bool {
     matches!(out.last(), Some(Message::Spade { text: last, calls, .. }) if calls.is_empty() && last == text)
 }
 
+/// Where the open turn's events start: after the reply before it ended. A step Spade started by
+/// itself for the bot's task (ADR 0144) belongs to the turn before it, back to the latest
+/// message, so what an earlier step read still taints the steps that follow it.
+fn turn_from(events: &[Event]) -> usize {
+    let mut start = events
+        .iter()
+        .rposition(|e| matches!(e, Event::Known(Known::ReplyStarted { .. })))
+        .unwrap_or(0);
+    loop {
+        let from = events[..start]
+            .iter()
+            .rposition(ends_reply)
+            .map_or(0, |at| at + 1);
+        let continued = events[from..start]
+            .iter()
+            .any(|e| matches!(e, Event::Known(Known::TaskContinued { .. })));
+        if !continued || from == 0 {
+            return from;
+        }
+        match events[..from]
+            .iter()
+            .rposition(|e| matches!(e, Event::Known(Known::ReplyStarted { .. })))
+        {
+            Some(earlier) => start = earlier,
+            None => return from,
+        }
+    }
+}
+
 /// Whether the open turn has read output from a tool whose output can carry instructions from
 /// strangers. The turn includes what started it: a background job's result can open a turn.
 pub fn untrusted_turn(events: &[Event], registry: &Registry) -> bool {
@@ -665,14 +702,7 @@ pub fn untrusted_turn(events: &[Event], registry: &Registry) -> bool {
 /// What made the open turn untrusted, in a few words each ("https://example.com/page", "a
 /// message from Research"), oldest first; empty when nothing did.
 pub fn untrusted_sources(events: &[Event], registry: &Registry) -> Vec<String> {
-    let start = events
-        .iter()
-        .rposition(|e| matches!(e, Event::Known(Known::ReplyStarted { .. })))
-        .unwrap_or(0);
-    let from = events[..start]
-        .iter()
-        .rposition(ends_reply)
-        .map_or(0, |at| at + 1);
+    let from = turn_from(events);
     events[from..]
         .iter()
         .filter(|event| untrusted_event(event, registry))

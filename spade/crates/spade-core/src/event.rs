@@ -88,6 +88,10 @@ pub enum Known {
         /// 0142). Absent for older events and tools whose always covers the whole tool.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         scope: Option<String>,
+        /// Why the auto-review (ADR 0144) left this call to the person, in one line: the
+        /// reviewer's reason, or the rule that always asks. Absent when the rule gate asked.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reviewer_reason: Option<String>,
     },
     ApprovalAnswered {
         reply: String,
@@ -179,6 +183,24 @@ pub enum Known {
         model: String,
         #[serde(default)]
         cost_micros: u64,
+    },
+    /// The person set the bot's access level (ADR 0144). The latest one holds from the bot's
+    /// next tool call; a bot with none is on `ask`.
+    AccessChanged {
+        level: crate::autonomy::Access,
+    },
+    /// The bot's task was still `working` when its reply ended, so Spade started the next step
+    /// itself (ADR 0144). Stored with that step's `reply_started`; the model reads `nudge` as a
+    /// note from Spade, never as the person's words.
+    TaskContinued {
+        step: u32,
+        nudge: String,
+    },
+    /// Spade stopped continuing the bot's task on its own (ADR 0144): it used its step budget or
+    /// made no progress. Shown to the person; the next message from anyone starts afresh.
+    TaskPaused {
+        reason: crate::task::PauseReason,
+        steps: u32,
     },
     /// The person pressed Stop, naming what was running then: the open reply and the background
     /// jobs. Those stop; a result of one of those jobs, or of a job its reply started, is kept
@@ -370,6 +392,8 @@ pub enum CapScope {
 pub enum Verdict {
     Allow,
     Escalate,
+    /// The auto-review (ADR 0144) refused the call: the bot is told why and it is not run.
+    Refuse,
 }
 
 /// The agent that sent a message, and how many bot-to-bot hops led to it (1 when the sender was
