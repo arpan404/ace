@@ -157,7 +157,14 @@ pub struct Engine {
     continuations: Mutex<HashMap<String, String>>,
     /// Each conversation's access level once folded (ADR 0144, `autonomy`).
     levels: Mutex<HashMap<String, spade_core::autonomy::Access>>,
+    /// Awaited by a turn's worker after its reply ends and before it decides the task's next
+    /// step; none outside tests, which hold a worker there to order a Stop against it.
+    turn_end_hold: Mutex<Option<TurnEndHold>>,
 }
+
+/// What [`Engine::hold_turn_ends`] runs, given the conversation.
+pub type TurnEndHold =
+    Arc<dyn Fn(&str) -> std::pin::Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 /// What `starting` says until setup has run long enough to say more.
 const STARTING: &str = "setting up endpoints";
@@ -218,6 +225,7 @@ impl Engine {
             allowed_scopes: Mutex::default(),
             continuations: Mutex::default(),
             levels: Mutex::default(),
+            turn_end_hold: Mutex::default(),
         });
         handle.set(&engine);
         engine.sync_endpoints()?;
@@ -720,6 +728,23 @@ impl Engine {
             self.carry_on(id);
         }
         Ok(())
+    }
+
+    /// Every turn's worker awaits `hold` once its reply has ended, before it decides whether the
+    /// bot's task carries on (ADR 0144). For tests that order a Stop against that moment.
+    pub fn hold_turn_ends(&self, hold: TurnEndHold) {
+        *self.turn_end_hold.lock().unwrap_or_else(|p| p.into_inner()) = Some(hold);
+    }
+
+    pub(super) async fn turn_ended(&self, id: &str) {
+        let hold = self
+            .turn_end_hold
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        if let Some(hold) = hold {
+            hold(id).await;
+        }
     }
 
     fn spawn_turn(self: &Arc<Self>, id: &str) {

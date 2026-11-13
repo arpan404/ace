@@ -135,7 +135,12 @@ pub(super) async fn run(
     }
     // A task still working carries on by itself (ADR 0144). The step is registered while this
     // worker still owns the conversation, so a Stop pressed once it lets go calls it off.
-    let planned = (!paused).then(|| engine.plan_carry_on(&id)).flatten();
+    let planned = if paused {
+        None
+    } else {
+        engine.turn_ended(&id).await;
+        engine.plan_carry_on(&id)
+    };
     *live.stop.lock().unwrap_or_else(|p| p.into_inner()) = None;
     *live.current.lock().unwrap_or_else(|p| p.into_inner()) = None;
     live.waiting_on_you.store(false, Ordering::SeqCst);

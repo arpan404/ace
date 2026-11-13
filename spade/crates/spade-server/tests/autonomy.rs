@@ -868,3 +868,46 @@ async fn a_reviewer_answer_that_leaves_out_whether_it_reaches_outside_goes_to_th
     assert_eq!(ran(&commands), 0);
     Ok(())
 }
+
+#[tokio::test]
+async fn stop_pressed_as_a_reply_ends_calls_off_the_step_that_would_follow() -> Result {
+    let spade = Spade::start(
+        vec![
+            Script::reply("").call("c1", "task_status", json!({ "status": "working" })),
+            Script::reply("On it."),
+            Script::reply("").plain(TITLE),
+            Script::reply("A step that must not start."),
+        ],
+        task_tools(shell()),
+    )
+    .await?;
+    // The worker waits after its reply ends, before it decides the next step.
+    let reached = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    let (at, go) = (reached.clone(), release.clone());
+    spade.engine.hold_turn_ends(Arc::new(move |_| {
+        let (at, go) = (at.clone(), go.clone());
+        Box::pin(async move {
+            at.notify_one();
+            go.notified().await;
+        })
+    }));
+    let (_, conversation) = bot(&spade, "full_access").await?;
+    spade.say(&conversation, "Find the flaky test").await?;
+    tokio::time::timeout(Duration::from_secs(10), reached.notified()).await?;
+    let (status, body) = spade
+        .post(&format!("/v1/conversations/{conversation}/stop"), json!({}))
+        .await?;
+    assert!(status < 300, "{body}");
+    release.notify_one();
+    let events = settled(&spade, &conversation).await?;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let events = if count(&events, "task_continued") == 0 {
+        spade.events(&conversation).await?
+    } else {
+        events
+    };
+    assert_eq!(count(&events, "task_continued"), 0, "{events:?}");
+    assert_eq!(count(&events, "stop_requested"), 1);
+    Ok(())
+}
