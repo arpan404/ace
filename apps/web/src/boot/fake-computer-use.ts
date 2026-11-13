@@ -3,8 +3,9 @@ import type { ScreenOperation } from "@ace/protocol";
 
 /*
  * `aceFakeWorld = "computer-use"` (set before boot, as the screens do): agents at work on this
- * Mac in the fake daemon. Three apps held by thread agents (one capturing in the background, one
- * the person has taken over), and the cold-start thread's browser with several agent tabs, a
+ * Mac in the fake daemon. Three apps held by thread agents (one capturing in the background and
+ * shared with the person, its agent's pointer showing and the agent waiting for them, one the
+ * person has taken over), and the cold-start thread's browser with several agent tabs, a
  * pending question and a flagged download.
  * Fake pictures are fixtures, never the person's screen.
  */
@@ -52,6 +53,18 @@ export function seedComputerUse(daemon: FakeDaemon): void {
       const holder = holders[index];
       if (!sessionId || !holder) continue;
       await call({ op: "controller", sessionId, controller: "agent", ...holder });
+    }
+    // TextEdit's agent types at the end of a line, and the person types there too: its pointer
+    // shows where it acts, and it waits for them (cowork, ADR 0143).
+    const textEdit = sessions.get("com.apple.TextEdit");
+    if (textEdit) {
+      const act = () =>
+        daemon.screen.agentActivity(textEdit, {
+          agentPointer: { x: 250, y: 300, kind: "type", at: Date.now() },
+          personActive: true,
+        });
+      act();
+      setInterval(act, 1000);
     }
     // The person took Calculator over from its agent.
     const calculator = sessions.get("com.apple.calculator");

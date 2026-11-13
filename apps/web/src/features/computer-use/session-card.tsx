@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useSidebarThread } from "@ace/client-react";
 import type { ScreenState } from "@ace/protocol";
 import { chooserWaitingCopy, screenSession, secureInputCopy } from "@ace/ui-core/computer-use";
+import { agentInitial } from "@ace/ui-core/cowork";
 import { DotsThreeIcon, HandIcon, StopIcon } from "@phosphor-icons/react";
 import { DelegateMenu, useAgentLabel } from "@/components/agent-picker.tsx";
 import { AppMark } from "@/components/app-mark.tsx";
@@ -15,7 +16,8 @@ import { LiveView } from "./live-view.tsx";
 import type { ComputerUse } from "./use-computer-use.ts";
 
 /**
- * One agent-controlled (or person-controlled) app: its live picture, who has it, whether it runs
+ * One agent-controlled (or person-controlled) app: its live picture (with the agent's pointer, and
+ * the person's input straight in while it is shared), who has it, whether it runs
  * in the background or the foreground and whether pixels are being captured, with Take over,
  * Hand back, Delegate and Stop. `threadId` is the thread whose agents Delegate offers.
  */
@@ -73,8 +75,19 @@ export function SessionCard(props: {
             sessionId={state.sessionId}
             label={`${view.app} live view`}
             onInput={
-              controllable && state.controller === "human"
+              // Shared (cowork): the person's input goes straight in, the agent yielding to it.
+              // Exclusive: only once they took control.
+              controllable && (state.controller === "human" || state.sharing !== "exclusive")
                 ? (input) => use.input(state.sessionId, input)
+                : undefined
+            }
+            agent={
+              state.controller === "agent"
+                ? {
+                    name: holderName,
+                    pointer: state.agentPointer,
+                    mark: agentInitial(holderName),
+                  }
                 : undefined
             }
           />

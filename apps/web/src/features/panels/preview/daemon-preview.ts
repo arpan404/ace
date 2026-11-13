@@ -65,6 +65,8 @@ const tabView = (tab: BrowserTabList[number]): BrowserTabView => ({
   openedBy: tab.openedBy,
   inUse: tab.inUse,
   pointer: tab.pointer,
+  agentPointer: tab.agentPointer,
+  personActive: tab.personActive,
   private: tab.private,
   pendingDialog: tab.pending_dialog,
   pendingAuth: tab.pending_auth,

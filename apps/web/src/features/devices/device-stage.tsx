@@ -1,8 +1,8 @@
-import type { DeviceInput } from "@ace/protocol";
+import type { AgentPointer, DeviceInput } from "@ace/protocol";
 import type { DeviceRow } from "@ace/ui-core";
 import { useRef, useState, type ReactNode, type Ref } from "react";
 import { cn } from "@/lib/cn.ts";
-import { ActivityRipple, type ShownActivity } from "./activity-overlay.tsx";
+import { ActivityRipple, DeviceAgentPointer, type ShownActivity } from "./activity-overlay.tsx";
 import {
   chromeLayout,
   chromePicture,
@@ -83,6 +83,9 @@ export function DeviceStage({
   onFrame(shown: ShownScreen): void;
   stream?: StreamObserver | undefined;
   activity: ShownActivity | undefined;
+  /** The agent sharing the device: where it last acted, and who it is. */
+  agentPointer?: AgentPointer | undefined;
+  holder?: { threadId: string; agentId: string } | undefined;
   highlight: Bounds | undefined;
   idle?: ReactNode;
   rail?: ReactNode;
@@ -114,6 +117,7 @@ export function DeviceStage({
   const overlay = (
     <>
       <ActivityRipple shown={props.activity} screen={screen} />
+      <DeviceAgentPointer pointer={props.agentPointer} holder={props.holder} screen={screen} />
       {props.highlight && <BoundsOutline bounds={props.highlight} screen={screen} />}
     </>
   );

@@ -32,7 +32,7 @@ test("an agent's session names the agent, its background mode and whether pixels
   );
 
   expect(view.app).toBe("TextEdit");
-  expect(view.status).toBe("Codex is in control");
+  expect(view.status).toBe("Codex is working here");
   expect(view.mode).toBe("In the background");
   expect(view.capturing).toBe(true);
   expect(view.tone).toBe("working");
@@ -93,6 +93,18 @@ test("live sessions keep one that is stopping or failed while capture is still o
     "s-com.apple.TextEdit",
     "s-com.apple.calculator",
   ]);
+});
+
+const codex = () => "Codex";
+
+test("a shared session says the agent waits while the person's input is recent", () => {
+  const holder = { threadId: "t1", agentId: "a1" };
+  expect(
+    screenSession(state({ controller: "agent", holder, personActive: true }), codex).status,
+  ).toBe("Codex is waiting for you");
+  expect(
+    screenSession(state({ controller: "agent", holder, sharing: "exclusive" }), codex).status,
+  ).toBe("Codex is in control");
 });
 
 test("human takeover stays a live session and says who is in control", () => {

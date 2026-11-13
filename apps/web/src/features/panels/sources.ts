@@ -1,4 +1,9 @@
-import type { BrowserPageState, BrowserScreenshotSet, BrowserScreenshotSize } from "@ace/protocol";
+import type {
+  AgentPointer,
+  BrowserPageState,
+  BrowserScreenshotSet,
+  BrowserScreenshotSize,
+} from "@ace/protocol";
 import type { BrowserLogEntry } from "@ace/ui-core";
 import type { AnnotationDriver } from "@/features/annotations/index.ts";
 
@@ -103,6 +108,13 @@ export interface BrowserTabView {
   inUse?: BrowserActorView | undefined;
   /** Where that agent last pointed, in the tab's CSS pixels (`sequence` rises each time). */
   pointer?: { x: number; y: number; sequence: number } | undefined;
+  /**
+   * The agent's latest action in the tab (CSS viewport pixels, when, what), drawn as its fading
+   * cursor while the person and the agent share the tab (ADR 0143).
+   */
+  agentPointer?: AgentPointer | undefined;
+  /** The person used the tab just now: the agent's page input waits for them. */
+  personActive?: boolean | undefined;
   /** "Keep agents out of this tab": agents can neither read nor drive it. */
   private?: boolean | undefined;
   pendingDialog?: BrowserDialogView | undefined;

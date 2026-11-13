@@ -6,6 +6,7 @@ import {
   type ClipboardEvent,
   type KeyboardEvent,
   type MouseEvent,
+  type ReactNode,
 } from "react";
 import { matchesChord, parseChord } from "@/lib/hotkeys.ts";
 import { bindingsFor, scopeOf, useResolvedKeymap } from "@/lib/keybindings.ts";
@@ -18,7 +19,7 @@ import type {
   PreviewSource,
   ScreenFrame,
 } from "../sources.ts";
-import { AgentCursor } from "./agent-cursor.tsx";
+import { AgentCursor, TimedAgentCursor } from "./agent-cursor.tsx";
 import { FramePicture } from "./frame-picture.tsx";
 import { useCaptureSize } from "../preview/use-capture-size.ts";
 import { useViewportSync } from "../preview/use-viewport-sync.ts";
@@ -62,6 +63,8 @@ export function PageView(props: {
   dimmed?: boolean;
   /** The page's cursor shape under the person's pointer (a CSS keyword); the arrow if absent. */
   cursor?: string | undefined;
+  /** Names the agent's cursor when the view knows better than the tab's actor (a Spade bot). */
+  agent?: { name: string; mark: ReactNode } | undefined;
   /** Files from this device dropped on the page, at a point in its CSS pixels. */
   onDropFiles?: ((files: File[], at: DropPoint) => void) | undefined;
 }) {
@@ -239,6 +242,16 @@ export function PageView(props: {
   // The daemon draws agents' cursors in the page, so the frames already show them; only a
   // recording keeps them out of the page, and then they are drawn here instead.
   const inPage = props.view.features?.includes("page-cursor") === true && !props.view.recording;
+  // Exactly one agent cursor: the page's own when the frames carry it (it hides itself from
+  // agents' screenshots), else the fading one for a shared tab, else the older gliding one.
+  const overlay =
+    !drawn || inPage
+      ? undefined
+      : props.tab?.agentPointer
+        ? "fading"
+        : props.tab?.inUse && props.tab.pointer
+          ? "gliding"
+          : undefined;
   const paste = (event: ClipboardEvent<HTMLElement>) => {
     event.preventDefault();
     const text = event.clipboardData.getData("text");
@@ -290,7 +303,18 @@ export function PageView(props: {
       {image}
       {image && live && <LocalEchoOverlay ripples={echo.ripples} onSettled={echo.settled} />}
       {fileDrop.indicator}
-      {drawn && props.tab?.inUse && props.tab.pointer && !inPage && (
+      {drawn && overlay === "fading" && props.tab?.agentPointer && (
+        // Shared tab (ADR 0143): the agent's latest action, fading after it.
+        <TimedAgentCursor
+          threadId={props.threadId}
+          agentId={props.tab.inUse?.agentId}
+          pointer={props.tab.agentPointer}
+          page={{ width: drawn.width, height: drawn.height }}
+          picture={picture}
+          agent={props.agent}
+        />
+      )}
+      {drawn && overlay === "gliding" && props.tab?.inUse && props.tab.pointer && (
         <AgentCursor
           threadId={props.threadId}
           agentId={props.tab.inUse.agentId}
