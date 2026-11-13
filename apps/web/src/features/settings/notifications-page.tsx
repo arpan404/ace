@@ -6,6 +6,7 @@ import { Select, type SelectOption } from "@/components/ui/select.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import type { DesktopCategory, DesktopQuietHours } from "@/boot/desktop-settings.ts";
 import { useDesktopPreferences } from "./data/desktop-preferences.ts";
+import { PhonePushRow } from "./phone-push-row.tsx";
 import { settingRow } from "./settings-index.ts";
 
 const defaultQuietHours: DesktopQuietHours = { start: 22 * 60, end: 8 * 60 };
@@ -22,8 +23,9 @@ const quarterHours: SelectOption<string>[] = Array.from({ length: 96 }, (_, inde
 const BrowserPushSettings = lazy(() => import("./browser-push-settings.tsx"));
 
 /**
- * Settings › Notifications, all kept on this device: toasts while ace is open, then either the
- * desktop app's system notifications and quiet hours or, in a browser, push while ace is closed.
+ * Settings › Notifications: toasts while ace is open, then either the desktop app's system
+ * notifications and quiet hours or, in a browser, push while ace is closed, all kept on this
+ * device; last, whether this machine pushes alerts to its phones while their app is closed.
  */
 export function NotificationSettings() {
   const desktop = useDesktopPreferences();
@@ -63,6 +65,9 @@ export function NotificationSettings() {
           <BrowserPushSettings />
         </Suspense>
       )}
+      <SettingSection label="Phones" scope="daemon">
+        <PhonePushRow />
+      </SettingSection>
     </>
   );
 }
