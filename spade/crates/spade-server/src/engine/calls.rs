@@ -130,10 +130,10 @@ pub(super) async fn handle_calls(
                     // of the step were decided holds from here (ADR 0144).
                     let access = engine.level(id, events);
                     // What the call reaches, and the files it runs that the reviewer must read.
-                    let classed = engine.tools.get_for(id, &name).map_or_else(
-                        || Class::Sensitive(Sensitive::Unknown).into(),
-                        |tool| tool.classed(&key, &arguments),
-                    );
+                    let Some(classed) = classify(engine, id, &name, &key, &arguments, stop).await
+                    else {
+                        return Handled::Stopped;
+                    };
                     let route = autonomy::route(autonomy::Call {
                         access,
                         rule,
@@ -441,12 +441,11 @@ async fn run_tools(
             };
             // A file the reviewer read changed since: not run, and the bot asks again.
             if let Some(expected) = bound.get(&call.id) {
-                let now = engine.tools.get_for(id, &name).and_then(|tool| {
-                    super::autonomy::binding(
-                        &tool.classed(&format!("{id}.{}", call.id), &arguments).shown,
-                    )
-                });
-                if &now != expected {
+                let key = format!("{id}.{}", call.id);
+                let Some(now) = classify(engine, id, &name, &key, &arguments, stop).await else {
+                    return Handled::Stopped;
+                };
+                if &super::autonomy::binding(&now.shown) != expected {
                     let changed = ToolOutput::ok(autonomy::refused(SCRIPT_CHANGED));
                     finished.push_back((call, name, changed));
                     continue;
@@ -539,6 +538,36 @@ async fn run_tools(
             }
             return ended;
         }
+    }
+}
+
+/// The longest a call's classification may take (reading the scripts and makefiles it runs)
+/// before it goes to the person as unclear.
+const CLASSIFY_TIME: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// What a call reaches (ADR 0144), worked out off the turn's thread: reading a command's files is
+/// blocking work, bounded by the classifier's budget and here by [`CLASSIFY_TIME`]. Stop is
+/// heard meanwhile: `None` when it was pressed.
+async fn classify(
+    engine: &Engine,
+    id: &str,
+    name: &str,
+    key: &str,
+    arguments: &Value,
+    stop: &mut watch::Receiver<bool>,
+) -> Option<autonomy::Classed> {
+    let Some(tool) = engine.tools.get_for(id, name) else {
+        return Some(Class::Sensitive(Sensitive::Unknown).into());
+    };
+    let (key, arguments) = (key.to_owned(), arguments.clone());
+    let work = tokio::task::spawn_blocking(move || tool.classed(&key, &arguments));
+    tokio::select! {
+        done = tokio::time::timeout(CLASSIFY_TIME, work) => Some(match done {
+            Ok(Ok(classed)) => classed,
+            // Took too long, or panicked: the person decides.
+            _ => Class::Sensitive(Sensitive::Unclear).into(),
+        }),
+        _ = stop.wait_for(|stopped| *stopped) => None,
     }
 }
 

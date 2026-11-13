@@ -23,6 +23,10 @@ struct Rule {
 
 #[derive(Debug, Default)]
 struct Makefile {
+    /// The first thing it couldn't read; reading goes on past it.
+    unread: Option<Unread>,
+    /// Characters produced by expansion so far.
+    work: std::cell::Cell<usize>,
     vars: HashMap<String, String>,
     rules: HashMap<String, Rule>,
     /// `(target pattern, rule)`, for targets with no rule of their own.
@@ -32,21 +36,50 @@ struct Makefile {
 
 /// Deepest `include` followed, and deepest variable expansion.
 const DEEPEST: usize = 8;
+/// Deepest chain of prerequisites followed, most targets visited, most recipe text gathered, and
+/// most characters expansion may produce: past any of them the rest is unclear.
+const DEEPEST_CHAIN: usize = 64;
+const MOST_TARGETS: usize = 4_096;
+const MOST_RECIPE_BYTES: usize = 512 * 1024;
+const MOST_EXPANSION: usize = 1024 * 1024;
+
+impl Makefile {
+    fn note(&mut self, unread: Unread) {
+        self.unread.get_or_insert(unread);
+    }
+}
+
+/// What a makefile's goals would run.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(super) struct Recipes {
+    /// Recipe lines, expanded.
+    pub lines: Vec<String>,
+    /// Recipe lines it couldn't expand, as written: still checked for what they plainly do.
+    pub failed: Vec<String>,
+    /// The first thing it couldn't read, if any.
+    pub unread: Option<Unread>,
+}
 
 /// Functions whose result Spade can't know without running something.
 const UNREAD: &[&str] = &["shell", "eval", "call", "file", "value", "guile"];
 
-/// The recipe lines `goals` would run, expanded, in order. `read` fetches a file by its name
+/// The recipe lines `goals` would run, in order, and what couldn't be read, without stopping at
+/// the first failure: every recipe it can reach is gathered. `read` fetches a file by its name
 /// relative to the makefile's folder (and shows it); `None` when it can't be shown.
 pub(super) fn recipes(
     first: &str,
     goals: &[String],
     vars: &[(String, String)],
     read: &mut dyn FnMut(&str) -> Option<String>,
-) -> Result<Vec<String>, Unread> {
+) -> Recipes {
     let mut make = Makefile::default();
-    let text = read(first).ok_or(Unread::Unseen)?;
-    load(&mut make, &text, read, 0)?;
+    let Some(text) = read(first) else {
+        return Recipes {
+            unread: Some(Unread::Unseen),
+            ..Recipes::default()
+        };
+    };
+    load(&mut make, &text, read, 0);
     for (name, value) in vars {
         make.vars.insert(name.clone(), value.clone());
     }
@@ -56,24 +89,31 @@ pub(super) fn recipes(
         goals.to_vec()
     };
     let mut seen = HashSet::new();
-    let mut out = Vec::new();
-    let mut queue: Vec<String> = goals;
-    while let Some(target) = queue.pop() {
+    let mut out = Recipes::default();
+    let mut bytes = 0;
+    let mut queue: Vec<(String, usize)> = goals.into_iter().rev().map(|g| (g, 0)).collect();
+    while let Some((target, chain)) = queue.pop() {
+        if chain > DEEPEST_CHAIN || seen.len() >= MOST_TARGETS || bytes > MOST_RECIPE_BYTES {
+            make.note(Unread::Unclear);
+            break;
+        }
         if !seen.insert(target.clone()) {
             continue;
         }
         let Some((rule, stem)) = rule_for(&make, &target) else {
             continue;
         };
-        let prereqs: Vec<String> = rule
-            .prereqs
-            .iter()
-            .map(|p| expand(&make, &p.replace('%', &stem), &Auto::none(), 0))
-            .collect::<Result<Vec<_>, _>>()?
-            .iter()
-            .flat_map(|p| p.split_whitespace().map(str::to_owned).collect::<Vec<_>>())
-            .filter(|p| p != "|")
-            .collect();
+        let mut prereqs: Vec<String> = Vec::new();
+        for prereq in &rule.prereqs {
+            match expand(&make, &prereq.replace('%', &stem), &Auto::none(), 0) {
+                Ok(text) => prereqs.extend(
+                    text.split_whitespace()
+                        .filter(|p| *p != "|")
+                        .map(str::to_owned),
+                ),
+                Err(unread) => make.note(unread),
+            }
+        }
         let auto = Auto {
             target: target.clone(),
             first: prereqs.first().cloned().unwrap_or_default(),
@@ -85,11 +125,22 @@ pub(super) fn recipes(
             if line.is_empty() {
                 continue;
             }
-            out.push(expand(&make, line, &auto, 0)?);
+            bytes += line.len();
+            match expand(&make, line, &auto, 0) {
+                Ok(expanded) => {
+                    bytes += expanded.len();
+                    out.lines.push(expanded);
+                }
+                Err(unread) => {
+                    make.note(unread);
+                    out.failed.push(line.to_owned());
+                }
+            }
         }
-        queue.extend(prereqs.into_iter().rev());
+        queue.extend(prereqs.into_iter().rev().map(|p| (p, chain + 1)));
     }
-    Ok(out)
+    out.unread = make.unread;
+    out
 }
 
 /// The rule for `target`: its own, else the first pattern rule that matches, with the stem.
@@ -119,14 +170,16 @@ fn pattern_matches(make: &Makefile, target: &str) -> bool {
     })
 }
 
+/// Reads a makefile's text into `make`, going on past what it can't read (noted in `make`).
 fn load(
     make: &mut Makefile,
     text: &str,
     read: &mut dyn FnMut(&str) -> Option<String>,
     depth: usize,
-) -> Result<(), Unread> {
+) {
     if depth > DEEPEST {
-        return Err(Unread::Unclear);
+        make.note(Unread::Unclear);
+        return;
     }
     let joined = text.replace("\\\r\n", " ").replace("\\\n", " ");
     let mut current: Option<Vec<String>> = None;
@@ -159,7 +212,9 @@ fn load(
             .iter()
             .any(|f| lowered.contains(&format!("$({f} ")) || lowered.contains(&format!("${{{f} ")))
         {
-            return Err(Unread::Unclear);
+            make.note(Unread::Unclear);
+            current = None;
+            continue;
         }
         let word = trimmed.split_whitespace().next().unwrap_or("");
         match word {
@@ -179,11 +234,12 @@ fn load(
                 let required = word == "include";
                 for name in trimmed[word.len()..].split_whitespace() {
                     if name.contains(['$', '*', '?', '[']) {
-                        return Err(Unread::Unclear);
+                        make.note(Unread::Unclear);
+                        continue;
                     }
                     match read(name) {
-                        Some(text) => load(make, &text, read, depth + 1)?,
-                        None if required => return Err(Unread::Unseen),
+                        Some(text) => load(make, &text, read, depth + 1),
+                        None if required => make.note(Unread::Unseen),
                         None => {}
                     }
                 }
@@ -198,10 +254,19 @@ fn load(
             .unwrap_or(trimmed);
         if let Some((name, op, value)) = assignment(line) {
             if op == "!=" {
-                return Err(Unread::Unclear);
+                make.note(Unread::Unclear);
+                current = None;
+                continue;
             }
             let value = if op.starts_with(':') {
-                expand(make, value, &Auto::none(), 0)?
+                match expand(make, value, &Auto::none(), 0) {
+                    Ok(value) => value,
+                    Err(unread) => {
+                        make.note(unread);
+                        current = None;
+                        continue;
+                    }
+                }
             } else {
                 value.to_owned()
             };
@@ -237,7 +302,14 @@ fn load(
             current = None;
             continue;
         }
-        let targets = expand(make, targets, &Auto::none(), 0)?;
+        let targets = match expand(make, targets, &Auto::none(), 0) {
+            Ok(targets) => targets,
+            Err(unread) => {
+                make.note(unread);
+                current = None;
+                continue;
+            }
+        };
         let targets: Vec<String> = targets.split_whitespace().map(str::to_owned).collect();
         for target in &targets {
             if target.contains('%') {
@@ -264,7 +336,6 @@ fn load(
         }
         current = Some(targets);
     }
-    Ok(())
 }
 
 fn push_recipe(make: &mut Makefile, target: &str, line: &str) {
@@ -339,7 +410,7 @@ impl Auto {
 /// `text` with make's variables expanded. A function Spade can't know the result of is unclear;
 /// other functions become a placeholder word.
 fn expand(make: &Makefile, text: &str, auto: &Auto, depth: usize) -> Result<String, Unread> {
-    if depth > DEEPEST {
+    if depth > DEEPEST || make.work.get() > MOST_EXPANSION {
         return Err(Unread::Unclear);
     }
     let chars: Vec<char> = text.chars().collect();
@@ -394,6 +465,11 @@ fn expand(make: &Makefile, text: &str, auto: &Auto, depth: usize) -> Result<Stri
             }
         }
     }
+    // Everything expansion builds counts, so nested variables can't grow without bound.
+    make.work.set(make.work.get() + out.len() + 1);
+    if make.work.get() > MOST_EXPANSION {
+        return Err(Unread::Unclear);
+    }
     Ok(out)
 }
 
@@ -416,12 +492,27 @@ mod tests {
     use super::*;
 
     fn run(text: &str, goals: &[&str]) -> Result<Vec<String>, Unread> {
-        let files: HashMap<&str, &str> =
-            [("Makefile", text), ("rules.mk", "deploy:\n\tgit push\n")]
-                .into_iter()
-                .collect();
+        let read = recipes_of(text, goals);
+        match read.unread {
+            Some(unread) => Err(unread),
+            None => Ok(read.lines),
+        }
+    }
+
+    fn recipes_of(text: &str, goals: &[&str]) -> Recipes {
+        let files: HashMap<&str, &str> = [
+            ("Makefile", text),
+            ("rules.mk", "deploy:\n\tgit push\n"),
+            // Each level includes the next twice: 2^n reads unless something bounds them.
+            ("bomb.mk", "include bomb.mk bomb.mk\n"),
+        ]
+        .into_iter()
+        .collect();
         let goals: Vec<String> = goals.iter().map(|g| (*g).to_owned()).collect();
+        let mut reads = 0;
         recipes("Makefile", &goals, &[], &mut |name| {
+            reads += 1;
+            assert!(reads < 10_000, "the reading never ended");
             files.get(name).map(|t| (*t).to_owned())
         })
     }
@@ -464,5 +555,27 @@ mod tests {
         ] {
             assert_eq!(run(text, &[]), Err(Unread::Unclear), "{text}");
         }
+    }
+
+    #[test]
+    fn a_pattern_rule_that_feeds_itself_ends_and_is_unclear() {
+        let read = recipes_of("%: %.next\n\techo $@\n", &["test"]);
+        assert_eq!(read.unread, Some(Unread::Unclear));
+        assert!(
+            read.lines.len() <= DEEPEST_CHAIN + 1,
+            "{}",
+            read.lines.len()
+        );
+    }
+
+    #[test]
+    fn what_fails_to_expand_is_kept_and_reading_goes_on() {
+        let read = recipes_of(
+            "all: a b\na:\n\t$(call run,x)\nb:\n\tcat ~/.ssh/id_rsa\n",
+            &[],
+        );
+        assert_eq!(read.unread, Some(Unread::Unclear));
+        assert_eq!(read.failed, ["$(call run,x)"]);
+        assert_eq!(read.lines, ["cat ~/.ssh/id_rsa"]);
     }
 }

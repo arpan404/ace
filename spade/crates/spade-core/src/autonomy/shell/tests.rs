@@ -7,6 +7,8 @@ use Sensitive::*;
 
 /// A workspace at `/w` with a few files and symlinks; commands start in `cwd`.
 struct Folder {
+    /// Files read so far.
+    reads: std::cell::Cell<usize>,
     cwd: PathBuf,
     files: HashMap<PathBuf, String>,
     links: HashMap<PathBuf, PathBuf>,
@@ -75,7 +77,17 @@ impl Folder {
         let mut links = HashMap::new();
         // A folder inside the workspace that is a link to somewhere else.
         links.insert("/w/out".into(), "/etc".into());
+        files.insert(
+            "/w/creds.mk".into(),
+            "all: a b\na:\n\t$(call run,x)\nb:\n\tcat ~/.ssh/id_rsa\n".to_owned(),
+        );
+        files.insert("/w/loop.mk".into(), "%: %.next\n\techo $@\n".to_owned());
+        files.insert(
+            "/w/bomb.mk".into(),
+            "include bomb.mk bomb.mk bomb.mk\nall:\n\ttrue\n".to_owned(),
+        );
         Self {
+            reads: std::cell::Cell::new(0),
             cwd: "/w".into(),
             files,
             links,
@@ -105,6 +117,7 @@ impl Place for Folder {
     }
 
     fn read(&self, real: &Path, longest: usize) -> Result<String, Unseen> {
+        self.reads.set(self.reads.get() + 1);
         match self.files.get(real) {
             Some(text) if text.len() > longest => Err(Unseen::TooLarge),
             Some(text) => Ok(text.clone()),
@@ -469,4 +482,51 @@ fn everyday_commands_stay_with_the_reviewer() {
     ] {
         assert_eq!(said(command), None, "{command}");
     }
+}
+
+#[test]
+fn a_credential_read_in_a_makefile_is_refused_whatever_else_fails_to_read() {
+    let folder = Folder::new();
+    assert_eq!(
+        assess("make -f creds.mk", &folder).finding,
+        Some(Finding::Credentials)
+    );
+    // Refused on full access too.
+    let classed = super::super::classify_shell(
+        &serde_json::json!({ "command": "make -f creds.mk" }),
+        &folder,
+    );
+    let route = super::super::route(super::super::Call {
+        access: super::super::Access::FullAccess,
+        rule: crate::gate::Decision::Run,
+        risk: crate::tools::Risk::Write,
+        class: classed.class,
+        tainted: false,
+        credentials: classed.credentials,
+        standing: false,
+        fits: true,
+    });
+    assert!(matches!(route, super::super::Route::Refuse(_)), "{route:?}");
+}
+
+#[test]
+fn a_pattern_rule_that_feeds_itself_ends_and_goes_to_the_person() {
+    assert_eq!(
+        said("make -f loop.mk test"),
+        Some(Finding::Sensitive(Unclear))
+    );
+}
+
+#[test]
+fn an_include_bomb_stops_at_the_classification_budget() {
+    let folder = Folder::new();
+    assert_eq!(
+        assess("make -f bomb.mk", &folder).finding,
+        Some(Finding::Sensitive(Unclear))
+    );
+    assert!(
+        folder.reads.get() <= 80,
+        "read {} files",
+        folder.reads.get()
+    );
 }

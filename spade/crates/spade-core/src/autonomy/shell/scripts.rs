@@ -312,14 +312,16 @@ pub(super) fn show(run: &Run, place: &dyn Place, depth: usize, walk: &mut Walk) 
                     });
                 })
             };
-            match super::make::recipes(&first, goals, vars, &mut read) {
-                Ok(lines) => {
-                    for line in lines {
-                        super::assess_at(&line, &at, depth + 1, walk);
-                    }
-                }
-                Err(super::make::Unread::Unclear) => walk.kind(Sensitive::Unclear),
-                Err(super::make::Unread::Unseen) => walk.kind(Sensitive::UnseenScript),
+            let found = super::make::recipes(&first, goals, vars, &mut read);
+            // Every recipe found is checked, those that didn't expand as written: a credential
+            // read in one is refused whatever failed elsewhere.
+            for line in found.lines.iter().chain(&found.failed) {
+                super::assess_at(line, &at, depth + 1, walk);
+            }
+            match found.unread {
+                Some(super::make::Unread::Unclear) => walk.kind(Sensitive::Unclear),
+                Some(super::make::Unread::Unseen) => walk.kind(Sensitive::UnseenScript),
+                None => {}
             }
         }
         Run::Just {
@@ -574,6 +576,11 @@ fn just(text: &str, wanted: &[String]) -> Option<Vec<String>> {
 /// A file's text, when it is inside the folder and short enough to show: recorded as run, and
 /// checked for credential places. `None` (and the walk told) when it can't be shown.
 fn fetch(place: &dyn Place, path: &str, walk: &mut Walk) -> Option<String> {
+    // The classification's budget is checked before the read.
+    if !walk.spent.may_read() {
+        walk.kind(Sensitive::Unclear);
+        return None;
+    }
     let text = (|| {
         if path.starts_with('~') || path.contains('$') || path.contains('`') {
             return None;
@@ -586,6 +593,15 @@ fn fetch(place: &dyn Place, path: &str, walk: &mut Walk) -> Option<String> {
         walk.ran.push(real);
         Some(text)
     })();
+    if let Some(text) = &text
+        && !walk.spent.read(text.len())
+    {
+        if super::super::secrets::names_place(text) {
+            walk.credentials = true;
+        }
+        walk.kind(Sensitive::Unclear);
+        return None;
+    }
     match &text {
         Some(text) if super::super::secrets::names_place(text) => walk.credentials = true,
         Some(_) => {}

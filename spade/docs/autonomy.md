@@ -113,6 +113,12 @@ the recipes asked for (or the first) and their dependencies.
 `env -C`, `git -C`, `make -C`, `npm --prefix`, `pnpm -C`/`--dir` and `yarn --cwd`, from the
 terminal's current folder.
 
+**Bounds.** One classification reads at most 64 files, 2 MB of them and 2 MB of command text,
+follows prerequisite chains 64 deep and 4,096 targets, and expands at most 1 MB of make text;
+past any of these the rest is unclear. It runs off the turn's thread, with 10 seconds before it
+is unclear, and Stop is heard meanwhile. A makefile that fails to read in one place is still read
+everywhere else, and recipes that don't expand are checked as written.
+
 **Precedence.** Everything a command reaches is read before deciding: a credential read found
 anywhere (the command, a nested command, a script it runs) is refused before any other finding
 (`sudo sh keys.sh` is refused on `full_access`). Of the rest, the first named kind is the reason,

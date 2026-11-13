@@ -77,6 +77,42 @@ pub(super) struct Walk {
     pub sensitive: Option<Sensitive>,
     /// Real paths of the files that run.
     pub ran: Vec<PathBuf>,
+    /// What reading this command has used of its [`Budget`].
+    pub spent: Budget,
+}
+
+/// What one classification may read, all told: files, their bytes, and command text checked
+/// (scripts, recipes, nested commands). Checked before each read and each command; once spent
+/// the rest is unclear, and what was found so far (a credential read) still holds.
+#[derive(Debug, Default, Clone, Copy)]
+pub(super) struct Budget {
+    files: usize,
+    bytes: usize,
+    text: usize,
+}
+
+const MOST_FILES: usize = 64;
+const MOST_BYTES: usize = 2 * 1024 * 1024;
+const MOST_TEXT: usize = 2 * 1024 * 1024;
+
+impl Budget {
+    /// Whether another file may be read.
+    pub(super) fn may_read(&self) -> bool {
+        self.files < MOST_FILES && self.bytes < MOST_BYTES
+    }
+
+    /// Counts a file read; whether it was within the budget.
+    pub(super) fn read(&mut self, bytes: usize) -> bool {
+        self.files += 1;
+        self.bytes += bytes;
+        self.files <= MOST_FILES && self.bytes <= MOST_BYTES
+    }
+
+    /// Counts command text about to be checked; whether it is within the budget.
+    fn check(&mut self, text: usize) -> bool {
+        self.text += text;
+        self.text <= MOST_TEXT
+    }
 }
 
 impl Walk {
@@ -91,6 +127,14 @@ impl Walk {
 
 /// [`assess`] for a command `depth` scripts deep, from `place`.
 fn assess_at(command: &str, place: &dyn Place, depth: usize, walk: &mut Walk) {
+    if !walk.spent.check(command.len()) {
+        // Still refused if it plainly names a credential place.
+        if super::secrets::names_place(command) {
+            walk.credentials = true;
+        }
+        walk.kind(Sensitive::Unclear);
+        return;
+    }
     // Bash's network files, in any redirect or argument.
     if command.contains("/dev/tcp/") || command.contains("/dev/udp/") {
         walk.kind(Sensitive::Network);
