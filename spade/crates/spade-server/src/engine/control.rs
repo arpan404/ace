@@ -19,50 +19,59 @@ impl Engine {
     /// retried in the background, and the error is returned so the person is told.
     pub fn stop(self: &Arc<Self>, id: &str) -> Result<bool, StoreError> {
         let live = self.live(id);
-        let worker = live
-            .stop
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .as_ref()
-            .map(|(reply, _)| reply.clone());
-        let running_jobs: Vec<String> = live
-            .jobs
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .keys()
-            .cloned()
-            .collect();
-        // What is running now, from storage and from memory, so a read failure still stops it.
-        let loaded = self.load(id).map(|events| Transcript::fold(&events));
-        let (open, mut jobs, busy) = match &loaded {
-            Ok(t) => (
-                t.open_reply().and_then(|m| m.reply.clone()),
-                t.jobs.clone(),
-                t.busy(),
-            ),
-            Err(_) => (None, Vec::new(), false),
-        };
-        let reply = open.or_else(|| worker.clone());
-        for job in &running_jobs {
-            if !jobs.contains(job) {
-                jobs.push(job.clone());
+        // What runs is read, a task's waiting step (ADR 0144) called off and the stop stored
+        // under the one lock work starts under: no turn, job or step can begin between the
+        // look and the marker, and anything that begins after it sees the stop.
+        let (loaded, reply, jobs, pending, stored) = {
+            let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+            let worker = live
+                .stop
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .as_ref()
+                .map(|(reply, _)| reply.clone());
+            let running_jobs: Vec<String> = live
+                .jobs
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .keys()
+                .cloned()
+                .collect();
+            // From storage and from memory, so a read failure still stops what runs.
+            let loaded = self.load(id).map(|events| Transcript::fold(&events));
+            let pending = self.drop_continuation(id);
+            let (open, mut jobs, busy) = match &loaded {
+                Ok(t) => (
+                    t.open_reply().and_then(|m| m.reply.clone()),
+                    t.jobs.clone(),
+                    t.busy(),
+                ),
+                Err(_) => (None, Vec::new(), false),
+            };
+            let reply = open.or(worker);
+            for job in running_jobs {
+                if !jobs.contains(&job) {
+                    jobs.push(job);
+                }
             }
-        }
-        if !busy && reply.is_none() && jobs.is_empty() {
-            return loaded.map(|_| false);
-        }
-        // The stop names what it stops, so a late write never reaches newer work.
-        let marker = Event::Known(Known::StopRequested {
-            reply: reply.clone(),
-            jobs: jobs.clone(),
-        });
-        let stored = self.record(id, &marker);
-        if stored.is_err() {
-            let (engine, id) = (self.clone(), id.to_owned());
-            tokio::spawn(async move {
-                jobs::keep_trying(|| engine.record(&id, &marker).map(|_| ())).await;
+            if !busy && reply.is_none() && jobs.is_empty() && !pending {
+                return loaded.map(|_| false);
+            }
+            // The stop names what it stops, so a late write never reaches newer work.
+            let marker = Event::Known(Known::StopRequested {
+                reply: reply.clone(),
+                jobs: jobs.clone(),
             });
-        }
+            let stored = self.append(id, &marker).map(|_| ());
+            if stored.is_err() {
+                let (engine, id) = (self.clone(), id.to_owned());
+                tokio::spawn(async move {
+                    jobs::keep_trying(|| engine.record(&id, &marker).map(|_| ())).await;
+                });
+            }
+            (loaded, reply, jobs, pending, stored)
+        };
+        // Then the workers are told.
         let turn = {
             let stop = live.stop.lock().unwrap_or_else(|p| p.into_inner());
             match stop.as_ref() {
@@ -82,7 +91,7 @@ impl Engine {
         }
         loaded?;
         stored?;
-        Ok(turn || stopped_jobs > 0 || reply.is_some())
+        Ok(turn || stopped_jobs > 0 || reply.is_some() || pending)
     }
 
     /// Closes `reply` with `close` (stopped or failed). Anything that arrived for the model and

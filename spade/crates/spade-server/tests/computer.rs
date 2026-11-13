@@ -1013,7 +1013,7 @@ async fn handing_back_while_ace_still_answers_the_take_over_leaves_the_bot_drivi
 async fn an_always_allowed_command_asks_again_once_a_carried_variable_changes_what_it_runs()
 -> Result {
     let machine = Machine::new()?;
-    let probe = "printenv NODE_OPTIONS || echo none";
+    let probe = "printenv PYTHONPATH || echo none";
     let spade = start(
         &machine,
         vec![
@@ -1023,11 +1023,11 @@ async fn an_always_allowed_command_asks_again_once_a_carried_variable_changes_wh
             // The same command, allowed always, runs at once while nothing changed.
             Script::reply("").call("c2", "shell", json!({ "command": probe })),
             Script::reply("Again."),
-            // A command exports a variable that changes what node would load.
+            // A command exports a variable that changes what python would load.
             Script::reply("").call(
                 "c3",
                 "shell",
-                json!({ "command": "export NODE_OPTIONS=--require=./hook.cjs" }),
+                json!({ "command": "export PYTHONPATH=./hooks" }),
             ),
             Script::reply("Set."),
             Script::reply("").call("c4", "shell", json!({ "command": probe })),
@@ -1050,7 +1050,7 @@ async fn an_always_allowed_command_asks_again_once_a_carried_variable_changes_wh
             Result::Ok(())
         }
     };
-    spade.say(&conversation, "Check node").await?;
+    spade.say(&conversation, "Check python").await?;
     spade.wait_for(&conversation, "approval_requested").await?;
     approve("c1", true).await?;
     spade.wait_for(&conversation, "renamed").await?;
@@ -1163,8 +1163,8 @@ async fn a_child_a_finished_command_left_in_a_session_of_its_own_is_ended() -> R
 async fn a_call_allowed_for_one_terminal_state_is_not_run_once_an_earlier_call_changed_it() -> Result
 {
     let machine = Machine::new()?;
-    let probe = "printenv NODE_OPTIONS || echo none";
-    let export = "export NODE_OPTIONS=--require=./hook.cjs";
+    let probe = "printenv PYTHONPATH || echo none";
+    let export = "export PYTHONPATH=./hooks";
     let spade = start(
         &machine,
         vec![
@@ -1174,7 +1174,7 @@ async fn a_call_allowed_for_one_terminal_state_is_not_run_once_an_earlier_call_c
             Script::reply("").plain(r#"{"title":"Node"}"#),
             Script::reply("").call("c2", "shell", json!({ "command": export })),
             Script::reply("Set."),
-            Script::reply("").call("c3", "shell", json!({ "command": "unset NODE_OPTIONS" })),
+            Script::reply("").call("c3", "shell", json!({ "command": "unset PYTHONPATH" })),
             Script::reply("Back as it was."),
             // One response: the export runs first and changes what the probe would run.
             Script::reply("")

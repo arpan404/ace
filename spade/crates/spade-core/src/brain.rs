@@ -164,6 +164,8 @@ pub fn next_turn(events: &[Event]) -> Option<Turn> {
                 is_error,
                 ..
             }) => Some(context::job_result(job, name, content, *is_error)),
+            // Spade carrying the bot's task on (ADR 0144) reaches a CLI turn the same way.
+            Event::Known(Known::TaskContinued { nudge, .. }) => Some(nudge.clone()),
             // Spade's notes on the person's work at the bot's computer (ADR 0142, ADR 0143), with
             // their names as untrusted data, as an endpoint model reads them.
             Event::Known(Known::PersonActivity { text, data }) => {

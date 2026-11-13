@@ -258,6 +258,60 @@ fn a_turn_that_read_a_web_page_is_untrusted_until_the_next_turn() {
 }
 
 #[test]
+fn a_step_spade_continued_by_itself_stays_tainted_by_what_an_earlier_step_read() {
+    let registry = Registry::new([ToolDef {
+        spec: ToolSpec {
+            name: "web_fetch".into(),
+            description: "Read a page".into(),
+            schema: json!({}),
+        },
+        risk: Risk::Read,
+        untrusted_output: true,
+        deferred: false,
+        background: false,
+    }]);
+    let finished = |reply: &str| {
+        Event::Known(Known::ReplyFinished {
+            reply: reply.into(),
+            text: String::new(),
+            input_tokens: None,
+            output_tokens: None,
+            cost_micros: 0,
+        })
+    };
+    let continued = |step: u32| {
+        Event::Known(Known::TaskContinued {
+            step,
+            nudge: crate::task::nudge(step),
+        })
+    };
+    let mut events = vec![
+        Event::user_message("Research this"),
+        Event::reply_started("r1", "m"),
+        step("r1", "", &[("c1", "web_fetch")]),
+        result("r1", "c1", "web_fetch", "page text"),
+        step("r1", "Reading.", &[]),
+        finished("r1"),
+        continued(1),
+        Event::reply_started("r2", "m"),
+    ];
+    assert!(untrusted_turn(&events, &registry));
+    // The model reads the note as Spade's, after the last reply.
+    let shown = messages(&events);
+    assert!(
+        matches!(shown.last(), Some(Message::Person { text, .. }) if text.contains("<continue step=\"1\">"))
+    );
+    events.push(step("r2", "Done.", &[]));
+    events.push(finished("r2"));
+    events.push(Event::user_message("Thanks"));
+    events.push(Event::reply_started("r3", "m"));
+    assert!(
+        !untrusted_turn(&events, &registry),
+        "a message starts afresh"
+    );
+}
+
+#[test]
 fn one_untrusted_result_of_a_trusted_tool_taints_the_turn_and_names_its_source() {
     let registry = Registry::new([ToolDef {
         spec: spade_models::ToolSpec {

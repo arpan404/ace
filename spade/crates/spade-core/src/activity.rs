@@ -22,6 +22,10 @@ pub enum Kind {
     Review,
     Spend,
     Cap,
+    /// The person changed the bot's access level (ADR 0144).
+    Access,
+    /// Spade carried the bot's task on by itself, or paused it (ADR 0144).
+    Task,
 }
 
 impl Kind {
@@ -36,6 +40,8 @@ impl Kind {
             "review" => Self::Review,
             "spend" => Self::Spend,
             "cap" => Self::Cap,
+            "access" => Self::Access,
+            "task" => Self::Task,
             _ => return None,
         })
     }
@@ -321,6 +327,7 @@ impl Log {
                 let outcome = match verdict {
                     Verdict::Allow => "allowed",
                     Verdict::Escalate => "escalated",
+                    Verdict::Refuse => "refused",
                 };
                 self.push(
                     stored,
@@ -332,6 +339,21 @@ impl Log {
                         ..Fields::named(name, &redact::one_line(reason))
                     },
                 );
+            }
+            Known::AccessChanged { level } => {
+                self.push(
+                    stored,
+                    Kind::Access,
+                    Fields::named(level.name(), "access level"),
+                );
+            }
+            Known::TaskContinued { step, .. } => {
+                let words = format!("carried on by itself, step {step}");
+                self.push(stored, Kind::Task, Fields::named("continued", &words));
+            }
+            Known::TaskPaused { reason, steps } => {
+                let words = reason.words(*steps);
+                self.push(stored, Kind::Task, Fields::named("paused", &words));
             }
             Known::CapReached {
                 scope, cap_micros, ..

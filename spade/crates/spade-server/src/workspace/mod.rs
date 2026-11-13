@@ -10,6 +10,7 @@
 mod files;
 mod identity;
 mod person;
+pub mod place;
 #[cfg(unix)]
 mod reap;
 #[cfg(unix)]

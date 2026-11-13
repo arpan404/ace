@@ -146,7 +146,10 @@ fields in a body are ignored. Times are integer milliseconds since the epoch.
 
 **Agent** = `{"id", "kind": "main"|"bot", "name", "task", "avatar", "model", "conversation",
 "created_at", "updated_at", "last_activity", "state", "working", "waiting_for", "status",
-"problem", "last_message"}`
+"problem", "last_message", "access", "task_state", "continuing"}`
+
+- `access`, `task_state`, `continuing`: the bot's access level and its task as it last said, and
+  whether Spade is carrying the task on by itself ([autonomy.md](autonomy.md)).
 
 - `avatar`: `{"kind":"image","sha256"}` (served by `GET /v1/images/{sha256}`),
   `{"kind":"character","v":1,"body","pair","ears","marking","eyes","mouth","cheeks","accessory"}`
@@ -169,8 +172,8 @@ fields in a body are ignored. Times are integer milliseconds since the epoch.
 | Method and path                               | Body                                                                       | Answer                                                     |
 | --------------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------- |
 | `GET /agents`                                 |                                                                            | `{"agents":[Agent]}`: main first, then by `last_activity`  |
-| `POST /agents`                                | `{name, task?, model?, avatar?}`                                           | `201 {"agent"}`; `model` defaults like the main agent's    |
-| `PATCH /agents/{id}`                          | any of `name`, `task`, `model`, `avatar`                                   | `200 {"agent"}`; `409` for the main agent's name or avatar |
+| `POST /agents`                                | `{name, task?, model?, avatar?, access?}`                                  | `201 {"agent"}`; `model` defaults like the main agent's    |
+| `PATCH /agents/{id}`                          | any of `name`, `task`, `model`, `avatar`, `access`                         | `200 {"agent"}`; `409` for the main agent's name or avatar |
 | `DELETE /agents/{id}`                         |                                                                            | `204`; `409` for the main agent                            |
 | `PUT /main`                                   | `{"enabled": bool}`                                                        | `204`                                                      |
 | `GET /models`                                 |                                                                            | `{"endpoints":[Endpoint],"presets":[Preset],"fast_model"}` |

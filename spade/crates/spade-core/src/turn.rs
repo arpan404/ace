@@ -331,6 +331,7 @@ mod tests {
             name: "send_email".into(),
             arguments: json!({}),
             scope: None,
+            reviewer_reason: None,
         }));
         events.push(Event::Known(Known::ApprovalRequested {
             reply: "r1".into(),
@@ -338,6 +339,7 @@ mod tests {
             name: "send_email".into(),
             arguments: json!({}),
             scope: None,
+            reviewer_reason: None,
         }));
         events.push(Event::Known(Known::ApprovalAnswered {
             reply: "r1".into(),

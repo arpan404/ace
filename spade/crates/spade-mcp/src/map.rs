@@ -21,6 +21,11 @@ pub struct McpTool {
     /// The tool's JSON Schema for its arguments, as the server sent it.
     pub input_schema: Value,
     pub risk: Risk,
+    /// The server sent annotations for it at all. A tool that says nothing about itself is one
+    /// Spade can't classify (ADR 0144).
+    pub annotated: bool,
+    /// `openWorldHint`: it reaches beyond the server's own data.
+    pub open_world: Option<bool>,
 }
 
 /// One piece of a tool's answer. `extra` holds every field of the block besides the ones read
@@ -88,6 +93,12 @@ pub(crate) fn tool(tool: &rmcp::model::Tool) -> McpTool {
             annotations.and_then(|a| a.read_only_hint),
             annotations.and_then(|a| a.destructive_hint),
         ),
+        annotated: annotations.is_some_and(|a| {
+            a.read_only_hint.is_some()
+                || a.destructive_hint.is_some()
+                || a.open_world_hint.is_some()
+        }),
+        open_world: annotations.and_then(|a| a.open_world_hint),
     }
 }
 
