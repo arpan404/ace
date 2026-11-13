@@ -65,6 +65,8 @@ pub enum Frame {
 pub struct Info {
     /// The person's shell runs, or a bot command runs or has run, in it.
     pub running: bool,
+    /// A bot command runs, or is still being stopped.
+    pub busy: bool,
     /// When the running shell started.
     pub since: Option<i64>,
     /// When anything last happened in it.
@@ -319,6 +321,7 @@ impl Terminal {
             since: state.session.as_ref().and(state.since),
             last: state.last,
             title: state.title.clone(),
+            busy: self.bot_running(),
         }
     }
 

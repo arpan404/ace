@@ -53,7 +53,10 @@ impl Computers {
             return;
         };
         for bot in self.held() {
-            let _ = tokio::time::timeout(ASK, daemon.drive(&bot, Driver::Person)).await;
+            let answer = tokio::time::timeout(ASK, daemon.drive(&bot, Driver::Person)).await;
+            if let Ok(Ok(answer)) = answer {
+                self.ace_stopped(&bot, answer.stopped);
+            }
         }
         let releasing: Vec<String> = lock(&self.releasing).iter().cloned().collect();
         for bot in releasing {
@@ -75,7 +78,20 @@ impl Computers {
     pub async fn ace_takes_over(&self, agent: &str) {
         lock(&self.releasing).remove(agent);
         if let Some(daemon) = self.daemon() {
-            let _ = tokio::time::timeout(ASK, daemon.drive(agent, Driver::Person)).await;
+            let answer = tokio::time::timeout(ASK, daemon.drive(agent, Driver::Person)).await;
+            if let Ok(Ok(answer)) = answer {
+                self.ace_stopped(agent, answer.stopped);
+            }
+        }
+    }
+
+    /// ace said whether the bot's work there has stopped since the person took over.
+    fn ace_stopped(&self, agent: &str, stopped: bool) {
+        if !stopped || self.driver(agent) != Driver::Person {
+            return;
+        }
+        if lock(&self.stopping).remove(agent) {
+            self.changed(agent);
         }
     }
 
@@ -84,9 +100,9 @@ impl Computers {
     pub async fn ace_hands_back(&self, agent: &str) -> Option<Handback> {
         let daemon = self.daemon()?;
         match tokio::time::timeout(ASK, daemon.drive(agent, Driver::Bot)).await {
-            Ok(Ok(handback)) => {
+            Ok(Ok(answer)) => {
                 lock(&self.releasing).remove(agent);
-                handback
+                answer.handback
             }
             _ => {
                 lock(&self.releasing).insert(agent.to_owned());

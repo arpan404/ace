@@ -24,6 +24,8 @@ pub enum Frame {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Info {
     pub running: bool,
+    /// A bot command runs, or is still being stopped.
+    pub busy: bool,
     pub since: Option<i64>,
     pub last: Option<i64>,
     pub title: Option<String>,

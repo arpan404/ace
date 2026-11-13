@@ -14,6 +14,7 @@ Spade without computers: `503`.
 ```json
 {
   "driver": "bot" | "person",
+  "stopping": false,
   "thread_id": "string" | null,
   "surfaces": [
     { "kind": "browser" | "screen" | "terminal" | "files",
@@ -23,6 +24,11 @@ Spade without computers: `503`.
 }
 ```
 
+- `stopping` is true while the person drives and some of the bot's work is still being stopped:
+  a command in its terminal, or a call ace hasn't yet seen end. ace's answer to
+  `driver: "person"` says `stopped: false` when a bot call was still running after its 12 s
+  wait, and every round asks again. The app shouldn't give the person the controls until it is
+  false. Without ace it is only the terminal.
 - `terminal` and `files` are always there. `browser` and `screen` appear once the bot has used
   them or ace has reported them.
 - `since` is when the surface became live (null when it isn't). `last` is when it was last used.
@@ -95,7 +101,8 @@ The daemon keeps each bot's browser and screen in a hidden thread of its own
   into the note as addresses only, never page titles, which are the pages' own text: at most 10
   per list, 200 characters each, no spaces or backticks. "They used your screen" is added when
   `screenUsed`. When ace can't be reached the note goes without it, and the bot is marked as
-  releasing.
+  releasing. A take-over's answer carries `stopped`. `false` keeps `stopping` set until a later
+  round answers `true`; an answer without it counts as stopped.
 - **Kept in step.** The daemon keeps the driver in memory only. Every 10 s Spade sends
   `driver: "person"` again for every bot the person has, and `driver: "bot"` for every hand-back
   ace hasn't confirmed (or that ace still shows as the person's), so a daemon that restarted

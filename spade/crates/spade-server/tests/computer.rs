@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 use spade_core::tools::Risk;
 use spade_server::clock::SystemClock;
 use spade_server::computer::daemon::{
-    AceComputer, BoxFuture, Browser, Daemon, Handback, Screen, Tab,
+    AceComputer, BoxFuture, Browser, Daemon, DriveAnswer, Handback, Screen, Tab,
 };
 use spade_server::computer::{Computers, Driver, Terminals};
 use spade_server::tools::{EngineHandle, Tool};
@@ -777,6 +777,8 @@ struct FakeDaemon {
     computer: std::sync::Mutex<Option<AceComputer>>,
     /// How long a take-over takes to answer (ace drains the bot's calls in flight first).
     take_over_takes: Duration,
+    /// How many answers to driver=person say the bot's work hasn't stopped yet.
+    still_running: std::sync::atomic::AtomicUsize,
 }
 
 impl FakeDaemon {
@@ -801,7 +803,7 @@ impl Daemon for FakeDaemon {
         &'a self,
         bot: &'a str,
         driver: Driver,
-    ) -> BoxFuture<'a, std::result::Result<Option<Handback>, String>> {
+    ) -> BoxFuture<'a, std::result::Result<DriveAnswer, String>> {
         Box::pin(async move {
             if driver == Driver::Person && self.driver(bot) == Driver::Bot {
                 tokio::time::sleep(self.take_over_takes).await;
@@ -815,13 +817,25 @@ impl Daemon for FakeDaemon {
                 .ok()
                 .and_then(|mut d| d.insert(bot.to_owned(), driver));
             let handed_back = driver == Driver::Bot && was == Some(Driver::Person);
-            Ok(handed_back.then(|| Handback {
-                driven_ms: 60_000,
-                visited: vec!["https://bank.example/login".to_owned()],
-                opened: Vec::new(),
-                closed: Vec::new(),
-                screen_used: true,
-            }))
+            let stopped = driver == Driver::Bot
+                || self
+                    .still_running
+                    .fetch_update(
+                        std::sync::atomic::Ordering::SeqCst,
+                        std::sync::atomic::Ordering::SeqCst,
+                        |n| n.checked_sub(1),
+                    )
+                    .is_err();
+            Ok(DriveAnswer {
+                handback: handed_back.then(|| Handback {
+                    driven_ms: 60_000,
+                    visited: vec!["https://bank.example/login".to_owned()],
+                    opened: Vec::new(),
+                    closed: Vec::new(),
+                    screen_used: true,
+                }),
+                stopped,
+            })
         })
     }
 
@@ -961,5 +975,38 @@ async fn ace_hears_who_drives_again_after_it_forgets_and_its_handback_reaches_th
     // Once handed back, Spade stops telling ace the person drives.
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(daemon.driver(&agent), Driver::Bot);
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_person_gets_the_controls_only_once_ace_says_the_bots_work_stopped() -> Result {
+    let machine = Machine::new()?;
+    let spade = start(&machine, vec![Script::reply("Hi")], Vec::new()).await?;
+    let (agent, _) = bot(&spade).await?;
+    let computers = spade.engine.computers().cloned().ok_or("no computers")?;
+    let daemon = Arc::new(FakeDaemon {
+        still_running: std::sync::atomic::AtomicUsize::new(1),
+        ..FakeDaemon::default()
+    });
+    computers.set_daemon(daemon.clone(), Vec::new(), Duration::from_millis(200));
+    let (status, _) = spade
+        .post(&format!("/v1/agents/{agent}/computer/take-over"), json!({}))
+        .await?;
+    assert_eq!(status, 204);
+    // ace's first answer: a call of the bot's still runs.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let (_, view) = spade.get(&format!("/v1/agents/{agent}/computer")).await?;
+    assert_eq!(view["driver"], "person");
+    assert_eq!(view["stopping"], true, "{view}");
+    // The next round's answer says it has stopped.
+    let mut view = Value::Null;
+    for _ in 0..100 {
+        view = spade.get(&format!("/v1/agents/{agent}/computer")).await?.1;
+        if view["stopping"] == false {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(view["stopping"], false, "{view}");
     Ok(())
 }

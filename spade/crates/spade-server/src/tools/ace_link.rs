@@ -475,10 +475,8 @@ impl crate::computer::daemon::Daemon for AceLink {
         &'a self,
         bot: &'a str,
         driver: crate::computer::Driver,
-    ) -> crate::computer::daemon::BoxFuture<
-        'a,
-        Result<Option<crate::computer::daemon::Handback>, String>,
-    > {
+    ) -> crate::computer::daemon::BoxFuture<'a, Result<crate::computer::daemon::DriveAnswer, String>>
+    {
         let skills = self.skills();
         Box::pin(async move {
             let skills = skills.ok_or_else(|| AWAY.to_owned())?;

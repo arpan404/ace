@@ -69,6 +69,16 @@ pub struct AceComputer {
     pub screen: Screen,
 }
 
+/// ace's answer to a change of driver.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DriveAnswer {
+    /// What the person did, when they handed back.
+    pub handback: Option<Handback>,
+    /// None of the bot's work runs in ace any more. `false` when a call of the bot's was still
+    /// running when ace stopped waiting for it: the person doesn't have the controls yet.
+    pub stopped: bool,
+}
+
 /// The daemon, as the computers need it. The ace link answers it; tests stand in for it.
 pub trait Daemon: Send + Sync {
     /// Sets who drives the bot's browser and screen. When the person hands back, what they did.
@@ -76,20 +86,27 @@ pub trait Daemon: Send + Sync {
         &'a self,
         bot: &'a str,
         driver: Driver,
-    ) -> BoxFuture<'a, Result<Option<Handback>, String>>;
+    ) -> BoxFuture<'a, Result<DriveAnswer, String>>;
 
     /// The bot's browser and screen now.
     fn computer<'a>(&'a self, bot: &'a str) -> BoxFuture<'a, Result<AceComputer, String>>;
 }
 
 /// Reads a `spade.computer.drive.result`'s fields.
-pub fn drive_answer(answer: &serde_json::Value) -> Result<Option<Handback>, String> {
+/// A daemon that sends no `stopped` waited for the bot's work, so its answer means stopped.
+pub fn drive_answer(answer: &serde_json::Value) -> Result<DriveAnswer, String> {
     if let Some(error) = answer.get("error").and_then(serde_json::Value::as_str) {
         return Err(format!("ace refused: {error}"));
     }
-    Ok(answer
-        .get("handback")
-        .and_then(|handback| serde_json::from_value(handback.clone()).ok()))
+    Ok(DriveAnswer {
+        handback: answer
+            .get("handback")
+            .and_then(|handback| serde_json::from_value(handback.clone()).ok()),
+        stopped: answer
+            .get("stopped")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(true),
+    })
 }
 
 /// Reads a `spade.computer.result`'s fields.
@@ -115,10 +132,13 @@ mod tests {
             "drivenMs": 60000, "visited": ["https://a.example/"],
             "opened": [{ "tabId": "t2", "title": "A", "url": "https://a.example/" }],
             "closed": [], "screenUsed": true } });
-        let handback = drive_answer(&answer).unwrap_or_default();
+        let handback = drive_answer(&answer).unwrap_or_default().handback;
         assert_eq!(handback.as_ref().map(|h| h.driven_ms), Some(60000));
         assert!(handback.is_some_and(|h| h.screen_used && h.opened[0].tab_id == "t2"));
-        assert_eq!(drive_answer(&json!({ "driver": "person" })), Ok(None));
+        let waited = drive_answer(&json!({ "driver": "person" })).unwrap_or_default();
+        assert!(waited.handback.is_none() && waited.stopped);
+        let still = drive_answer(&json!({ "driver": "person", "stopped": false }));
+        assert!(still.is_ok_and(|a| !a.stopped));
         assert!(drive_answer(&json!({ "error": "forbidden" })).is_err());
 
         let computer = computer_answer(&json!({ "computer": {

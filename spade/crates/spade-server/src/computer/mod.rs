@@ -103,6 +103,9 @@ impl Kind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct View {
     pub driver: Driver,
+    /// The person took over and some of the bot's work is still being stopped (a command in its
+    /// terminal, or a call ace hasn't seen end): they don't have the controls yet.
+    pub stopping: bool,
     /// The hidden ace thread the bot's browser and screen run in, as ace reported it, so the app
     /// can watch them.
     pub thread_id: Option<String>,
@@ -228,6 +231,8 @@ pub struct Computers {
     daemon: std::sync::OnceLock<Arc<dyn daemon::Daemon>>,
     /// Bots handed back whose release ace hasn't confirmed yet.
     releasing: Mutex<HashSet<String>>,
+    /// Bots the person took over whose work ace hasn't yet said has stopped.
+    stopping: Mutex<HashSet<String>>,
     /// Bots whose browser and screen haven't been read from ace since Spade started.
     unread: Mutex<HashSet<String>>,
     changes: broadcast::Sender<Change>,
@@ -297,6 +302,7 @@ impl Computers {
             watched: Mutex::default(),
             daemon: std::sync::OnceLock::new(),
             releasing: Mutex::default(),
+            stopping: Mutex::default(),
             unread: Mutex::default(),
             changes: broadcast::channel(1024).0,
             me: me.clone(),
@@ -407,8 +413,11 @@ impl Computers {
             last: touched.map(|t| t.at),
         });
         let thread_id = lock(&self.threads).get(agent).cloned();
+        let stopping =
+            driver == Driver::Person && (info.busy || lock(&self.stopping).contains(agent));
         View {
             driver,
+            stopping,
             thread_id,
             surfaces,
         }
@@ -572,6 +581,9 @@ impl Computers {
             self.persist(agent, &record)?;
             records.insert(agent.to_owned(), record);
         }
+        if self.daemon.get().is_some() {
+            lock(&self.stopping).insert(agent.to_owned());
+        }
         self.changed(agent);
         Ok(true)
     }
@@ -612,6 +624,7 @@ impl Computers {
             }
             records.remove(agent);
         }
+        lock(&self.stopping).remove(agent);
         self.changed(agent);
         Ok(())
     }
@@ -626,6 +639,7 @@ impl Computers {
         lock(&self.surfaces).retain(|(a, _), _| a != agent);
         lock(&self.files).remove(agent);
         lock(&self.threads).remove(agent);
+        lock(&self.stopping).remove(agent);
         lock(&self.sent).remove(agent);
         self.terminals.remove(agent);
     }
