@@ -222,13 +222,32 @@ impl Seeded {
     }
 
     /// A number in [0, 1).
-    pub fn next(&mut self) -> f64 {
+    pub fn float(&mut self) -> f64 {
         self.0 = self.0.wrapping_add(0x6d2b_79f5);
         let s = self.0;
         let mut t = (s ^ (s >> 15)).wrapping_mul(1 | s);
         t = t.wrapping_add((t ^ (t >> 7)).wrapping_mul(61 | t)) ^ t;
         f64::from(t ^ (t >> 14)) / 4_294_967_296.0
     }
+}
+
+/// An agent's stored avatar as clients see it: a picture or Spade's mark as stored, a character
+/// face repaired, and anything else (an initials avatar from before faces, an unreadable one)
+/// as the face its id seeds, so every agent shows a face.
+pub fn shown_avatar(id: &str, stored: &str) -> Value {
+    let value: Value = serde_json::from_str(stored).unwrap_or_default();
+    match value["kind"].as_str() {
+        Some("image") if value["sha256"].is_string() => value,
+        Some("spade") => value,
+        Some("character") => repair(&value).to_json(),
+        _ => face_for_id(id, &[]).to_json(),
+    }
+}
+
+/// The colour pair a stored avatar wears, when it is a character face.
+pub fn worn_pair(stored: &str) -> Option<&'static str> {
+    let value: Value = serde_json::from_str(stored).ok()?;
+    (value["kind"] == "character").then(|| repair(&value).0[PAIR])
 }
 
 mod shuffle;

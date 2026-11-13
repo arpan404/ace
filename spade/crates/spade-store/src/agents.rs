@@ -6,16 +6,17 @@ use rusqlite::{OptionalExtension, Row, Transaction, params};
 use serde_json::json;
 use spade_core::Event;
 use spade_core::event::Known;
+use spade_core::face;
 
 use crate::{Result, Store, StoreError, StoredEvent, append_in};
 
-/// The colours a generated avatar may use.
-pub const AVATAR_COLORS: [&str; 10] = [
+/// The colours an initials avatar used, before character faces (schema 2's backfill).
+const AVATAR_COLORS: [&str; 10] = [
     "slate", "red", "orange", "amber", "green", "teal", "blue", "indigo", "violet", "pink",
 ];
 
 /// A colour picked from `seed`, the same every time.
-pub fn generated_color(seed: &str) -> &'static str {
+fn generated_color(seed: &str) -> &'static str {
     // FNV-1a: stable across builds, unlike the standard hasher.
     let hash = seed.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
         (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
@@ -285,6 +286,35 @@ pub(crate) fn backfill(tx: &Transaction<'_>) -> rusqlite::Result<()> {
                 updated
             ],
         )?;
+    }
+    Ok(())
+}
+
+/// Schema 6: every initials avatar (and any avatar that doesn't read) becomes a character face
+/// seeded by the agent's id, preferring colour pairs no earlier agent wears. Pictures and the
+/// main agent's mark stay. A database migrates once; the same agents always get the same faces.
+pub(crate) fn character_faces(tx: &Transaction<'_>) -> rusqlite::Result<()> {
+    let agents: Vec<(String, String)> = {
+        let mut statement = tx.prepare("SELECT id, avatar FROM agents ORDER BY created_ms, id")?;
+        let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        rows.collect::<rusqlite::Result<_>>()?
+    };
+    let mut taken: Vec<&'static str> = Vec::new();
+    for (id, avatar) in agents {
+        let stored: serde_json::Value = serde_json::from_str(&avatar).unwrap_or_default();
+        if matches!(stored["kind"].as_str(), Some("image" | "spade")) {
+            continue;
+        }
+        if let Some(pair) = face::worn_pair(&avatar) {
+            taken.push(pair);
+            continue;
+        }
+        let made = face::face_for_id(&id, &taken);
+        tx.execute(
+            "UPDATE agents SET avatar = ?2 WHERE id = ?1",
+            params![id, made.to_json().to_string()],
+        )?;
+        taken.extend(made.get("pair"));
     }
     Ok(())
 }

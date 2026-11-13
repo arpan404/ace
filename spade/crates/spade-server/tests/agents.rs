@@ -96,8 +96,11 @@ async fn spade_exists_from_the_first_start_and_cannot_be_deleted_or_renamed() ->
         .await?;
     assert_eq!((status, events), (200, json!([])));
     assert_eq!(bot["kind"], "bot");
-    assert_eq!(bot["avatar"]["kind"], "generated");
-    assert_eq!(bot["avatar"]["initials"], "RE");
+    assert_eq!(
+        bot["avatar"]["kind"], "character",
+        "a bot without one gets a face"
+    );
+    assert_eq!(bot["avatar"]["v"], 1);
     assert_eq!(
         (&bot["state"], &bot["status"]),
         (&json!("idle"), &Value::Null)
@@ -411,7 +414,7 @@ async fn a_typed_model_id_nobody_saved_works_end_to_end() -> Result {
         json!({ "name": "Ok", "task": "t".repeat(4001), "model": "fake/m" }),
         json!({ "name": "Ok", "model": "no-slash" }),
         json!({ "name": "Ok", "model": "nowhere/m" }),
-        json!({ "name": "Ok", "model": "fake/m", "avatar": { "kind": "generated", "color": "plaid" } }),
+        json!({ "name": "Ok", "model": "fake/m", "avatar": { "kind": "hologram" } }),
         json!({ "task": "no name" }),
     ] {
         let (status, body) = spade.post("/v1/agents", bad.clone()).await?;
@@ -573,4 +576,60 @@ async fn concurrent_changes_to_one_agent_never_overwrite_each_other() -> Result 
 
 async fn agent_by_id(spade: &Spade, id: &str) -> Result<Value> {
     agent(spade, id).await
+}
+
+#[tokio::test]
+async fn a_character_face_is_stored_repaired_and_returned() -> Result {
+    let spade = Spade::start(Vec::new(), Vec::new()).await?;
+    let face = json!({ "kind": "character", "v": 1, "body": "fox", "pair": "ember",
+        "ears": "none", "marking": "stripes", "eyes": "almond", "mouth": "smile",
+        "cheeks": "none", "accessory": "none" });
+    let (status, made) = spade
+        .post(
+            "/v1/agents",
+            json!({ "name": "Otto", "model": "fake/m", "avatar": face }),
+        )
+        .await?;
+    assert_eq!(status, 201, "{made}");
+    let id = made["agent"]["id"].as_str().unwrap_or_default().to_owned();
+    assert_eq!(made["agent"]["avatar"], face);
+
+    // A value this build doesn't know, or one the body can't wear, is repaired, never refused.
+    let odd = json!({ "kind": "character", "body": "bird", "pair": "plaid", "mouth": "grin",
+        "ears": "cat", "eyes": "big", "sparkle": true });
+    let changed = patch(&spade, &id, json!({ "avatar": odd })).await?;
+    let avatar = &changed["agent"]["avatar"];
+    assert_eq!(
+        (
+            &avatar["body"],
+            &avatar["pair"],
+            &avatar["mouth"],
+            &avatar["ears"],
+            &avatar["eyes"]
+        ),
+        (
+            &json!("bird"),
+            &json!("lagoon"),
+            &json!("none"),
+            &json!("none"),
+            &json!("big")
+        )
+    );
+    assert!(avatar.get("sparkle").is_none());
+    let (_, listed) = spade.get("/v1/agents").await?;
+    let shown = listed["agents"]
+        .as_array()
+        .and_then(|all| all.iter().find(|a| a["id"] == id.as_str()))
+        .map(|a| a["avatar"].clone());
+    assert_eq!(shown.as_ref(), Some(avatar), "stored as returned");
+
+    // An older client's initials avatar gets a face instead.
+    let changed = patch(
+        &spade,
+        &id,
+        json!({ "avatar": { "kind": "generated", "color": "teal" } }),
+    )
+    .await?;
+    assert_eq!(changed["agent"]["avatar"]["kind"], "character");
+    Ok(())
 }

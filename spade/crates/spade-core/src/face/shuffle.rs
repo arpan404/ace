@@ -52,13 +52,13 @@ const MAX_DECORATIONS: usize = 2;
 const ONE_DECORATION: &[&str] = &["sprout", "bot", "fox", "bird"];
 
 fn pick<T: Copy>(random: &mut Seeded, list: &[T]) -> T {
-    let at = (random.next() * list.len() as f64).floor() as usize;
+    let at = (random.float() * list.len() as f64).floor() as usize;
     list[at.min(list.len() - 1)]
 }
 
 fn weighted(random: &mut Seeded, table: &[(&'static str, u32)]) -> &'static str {
     let total: u32 = table.iter().map(|(_, weight)| weight).sum();
-    let mut left = random.next() * f64::from(total);
+    let mut left = random.float() * f64::from(total);
     for (value, weight) in table {
         left -= f64::from(*weight);
         if left < 0.0 {
@@ -117,7 +117,7 @@ pub fn shuffle(random: &mut Seeded, current: Option<&Face>, taken: &[&str]) -> F
         .min(cap);
     let mut slots = DECORATIONS;
     for index in (1..slots.len()).rev() {
-        let other = ((random.next() * (index + 1) as f64).floor() as usize).min(index);
+        let other = ((random.float() * (index + 1) as f64).floor() as usize).min(index);
         slots.swap(index, other);
     }
     let mut used = 0;

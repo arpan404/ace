@@ -11,7 +11,7 @@ mod routines;
 mod schema;
 mod teams;
 
-pub use agents::{AVATAR_COLORS, Agent, NewAgent, generated_color};
+pub use agents::{Agent, NewAgent};
 pub use endpoints::{StoredEndpoint, StoredModel};
 pub use notes::{HistoryMatch, NewNote, Notes, Saved, StoredNote, Updated};
 pub use oversight::{ACTIVITY_TYPES, AgentSpend, OVERSIGHT, agent_key};

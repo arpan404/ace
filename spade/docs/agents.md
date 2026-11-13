@@ -29,7 +29,8 @@ describe. Agents run on models from the person's own endpoints.
   overwrite each other's fields.
 - **Upgrade.** Schema 2 turns each stored conversation into a bot named after its title (or
   `Agent`), empty task, generated avatar, and the model its latest reply used (else the presets'
-  main role). The main agent is created fresh.
+  main role). The main agent is created fresh. A later schema turns every initials avatar into a
+  character face (see Faces).
 - **Titles** and other side jobs use the person's fast model (`PUT /v1/settings`), else the
   agent's own model. Compaction always uses the agent's own model.
 
@@ -105,6 +106,39 @@ context comes from `context_length`, `context_window`, `max_context_length` or
 `max_input_tokens`. At most 4 MB, 5,000 models and 10 seconds. A failure is one line that never
 carries the key.
 
+## Faces
+
+A bot's character face is eight fields; clients draw it (the model and geometry live in
+`packages/ui-core/src/bot-face/`, the same rules in `spade-core/src/face.rs`):
+
+| Field       | Values                                                                   |
+| ----------- | ------------------------------------------------------------------------ |
+| `body`      | round, blob, pebble, sprout, ghost, bot, fox, bird, cloud, bean          |
+| `pair`      | ember, butter, mint, lagoon, sky, lilac, rose, berry, sage, cocoa, stone |
+| `ears`      | none, cat, bear, bunny, tuft, nubs                                       |
+| `marking`   | none, cap, mask, muzzle, patch, stripes, spots                           |
+| `eyes`      | egg, round, big, sleepy, almond, bead                                    |
+| `mouth`     | none, smile, open, cat, o, grin                                          |
+| `cheeks`    | none, blush, freckles                                                    |
+| `accessory` | none, bow, flower, glasses, headphones, beanie, scarf                    |
+
+- Some bodies take fewer values (a bird has no mouth or ears, a bot no ears), and some values
+  never go together (big ears and headphones, a mask and glasses, spots and freckles).
+- **Repair, never refuse.** A face in a body (create, patch, import) is repaired: an unknown or
+  missing value takes the default (round, lagoon, egg eyes, none elsewhere), then each value the
+  body or another field rules out falls back to `none`. Fields Spade doesn't know are dropped. The
+  stored face is the repaired one, so what is stored is what every client draws. Shared vectors
+  (`spade-core/src/face/vectors.json`) pin Spade and the TS model to the same answers.
+- **Picked faces.** A bot without a face gets one shuffled from a generator seeded by its id
+  (FNV-1a, then Mulberry32; the TS model makes the same face from the same id), in a colour pair
+  no other bot wears while one is left.
+- **Initials avatars migrate in the store**, once: schema 6 rewrites every `generated` (or
+  unreadable) avatar as the face its agent's id seeds, oldest agent first, each preferring pairs
+  the earlier ones don't wear. Pictures and Spade's mark are untouched. Reading an avatar that is
+  still not a face (one a group member on another machine sent, say) shows the face its id seeds.
+- Templates ship their own faces; exported bot files carry the face and import repairs it.
+- The iPhone draws faces later from the same tables and geometry (Spade's tab is hidden there).
+
 ## API
 
 All under `/v1`, with the bearer token; JSON; problems are `{"error": "<one line>"}`. Unknown
@@ -115,8 +149,8 @@ fields in a body are ignored. Times are integer milliseconds since the epoch.
 "problem", "last_message"}`
 
 - `avatar`: `{"kind":"image","sha256"}` (served by `GET /v1/images/{sha256}`),
-  `{"kind":"generated","initials","color"}` with colour one of slate, red, orange, amber, green,
-  teal, blue, indigo, violet, pink, or `{"kind":"spade"}`.
+  `{"kind":"character","v":1,"body","pair","ears","marking","eyes","mouth","cheeks","accessory"}`
+  (see Faces), or `{"kind":"spade"}`.
 - `state`: `idle`, `working` (a reply is open or a background job runs) or `waiting` (an approval
   or a question waits for the person). `working` is `state != "idle"`, kept for clients built on the first
   draft of this contract.
@@ -151,8 +185,9 @@ fields in a body are ignored. Times are integer milliseconds since the epoch.
 | `POST /conversations`                         |                                                                            | `410`: create an agent instead                             |
 
 - Avatar in a body: `{"kind":"image","data":"<base64 or data: URL>"}` (PNG, JPEG, GIF or WebP,
-  3.75 MB at most, stored like attached images) or `{"kind":"generated","color"?}` (a colour is
-  picked from the agent's id when absent). An absent avatar is a generated one.
+  3.75 MB at most, stored like attached images) or a character face. An absent avatar, or
+  `{"kind":"generated"}` from an older client (its colour ignored), gets a face Spade picks (see
+  Faces).
 - **Endpoint** = `{"id", "name", "format", "base_url", "session_header", "header_names",
 "needs_key", "key_set", "key_source": "keychain"|"environment"|null, "models": [{"id", "name",
 "context", "capabilities", "source": "listed"|"typed"|"preset"}]}`. Header values and keys are

@@ -2,48 +2,59 @@ use serde_json::{Value, json};
 
 use super::*;
 
+type Outcome = Result<(), Box<dyn std::error::Error>>;
+
 /// The vectors the TS model answers too (`packages/ui-core/src/bot-face/vectors.test.ts`).
 const VECTORS: &str = include_str!("vectors.json");
 
-fn expected(output: &Value) -> Face {
+fn expected(output: &Value) -> Result<Face, String> {
     let mut face = Face::default();
     for (at, (field, values)) in FIELDS.iter().enumerate() {
-        let given = output[*field].as_str().expect("a string value");
-        face.0[at] = values.iter().find(|v| **v == given).expect("a known value");
+        let given = output[*field].as_str().unwrap_or_default();
+        face.0[at] = values
+            .iter()
+            .find(|v| **v == given)
+            .ok_or(format!("{field}: {given} is not a value"))?;
     }
-    face
+    Ok(face)
+}
+
+fn vectors() -> Result<Value, serde_json::Error> {
+    serde_json::from_str(VECTORS)
 }
 
 #[test]
-fn repair_gives_the_same_face_as_the_ts_model_for_every_shared_vector() {
-    let vectors: Value = serde_json::from_str(VECTORS).unwrap();
-    let cases = vectors["repair"].as_array().unwrap();
+fn repair_gives_the_same_face_as_the_ts_model_for_every_shared_vector() -> Outcome {
+    let vectors = vectors()?;
+    let cases = vectors["repair"].as_array().ok_or("no repair cases")?;
     assert!(cases.len() >= 40);
     for case in cases {
         assert_eq!(
             repair(&case["input"]),
-            expected(&case["output"]),
+            expected(&case["output"])?,
             "{}",
             case["input"]
         );
     }
+    Ok(())
 }
 
 #[test]
-fn an_id_seeds_the_same_face_as_the_ts_model() {
-    let vectors: Value = serde_json::from_str(VECTORS).unwrap();
-    for case in vectors["seeded"].as_array().unwrap() {
+fn an_id_seeds_the_same_face_as_the_ts_model() -> Outcome {
+    let vectors = vectors()?;
+    for case in vectors["seeded"].as_array().ok_or("no seeded cases")? {
         let taken: Vec<&str> = case["taken"]
             .as_array()
             .map(|t| t.iter().filter_map(Value::as_str).collect())
             .unwrap_or_default();
         assert_eq!(
-            face_for_id(case["id"].as_str().unwrap(), &taken),
-            expected(&case["output"]),
+            face_for_id(case["id"].as_str().unwrap_or_default(), &taken),
+            expected(&case["output"])?,
             "{}",
             case["id"]
         );
     }
+    Ok(())
 }
 
 #[test]
@@ -59,11 +70,11 @@ fn garbage_always_repairs_to_a_valid_face() {
     for _ in 0..2000 {
         let mut raw = serde_json::Map::new();
         for (field, values) in FIELDS {
-            let roll = random.next();
+            let roll = random.float();
             let value = if roll < 0.7 {
-                json!(values[(random.next() * values.len() as f64) as usize % values.len()])
+                json!(values[(random.float() * values.len() as f64) as usize % values.len()])
             } else {
-                junk[(random.next() * junk.len() as f64) as usize % junk.len()].clone()
+                junk[(random.float() * junk.len() as f64) as usize % junk.len()].clone()
             };
             raw.insert(field.into(), value);
         }
