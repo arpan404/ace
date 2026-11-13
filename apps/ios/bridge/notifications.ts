@@ -177,7 +177,9 @@ export class NotificationBridge {
         }
       }),
       client.onMessage((message) => {
-        if (message.type === "notification" && this.#enabled) this.#alert(message.notification);
+        if (message.type !== "notification") return;
+        this.#acknowledge(message.notification.id);
+        if (this.#enabled) this.#alert(message.notification);
       }),
     );
   }
@@ -308,6 +310,16 @@ export class NotificationBridge {
       this.#daemon = want;
     }
     if (want === "registered") await this.#catchUp();
+  }
+  /**
+   * Tells the daemon this phone took a live alert, so it doesn't push it too (ADR 0106). The ack
+   * says the frame reached a running app, not that an alert was shown, so it goes out at once,
+   * before any Swift round trip, and also while this machine's alerts are off: the daemon only
+   * sends a frame it decided to alert on, and a muted phone that stayed silent would otherwise
+   * get the push it muted. Before Swift syncs, catch-up still posts the alert.
+   */
+  #acknowledge(id: string): void {
+    this.#send({ type: "notification.ack", id });
   }
   /** The daemon stops counting a backgrounded socket as delivered (it may be suspended). */
   #presence(): void {

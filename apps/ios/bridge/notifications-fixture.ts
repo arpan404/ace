@@ -76,11 +76,14 @@ export async function phone(now?: () => number, runProgress?: KeptValue) {
     id: () => `id-${++sequence}`,
   });
   const patches: Record<string, unknown>[] = [];
+  const watchers: ((patch: Record<string, unknown>) => void)[] = [];
   const bridge = new NotificationBridge(
     client,
     (_key, read) => {
       const patch = read();
-      if (patch) patches.push(patch);
+      if (!patch) return;
+      patches.push(patch);
+      for (const watch of watchers) watch(patch);
     },
     schedule,
     () => 23 * 60,
@@ -108,5 +111,7 @@ export async function phone(now?: () => number, runProgress?: KeptValue) {
     await new Promise((done) => setTimeout(done, 10));
     await barrier();
   };
-  return { daemon, act, sync, resolve, barrier, settle, of, interactions };
+  /** Runs `watch` as each patch reaches Swift, before the test reads it. */
+  const watch = (watcher: (patch: Record<string, unknown>) => void) => watchers.push(watcher);
+  return { daemon, act, sync, resolve, barrier, settle, of, interactions, watch };
 }
