@@ -195,7 +195,7 @@ final class SystemNotificationCenter: NotificationCenterPort {
     /// Alerts admitted to the ledger whose landing hasn't finished, with whoever waits on each: a
     /// live copy arriving meanwhile is reported delivered only once the first copy has landed.
     private var inFlight: [String: [CheckedContinuation<Void, Never>]] = [:]
-    /// Each thread's alert that arrived live since the last catch-up finished. Catch-up reads the
+    /// Each thread's latest live alert that no catch-up feed has held yet. Catch-up reads the
     /// alerts after its cursor, and a live one can land while that read is out.
     private var live: [String: String] = [:]
     init(center: any NotificationCenterPort, hostId: String? = nil, desk: AlertDesk? = nil) {
@@ -232,16 +232,20 @@ final class SystemNotificationCenter: NotificationCenterPort {
         store?.save(ledger)
         for alert in fresh { inFlight[alert.id] = [] }
         // Each finishes as it lands; whatever a turn-off or a newer alert skips finishes here.
-        defer {
-            for alert in fresh { finish(alert.id) }
-            live = [:]
-        }
-        // Only alerts this phone posts compete: one it doesn't (a background finish with that
-        // category off) never hides the request before it.
-        let newest = CatchUpOrder.newestPerThread(fresh.filter { $0.delivery?.post != false })
+        defer { for alert in fresh { finish(alert.id) } }
+        let freshIds = Set(fresh.map(\.id))
+        // The whole feed decides, alerts already seen included: when a thread's newest is one of
+        // those, the phone already showed something at least as new. Only alerts this phone
+        // posts compete, so one it doesn't (a background finish with that category off) never
+        // hides the request before it.
+        let newest = CatchUpOrder.newestPerThread(entries.filter { $0.delivery?.post != false })
+        // From here the feed's order covers a live alert it holds; one it doesn't hold yet
+        // arrived after it was read and keeps holding older alerts back until a feed does.
+        let covered = Set(entries.map(\.id))
+        defer { live = live.filter { !covered.contains($0.value) } }
         // Checked before each one: an earlier post can be awaited past a turn-off, and a live
         // alert can land meanwhile.
-        for alert in newest {
+        for alert in newest where freshIds.contains(alert.id) {
             guard valid else { return }
             guard CatchUpOrder.isNewer(alert, than: live[alert.threadId], in: entries) else { continue }
             await desk.land(alert, hostId: hostId, owner: ObjectIdentifier(self))

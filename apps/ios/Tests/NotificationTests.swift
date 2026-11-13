@@ -471,6 +471,25 @@ import Testing
         #expect(center.delivered.values.map(\.body) == ["Needs you"])
     }
 
+    @Test func aLiveRequestStaysOverOlderAlertsAcrossTwoCatchUps() async throws {
+        let (notifier, center) = try plainNotifier()
+        // The first feed was read before the request arrived live, and doesn't hold it.
+        await notifier.receive(alert("n:3", status: "needs_you", actions: true))
+        await notifier.catchUp(cursor: 1, entries: [], retracted: [])
+        await notifier.catchUp(cursor: 3, entries: [alert("n:2", status: "background_done"), alert("n:3", status: "needs_you", actions: true)],
+                               retracted: [])
+        #expect(center.delivered.values.map(\.body) == ["Needs you"])
+    }
+
+    @Test func aFeedWhoseNewestForAThreadWasAlreadySeenLandsNothingOlderForIt() async throws {
+        let (notifier, center) = try plainNotifier()
+        await notifier.receive(alert("n:2", status: "needs_you", actions: true))
+        // A later catch-up, with no live alert pending, still holds both.
+        await notifier.catchUp(cursor: 2, entries: [alert("n:2", status: "needs_you", actions: true)], retracted: [])
+        await notifier.catchUp(cursor: 2, entries: [alert("n:1"), alert("n:2", status: "needs_you", actions: true)], retracted: [])
+        #expect(center.delivered.values.map(\.body) == ["Needs you"])
+    }
+
     @Test func aRetractedLiveAlertNoLongerHoldsBackTheFeed() async throws {
         let (notifier, center) = try plainNotifier()
         await notifier.receive(alert("n:2", status: "needs_you", actions: true))
