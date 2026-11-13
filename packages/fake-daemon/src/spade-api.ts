@@ -72,6 +72,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
   keyFailure: number | undefined;
   /** True: the keychain hasn't answered (a prompt is open), so keys read as not known yet. */
   keysPending = false;
+  characterAvatars = true;
   /** `PUT /v1/main`: false leaves the main agent out of the list, as Spade does. */
   mainEnabled = true;
   /** The person's subscriptions as ace lists them (ADR 0133), in Spade's JSON. */
@@ -305,6 +306,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
           ? this.endpoints.map((endpoint) => ({ ...endpoint, key_set: null, key_source: null }))
           : this.endpoints,
         keys_pending: this.keysPending,
+        ...(this.characterAvatars ? { character_avatars: true } : {}),
         presets: this.presets,
         fast_model: this.fastModel,
         transcription_model: this.transcriptionModel,

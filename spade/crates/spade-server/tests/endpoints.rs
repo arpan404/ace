@@ -26,6 +26,7 @@ async fn a_shipped_endpoint_that_has_a_key_is_the_persons_from_the_start() -> Re
     let (_, models) = spade.get("/v1/models").await?;
     let fake = &models["endpoints"][0];
     assert_eq!(fake["id"], "fake");
+    assert_eq!(models["character_avatars"], true);
     assert_eq!(fake["models"][0]["id"], "m");
     assert_eq!(fake["models"][0]["source"], "preset");
     assert_eq!(models["presets"][0]["key_env"], "FAKE_KEY");

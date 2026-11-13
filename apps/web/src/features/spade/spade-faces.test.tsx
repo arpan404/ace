@@ -190,3 +190,32 @@ test("editing a bot's face sends the new face; leaving it sends none", async () 
     avatar: { kind: "character", body: "sprout", pair: "mint", mouth: "grin" },
   });
 });
+
+test("a new bot on an older remote server uses initials and the nearest legacy colour", async () => {
+  const { others } = await spadeApp("/spade", crew, {
+    machines: [
+      {
+        hostId: "old",
+        name: "Old Mac",
+        seed: (api) => {
+          withEndpoint(api);
+          api.characterAvatars = false;
+        },
+      },
+    ],
+  });
+  const form = await newBot();
+  await userEvent.click(form.getByRole("combobox", { name: "Runs on" }));
+  await userEvent.click(await screen.findByRole("option", { name: "Old Mac" }));
+  await userEvent.click(form.getByRole("radio", { name: "Colours: lagoon" }));
+  await userEvent.type(form.getByRole("textbox", { name: "Name" }), "River Scout");
+  await userEvent.click(form.getByRole("button", { name: "Model" }));
+  await userEvent.click(await screen.findByRole("option", { name: /^Sonnet/ }));
+  await userEvent.click(form.getByRole("button", { name: "Create bot" }));
+  await waitFor(() =>
+    expect(others.get("old")?.sent("POST", "/v1/agents")).toEqual([
+      expect.objectContaining({ avatar: { kind: "generated", initials: "RS", color: "teal" } }),
+    ]),
+  );
+  await screen.findByRole("feed", { name: "Conversation with River Scout" });
+});

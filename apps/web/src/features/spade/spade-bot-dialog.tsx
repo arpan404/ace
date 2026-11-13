@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/dialog.tsx";
 import { Input, Textarea } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
-import { createAgent, editAgent, type SpadeAgentDraft } from "./spade-api.ts";
+import { createAgent, editAgent, readModels, type SpadeAgentDraft } from "./spade-api.ts";
 import { ConnectorChoice, useConnectorChoice } from "./spade-bot-connectors.tsx";
 import { AvatarChoice, draftFace, type AvatarDraft } from "./spade-avatar-choice.tsx";
 import { SpadeMachineScope, spadeMachineKey, useSpadeClient } from "./spade-machine.tsx";
@@ -80,6 +80,20 @@ function NameField(props: {
   );
 }
 
+const legacyColours: Record<BotFaceModel["pair"], string> = {
+  ember: "orange",
+  butter: "amber",
+  mint: "green",
+  lagoon: "teal",
+  sky: "blue",
+  lilac: "violet",
+  rose: "pink",
+  berry: "pink",
+  sage: "green",
+  cocoa: "orange",
+  stone: "slate",
+};
+
 const fault = (error: unknown) => (error instanceof Error ? error.message : "Try again.");
 
 /**
@@ -137,7 +151,21 @@ export function NewBotDialog(props: { hosts: readonly SpadeHost[]; onClose(): vo
     setProblem(undefined);
     try {
       const zone = template === undefined ? undefined : browserTimeZone();
-      const face = sent(avatar);
+      const supported = (await readModels(client)).characterAvatars;
+      const face =
+        avatar.kind === "face" && !supported
+          ? {
+              kind: "generated",
+              initials: name
+                .trim()
+                .split(/\s+/u)
+                .slice(0, 2)
+                .map((word) => Array.from(word)[0] ?? "")
+                .join("")
+                .toUpperCase(),
+              color: legacyColours[avatar.face.pair],
+            }
+          : sent(avatar);
       const agent = await createAgent(client, {
         name: name.trim(),
         task: task.trim(),

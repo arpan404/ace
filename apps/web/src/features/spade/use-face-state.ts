@@ -6,16 +6,16 @@ import { useEffect, useRef, useState } from "react";
  * finished work shows done until `seen` (the person is looking at that conversation, say) or
  * the state moves again.
  */
-export function useFaceState(live: BotFaceState, seen = false): BotFaceState {
+export function useFaceState(live: BotFaceState | null, seen = false): BotFaceState {
   const previous = useRef(live);
-  const [shown, setShown] = useState(live);
+  const [shown, setShown] = useState<BotFaceState>(live ?? "idle");
   useEffect(() => {
     const before = previous.current;
     previous.current = live;
     if (before === live) return;
-    const next = botFaceStateAfter(before, live);
+    const next = live === null ? "idle" : before === null ? live : botFaceStateAfter(before, live);
     setShown(next);
-    if (next !== "acknowledge") return;
+    if (live === null || next !== "acknowledge") return;
     const timer = setTimeout(() => setShown(live), botFaceMotion.acknowledge.ms);
     return () => clearTimeout(timer);
   }, [live]);
@@ -25,5 +25,5 @@ export function useFaceState(live: BotFaceState, seen = false): BotFaceState {
       return () => clearTimeout(timer);
     }
   }, [seen, shown]);
-  return shown;
+  return live === null ? "idle" : shown;
 }

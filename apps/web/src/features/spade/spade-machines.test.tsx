@@ -68,7 +68,9 @@ test("a bot whose Spade stops while its machine stays online reads as unavailabl
       "Unavailable · Spade isn't running on Studio Mac",
     ),
   );
-  expect((await botRow("Research")).querySelector("[data-moving]")).toBeNull();
+  expect((await botRow("Research")).querySelector("svg.bot-face")?.getAttribute("data-state")).toBe(
+    "idle",
+  );
 });
 
 test("two machines showing Spade switch one off, the same one in every window", async () => {

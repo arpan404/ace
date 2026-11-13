@@ -189,6 +189,10 @@
     animation: bf-hop-ack 650ms var(--ease-out) both;
   }
 }
+/* Each face inherits its viewport observer's pause state. */
+.bot-face * {
+  animation-play-state: var(--bf-play-state, running) !important;
+}
 :root[data-reduce-motion] .bot-face * {
   animation: none !important;
   transition: none !important;

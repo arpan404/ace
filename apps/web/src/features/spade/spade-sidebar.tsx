@@ -145,7 +145,7 @@ function Row(props: { bot: RosterBot; current: boolean; now: number }) {
   const line = rosterLine(bot);
   // Its face is its status: still while away, moving only while it works.
   const state = useFaceState(
-    bot.away || bot.unavailable ? "idle" : botFaceStateOf(bot),
+    bot.away || bot.unavailable ? null : botFaceStateOf(bot),
     props.current,
   );
   return (

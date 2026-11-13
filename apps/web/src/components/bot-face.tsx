@@ -5,6 +5,7 @@ import {
   type BotFace as BotFaceModel,
   type BotFaceState,
 } from "@ace/ui-core/bot-face";
+import { observeBotFace } from "./bot-face-visibility.ts";
 import { useId, useMemo, type CSSProperties, type MouseEvent } from "react";
 
 /**
@@ -48,6 +49,7 @@ export function BotFace(props: {
     : undefined;
   return (
     <svg
+      ref={observeBotFace}
       key={props.cue?.at ?? 0}
       aria-hidden
       viewBox="0 0 24 24"
