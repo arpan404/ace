@@ -6,27 +6,50 @@ afterEach(closePhones);
 /** The fixture client's device id, as the daemon knows it. */
 const device = "phone";
 
-it("a live alert is acknowledged before Swift sees it", async () => {
-  const { daemon, sync, of, interactions, watch } = await phone();
+it("a live alert is acknowledged only once Swift says it handled it", async () => {
+  const { daemon, act, sync, settle, of, interactions } = await phone();
   sync(true);
   await vi.waitFor(() => expect(of("notifications.feed")).toHaveLength(1));
-  // What the daemon had heard back when Swift got each alert.
-  const ackedWhenShown: string[][] = [];
-  watch((patch) => {
-    if (patch.type === "notifications.alert")
-      ackedWhenShown.push(daemon.notifications.acknowledged(device));
-  });
   // A needs-you alert reads its request from the thread before Swift sees it.
   daemon.notify({ ...alert("n:asks"), status: "needs_you", interactionId: interactions()[0]?.id });
   await vi.waitFor(() => expect(of("notifications.alert")).toHaveLength(1));
-  expect(ackedWhenShown).toEqual([["n:asks"]]);
+  await settle();
+  // Handed over is not shown: the app may be suspended before it posts.
+  expect(daemon.notifications.acknowledged(device)).toEqual([]);
+  act({ type: "notifications.delivered", id: "n:asks" });
+  await vi.waitFor(() => expect(daemon.notifications.acknowledged(device)).toEqual(["n:asks"]));
+});
+
+it("an alert Swift never says it handled is never acknowledged, so the daemon pushes it", async () => {
+  const { daemon, act, sync, settle, of } = await phone();
+  sync(true);
+  await vi.waitFor(() => expect(of("notifications.feed")).toHaveLength(1));
+  daemon.notify(alert("n:lost"));
+  await vi.waitFor(() => expect(of("notifications.alert")).toHaveLength(1));
+  await settle();
+  expect(daemon.notifications.acknowledged(device)).toEqual([]);
+  // Swift naming an alert the bridge never handed it over this connection acks nothing either.
+  act({ type: "notifications.delivered", id: "n:other" });
+  await settle();
+  expect(daemon.notifications.acknowledged(device)).toEqual([]);
+});
+
+it("an alert that arrives before Swift's first sync isn't acknowledged, and catch-up brings it", async () => {
+  const { daemon, sync, settle, of } = await phone();
+  daemon.notify(alert("n:early"));
+  await settle();
+  expect(daemon.notifications.acknowledged(device)).toEqual([]);
+  expect(of("notifications.alert")).toEqual([]);
+  sync(true);
+  await vi.waitFor(() => expect(of("notifications.feed")).toHaveLength(1));
+  expect(of("notifications.feed")[0]?.entries).toMatchObject([{ id: "n:early" }]);
 });
 
 it("a live alert is acknowledged while this machine's alerts are muted, and Swift isn't told", async () => {
   const { daemon, sync, settle, of } = await phone();
   sync(false);
   await settle();
-  // The phone is awake and took the frame; acking stops the daemon pushing it to a muted phone.
+  // Swift said off: that is the phone's own choice, and acking stops a push to a muted phone.
   daemon.notify(alert("n:muted"));
   await vi.waitFor(() => expect(daemon.notifications.acknowledged(device)).toEqual(["n:muted"]));
   await settle();
@@ -88,6 +111,7 @@ it("an older daemon that refuses the push address still gets the websocket addre
   // It can't read acks either, so it isn't sent any; alerts still reach Swift.
   daemon.notify(alert("n:old"));
   await vi.waitFor(() => expect(of("notifications.alert")).toHaveLength(1));
+  act({ type: "notifications.delivered", id: "n:old" });
   await settle();
   expect(daemon.notifications.acknowledged(device)).toEqual([]);
 });

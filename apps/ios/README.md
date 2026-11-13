@@ -712,6 +712,11 @@ field, and neither does any machine before iOS gives a token.
 - **Shown once.** The extension notes each alert it showed in the app group's defaults
   (`PushedAlerts`); the app skips posting an alert a push already showed, and withdrawing a thread
   or an alert also removes its pushed copy.
+- **Acks.** The bridge acks a live `notification` frame (`notification.ack`) only when Swift
+  answers its `notifications.alert` patch with `notifications.delivered { id }`: posted, already
+  shown from a push, or not wanted by this phone's settings. Before Swift's first
+  `notifications.sync` nothing is acked, so the daemon pushes; with alerts off the frame is acked
+  at once and never shown. The daemon waits 3 s for the ack.
 
 **The entitlement switch.** APNs needs `aps-environment`, which only a paid developer team can
 sign. It is **off by default** (`ACE_PUSH: NO` in `project.yml`), so CI and free Personal Teams

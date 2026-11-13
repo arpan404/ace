@@ -307,6 +307,57 @@ import Testing
         #expect(center.delivered.isEmpty)
     }
 
+    // MARK: Telling the bridge a live alert was handled (its ack, ADR 0106)
+
+    @Test func aLiveAlertIsReportedDeliveredOnlyOnceNotificationCenterHasIt() async throws {
+        let (coordinator, center, session) = try await connected(HeldCenter())
+        await coordinator.setEnabled(true)
+        session.patch(#"{"type":"notifications.alert","notification":{"id":"n:1","threadId":"thread","title":"Fix","status":"done","backgroundCount":0,"actions":[]}}"#)
+        try await until("the post is under way") { center.holding }
+        for _ in 0..<20 { await Task.yield() }
+        // Suspended now, nothing would show: the daemon must still push it.
+        #expect(session.actions("notifications.delivered").isEmpty)
+        center.release()
+        #expect(try await session.waitFor("notifications.delivered")["id"] as? String == "n:1")
+        #expect(center.delivered.count == 1)
+    }
+
+    @Test func aLiveAlertThePhonesOwnSettingsDontPostIsStillReportedDelivered() async throws {
+        let (coordinator, center, session) = try await connected()
+        await coordinator.setEnabled(true)
+        session.patch(#"{"type":"notifications.alert","notification":{"id":"n:1","threadId":"thread","title":"Fix","status":"done","backgroundCount":0,"actions":[],"delivery":{"post":false,"interrupt":false,"banner":false}}}"#)
+        #expect(try await session.waitFor("notifications.delivered")["id"] as? String == "n:1")
+        #expect(center.posted.isEmpty)
+    }
+
+    @Test func aLiveAlertForAMachineTurnedOffHereIsReportedDeliveredAndNotPosted() async throws {
+        let (coordinator, center, session) = try await connected()
+        await coordinator.setEnabled(true)
+        coordinator.setMachine("host", enabled: false)
+        session.patch(#"{"type":"notifications.alert","notification":{"id":"n:1","threadId":"thread","title":"Fix","status":"done","backgroundCount":0,"actions":[]}}"#)
+        #expect(try await session.waitFor("notifications.delivered")["id"] as? String == "n:1")
+        #expect(center.posted.isEmpty)
+    }
+
+    @Test func aLiveAlertAPushAlreadyShowedIsReportedDeliveredWithoutPostingAgain() async throws {
+        let center = FakeCenter()
+        let sessions = Sessions()
+        let pushed = PushedAlerts(defaults: try defaults())
+        pushed.record(AlertContent.requestId("n:1", hostId: "host"))
+        let coordinator = NotificationCoordinator(center: center, authorizer: FakeAuthorizer(), defaults: try defaults(), now: { 0 },
+                                                  sleep: fastSleep, connectInBackground: { _ in [] }, pushed: pushed)
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
+        await coordinator.attach(model, target: try target())
+        await model.connect(target: try target(), directory: URL(fileURLWithPath: "/unused"))
+        let session = try #require(sessions.values.first)
+        session.patch(#"{"type":"connection","state":"ready"}"#)
+        try await until("the connection is ready") { model.connection == "ready" }
+        await coordinator.setEnabled(true)
+        session.patch(#"{"type":"notifications.alert","notification":{"id":"n:1","threadId":"thread","title":"Fix","status":"done","backgroundCount":0,"actions":[]}}"#)
+        #expect(try await session.waitFor("notifications.delivered")["id"] as? String == "n:1")
+        #expect(center.posted.isEmpty)
+    }
+
     @Test func aRequestAnsweredElsewhereTakesItsNotificationWithItOnceTheRowMovesOn() async throws {
         let (coordinator, center, session) = try await connected()
         await coordinator.setEnabled(true)
@@ -491,8 +542,8 @@ import Testing
 
     private let approvalInfo = [NotificationKeys.threadId: "thread", NotificationKeys.interactionId: "push",
                                 NotificationKeys.approve: "allow", NotificationKeys.deny: "deny"]
-    private func connected() async throws -> (NotificationCoordinator, FakeCenter, Session) {
-        let center = FakeCenter()
+    private func connected() async throws -> (NotificationCoordinator, FakeCenter, Session) { try await connected(FakeCenter()) }
+    private func connected<Center: NotificationCenterPort>(_ center: Center) async throws -> (NotificationCoordinator, Center, Session) {
         let sessions = Sessions()
         let coordinator = NotificationCoordinator(center: center, authorizer: FakeAuthorizer(), defaults: try defaults(), now: { 0 },
                                                   sleep: fastSleep, makeId: { "tap-1" }, connectInBackground: { _ in [] })

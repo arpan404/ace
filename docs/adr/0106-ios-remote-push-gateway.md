@@ -124,8 +124,11 @@ auth }` (`protocol/notifications.ts`). The token is hex of variable length (Appl
   `agentSays`, mute (`notification.unregister`) and revocation all run before the transport.
 - **Delivery to a phone with a push address now needs an acknowledgment.** The daemon sends the
   `notification` frame to the phone's foreground sockets and waits up to 3 seconds for
-  `notification.ack { id }`. Without one (the app is suspended with its socket open, or the frame
-  was lost) the router falls through to push. Phones without a push address keep ADR 0087's
+  `notification.ack { id }`. The app acks once it has handled the alert: posted it, found it
+  already shown from a push, or decided by the phone's own settings not to show it. Arrival alone
+  is not enough, and an app that hasn't yet heard the person's settings acks nothing. Without an
+  ack (the app is suspended with its socket open, or the frame was lost) the router falls through
+  to push. Phones without a push address keep ADR 0087's
   behaviour. A duplicate is possible only when the ack itself is lost; the app skips a local
   alert whose id is already on screen from a push.
 - Settings: `notifications.remotePush` (default on) turns push off for every phone of this

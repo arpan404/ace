@@ -32,6 +32,8 @@ import { RunWatch, type RunAlert } from "./run-alerts.ts";
 import type { KeptValue } from "./kept-value.ts";
 
 const boundedId = z.string().min(1).max(200);
+/** Live alerts awaiting Swift's answer at once, the daemon's own cap on ack waiters. */
+const handedOverLimit = 256;
 /** As many recent runs as the web's inbox reads for its toasts. */
 const runInboxLimit = 50;
 export const NotificationAction = z.discriminatedUnion("type", [
@@ -75,6 +77,11 @@ export const NotificationAction = z.discriminatedUnion("type", [
     threadId: ThreadId.and(boundedId),
     text: z.string().min(1).max(8192),
   }),
+  /**
+   * Swift handled a live alert (`notifications.alert`): posted it, chose by this phone's own
+   * settings not to, or found it already shown from a push. Only then is it acknowledged.
+   */
+  z.object({ type: z.literal("notifications.delivered"), id: boundedId }),
 ]);
 export type NotificationAction = z.infer<typeof NotificationAction>;
 /** What a notification action ended as. Only `confirmed` means the daemon accepted the answer. */
@@ -115,6 +122,8 @@ export class NotificationBridge {
    */
   #pushRefused = false;
   #connection = 0;
+  /** Live alerts handed to Swift on this connection and not yet acknowledged. */
+  #handedOver = new Set<string>();
   /** Register/unregister/catch-up run one at a time, each against the latest on/off state. */
   #queue: Promise<void> = Promise.resolve();
   #stop: (() => void)[] = [];
@@ -186,12 +195,18 @@ export class NotificationBridge {
           this.#connection++;
           this.#daemon = undefined;
           this.#pushRefused = false;
+          // The daemon gave up waiting on that socket's frames; a late ack would mean nothing.
+          this.#handedOver.clear();
         }
       }),
       client.onMessage((message) => {
         if (message.type !== "notification") return;
-        this.#acknowledge(message.notification.id);
-        if (this.#enabled) this.#alert(message.notification);
+        // Before Swift syncs nothing is known: no ack, so the daemon pushes, and catch-up
+        // posts it here later unless the push already showed it (`PushedAlerts`).
+        if (!this.#synced) return;
+        // Off by the phone's own choice: taken and deliberately not shown.
+        if (!this.#enabled) return this.#acknowledge(message.notification.id);
+        this.#alert(message.notification);
       }),
     );
   }
@@ -236,6 +251,9 @@ export class NotificationBridge {
         return;
       case "notifications.reply":
         void this.#reply(action).catch(() => this.#outcome(action.requestId, "unsaved"));
+        return;
+      case "notifications.delivered":
+        if (this.#handedOver.delete(action.id)) this.#acknowledge(action.id);
     }
   }
   /** Watches usage limits only while an alert could show: on, ready, and the category wanted. */
@@ -337,11 +355,11 @@ export class NotificationBridge {
     if (want !== "unregistered") await this.#catchUp();
   }
   /**
-   * Tells the daemon this phone took a live alert, so it doesn't push it too (ADR 0106). The ack
-   * says the frame reached a running app, not that an alert was shown, so it goes out at once,
-   * before any Swift round trip, and also while this machine's alerts are off: the daemon only
-   * sends a frame it decided to alert on, and a muted phone that stayed silent would otherwise
-   * get the push it muted. Before Swift syncs, catch-up still posts the alert.
+   * Tells the daemon this phone handled a live alert, so it doesn't push it too (ADR 0106): Swift
+   * posted it, or this phone's settings say not to show it. An app suspended before then sends
+   * nothing and gets the push. The daemon waits 3 s (`ackTimeoutMs` in the daemon's
+   * `notification-ack.ts`); the request read (`requestMs`, 1.5 s at most) plus Swift's post has
+   * to fit inside it, or the push shows too and the app skips its own copy (`PushedAlerts`).
    */
   #acknowledge(id: string): void {
     // A daemon that refused the push address can't read acks either and would answer each one
@@ -388,12 +406,22 @@ export class NotificationBridge {
     }));
   }
   #alert(notification: Notification): void {
-    void this.#withRequest(notification).then((delivered) =>
+    const connection = this.#connection;
+    void this.#withRequest(notification).then((delivered) => {
+      // Swift's answer acks it only on the connection whose daemon is still waiting.
+      if (connection === this.#connection) {
+        this.#handedOver.add(notification.id);
+        // As many as the daemon waits on at once; an older one's wait is long over.
+        for (const old of this.#handedOver) {
+          if (this.#handedOver.size <= handedOverLimit) break;
+          this.#handedOver.delete(old);
+        }
+      }
       this.#put(`notifications:alert:${notification.id}`, () => ({
         type: "notifications.alert",
         notification: delivered,
-      })),
-    );
+      }));
+    });
   }
   /** The alert with how this phone shows it now (`notification-delivery.ts`). */
   #delivered(notification: Notification): Delivered {

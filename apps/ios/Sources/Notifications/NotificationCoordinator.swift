@@ -174,8 +174,15 @@ struct SystemAuthorizer: NotificationAuthorizer {
         switch patch {
         case .alert(let alert):
             note(alert, from: hostId)
-            guard delivering(hostId), let ledger = entry?.notifier else { return }
-            Task { await ledger.receive(alert) }
+            guard let entry else { return }
+            // Handled means posted, already shown from a push, or not wanted on this phone. Only
+            // then does the bridge ack it; a phone suspended before this point gets the push.
+            let delivered = { _ = entry.model.notificationAction(["type": "notifications.delivered", "id": alert.id]) }
+            guard delivering(hostId) else { return delivered() }
+            Task {
+                await entry.notifier.receive(alert)
+                delivered()
+            }
         case .limit(let alert):
             guard delivering(hostId), alert.delivery?.post != false else { return }
             post(.limit(alert, hostId: hostId), from: hostId)
