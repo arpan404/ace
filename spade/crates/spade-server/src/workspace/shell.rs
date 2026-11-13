@@ -36,8 +36,57 @@ pub struct Job<'a> {
     /// Set after the built environment, overriding it.
     pub env: &'a [(String, String)],
     pub tee: Option<Tee>,
-    /// Told the command's process id (its process group's) once it starts.
-    pub started: Option<&'a (dyn Fn(u32) + Send + Sync)>,
+    /// Where the end of everything the command started is recorded, so its owner can wait for
+    /// it even when this run is dropped mid-way.
+    pub cleanup: Option<Cleanup>,
+}
+
+/// The ends of a command's processes, as they happen: each recorded before it runs and settled
+/// when it is done, whether the run that started it finished or was dropped (a take-over,
+/// Stop). The owner of the command waits on it before anything else may run.
+#[derive(Clone, Default)]
+pub struct Cleanup(Arc<Mutex<CleanupState>>);
+
+#[derive(Default)]
+struct CleanupState {
+    pending: Vec<tokio::sync::watch::Receiver<Option<bool>>>,
+    incomplete: bool,
+}
+
+impl Cleanup {
+    /// Records an end about to run; answers where it says how it went.
+    fn begin(&self) -> tokio::sync::watch::Sender<Option<bool>> {
+        let (done, waiting) = tokio::sync::watch::channel(None);
+        self.lock().pending.push(waiting);
+        done
+    }
+
+    /// An end that already ran.
+    fn ended(&self, settled: bool) {
+        if !settled {
+            self.lock().incomplete = true;
+        }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, CleanupState> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Waits until every end recorded so far is done; answers whether all of them settled.
+    pub async fn settled(&self) -> bool {
+        let pending = std::mem::take(&mut self.lock().pending);
+        let mut settled = true;
+        for mut waiting in pending {
+            match waiting.wait_for(Option::is_some).await {
+                Ok(result) => settled &= result.unwrap_or(false),
+                Err(_) => settled = false,
+            }
+        }
+        let mut state = self.lock();
+        settled && !std::mem::take(&mut state.incomplete)
+    }
 }
 
 /// How a command ended.
@@ -57,13 +106,26 @@ pub struct Ran {
 #[derive(Clone)]
 pub struct Shell {
     env: Env,
+    /// How long ending a command's processes waits before it starts (zero but in tests, which
+    /// stand in for a machine too loaded to end them at once).
+    end_delay: Duration,
 }
 
 impl Shell {
     /// `env` is Spade's environment; only the few variables a shell needs are taken from it,
     /// and never `PATH`.
     pub fn new(env: Env) -> Self {
-        Self { env }
+        Self {
+            env,
+            end_delay: Duration::ZERO,
+        }
+    }
+
+    /// Makes every end of a command's processes wait `delay` first: for tests of what happens
+    /// while an end is still going on.
+    pub fn with_end_delay(mut self, delay: Duration) -> Self {
+        self.end_delay = delay;
+        self
     }
 
     /// The machine's own environment.
@@ -107,7 +169,7 @@ impl Shell {
             timeout,
             env: &[],
             tee: None,
-            started: None,
+            cleanup: None,
         })
         .await
     }
@@ -137,10 +199,13 @@ impl Shell {
             .spawn()
             .map_err(|error| format!("the shell could not start: {error}"))?;
         // Kills everything the command started when this run ends, however it ends.
-        let mut contained = platform::contain(&child, &mark, spawned_us);
-        if let (Some(started), Some(pid)) = (job.started, child.id()) {
-            started(pid);
-        }
+        let mut contained = platform::contain(
+            &child,
+            &mark,
+            spawned_us,
+            job.cleanup.clone().unwrap_or_default(),
+        );
+        contained.delay(self.end_delay);
         let mut readers = Readers::default();
         let stdout = child
             .stdout
@@ -281,7 +346,7 @@ mod platform {
 
     /// The command (it leads its own process group) and the mark everything it starts carries;
     /// all of it is ended once, by `kill` or else on drop.
-    pub(super) struct Contained(Option<Run>);
+    pub(super) struct Contained(Option<Run>, super::Cleanup);
 
     pub(super) fn now_us() -> u64 {
         std::time::SystemTime::now()
@@ -289,7 +354,12 @@ mod platform {
             .map_or(0, |d| u64::try_from(d.as_micros()).unwrap_or(u64::MAX))
     }
 
-    pub(super) fn contain(child: &Child, mark: &str, spawned_us: u64) -> Contained {
+    pub(super) fn contain(
+        child: &Child,
+        mark: &str,
+        spawned_us: u64,
+        cleanup: super::Cleanup,
+    ) -> Contained {
         Contained(
             child
                 .id()
@@ -300,11 +370,19 @@ mod platform {
                     reaped: false,
                     started_us: spawned_us,
                     ended_us: None,
+                    delay: std::time::Duration::ZERO,
                 }),
+            cleanup,
         )
     }
 
     impl Contained {
+        pub(super) fn delay(&mut self, delay: std::time::Duration) {
+            if let Some(run) = self.0.as_mut() {
+                run.delay = delay;
+            }
+        }
+
         /// The leader was reaped: its number is never signalled again.
         pub(super) fn reaped(&mut self) {
             if let Some(run) = self.0.as_mut() {
@@ -314,23 +392,31 @@ mod platform {
         }
 
         /// Ends the command and everything it started, sessions of their own included, off the
-        /// async threads. Disarms: later calls and the drop do nothing. Answers whether it all
-        /// stopped.
+        /// async threads. Disarms: later calls and the drop do nothing. The end is recorded in
+        /// the cleanup before it starts, and runs to its end even if this run is dropped
+        /// meanwhile, so the command's owner can wait for it. Answers whether it all stopped.
         pub(super) async fn kill(&mut self) -> bool {
             let Some(run) = self.0.take() else {
                 return true;
             };
-            tokio::task::spawn_blocking(move || end(&run))
-                .await
-                .unwrap_or(false)
+            let done = self.1.begin();
+            let mut told = done.subscribe();
+            tokio::task::spawn_blocking(move || {
+                let settled = end(&run);
+                done.send_replace(Some(settled));
+            });
+            match told.wait_for(Option::is_some).await {
+                Ok(settled) => settled.unwrap_or(false),
+                Err(_) => false,
+            }
         }
     }
 
     impl Drop for Contained {
-        /// The run was dropped (a take-over or Stop): ended here, at once.
+        /// The run was dropped (a take-over or Stop) before its end: ended here, at once.
         fn drop(&mut self) {
             if let Some(run) = self.0.take() {
-                end(&run);
+                self.1.ended(end(&run));
             }
         }
     }
@@ -402,7 +488,12 @@ mod platform {
         0
     }
 
-    pub(super) fn contain(child: &Child, _mark: &str, _spawned_us: u64) -> Contained {
+    pub(super) fn contain(
+        child: &Child,
+        _mark: &str,
+        _spawned_us: u64,
+        _cleanup: super::Cleanup,
+    ) -> Contained {
         let job = Job::create().ok().and_then(|job| {
             let mut info = ExtendedLimitInfo::new();
             info.limit_kill_on_job_close();
@@ -420,6 +511,8 @@ mod platform {
     }
 
     impl Contained {
+        pub(super) fn delay(&mut self, _delay: std::time::Duration) {}
+
         /// Nothing to note: the job holds the command whatever its number.
         pub(super) fn reaped(&mut self) {}
 

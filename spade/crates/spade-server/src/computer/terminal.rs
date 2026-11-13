@@ -26,7 +26,7 @@ use tokio::time::Instant;
 
 use super::ring::{Ring, SCROLLBACK};
 use crate::clock::Clock;
-use crate::workspace::shell::{Job, Ran, Shell, Tee};
+use crate::workspace::shell::{Cleanup, Job, Ran, Shell, Tee};
 
 /// How long a terminal may sit unused before it is ended; the next use starts a new one.
 pub const IDLE: Duration = Duration::from_secs(6 * 60 * 60);
@@ -616,12 +616,17 @@ impl Terminal {
         let command = command.to_owned();
         self.running.store(true, Ordering::SeqCst);
         let supervisor = tokio::spawn(async move {
-            // Dropped, the command's run ends everything it started before this goes on: the
-            // next command, or the person's typing, waits for that.
+            let cleanup = Cleanup::default();
             let finished = tokio::select! {
-                ran = terminal.supervised(&command, timeout) => Some(ran),
+                ran = terminal.supervised(&command, timeout, cleanup.clone()) => Some(ran),
                 _ = abandoned => None,
             };
+            // However the run ended (finished, or dropped by a take-over or Stop, even while its
+            // processes were being ended), nothing else runs here, and the person doesn't type,
+            // until everything it started is gone.
+            if !cleanup.settled().await {
+                terminal.unsettled();
+            }
             terminal.running.store(false, Ordering::SeqCst);
             drop(one);
             terminal.touched();
@@ -636,7 +641,23 @@ impl Terminal {
             .unwrap_or_else(|_| Err("the command was stopped".to_owned()))
     }
 
-    async fn supervised(self: &Arc<Self>, command: &str, timeout: Duration) -> Result<Ran, String> {
+    /// Some of what a command started could not be seen to stop: logged, and the terminal starts
+    /// afresh (a new shell, nothing carried).
+    fn unsettled(&self) {
+        tracing::warn!(bot = %self.bot, "a bot command did not settle; restarting its terminal");
+        self.show(&as_terminal(
+            b"[bot] some of what it started may still run; the terminal starts afresh\n",
+        ));
+        self.end();
+        *lock(&self.carried) = Carried::default();
+    }
+
+    async fn supervised(
+        self: &Arc<Self>,
+        command: &str,
+        timeout: Duration,
+        cleanup: Cleanup,
+    ) -> Result<Ran, String> {
         let carried = lock(&self.carried).clone();
         let dir = carried
             .dir
@@ -682,7 +703,7 @@ impl Terminal {
                     timeout,
                     env: &carried.env,
                     tee: Some(tee),
-                    started: None,
+                    cleanup: Some(cleanup),
                 },
             )
             .await;
@@ -694,15 +715,6 @@ impl Terminal {
                 (false, None) => "[bot] ended by a signal\n".to_owned(),
             };
             self.show(&as_terminal(ending.as_bytes()));
-            if ran.incomplete {
-                // Something of it may still run: the terminal starts afresh.
-                tracing::warn!(bot = %self.bot, "a bot command did not settle; restarting its terminal");
-                self.show(&as_terminal(
-                    b"[bot] some of what it started may still run; the terminal starts afresh\n",
-                ));
-                self.end();
-                *lock(&self.carried) = Carried::default();
-            }
         }
         ran
     }

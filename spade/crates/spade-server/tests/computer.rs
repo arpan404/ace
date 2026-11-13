@@ -1316,3 +1316,52 @@ async fn a_call_allowed_for_one_terminal_state_is_not_run_once_an_earlier_call_c
     machine.terminals.end_all();
     Ok(())
 }
+
+#[tokio::test]
+async fn a_call_dropped_while_its_processes_are_being_ended_still_holds_the_terminal_until_they_are()
+-> Result {
+    let root = tempfile::tempdir()?;
+    let workspaces = Workspaces::new(root.path().join("workspace"));
+    // Ending a command's processes takes a while here, as on a loaded machine.
+    let terminals = Terminals::new(
+        root.path().join("terminal"),
+        workspaces,
+        Shell::system().with_end_delay(Duration::from_millis(600)),
+        Arc::new(SystemClock),
+    );
+    let terminal = terminals.of("a_1")?;
+    // Made here, so no other process's command line holds it.
+    let token = format!("T{}", uuid::Uuid::new_v4().simple());
+    let busy: String = (0..5)
+        .map(|_| format!("sh -c 'while :; do sleep 0.05; done; : {token}' & "))
+        .collect();
+    let running = terminal.clone();
+    let call = tokio::spawn(async move {
+        running
+            .run(
+                &format!(
+                    "{busy}
+sleep 30"
+                ),
+                Duration::from_millis(300),
+            )
+            .await
+    });
+    // Past the deadline, while its processes are still being ended, the call is dropped.
+    tokio::time::sleep(Duration::from_millis(450)).await;
+    call.abort();
+    assert!(
+        terminal.bot_running(),
+        "the terminal was let go before the old tree was gone"
+    );
+    // The next command runs only once all of the old one is gone.
+    let next = terminal
+        .run(
+            &format!("ps -A -o command= | grep -c '[T]{}' || true", &token[1..]),
+            Duration::from_secs(10),
+        )
+        .await?;
+    assert_eq!(next.stdout.trim(), "0", "the old tree still ran");
+    terminals.end_all();
+    Ok(())
+}

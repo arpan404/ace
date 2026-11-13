@@ -60,6 +60,8 @@ pub(super) struct Run {
     pub started_us: u64,
     #[cfg_attr(target_os = "linux", allow(dead_code))]
     pub ended_us: Option<u64>,
+    /// Waited before anything is ended (tests only; see `Shell::with_end_delay`).
+    pub delay: std::time::Duration,
 }
 
 /// Which of `all` belong to `run`: see the module's comment. `me` is Spade's own pid.
@@ -102,6 +104,16 @@ pub(super) fn select(all: &[Found], run: &Run, me: i32) -> BTreeSet<i32> {
     chosen
 }
 
+/// Whether a look (`now`, of which `chosen` belong to the command) shows the end settled: it
+/// finds no member that isn't `known` (one can fork between two looks), and every known one is
+/// stopped or gone.
+pub(super) fn settles(known: &[Found], now: &[Found], chosen: &BTreeSet<i32>) -> bool {
+    let newcomer = chosen
+        .iter()
+        .any(|pid| !known.iter().any(|k| k.pid == *pid));
+    !newcomer && all_still(known, now)
+}
+
 /// Whether every process in `known` is, by `now`, stopped or gone (exited, reaped, or its number
 /// another process's). A stop signal sent is not proof: only a process seen stopped counts.
 pub(super) fn all_still(known: &[Found], now: &[Found]) -> bool {
@@ -120,6 +132,9 @@ pub(super) fn same(then: &Found, now: &Found) -> bool {
 /// Ends `run` and everything it started. Answers whether that settled: `false` means some may
 /// still run.
 pub(super) fn end(run: &Run) -> bool {
+    if !run.delay.is_zero() {
+        std::thread::sleep(run.delay);
+    }
     let me = rustix::process::getpid().as_raw_nonzero().get();
     let mut known: BTreeMap<i32, platform::Handle> = BTreeMap::new();
     let mut settled = false;
@@ -140,12 +155,23 @@ pub(super) fn end(run: &Run) -> bool {
         if new {
             continue;
         }
-        // Nothing new: done once each one found is seen stopped or gone.
+        // Nothing new: done once this look also finds nothing new (a member can fork between
+        // two looks) and each one found is seen stopped or gone.
         let again = platform::look(&run.mark);
+        let chosen = select(&again, run, me);
         let found: Vec<Found> = known.values().map(|h| h.found().clone()).collect();
-        if all_still(&found, &again) {
+        if settles(&found, &again, &chosen) {
             settled = true;
             break;
+        }
+        // A member forked since the last look: it is stopped too, and looked for again.
+        for late in again.iter().filter(|p| chosen.contains(&p.pid)) {
+            if !known.contains_key(&late.pid)
+                && let Some(handle) = platform::Handle::of(late)
+            {
+                handle.signal(Signal::STOP);
+                known.insert(late.pid, handle);
+            }
         }
         // A stop takes a moment to show.
         std::thread::sleep(std::time::Duration::from_millis(10));
@@ -378,6 +404,7 @@ mod tests {
             reaped,
             started_us: 1_000,
             ended_us: reaped.then_some(1_010),
+            delay: std::time::Duration::ZERO,
         }
     }
 
@@ -419,6 +446,19 @@ mod tests {
         let reused = process(102, 1, 900, 5_000);
         assert!(all_still(&known, &[stopped.clone(), reused]));
         assert!(all_still(&known, &[stopped]));
+    }
+
+    #[test]
+    fn a_member_that_forked_between_looks_keeps_the_end_from_settling() {
+        let mut parent = process(101, 100, 100, 1_001);
+        parent.still = true;
+        // Forked after the first look, and already stopped by the second.
+        let mut child = process(103, 101, 100, 1_003);
+        child.still = true;
+        let now = [parent.clone(), child.clone()];
+        let chosen: BTreeSet<i32> = [101, 103].into_iter().collect();
+        assert!(!settles(std::slice::from_ref(&parent), &now, &chosen));
+        assert!(settles(&[parent, child], &now, &chosen));
     }
 
     #[test]
