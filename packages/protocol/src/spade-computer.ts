@@ -85,6 +85,12 @@ export const SpadeComputerDriveResult = z.object({
   type: z.literal("spade.computer.drive.result"),
   requestId: z.string(),
   driver: SpadeComputerDriver.optional(),
+  /**
+   * On a take-over: true once none of the bot's work runs, so the person has the controls;
+   * false if some still ran when the daemon stopped waiting (12 s), so they don't yet. Sending
+   * `driver: "person"` again answers again.
+   */
+  stopped: z.boolean().optional(),
   handback: SpadeComputerHandback.optional(),
   error: z.enum(["forbidden", "unavailable"]).optional(),
 });
