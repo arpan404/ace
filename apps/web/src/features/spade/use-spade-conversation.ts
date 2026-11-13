@@ -35,6 +35,7 @@ export function useSpadeConversation(conversation: string) {
     return () => follow.stop();
   }, [follow]);
   useEffect(() => follow.setReady(ready), [follow, ready]);
+  const side: Pick<ConversationFollow, "onSide"> = follow;
   const snapshot = useSyncExternalStore(follow.subscribe, follow.get, follow.get);
   const path = `/v1/conversations/${segment(conversation)}`;
   const listChanged = () => void cache.invalidateQueries({ queryKey: agentsKey });
@@ -42,6 +43,8 @@ export function useSpadeConversation(conversation: string) {
   return {
     ...snapshot,
     ready,
+    /** Frames the stream carries beside the conversation (`onSide`); the same object always. */
+    side,
     retry: () => follow.retry(),
     /** Resolves false when Spade refused it; the message leaves the conversation then. */
     async send(message: SpadeMessage): Promise<void> {

@@ -72,6 +72,8 @@ export class LiveConversation<S, V> {
   private state: S;
   private snapshot: FollowSnapshot<V>;
   private listeners = new Set<() => void>();
+  /** Frames beside the conversation itself (a bot's `computer`, `files`), by event. */
+  private sideListeners = new Map<string, Set<(data: string) => void>>();
   private stops: (() => void)[] = [];
   /** The open stream; ended or closed streams are never this. */
   private stream: { close(): void } | undefined;
@@ -105,6 +107,17 @@ export class LiveConversation<S, V> {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   };
+
+  /**
+   * Frames of `event` the stream carries beside the conversation (a bot's computer, its files
+   * changing), as they arrive.
+   */
+  onSide(event: string, listener: (data: string) => void): () => void {
+    const set = this.sideListeners.get(event) ?? new Set();
+    set.add(listener);
+    this.sideListeners.set(event, set);
+    return () => set.delete(listener);
+  }
 
   /** The highest `seq` folded, for sends that need to know what the person saw. */
   get lastSeq(): number {
@@ -233,6 +246,7 @@ export class LiveConversation<S, V> {
   }
 
   private frame(event: string, data: string) {
+    for (const listener of this.sideListeners.get(event) ?? []) listener(data);
     const input = parseSpadeLiveFrame(event, data);
     if (input && this.folder.fold(this.state, input)) {
       this.retries = 0;
