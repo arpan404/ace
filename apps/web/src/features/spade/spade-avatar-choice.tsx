@@ -27,7 +27,7 @@ export type AvatarDraft =
 const imageTypes = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 const maxImageBytes = 3_750_000;
 const big = 132;
-const mini = 34;
+const mini = 30;
 
 /** A draft as a face to edit, when it is one (a character, chosen or kept). */
 export function draftFace(draft: AvatarDraft): BotFaceModel | undefined {
@@ -111,12 +111,12 @@ function PartRow(props: {
   if (values.length < 2) return null;
   const label = botFaceFieldLabels[field];
   return (
-    <div className="flex min-w-0 flex-col gap-1 @2xl:grid @2xl:grid-cols-[5.5rem_1fr] @2xl:items-center">
+    <div className="flex min-w-0 flex-col gap-0.5">
       <span className="text-ui text-muted-foreground">{label}</span>
       <div
         role="radiogroup"
         aria-label={label}
-        className="-mx-1 flex min-w-0 gap-1 overflow-x-auto px-1 py-1 @2xl:flex-wrap @2xl:overflow-visible"
+        className="-mx-1 flex min-w-0 overflow-x-auto px-1 py-0.5 @lg:flex-wrap @lg:overflow-visible"
       >
         {values.map((value) => {
           const option = changeFace(face, field, value as BotFaceValue<typeof field>);
@@ -130,7 +130,7 @@ function PartRow(props: {
               aria-label={`${label}: ${value}`}
               onClick={() => props.onChange(option)}
               className={cn(
-                "grid size-10 shrink-0 place-items-center rounded-full transition-colors duration-(--motion-fast) focus-ring hover:bg-hover",
+                "grid size-9 shrink-0 place-items-center rounded-full transition-colors duration-(--motion-fast) focus-ring hover:bg-hover",
                 on && "shadow-[0_0_0_1.5px_var(--foreground)]",
               )}
             >
@@ -182,9 +182,9 @@ export function AvatarChoice(props: {
   const shown = face ?? props.fallback;
   return (
     <div className="flex flex-col gap-1.5 @container">
-      <div className="flex flex-col gap-4 @2xl:flex-row @2xl:items-start">
-        <div className="flex flex-col items-center gap-2 self-center @2xl:self-start">
-          <div className="grid size-44 place-items-center rounded-lg bg-fill">
+      <div className="flex flex-col gap-4 @lg:flex-row @lg:items-start">
+        <div className="flex flex-col items-center gap-2 self-center @lg:self-start">
+          <div className="grid size-40 place-items-center rounded-lg bg-fill">
             {face ? (
               <LiveFace face={face} onStep={(field) => setFace(stepFace(face, field))} />
             ) : value.kind === "image" ? (
@@ -212,7 +212,7 @@ export function AvatarChoice(props: {
             )}
           </div>
         </div>
-        <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
           {botFaceFieldOrder.map((field) => (
             <PartRow
               key={field}
