@@ -35,6 +35,20 @@ export const WebPushSubscription = z.object({
   auth: z.string().regex(/^[A-Za-z0-9_-]{22}$/),
 });
 export type WebPushSubscription = z.infer<typeof WebPushSubscription>;
+/**
+ * The phone's APNs token, for alerts through ace's push gateway (ADR 0106). The daemon
+ * encrypts each alert to `p256dh`/`auth` (RFC 8291); only the phone can read it.
+ */
+export const PushNotificationAddress = z.object({
+  channel: z.literal("push"),
+  platform: z.literal("phone"),
+  /** Hex, variable length: Apple says not to hard-code its size. */
+  token: z.string().regex(/^[a-fA-F0-9]{16,400}$/),
+  environment: z.enum(["sandbox", "production"]),
+  p256dh: WebPushSubscription.shape.p256dh,
+  auth: WebPushSubscription.shape.auth,
+});
+export type PushNotificationAddress = z.infer<typeof PushNotificationAddress>;
 export const NotificationAddress = z.discriminatedUnion("channel", [
   z.object({ channel: z.literal("websocket"), platform: z.enum(["desktop", "web", "phone"]) }),
   z.object({
@@ -47,19 +61,7 @@ export const NotificationAddress = z.discriminatedUnion("channel", [
     platform: z.literal("phone"),
     token: z.string().regex(/^[a-fA-F0-9]{64}$/),
   }),
-  /**
-   * The phone's APNs token, for alerts through ace's push gateway (ADR 0106). The daemon
-   * encrypts each alert to `p256dh`/`auth` (RFC 8291); only the phone can read it.
-   */
-  z.object({
-    channel: z.literal("push"),
-    platform: z.literal("phone"),
-    /** Hex, variable length: Apple says not to hard-code its size. */
-    token: z.string().regex(/^[a-fA-F0-9]{16,400}$/),
-    environment: z.enum(["sandbox", "production"]),
-    p256dh: WebPushSubscription.shape.p256dh,
-    auth: WebPushSubscription.shape.auth,
-  }),
+  PushNotificationAddress,
   z.object({
     channel: z.literal("fcm"),
     platform: z.literal("phone"),
