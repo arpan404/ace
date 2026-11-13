@@ -214,7 +214,8 @@ impl Transcript {
             | Known::GroupAnswered { .. }
             | Known::GroupQueued { .. }
             | Known::GroupStopped { .. }
-            | Known::ComputerHandedBack { .. } => {}
+            | Known::ComputerHandedBack { .. }
+            | Known::PersonActivity { .. } => {}
         }
         if self.open_reply().is_none() {
             self.running.clear();

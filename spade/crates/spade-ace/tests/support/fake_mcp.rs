@@ -420,6 +420,12 @@ impl ServerHandler for Fake {
                 result
             }
             "fail" => CallToolResult::error(vec![ContentBlock::text("the thread is archived")]),
+            // In cowork, the person kept using the tab for as long as ace waited (ADR 0143).
+            "browser_busy" => CallToolResult::error(vec![ContentBlock::text(
+                json!({ "code": "person_busy",
+                        "message": "the person is using this tab; nothing was done" })
+                .to_string(),
+            )]),
             "slow" => {
                 tokio::time::sleep(Duration::from_secs(30)).await;
                 CallToolResult::success(vec![])

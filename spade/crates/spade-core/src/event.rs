@@ -213,6 +213,14 @@ pub enum Known {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         data: Vec<String>,
     },
+    /// What the person did on the bot's computer while they shared it (cowork, ADR 0143): Spade's
+    /// summary, offered at the bot's next step boundary. Like a hand-back note it steers a turn
+    /// and opens no reply by itself; the names in `data` are untrusted.
+    PersonActivity {
+        text: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        data: Vec<String>,
+    },
     ReplyFinished {
         reply: String,
         text: String,

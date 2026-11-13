@@ -47,6 +47,8 @@ export function ace(saved: { threads: Map<string, BotThread>; takeovers: Takeove
   const unreadable = new Set<string>();
   const active = new Map<string, ActiveTab>();
   const apps = new Map<string, string[]>();
+  /** Threads whose screen sessions the person used in the last 3 s. */
+  const screenActive = new Set<string>();
   const reports: object[] = [];
   const timers: (() => void)[] = [];
   const computers = new SpadeComputers({
@@ -63,6 +65,7 @@ export function ace(saved: { threads: Map<string, BotThread>; takeovers: Takeove
     tabs: (threadId) => (unreadable.has(threadId) ? undefined : (tabs.get(threadId) ?? [])),
     apps: (threadId) => apps.get(threadId) ?? [],
     activeTab: (threadId) => active.get(threadId),
+    screenPersonActive: (threadId) => screenActive.has(threadId),
     botOf: (threadId) =>
       [...threads]
         .find(([, thread]) => thread.threadId === threadId)?.[0]
@@ -142,6 +145,7 @@ export function ace(saved: { threads: Map<string, BotThread>; takeovers: Takeove
     unreadable,
     active,
     apps,
+    screenActive,
     timers,
     threadOf: (bot: string) => threads.get(`computer:${bot}`)?.threadId,
     advance: (ms: number) => void (clock += ms),

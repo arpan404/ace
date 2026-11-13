@@ -10,6 +10,7 @@ import {
   type SpadeComputerDriver,
   type SpadeComputerHandback,
   type SpadeComputerTab,
+  type CoworkSharing,
 } from "@ace/protocol";
 import type { CallAct } from "@ace/mcp-server";
 import { ComputerDrivers, type TakeoverStore } from "./computer-drivers.ts";
@@ -69,6 +70,8 @@ export interface SpadeComputersDeps {
   tabs(threadId: ThreadId): readonly SpadeComputerTab[] | undefined;
   /** Apps the thread's agent is using now, in the order it began. */
   apps(threadId: ThreadId): readonly string[];
+  /** Whether the person used one of the thread's screen sessions' apps in the last 3 s. */
+  screenPersonActive?(threadId: ThreadId): boolean;
   /** The tab the thread's browser is on, if any, with its backend. */
   activeTab(threadId: ThreadId): ActiveTab | undefined;
   /** The bot whose computer this thread is; undefined for any other thread. */
@@ -146,12 +149,19 @@ export class SpadeComputers {
     const tabs = (thread && this.deps.tabs(thread.threadId)) ?? [];
     const apps = thread ? this.deps.apps(thread.threadId) : [];
     const since = thread && apps.length ? this.using.get(thread.threadId) : undefined;
+    const driver = this.drivers.driver(bot);
+    const personActive = thread ? this.deps.screenPersonActive?.(thread.threadId) : false;
     return {
       bot,
-      driver: this.drivers.driver(bot),
+      driver,
+      mode: driver === "person" ? "exclusive" : "cowork",
       ...(thread ? { threadId: thread.threadId } : {}),
       browser: { tabs: tabs.slice(0, 64) },
-      screen: { apps: apps.slice(0, 16), ...(since !== undefined ? { since } : {}) },
+      screen: {
+        apps: apps.slice(0, 16),
+        ...(since !== undefined ? { since } : {}),
+        ...(personActive ? { personActive: true } : {}),
+      },
     };
   }
 
@@ -165,30 +175,32 @@ export class SpadeComputers {
   async drive(
     bot: string,
     driver: SpadeComputerDriver,
-  ): Promise<{ driver: SpadeComputerDriver; stopped?: boolean; handback?: SpadeComputerHandback }> {
+  ): Promise<{
+    driver: SpadeComputerDriver;
+    mode: CoworkSharing;
+    stopped?: boolean;
+    handback?: SpadeComputerHandback;
+  }> {
     const thread = this.deps.find(hostKeyOf(bot));
     const tabs = thread ? this.deps.tabs(thread.threadId) : [];
     let result: {
       driver: SpadeComputerDriver;
+      mode: CoworkSharing;
       stopped?: boolean;
       handback?: SpadeComputerHandback;
     };
     if (driver === "person") {
       this.drivers.take(bot, tabs ?? []);
-      result = { driver, stopped: await this.stop(bot) };
+      result = { driver, mode: "exclusive", stopped: await this.stop(bot) };
     } else {
       const handback = this.drivers.handBack(bot, tabs);
-      result = { driver, ...(handback ? { handback } : {}) };
+      result = { driver, mode: "cowork", ...(handback ? { handback } : {}) };
     }
     if (thread && tabs) {
       this.sendBrowser(bot, thread.threadId, tabs, this.deps.activeTab(thread.threadId));
     }
     if (thread) {
-      this.send(
-        bot,
-        "screen",
-        screenReport(thread.threadId, this.deps.apps(thread.threadId), this.driving(bot)),
-      );
+      this.sendScreen(bot, thread.threadId, this.deps.apps(thread.threadId));
     }
     return result;
   }
@@ -230,6 +242,9 @@ export class SpadeComputers {
       this.screens.set(id, this.deps.botOf(state.threadId));
     const bot = this.screens.get(id);
     if (bot && state.controller === "human") this.drivers.usedScreen(bot);
+    // The person's lease on the bot's screen changed: Spade hears `person_active`.
+    const thread = bot ? this.deps.find(hostKeyOf(bot)) : undefined;
+    if (bot && thread) this.sendScreen(bot, thread.threadId, this.deps.apps(thread.threadId));
     if (state.lifecycle === "stopped" || state.lifecycle === "failed") this.screens.delete(id);
   }
 
@@ -245,17 +260,20 @@ export class SpadeComputers {
     for (const threadId of this.using.keys()) if (!now.has(threadId)) this.using.delete(threadId);
     for (const threadId of touched) {
       const bot = this.deps.botOf(threadId);
-      if (bot)
-        this.send(
-          bot,
-          "screen",
-          screenReport(threadId, now.get(threadId) ?? [], this.driving(bot)),
-        );
+      if (bot) this.sendScreen(bot, threadId, now.get(threadId) ?? []);
     }
   }
 
   private driving(bot: string): boolean {
     return this.drivers.driver(bot) === "person";
+  }
+
+  private sendScreen(bot: string, threadId: ThreadId, apps: readonly string[]): void {
+    this.send(
+      bot,
+      "screen",
+      screenReport(threadId, apps, this.driving(bot), this.deps.screenPersonActive?.(threadId)),
+    );
   }
 
   private sendBrowser(
@@ -312,8 +330,14 @@ export class SpadeComputers {
 }
 
 export function tabOf(
-  tab: { tabId: string; title: string; url: string },
+  tab: { tabId: string; title: string; url: string; personActive?: boolean | undefined },
   backend?: "user",
 ): SpadeComputerTab {
-  return { tabId: tab.tabId, title: tab.title, url: tab.url, ...(backend ? { backend } : {}) };
+  return {
+    tabId: tab.tabId,
+    title: tab.title,
+    url: tab.url,
+    ...(backend ? { backend } : {}),
+    ...(tab.personActive ? { personActive: true } : {}),
+  };
 }

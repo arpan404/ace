@@ -1,3 +1,4 @@
+import type { ScreenCowork } from "./cowork.ts";
 import { linuxLaunch, installedLinuxHelper } from "./linux.ts";
 import { graphicalSessionEnvironment } from "./linux-session.ts";
 import { randomUUID } from "node:crypto";
@@ -19,6 +20,8 @@ export function localScreenManager(
     inheritResponsibility?: boolean | undefined;
     /** Linux: the graphical session environment, read each time a helper starts. */
     session?: (() => Promise<NodeJS.ProcessEnv>) | undefined;
+    /** Cowork with the person (ADR 0143), shared with the computer-use tools. */
+    cowork?: ScreenCowork | undefined;
   } = {},
 ): ScreenManager {
   if (!["darwin", "win32", "linux"].includes(process.platform))
@@ -45,6 +48,7 @@ export function localScreenManager(
         }
       : {}),
     nextId: randomUUID,
+    ...(options.cowork ? { cowork: options.cowork } : {}),
     recordingDirectory: artifactDirectory,
     publishArtifact: async (artifact) => {
       await writeFile(join(artifactDirectory, `${artifact.id}.json`), JSON.stringify(artifact), {

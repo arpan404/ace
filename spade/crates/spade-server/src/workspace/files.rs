@@ -63,6 +63,9 @@ pub struct FileView {
     pub text: Option<String>,
     /// Why `text` is absent: `binary` or `too_large`.
     pub unreadable: Option<&'static str>,
+    /// `sha256:<hex>` of its content, for the person's write to send back as `base`. Absent past
+    /// 32 MiB.
+    pub revision: Option<String>,
 }
 
 /// What a search found: its lines for the model, and each file it quoted, with its hash.
@@ -519,12 +522,21 @@ impl Workspace {
                 "{relative} is not a regular file (a pipe, socket or device)"
             )));
         }
-        let (text, unreadable) = if meta.len() > LARGEST_TEXT {
-            (None, Some("too_large"))
+        let (text, unreadable, revision) = if meta.len() > LARGEST_TEXT {
+            let revision = if meta.len() <= super::person::LARGEST_REVISION {
+                Some(super::person::revision_of(
+                    &self.read_file(relative, super::person::LARGEST_REVISION)?,
+                ))
+            } else {
+                None
+            };
+            (None, Some("too_large"), revision)
         } else {
-            match String::from_utf8(self.read_file(relative, LARGEST_TEXT)?) {
-                Ok(text) => (Some(text), None),
-                Err(_) => (None, Some("binary")),
+            let bytes = self.read_file(relative, LARGEST_TEXT)?;
+            let revision = Some(super::person::revision_of(&bytes));
+            match String::from_utf8(bytes) {
+                Ok(text) => (Some(text), None, revision),
+                Err(_) => (None, Some("binary"), revision),
             }
         };
         Ok(FileView {
@@ -532,6 +544,7 @@ impl Workspace {
             size: meta.len(),
             text,
             unreadable,
+            revision,
         })
     }
 

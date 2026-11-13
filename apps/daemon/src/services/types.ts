@@ -80,6 +80,8 @@ export interface Services {
   screen?: ScreenManager;
   /** The agent computer-use engine (macOS), beside the screen manager that streams to people. */
   computer?: ComputerClient;
+  /** Cowork on the screen (ADR 0143): the person's lease per app, shared by tools and live view. */
+  screenCowork?: import("@ace/screen").ScreenCowork;
   /** The locked use service owner (macOS); its service starts only when a gated call needs it. */
   lockedUseRuntime?: import("../locked-use-runtime.ts").LockedUseRuntime;
   /** `ask` questions waiting on the person. */
