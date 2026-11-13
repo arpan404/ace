@@ -51,7 +51,7 @@ Each agent in `GET /agents` carries `computer` with the same object.
 | `PUT /agents/{id}/computer/surfaces/{kind}` | `{"live", "title"?, "url"?, "tab_id"?, "thread_id"?, "person_acted"?}` | `204`; ace only, `kind` is `browser` or `screen` |
 
 **Taking over** saves `<data folder>/computer/<agent>.json` (the conversation, a snapshot of the
-workspace of at most 5,000 entries, the lines entered and surfaces used so far). It then pauses
+workspace of at most 5,000 entries, and the surfaces used so far). It then pauses
 the bot's open turn at its next safe point: a streaming step finishes, tools cut off are answered
 "may have run", and `turn_paused` is stored. Messages sent meanwhile are stored without opening a
 reply. A working bot's status is `Paused while you have the computer`. Stop still closes the
@@ -61,10 +61,11 @@ reply.
 resumes: the paused turn carries on, or the waiting messages open a reply. The note doesn't open
 a reply by itself.
 
-- `text` is Spade's words. It names the lines the person entered at the shell's prompt (50 at
-  most, then a count; theirs, so trusted), says how many workspace files are new, changed or
-  removed since the take-over and how many addresses they visited, opened or closed in the
-  browser, and adds "They used your browser/screen" when ace reported it.
+- `text` is Spade's words: about how long the person had the computer, which surfaces they used
+  ("They used your terminal" once they typed in it, browser and screen as ace reported), how many
+  workspace files are new, changed or removed since the take-over, and how many addresses they
+  visited, opened or closed in the browser. Nothing the person typed is ever in it, or anywhere
+  Spade keeps or sends: their input goes to their shell and nowhere else.
 - `data` holds the names themselves, `new: path` or `went to: address` (30 files at most, 10
   addresses per list), because whoever made a file or a page chose its name. A hand-back with
   `data` counts as untrusted content for the rest of the conversation's view, exactly like a
@@ -73,14 +74,6 @@ a reply by itself.
   is data, `<handback_data untrusted="true">` with the names as a JSON array. It comes after the
   results of any calls still open, like a job's result. The app may show it as a small system
   line.
-
-A line counts as a command only when it answers the shell's prompt. The person's shell draws a
-mark before each prompt (an OSC sequence terminals ignore, `ESC ]777;spade-prompt;<token> BEL`).
-The token is new for each shell and set as the prompt in a startup file (`ENV`), which is deleted
-once the first prompt is drawn. It is never exported, so no program the shell starts sees it. The
-first Return after a mark answers it; any other Return doesn't. So a line typed into a program
-(`sudo`'s password prompt, `read`) or a second line pasted after a command is never kept. Tab
-completion and history are the shell's, so a line is what the person typed, not always what ran.
 
 ## ace's side: browser and screen
 
@@ -116,8 +109,8 @@ The daemon keeps each bot's browser and screen in a hidden thread of its own
 
 On macOS and Linux each bot has one `/bin/sh -i` in a pseudo-terminal (`portable-pty`), started
 in its workspace when first viewed or typed in. It is the person's. Its environment is the
-one-shot shell's (see [workspace.md](workspace.md)) with `TERM=xterm-256color`, and its prompt is
-`$ ` after the mark above. The size starts at
+one-shot shell's (see [workspace.md](workspace.md)) with `TERM=xterm-256color` and `PS1='$ '`.
+The size starts at
 120×32. The last 2 MiB of output is kept as numbered chunks. Numbers start from the clock, so
 they keep growing across Spade restarts.
 
@@ -139,7 +132,7 @@ closed and comes back with its last `seq`.
 ### The bot's `shell` tool
 
 On macOS and Linux it is shown in the terminal and keeps its folder and variables between
-commands. Asking, "always" for the exact command, the timeouts, the 4 MiB output caps, the
+commands. Asking, the timeouts, the 4 MiB output caps, the
 `[stderr]` part, large output kept as a file, and untrusted output are all as in
 [workspace.md](workspace.md). A bot command never goes through the person's shell:
 
@@ -149,8 +142,8 @@ commands. Asking, "always" for the exact command, the timeouts, the 4 MiB output
    environment, stdin from `/dev/null`. Two things change. It starts in the folder the bot's last
    command ended in (the workspace at first), and with the variables that command exported. These
    are never carried: `PATH`, `HOME`, `SHELL`, `ENV`, `BASH_ENV`, `IFS`, `CDPATH`, the prompts,
-   `TERM`, `PWD`, `TMPDIR`, `LANG`, `USER`, `LOGNAME`, `LD_*`, `DYLD_*`, `BASH_FUNC_*`. So a
-   command allowed always still runs the same program. At most 200 variables (64 KiB) are carried.
+   `TERM`, `PWD`, `TMPDIR`, `LANG`, `USER`, `LOGNAME`, `LD_*`, `DYLD_*`, `BASH_FUNC_*`,
+   `SPADE_*`. At most 200 variables (64 KiB) are carried.
    An `EXIT` trap writes the folder and `env -0` to two files in
    `<data folder>/terminal/<agent>/`, which Spade reads and removes.
 3. Its output goes to the model as before, and is copied into the terminal's view as it comes,
@@ -160,6 +153,21 @@ commands. Asking, "always" for the exact command, the timeouts, the 4 MiB output
    5 s) until no process is left in it, and only then does the next command start or the person
    get to type. Completion is the process's own exit, so nothing a command prints can end it
    early.
+5. **Everything it started ends with it, sessions of their own included.** Each command carries
+   `SPADE_RUN=<random>`, which whatever it starts inherits. At its end, by deadline, drop or
+   finish, every process descended from it or carrying the mark is stopped (`SIGSTOP`, so none
+   can start another), looked for again until none is new, then killed with the group. On Linux
+   the mark is read from `/proc/*/environ`, and Spade is a child subreaper (`PR_SET_CHILD_SUBREAPER`),
+   so an orphan is reparented to Spade and reaped once killed. **The limit:** macOS shows no
+   other process's environment, so there only the tree is followed. A process that detached
+   (`setsid`) and was reparented away before the end can survive there, such as a daemon left
+   by a command that finished. On Linux the same holds only for one that also cleared its
+   environment and started another program.
+6. **"Always" holds only in the state it was given in.** Answering `always` covers the exact
+   command run from the same folder with the same carried variables. The approval stores that
+   scope (`approval_requested.scope`: the command and a digest of the folder and variables), and
+   when either has changed, the same command asks again. A carried `NODE_OPTIONS` or `PYTHONPATH`
+   would change what it runs.
 
 On Windows the `shell` tool runs each command on its own, as in workspace.md, and the terminal
 routes answer `503`.
@@ -173,12 +181,16 @@ The workspace routes in [workspace.md](workspace.md) (list, open, download, dele
 | `PUT /agents/{id}/files?path=`     | `{"text"}` or `{"data_b64"}`  | `204`; writes or replaces the file                    |
 | `POST /agents/{id}/files/upload`   | `{"path", "data_b64"}`        | `204`                                                 |
 | `POST /agents/{id}/files/mkdir`    | `{"path"}`                    | `204`; makes folders on the way; a file there is `422` |
-| `POST /agents/{id}/files/move`     | `{"from", "to"}`              | `204`; `409` when `to` exists; never into itself       |
+| `POST /agents/{id}/files/move`     | `{"from", "to"}`              | `204`; `409` when `to` exists; `422` to another disk; never into itself |
 
 - Files are 32 MiB at most (`413`).
 - Writes go through a temporary file renamed into place, as for the tools. A file the person
   writes or uploads is recorded as trusted (path and SHA-256 in the trust record). A move carries
   the trust of what moved, files inside a moved folder included.
+- A move is one rename that refuses a taken target: `renameat2(RENAME_NOREPLACE)` on Linux,
+  `renamex_np(RENAME_EXCL)` on macOS. So something made at the target a moment before is never
+  replaced, and nothing put at the source is lost. On Windows, which has no such rename, Spade
+  checks the target and then renames, so something made there in between can be replaced.
 - Errors as for the workspace: `400` for a path that is absolute, uses `..` or leads outside,
   `404` when missing, `409` as above, `422` for other refusals (a link on the way that leads out
   can answer `400` or `422`; nothing is written either way).
@@ -190,5 +202,5 @@ The conversation's `GET /conversations/{id}/live` adds, for a bot:
 - `computer`: the Computer object. Sent once on connect, after `status`, and again on every
   change: driver, a surface going live or quiet, a new title.
 - `files {"paths": [string] | null}`: the workspace changed. `null` means Spade can't say which
-  files (a bot command ran, or the person entered a line in the terminal), so re-read. Sent for
+  files (a bot command ran, or the person typed in the terminal), so re-read. Sent for
   the person's file routes, `workspace_write`, `workspace_edit` and every bot shell command.
