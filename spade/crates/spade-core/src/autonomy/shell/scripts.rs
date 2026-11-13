@@ -8,8 +8,8 @@ use std::path::Path;
 
 use super::super::Sensitive;
 use super::effects::{Effect, Run};
-use super::paths::Place;
-use super::{Finding, Shown};
+use super::paths::{Place, Unseen, moved};
+use super::{Shown, Walk};
 
 /// The most of one file the reviewer is shown; a longer one goes to the person.
 pub const LONGEST_SCRIPT: usize = 24_000;
@@ -52,11 +52,12 @@ const PROGRAMS: &[&str] = &[
     "exec(",
     "eval(",
     "popen",
-    "pty",
+    "pty.spawn",
     "shell_exec",
     "passthru",
     "proc_open",
-    "%x",
+    "%x{",
+    "%x(",
     "io.popen",
     "os.execute",
     "do shell script",
@@ -117,6 +118,14 @@ const INTERPRETERS: &[&str] = &[
     "lua",
     "osascript",
 ];
+
+/// Whether `program` runs code it is given (a file, or its input).
+pub(super) fn is_interpreter(program: &str) -> bool {
+    let program = program
+        .strip_suffix(|c: char| c.is_ascii_digit() || c == '.')
+        .unwrap_or(program);
+    INTERPRETERS.contains(&program) || matches!(program, "awk" | "gawk" | "mawk" | "nawk")
+}
 
 /// An interpreter's inline code, the file it runs, or a preloaded file (`node -r`).
 pub(super) fn interpreter(program: &str, words: &[String]) -> Effect {
@@ -213,7 +222,11 @@ pub(super) fn interpreter(program: &str, words: &[String]) -> Effect {
             sensitive = sensitive.or(Some(Sensitive::Unclear));
         }
     }
-    Effect { sensitive, runs }
+    Effect {
+        sensitive,
+        runs,
+        ..Effect::default()
+    }
 }
 
 /// An awk program: `-f file` runs a file; inline, `system()` and pipes start other programs.
@@ -225,8 +238,8 @@ fn awk(words: &[String]) -> Effect {
         match word.as_str() {
             "-f" | "--file" => {
                 return Effect {
-                    sensitive: None,
                     runs: words.get(at).cloned().map(Run::File).into_iter().collect(),
+                    ..Effect::default()
                 };
             }
             "-v" | "-F" | "--assign" | "--field-separator" => at += 1,
@@ -247,7 +260,7 @@ fn awk(words: &[String]) -> Effect {
                     sensitive: runs_programs
                         .then_some(Sensitive::Unclear)
                         .or_else(|| markers(program).filter(|k| *k == Sensitive::Network)),
-                    runs: Vec::new(),
+                    ..Effect::default()
                 };
             }
         }
@@ -255,118 +268,337 @@ fn awk(words: &[String]) -> Effect {
     Effect::default()
 }
 
-/// Shows each run's code (adding to `shown`), and says what it needs: a file outside the
-/// folder, unreadable or too long goes to the person; a shell script's or a package script's
-/// commands are checked like the call's own.
-pub(super) fn show(
-    runs: &[Run],
-    place: &dyn Place,
-    depth: usize,
-    shown: &mut Vec<Shown>,
-) -> Option<Finding> {
-    let unseen = Some(Finding::Sensitive(Sensitive::UnseenScript));
+/// Shows the code `run` runs (adding to the walk's `shown` and `ran`), and records what it
+/// needs: a file outside the folder, unreadable or too long goes to the person; a shell script's,
+/// a recipe's or a package script's commands are checked like the call's own; a file that names
+/// a credential place is refused.
+pub(super) fn show(run: &Run, place: &dyn Place, depth: usize, walk: &mut Walk) {
     if depth > DEEPEST {
-        return unseen;
+        walk.kind(Sensitive::UnseenScript);
+        return;
     }
-    for run in runs {
-        let found = match run {
-            Run::File(path) => {
-                let Some(text) = read(place, path) else {
-                    return unseen;
-                };
-                if super::super::secrets::names_place(&text) {
-                    return Some(Finding::Credentials);
-                }
-                let shelled = path.ends_with(".sh")
-                    || text.starts_with("#!")
-                        && text.lines().next().is_some_and(|l| l.ends_with("sh"));
-                shown.push(Shown {
-                    path: path.clone(),
-                    content: text.clone(),
-                });
-                shelled
-                    .then(|| super::assess_at(&text, place, depth + 1, shown))
-                    .flatten()
-            }
-            Run::Make { dir, file } | Run::Just { dir, file } => {
-                let names: &[&str] = if matches!(run, Run::Make { .. }) {
-                    &["GNUmakefile", "makefile", "Makefile"]
-                } else {
-                    &["justfile", "Justfile", ".justfile"]
-                };
-                let candidates: Vec<String> = match file {
-                    Some(file) => vec![join(dir, file)],
-                    None => names.iter().map(|n| join(dir, n)).collect(),
-                };
-                let Some((path, text)) = candidates
+    match run {
+        Run::File(path) => file(place, path, How::Interpreted, depth, walk),
+        Run::Exec(path) => file(place, path, How::Executed, depth, walk),
+        Run::Shell(path) => file(place, path, How::Shell, depth, walk),
+        Run::Make {
+            dir,
+            file: named,
+            goals,
+            vars,
+        } => {
+            let Some(at) = moved(place, dir) else {
+                walk.kind(Sensitive::Unclear);
+                return;
+            };
+            let first = match named {
+                Some(name) => name.clone(),
+                None => match ["GNUmakefile", "makefile", "Makefile"]
                     .iter()
-                    .find_map(|c| read(place, c).map(|text| (c.clone(), text)))
-                else {
-                    return unseen;
-                };
-                shown.push(Shown {
-                    path,
-                    content: text.clone(),
-                });
-                // Recipe lines are shell commands; what they plainly do is checked, though
-                // make's own variables keep some from being read.
-                recipes(&text).find_map(|line| {
-                    match super::assess_at(line, place, depth + 1, shown) {
-                        Some(Finding::Sensitive(Sensitive::Unclear | Sensitive::UnseenScript)) => {
-                            None
-                        }
-                        other => other,
+                    .find(|name| exists(&at, name))
+                {
+                    Some(name) => (*name).to_owned(),
+                    None => {
+                        walk.kind(Sensitive::UnseenScript);
+                        return;
                     }
+                },
+            };
+            let mut read = |name: &str| {
+                fetch(&at, name, walk).inspect(|text| {
+                    walk.shown.push(Shown {
+                        path: join(dir, name),
+                        content: text.clone(),
+                    });
                 })
+            };
+            match super::make::recipes(&first, goals, vars, &mut read) {
+                Ok(lines) => {
+                    for line in lines {
+                        super::assess_at(&line, &at, depth + 1, walk);
+                    }
+                }
+                Err(super::make::Unread::Unclear) => walk.kind(Sensitive::Unclear),
+                Err(super::make::Unread::Unseen) => walk.kind(Sensitive::UnseenScript),
             }
-            Run::Package { dir, target } => {
-                let path = join(dir, "package.json");
-                let Some(text) = read(place, &path) else {
-                    return unseen;
-                };
-                let Ok(package) = serde_json::from_str::<serde_json::Value>(&text) else {
-                    return unseen;
-                };
-                let scripts = &package["scripts"];
-                let bodies: Vec<(String, String)> = [
-                    format!("pre{target}"),
-                    target.clone(),
-                    format!("post{target}"),
-                ]
-                .into_iter()
-                .filter_map(|name| scripts[&name].as_str().map(|body| (name, body.to_owned())))
-                .collect();
-                shown.push(Shown {
-                    path: format!("{path} (scripts)"),
-                    content: bodies
-                        .iter()
-                        .map(|(name, body)| format!("{name}: {body}"))
-                        .collect::<Vec<_>>()
-                        .join("\n"),
-                });
-                // A package script runs through `sh -c` from the package's folder.
-                bodies
-                    .iter()
-                    .find_map(|(_, body)| super::assess_at(body, place, depth + 1, shown))
-            }
-        };
-        if found.is_some() {
-            return found;
         }
+        Run::Just {
+            dir,
+            file: named,
+            recipes,
+        } => {
+            let Some(at) = moved(place, dir) else {
+                walk.kind(Sensitive::Unclear);
+                return;
+            };
+            let name = named.clone().or_else(|| {
+                ["justfile", "Justfile", ".justfile"]
+                    .iter()
+                    .find(|name| exists(&at, name))
+                    .map(|name| (*name).to_owned())
+            });
+            let Some(name) = name else {
+                walk.kind(Sensitive::UnseenScript);
+                return;
+            };
+            let Some(text) = fetch(&at, &name, walk) else {
+                return;
+            };
+            walk.shown.push(Shown {
+                path: join(dir, &name),
+                content: text.clone(),
+            });
+            match just(&text, recipes) {
+                Some(lines) => {
+                    for line in lines {
+                        super::assess_at(&line, &at, depth + 1, walk);
+                    }
+                }
+                None => walk.kind(Sensitive::Unclear),
+            }
+        }
+        Run::Package { dir, target } => {
+            let Some(at) = moved(place, dir) else {
+                walk.kind(Sensitive::Unclear);
+                return;
+            };
+            let Some(text) = fetch(&at, "package.json", walk) else {
+                return;
+            };
+            let Ok(package) = serde_json::from_str::<serde_json::Value>(&text) else {
+                walk.kind(Sensitive::UnseenScript);
+                return;
+            };
+            let scripts = &package["scripts"];
+            let bodies: Vec<(String, String)> = [
+                format!("pre{target}"),
+                target.clone(),
+                format!("post{target}"),
+            ]
+            .into_iter()
+            .filter_map(|name| scripts[&name].as_str().map(|body| (name, body.to_owned())))
+            .collect();
+            walk.shown.push(Shown {
+                path: format!("{} (scripts)", join(dir, "package.json")),
+                content: bodies
+                    .iter()
+                    .map(|(name, body)| format!("{name}: {body}"))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            });
+            // A package script runs through `sh -c` from the package's folder.
+            for (_, body) in &bodies {
+                super::assess_at(body, &at, depth + 1, walk);
+            }
+        }
+        Run::GitHooks { dir } => hooks(place, dir, depth, walk),
     }
-    None
 }
 
-/// A file's text, when it is inside the folder and short enough to show.
-fn read(place: &dyn Place, path: &str) -> Option<String> {
-    if path.starts_with('~') || path.contains('$') || path.contains('`') {
-        return None;
+/// How a file is run.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum How {
+    /// By a shell: `sh x`, `source x`, `sh < x`.
+    Shell,
+    /// By the interpreter the command names: `python x.py`.
+    Interpreted,
+    /// Directly: its `#!` line names the interpreter, and with none the system's shell runs it.
+    Executed,
+}
+
+/// A script file: shown; a shell script's commands checked like the call's own; any other
+/// script that starts programs or builds code goes to the person, since what it runs isn't shown.
+fn file(place: &dyn Place, path: &str, how: How, depth: usize, walk: &mut Walk) {
+    let Some(text) = fetch(place, path, walk) else {
+        return;
+    };
+    walk.shown.push(Shown {
+        path: path.to_owned(),
+        content: text.clone(),
+    });
+    let first = text.lines().next().unwrap_or("");
+    let shell_line = first.starts_with("#!") && (first.ends_with("sh") || first.contains("sh "));
+    let shelled = match how {
+        How::Shell => true,
+        How::Interpreted => false,
+        How::Executed => shell_line || !first.starts_with("#!"),
+    };
+    if shelled {
+        super::assess_at(&text, place, depth + 1, walk);
+    } else if let Some(kind) = markers(&text) {
+        walk.kind(match kind {
+            Sensitive::Network => Sensitive::Network,
+            _ => Sensitive::Unclear,
+        });
     }
-    let real = place.resolve(path)?;
-    if !place.contains(&real) {
-        return None;
+}
+
+/// The hooks a git command would run: the repository's own, shown and checked like scripts.
+/// Hooks set elsewhere (`core.hooksPath`), a repository Spade can't read, or one shared with
+/// another worktree are unclear.
+fn hooks(place: &dyn Place, dir: &str, depth: usize, walk: &mut Walk) {
+    let Some(at) = moved(place, dir) else {
+        walk.kind(Sensitive::Unclear);
+        return;
+    };
+    let Some(mut folder) = at.resolve(".") else {
+        walk.kind(Sensitive::Unclear);
+        return;
+    };
+    loop {
+        match at.list(&folder) {
+            Ok(names) if names.iter().any(|n| n == ".git") => break,
+            Ok(_) | Err(Unseen::Missing) => {}
+            Err(_) => {
+                walk.kind(Sensitive::Unclear);
+                return;
+            }
+        }
+        // No repository: git refuses before any hook.
+        if !folder.pop() {
+            return;
+        }
     }
-    place.read(&real, LONGEST_SCRIPT).ok()
+    let git = folder.join(".git");
+    // `.git` as a file points elsewhere (a worktree, a submodule).
+    if at.list(&git).is_err() {
+        walk.kind(Sensitive::Unclear);
+        return;
+    }
+    match at.read(&git.join("config"), LONGEST_SCRIPT) {
+        Ok(config) => {
+            let config = config.to_lowercase();
+            if ["hookspath", "fsmonitor", "sshcommand", "[alias"]
+                .iter()
+                .any(|key| config.contains(key))
+            {
+                walk.kind(Sensitive::Unclear);
+                return;
+            }
+        }
+        Err(Unseen::Missing) => {}
+        Err(_) => {
+            walk.kind(Sensitive::Unclear);
+            return;
+        }
+    }
+    let names = match at.list(&git.join("hooks")) {
+        Ok(names) => names,
+        Err(Unseen::Missing) => return,
+        Err(_) => {
+            walk.kind(Sensitive::Unclear);
+            return;
+        }
+    };
+    let mut names: Vec<String> = names
+        .into_iter()
+        .filter(|n| !n.ends_with(".sample") && !n.starts_with('.'))
+        .collect();
+    names.sort();
+    for name in names {
+        let path = git.join("hooks").join(&name);
+        file(&at, &path.to_string_lossy(), How::Executed, depth, walk);
+    }
+}
+
+/// The lines `just` would run for `wanted` (none: the first recipe) and their dependencies;
+/// `None` for what it doesn't follow (another shell, a recipe in another language).
+fn just(text: &str, wanted: &[String]) -> Option<Vec<String>> {
+    let mut recipes: Vec<(String, Vec<String>, Vec<String>)> = Vec::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("set ") && trimmed.contains("shell") {
+            return None;
+        }
+        if line.starts_with(' ') || line.starts_with('\t') {
+            if let Some((_, _, body)) = recipes.last_mut() {
+                body.push(trimmed.to_owned());
+            }
+            continue;
+        }
+        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.contains(":=") {
+            continue;
+        }
+        let Some((head, deps)) = trimmed.split_once(':') else {
+            continue;
+        };
+        let name = head
+            .trim_start_matches('@')
+            .split_whitespace()
+            .next()?
+            .to_owned();
+        let deps = deps
+            .split_whitespace()
+            .map(|d| {
+                d.trim_start_matches('(')
+                    .split(' ')
+                    .next()
+                    .unwrap_or(d)
+                    .to_owned()
+            })
+            .filter(|d| !d.is_empty() && !d.starts_with('&'))
+            .collect();
+        recipes.push((name, deps, Vec::new()));
+    }
+    let mut queue: Vec<String> = if wanted.is_empty() {
+        recipes
+            .first()
+            .map(|(n, _, _)| n.clone())
+            .into_iter()
+            .collect()
+    } else {
+        wanted.to_vec()
+    };
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    while let Some(name) = queue.pop() {
+        if !seen.insert(name.clone()) {
+            continue;
+        }
+        let Some((_, deps, body)) = recipes.iter().find(|(n, _, _)| *n == name) else {
+            continue;
+        };
+        if body.first().is_some_and(|l| l.starts_with("#!")) {
+            return None;
+        }
+        out.extend(
+            body.iter()
+                .map(|l| l.trim_start_matches(['@', '-']).to_owned())
+                .filter(|l| !l.is_empty() && !l.starts_with('#')),
+        );
+        queue.extend(deps.iter().rev().cloned());
+    }
+    Some(out)
+}
+
+/// A file's text, when it is inside the folder and short enough to show: recorded as run, and
+/// checked for credential places. `None` (and the walk told) when it can't be shown.
+fn fetch(place: &dyn Place, path: &str, walk: &mut Walk) -> Option<String> {
+    let text = (|| {
+        if path.starts_with('~') || path.contains('$') || path.contains('`') {
+            return None;
+        }
+        let real = place.resolve(path)?;
+        if !place.contains(&real) {
+            return None;
+        }
+        let text = place.read(&real, LONGEST_SCRIPT).ok()?;
+        walk.ran.push(real);
+        Some(text)
+    })();
+    match &text {
+        Some(text) if super::super::secrets::names_place(text) => walk.credentials = true,
+        Some(_) => {}
+        None => walk.kind(Sensitive::UnseenScript),
+    }
+    text
+}
+
+/// Whether `name` is a file in `place`'s folder.
+fn exists(place: &dyn Place, name: &str) -> bool {
+    place
+        .resolve(name)
+        .is_some_and(|real| !matches!(place.read(&real, 1), Err(Unseen::Missing)))
 }
 
 fn join(dir: &str, name: &str) -> String {
@@ -375,12 +607,4 @@ fn join(dir: &str, name: &str) -> String {
     } else {
         Path::new(dir).join(name).to_string_lossy().into_owned()
     }
-}
-
-/// A makefile's or justfile's recipe lines (indented), without make's echo and error marks.
-fn recipes(text: &str) -> impl Iterator<Item = &str> {
-    text.lines()
-        .filter(|line| line.starts_with('\t') || line.starts_with("    "))
-        .map(|line| line.trim().trim_start_matches(['@', '-', '+']).trim())
-        .filter(|line| !line.is_empty() && !line.starts_with('#'))
 }

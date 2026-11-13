@@ -71,6 +71,17 @@ impl Place for FsPlace {
         }
         String::from_utf8(bytes).map_err(|_| Unseen::Unreadable)
     }
+
+    fn list(&self, real: &Path) -> Result<Vec<String>, Unseen> {
+        let entries = std::fs::read_dir(real).map_err(|error| match error.kind() {
+            std::io::ErrorKind::NotFound => Unseen::Missing,
+            _ => Unseen::Unreadable,
+        })?;
+        Ok(entries
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect())
+    }
 }
 
 #[cfg(all(test, unix))]

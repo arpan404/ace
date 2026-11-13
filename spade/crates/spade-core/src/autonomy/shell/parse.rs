@@ -13,15 +13,37 @@ pub(super) struct Simple {
     pub reads_from: Vec<String>,
     /// Its input is the previous command's output.
     pub piped: bool,
+    /// How many subshells `( … )` deep it is: a `cd` inside one ends with it.
+    pub group: usize,
+    /// The folder it starts in, when a wrapper changed it (`env -C dir`).
+    pub dir: Option<String>,
 }
 
 impl Simple {
-    fn of(words: Vec<String>) -> Self {
+    /// A command this one runs, in the same subshell and folder.
+    fn child(&self, words: Vec<String>) -> Self {
         Self {
             words,
+            group: self.group,
+            dir: self.dir.clone(),
             ..Self::default()
         }
     }
+}
+
+/// Commands read from a string `parent` runs (`sh -c`, `su -c`, `watch`, `env -S`): in its
+/// subshell and folder.
+fn adopt(inner: Vec<Simple>, parent: &Simple) -> Vec<Simple> {
+    inner
+        .into_iter()
+        .map(|mut command| {
+            command.group += parent.group;
+            if command.dir.is_none() {
+                command.dir = parent.dir.clone();
+            }
+            command
+        })
+        .collect()
 }
 
 /// Deepest nesting of `sh -c` and `$(...)` read before giving up.
@@ -37,6 +59,7 @@ pub(super) fn parse(text: &str, depth: usize) -> Result<Vec<Simple>, Unreadable>
     let mut out: Vec<Simple> = Vec::new();
     let mut nested: Vec<Simple> = Vec::new();
     let mut current = Simple::default();
+    let mut group = 0usize;
     let mut word = String::new();
     let mut in_word = false;
     let mut target = false;
@@ -105,7 +128,13 @@ pub(super) fn parse(text: &str, depth: usize) -> Result<Vec<Simple>, Unreadable>
                     i += 1;
                 }
                 out.push(std::mem::take(&mut current));
+                match c {
+                    '(' => group += 1,
+                    ')' => group = group.saturating_sub(1),
+                    _ => {}
+                }
                 current.piped = piped;
+                current.group = group;
             }
             '\'' => {
                 in_word = true;
@@ -413,7 +442,7 @@ fn unwrap(mut simple: Simple, depth: usize) -> Result<Vec<Simple>, Unreadable> {
         }
         if let Some((_, valued)) = ELEVATE.iter().find(|(name, _)| *name == program) {
             // The wrapper itself, for the effect check (admin rights).
-            out.push(Simple::of(vec![first.clone()]));
+            out.push(simple.child(vec![first.clone()]));
             simple.words.remove(0);
             if program == "su" {
                 // `su [user] -c 'cmd'`: the string is what runs; without one, a shell reads
@@ -423,7 +452,7 @@ fn unwrap(mut simple: Simple, depth: usize) -> Result<Vec<Simple>, Unreadable> {
                 else {
                     return Ok(out);
                 };
-                out.extend(parse(&script, depth + 1)?);
+                out.extend(adopt(parse(&script, depth + 1)?, &simple));
                 return Ok(out);
             }
             strip_flags(&mut simple.words, valued);
@@ -439,10 +468,26 @@ fn unwrap(mut simple: Simple, depth: usize) -> Result<Vec<Simple>, Unreadable> {
             && let Some(script) =
                 value_of(&simple.words, "-S").or_else(|| value_of(&simple.words, "--split-string"))
         {
-            out.extend(parse(&script, depth + 1)?);
+            out.extend(adopt(parse(&script, depth + 1)?, &simple));
             return Ok(out);
         }
         if let Some((_, valued)) = WRAPPERS.iter().find(|(name, _)| *name == program) {
+            if program == "env"
+                && let Some(dir) =
+                    value_of(&simple.words, "-C").or_else(|| value_of(&simple.words, "--chdir"))
+            {
+                simple.dir = Some(match simple.dir.take() {
+                    Some(before) if !dir.starts_with('/') => format!("{before}/{dir}"),
+                    _ => dir,
+                });
+            }
+            // What xargs runs takes its words from its input: a shell or interpreter given
+            // them runs text Spade never sees.
+            let replace = (program == "xargs").then(|| {
+                value_of(&simple.words, "-I")
+                    .or_else(|| value_of(&simple.words, "--replace"))
+                    .unwrap_or_else(|| "{}".to_owned())
+            });
             simple.words.remove(0);
             strip_flags(&mut simple.words, valued);
             // `timeout 10 cmd`, `chrt 10 cmd`, `taskset 0x3 cmd`: the first plain value is the
@@ -451,13 +496,26 @@ fn unwrap(mut simple: Simple, depth: usize) -> Result<Vec<Simple>, Unreadable> {
             {
                 simple.words.remove(0);
             }
+            if let Some(replace) = replace
+                && let Some(next) = simple.words.first()
+                && INTERPRETERS.contains(&basename(next))
+            {
+                let inline = simple.words[1..]
+                    .iter()
+                    .position(|w| matches!(w.as_str(), "-c" | "-e" | "-E" | "-r"))
+                    .and_then(|at| simple.words.get(at + 2));
+                match inline {
+                    Some(code) if !code.contains(&replace) && !code.contains("{}") => {}
+                    _ => return Err(Unreadable),
+                }
+            }
             if program == "doppler" {
                 // `doppler run -- cmd`.
                 if simple.words.first().is_some_and(|w| w == "run") {
                     simple.words.remove(0);
                     strip_flags(&mut simple.words, &[]);
                 } else {
-                    out.push(Simple::of(vec![first]));
+                    out.push(simple.child(vec![first]));
                     return Ok(out);
                 }
             }
@@ -466,7 +524,7 @@ fn unwrap(mut simple: Simple, depth: usize) -> Result<Vec<Simple>, Unreadable> {
         if program == "flock" {
             // `flock [flags] file cmd…` or `flock [flags] file -c 'cmd'`.
             if let Some(script) = value_of(&simple.words, "-c") {
-                out.extend(parse(&script, depth + 1)?);
+                out.extend(adopt(parse(&script, depth + 1)?, &simple));
                 return Ok(out);
             }
             simple.words.remove(0);
@@ -486,7 +544,7 @@ fn unwrap(mut simple: Simple, depth: usize) -> Result<Vec<Simple>, Unreadable> {
                 &mut simple.words,
                 &["-n", "-d", "--interval", "-q", "--equexit"],
             );
-            out.extend(parse(&simple.words.join(" "), depth + 1)?);
+            out.extend(adopt(parse(&simple.words.join(" "), depth + 1)?, &simple));
             return Ok(out);
         }
         if program == "parallel" {
@@ -503,16 +561,14 @@ fn unwrap(mut simple: Simple, depth: usize) -> Result<Vec<Simple>, Unreadable> {
             if command.is_empty() {
                 return Err(Unreadable);
             }
-            let inner = Simple {
-                piped: false,
-                ..Simple::of(command)
-            };
+            let inner = simple.child(command);
             out.extend(unwrap(inner, depth + 1)?);
             return Ok(out);
         }
         if program == "find" {
             // `find` itself (for `-delete` and where it starts), then each `-exec` command.
             let words = simple.words.clone();
+            let parent = simple.child(Vec::new());
             out.push(simple);
             let mut at = 0;
             while let Some(start) = words[at..]
@@ -529,7 +585,7 @@ fn unwrap(mut simple: Simple, depth: usize) -> Result<Vec<Simple>, Unreadable> {
                 if inner.is_empty() {
                     break;
                 }
-                out.extend(unwrap(Simple::of(inner), depth + 1)?);
+                out.extend(unwrap(parent.child(inner), depth + 1)?);
             }
             return Ok(out);
         }
@@ -540,7 +596,11 @@ fn unwrap(mut simple: Simple, depth: usize) -> Result<Vec<Simple>, Unreadable> {
                 .position(|w| w.starts_with('-') && !w.starts_with("--") && w.contains('c'))
                 .and_then(|at| simple.words.get(at + 1).cloned());
             if let Some(script) = script {
-                let mut inner = parse(&script, depth + 1)?;
+                // `find -exec sh -c '{}'`: the command is a file's name, not text in the call.
+                if script.contains("{}") {
+                    return Err(Unreadable);
+                }
+                let mut inner = adopt(parse(&script, depth + 1)?, &simple);
                 if let Some(first) = inner.first_mut() {
                     first.piped |= simple.piped;
                 }

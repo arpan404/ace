@@ -24,6 +24,47 @@ pub trait Place {
     fn contains(&self, real: &Path) -> bool;
     /// A file's text, when it is at most `longest` bytes.
     fn read(&self, real: &Path, longest: usize) -> Result<String, Unseen>;
+    /// The names in a folder.
+    fn list(&self, real: &Path) -> Result<Vec<String>, Unseen>;
+}
+
+/// `place`, with commands starting in another folder (`cd x &&`, `make -C x`, `npm --prefix x`).
+pub struct Moved<'a> {
+    inner: &'a dyn Place,
+    cwd: PathBuf,
+}
+
+/// `place` moved to `dir` (relative to where it starts); `None` when `dir` can't be resolved
+/// (a variable, the home folder, a broken link).
+pub fn moved<'a>(place: &'a dyn Place, dir: &str) -> Option<Moved<'a>> {
+    if dir.is_empty() || dir.starts_with('~') || dir.contains('$') || dir.contains('`') {
+        return None;
+    }
+    Some(Moved {
+        inner: place,
+        cwd: place.resolve(dir)?,
+    })
+}
+
+impl Place for Moved<'_> {
+    fn resolve(&self, path: &str) -> Option<PathBuf> {
+        if Path::new(path).is_absolute() {
+            return self.inner.resolve(path);
+        }
+        self.inner.resolve(&self.cwd.join(path).to_string_lossy())
+    }
+
+    fn contains(&self, real: &Path) -> bool {
+        self.inner.contains(real)
+    }
+
+    fn read(&self, real: &Path, longest: usize) -> Result<String, Unseen> {
+        self.inner.read(real, longest)
+    }
+
+    fn list(&self, real: &Path) -> Result<Vec<String>, Unseen> {
+        self.inner.list(real)
+    }
 }
 
 /// A place with no file system: the command starts at the workspace's top, paths are followed
@@ -49,6 +90,10 @@ impl Place for Lexical {
     }
 
     fn read(&self, _real: &Path, _longest: usize) -> Result<String, Unseen> {
+        Err(Unseen::Unreadable)
+    }
+
+    fn list(&self, _real: &Path) -> Result<Vec<String>, Unseen> {
         Err(Unseen::Unreadable)
     }
 }

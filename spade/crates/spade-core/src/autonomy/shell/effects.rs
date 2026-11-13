@@ -10,14 +10,30 @@ use super::paths::{Place, outside};
 /// Code a command runs from a file or a project's task list, which the reviewer must read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Run {
-    /// A script file, as the command names it.
+    /// A file run by the interpreter the command names (`python x.py`).
     File(String),
-    /// A make target: the makefile (`-f`, else the usual names) in `dir`.
-    Make { dir: String, file: Option<String> },
-    /// A `just` recipe: the justfile (`-f`, else the usual names) in `dir`.
-    Just { dir: String, file: Option<String> },
+    /// A file run directly (`./x`): its `#!` line decides, and with none a shell runs it.
+    Exec(String),
+    /// A file run as a shell script (`sh x`, `source x`, `sh < x`), whatever its name.
+    Shell(String),
+    /// Make goals (none: the default goal), from the makefile (`-f`, else the usual names) in
+    /// `dir`, with variables set on the command line.
+    Make {
+        dir: String,
+        file: Option<String>,
+        goals: Vec<String>,
+        vars: Vec<(String, String)>,
+    },
+    /// `just` recipes (none: the first), from the justfile in `dir`.
+    Just {
+        dir: String,
+        file: Option<String>,
+        recipes: Vec<String>,
+    },
     /// A `package.json` script, run by npm, pnpm, yarn or bun, from `dir`.
     Package { dir: String, target: String },
+    /// A git command that runs the repository's hooks, from `dir`.
+    GitHooks { dir: String },
 }
 
 /// What one simple command does.
@@ -25,28 +41,347 @@ pub(super) enum Run {
 pub(super) struct Effect {
     pub sensitive: Option<Sensitive>,
     pub runs: Vec<Run>,
+    /// Paths it writes, copies, moves, links or downloads to, as written.
+    pub writes: Vec<String>,
+    /// It may rewrite files it doesn't name (unpacking, a checkout, a patch).
+    pub rewrites: bool,
 }
 
 impl Effect {
     fn kind(kind: Sensitive) -> Self {
-        Self {
-            sensitive: Some(kind),
-            runs: Vec::new(),
-        }
+        Self::maybe(Some(kind))
     }
 
     fn run(run: Run) -> Self {
         Self {
-            sensitive: None,
             runs: vec![run],
+            ..Self::default()
         }
     }
 
     fn maybe(kind: Option<Sensitive>) -> Self {
         Self {
             sensitive: kind,
-            runs: Vec::new(),
+            ..Self::default()
         }
+    }
+}
+
+/// What `simple` does, run from `place`: its kind, the files it runs, and what it writes.
+pub(super) fn classify(simple: &Simple, place: &dyn Place) -> Effect {
+    let mut effect = what(simple, place);
+    effect.writes = writes(simple);
+    effect.rewrites = rewrites(&simple.words);
+    let program = simple.words.first().map(|w| basename(w)).unwrap_or("");
+    // A shell or interpreter given no file reads its program from its input: `sh < x`.
+    let inline = simple.words.iter().skip(1).any(|w| {
+        matches!(
+            w.as_str(),
+            "-c" | "-e" | "-E" | "-r" | "-p" | "--eval" | "--print"
+        )
+    });
+    if effect.runs.is_empty()
+        && !inline
+        && let Some(from) = simple.reads_from.first()
+    {
+        if SHELLS.contains(&program) {
+            effect.runs.push(Run::Shell(from.clone()));
+        } else if super::scripts::is_interpreter(program) {
+            effect.runs.push(Run::File(from.clone()));
+        }
+    }
+    effect
+}
+
+/// Paths a command writes to, as written: redirects, copy and link targets, downloads.
+fn writes(simple: &Simple) -> Vec<String> {
+    let words = &simple.words;
+    let mut out: Vec<String> = simple.writes_to.clone();
+    let Some(first) = words.first() else {
+        return out;
+    };
+    let named = |flags: &[&str]| -> Vec<String> {
+        words
+            .iter()
+            .enumerate()
+            .filter_map(|(at, w)| {
+                flags.iter().find_map(|f| {
+                    if w == f {
+                        words.get(at + 1).cloned()
+                    } else if f.starts_with("--") {
+                        w.strip_prefix(&format!("{f}=")).map(str::to_owned)
+                    } else {
+                        w.strip_prefix(f)
+                            .filter(|v| !v.is_empty())
+                            .map(str::to_owned)
+                    }
+                })
+            })
+            .collect()
+    };
+    // The name a download takes from its URL.
+    let from_urls = || -> Vec<String> {
+        operands(words)
+            .iter()
+            .filter(|w| w.contains("://"))
+            .filter_map(|url| url.split(['?', '#']).next()?.rsplit('/').next())
+            .filter(|name| !name.is_empty())
+            .map(str::to_owned)
+            .collect()
+    };
+    match basename(first) {
+        "cp" | "mv" | "ln" | "install" | "ditto" | "rsync" | "scp" => {
+            out.extend(named(&["-t", "--target-directory"]));
+            out.extend(operands(words).last().map(|w| (*w).to_owned()));
+        }
+        "tee" | "touch" | "truncate" => out.extend(operands(words).iter().map(|w| (*w).to_owned())),
+        "dd" => out.extend(
+            words
+                .iter()
+                .filter_map(|w| w.strip_prefix("of="))
+                .map(str::to_owned),
+        ),
+        "sed" | "perl" | "ruby"
+            if words.iter().any(|w| {
+                w == "-i"
+                    || (w.starts_with("-i") && !w.starts_with("--"))
+                    || w.starts_with("--in-place")
+            }) =>
+        {
+            out.extend(operands(words).iter().skip(1).map(|w| (*w).to_owned()));
+        }
+        "curl" => {
+            out.extend(named(&["-o", "--output", "--output-dir"]));
+            if words.iter().any(|w| {
+                w == "-O"
+                    || w == "--remote-name"
+                    || w == "--remote-name-all"
+                    || (w.starts_with('-') && !w.starts_with("--") && w.contains('O'))
+            }) {
+                out.extend(from_urls());
+            }
+        }
+        "wget" => {
+            let named_out = named(&["-O", "--output-document", "-P", "--directory-prefix"]);
+            if named_out.is_empty() {
+                out.extend(from_urls());
+            }
+            out.extend(named_out);
+        }
+        _ => {}
+    }
+    out
+}
+
+/// Whether a command may rewrite files it doesn't name: unpacking, checking out, patching.
+fn rewrites(words: &[String]) -> bool {
+    let Some(first) = words.first() else {
+        return false;
+    };
+    match basename(first) {
+        "tar" | "bsdtar" | "gtar" => words.iter().skip(1).any(|w| {
+            w == "--extract"
+                || w == "--get"
+                || (!w.starts_with("--") && w.trim_start_matches('-').contains('x'))
+        }),
+        "unzip" | "patch" | "cpio" | "7z" | "unrar" | "ditto" => true,
+        "git" => {
+            subcommand(words, &["-C", "-c", "--git-dir", "--work-tree"]).is_some_and(|(_, s)| {
+                matches!(
+                    s,
+                    "checkout"
+                        | "switch"
+                        | "pull"
+                        | "reset"
+                        | "restore"
+                        | "apply"
+                        | "am"
+                        | "stash"
+                        | "merge"
+                        | "rebase"
+                        | "cherry-pick"
+                        | "revert"
+                        | "clone"
+                        | "worktree"
+                )
+            })
+        }
+        _ => false,
+    }
+}
+
+/// Git's own commands; any other first word is an alias, which can run anything.
+const GIT_OWN: &[&str] = &[
+    "add",
+    "am",
+    "annotate",
+    "apply",
+    "archive",
+    "bisect",
+    "blame",
+    "branch",
+    "bundle",
+    "cat-file",
+    "check-attr",
+    "check-ignore",
+    "check-mailmap",
+    "check-ref-format",
+    "checkout",
+    "cherry",
+    "cherry-pick",
+    "citool",
+    "clean",
+    "clone",
+    "column",
+    "commit",
+    "commit-graph",
+    "commit-tree",
+    "config",
+    "count-objects",
+    "credential",
+    "describe",
+    "diff",
+    "diff-files",
+    "diff-index",
+    "diff-tree",
+    "difftool",
+    "fetch",
+    "fetch-pack",
+    "filter-branch",
+    "for-each-ref",
+    "for-each-repo",
+    "format-patch",
+    "fsck",
+    "gc",
+    "grep",
+    "hash-object",
+    "help",
+    "init",
+    "instaweb",
+    "interpret-trailers",
+    "log",
+    "ls-files",
+    "ls-remote",
+    "ls-tree",
+    "maintenance",
+    "merge",
+    "merge-base",
+    "merge-file",
+    "merge-tree",
+    "mergetool",
+    "mktag",
+    "mktree",
+    "mv",
+    "name-rev",
+    "notes",
+    "pack-objects",
+    "pack-refs",
+    "prune",
+    "pull",
+    "push",
+    "range-diff",
+    "read-tree",
+    "rebase",
+    "reflog",
+    "remote",
+    "repack",
+    "replace",
+    "rerere",
+    "reset",
+    "restore",
+    "rev-list",
+    "rev-parse",
+    "revert",
+    "rm",
+    "send-email",
+    "imap-send",
+    "shortlog",
+    "show",
+    "show-branch",
+    "show-ref",
+    "sparse-checkout",
+    "stash",
+    "status",
+    "stripspace",
+    "submodule",
+    "switch",
+    "symbolic-ref",
+    "tag",
+    "update-index",
+    "update-ref",
+    "var",
+    "verify-commit",
+    "verify-pack",
+    "verify-tag",
+    "version",
+    "whatchanged",
+    "worktree",
+    "write-tree",
+    "lfs",
+    "request-pull",
+    "shell",
+    "sparse",
+    "backfill",
+];
+
+/// Git commands that run the repository's hooks.
+const GIT_HOOKED: &[&str] = &[
+    "commit",
+    "merge",
+    "pull",
+    "push",
+    "rebase",
+    "am",
+    "checkout",
+    "switch",
+    "clone",
+    "worktree",
+    "cherry-pick",
+    "revert",
+    "gc",
+    "apply",
+    "receive-pack",
+    "send-email",
+    "maintenance",
+];
+
+fn git(words: &[String]) -> Effect {
+    let lower: Vec<String> = words.iter().map(|w| w.to_lowercase()).collect();
+    // Hooks moved elsewhere, or a command given as configuration.
+    if lower.iter().any(|w| {
+        w.contains("hookspath")
+            || w.contains("core.sshcommand")
+            || w.contains("core.pager")
+            || w.contains("alias.")
+            || w.contains("core.fsmonitor")
+    }) {
+        return Effect::kind(Sensitive::Unclear);
+    }
+    let Some((_, sub)) = subcommand(
+        words,
+        &["-C", "-c", "--git-dir", "--work-tree", "--namespace"],
+    ) else {
+        return Effect::default();
+    };
+    if !GIT_OWN.contains(&sub) {
+        return Effect::kind(Sensitive::Unclear);
+    }
+    let kind = match sub {
+        "push" => Some(Sensitive::Publish),
+        "send-email" | "imap-send" => Some(Sensitive::MessageAsPerson),
+        _ => None,
+    };
+    let runs = if GIT_HOOKED.contains(&sub) {
+        vec![Run::GitHooks {
+            dir: flag_value(words, "-C", "-C").unwrap_or_else(|| ".".to_owned()),
+        }]
+    } else {
+        Vec::new()
+    };
+    Effect {
+        sensitive: kind,
+        runs,
+        ..Effect::default()
     }
 }
 
@@ -107,7 +442,7 @@ fn system_program(path: &str) -> bool {
     .any(|dir| path.starts_with(dir))
 }
 
-pub(super) fn classify(simple: &Simple, place: &dyn Place) -> Effect {
+fn what(simple: &Simple, place: &dyn Place) -> Effect {
     if simple.writes_to.iter().any(|t| outside(place, t)) {
         return Effect::kind(Sensitive::WriteOutside);
     }
@@ -118,7 +453,7 @@ pub(super) fn classify(simple: &Simple, place: &dyn Place) -> Effect {
     let program = basename(first);
     // A program named by its path is a script, unless it is one of the system's.
     if first.contains('/') && !system_program(first) {
-        return Effect::run(Run::File(first.clone()));
+        return Effect::run(Run::Exec(first.clone()));
     }
     let lower: Vec<String> = words.iter().map(|w| w.to_lowercase()).collect();
     let has = |flags: &[&str]| {
@@ -159,19 +494,10 @@ pub(super) fn classify(simple: &Simple, place: &dyn Place) -> Effect {
                 last_outside(words, place)
             }
         }
-        "git" => {
-            let Some((_, sub)) = subcommand(words, &["-C", "-c", "--git-dir", "--work-tree"])
-            else {
-                return Effect::default();
-            };
-            match sub {
-                "push" => Some(Sensitive::Publish),
-                "send-email" | "imap-send" => Some(Sensitive::MessageAsPerson),
-                _ => None,
-            }
-        }
+        "git" => return git(words),
+        "npx" | "bunx" | "pnpx" => return runner(words, 1, place),
         "gh" => gh(words),
-        "npm" | "pnpm" | "yarn" | "bun" => return package(program, words),
+        "npm" | "pnpm" | "yarn" | "bun" => return package(program, words, place),
         "cargo" => subcommand(words, &[])
             .is_some_and(|(_, s)| matches!(s, "publish" | "yank" | "owner"))
             .then_some(Sensitive::Publish),
@@ -256,34 +582,33 @@ pub(super) fn classify(simple: &Simple, place: &dyn Place) -> Effect {
             .any(|p| outside(place, p))
             .then_some(Sensitive::WriteOutside),
         "find" => find(words, place),
-        "make" | "gmake" => {
-            return Effect::run(Run::Make {
-                dir: flag_value(words, "-C", "--directory").unwrap_or_else(|| ".".to_owned()),
-                file: flag_value(words, "-f", "--file")
-                    .or_else(|| flag_value(words, "-f", "--makefile")),
-            });
-        }
+        "make" | "gmake" => return make(words),
         "just" => {
+            let valued = ["-f", "--justfile", "-d", "--working-directory", "--set"];
             return Effect::run(Run::Just {
                 dir: flag_value(words, "-d", "--working-directory")
                     .unwrap_or_else(|| ".".to_owned()),
                 file: flag_value(words, "-f", "--justfile"),
+                recipes: plain_operands(words, &valued)
+                    .into_iter()
+                    .filter(|w| !w.contains('='))
+                    .collect(),
             });
         }
         "source" | "." => {
             return match operands(words).first() {
-                Some(file) => Effect::run(Run::File((*file).to_owned())),
+                Some(file) => Effect::run(Run::Shell((*file).to_owned())),
                 None => Effect::kind(Sensitive::Unclear),
             };
         }
         "go" if subcommand(words, &[]).is_some_and(|(_, s)| s == "run") => {
             return Effect {
-                sensitive: None,
                 runs: operands(words)
                     .iter()
                     .filter(|w| w.ends_with(".go"))
                     .map(|w| Run::File((*w).to_owned()))
                     .collect(),
+                ..Effect::default()
             };
         }
         "tsx" | "ts-node" => {
@@ -292,19 +617,29 @@ pub(super) fn classify(simple: &Simple, place: &dyn Place) -> Effect {
                 .map_or_else(Effect::default, |f| Effect::run(Run::File((*f).to_owned())));
         }
         _ if SHELLS.contains(&program) => {
-            // `sh -c` was read already; `sh file` runs the file.
-            return operands(words)
-                .first()
-                .map_or_else(Effect::default, |f| Effect::run(Run::File((*f).to_owned())));
+            // `sh -c` was read already; `sh file` runs the file as a shell script.
+            return operands(words).first().map_or_else(Effect::default, |f| {
+                Effect::run(Run::Shell((*f).to_owned()))
+            });
         }
         _ => return super::scripts::interpreter(program, words),
     };
     Effect::maybe(kind)
 }
 
-/// `npm`, `pnpm`, `yarn` and `bun`: publishing goes to the person; running a script shows it.
-fn package(program: &str, words: &[String]) -> Effect {
-    let Some((at, sub)) = subcommand(words, &["--prefix", "-C", "--dir", "--cwd"]) else {
+/// `npm`, `pnpm`, `yarn` and `bun`: publishing goes to the person; running a script shows it;
+/// running a package that isn't installed here fetches and runs code Spade never sees.
+fn package(program: &str, words: &[String], place: &dyn Place) -> Effect {
+    let valued = [
+        "--prefix",
+        "-C",
+        "--dir",
+        "--cwd",
+        "-w",
+        "--workspace",
+        "--filter",
+    ];
+    let Some((at, sub)) = subcommand(words, &valued) else {
         return Effect::default();
     };
     if matches!(
@@ -317,6 +652,14 @@ fn package(program: &str, words: &[String]) -> Effect {
         .or_else(|| flag_value(words, "-C", "--dir"))
         .or_else(|| flag_value(words, "--cwd", "--cwd"))
         .unwrap_or_else(|| ".".to_owned());
+    // `npm exec x`, `pnpm dlx x`, `yarn dlx x`, `bun x x`.
+    if matches!(sub, "exec" | "x" | "dlx") {
+        let place = super::paths::moved(place, &dir);
+        return match &place {
+            Some(place) => runner(&words[at..], 1, place),
+            None => Effect::kind(Sensitive::Unclear),
+        };
+    }
     let next = || {
         words[at + 1..]
             .iter()
@@ -325,8 +668,9 @@ fn package(program: &str, words: &[String]) -> Effect {
     };
     let target = match sub {
         "run" | "run-script" | "rum" | "urn" => next(),
-        "test" | "t" | "tst" | "start" | "stop" | "restart" => Some(sub.to_owned()),
-        // `yarn build` and `bun build-docs` run the package's script of that name.
+        "test" | "t" | "tst" => Some("test".to_owned()),
+        "start" | "stop" | "restart" => Some(sub.to_owned()),
+        // `yarn build` runs the package's script of that name.
         _ if program == "yarn" && !YARN_OWN.contains(&sub) => Some(sub.to_owned()),
         _ => None,
     };
@@ -341,6 +685,102 @@ fn package(program: &str, words: &[String]) -> Effect {
         }
         None => Effect::default(),
     }
+}
+
+/// `npx x`, `bunx x` and the like: a package installed in the project runs its own program (as
+/// any installed program does); one that isn't is fetched from the network first.
+fn runner(words: &[String], from: usize, place: &dyn Place) -> Effect {
+    let valued = ["-p", "--package", "-c", "--call"];
+    if words.iter().any(|w| w == "-c" || w == "--call") {
+        return Effect::kind(Sensitive::Unclear);
+    }
+    let Some(name) = plain_operands(&words[from - 1..], &valued)
+        .into_iter()
+        .next()
+    else {
+        return Effect::kind(Sensitive::Unclear);
+    };
+    let name = name
+        .split('@')
+        .find(|p| !p.is_empty())
+        .unwrap_or(&name)
+        .to_owned();
+    let local = place
+        .resolve(&format!("node_modules/.bin/{name}"))
+        .is_some_and(|real| !matches!(place.read(&real, 1), Err(super::paths::Unseen::Missing)));
+    let fetches = words
+        .iter()
+        .any(|w| w == "-p" || w.starts_with("--package"));
+    if local && !fetches {
+        Effect::default()
+    } else {
+        Effect::kind(Sensitive::Network)
+    }
+}
+
+/// `make [flags] [VAR=value…] [goal…]`.
+fn make(words: &[String]) -> Effect {
+    let valued = [
+        "-C",
+        "--directory",
+        "-f",
+        "--file",
+        "--makefile",
+        "-I",
+        "--include-dir",
+        "-j",
+        "--jobs",
+        "-l",
+        "--load-average",
+        "-o",
+        "--old-file",
+        "-W",
+        "--what-if",
+        "--assume-new",
+    ];
+    // `-e` lets the environment override the makefile, `--eval` adds to it: neither is read.
+    if words
+        .iter()
+        .any(|w| w == "-e" || w == "--environment-overrides" || w.starts_with("--eval"))
+    {
+        return Effect::kind(Sensitive::Unclear);
+    }
+    let (vars, goals): (Vec<String>, Vec<String>) = plain_operands(words, &valued)
+        .into_iter()
+        .partition(|w| w.contains('='));
+    Effect::run(Run::Make {
+        dir: flag_value(words, "-C", "--directory").unwrap_or_else(|| ".".to_owned()),
+        file: flag_value(words, "-f", "--file").or_else(|| flag_value(words, "-f", "--makefile")),
+        goals,
+        vars: vars
+            .iter()
+            .filter_map(|w| {
+                let (name, value) = w.split_once('=')?;
+                Some((
+                    name.trim_end_matches([':', '+', '?']).to_owned(),
+                    value.to_owned(),
+                ))
+            })
+            .collect(),
+    })
+}
+
+/// The words after the program that aren't flags or the values of `valued` flags.
+fn plain_operands(words: &[String], valued: &[&str]) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut skip = false;
+    for word in words.iter().skip(1) {
+        if skip {
+            skip = false;
+            continue;
+        }
+        if word.starts_with('-') {
+            skip = valued.contains(&word.as_str());
+            continue;
+        }
+        out.push(word.clone());
+    }
+    out
 }
 
 /// Yarn's own commands; any other first word runs the package's script.
