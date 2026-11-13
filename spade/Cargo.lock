@@ -3428,6 +3428,7 @@ dependencies = [
  "spade-mcp",
  "spade-models",
  "spade-search",
+ "spade-server",
  "spade-store",
  "spade-testkit",
  "tempfile",

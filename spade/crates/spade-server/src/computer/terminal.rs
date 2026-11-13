@@ -28,6 +28,10 @@ use super::ring::{Ring, SCROLLBACK};
 use crate::clock::Clock;
 use crate::workspace::shell::{Cleanup, Job, Ran, Shell, Tee};
 
+/// How long a command's supervisor waits for the end of what it started before it gives up and
+/// quarantines the terminal.
+pub const END_DEADLINE: Duration = Duration::from_secs(30);
+
 /// How long a terminal may sit unused before it is ended; the next use starts a new one.
 pub const IDLE: Duration = Duration::from_secs(6 * 60 * 60);
 /// The size a terminal starts at, until a viewer says otherwise.
@@ -67,6 +71,9 @@ pub struct Info {
     pub last: Option<i64>,
     /// The last command the bot ran in it.
     pub title: Option<String>,
+    /// Earlier work's end is past its deadline: the bot's commands are refused until it is
+    /// done (the person may still take over).
+    pub ending_stuck: bool,
 }
 
 /// Called with the bot's id when what [`Info`] shows may have changed.
@@ -81,6 +88,8 @@ pub struct Terminals {
     clock: Arc<dyn Clock>,
     all: Mutex<HashMap<String, Arc<Terminal>>>,
     changed: Mutex<Option<Changed>>,
+    /// How long a supervisor waits for a command's end (tests set it shorter).
+    end_deadline: Mutex<Duration>,
 }
 
 impl Terminals {
@@ -97,7 +106,16 @@ impl Terminals {
             clock,
             all: Mutex::default(),
             changed: Mutex::default(),
+            end_deadline: Mutex::new(END_DEADLINE),
         })
+    }
+
+    /// Shortens how long a supervisor waits for a command's end, for tests of the quarantine.
+    /// Only with the `test-hooks` feature; set before the terminal is first used.
+    #[cfg(feature = "test-hooks")]
+    pub fn with_end_deadline(self: Arc<Self>, deadline: Duration) -> Arc<Self> {
+        *lock(&self.end_deadline) = deadline;
+        self
     }
 
     /// Who hears that a terminal started, ended or ran something.
@@ -135,6 +153,8 @@ impl Terminals {
             frames: broadcast::channel(1024).0,
             commands: Arc::new(tokio::sync::Mutex::new(())),
             running: AtomicBool::new(false),
+            stuck: AtomicBool::new(false),
+            end_deadline: *lock(&self.end_deadline),
             supervisor: Mutex::default(),
             changed: lock(&self.changed).clone(),
         });
@@ -286,6 +306,9 @@ pub struct Terminal {
     commands: Arc<tokio::sync::Mutex<()>>,
     /// A bot command runs, or is being stopped.
     running: AtomicBool,
+    /// Quarantined: an earlier command's end is past its deadline and still going on.
+    stuck: AtomicBool,
+    end_deadline: Duration,
     /// The running command's supervisor, so removing the bot ends its command.
     supervisor: Mutex<Option<tokio::task::AbortHandle>>,
     changed: Option<Changed>,
@@ -325,6 +348,7 @@ impl Terminal {
             last: state.last,
             title: state.title.clone(),
             busy: self.bot_running(),
+            ending_stuck: self.stuck.load(Ordering::SeqCst),
         }
     }
 
@@ -600,6 +624,13 @@ impl Terminal {
         expected: Option<&str>,
     ) -> Result<Ran, String> {
         let one = self.commands.clone().lock_owned().await;
+        if self.stuck.load(Ordering::SeqCst) {
+            return Err(
+                "Not run: the terminal is still ending earlier work. Try again later, or \
+                        ask the person."
+                    .to_owned(),
+            );
+        }
         if let Some(expected) = expected
             && self.state_digest() != expected
         {
@@ -624,8 +655,10 @@ impl Terminal {
             // However the run ended (finished, or dropped by a take-over or Stop, even while its
             // processes were being ended), nothing else runs here, and the person doesn't type,
             // until everything it started is gone.
-            if !cleanup.settled().await {
-                terminal.unsettled();
+            match tokio::time::timeout(terminal.end_deadline, cleanup.settled()).await {
+                Ok(true) => {}
+                Ok(false) => terminal.unsettled(),
+                Err(_) => terminal.quarantine(cleanup),
             }
             terminal.running.store(false, Ordering::SeqCst);
             drop(one);
@@ -639,6 +672,26 @@ impl Terminal {
         answered
             .await
             .unwrap_or_else(|_| Err("the command was stopped".to_owned()))
+    }
+
+    /// A command's end is past its deadline. The bot's commands are refused and the surface says
+    /// so, but the terminal is let go, so the person's take-over can finish and they can deal
+    /// with it. Once the end is done, the quarantine clears.
+    fn quarantine(self: &Arc<Self>, cleanup: Cleanup) {
+        tracing::warn!(bot = %self.bot, "a bot command's end is past its deadline; quarantining its terminal");
+        self.stuck.store(true, Ordering::SeqCst);
+        self.touched();
+        self.show(&as_terminal(
+            b"[bot] still ending what the last command started; the bot waits\n",
+        ));
+        let terminal = self.clone();
+        tokio::spawn(async move {
+            if !cleanup.settled().await {
+                terminal.unsettled();
+            }
+            terminal.stuck.store(false, Ordering::SeqCst);
+            terminal.touched();
+        });
     }
 
     /// Some of what a command started could not be seen to stop: logged, and the terminal starts

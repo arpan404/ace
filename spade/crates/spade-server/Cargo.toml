@@ -38,7 +38,14 @@ cap-std = "4.0.3"
 cap = "0.1.2"
 cap-fs-ext = "4.0.3"
 
+[features]
+# Timing hooks only tests may use (`Shell::with_end_delay`, `Terminals::with_end_deadline`); off
+# in every release build.
+test-hooks = []
+
 [dev-dependencies]
+# Spade's own tests turn its test hooks on.
+spade-server = { path = ".", features = ["test-hooks"] }
 keyring-core.workspace = true
 reqwest = { workspace = true, features = ["stream"] }
 # To make the test database refuse chosen writes.

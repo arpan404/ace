@@ -29,6 +29,7 @@ pub struct Info {
     pub since: Option<i64>,
     pub last: Option<i64>,
     pub title: Option<String>,
+    pub ending_stuck: bool,
 }
 
 pub type Changed = Arc<dyn Fn(&str) + Send + Sync>;

@@ -75,8 +75,10 @@ impl Cleanup {
     }
 
     /// Waits until every end recorded so far is done; answers whether all of them settled.
+    /// A wait given up on (a deadline) loses nothing: the ends stay recorded until one is
+    /// seen done.
     pub async fn settled(&self) -> bool {
-        let pending = std::mem::take(&mut self.lock().pending);
+        let pending = self.lock().pending.clone();
         let mut settled = true;
         for mut waiting in pending {
             match waiting.wait_for(Option::is_some).await {
@@ -85,6 +87,7 @@ impl Cleanup {
             }
         }
         let mut state = self.lock();
+        state.pending.retain(|waiting| waiting.borrow().is_none());
         settled && !std::mem::take(&mut state.incomplete)
     }
 }
@@ -122,7 +125,8 @@ impl Shell {
     }
 
     /// Makes every end of a command's processes wait `delay` first: for tests of what happens
-    /// while an end is still going on.
+    /// while an end is still going on. Only with the `test-hooks` feature.
+    #[cfg(feature = "test-hooks")]
     pub fn with_end_delay(mut self, delay: Duration) -> Self {
         self.end_delay = delay;
         self

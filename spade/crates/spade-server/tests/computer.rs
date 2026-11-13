@@ -1365,3 +1365,51 @@ sleep 30"
     terminals.end_all();
     Ok(())
 }
+
+#[tokio::test]
+async fn an_end_past_its_deadline_quarantines_the_terminal_until_it_is_done() -> Result {
+    let root = tempfile::tempdir()?;
+    let workspaces = Workspaces::new(root.path().join("workspace"));
+    // Ending takes far longer than the supervisor waits for it.
+    let terminals = Terminals::new(
+        root.path().join("terminal"),
+        workspaces,
+        Shell::system().with_end_delay(Duration::from_millis(1500)),
+        Arc::new(SystemClock),
+    )
+    .with_end_deadline(Duration::from_millis(300));
+    let terminal = terminals.of("a_1")?;
+    let running = terminal.clone();
+    let call = tokio::spawn(async move {
+        running
+            .run("sleep 30 & sleep 30", Duration::from_millis(200))
+            .await
+    });
+    // Dropped while its end is going on, as by a take-over.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    call.abort();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    // Past the deadline: the person may have the terminal, the bot may not.
+    let info = terminals.info("a_1");
+    assert!(info.ending_stuck, "{info:?}");
+    assert!(!terminal.bot_running(), "a take-over could not finish");
+    let refused = terminal.run("echo hi", Duration::from_secs(5)).await;
+    assert!(
+        refused
+            .as_ref()
+            .is_err_and(|e| e.starts_with("Not run: the terminal is still ending")),
+        "{refused:?}"
+    );
+    // Once the end is done, the quarantine clears.
+    for _ in 0..100 {
+        if !terminals.info("a_1").ending_stuck {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(30)).await;
+    }
+    assert!(!terminals.info("a_1").ending_stuck);
+    let ran = terminal.run("echo hi", Duration::from_secs(5)).await?;
+    assert_eq!(ran.stdout, "hi\n");
+    terminals.end_all();
+    Ok(())
+}

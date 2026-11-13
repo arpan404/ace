@@ -19,7 +19,7 @@ Spade without computers: `503`.
   "surfaces": [
     { "kind": "browser" | "screen" | "terminal" | "files",
       "live": true, "title": "string" | null, "since": 0 | null,
-      "url": "string", "tab_id": "string", "last": 0 | null }
+      "url": "string", "tab_id": "string", "ending_stuck": true, "last": 0 | null }
   ]
 }
 ```
@@ -29,6 +29,11 @@ Spade without computers: `503`.
   `driver: "person"` says `stopped: false` when a bot call was still running after its 12 s
   wait, and every round asks again. The app shouldn't give the person the controls until it is
   false. Without ace it is only the terminal.
+- `ending_stuck` (terminal only, absent when false): the last bot command's processes were not
+  all ended within 30 s, and that is still going on. The terminal is let go, so a take-over
+  finishes (`stopping` turns false) and the person can deal with it. Every bot command is
+  refused ("Not run: the terminal is still ending earlier work") until the end is done, then the
+  flag clears. The app can show it on the terminal tile.
 - `terminal` and `files` are always there. `browser` and `screen` appear once the bot has used
   them or ace has reported them.
 - `since` is when the surface became live (null when it isn't). `last` is when it was last used.
@@ -151,8 +156,10 @@ commands. Asking, the timeouts, the 4 MiB output caps, the
 4. A supervisor owns it, so it ends when its process ends. Past the deadline, or when the call is
    dropped (a take-over or Stop), its whole process group is killed, the supervisor waits (up to
    5 s) until no process is left in it, and only then does the next command start or the person
-   get to type. Completion is the process's own exit, so nothing a command prints can end it
-   early.
+   get to type. That holds when the call is dropped while its processes are still being ended,
+   too. Completion is the process's own exit, so nothing a command prints can end it early. When
+   the end takes longer than 30 s, the terminal is quarantined (`ending_stuck` above) rather
+   than held, so the person is never locked out of it.
 5. **Everything it started ends with it, sessions of their own included.** At its end (by
    deadline, drop or finish) the processes that are provably the command's are chosen:
    - the leader, while it is not yet reaped;

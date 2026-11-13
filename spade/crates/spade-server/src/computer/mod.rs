@@ -123,6 +123,10 @@ pub struct SurfaceView {
     /// The browser tab, as ace reported it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tab_id: Option<String>,
+    /// The terminal only: its last command's end is past its deadline and still going on; the
+    /// bot's commands wait. Absent when false.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub ending_stuck: bool,
     /// `user` when the tab is in the person's own browser, which ace doesn't stream.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backend: Option<String>,
@@ -386,6 +390,7 @@ impl Computers {
                         since: if live { s.since } else { None },
                         url: s.url.clone(),
                         tab_id: s.tab_id.clone(),
+                        ending_stuck: false,
                         backend: s.backend.clone(),
                         last: s.last,
                     });
@@ -401,6 +406,7 @@ impl Computers {
             since: if terminal_live { info.since } else { None },
             url: None,
             tab_id: None,
+            ending_stuck: info.ending_stuck,
             backend: None,
             last: info.last,
         });
@@ -413,6 +419,7 @@ impl Computers {
             since: None,
             url: None,
             tab_id: None,
+            ending_stuck: false,
             backend: None,
             last: touched.map(|t| t.at),
         });
