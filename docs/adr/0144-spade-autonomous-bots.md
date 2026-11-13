@@ -25,8 +25,8 @@ data, credentials) still come to them.
    conversation to `ask`, so no existing bot changes behaviour. The person changes the level per
    bot (`PATCH /v1/agents/{id}` with `access`, or `access` when creating one). The level is stored
    as an `access_changed` event in the bot's conversation, so a restart rebuilds it and the
-   activity log shows the change. It holds from the bot's next tool call: the gate reads it from
-   the events loaded just before it decides, never during a call. Spade, the main bot, is a bot
+   activity log shows the change. It holds from the bot's next tool call: the gate reads it as it
+   decides each call, never during one. Spade, the main bot, is a bot
    like the others here.
 2. **`ask`** keeps today's rules unchanged (ADR 0130, 0133, 0135, 0142), the model review of
    ADR 0135 included.
@@ -57,30 +57,39 @@ data, credentials) still come to them.
      without a review.
 4. **`full_access`.** Nothing asks. The spending caps, the activity log, Stop and the trust
    allowlist for files and skills (ADR 0130) still hold.
-5. **No level reads credentials.** On `auto_review` and `full_access` a call that changes
-   something and names a place where CLI sign-ins or provider credentials live (`~/.codex/auth`,
-   `~/.claude/.credentials`, `gh auth token`, the keychain's `security find-*-password`, `.aws`,
-   `.ssh` and the like) is refused with that reason. It is a match on the arguments, a guard rail
-   rather than a sandbox; on `ask` the person sees the command, as before.
+5. **No level reads credentials.** On every level, and for reads too, a call is refused when its
+   arguments name a place where CLI sign-ins or provider credentials live (`~/.codex`,
+   `~/.claude`, `~/.config/gh/hosts.yml`, `.aws`, `.ssh`, `.netrc`, the keychain and the like),
+   read by any program, or run a tool that reads secrets (`security find-*-password`,
+   `secret-tool lookup`, `gpg --export-secret*`, keyring CLIs). It is a denylist, a guard rail
+   rather than a sandbox; it can't be complete.
+   - Shell commands are also read without a model: sending over the network, mail, publishing,
+     changing servers, writing or deleting outside the bot's folder, driving other apps, admin
+     rights and payments go to the person whatever the reviewer says, and so does a command
+     Spade can't read for sure (here-documents, `eval`, a pipe into a shell).
+   - The reviewer reads the whole call; one too long for its prompt goes to the person. Taint is
+     anything untrusted still in the model's view, from any turn since compaction.
+   - A routine saved or changed while untrusted content is in view always asks the person, on
+     every level, and its firings count as untrusted.
 6. **A bot keeps going until its task is done.** The bot keeps its task state with
    `task_status {status: working | waiting | blocked_on_person | done, note?}`, a read tool; the
    latest call is the state. When a reply ends finished with the task `working`, the engine
    stores `task_continued {step, nudge}` with a new `reply_started` and runs it as a normal turn.
    The model reads the nudge as a note from Spade, never as the person's words. Taint carries
    across these steps back to the latest message. Policy (`spade_core::task`, pure):
-   - at most 25 steps on its own, counted from the latest message from anyone;
+   - at most 25 steps on its own, counted from the person's latest message;
    - a step with no effect (no write, delete or note started; no change to `todo` or
      `task_status`) makes the next wait 30 s, doubling to at most 15 minutes; three in a row
      pause the task;
    - a running background job holds it: the job's result starts the next turn;
    - it never starts while the bot is at a cap, Spade is closing, the person has the bot's
      computer, or after a stop.
-   On a pause Spade stores `task_paused {reason: budget | no_progress, steps}` once, which the
-   person sees; the next message from anyone starts afresh. `waiting` means the bot saves a
-   routine to check back (ADR 0129); `blocked_on_person` means it asked with `ask_user`. A
-   message from the person while a step runs steers that step; Stop ends it and calls off a step
-   waiting to start. The chat shows only the bot's messages and the status line (ADR 0127). A
-   step waiting out a backoff is forgotten when Spade stops; reopening asks the policy again.
+     On a pause Spade stores `task_paused {reason: budget | no_progress, steps}` once, which the
+     person sees; the person's next message starts afresh. `waiting` means the bot saves a
+     routine to check back (ADR 0129); `blocked_on_person` means it asked with `ask_user`. A
+     message from the person while a step runs steers that step; Stop ends it and calls off a step
+     waiting to start. The chat shows only the bot's messages and the status line (ADR 0127). A
+     step waiting out a backoff is forgotten when Spade stops; reopening asks the policy again.
 7. **CLI brains (ADR 0133)** reach Spade's tools through the same gate, so the level maps the
    same way: `auto_review` sends what would ask to the reviewer and `full_access` lets the
    allow-listed ace tools run. `task_status` and continuation work for them too; the nudge goes
