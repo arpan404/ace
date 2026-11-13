@@ -83,6 +83,11 @@ pub enum Known {
         call_id: String,
         name: String,
         arguments: Value,
+        /// What answering "always" covers, as the tool said when it asked (a terminal command's
+        /// covers the command in the folder and with the variables it would run with, ADR
+        /// 0142). Absent for older events and tools whose always covers the whole tool.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        scope: Option<String>,
     },
     ApprovalAnswered {
         reply: String,
@@ -196,6 +201,17 @@ pub enum Known {
     ReplyProgress {
         reply: String,
         text: String,
+    },
+    /// The person handed the bot's computer back after driving it (ADR 0142). `text` is Spade's
+    /// summary of what they did (commands they ran, files they changed, surfaces they used),
+    /// never their keystrokes. The model reads it as a note from Spade, like a job's result: it
+    /// steers a turn that resumes, and opens no reply by itself.
+    ComputerHandedBack {
+        text: String,
+        /// File names and addresses from the person's turn, kept apart from Spade's words:
+        /// whoever made a file or a page chose its name, so these are untrusted data.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        data: Vec<String>,
     },
     ReplyFinished {
         reply: String,

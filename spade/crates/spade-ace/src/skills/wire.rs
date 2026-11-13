@@ -115,7 +115,14 @@ pub(crate) enum Incoming {
     SkillsResult(SkillsResult),
     /// `spade.machines.result` and `spade.remote.result` from
     /// `packages/protocol/src/spade-remote.ts`, kept whole.
-    #[serde(rename = "spade.machines.result", alias = "spade.remote.result")]
+    /// `spade.computer.result` and `spade.computer.drive.result` from
+    /// `packages/protocol/src/spade-computer.ts` (ADR 0142) are read the same way.
+    #[serde(
+        rename = "spade.machines.result",
+        alias = "spade.remote.result",
+        alias = "spade.computer.result",
+        alias = "spade.computer.drive.result"
+    )]
     SpadeResult(SpadeResult),
     #[serde(other)]
     Other,

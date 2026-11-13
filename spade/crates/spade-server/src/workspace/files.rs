@@ -25,7 +25,7 @@ const LINE_CHARS: usize = 2_000;
 const MOST_MATCHES: usize = 200;
 const LARGEST_SEARCHED: u64 = 2 * 1024 * 1024;
 /// Most files a search, or a look for changed files, opens.
-const MOST_WALKED: usize = 5_000;
+pub(super) const MOST_WALKED: usize = 5_000;
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -106,7 +106,7 @@ fn open_regular(at: &Dir, path: &Path, relative: &str) -> Result<cap_std::fs::Fi
 }
 
 /// The folder at `cleaned` (the workspace itself when empty).
-fn folder(dir: &Dir, cleaned: &Path, relative: &str) -> Result<Dir, PathError> {
+pub(super) fn folder(dir: &Dir, cleaned: &Path, relative: &str) -> Result<Dir, PathError> {
     if cleaned.as_os_str().is_empty() {
         return Ok(dir.try_clone()?);
     }
@@ -114,7 +114,7 @@ fn folder(dir: &Dir, cleaned: &Path, relative: &str) -> Result<Dir, PathError> {
         .map_err(|error| PathError::at(relative, error))
 }
 
-fn millis(time: std::io::Result<cap_std::time::SystemTime>) -> Option<i64> {
+pub(super) fn millis(time: std::io::Result<cap_std::time::SystemTime>) -> Option<i64> {
     time.ok()
         .map(cap_std::time::SystemTime::into_std)
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())

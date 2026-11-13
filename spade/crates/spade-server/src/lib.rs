@@ -3,6 +3,7 @@
 pub mod api;
 mod atomic;
 pub mod clock;
+pub mod computer;
 pub mod config;
 pub mod engine;
 pub mod home;

@@ -7,6 +7,7 @@ use spade_models::Models;
 use spade_search::{Search, SearchConfig};
 use spade_server::api::AppState;
 use spade_server::clock::{SystemClock, SystemIds, local_offset_seconds};
+use spade_server::computer::{Computers, Terminals};
 use spade_server::config::Config;
 use spade_server::engine::{Engine, Limits, Setup};
 use spade_server::home::{DEFAULT_SEARCH, Home, HomeError, new_token};
@@ -206,7 +207,13 @@ async fn run() -> Result<(), Failure> {
     );
     let search = Arc::new(search);
     // Tools that find the calling bot through the engine, set once it exists (ADR 0130).
+    // What a bot's command leaves behind is reparented to Spade, so it can be ended (Linux).
+    #[cfg(unix)]
+    spade_server::workspace::adopt_orphans();
     let bots = EngineHandle::default();
+    if let Some(link) = &ace {
+        link.act_for(bots.clone());
+    }
     let mut core: Vec<Arc<dyn Tool>> = vec![
         Arc::new(WebSearch {
             search: search.clone(),
@@ -226,10 +233,23 @@ async fn run() -> Result<(), Failure> {
         workspaces.clone(),
         bots.clone(),
     )));
+    // Each bot's computer (ADR 0142): its terminal is where its shell commands run.
+    let terminals = Terminals::new(
+        home.dir.join("terminal"),
+        workspaces.clone(),
+        Shell::system(),
+        Arc::new(SystemClock),
+    );
+    let computers = Computers::open(
+        home.dir.join("computer"),
+        workspaces.clone(),
+        terminals.clone(),
+        Arc::new(SystemClock),
+    );
     core.extend(workspace_tools(
         workspaces.clone(),
         bots.clone(),
-        Shell::system(),
+        spade_server::computer::shell_commands(&terminals, Shell::system()),
     ));
     core.extend(spade_server::media::tools::all(
         workspaces.clone(),
@@ -317,6 +337,16 @@ async fn run() -> Result<(), Failure> {
     })
     .map_err(other)?;
     bots.set(&engine);
+    // Before work opens: a bot the person had when Spade stopped stays paused.
+    engine.set_computers(computers.clone());
+    if let Some(link) = &ace {
+        let agents = engine
+            .agents()
+            .map(|views| views.into_iter().map(|v| v.agent.id).collect())
+            .unwrap_or_default();
+        computers.set_daemon(link.clone(), agents, spade_server::computer::RESYNC);
+    }
+    computers.reap_idle(spade_server::computer::terminal::IDLE);
     // The person's own SearXNG, as they set it in Spade's settings.
     match engine.searxng_url() {
         Ok(url) => {
@@ -376,6 +406,7 @@ async fn run() -> Result<(), Failure> {
         engine
             .pause_for_stop(spade_core::maintenance::STOP_STEP_ALLOWANCE)
             .await;
+        terminals.end_all();
     };
     let served = spade_server::serve(listener, state, stopping).await;
     home.clear_server_json();

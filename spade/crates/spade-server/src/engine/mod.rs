@@ -8,6 +8,7 @@ mod bots;
 mod brain;
 mod calls;
 mod compact;
+mod computer;
 mod control;
 mod endpoints;
 mod group_run;
@@ -33,6 +34,7 @@ mod types;
 pub use agents::{BOT, MAIN, NAME_CHARS, TASK_CHARS};
 pub use bots::MOST_HOPS;
 pub use brain::BrainSource;
+pub use computer::{PAUSED_FOR_YOU, TakeOverError};
 pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput};
 pub use groups::{GROUP_NAME_CHARS, GroupError, GroupInput, GroupLast, GroupView, MemberRef};
 pub use inbox::{InboxAnswer, Sender as InboxSender};
@@ -84,6 +86,8 @@ struct Live {
     status: Mutex<Option<String>>,
     /// The running turn worker, so deleting the agent can cancel it.
     worker: Mutex<Option<tokio::task::AbortHandle>>,
+    /// True while the person has the bot's computer (ADR 0142): the turn pauses.
+    hold: watch::Sender<bool>,
 }
 
 pub struct Engine {
@@ -142,6 +146,11 @@ pub struct Engine {
     brains: brain::Brains,
     /// Groups and asks between machines (ADR 0132, `crate::teams`).
     teams: crate::teams::Shared,
+    /// The bots' computers (ADR 0142), once the server has set them.
+    computers: std::sync::OnceLock<Arc<crate::computer::Computers>>,
+    /// The scope each call about to run was allowed with, by call key, for the tool to check
+    /// again where it runs (a terminal command's folder and variables, ADR 0142).
+    allowed_scopes: Mutex<HashMap<String, String>>,
 }
 
 /// What `starting` says until setup has run long enough to say more.
@@ -199,6 +208,8 @@ impl Engine {
             routines: crate::routines::Shared::default(),
             brains: brain::Brains::default(),
             teams: crate::teams::Shared::default(),
+            computers: std::sync::OnceLock::new(),
+            allowed_scopes: Mutex::default(),
         });
         handle.set(&engine);
         engine.sync_endpoints()?;
@@ -350,6 +361,7 @@ impl Engine {
         match activity.state {
             State::Idle => None,
             State::Waiting => Some(roster::WAITING_FOR_YOU.to_owned()),
+            State::Working if self.held(id) => Some(computer::PAUSED_FOR_YOU.to_owned()),
             State::Working => Some(
                 self.live(id)
                     .status
@@ -443,7 +455,8 @@ impl Engine {
                 Event::Known(Known::JobFinished { job, .. }) => job_stopped(&events, job),
                 _ => false,
             };
-            let admitted = self.admission.load(Ordering::SeqCst);
+            // While the person has the bot's computer, messages wait for the hand-back.
+            let admitted = self.admission.load(Ordering::SeqCst) && !self.held(id);
             let (start, stored) =
                 if quiet || !admitted || Transcript::fold(&events).open_reply().is_some() {
                     (false, self.append_as(id, std::slice::from_ref(event), ask)?)
@@ -598,6 +611,7 @@ impl Engine {
                     jobs: Mutex::default(),
                     status: Mutex::default(),
                     worker: Mutex::default(),
+                    hold: watch::channel(false).0,
                 })
             })
             .clone()
@@ -674,7 +688,7 @@ impl Engine {
     fn resume(self: &Arc<Self>, id: &str) -> Result<(), StoreError> {
         let open = {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-            if self.deleting(id) {
+            if self.deleting(id) || self.held(id) {
                 return Ok(());
             }
             let events = self.load(id)?;
@@ -715,7 +729,7 @@ impl Engine {
         };
         let (stop_tx, stop_rx) = watch::channel(false);
         *live.stop.lock().unwrap_or_else(|p| p.into_inner()) = Some((reply.clone(), stop_tx));
-        let pause_rx = self.pause.subscribe();
+        let pause_rx = self.turn_pause(id, &live);
         let engine = self.clone();
         let id = id.to_owned();
         let worker =

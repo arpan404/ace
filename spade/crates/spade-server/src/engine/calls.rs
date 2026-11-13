@@ -102,12 +102,13 @@ pub(super) async fn handle_calls(
                     finish_tool(engine, id, reply, &pending.call, &name, missing).await;
                 }
                 Some(def) => {
-                    let always = match engine
+                    let key = format!("{id}.{}", pending.call.id);
+                    let scope = engine
                         .tools
                         .get_for(id, &name)
-                        .and_then(|tool| tool.always_scope(&arguments))
-                    {
-                        Some(scope) => allowed_always_for(engine, id, events, &name, &scope),
+                        .and_then(|tool| tool.always_scope_in(&key, &arguments));
+                    let always = match &scope {
+                        Some(scope) => allowed_always_for(engine, id, events, &name, scope),
                         None => transcript.always_allowed.iter().any(|t| t == &name),
                     };
                     let tainted = match def.risk {
@@ -141,7 +142,13 @@ pub(super) async fn handle_calls(
                         }
                     }
                     match decision {
-                        Decision::Run => runnable.push((pending.call, name, arguments)),
+                        Decision::Run => {
+                            // What "always" allowed, checked again where it runs (ADR 0142).
+                            if let Some(scope) = &scope {
+                                engine.allow_scope(&key, scope);
+                            }
+                            runnable.push((pending.call, name, arguments));
+                        }
                         Decision::Ask => {
                             waiting = true;
                             let asked = Event::Known(Known::ApprovalRequested {
@@ -149,6 +156,7 @@ pub(super) async fn handle_calls(
                                 call_id: pending.call.id.clone(),
                                 name,
                                 arguments,
+                                scope,
                             });
                             // Never asked once the reply is stopped, so no answer can allow it.
                             match engine.record_unless_stopped(id, reply, &asked) {
@@ -160,7 +168,14 @@ pub(super) async fn handle_calls(
                     }
                 }
             },
-            Status::Allowed => runnable.push((pending.call, name, arguments)),
+            Status::Allowed => {
+                // What the person allowed, as it was asked: checked again where it runs, so a
+                // terminal that changed since (or was reset by a restart) is never run in.
+                if let Some(scope) = asked_scope(events, &pending.call.id) {
+                    engine.allow_scope(&format!("{id}.{}", pending.call.id), &scope);
+                }
+                runnable.push((pending.call, name, arguments));
+            }
             Status::Declined => {
                 let declined = ToolOutput::error(DECLINED);
                 finish_tool(engine, id, reply, &pending.call, &name, declined).await;
@@ -220,10 +235,21 @@ fn allowed_always_for(
             always: true,
             ..
         }) => events.iter().any(|asked| {
-            matches!(asked, Event::Known(Known::ApprovalRequested { call_id: c, name: n, arguments, .. })
-                if c == call_id && n == name && tool.always_scope(arguments).as_deref() == Some(scope))
+            matches!(asked, Event::Known(Known::ApprovalRequested { call_id: c, name: n, arguments, scope: asked_scope, .. })
+                if c == call_id && n == name
+                    && asked_scope.clone().or_else(|| tool.always_scope(arguments)).as_deref() == Some(scope))
         }),
         _ => false,
+    })
+}
+
+/// The scope the call `call_id` was asked with, when its tool gave one.
+fn asked_scope(events: &[Event], call_id: &str) -> Option<String> {
+    events.iter().rev().find_map(|event| match event {
+        Event::Known(Known::ApprovalRequested {
+            call_id: c, scope, ..
+        }) if c == call_id => scope.clone(),
+        _ => None,
     })
 }
 
@@ -289,6 +315,7 @@ async fn run_tools(
             if let Err(error) = engine.record(id, &started) {
                 return Handled::Failed(error.to_string());
             }
+            engine.computer_tool_started(id, &name);
             let bot = (name == "bot_message")
                 .then(|| arguments.get("bot").and_then(Value::as_str))
                 .flatten()

@@ -125,6 +125,12 @@ pub trait Tool: Send + Sync {
     fn always_scope(&self, _arguments: &Value) -> Option<String> {
         None
     }
+    /// [`Tool::always_scope`] for the call with `key`, for tools whose scope depends on more
+    /// than the arguments (where the bot's terminal is, ADR 0142). The scope is stored when the
+    /// call asks, so an earlier "always" is matched against it as it was then.
+    fn always_scope_in(&self, _key: &str, arguments: &Value) -> Option<String> {
+        self.always_scope(arguments)
+    }
 }
 
 /// What the engine knows about the turn a call runs in.
