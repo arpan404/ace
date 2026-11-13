@@ -3,7 +3,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useMemo, useState } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { Switch } from "@/components/ui/switch.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { SpadeModelPicker } from "./spade-model-picker.tsx";
 import { oversightKey, readOversight, setOversight } from "./spade-oversight-api.ts";
@@ -14,16 +13,15 @@ import { LoadingRows } from "./spade-settings-loading.tsx";
 const fault = (error: unknown) => (error instanceof Error ? error.message : "Try again.");
 
 /**
- * Settings › Spade › Spending and review (ADR 0135): the review default and its model, the
- * service's daily cap (read only) and what every bot spent together, then one line per bot with
- * Each bot's own spend, caps and review are on its page.
+ * Settings › Spade › Spending and review (ADR 0135): the model that reviews the steps of bots on
+ * Auto-review, then the service's daily cap (read only) and what every bot spent together. Each
+ * bot's own spend, caps and access are on its page.
  */
 export function OversightSettings(props: { ready: boolean }) {
   const client = useSpadeClient();
   const machine = useSpadeMachine().key;
   const cache = useQueryClient();
   const toast = useToast();
-  const id = useId();
   useTellZone(useMemo(() => (props.ready ? [client] : []), [client, props.ready]));
   const oversight = useQuery({
     queryKey: [...oversightKey, machine],
@@ -55,19 +53,6 @@ export function OversightSettings(props: { ready: boolean }) {
   const data = oversight.data;
   return (
     <SettingSection label="Spending and review" anchor="spending">
-      <SettingRow
-        title="Review every bot's steps"
-        description="A second model checks each step that changes something before it runs, and asks you when it looks wrong. Each bot can follow this or choose for itself."
-        htmlFor={id}
-        density="compact"
-        inline
-      >
-        <Switch
-          id={id}
-          checked={data.reviewDefault}
-          onCheckedChange={(checked) => change("the review", { review_default: checked })}
-        />
-      </SettingRow>
       <ReviewModelRow
         oversight={data}
         onChange={(model) => change("the review model", { review_model: model })}
@@ -106,8 +91,8 @@ function ReviewModelRow(props: {
       title="Review model"
       description={
         props.oversight.reviewModel
-          ? "Checks the steps of bots with the review on."
-          : "None picked: the fast model, else each bot's own."
+          ? "Reviews the steps of bots on Auto-review."
+          : "Reviews the steps of bots on Auto-review. None picked: the fast model."
       }
       htmlFor={id}
       density="compact"

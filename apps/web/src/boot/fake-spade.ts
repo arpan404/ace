@@ -112,6 +112,10 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
       cheeks: "blush",
       accessory: "headphones",
     },
+    // Auto-review: the reviewer asked the person about sending as them.
+    access: "auto_review",
+    task_state: { status: "blocked_on_person" },
+    continuing: false,
     last_activity: minutes(11),
   });
   const notes = here.addAgent({
@@ -129,6 +133,10 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
       cheeks: "none",
       accessory: "none",
     },
+    // Full access, carrying on with its task by itself.
+    access: "full_access",
+    task_state: { status: "working", note: "Writing the Fixes section" },
+    continuing: true,
     last_activity: minutes(44),
   });
   const garden = here.addAgent({
@@ -260,11 +268,17 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     inbox,
     "Drafted it:\n\n“Hi Marta, Thursday works for the plumber. Any time after 2pm is fine. Thanks, Arpan”",
   );
-  here.ask(inbox, "k-mail", "send_email", {
-    to: { name: "Marta Reyes", email: "marta@example.com" },
-    subject: "Plumber",
-    body: "Hi Marta, Thursday works for the plumber. Any time after 2pm is fine. Thanks, Arpan",
-  });
+  here.escalate(
+    inbox,
+    "k-mail",
+    "send_email",
+    {
+      to: { name: "Marta Reyes", email: "marta@example.com" },
+      subject: "Plumber",
+      body: "Hi Marta, Thursday works for the plumber. Any time after 2pm is fine. Thanks, Arpan",
+    },
+    "It sends a message as you, so you decide.",
+  );
 
   here.store(notes.conversation, {
     type: "user_message",
@@ -283,6 +297,8 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     name: "Flights",
     task: "Watch fares to Lisbon for the 14th to the 18th and tell me when it's worth booking.",
     model: "openrouter/openai/gpt-6.1-mini",
+    access: "ask",
+    task_state: { status: "done" },
     spending: {
       today_micros: 180_000,
       month_micros: 1_240_000,
@@ -393,11 +409,51 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     },
   ])
     here.routines.agentRoute("POST", "flights", "routines", routine);
+  here.store(flights.conversation, { type: "task_paused", reason: "no_progress", steps: 4 });
   here.oversight.activity.set(
     "flights",
     [
+      { kind: "access", name: "auto_review", summary: "access level", outcome: null, ago: 1 },
+      {
+        kind: "task",
+        name: "paused",
+        summary: "Paused: its last 4 steps changed nothing. Send a message to let it carry on.",
+        outcome: null,
+        ago: 2,
+      },
       { kind: "tool", name: "web_search", summary: "Checked 6 airlines", outcome: "ok", ago: 3 },
-      { kind: "tool", name: "web_fetch", summary: "Found €212 on TAP", outcome: "ok", ago: 3 },
+      {
+        kind: "task",
+        name: "continued",
+        summary: "carried on by itself, step 4",
+        outcome: null,
+        ago: 3,
+      },
+      {
+        kind: "review",
+        name: "workspace_write",
+        summary: "flights.md",
+        reason: "Updating its own fare notes is part of its task.",
+        outcome: "allowed",
+        ago: 4,
+      },
+      {
+        kind: "review",
+        name: "send_email",
+        summary: "to: deals@example.com",
+        reason: "Signing you up for a newsletter isn't part of watching fares.",
+        outcome: "refused",
+        ago: 5,
+      },
+      {
+        kind: "review",
+        name: "call_tool",
+        summary: "book_flight",
+        reason: "It could spend money, so you decide.",
+        outcome: "escalated",
+        ago: 6,
+      },
+      { kind: "tool", name: "web_fetch", summary: "Found €212 on TAP", outcome: "ok", ago: 7 },
       {
         kind: "routine",
         name: "Fare check",
@@ -408,7 +464,7 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     ].map((fields, index) =>
       Object.assign({}, fields, {
         id: `act-${index}`,
-        seq: 3 - index,
+        seq: 100 - index,
         at: minutes(fields.ago),
         cost_micros: null,
       }),
@@ -437,6 +493,10 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
       cheeks: "blush",
       accessory: "none",
     },
+    // Waiting on a long download before its next step: nothing for the person to do.
+    access: "auto_review",
+    task_state: { status: "waiting", note: "Downloading the 14 papers" },
+    continuing: true,
     last_activity: minutes(60 * 24 * 2),
     last_message: {
       from: "agent",

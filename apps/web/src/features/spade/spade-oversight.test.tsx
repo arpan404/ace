@@ -124,7 +124,7 @@ test("Show older reads the page before the last entry shown", async () => {
   expect(screen.queryByRole("button", { name: "Show older" })).toBeNull();
 });
 
-test("the edit form shows what a bot spent and saves its caps in micros and its review", async () => {
+test("the edit form shows what a bot spent and saves its caps in micros", async () => {
   const { spade } = await spadeApp("/spade", seed);
   await openMenu("Edit bot");
   const form = within(await screen.findByRole("dialog", { name: "Edit Scout" }));
@@ -134,11 +134,10 @@ test("the edit form shows what a bot spent and saves its caps in micros and its 
   await userEvent.clear(daily);
   await userEvent.type(daily, "2.50");
   await userEvent.type(form.getByRole("textbox", { name: "Monthly cap" }), "40");
-  await userEvent.click(form.getByRole("button", { name: "On" }));
   await userEvent.click(form.getByRole("button", { name: "Save" }));
   await waitFor(() =>
     expect(spade.sent("PUT", "/v1/agents/scout/oversight")).toEqual([
-      { daily_cap_micros: 2_500_000, monthly_cap_micros: 40_000_000, review: true },
+      { daily_cap_micros: 2_500_000, monthly_cap_micros: 40_000_000 },
     ]),
   );
 });
@@ -206,10 +205,6 @@ test("Settings › Spade tells Spade the person's zone and keeps the totals and 
     expect(spade.sent("PUT", "/v1/oversight")).toContainEqual({
       time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     }),
-  );
-  await userEvent.click(group.getByRole("switch", { name: "Review every bot's steps" }));
-  await waitFor(() =>
-    expect(spade.sent("PUT", "/v1/oversight")).toContainEqual({ review_default: true }),
   );
 });
 
