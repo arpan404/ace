@@ -55,21 +55,46 @@ untrusted content is in view, when they ask.
 `spade_core::autonomy::shell` reads a `shell` command without a model and sends these to the
 person whatever the reviewer would say (the reason names the kind):
 
-| Kind          | Commands                                                                                                                                                                                                                               |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| network       | `curl` with `-d`/`--data*`/`-F`/`-T`/`--upload-file`/`--json`/`-X POST\|PUT\|PATCH\|DELETE`; `wget --post-*`/`--method`; `http`/`xh` with a method or fields; `nc`, `socat`, `telnet`, `ssh`, `ftp`, `sftp`; `scp`/`rsync` to a remote |
-| mail          | `mail`, `sendmail`, `mutt`, `msmtp`, `swaks`, `git send-email`                                                                                                                                                                         |
-| publish       | `git push`; `gh pr\|issue\|release… create\|merge\|edit…`, `gh api` writes; `npm\|cargo\|twine\|gem… publish\|upload`; `docker push`; `vercel`/`netlify`… deploys                                                                      |
-| server change | `kubectl apply\|delete…`, `helm install…`, `terraform apply\|destroy`, cloud CLIs' writes                                                                                                                                              |
-| outside       | `rm`, `mv`, `cp`, `tee`, `dd`, redirects, `find -delete` reaching an absolute path, `~`, `..` above the folder or a variable                                                                                                           |
-| other apps    | `osascript`, `open`, `xdotool`, `shortcuts`                                                                                                                                                                                            |
-| admin         | `sudo`, `su`, `launchctl`, `systemctl`, `crontab`, `diskutil`…                                                                                                                                                                         |
-| payment       | `stripe`, `paypal`                                                                                                                                                                                                                     |
-| unclear       | what it can't read: here-documents, `eval`, `source`, backticks, `$((…))`, a program from a variable, a shell reading from a pipe (`base64 -d \| sh`), unbalanced quotes                                                               |
+| Kind          | Commands                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| network       | `curl` with `-d`/`--data*`/`-F`/`-T`/`--upload-file`/`--json`/`-X POST\|PUT\|PATCH\|DELETE`, attached (`-XPOST`, `-Ffile=@x`, `--data=x`) or in a cluster (`-sSd x`); `wget --post-*` (any unambiguous start, `--post-d`)/`--method`; inline code naming the network (`urllib`, `requests`, `fetch`, `http`, `socket`…); `http`/`xh` with a method or fields; `nc`, `socat`, `telnet`, `ssh`, `ftp`, `sftp`; `scp`/`rsync` to a remote |
+| mail          | `mail`, `sendmail`, `mutt`, `msmtp`, `swaks`, `git send-email`                                                                                                                                                                                                                                                                                                                                                                         |
+| publish       | `git push`; `gh pr\|issue\|release… create\|merge\|edit…`, `gh api` writes (`-f`/`-F` attached or not, `--field=`, `--input`, `-XPOST`); `npm\|cargo\|twine\|gem… publish\|upload`; `docker push`; `vercel`/`netlify`… deploys                                                                                                                                                                                                         |
+| server change | `kubectl apply\|delete…`, `helm install…`, `terraform apply\|destroy`, cloud CLIs' writes                                                                                                                                                                                                                                                                                                                                              |
+| outside       | `rm`, `mv`, `cp`, `tee`, `dd`, redirects, `find -delete`/`-exec` whose real path, from the terminal's current folder with symlinked folders followed, is outside the workspace or can't be resolved; `~` or a variable; `ln -s` pointing outside                                                                                                                                                                                       |
+| other apps    | `osascript`, `open`, `xdotool`, `shortcuts`                                                                                                                                                                                                                                                                                                                                                                                            |
+| admin         | `sudo`, `su`, `launchctl`, `systemctl`, `crontab`, `diskutil`…                                                                                                                                                                                                                                                                                                                                                                         |
+| payment       | `stripe`, `paypal`                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| unclear       | what it can't read: here-documents, `eval`, backticks, `$((…))`, a program from a variable, a shell reading from a pipe (`base64 -d \| sh`), unbalanced quotes, `curl -K`/`--config`, `wget -e`, `parallel` reading commands from its input; inline code that starts programs or builds code (`subprocess`, `child_process`, `os.system`, `eval(`, `base64`, awk's `system()` and pipes)                                               |
+| unseen script | a file the command runs that Spade can't show: outside the workspace, through `~` or a variable, missing, unreadable, or over 24,000 bytes                                                                                                                                                                                                                                                                                             |
 
 It reads every simple command: across `|`, `;`, `&&`, `||`, `$(…)`, `sh -c`/`bash -c` strings,
-variable assignments and wrappers (`env`, `xargs`, `timeout`, `nohup`, `nice`…). A command with
-no `command` argument is unclear. Anything it passes still goes to the reviewer.
+variable assignments and wrappers. What a wrapper runs (`find -exec`/`-execdir`/`-ok`, `xargs`,
+`parallel`, `timeout`, `nice`, `nohup`, `time`, `watch`, `command`, `builtin`, `exec`, `env`
+and `env -S`, `flock`, `sudo`, `doas`, `su -c`…) is unwrapped through the same reading, and each
+command gets both the credential and the effect checks. A command with no `command` argument is
+unclear. Anything it passes still goes to the reviewer.
+
+Inline code (`python -c`, `node -e`, `perl -e`, `ruby -e`, `php -r`, an awk program) is in the
+call, so the reviewer reads it and its `outward_or_irreversible` decides, unless the markers above
+send it to the person first.
+
+**Scripts.** A command that runs a file is judged by the file: `./x.sh`, `bin/x`, `sh x.sh`,
+`source x`, `python x.py`, `node x.js` (and `-r` preloads), `ruby`, `perl`, `go run`, `tsx`,
+`deno run`, `make` and `just` (the makefile or justfile, `-f`/`-C` honoured), and package scripts
+(`npm|pnpm run|test|start…`, `yarn <script>`, `bun run`: the `pre`, main and `post` entries
+of `package.json`). On `auto_review` the reviewer is shown each file whole in `<runs>`;
+shell scripts, recipe lines and package scripts are also checked like commands, and a file that
+names a credential place is refused. The approval is bound to the SHA-256 of what was shown
+(`call_reviewed.bound`): if any file differs when the call is about to start, it isn't run and
+the bot gets `Not run: A file it runs changed after it was reviewed.` Paths are resolved against
+the terminal's current folder.
+
+**Each command is a fresh `sh -c`.** A bot's commands carry only the folder and exported
+variables from one to the next; shell functions and aliases never carry over (`BASH_FUNC_*`, a
+value that is a function body), nor variables that make a shell or interpreter run code first
+(`BASH_ENV`, `ENV`, `NODE_OPTIONS`, `PYTHONSTARTUP`, `PERL5OPT`, `RUBYOPT`, `GIT_SSH_COMMAND`,
+`LESSOPEN`, `ZDOTDIR`…). So what a command runs is what its words say.
 
 ### The reviewer
 
@@ -102,14 +127,21 @@ string in its arguments names a place where sign-ins live (`~/.codex`, `~/.claud
 ace's account homes and token, Spade's database), whatever program reads it, or reads as a
 command that reads secrets (`security find-*-password`/`dump-keychain`/`export`,
 `secret-tool lookup`, `gpg --export-secret*`, `pass`, `op`, `bw`, `keyring get`, `gh auth`,
-`git credential`…), across pipes, wrappers and `sh -c` strings (`spade_core::autonomy::secrets`):
+`git credential`…), across pipes, wrappers and `sh -c` strings (`spade_core::autonomy::secrets`),
+or the tool itself says it hands back a secret: its name or its description's first sentence
+names a token, secret, password, credential, passphrase, keychain, API key or private key, it
+reads (read-only, or a verb like `get`, `read`, `fetch`, `show`, `export`, `return`), and no verb
+says it changes them. A tool that changes sign-ins or access (`rotate`, `set`, `revoke`,
+`create`…) goes to the person instead:
 `Not run: Spade never lets a bot read sign-in tokens, keys or provider credentials.` A denylist
 can't be complete: this is a guard rail in front of the reviewer and the person, not a sandbox.
 
 ### Routines
 
 A routine saved or changed by a bot while untrusted content is in view asks the person first
-(above) and is marked `untrusted` for good (the `routines.untrusted` column). Its firings carry
+(above) and is marked `untrusted` for good (the `routines.untrusted` column). Routines that
+existed before this column are untrusted unless the person made them (`created_by` is
+`person`). Its firings carry
 `from_routine.untrusted: true`, so the turn they start is tainted.
 
 ## Tasks that keep going
@@ -141,9 +173,10 @@ Only the person's message resets the budget and the pause; a bot's message or a 
 carries on the task it belongs to. `task_state` on the roster and the continuation read the same
 history: the latest valid `task_status`.
 
-The turn's worker decides and registers the next step before it lets go of the conversation, and
-Stop reads and drops it under the lock a step starts under, so a Stop pressed at any point after
-a reply ends calls the step off. A step waiting out its backoff waits on the engine's clock; Stop
+The turn's worker decides and registers the next step before it lets go of the conversation.
+Stop reads what runs, calls off a waiting step and stores `stop_requested` under the one lock work
+starts under, then signals the workers, so a Stop pressed at any point after a reply ends calls
+the step off. A step waiting out its backoff waits on the engine's clock; Stop
 on an idle bot with a step waiting stores `stop_requested` with no reply and calls the step off.
 
 ## API

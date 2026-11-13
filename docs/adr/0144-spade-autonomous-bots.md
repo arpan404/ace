@@ -61,12 +61,20 @@ data, credentials) still come to them.
    arguments name a place where CLI sign-ins or provider credentials live (`~/.codex`,
    `~/.claude`, `~/.config/gh/hosts.yml`, `.aws`, `.ssh`, `.netrc`, the keychain and the like),
    read by any program, or run a tool that reads secrets (`security find-*-password`,
-   `secret-tool lookup`, `gpg --export-secret*`, keyring CLIs). It is a denylist, a guard rail
-   rather than a sandbox; it can't be complete.
+   `secret-tool lookup`, `gpg --export-secret*`, keyring CLIs), and when the tool itself says it
+   hands back a token, secret, password or key. A tool that changes sign-ins or access goes to
+   the person. It is a denylist, a guard rail rather than a sandbox; it can't be complete.
    - Shell commands are also read without a model: sending over the network, mail, publishing,
      changing servers, writing or deleting outside the bot's folder, driving other apps, admin
      rights and payments go to the person whatever the reviewer says, and so does a command
-     Spade can't read for sure (here-documents, `eval`, a pipe into a shell).
+     Spade can't read for sure (here-documents, `eval`, a pipe into a shell). What wrappers run
+     (`find -exec`, `xargs`, `sudo`…) is checked the same way; writes are judged on real paths.
+   - Anything that runs code the classifier can't see through is unclear. A script, make
+     target or package script it runs is shown to the reviewer, and the approval is bound to
+     the file's hash: changed before the call starts, it isn't run. A script outside the folder,
+     unreadable or too long goes to the person. Inline code goes to the reviewer, unless it
+     names the network or starts programs. Each command is a fresh `sh -c`: no shell function
+     carries to the next.
    - The reviewer reads the whole call; one too long for its prompt goes to the person. Taint is
      anything untrusted still in the model's view, from any turn since compaction.
    - A routine saved or changed while untrusted content is in view always asks the person, on
