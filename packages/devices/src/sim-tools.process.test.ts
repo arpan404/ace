@@ -294,7 +294,7 @@ it("an agent folds a foldable simulator, sees its posture, and a phone that does
   expect(h.service.states().find((state) => state.device.id === android)?.posture).toBeUndefined();
 });
 
-it("a sim_start stopped while it takes the device starts nothing more on it", async () => {
+it("a sim_start stopped while the emulator boots starts no live view on it", async () => {
   const fake = await fakeSimService();
   onTestFinished(() => fake.close());
   const registry = new ToolRegistry({ scheduler: { after: () => () => {} } });
@@ -310,35 +310,35 @@ it("a sim_start stopped while it takes the device starts nothing more on it", as
     },
     new AbortController().signal,
   );
-  // The call is stopped (a person took over) just as the device is claimed.
+  // The emulator is slow to boot; the call is stopped (a person took over) meanwhile.
   const stop = new AbortController();
-  const claim = fake.service.claimForAgent.bind(fake.service);
-  let finished = Promise.resolve();
-  fake.service.claimForAgent = async (...args) => {
-    const claimed = await claim(...args);
+  const booting = Promise.withResolvers<void>();
+  const booted = Promise.withResolvers<void>();
+  const boot = fake.platform.boot.bind(fake.platform);
+  fake.platform.boot = async (device) => {
     stop.abort();
-    return claimed;
-  };
-  const sent: string[] = [];
-  const request = fake.service.request.bind(fake.service);
-  fake.service.request = (operation, actor) => {
-    sent.push(operation.op);
-    const answer = request(operation, actor);
-    finished = answer.then(
-      () => {},
-      () => {},
-    );
-    return answer;
+    await booting.promise;
+    await boot(device);
+    booted.resolve();
   };
   const result = await registry.call(
     "sim_start",
-    { simId: ios, boot: true },
+    { simId: android, boot: true },
     lease.principal,
     stop.signal,
   );
   expect(result.isError).toBe(true);
-  await finished;
+  booting.resolve();
+  await booted.promise;
   await new Promise((resolve) => setTimeout(resolve, 20));
-  expect(sent).not.toContain("start");
-  expect(sent).not.toContain("boot");
+  // The boot the platform was already doing finished; nothing was started on the device after.
+  expect(fake.platform.devices.find((device) => device.id === android)?.state).toBe("booted");
+  const { states } = z
+    .object({
+      states: z.array(
+        z.looseObject({ device: z.looseObject({ id: z.string() }), lifecycle: z.string() }),
+      ),
+    })
+    .parse(await fake.service.request({ op: "states" }, { kind: "human", owner: "person" }));
+  expect(states.find((state) => state.device.id === android)?.lifecycle ?? "idle").toBe("idle");
 });
