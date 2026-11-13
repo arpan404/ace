@@ -201,8 +201,8 @@ final class SystemNotificationCenter: NotificationCenterPort {
     /// Nothing is evicted early: dropping one would let an older alert cover a newer request.
     private var live: [String: Live] = [:]
     struct Live: Equatable { let id: String; let cursor: Int? }
-    /// Live alerts a feed has held on this connection: a feed queued before that one keeps them
-    /// in its snapshot, but anything after them in the feed is newer, so they block nothing.
+    /// Alerts a feed has held on this connection: a feed queued behind that one may keep one in
+    /// its snapshot, but anything after it in a later feed is newer, so it blocks nothing.
     private var coveredLive: Set<String> = []
     /// The catch-up running now: each waits for the one before, so a later feed's landings and
     /// retractions always apply after an earlier feed's.
@@ -275,7 +275,9 @@ final class SystemNotificationCenter: NotificationCenterPort {
         // arrived after it was read and keeps holding older alerts back until a feed does.
         let covered = Set(entries.map(\.id))
         defer {
-            coveredLive.formUnion(live.values.map(\.id).filter(covered.contains))
+            // Every alert it held, live now or not: a snapshot taken before a newer live alert
+            // replaced one still holds the older.
+            coveredLive.formUnion(covered)
             live = live.filter { !covered.contains($0.value.id) }
         }
         // Checked before each one: an earlier post can be awaited past a turn-off, and a live

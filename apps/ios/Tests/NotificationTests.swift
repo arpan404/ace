@@ -569,6 +569,27 @@ import Testing
         #expect(center.delivered.values.map(\.body).sorted() == ["Failed", "Needs you"])
     }
 
+    @Test func aCoveredLiveAlertAlreadyReplacedStillStopsHoldingBackAQueuedFeed() async throws {
+        let center = HeldCenter()
+        let notifier = LocalNotifier(center: center, hostId: "studio")
+        notifier.bind(LedgerStore(scope: "studio", defaults: try defaults()))
+        // No cursors. Feed 1 holds live n:2 and is still posting when feed 2 queues with n:2 held.
+        let done = Task { await notifier.receive(alert("n:2")) }
+        try await until("the live finish is posting") { center.holding }
+        let earlier = Task { await notifier.catchUp(cursor: 2, entries: [alert("n:1", status: "failed", thread: "other"), alert("n:2")], retracted: []) }
+        for _ in 0..<20 { await Task.yield() }
+        let later = Task {
+            await notifier.catchUp(cursor: 4, entries: [alert("n:3"), alert("n:4", status: "needs_you", actions: true)], retracted: [])
+        }
+        for _ in 0..<20 { await Task.yield() }
+        // n:3 arrives live and replaces n:2 before feed 1 finishes.
+        let replaced = Task { await notifier.receive(alert("n:3")) }
+        for _ in 0..<20 { await Task.yield() }
+        center.release()
+        for task in [done, earlier, later, replaced] { await task.value }
+        #expect(center.delivered.values.map(\.body).sorted() == ["Failed", "Needs you"])
+    }
+
     @Test func aLaterCatchUpWaitsForAnEarlierOneThatIsStillPosting() async throws {
         let center = HeldCenter()
         let notifier = LocalNotifier(center: center, hostId: "studio")
