@@ -23,6 +23,8 @@ export interface SpadeSurface {
   last: number | undefined;
   /** The browser tab the bot uses, as ace reported it. */
   tabId: string | undefined;
+  /** The terminal's last command is still being ended (dropped or timed out, past 30 s). */
+  endingStuck: boolean;
 }
 
 export interface SpadeComputer {
@@ -61,6 +63,7 @@ export function parseSpadeComputer(value: unknown): SpadeComputer | undefined {
           url: text(surface.url),
           last: time(surface.last),
           tabId: text(surface.tab_id),
+          endingStuck: surface.ending_stuck === true,
         },
       ];
     },
@@ -71,6 +74,12 @@ export function parseSpadeComputer(value: unknown): SpadeComputer | undefined {
     threadId: text(fields.thread_id),
     surfaces,
   };
+}
+
+/** What a surface does now, in a few words: Spade's state first, else its title. */
+export function spadeSurfaceLine(surface: SpadeSurface): string | undefined {
+  if (surface.endingStuck) return "Still ending the last command";
+  return surface.title;
 }
 
 /** A computer from a body or a live frame's data. */

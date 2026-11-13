@@ -124,7 +124,14 @@ export function ComputerView(props: {
             label={`${bot.name}'s ${props.open === "browser" ? "browser" : "screen"}`}
           />
         ) : props.open === "terminal" ? (
-          <BotTerminal bot={bot} driving={state.driving} />
+          <>
+            {surface?.endingStuck && (
+              <p role="status" className="px-5 pt-1 text-ui text-muted-foreground">
+                Still ending the last command
+              </p>
+            )}
+            <BotTerminal bot={bot} driving={state.driving} />
+          </>
         ) : (
           <FileManager
             bot={bot}

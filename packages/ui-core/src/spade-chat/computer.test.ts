@@ -7,6 +7,7 @@ import {
   spadeComputerTabs,
   spadeLiveSurfaces,
   spadeSurfaceHeading,
+  spadeSurfaceLine,
 } from "./index.ts";
 
 const computer = (surfaces: unknown[], driver = "bot") => parseSpadeComputer({ driver, surfaces });
@@ -21,6 +22,15 @@ describe("a bot's computer", () => {
     expect(parsed?.surfaces.map((surface) => surface.kind)).toEqual(["browser", "terminal"]);
     expect(parsed?.surfaces[0]?.title).toBeUndefined();
     expect(parsed?.surfaces[1]?.last).toBe(1_000);
+  });
+
+  test("a terminal still ending its last command says so instead of its title", () => {
+    const [terminal] = computer([
+      { kind: "terminal", live: true, title: "npm test", ending_stuck: true },
+    ])!.surfaces;
+    expect(spadeSurfaceLine(terminal!)).toBe("Still ending the last command");
+    const [plain] = computer([{ kind: "terminal", live: true, title: "npm test" }])!.surfaces;
+    expect(spadeSurfaceLine(plain!)).toBe("npm test");
   });
 
   test("is driven by the person only when Spade says so", () => {

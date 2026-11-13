@@ -1,4 +1,4 @@
-import { spadeSurfaceHeading, type SpadeSurface } from "@ace/ui-core/spade-chat";
+import { spadeSurfaceHeading, spadeSurfaceLine, type SpadeSurface } from "@ace/ui-core/spade-chat";
 import { ArrowsOutSimpleIcon, TerminalWindowIcon, XIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
