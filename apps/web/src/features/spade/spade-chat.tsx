@@ -1,6 +1,7 @@
-import { initials } from "@ace/ui-core";
+import type { BotFaceState } from "@ace/ui-core/bot-face";
 import {
   spadeApprovalSentence,
+  parseSpadeAvatar,
   spadeBubbles,
   spadeFailureSentence,
   type SpadeBubbleFailure,
@@ -17,6 +18,7 @@ import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
 import { SpadeFace } from "./spade-face.tsx";
+import { useFaceState } from "./use-face-state.ts";
 import { SkillProposal } from "./spade-skill-bubble.tsx";
 import { DocumentChips, Pictures, VoicePlay } from "./spade-media.tsx";
 import { canReadAloud, readAloud, stopReading, stopReadingOf, useReading } from "./spade-speech.ts";
@@ -43,7 +45,7 @@ const faceRoom = "w-7 shrink-0";
  * editing (ADR 0128), a search with nothing set up as one quiet line that opens Settings › Spade ›
  * Web search, and a skill the bot offers as a bubble with Save and Discard (ADR 0130),
  * after the reply that made it. While the bot
- * works, one line under its last bubble: its face with moving eyes, its few words, and Stop.
+ * works, one line under its last bubble: its face working (or asking), its few words, and Stop.
  */
 export function SpadeChat(props: {
   bot: ChatBot;
@@ -67,6 +69,14 @@ export function SpadeChat(props: {
   // while the bot works itself.
   const busy = view.busy;
   const waiting = view.approvals.length > 0 || view.asking;
+  // The working line's face shows what the bot does; once it stops, the face by its last
+  // bubble shows it finished, then rests.
+  const lineState: BotFaceState = waiting
+    ? "needs-you"
+    : view.status === "Thinking"
+      ? "thinking"
+      : "working";
+  const lastFace = useFaceState(busy ? lineState : "idle", true);
   return (
     <div
       role="feed"
@@ -85,7 +95,7 @@ export function SpadeChat(props: {
             key={item.key}
             item={item}
             bot={bot}
-            face={lastOfRun}
+            face={lastOfRun && (last ? lastFace : "idle")}
             first={!(previous && sameSender(previous, item))}
             endpointName={props.endpointName}
             onAnswer={props.onAnswer}
@@ -98,7 +108,7 @@ export function SpadeChat(props: {
       })}
       {busy && (
         <div role="status" className="flex items-center gap-2.5">
-          <SpadeFace avatar={bot.avatar} size={28} working={!waiting} />
+          <SpadeFace avatar={bot.avatar} size={28} state={lineState} />
           <span className="min-w-0 truncate text-ui text-muted-foreground">
             {waiting ? "Waiting for you" : (view.status ?? "Working")}
           </span>
@@ -138,8 +148,8 @@ function shellCommand(name: string, args: unknown): string | undefined {
 const Bubble = memo(function Bubble(props: {
   item: SpadeChatItem;
   bot: ChatBot;
-  /** The last of its sender's run: its face shows beside it. */
-  face: boolean;
+  /** The last of its sender's run: its face shows beside it, in this state. */
+  face: BotFaceState | false;
   /** The first of its sender's run: another bot's name shows above it. */
   first: boolean;
   endpointName: ((id: string) => string | undefined) | undefined;
@@ -202,11 +212,7 @@ const Bubble = memo(function Bubble(props: {
         </div>
       );
     case "other": {
-      const avatar = bot.others.get(item.agent.id) ?? {
-        kind: "generated" as const,
-        initials: initials(item.agent.name) || "?",
-        color: "slate" as const,
-      };
+      const avatar = bot.others.get(item.agent.id) ?? parseSpadeAvatar(undefined, item.agent.id);
       return (
         <div role="article" aria-label={item.agent.name} className="flex flex-col gap-1">
           {props.first && (
@@ -214,7 +220,7 @@ const Bubble = memo(function Bubble(props: {
           )}
           <div className="flex items-end gap-2.5">
             {props.face ? (
-              <SpadeFace avatar={avatar} size={28} />
+              <SpadeFace avatar={avatar} size={28} state={props.face} />
             ) : (
               <span aria-hidden className={faceRoom} />
             )}
@@ -346,7 +352,7 @@ const Bubble = memo(function Bubble(props: {
  */
 function BotRow(props: {
   bot: ChatBot;
-  face: boolean;
+  face: BotFaceState | false;
   children: React.ReactNode;
   after?: React.ReactNode;
 }) {
@@ -354,7 +360,7 @@ function BotRow(props: {
     <div role="article" aria-label={props.bot.name} className="group/reply flex flex-col gap-1">
       <div className="flex items-end gap-2.5">
         {props.face ? (
-          <SpadeFace avatar={props.bot.avatar} size={28} />
+          <SpadeFace avatar={props.bot.avatar} size={28} state={props.face} />
         ) : (
           <span aria-hidden className={faceRoom} />
         )}

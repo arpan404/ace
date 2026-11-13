@@ -93,13 +93,35 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
   const inbox = here.addAgent({
     id: "inbox",
     name: "Inbox",
-    avatar: { kind: "generated", initials: "IN", color: "teal" },
+    avatar: {
+      kind: "character",
+      v: 1,
+      body: "ghost",
+      pair: "mint",
+      ears: "none",
+      marking: "none",
+      eyes: "sleepy",
+      mouth: "smile",
+      cheeks: "blush",
+      accessory: "headphones",
+    },
     last_activity: minutes(11),
   });
   const notes = here.addAgent({
     id: "notes",
     name: "Release notes",
-    avatar: { kind: "generated", initials: "RN", color: "indigo" },
+    avatar: {
+      kind: "character",
+      v: 1,
+      body: "bot",
+      pair: "stone",
+      ears: "none",
+      marking: "none",
+      eyes: "round",
+      mouth: "none",
+      cheeks: "none",
+      accessory: "none",
+    },
     last_activity: minutes(44),
   });
   const garden = here.addAgent({
@@ -107,7 +129,18 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
     name: "Garden",
     model: "cli:codex@work/gpt-6.1-sol",
     problem: "Codex is signed out. Sign in to it in ace, then send again.",
-    avatar: { kind: "generated", initials: "GA", color: "green" },
+    avatar: {
+      kind: "character",
+      v: 1,
+      body: "sprout",
+      pair: "mint",
+      ears: "none",
+      marking: "none",
+      eyes: "egg",
+      mouth: "smile",
+      cheeks: "blush",
+      accessory: "none",
+    },
     last_activity: minutes(60 * 20),
     last_message: {
       from: "person",
@@ -116,6 +149,44 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
       from_agent: null,
     },
   });
+  // A group of three, one of them working, and templates to start a bot from.
+  here.teams.addGroup({
+    id: "launch",
+    name: "Launch crew",
+    members: [notes, inbox, garden].map((bot) => ({
+      agent: bot.id,
+      machine: null,
+      name: bot.name,
+      avatar: bot.avatar,
+      away: false,
+    })),
+    last_activity: minutes(60),
+  });
+  here.teams.templates.push(
+    template("research", "Research", "Finds and checks sources.", {
+      body: "round",
+      pair: "lagoon",
+      marking: "muzzle",
+      mouth: "smile",
+      cheeks: "blush",
+      accessory: "glasses",
+    }),
+    template("travel", "Travel", "Plans trips and watches fares.", {
+      body: "fox",
+      pair: "ember",
+      eyes: "almond",
+      mouth: "smile",
+      accessory: "scarf",
+    }),
+    template("writing", "Writing", "Drafts and edits with you.", {
+      body: "cloud",
+      pair: "lilac",
+      eyes: "big",
+      mouth: "smile",
+      cheeks: "blush",
+      accessory: "flower",
+    }),
+  );
   const say = (text: string) => here.store(spade.conversation, { type: "user_message", text });
   say("Can you plan my Lisbon trip, the 14th to the 18th? Keep hotels under €180 a night.");
   here.reply(
@@ -192,7 +263,18 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
   const flights = here.addAgent({
     id: "flights",
     name: "Flights",
-    avatar: { kind: "generated", initials: "FL", color: "amber" },
+    avatar: {
+      kind: "character",
+      v: 1,
+      body: "fox",
+      pair: "ember",
+      ears: "none",
+      marking: "stripes",
+      eyes: "almond",
+      mouth: "smile",
+      cheeks: "none",
+      accessory: "none",
+    },
     last_activity: minutes(3),
   });
   here.store(flights.conversation, {
@@ -272,7 +354,18 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
   remote.addAgent({
     id: "research",
     name: "Research",
-    avatar: { kind: "generated", initials: "RE", color: "violet" },
+    avatar: {
+      kind: "character",
+      v: 1,
+      body: "blob",
+      pair: "rose",
+      ears: "cat",
+      marking: "none",
+      eyes: "big",
+      mouth: "cat",
+      cheeks: "blush",
+      accessory: "none",
+    },
     last_activity: minutes(60 * 24 * 2),
     last_message: {
       from: "agent",
@@ -354,3 +447,14 @@ function seedConnectors(spade: FakeSpadeApi) {
   );
   spade.connectors.access.set("inbox", { all: false, connectors: ["notion"] });
 }
+
+/** A template with its own face, as Spade ships them. */
+const template = (id: string, name: string, blurb: string, face: Record<string, string>) => ({
+  id,
+  name,
+  blurb,
+  task: blurb,
+  face: { kind: "character", v: 1, ...face },
+  model_kind: "capable",
+  routines: [],
+});

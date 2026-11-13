@@ -106,14 +106,16 @@ export function drawCheeks(face: BotFace, size: number, body: BodyShape): string
   return `<g data-part="cheeks" fill="var(--bs)">${dots(12 - dx)}${dots(12 + dx)}</g>`;
 }
 
+/** A four-point sparkle at x, y, scaled by k. */
+const spark = (x: number, y: number, k: number) =>
+  `<path d="M${n(x)} ${n(y - 1.6 * k)}Q${n(x + 0.25 * k)} ${n(y - 0.25 * k)} ${n(x + 1.6 * k)} ${n(y)}Q${n(x + 0.25 * k)} ${n(y + 0.25 * k)} ${n(x)} ${n(y + 1.6 * k)}Q${n(x - 0.25 * k)} ${n(y + 0.25 * k)} ${n(x - 1.6 * k)} ${n(y)}Q${n(x - 0.25 * k)} ${n(y - 0.25 * k)} ${n(x)} ${n(y - 1.6 * k)}Z"/>`;
+
 /** A sweat drop when blocked and two sparkles when done, from m up; hidden until a state shows them. */
 export function drawStateExtras(size: number, body: BodyShape): string {
   if (faceTier(size) === "s") return "";
   const sx = body.right - 2.2;
   const sy = body.eyeY - 6.2;
   const [tx, ty] = body.top;
-  const spark = (x: number, y: number, k: number) =>
-    `<path d="M${n(x)} ${n(y - 1.6 * k)}Q${n(x + 0.25 * k)} ${n(y - 0.25 * k)} ${n(x + 1.6 * k)} ${n(y)}Q${n(x + 0.25 * k)} ${n(y + 0.25 * k)} ${n(x)} ${n(y + 1.6 * k)}Q${n(x - 0.25 * k)} ${n(y + 0.25 * k)} ${n(x - 1.6 * k)} ${n(y)}Q${n(x - 0.25 * k)} ${n(y - 0.25 * k)} ${n(x)} ${n(y - 1.6 * k)}Z"/>`;
   return (
     `<g class="bf-sweat"><path d="M${n(sx)} ${n(sy)}C${n(sx + 1.2)} ${n(sy + 1.6)} ${n(sx + 1.4)} ${n(sy + 2.4)} ${n(sx + 1.4)} ${n(sy + 2.9)}A1.4 1.4 0 0 1 ${n(sx - 1.4)} ${n(sy + 2.9)}C${n(sx - 1.4)} ${n(sy + 2.4)} ${n(sx - 1.2)} ${n(sy + 1.6)} ${n(sx)} ${n(sy)}Z" fill="#cfe6ff" stroke="${INK}" stroke-width=".55"/></g>` +
     `<g class="bf-spark" fill="var(--a)"><g class="bf-sp1">${spark(tx + 8.6, ty + 1.2, 1)}</g><g class="bf-sp2">${spark(tx - 8.4, ty + 3.4, 0.7)}</g></g>`

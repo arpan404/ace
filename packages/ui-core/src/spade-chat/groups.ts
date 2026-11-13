@@ -2,18 +2,17 @@ import { z } from "zod";
 import {
   parseSpadeAgentValue,
   parseSpadeAvatar,
-  spadeAvatarColors,
   type SpadeAgent,
   type SpadeAgentState,
   type SpadeAvatar,
-  type SpadeAvatarColor,
 } from "./agents.ts";
+import { faceForId, parseStoredBotFace, type BotFace } from "../bot-face/index.ts";
 import { spadeJson, spadeRecord } from "./json.ts";
 
 /*
  * Spade's teams (ADR 0132, spade/docs/teams.md): groups of bots with their own transcript,
  * templates to start a bot from, and the bot file export and import write. Parsed leniently: a
- * group this client can't read is left out of the list, an unreadable face becomes initials.
+ * group this client can't read is left out of the list, an unreadable face becomes the one its id seeds.
  */
 
 /** A bot as a group names it: `machine` is its host id, null for the group's own machine. */
@@ -102,7 +101,7 @@ function memberOf(member: z.infer<typeof memberShape>): SpadeGroupMember {
     agent: member.agent,
     machine: member.machine ?? null,
     name,
-    avatar: parseSpadeAvatar(member.avatar, name),
+    avatar: parseSpadeAvatar(member.avatar, member.agent),
     away: member.away,
   };
 }
@@ -174,7 +173,8 @@ export interface SpadeTemplate {
   name: string;
   blurb: string;
   task: string;
-  color: SpadeAvatarColor;
+  /** Its face; a template without a readable one gets the face its id seeds. */
+  face: BotFace;
 }
 
 const templateShape = z.object({
@@ -182,7 +182,7 @@ const templateShape = z.object({
   name: z.string().catch(""),
   blurb: z.string().catch(""),
   task: z.string().catch(""),
-  color: z.enum(spadeAvatarColors).catch("slate").default("slate"),
+  face: z.unknown().optional(),
 });
 
 /** `GET /v1/templates`; undefined when the body has no list. */
@@ -191,7 +191,9 @@ export function parseSpadeTemplates(body: string): SpadeTemplate[] | undefined {
   if (!Array.isArray(list)) return undefined;
   return list.flatMap((raw) => {
     const template = templateShape.safeParse(raw);
-    return template.success ? [template.data] : [];
+    if (!template.success) return [];
+    const { face, ...rest } = template.data;
+    return [{ ...rest, face: parseStoredBotFace(face)?.face ?? faceForId(rest.id) }];
   });
 }
 

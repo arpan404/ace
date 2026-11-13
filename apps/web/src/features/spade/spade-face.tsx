@@ -1,21 +1,26 @@
-import { spadeAvatarFill, type SpadeAvatar } from "@ace/ui-core/spade-chat";
+import type { BotFaceState } from "@ace/ui-core/bot-face";
+import type { SpadeAvatar } from "@ace/ui-core/spade-chat";
 import { useEffect, useState } from "react";
+import { BotFace } from "@/components/bot-face.tsx";
 import { SpadeMark } from "@/components/spade-mark.tsx";
 import { cn } from "@/lib/cn.ts";
 import { holdSpadePicture } from "./spade-images.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
 
+const moving = (state: BotFaceState | undefined) => state === "working" || state === "thinking";
+
 /**
- * A bot's face (ADR 0127): the Spade mark for Spade itself, else the person's uploaded picture or
- * initials on its colour. While the bot works its eyes move: Spade's own, or, on another bot's
- * face, a small Spade mark on its corner. Decorative: the row or bubble beside it names the bot.
+ * A bot's face (ADR 0127): the Spade mark for Spade itself, a character face, or the person's
+ * uploaded picture. Its state is its status: a character face poses and moves for it, Spade's
+ * eyes move while it works, and a picture carries a small Spade mark on its corner while its bot
+ * works. Decorative: the row or bubble beside it names the bot.
  */
 export function SpadeFace(props: {
   avatar: SpadeAvatar;
-  /** Its diameter in px. */
+  /** Its side in px. */
   size: number;
-  working?: boolean | undefined;
-  /** The ring the corner badge cuts out of the face, matching what the face sits on. */
+  state?: BotFaceState | undefined;
+  /** The ring the picture's corner badge cuts out of it, matching what it sits on. */
   ring?: string | undefined;
   className?: string | undefined;
 }) {
@@ -28,26 +33,25 @@ export function SpadeFace(props: {
         className={cn("grid shrink-0 text-foreground", props.className)}
         style={box}
       >
-        <SpadeMark size={size} moving={props.working} />
+        <SpadeMark size={size} moving={moving(props.state)} />
+      </span>
+    );
+  if (avatar.kind === "character")
+    return (
+      <span aria-hidden className={cn("grid shrink-0", props.className)} style={box}>
+        <BotFace face={avatar.face} size={size} state={props.state} />
       </span>
     );
   const badge = Math.max(14, Math.round(size / 2));
   return (
     <span
       aria-hidden
-      data-working={props.working || undefined}
-      className={cn(
-        "relative grid shrink-0 place-items-center rounded-full font-medium text-white",
-        props.className,
-      )}
-      style={{
-        ...box,
-        fontSize: Math.max(10, Math.round(size * 0.38)),
-        ...(avatar.kind === "generated" ? { backgroundColor: spadeAvatarFill[avatar.color] } : {}),
-      }}
+      data-working={moving(props.state) || undefined}
+      className={cn("relative grid shrink-0 place-items-center rounded-full", props.className)}
+      style={box}
     >
-      {avatar.kind === "image" ? <Picture hash={avatar.sha256} /> : avatar.initials}
-      {props.working && (
+      <Picture hash={avatar.sha256} />
+      {moving(props.state) && (
         <span
           className={cn(
             "absolute -right-1 -bottom-1 grid rounded-full text-foreground",

@@ -2,6 +2,7 @@ import type { ClientApi } from "@ace/client";
 import type { SpadeAgent, SpadeTemplate } from "@ace/ui-core/spade-chat";
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
+import { BotFace } from "@/components/bot-face.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { importAgent, readTemplates } from "./spade-teams-api.ts";
@@ -13,7 +14,7 @@ import type { SpadeHost } from "./use-spade-roster.ts";
  */
 
 /**
- * The templates of the chosen machine's Spade, each its name and one line on what it does.
+ * The templates of the chosen machine's Spade, each its face, name and one line on what it does.
  * Picking one fills the form; picking it again lets it go.
  */
 export function TemplateChoice(props: {
@@ -46,14 +47,17 @@ export function TemplateChoice(props: {
               aria-pressed={chosen}
               onClick={() => props.onChange(chosen ? undefined : template)}
               className={cn(
-                "flex w-full min-w-0 flex-col rounded-md px-2 py-1.5 text-left transition-colors duration-(--motion-fast) hover:bg-hover focus-ring-inset",
+                "flex w-full min-w-0 items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors duration-(--motion-fast) hover:bg-hover focus-ring-inset",
                 chosen && "bg-active",
               )}
             >
-              <span className="truncate text-ui text-foreground">{template.name}</span>
-              {template.blurb && (
-                <span className="truncate text-xs text-muted-foreground">{template.blurb}</span>
-              )}
+              <BotFace face={template.face} size={24} />
+              <span className="flex min-w-0 flex-col">
+                <span className="truncate text-ui text-foreground">{template.name}</span>
+                {template.blurb && (
+                  <span className="truncate text-xs text-muted-foreground">{template.blurb}</span>
+                )}
+              </span>
             </button>
           </li>
         );

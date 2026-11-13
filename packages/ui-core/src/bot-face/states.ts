@@ -40,3 +40,16 @@ export function botFaceStateOf(agent: {
   if (agent.problem) return "blocked";
   return "idle";
 }
+
+const busy = (state: BotFaceState) => state === "working" || state === "thinking";
+
+/**
+ * What the face shows when the agent's live state moves from `previous` to `live`: starting
+ * work first acknowledges it (for `botFaceMotion.acknowledge.ms`, then the live state), and
+ * finishing work shows done, held until the person has seen it. Anything else shows as it is.
+ */
+export function botFaceStateAfter(previous: BotFaceState, live: BotFaceState): BotFaceState {
+  if (busy(live) && !busy(previous) && previous !== "needs-you") return "acknowledge";
+  if (live === "idle" && (busy(previous) || previous === "needs-you")) return "done";
+  return live;
+}

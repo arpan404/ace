@@ -35,10 +35,10 @@ test("a routine's message shows as its label, not as the person, and a quiet hea
   const chat = within(await screen.findByRole("feed", { name: "Conversation with Scout" }));
   expect((await chat.findByRole("note")).textContent).toBe("Daily briefing · 9:00");
   expect(chat.queryByRole("article", { name: "You" })).toBeNull();
-  // The face's initials sit beside the bot's one bubble; the heartbeat left none.
-  expect(chat.getAllByRole("article").map((bubble) => bubble.textContent)).toEqual([
-    "SCThree meetings today.",
-  ]);
+  // The bot's one bubble, with its face beside it; the heartbeat left none.
+  const bubbles = chat.getAllByRole("article");
+  expect(bubbles.map((bubble) => bubble.textContent)).toEqual(["Three meetings today."]);
+  expect(bubbles[0]?.querySelector("svg.bot-face")).not.toBeNull();
 });
 
 test("the person adds, pauses and edits a bot's routines from its menu, and turns its heartbeat on", async () => {

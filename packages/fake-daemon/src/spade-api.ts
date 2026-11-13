@@ -6,6 +6,7 @@ import { FakeSpadeOversight, type FakeSpadeSpending } from "./spade-oversight.ts
 import { FakeSpadeRoutines } from "./spade-routines.ts";
 import { base64Bytes, sha256Hex } from "./sha256.ts";
 import { FakeSpadeTeams } from "./spade-teams.ts";
+import { faceForId, repairFace, storedBotFace } from "@ace/ui-core/bot-face";
 
 /*
  * A stateful stand-in for Spade's local API (ADR 0126, 0127), in Spade's own JSON: agents with
@@ -136,7 +137,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
     const agent: FakeSpadeAgent = {
       kind: "bot",
       task: "",
-      avatar: { kind: "generated", initials: fields.name.slice(0, 2).toUpperCase(), color: "teal" },
+      avatar: storedBotFace(faceForId(id)) as Json,
       model: "openrouter/saved/model",
       conversation: `c-${id}`,
       created_at: this.now(),
@@ -371,16 +372,11 @@ export class FakeSpadeApi implements FakeSpadeServer {
         name: String(body.name ?? ""),
         task: String(body.task ?? ""),
         model: String(body.model ?? ""),
-        avatar:
-          avatar?.kind === "image"
-            ? { kind: "image", sha256: "a".repeat(64) }
-            : {
-                kind: "generated",
-                initials: String(body.name ?? "")
-                  .slice(0, 2)
-                  .toUpperCase(),
-                color: avatar?.color ?? "slate",
-              },
+        ...(avatar?.kind === "image"
+          ? { avatar: { kind: "image", sha256: "a".repeat(64) } }
+          : avatar?.kind === "character"
+            ? { avatar: storedBotFace(repairFace(avatar)) as Json }
+            : {}),
       });
       return reply({ agent }, 201);
     }
@@ -391,7 +387,11 @@ export class FakeSpadeApi implements FakeSpadeServer {
         return problem(400, "Spade's name and face can't change.");
       for (const key of ["name", "task", "model"] as const)
         if (typeof body[key] === "string") agent[key] = body[key];
-      if (body.avatar && typeof body.avatar === "object") agent.avatar = body.avatar as Json;
+      if (body.avatar && typeof body.avatar === "object") {
+        const avatar = body.avatar as Json;
+        agent.avatar =
+          avatar.kind === "character" ? (storedBotFace(repairFace(avatar)) as Json) : avatar;
+      }
       return reply({ agent });
     }
     if (method === "DELETE") {

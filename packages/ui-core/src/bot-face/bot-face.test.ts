@@ -17,6 +17,8 @@ import {
   storedBotFace,
   suggestBotNames,
   botPairColours,
+  botFaceStateAfter,
+  botFaceStateOf,
   type BotFace,
 } from "./index.ts";
 
@@ -151,5 +153,26 @@ describe("colours", () => {
       expect(faceContrast(pair.light.body, "#ffffff")).toBeGreaterThanOrEqual(3);
       expect(faceContrast(pair.light.accent, "#ffffff")).toBeGreaterThanOrEqual(3);
     }
+  });
+});
+
+describe("states", () => {
+  it("acknowledges new work, shows done when work ends, and otherwise follows the agent", () => {
+    expect(botFaceStateAfter("idle", "working")).toBe("acknowledge");
+    expect(botFaceStateAfter("done", "thinking")).toBe("acknowledge");
+    expect(botFaceStateAfter("working", "thinking")).toBe("thinking");
+    expect(botFaceStateAfter("needs-you", "working")).toBe("working");
+    expect(botFaceStateAfter("working", "idle")).toBe("done");
+    expect(botFaceStateAfter("needs-you", "idle")).toBe("done");
+    expect(botFaceStateAfter("idle", "idle")).toBe("idle");
+    expect(botFaceStateAfter("working", "needs-you")).toBe("needs-you");
+  });
+
+  it("reads the face's state from what Spade says the agent is doing", () => {
+    expect(botFaceStateOf({ state: "waiting" })).toBe("needs-you");
+    expect(botFaceStateOf({ state: "working", status: "Thinking" })).toBe("thinking");
+    expect(botFaceStateOf({ state: "working", status: "Reading a page" })).toBe("working");
+    expect(botFaceStateOf({ state: "idle", problem: "Signed out" })).toBe("blocked");
+    expect(botFaceStateOf({ state: "idle" })).toBe("idle");
   });
 });

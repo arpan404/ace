@@ -135,12 +135,14 @@ export function mixFaceColour(from: string, toward: string, amount: number): str
   return fromOklab([mix(aL, bL), mix(aA, bA), mix(aB, bB)]);
 }
 
+function luminance(hex: string): number {
+  const [r, g, bl] = hexToRgb(hex).map(toLinear) as Triple;
+  return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+}
+
 /** WCAG contrast between two hex colours. */
 export function faceContrast(a: string, b: string): number {
-  const lum = (hex: string) => {
-    const [r, g, bl] = hexToRgb(hex).map(toLinear) as Triple;
-    return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
-  };
+  const lum = luminance;
   const [x, y] = [lum(a), lum(b)];
   return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
 }
