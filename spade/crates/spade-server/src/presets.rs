@@ -17,16 +17,20 @@ pub const SET_ASIDE: &str = "models.json.old";
 
 /// SHA-256 of every `config/models.json` an earlier Spade shipped. A copy equal to one of these
 /// (or to the current one) holds nothing of the person's own.
-const SHIPPED: [&str; 4] = [
+const SHIPPED: [&str; 5] = [
     "180ad59b1946503e8a412cc0adde2cbd53f584b598c794ce094727af169d0c89",
     "37376f1d2995eec2c68a93cbf4e4fd471de3ca8d2c1cba3d880612b5c7adc54b",
     "3cb2cd56aeafd5a598146f692e42cf8e4d5f5437de0de68b0605f370b1d37a29",
     "80616f4192b2143f59572a77f3cb0a7382fa6f8f1648adfa25fa20cc7d4058cc",
+    "df625dc5256224e8926c67a14e1d74da636f19ca97c9551ff0073125bf5d19f2",
 ];
 
 /// Earlier shipped files this build can still read, oldest first. An old copy's value that equals
 /// one of these (or the current presets) is a shipped default, not the person's edit.
-const READABLE_HISTORY: [&str; 1] = [include_str!("../shipped/models-2026-11-10.json")];
+const READABLE_HISTORY: [&str; 2] = [
+    include_str!("../shipped/models-2026-11-10.json"),
+    include_str!("../shipped/models-2026-11-12.json"),
+];
 
 /// Every shipped catalogue this build can read: the earlier ones, then the current presets.
 pub fn history() -> Vec<Catalog> {
