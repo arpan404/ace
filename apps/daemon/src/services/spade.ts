@@ -134,6 +134,7 @@ export async function startSpade(context: ServiceContext): Promise<void> {
   if (!services.mcp) log.log("warn", "Spade's grant can't reach ace's tools: no MCP endpoint");
 
   const delivery = new SpadeGrantDelivery({
+    now: context.now,
     grants,
     call: spadeAceCall,
     prove: async (connection) =>
