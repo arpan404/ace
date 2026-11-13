@@ -1,7 +1,7 @@
 import "./test-host.ts";
 import { ClientCore } from "@ace/client";
 import { FakeDaemon, facts, fakeTransport } from "@ace/fake-daemon";
-import { DeviceId, Notification, ThreadId } from "@ace/protocol";
+import { DeviceId, HostId, Notification, ThreadId } from "@ace/protocol";
 import { afterEach, expect, it, vi } from "vitest";
 import type { KeptValue } from "./kept-value.ts";
 import { NotificationAction, NotificationBridge } from "./notifications.ts";
@@ -219,7 +219,7 @@ it("a child a paired machine delegated here doesn't alert on this phone, even wh
     workspaceId: "ace",
     title: "Review the queue fix",
     provider: "codex",
-    delegatedFrom: { hostId: "host-a", threadId: "parent-on-a" },
+    delegatedFrom: { hostId: HostId.parse("host-a"), threadId: ThreadId.parse("parent-on-a") },
   });
   // The app keeps the thread list open; the child is in it, from the other machine.
   const list = client.threads();
