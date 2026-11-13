@@ -1,4 +1,4 @@
-import type { ScreenInput } from "@ace/protocol";
+import type { AgentPointer, ScreenInput } from "@ace/protocol";
 import { createContext, use } from "react";
 
 /*
@@ -21,6 +21,8 @@ export interface BotPicture {
   src: string;
   width: number;
   height: number;
+  /** Where the bot last acted, in the picture's pixels (the daemon's, as on a screen's state). */
+  pointer?: AgentPointer | undefined;
 }
 
 export interface BotStreams {

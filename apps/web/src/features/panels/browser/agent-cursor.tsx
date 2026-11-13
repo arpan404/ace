@@ -1,7 +1,10 @@
 import { useAgent } from "@ace/client-react";
+import type { AgentPointer } from "@ace/protocol";
 import { agentName } from "@ace/ui-core";
+import { agentInitial } from "@ace/ui-core/cowork";
 import { AgentCursorIcon } from "@/components/ace-icons.tsx";
-import { useLayoutEffect, useState, type RefObject } from "react";
+import { AgentPointerMark, useAgentPointerShown } from "@/components/agent-pointer.tsx";
+import { useLayoutEffect, useState, type ReactNode, type RefObject } from "react";
 
 interface Box {
   left: number;
@@ -72,5 +75,35 @@ export function AgentCursor(props: {
       {/* The Pebble's tip, not its box, sits on the point. */}
       <AgentCursorIcon aria-hidden size={22} className="-translate-x-[4px] -translate-y-[4.5px]" />
     </span>
+  );
+}
+
+/**
+ * The agent's cursor while the person and the agent share the tab (ADR 0143): where it last
+ * acted (`agentPointer`, in the page's CSS pixels), with its face or initial, fading ~1.5 s after
+ * that action. `agent` names it when the view knows better than the tab's actor (a Spade bot).
+ */
+export function TimedAgentCursor(props: {
+  threadId: string;
+  agentId: string | undefined;
+  pointer: AgentPointer;
+  page: { width: number; height: number };
+  picture: RefObject<HTMLElement | null>;
+  agent?: { name: string; mark: ReactNode } | undefined;
+}) {
+  const known = useAgent(props.threadId, props.agentId ?? "");
+  const name = props.agent?.name ?? (known ? agentName(known) : "An agent");
+  const shown = useAgentPointerShown(props.pointer);
+  const box = usePictureBox(props.picture);
+  if (!box || !props.page.width || !props.page.height) return null;
+  const x = box.left + (props.pointer.x / props.page.width) * box.width;
+  const y = box.top + (props.pointer.y / props.page.height) * box.height;
+  return (
+    <AgentPointerMark
+      name={name}
+      mark={props.agent?.mark ?? agentInitial(name)}
+      shown={shown}
+      style={{ left: Math.round(x), top: Math.round(y) }}
+    />
   );
 }

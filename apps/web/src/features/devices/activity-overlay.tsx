@@ -2,6 +2,10 @@ import { useAgent } from "@ace/client-react";
 import type { DeviceActivity } from "@ace/protocol";
 import { useEffect, useRef, useState } from "react";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
+import { agentName } from "@ace/ui-core";
+import { agentInitial, coworkLine } from "@ace/ui-core/cowork";
+import type { AgentPointer } from "@ace/protocol";
+import { AgentPointerMark, useAgentPointerShown } from "@/components/agent-pointer.tsx";
 import { activityCaption, screenFraction, type Size } from "@ace/ui-core/devices";
 
 /** How long a caption stays before it fades. */
@@ -100,5 +104,43 @@ export function ActivityCaption(props: {
       )}
       <span className="truncate">{activityCaption(props.shown.activity)}</span>
     </p>
+  );
+}
+
+/** While the agent using the device yields to the person's input: "Codex is waiting for you". */
+export function YieldLine(props: {
+  waiting: boolean;
+  holder: { threadId: string; agentId: string } | undefined;
+}) {
+  const agent = useAgent(props.holder?.threadId ?? "", props.holder?.agentId ?? "");
+  if (!props.waiting || !props.holder) return null;
+  return (
+    <p role="status" className="truncate text-xs text-muted-foreground">
+      {coworkLine("waiting", agent ? agentName(agent) : "The agent")}
+    </p>
+  );
+}
+
+/**
+ * The agent's cursor on the device while the person and the agent share it (ADR 0143): where it
+ * last acted (device points), with its initial, fading ~1.5 s after that action.
+ */
+export function DeviceAgentPointer(props: {
+  pointer: AgentPointer | undefined;
+  holder: { threadId: string; agentId: string } | undefined;
+  screen: Size;
+}) {
+  const agent = useAgent(props.holder?.threadId ?? "", props.holder?.agentId ?? "");
+  const shown = useAgentPointerShown(props.pointer);
+  const at = props.pointer && screenFraction(props.pointer, props.screen);
+  if (!at) return null;
+  const name = agent ? agentName(agent) : "The agent";
+  return (
+    <AgentPointerMark
+      name={name}
+      mark={agentInitial(name)}
+      shown={shown}
+      style={{ left: `${at.x * 100}%`, top: `${at.y * 100}%` }}
+    />
   );
 }

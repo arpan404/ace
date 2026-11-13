@@ -32,6 +32,8 @@ export interface SpadeFileView {
   size: number;
   text: string | undefined;
   unreadable: "binary" | "too_large" | undefined;
+  /** The file's revision as opened: a save sends it back as `base`, refused if it moved on. */
+  revision: string | undefined;
 }
 
 /** A JSON object's fields, or undefined for anything else (or text that isn't JSON). */
@@ -90,6 +92,7 @@ function parseFile(body: string): SpadeFileView | undefined {
     size: num(fields.size) ?? 0,
     text: str(fields.text),
     unreadable: unreadable === "binary" || unreadable === "too_large" ? unreadable : undefined,
+    revision: str(fields.revision) ?? num(fields.revision)?.toString(),
   };
 }
 
@@ -120,9 +123,18 @@ export function downloadFile(target: SpadeTarget, bot: string, path: string): Pr
   return spadeBlob(target, `${base(bot)}/workspace/download${at(path)}`);
 }
 
-/** Deletes a file, or a folder with what is in it. */
-export async function deletePath(target: SpadeTarget, bot: string, path: string): Promise<void> {
-  await spadeHttp(target, "DELETE", `${base(bot)}/workspace${at(path)}`);
+/**
+ * Deletes a file, or a folder with what is in it. With `opened` (a file's revision the person
+ * saw), Spade refuses (`409 changed`) if the file moved on since.
+ */
+export async function deletePath(
+  target: SpadeTarget,
+  bot: string,
+  path: string,
+  opened?: string,
+): Promise<void> {
+  const since = opened === undefined ? "" : `&base=${encodeURIComponent(opened)}`;
+  await spadeHttp(target, "DELETE", `${base(bot)}/workspace${at(path)}${since}`);
 }
 
 export async function readProposals(

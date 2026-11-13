@@ -1,13 +1,14 @@
 import type { SourcePicture } from "@ace/client/screen-stream";
 import { deviceVideoSupported, screenStreamProfile } from "@ace/client/devices";
-import type { ScreenInput } from "@ace/protocol";
-import { useEffect, useRef, useState, type PointerEvent } from "react";
+import type { AgentPointer, ScreenInput } from "@ace/protocol";
+import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 import { webCodecsDecoder } from "@/lib/video/codecs.ts";
 import { drawUpright } from "@/lib/video/picture-canvas.ts";
 import { nextFrame } from "@/lib/next-frame.ts";
 import { later } from "@/lib/later.ts";
 import { pictureRenderer } from "@/lib/video/picture-renderer.ts";
+import { AgentCursor } from "./agent-cursor.tsx";
 import type { ScreenSession } from "./screen-session.ts";
 import { keyInput, pointerGesture, windowPoint, type ShownPicture } from "./live-input.ts";
 
@@ -31,8 +32,10 @@ export function LiveView(props: {
   sessionId: string;
   label: string;
   className?: string;
-  /** Set while the person controls the window: clicks, drags, wheel and keys go to it. */
+  /** Set while the person may act in the window: clicks, drags, wheel and keys go to it. */
   onInput?: ((input: ScreenInput) => void) | undefined;
+  /** The agent sharing the window: its pointer (in picture pixels) drawn where it last acted. */
+  agent?: { name: string; pointer: AgentPointer | undefined; mark: ReactNode } | undefined;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   /** The newest picture's size and scale, to turn a page point into a window point. */
@@ -47,6 +50,8 @@ export function LiveView(props: {
   }>(undefined);
   /** Why there is no picture: live views are video only, never a slideshow of stills. */
   const [noVideo, setNoVideo] = useState<string>();
+  /** The picture's size, kept only when it changes (never a render per frame), for the pointer. */
+  const [size, setSize] = useState<{ width: number; height: number }>();
   const { session, sessionId } = props;
   useEffect(() => {
     const element = canvas.current;
@@ -100,6 +105,9 @@ export function LiveView(props: {
       show: (image, picture) => {
         if (disposed) return;
         drawUpright(element, context, image, picture);
+        const was = shownRef.current;
+        if (was.width !== picture.width || was.height !== picture.height)
+          setSize({ width: picture.width, height: picture.height });
         shownRef.current = { width: picture.width, height: picture.height, scale: picture.scale };
         element.dataset["frame"] = String(picture.sequence);
       },
@@ -248,6 +256,15 @@ export function LiveView(props: {
           onInput(input);
         }}
       />
+      {props.agent && size && (
+        <AgentCursor
+          pointer={props.agent.pointer}
+          width={size.width}
+          height={size.height}
+          name={props.agent.name}
+          mark={props.agent.mark}
+        />
+      )}
       {noVideo && (
         <p
           role="status"

@@ -1,3 +1,4 @@
+import { coworkLine } from "@ace/ui-core/cowork";
 import {
   spadeSurfaceHeading,
   spadeSurfaceLine,
@@ -6,10 +7,9 @@ import {
 } from "@ace/ui-core/spade-chat";
 import { ArrowsOutSimpleIcon, XIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
-import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { cn } from "@/lib/cn.ts";
-import { DriverStatus } from "./driver-status.tsx";
+import { DriverStatus, TakeOver } from "./driver-status.tsx";
 import type { BotComputerState } from "./use-bot-computer.ts";
 import { surfaceIcons } from "./computer-view.tsx";
 import { useBotPicture } from "./stream-picture.tsx";
@@ -17,7 +17,7 @@ import { useBotPicture } from "./stream-picture.tsx";
 /**
  * Pinned above the chat while the bot uses its computer: a thumbnail (the supplied picture, else
  * the surface's mark), which surface and
- * where, what it does there, then Take over, Expand and Hide. Clicking the thumbnail expands too.
+ * where, what it does there (or that it waits for the person), then Take over, Expand and Hide. Clicking the thumbnail expands too.
  * `compact`: the phone's slimmer tile under the header.
  */
 export function ComputerTile(props: {
@@ -38,7 +38,11 @@ export function ComputerTile(props: {
       : undefined,
   );
   const heading = spadeSurfaceHeading(surface, props.machine.name);
-  const line = spadeSurfaceLine(surface);
+  // While the bot yields to the person's input, that is what it does here.
+  const line =
+    props.state.status === "waiting" && surface.personActive
+      ? coworkLine("waiting", props.bot.name)
+      : spadeSurfaceLine(surface);
   return (
     <section
       aria-label={`${heading}, live`}
@@ -74,16 +78,7 @@ export function ComputerTile(props: {
         // The person has it: who drives and Hand back, here as in the expanded computer.
         <DriverStatus bot={props.bot} state={props.state} brief />
       ) : (
-        !props.compact && (
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={props.state.pending !== undefined}
-            onClick={props.state.takeOver}
-          >
-            Take over
-          </Button>
-        )
+        !props.compact && <TakeOver bot={props.bot.name} state={props.state} variant="ghost" />
       )}
       <IconButton icon={ArrowsOutSimpleIcon} label="Expand" onClick={props.onExpand} />
       {!props.compact && <IconButton icon={XIcon} label="Hide" onClick={props.onHide} />}
