@@ -57,7 +57,12 @@ test("Spade reads a bot's computer and takes it over and back over its socket", 
   });
   expect(
     await ask({ type: "spade.computer.drive", requestId: "d", bot: "fares", driver: "person" }),
-  ).toEqual({ type: "spade.computer.drive.result", requestId: "d", driver: "person" });
+  ).toEqual({
+    type: "spade.computer.drive.result",
+    requestId: "d",
+    driver: "person",
+    stopped: true,
+  });
   expect(
     await ask({ type: "spade.computer.drive", requestId: "b", bot: "fares", driver: "bot" }),
   ).toEqual({

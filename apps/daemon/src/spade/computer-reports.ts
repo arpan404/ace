@@ -22,10 +22,13 @@ export type SurfaceKind = "browser" | "screen";
 export function browserReport(
   threadId: string,
   tabs: readonly SpadeComputerTab[],
-  activeTabId: string | undefined,
+  active: { tabId: string; backend?: "user" } | undefined,
   personDriving: boolean,
 ): SurfaceReport {
-  const tab = tabs.find((each) => each.tabId === activeTabId) ?? tabs.at(-1);
+  // A tab is its id in its backend: ace's browser and the person's Chrome number tabs apart.
+  const tab =
+    tabs.find((each) => each.tabId === active?.tabId && each.backend === active.backend) ??
+    tabs.at(-1);
   return {
     live: tab !== undefined,
     ...(tab

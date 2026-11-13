@@ -26,7 +26,13 @@ import type { SpadeHostThread } from "./host-thread.ts";
 const computerCapabilities = new Set<McpCapability>(["browser", "screen", "devices"]);
 
 /** How long a take-over waits for the bot's calls in flight to stop before it is answered. */
-const drainMs = 10_000;
+const drainMs = 12_000;
+
+/** The tab a browser is on, in one of the two backends (`user`: the person's own Chrome). */
+export interface ActiveTab {
+  tabId: string;
+  backend?: "user";
+}
 
 /** A bot's calls in flight, and the signal that stops them when the person takes over. */
 interface BotCalls {
@@ -57,13 +63,14 @@ export interface SpadeComputersDeps {
   create(host: SpadeHostThread, hostKey: string, bot: string): BotThread | undefined;
   /**
    * The thread's browser tabs now, in ace's browser and in the person's own Chrome (`backend:
-   * "user"`); empty when neither opened.
+   * "user"`), the kept ones for a browser not loaded since a restart; empty when neither has
+   * any. Undefined when they can't be read: unknown, not none.
    */
-  tabs(threadId: ThreadId): readonly SpadeComputerTab[];
+  tabs(threadId: ThreadId): readonly SpadeComputerTab[] | undefined;
   /** Apps the thread's agent is using now, in the order it began. */
   apps(threadId: ThreadId): readonly string[];
-  /** The tab the thread's browser is on, if any. */
-  activeTab(threadId: ThreadId): string | undefined;
+  /** The tab the thread's browser is on, if any, with its backend. */
+  activeTab(threadId: ThreadId): ActiveTab | undefined;
   /** The bot whose computer this thread is; undefined for any other thread. */
   botOf(threadId: string): string | undefined;
   /** Tells Spade one surface of a bot's computer changed. Never throws. */
@@ -89,6 +96,8 @@ export class SpadeComputers {
   private readonly using = new Map<ThreadId, number>();
   private readonly changes = new ReportChanges();
   private readonly calls = new Map<string, BotCalls>();
+  /** The bot each screen session was started or held for, kept when its holder is cleared. */
+  private readonly screens = new Map<string, string>();
   constructor(deps: SpadeComputersDeps) {
     this.deps = deps;
     this.drivers = new ComputerDrivers(deps.now, deps.takeovers);
@@ -131,7 +140,7 @@ export class SpadeComputers {
   /** The bot's computer now, for `GET /v1/agents/{id}/computer`. */
   computer(bot: string): SpadeComputer {
     const thread = this.deps.find(hostKeyOf(bot));
-    const tabs = thread ? this.deps.tabs(thread.threadId) : [];
+    const tabs = (thread && this.deps.tabs(thread.threadId)) ?? [];
     const apps = thread ? this.deps.apps(thread.threadId) : [];
     const since = thread && apps.length ? this.using.get(thread.threadId) : undefined;
     return {
@@ -145,27 +154,33 @@ export class SpadeComputers {
 
   /**
    * Hands the bot's computer to `driver`. Taking over refuses the bot's next calls, stops the
-   * ones in flight and answers once they have ended (or after ten seconds), so nothing the bot
-   * started lands after the person has the controls. Handing back reports what the person did.
-   * Setting the driver it already has changes nothing and reports no hand-back.
+   * ones in flight and answers once they have ended, with `stopped: true`. If one hasn't ended
+   * after twelve seconds it answers `stopped: false`: the person doesn't have the controls yet,
+   * and asking again answers once nothing of the bot's runs. Handing back reports what the
+   * person did. Setting the driver it already has changes nothing and reports no hand-back.
    */
   async drive(
     bot: string,
     driver: SpadeComputerDriver,
-  ): Promise<{ driver: SpadeComputerDriver; handback?: SpadeComputerHandback }> {
+  ): Promise<{ driver: SpadeComputerDriver; stopped?: boolean; handback?: SpadeComputerHandback }> {
     const thread = this.deps.find(hostKeyOf(bot));
     const tabs = thread ? this.deps.tabs(thread.threadId) : [];
-    let result: { driver: SpadeComputerDriver; handback?: SpadeComputerHandback };
+    let result: {
+      driver: SpadeComputerDriver;
+      stopped?: boolean;
+      handback?: SpadeComputerHandback;
+    };
     if (driver === "person") {
-      this.drivers.take(bot, tabs);
-      await this.stop(bot);
-      result = { driver };
+      this.drivers.take(bot, tabs ?? []);
+      result = { driver, stopped: await this.stop(bot) };
     } else {
       const handback = this.drivers.handBack(bot, tabs);
       result = { driver, ...(handback ? { handback } : {}) };
     }
-    if (thread) {
+    if (thread && tabs) {
       this.sendBrowser(bot, thread.threadId, tabs, this.deps.activeTab(thread.threadId));
+    }
+    if (thread) {
       this.send(
         bot,
         "screen",
@@ -179,20 +194,40 @@ export class SpadeComputers {
    * A browser's state changed: a bot's browser is reported to Spade, and while the person drives
    * it, its tabs are noted for the hand-back.
    */
-  browserChanged(state: Pick<BrowserState, "threadId" | "activeTabId">): void {
+  browserChanged(state: Pick<BrowserState, "threadId" | "activeTabId">, backend?: "user"): void {
     const bot = this.deps.botOf(state.threadId);
     if (!bot) return;
     // Either backend changed; the bot's tabs are the ones in both.
     const threadId = state.threadId;
     const tabs = this.deps.tabs(threadId);
+    if (!tabs) return;
     this.drivers.observe(bot, tabs);
-    this.sendBrowser(bot, threadId, tabs, state.activeTabId ?? this.deps.activeTab(threadId));
+    const active = state.activeTabId
+      ? { tabId: state.activeTabId, ...(backend ? { backend } : {}) }
+      : this.deps.activeTab(threadId);
+    this.sendBrowser(bot, threadId, tabs, active);
   }
 
-  /** A screen session for `threadId` is watched or driven by the person. */
-  screenUsedBy(threadId: string): void {
-    const bot = this.deps.botOf(threadId);
-    if (bot) this.drivers.usedScreen(bot);
+  /**
+   * A screen session's state changed. A session started or held for a bot's thread stays that
+   * bot's after its holder is cleared, so the person taking its controls counts as using the
+   * bot's screen.
+   */
+  screenChanged(state: {
+    sessionId: string;
+    lifecycle: string;
+    controller: string;
+    holder?: { threadId: string } | undefined;
+    threadId?: string | undefined;
+  }): void {
+    // The thread it was started for, else the agent holding it now.
+    const owner = state.threadId ?? state.holder?.threadId;
+    const held = owner && this.deps.botOf(owner);
+    if (held) this.screens.set(state.sessionId, held);
+    const bot = this.screens.get(state.sessionId);
+    if (bot && state.controller === "human") this.drivers.usedScreen(bot);
+    if (state.lifecycle === "stopped" || state.lifecycle === "failed")
+      this.screens.delete(state.sessionId);
   }
 
   /**
@@ -224,9 +259,9 @@ export class SpadeComputers {
     bot: string,
     threadId: string,
     tabs: readonly SpadeComputerTab[],
-    activeTabId: string | undefined,
+    active: ActiveTab | undefined,
   ): void {
-    this.send(bot, "browser", browserReport(threadId, tabs, activeTabId, this.driving(bot)));
+    this.send(bot, "browser", browserReport(threadId, tabs, active, this.driving(bot)));
   }
 
   private send(bot: string, kind: SurfaceKind, report: SurfaceReport): void {
@@ -245,19 +280,25 @@ export class SpadeComputers {
     return calls;
   }
 
-  /** Stops the bot's calls in flight and waits for them to end, at most `drainMs`. */
-  private stop(bot: string): Promise<void> {
+  /**
+   * Stops the bot's calls in flight and waits for them to end, at most `drainMs`: true once none
+   * runs, false if one still did when the wait ran out.
+   */
+  private stop(bot: string): Promise<boolean> {
     const calls = this.calls.get(bot);
-    if (!calls) return Promise.resolve();
+    if (!calls) return Promise.resolve(true);
     calls.controller.abort();
-    if (calls.active === 0) return Promise.resolve();
+    if (calls.active === 0) return Promise.resolve(true);
     return new Promise((resolve) => {
-      const cancel = this.deps.after(drainMs, done);
-      function done() {
-        cancel?.();
-        resolve();
-      }
-      calls.idle.push(done);
+      const done = (stopped: boolean) => {
+        cancel();
+        const at = calls.idle.indexOf(drained);
+        if (at >= 0) calls.idle.splice(at, 1);
+        resolve(stopped);
+      };
+      const drained = () => done(true);
+      const cancel = this.deps.after(drainMs, () => done(calls.active === 0));
+      calls.idle.push(drained);
     });
   }
 

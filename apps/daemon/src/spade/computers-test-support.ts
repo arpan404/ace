@@ -8,7 +8,7 @@ import {
   type SpadeComputerTab,
 } from "@ace/protocol";
 import { memoryTakeovers, type TakeoverStore } from "./computer-drivers.ts";
-import { SpadeComputers, type BotThread } from "./computers.ts";
+import { SpadeComputers, type ActiveTab, type BotThread } from "./computers.ts";
 
 export const spade = {
   threadId: ThreadId.parse("spade-host"),
@@ -42,7 +42,10 @@ export function disk() {
 export function ace(saved: { threads: Map<string, BotThread>; takeovers: TakeoverStore } = disk()) {
   let clock = 1_000;
   const { threads } = saved;
+  /** Each thread's tabs; a thread missing here has none, one in `unreadable` can't be read. */
   const tabs = new Map<string, SpadeComputerTab[]>();
+  const unreadable = new Set<string>();
+  const active = new Map<string, ActiveTab>();
   const apps = new Map<string, string[]>();
   const reports: object[] = [];
   const timers: (() => void)[] = [];
@@ -57,9 +60,9 @@ export function ace(saved: { threads: Map<string, BotThread>; takeovers: Takeove
       threads.set(key, thread);
       return thread;
     },
-    tabs: (threadId) => tabs.get(threadId) ?? [],
+    tabs: (threadId) => (unreadable.has(threadId) ? undefined : (tabs.get(threadId) ?? [])),
     apps: (threadId) => apps.get(threadId) ?? [],
-    activeTab: () => undefined,
+    activeTab: (threadId) => active.get(threadId),
     botOf: (threadId) =>
       [...threads]
         .find(([, thread]) => thread.threadId === threadId)?.[0]
@@ -136,6 +139,8 @@ export function ace(saved: { threads: Map<string, BotThread>; takeovers: Takeove
     call,
     acting,
     tabs,
+    unreadable,
+    active,
     apps,
     timers,
     threadOf: (bot: string) => threads.get(`computer:${bot}`)?.threadId,

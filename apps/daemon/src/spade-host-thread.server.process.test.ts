@@ -262,7 +262,12 @@ test("Spade names a bot on its own calls: the person driving that bot's computer
         bot: "fares",
         driver: "person",
       }),
-    ).toEqual({ type: "spade.computer.drive.result", requestId: "take", driver: "person" });
+    ).toEqual({
+      type: "spade.computer.drive.result",
+      requestId: "take",
+      driver: "person",
+      stopped: true,
+    });
     const refused = await client.callTool({
       name: "browser_tabs",
       arguments: { action: "list" },

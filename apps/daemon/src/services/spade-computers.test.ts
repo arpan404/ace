@@ -1,4 +1,8 @@
 import { expect, test } from "vitest";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { BrowserService, type BrowserTabRecord } from "@ace/browser";
 import { ThreadId, type BrowserState } from "@ace/protocol";
 import { botBrowsers } from "./spade-computers.ts";
 
@@ -9,6 +13,7 @@ function backend(threadId: ThreadId, tabs: { tabId: string; title: string; url: 
   return {
     hasActiveSession: (id: string) => id === threadId,
     state,
+    savedTabs: () => [],
     observeStates(observer: (state: BrowserState) => void) {
       observers.add(observer);
       return () => void observers.delete(observer);
@@ -42,4 +47,37 @@ test("a change in the person's own Chrome is heard like one in ace's browser", (
   stop();
   user.changed();
   expect(heard).toEqual([threadId, threadId]);
+});
+
+test("a browser not loaded since a restart lists the tabs kept for it, and an unreadable store is unknown", async () => {
+  const threadId = ThreadId.parse("bot-thread");
+  const kept: BrowserTabRecord[] = [
+    { tabId: "t2", position: 1, url: "https://fly.test/book", title: "Booking", lastActiveAt: 2 },
+    { tabId: "t1", position: 0, url: "https://fly.test/", title: "Fares", lastActiveAt: 1 },
+  ];
+  let readable = true;
+  const browser = new BrowserService({
+    dataDir: await mkdtemp(join(tmpdir(), "spade-computers-")),
+    tabStore: {
+      load: (id) => {
+        if (!readable) throw new Error("disk");
+        return id === threadId ? kept : [];
+      },
+      save: () => {},
+      clear: () => {},
+    },
+  });
+  try {
+    const browsers = botBrowsers({ ace: () => browser, user: () => undefined });
+    expect(browser.hasActiveSession(threadId)).toBe(false);
+    expect(browsers.tabs(threadId)).toEqual([
+      { tabId: "t1", title: "Fares", url: "https://fly.test/" },
+      { tabId: "t2", title: "Booking", url: "https://fly.test/book" },
+    ]);
+    expect(browsers.tabs(ThreadId.parse("never-opened"))).toEqual([]);
+    readable = false;
+    expect(browsers.tabs(threadId)).toBeUndefined();
+  } finally {
+    await browser.close();
+  }
 });

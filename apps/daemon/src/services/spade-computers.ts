@@ -1,7 +1,8 @@
 import { AccessMode, ThreadId, type BrowserState, type SpadeComputerTab } from "@ace/protocol";
-import { SpadeComputers, botOfHostKey, tabOf } from "../spade/computers.ts";
+import { SpadeComputers, botOfHostKey, tabOf, type ActiveTab } from "../spade/computers.ts";
 import { spadeRequest } from "../spade/forward.ts";
 import type { BrowserService } from "@ace/browser";
+import type { ScreenManager } from "@ace/screen";
 import type { TakeoverStore } from "../spade/computer-drivers.ts";
 import type { SpadeHostThread } from "../spade/host-thread.ts";
 import { storedTakeover } from "../stored-decode.ts";
@@ -94,13 +95,9 @@ export function startSpadeComputers(
     now: context.now,
   });
   const stops = [
-    browsers.watch((state) => computers.browserChanged(state)),
+    browsers.watch((state, backend) => computers.browserChanged(state, backend)),
     services.computerUsing?.subscribe((threads) => computers.appsChanged(threads)),
-    // A screen session the person drives for a bot's thread counts as using its screen.
-    services.screen?.watch((state) => {
-      if (state.controller === "human" && state.holder)
-        computers.screenUsedBy(state.holder.threadId);
-    }),
+    services.screen && watchScreenUse(services.screen, computers),
   ];
   context.resources.own(() => {
     for (const stop of stops) stop?.();
@@ -129,7 +126,10 @@ function storedTakeovers(store: Pick<Store, "statement">): TakeoverStore {
   };
 }
 
-type BrowserReads = Pick<BrowserService, "hasActiveSession" | "state" | "observeStates">;
+type BrowserReads = Pick<
+  BrowserService,
+  "hasActiveSession" | "state" | "observeStates" | "savedTabs"
+>;
 
 /**
  * A bot's browser across both of ace's backends: ace's own browser and the person's own Chrome
@@ -144,27 +144,52 @@ export function botBrowsers(services: {
     { browser: services.user(), backend: "user" as const },
   ];
   return {
-    tabs(threadId: ThreadId): SpadeComputerTab[] {
-      return backends().flatMap(({ browser, backend }) =>
-        browser?.hasActiveSession(threadId)
-          ? (browser.state(threadId).tabs ?? []).map((tab) => tabOf(tab, backend))
-          : [],
-      );
+    /**
+     * The thread's tabs in both backends: a loaded browser's own, else the ones kept for it
+     * since a restart (it restores them when it next opens). Undefined if those can't be read.
+     */
+    tabs(threadId: ThreadId): SpadeComputerTab[] | undefined {
+      const tabs: SpadeComputerTab[] = [];
+      for (const { browser, backend } of backends()) {
+        if (!browser) continue;
+        try {
+          const each = browser.hasActiveSession(threadId)
+            ? (browser.state(threadId).tabs ?? [])
+            : browser.savedTabs(threadId);
+          tabs.push(...each.map((tab) => tabOf(tab, backend)));
+        } catch {
+          return undefined;
+        }
+      }
+      return tabs;
     },
-    activeTab(threadId: ThreadId): string | undefined {
-      for (const { browser } of backends())
+    activeTab(threadId: ThreadId): ActiveTab | undefined {
+      for (const { browser, backend } of backends())
         if (browser?.hasActiveSession(threadId)) {
-          const active = browser.state(threadId).activeTabId;
-          if (active) return active;
+          const tabId = browser.state(threadId).activeTabId;
+          if (tabId) return { tabId, ...(backend ? { backend } : {}) };
         }
       return undefined;
     },
-    /** Hears every state change in either backend. */
-    watch(listener: (state: BrowserState) => void): () => void {
-      const stops = backends().map(({ browser }) => browser?.observeStates(listener));
+    /** Hears every state change in either backend, with the backend it came from. */
+    watch(listener: (state: BrowserState, backend?: "user") => void): () => void {
+      const stops = backends().map(({ browser, backend }) =>
+        browser?.observeStates((state) => listener(state, backend)),
+      );
       return () => {
         for (const stop of stops) stop?.();
       };
     },
   };
+}
+
+/**
+ * Every screen session's state, for the bots' hand-backs: a session started or held for a bot's
+ * thread, then driven by the person, counts as using that bot's screen.
+ */
+export function watchScreenUse(
+  screen: Pick<ScreenManager, "watch">,
+  computers: Pick<SpadeComputers, "screenChanged">,
+): () => void {
+  return screen.watch((state) => computers.screenChanged(state));
 }

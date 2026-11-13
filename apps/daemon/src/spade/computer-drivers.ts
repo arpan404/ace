@@ -92,11 +92,18 @@ export class ComputerDrivers {
     if (takeover && !takeover.screenUsed) this.set(bot, { ...takeover, screenUsed: true });
   }
 
-  /** The person hands back; what they did, or undefined if the bot already drove. */
-  handBack(bot: string, tabs: readonly SpadeComputerTab[]): SpadeComputerHandback | undefined {
-    this.observe(bot, tabs);
+  /**
+   * The person hands back; what they did, or undefined if the bot already drove. With `tabs`
+   * unknown (undefined), the tabs last seen stand for them, so nothing reads as closed.
+   */
+  handBack(
+    bot: string,
+    known: readonly SpadeComputerTab[] | undefined,
+  ): SpadeComputerHandback | undefined {
+    if (known) this.observe(bot, known);
     const takeover = this.takeovers.get(bot);
     if (!takeover) return undefined;
+    const tabs = known ?? takeover.last;
     this.takeovers.delete(bot);
     this.store.remove(bot);
     const start = ids(takeover.start);

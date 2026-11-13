@@ -17,7 +17,7 @@ test("taking over stops the bot's call in flight and is answered only once it ha
   expect(daemon.acting.aborted).toBe(true);
   expect(daemon.acting.ended).toBe(false);
   expect(answered).toBe(false);
-  expect(await taken).toEqual({ driver: "person" });
+  expect(await taken).toEqual({ driver: "person", stopped: true });
   expect(daemon.acting.ended).toBe(true);
   expect(await running).toEqual({ error: "cancelled" });
 });
@@ -48,10 +48,18 @@ test("a take-over whose call never stops is answered once the drain limit passes
   expect(daemon.acting.aborted).toBe(true);
   expect(answered).toBe(false);
   for (const run of daemon.timers.splice(0)) run();
-  expect(await taken).toEqual({ driver: "person" });
+  // The person isn't told they have the controls while the bot's call still runs.
+  expect(await taken).toEqual({ driver: "person", stopped: false });
   // Its refusals hold meanwhile.
   expect(await daemon.call("browser_tabs", { actingFor: "fares" })).toEqual({
     error: "person_driving",
+  });
+  // Asking again once it has ended says the person has them.
+  daemon.acting.release();
+  await settle();
+  expect(await daemon.computers.drive("fares", "person")).toEqual({
+    driver: "person",
+    stopped: true,
   });
 });
 
@@ -73,7 +81,10 @@ test("the person still drives after a daemon restart, and Spade sending driver=p
     error: "person_driving",
   });
   // Spade re-sends the take-over on reconnect: nothing restarts.
-  expect(await after.computers.drive("fares", "person")).toEqual({ driver: "person" });
+  expect(await after.computers.drive("fares", "person")).toEqual({
+    driver: "person",
+    stopped: true,
+  });
   expect((await after.computers.drive("fares", "bot")).handback).toMatchObject({
     visited: ["https://fly.test/login"],
     drivenMs: 0,
@@ -87,7 +98,10 @@ test("handing back reports where the person went, the tabs they opened and close
   const home = { tabId: "t1", title: "Fares", url: "https://fly.test/" };
   const old = { tabId: "t2", title: "Old", url: "https://old.test/" };
   daemon.tabs.set(threadId, [home, old]);
-  expect(await daemon.computers.drive("fares", "person")).toEqual({ driver: "person" });
+  expect(await daemon.computers.drive("fares", "person")).toEqual({
+    driver: "person",
+    stopped: true,
+  });
   expect(daemon.computers.computer("fares").driver).toBe("person");
   const login = { ...home, title: "Sign in", url: "https://fly.test/login" };
   daemon.tabs.set(threadId, [login]);
@@ -97,7 +111,14 @@ test("handing back reports where the person went, the tabs they opened and close
   const bank = { tabId: "t2", title: "Bank", url: "https://bank.test/", backend: "user" as const };
   daemon.tabs.set(threadId, [login, booking, bank]);
   daemon.computers.browserChanged({ threadId });
-  daemon.computers.screenUsedBy(threadId);
+  // The person starts a screen session for the bot, then takes its controls: the holder goes.
+  daemon.computers.screenChanged({
+    sessionId: "s1",
+    lifecycle: "live",
+    controller: "none",
+    holder: { threadId },
+  });
+  daemon.computers.screenChanged({ sessionId: "s1", lifecycle: "live", controller: "human" });
   daemon.advance(180_000);
   expect(await daemon.computers.drive("fares", "bot")).toEqual({
     driver: "bot",
@@ -120,9 +141,33 @@ test("another bot's browser changing never lands in a driven bot's hand-back", a
   await daemon.computers.drive("fares", "person");
   daemon.tabs.set(news, [{ tabId: "n1", title: "News", url: "https://news.test/" }]);
   daemon.computers.browserChanged({ threadId: news });
-  daemon.computers.screenUsedBy(news);
+  daemon.computers.screenChanged({
+    sessionId: "s2",
+    lifecycle: "live",
+    controller: "human",
+    holder: { threadId: news },
+  });
   expect((await daemon.computers.drive("fares", "bot")).handback).toMatchObject({
     visited: [],
     screenUsed: false,
+  });
+});
+
+test("handing back right after a restart, before the browser has loaded, reports no tab closed", async () => {
+  const saved = disk();
+  const before = ace(saved);
+  const threadId = ThreadId.parse((await before.call("browser_tabs", { actingFor: "fares" })).ran);
+  const home = { tabId: "t1", title: "Fares", url: "https://fly.test/" };
+  const booking = { tabId: "t2", title: "Booking", url: "https://fly.test/book" };
+  before.tabs.set(threadId, [home]);
+  await before.computers.drive("fares", "person");
+  before.tabs.set(threadId, [home, booking]);
+  before.computers.browserChanged({ threadId });
+  // After the restart the browser can't be read yet: unknown, not empty.
+  const after = ace(saved);
+  after.unreadable.add(threadId);
+  expect((await after.computers.drive("fares", "bot")).handback).toMatchObject({
+    opened: [booking],
+    closed: [],
   });
 });

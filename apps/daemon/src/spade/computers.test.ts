@@ -128,3 +128,24 @@ test("a tab in the person's own Chrome is reported with its backend", async () =
     expect.objectContaining({ kind: "browser", tab_id: "u1", backend: "user" }),
   ]);
 });
+
+test("the tab reported is the one the browser is on, in its own backend, when ids are equal", async () => {
+  const daemon = ace();
+  const threadId = ThreadId.parse((await daemon.call("browser_tabs", { actingFor: "fares" })).ran);
+  daemon.tabs.set(threadId, [
+    { tabId: "t1", title: "Fares", url: "https://fly.test/" },
+    { tabId: "t1", title: "Bank", url: "https://bank.test/", backend: "user" },
+    { tabId: "t2", title: "Other", url: "https://other.test/" },
+  ]);
+  // The person's Chrome changed and is on its t1.
+  daemon.computers.browserChanged({ threadId, activeTabId: "t1" }, "user");
+  expect(daemon.reports.at(-1)).toMatchObject({
+    url: "https://bank.test/",
+    tab_id: "t1",
+    backend: "user",
+  });
+  // ace's browser changed and is on its own t1.
+  daemon.computers.browserChanged({ threadId, activeTabId: "t1" });
+  expect(daemon.reports.at(-1)).toMatchObject({ url: "https://fly.test/", tab_id: "t1" });
+  expect(daemon.reports.at(-1)).not.toHaveProperty("backend");
+});
