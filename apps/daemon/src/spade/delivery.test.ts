@@ -23,11 +23,13 @@ function delivery(proves: boolean) {
   const sent: string[] = [];
   let issued = 0;
   const handOver = new SpadeGrantDelivery({
+    now: () => 100_000,
     grants: {
       current: () => grant,
       issue: () => `token-${++issued}`,
     },
     call: async (_connection, method, body) => {
+      if (method === "GET") return { status: 200, body: { grant: sent.length > 0 } };
       sent.push(body ? `${method} ${body.grant}` : method);
       return { status: 204, body: undefined };
     },
@@ -53,4 +55,66 @@ test("Spade proving itself gets its grant once, and is told to forget it", async
   await handOver.deliver(connection);
   await handOver.withdraw(connection);
   expect(sent).toEqual(["PUT token-1", "DELETE"]);
+});
+
+test("a refused credential heals automatically, at most once a minute, and revocation stays revoked", async () => {
+  let now = 100_000;
+  let live = true;
+  let refused = false;
+  let stored = "";
+  let valid = "";
+  let issued = 0;
+  let scheduled: (() => void) | undefined;
+  const handOver = new SpadeGrantDelivery({
+    now: () => now,
+    grants: {
+      current: () => (live ? grant : undefined),
+      issue: () => {
+        valid = `credential-${++issued}`;
+        return valid;
+      },
+    },
+    prove: async () => true,
+    ready: () => connection,
+    after: (_ms, run) => {
+      scheduled = run;
+      return () => {
+        scheduled = undefined;
+      };
+    },
+    log: () => {},
+    call: async (_connection, method, body) => {
+      if (method === "GET") return { status: 200, body: { grant: !!stored, refused } };
+      if (body) {
+        stored = body.grant;
+        refused = false;
+      }
+      return { status: 204, body: undefined };
+    },
+  });
+  const poll = async () => {
+    const run = scheduled;
+    if (!run) throw new Error("no automatic grant check was scheduled");
+    scheduled = undefined;
+    run();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  };
+  await handOver.deliver(connection, true);
+  const old = stored;
+  refused = true;
+  await poll();
+  expect(stored).toBe(old);
+  now += 60_000;
+  await poll();
+  expect(stored).not.toBe(old);
+  expect(stored).toBe(valid);
+  const healed = stored;
+  refused = true;
+  await poll();
+  expect(stored).toBe(healed);
+  live = false;
+  now += 60_000;
+  await poll();
+  expect(stored).toBe(healed);
+  handOver.close();
 });
