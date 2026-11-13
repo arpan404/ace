@@ -13,9 +13,13 @@ const tap = (x: number) => ({ op: "input", deviceId, input: { kind: "tap", x, y:
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 1));
 
-/** A cowork devices service over a scripted platform, with a clock the test moves. */
+/**
+ * A cowork devices service over a scripted platform, with a clock the test moves (`now`, which
+ * only moves forward) and a wall clock it can also change on its own (`wall`).
+ */
 async function fixture() {
   let now = 1_000;
+  let wall = 1_000;
   let timers: { at: number; run: () => void }[] = [];
   const platform = new DevicePlatform({ platform: "linux", home: "/unused", env: {} });
   platform.list = async () => [
@@ -37,7 +41,8 @@ async function fixture() {
     recordingDirectory: "/unused",
     publishArtifact: async () => {},
     runtime: {
-      now: () => now,
+      now: () => wall,
+      monotonic: () => now,
       id: () => "unused",
       after(ms, run) {
         const timer = { at: now + ms, run };
@@ -61,11 +66,16 @@ async function fixture() {
       const due = timers.filter((timer) => timer.at <= end).toSorted((a, b) => a.at - b.at)[0];
       if (!due) break;
       timers = timers.filter((timer) => timer !== due);
+      wall += due.at - now;
       now = due.at;
       due.run();
     }
+    wall += end - now;
     now = end;
     await tick();
+  };
+  const setWallClock = (ms: number) => {
+    wall += ms;
   };
   const state = () => service.states().find((each) => each.device.id === deviceId);
   const holdTap = (x: number) => {
@@ -78,7 +88,7 @@ async function fixture() {
     guard?.();
     return { text: "shared clipboard", truncated: false };
   };
-  return { service, taps, advance, state, holdTap };
+  return { service, taps, advance, state, holdTap, setWallClock };
 }
 
 it("the person's tap goes into a device an agent holds, and the agent's tap waits until they pause", async () => {
@@ -111,6 +121,20 @@ it("after a minute of the person's input the agent's tap gives up with person_bu
   }
   await refused;
   expect(taps).not.toContain("2");
+});
+
+it("the system clock jumping ahead doesn't cut the person's lease short", async () => {
+  const { service, taps, advance, setWallClock } = await fixture();
+  await service.request(tap(1), person);
+  setWallClock(10 * 60_000);
+  let done = false;
+  const agentTap = service.request(tap(2), agent).then(() => (done = true));
+  await advance(2_900);
+  expect(done).toBe(false);
+  expect(taps).toEqual(["1"]);
+  await advance(100);
+  await agentTap;
+  expect(taps).toEqual(["1", "2"]);
 });
 
 it("a person's Take control is exclusive: the agent is refused as before", async () => {

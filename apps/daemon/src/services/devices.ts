@@ -60,6 +60,7 @@ async function buildDevices(context: ServiceContext, enabled: boolean): Promise<
     }),
     runtime: {
       now,
+      monotonic: () => performance.now(),
       id,
       spawn: spawnRawSupervised,
       after(ms, run) {

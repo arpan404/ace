@@ -23,14 +23,21 @@ const pointerKinds: Record<string, AgentPointerKind> = {
 
 export class DeviceCowork {
   private readonly presence: PersonPresence;
+  /** Wall-clock time, only for the pointer's timestamp. */
+  private readonly epoch: () => number;
+  /** Time that only moves forward, for leases, deadlines and waits. */
   private readonly now: () => number;
   private readonly after: DeviceRuntime["after"];
   private readonly pointers = new Map<string, AgentPointer>();
-  constructor(runtime: Pick<DeviceRuntime, "now" | "after">, changed: (deviceId: string) => void) {
-    this.now = runtime.now;
+  constructor(
+    runtime: Pick<DeviceRuntime, "now" | "monotonic" | "after">,
+    changed: (deviceId: string) => void,
+  ) {
+    this.epoch = runtime.now;
+    this.now = runtime.monotonic ?? runtime.now;
     this.after = runtime.after;
     this.presence = new PersonPresence({
-      clock: { now: runtime.now, set: runtime.after },
+      clock: { now: this.now, set: runtime.after },
       changed: (surface) => changed(surface.slice("device:".length)),
     });
   }
@@ -94,7 +101,7 @@ export class DeviceCowork {
       x: point.x,
       y: point.y,
       kind: pointerKinds[activity.action] ?? "click",
-      at: Math.max(0, Math.round(this.now())),
+      at: Math.max(0, Math.round(this.epoch())),
     });
   }
 
