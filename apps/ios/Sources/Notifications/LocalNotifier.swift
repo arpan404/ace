@@ -5,10 +5,9 @@ import UserNotifications
 protocol NotificationCenterPort: AnyObject, Sendable {
     func post(_ content: AlertContent) async
     func withdraw(_ identifiers: [String])
-    /// Withdraws the service extension's copies of `thread`'s earlier alerts (ADR 0106): delivered
-    /// pushes standing for it whose alert isn't in `keep`. They carry APNs' identifier, so posting
-    /// under the thread's own doesn't replace them.
-    func withdrawPushed(standingFor thread: String, keep: Set<String>)
+    /// Withdraws the service extension's copies of `thread`'s alerts (ADR 0106). They carry APNs'
+    /// identifier, so posting under the thread's own doesn't replace them.
+    func withdrawPushed(standingFor thread: String)
 }
 
 final class SystemNotificationCenter: NotificationCenterPort {
@@ -41,14 +40,14 @@ final class SystemNotificationCenter: NotificationCenterPort {
             if !pushed.isEmpty { center.removeDeliveredNotifications(withIdentifiers: pushed.map(\.request.identifier)) }
         }
     }
-    func withdrawPushed(standingFor thread: String, keep: Set<String>) {
+    func withdrawPushed(standingFor thread: String) {
         let center = UNUserNotificationCenter.current()
         center.getDeliveredNotifications { delivered in
             let older = delivered.filter { note in
                 let info = note.request.content.userInfo
                 // Only the extension's copies have `pushedAlert`; the app's own post is never matched.
                 guard let pushed = info[NotificationKeys.pushedAlert] as? String else { return false }
-                return !keep.contains(pushed) && info[NotificationKeys.standsFor] as? String == thread
+                return !pushed.isEmpty && info[NotificationKeys.standsFor] as? String == thread
             }
             if !older.isEmpty { center.removeDeliveredNotifications(withIdentifiers: older.map(\.request.identifier)) }
         }
@@ -85,17 +84,16 @@ final class SystemNotificationCenter: NotificationCenterPort {
         let landed = stack.land(AlertContent(alert, hostId: hostId), alert: alert, now: now())
         save()
         withdraw(landed.withdraw)
-        guard let content = landed.post else { return }
+        guard var content = landed.post else { return }
         let thread = AlertStack.thread(alert.threadId, hostId: hostId)
         if content.identifier == thread {
-            let request = AlertContent.requestId(alert.id, hostId: hostId)
-            // This alert is the thread's one notification now: a push of an earlier one (shown
-            // while ace was closed) goes, as the thread's own post would replace it. A push shown
-            // after this one is newer and stays: catch-up lands a thread's alerts oldest first.
-            center.withdrawPushed(standingFor: thread, keep: pushed.after(request).union([request]))
-            // A push already showed this alert (the socket's ack was lost, or catch-up brought
-            // it): the stack keeps it as the thread's, and withdrawing the thread withdraws it.
-            if pushed.contains(request) { return }
+            // This alert is the thread's one notification now, so every pushed copy for the thread
+            // goes, its own included, and it is posted under the thread's identifier. Catch-up
+            // lands a thread's alerts oldest first, so the newest is what stays, without working
+            // out which push came when.
+            center.withdrawPushed(standingFor: thread)
+            // Already seen from a push: in its place again, but without a second sound or banner.
+            if pushed.contains(AlertContent.requestId(alert.id, hostId: hostId)) { content = content.quieted }
         }
         landings += 1
         let serial = landings
@@ -194,6 +192,9 @@ final class SystemNotificationCenter: NotificationCenterPort {
     /// False once its machine is turned off or detached: alerts still advance the ledger, so
     /// none is posted later, but nothing lands any more, even from a task already under way.
     private(set) var valid = true
+    /// Alerts admitted to the ledger whose landing hasn't finished, with whoever waits on each: a
+    /// live copy arriving meanwhile is reported delivered only once the first copy has landed.
+    private var inFlight: [String: [CheckedContinuation<Void, Never>]] = [:]
     init(center: any NotificationCenterPort, hostId: String? = nil, desk: AlertDesk? = nil) {
         self.center = center; self.hostId = hostId; self.desk = desk ?? AlertDesk(center: center)
     }
@@ -205,9 +206,13 @@ final class SystemNotificationCenter: NotificationCenterPort {
         valid = false
         desk.cancel(owner: ObjectIdentifier(self))
     }
+    /// Returns once the alert has landed, or was deliberately not posted: the coordinator then
+    /// tells the bridge it was delivered.
     func receive(_ alert: AlertNotification) async {
-        guard ledger.admit(alert.id) else { return }
+        guard ledger.admit(alert.id) else { return await landed(alert.id) }
         store?.save(ledger)
+        inFlight[alert.id] = []
+        defer { finish(alert.id) }
         guard alert.delivery?.post != false, valid else { return }
         await desk.land(alert, hostId: hostId, owner: ObjectIdentifier(self))
     }
@@ -216,11 +221,23 @@ final class SystemNotificationCenter: NotificationCenterPort {
         let fresh = entries.filter { ledger.admit($0.id) }
         ledger.advance(to: cursor)
         store?.save(ledger)
+        for alert in fresh { inFlight[alert.id] = [] }
+        // Each finishes as it lands; whatever a turn-off skips finishes here.
+        defer { for alert in fresh { finish(alert.id) } }
         // Checked before each one: an earlier post can be awaited past a turn-off.
         for alert in fresh where alert.delivery?.post != false {
             guard valid else { return }
             await desk.land(alert, hostId: hostId, owner: ObjectIdentifier(self))
+            finish(alert.id)
         }
+    }
+    /// Waits while an earlier copy of this alert is still landing; at once otherwise.
+    private func landed(_ id: String) async {
+        guard inFlight[id] != nil else { return }
+        await withCheckedContinuation { inFlight[id, default: []].append($0) }
+    }
+    private func finish(_ id: String) {
+        for waiter in inFlight.removeValue(forKey: id) ?? [] { waiter.resume() }
     }
     func withdraw(_ id: String) { desk.withdraw([id]) }
     /// A local, non-daemon notice (an action that couldn't finish). It opens the thread.

@@ -339,7 +339,7 @@ import Testing
         #expect(center.posted.isEmpty)
     }
 
-    @Test func aLiveAlertAPushAlreadyShowedIsReportedDeliveredWithoutPostingAgain() async throws {
+    @Test func aLiveAlertAPushAlreadyShowedIsReportedDeliveredAndPostedAgainQuietly() async throws {
         let center = FakeCenter()
         let sessions = Sessions()
         let pushed = PushedAlerts(defaults: try defaults())
@@ -355,7 +355,21 @@ import Testing
         await coordinator.setEnabled(true)
         session.patch(#"{"type":"notifications.alert","notification":{"id":"n:1","threadId":"thread","title":"Fix","status":"done","backgroundCount":0,"actions":[]}}"#)
         #expect(try await session.waitFor("notifications.delivered")["id"] as? String == "n:1")
-        #expect(center.posted.isEmpty)
+        #expect(center.posted.map(\.level) == [.passive])
+    }
+
+    @Test func aLiveCopyOfAnAlertCatchUpIsStillPostingIsNotReportedDeliveredUntilItLands() async throws {
+        let (coordinator, center, session) = try await connected(HeldCenter())
+        await coordinator.setEnabled(true)
+        session.patch(#"{"type":"notifications.feed","cursor":1,"entries":[{"id":"n:1","threadId":"thread","title":"Fix","status":"needs_you","backgroundCount":0,"actions":[]}],"retracted":[]}"#)
+        try await until("catch-up's post is under way") { center.holding }
+        session.patch(#"{"type":"notifications.alert","notification":{"id":"n:1","threadId":"thread","title":"Fix","status":"needs_you","backgroundCount":0,"actions":[]}}"#)
+        for _ in 0..<20 { await Task.yield() }
+        // Nothing has landed yet: suspended now, only the push would show it.
+        #expect(session.actions("notifications.delivered").isEmpty)
+        center.release()
+        #expect(try await session.waitFor("notifications.delivered")["id"] as? String == "n:1")
+        #expect(center.delivered.count == 1)
     }
 
     @Test func aRequestAnsweredElsewhereTakesItsNotificationWithItOnceTheRowMovesOn() async throws {
@@ -377,7 +391,7 @@ import Testing
         center.push(alert("n:1"), hostId: "studio", apnsId: "apns-1", pushed: pushed)
         // Reopened: catch-up brings the finish, which the push already showed.
         await notifier.catchUp(cursor: 1, entries: [alert("n:1")], retracted: [])
-        #expect(center.delivered.keys.sorted() == ["apns-1"])
+        #expect(center.delivered.values.map(\.body) == ["Done"])
         await notifier.receive(alert("n:2", status: "needs_you", actions: true))
         #expect(center.delivered.values.map(\.body) == ["Needs you"])
     }
@@ -390,8 +404,33 @@ import Testing
         center.push(alert("n:1"), hostId: "studio", apnsId: "apns-1", pushed: pushed)
         center.push(alert("n:2", status: "needs_you", actions: true), hostId: "studio", apnsId: "apns-2", pushed: pushed)
         await notifier.catchUp(cursor: 2, entries: [alert("n:1"), alert("n:2", status: "needs_you", actions: true)], retracted: [])
-        #expect(center.delivered.keys.sorted() == ["apns-2"])
-        #expect(center.posted.isEmpty)
+        #expect(center.delivered.values.map(\.body) == ["Needs you"])
+        // Both were seen from their pushes: in place again without another sound.
+        #expect(center.posted.allSatisfy { $0.level == .passive })
+    }
+
+    @Test func anOlderAlertThatWasNeverPushedLeavesTheNewerPushedOneShown() async throws {
+        let center = FakeCenter()
+        let pushed = PushedAlerts(defaults: try defaults())
+        let notifier = LocalNotifier(center: center, hostId: "studio", desk: AlertDesk(center: center, now: { 0 }, pushed: pushed))
+        notifier.bind(LedgerStore(scope: "studio", defaults: try defaults()))
+        center.push(alert("n:2", status: "needs_you", actions: true), hostId: "studio", apnsId: "apns-2", pushed: pushed)
+        await notifier.catchUp(cursor: 2, entries: [alert("n:1"), alert("n:2", status: "needs_you", actions: true)], retracted: [])
+        #expect(center.delivered.values.map(\.body) == ["Needs you"])
+    }
+
+    @Test func aNewerPushStaysShownAfterTheOlderOneLeftThePushHistory() async throws {
+        let center = FakeCenter()
+        let pushed = PushedAlerts(defaults: try defaults())
+        let notifier = LocalNotifier(center: center, hostId: "studio", desk: AlertDesk(center: center, now: { 0 }, pushed: pushed))
+        notifier.bind(LedgerStore(scope: "studio", defaults: try defaults()))
+        center.push(alert("n:1", status: "agent_says"), hostId: "studio", apnsId: "apns-1", pushed: pushed)
+        // Other machines' pushes push n:1 out of the bounded history.
+        for index in 0..<PushedAlerts.capacity { pushed.record("other:\(index)") }
+        center.push(alert("n:2", status: "needs_you", actions: true), hostId: "studio", apnsId: "apns-2", pushed: pushed)
+        await notifier.catchUp(cursor: 2, entries: [alert("n:1", status: "agent_says"), alert("n:2", status: "needs_you", actions: true)],
+                               retracted: [])
+        #expect(center.delivered.values.map(\.body) == ["Needs you"])
     }
 
     @Test func anotherThreadsPushIsLeftAlone() async throws {
@@ -640,8 +679,8 @@ private final class FakeCenter: NotificationCenterPort, @unchecked Sendable {
         let wanted = Set(identifiers)
         remove(pushes.filter { wanted.contains($0.value.alert) || wanted.contains($0.value.standsFor) }.keys)
     }
-    func withdrawPushed(standingFor thread: String, keep: Set<String>) {
-        remove(pushes.filter { $0.value.standsFor == thread && !keep.contains($0.value.alert) }.keys)
+    func withdrawPushed(standingFor thread: String) {
+        remove(pushes.filter { $0.value.standsFor == thread }.keys)
     }
     /// What `AceNotificationService` does with a push while ace is closed: shows the alert under
     /// APNs' identifier and notes it in `PushedAlerts`.
@@ -670,7 +709,7 @@ private final class HeldCenter: NotificationCenterPort, @unchecked Sendable {
     }
     func release() { lock.withLock { let held = gate; gate = nil; return held }?.resume() }
     func withdraw(_ identifiers: [String]) { lock.withLock { for id in identifiers { shown.removeValue(forKey: id) } } }
-    func withdrawPushed(standingFor thread: String, keep: Set<String>) {}
+    func withdrawPushed(standingFor thread: String) {}
 }
 private struct FakeAuthorizer: NotificationAuthorizer {
     func status() async -> NotificationCoordinator.Permission { .allowed }
