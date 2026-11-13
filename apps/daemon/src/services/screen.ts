@@ -5,6 +5,8 @@ import {
   installScreenHelper,
   linuxComputerEnvironment,
   localScreenManager,
+  macPhysicalInput,
+  ScreenCowork,
   screenConnection,
   type Simulators,
 } from "@ace/screen";
@@ -30,6 +32,22 @@ export async function startScreen({ config, options, resources, services, store 
   // Linux: the desktop session is read from the user manager each time a helper starts.
   const session =
     process.platform === "linux" ? graphicalSessionEnvironment({ env: process.env }) : undefined;
+  // Cowork (ADR 0143): one lease per app for the live view and the agent tools. On a Mac the
+  // person's own keyboard and mouse count while that app is frontmost; elsewhere only input
+  // routed through ace does (Windows' and Linux's idle sources are not read yet).
+  const cowork = new ScreenCowork({
+    clock: { now: Date.now, set: nodeScheduler.after },
+    // Injected screens and engines (tests) never read this machine's own input.
+    ...(process.platform === "darwin" && !options.screen && !options.computer
+      ? {
+          physical: macPhysicalInput({
+            now: Date.now,
+            ioreg: (args) => output("/usr/sbin/ioreg", args),
+            apps: async () => services.computer?.request("apps", {}),
+          }),
+        }
+      : {}),
+  });
   const manager =
     options.screen ??
     (helper
@@ -37,9 +55,11 @@ export async function startScreen({ config, options, resources, services, store 
           manifest: config.screenHelperManifest,
           inheritResponsibility: config.screenHelperInheritsResponsibility,
           session,
+          cowork,
         })
       : undefined);
   if (!manager) return;
+  services.screenCowork = cowork;
   const settings = new ScreenSettings(store);
   // Linux: once computer use is on, accessibility is turned on for the desktop session, so the
   // apps the person opens from then on can be seen. Firefox reads it only when it starts, and
@@ -220,4 +240,20 @@ export function createScreenSession(context: SocketContext, simulators: Simulato
       return true;
     },
   };
+}
+
+/** A short command's standard output; it fails if the command does. */
+function output(command: string, args: readonly string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, [...args], { stdio: ["ignore", "pipe", "ignore"] });
+    let text = "";
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      if (text.length < 1_000_000) text += chunk;
+    });
+    child.once("error", reject);
+    child.once("close", (code) =>
+      code === 0 ? resolve(text) : reject(new Error(`${command} ${code}`)),
+    );
+  });
 }

@@ -23,7 +23,13 @@ export function computerPlatform(platform: NodeJS.Platform): ComputerPlatform {
 export function daemonComputerToolkit(
   services: Pick<
     Partial<Services>,
-    "computerUsing" | "settings" | "lockedUseRuntime" | "computer" | "engine" | "screen"
+    | "computerUsing"
+    | "settings"
+    | "lockedUseRuntime"
+    | "computer"
+    | "engine"
+    | "screen"
+    | "screenCowork"
   >,
   computer: ComputerClient | undefined,
   route?: ComputerMachineRoute,
@@ -45,5 +51,6 @@ export function daemonComputerToolkit(
         services.computerUsing?.begin(ThreadId.parse(threadId), app) ?? (() => {})),
     ...(lockedUse ? { lockedUse } : {}),
     ...(route ? { route } : {}),
+    ...(services.screenCowork ? { cowork: services.screenCowork } : {}),
   });
 }

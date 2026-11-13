@@ -11,6 +11,8 @@ type ActionRuntime = {
   emit(session: Session): void;
   fail(session: Session, error: Error): void;
   audit(state: ScreenState, action: string, outcome: string): void;
+  /** The person's input needs no controls (cowork, ADR 0143). */
+  cowork?: boolean;
 };
 /** Per-session ordering; only foreground input and clipboard work share a host lane. */
 export function executeSessionAction<T>(
@@ -23,7 +25,7 @@ export function executeSessionAction<T>(
   access: "input" | "semantic",
 ): Promise<T> {
   runtime.authorize(session);
-  authorizeInput(session, actor, owner);
+  authorizeInput(session, actor, owner, runtime.cowork);
   session.controllerBinding?.authorize();
   if (session.queuedActions >= 16) throw new Error("Input queue limit");
   session.queuedActions++;
@@ -33,7 +35,7 @@ export function executeSessionAction<T>(
     if (session.epoch !== epoch || session.state.lifecycle !== "live")
       throw new Error("Controller changed");
     runtime.authorize(session);
-    authorizeInput(session, actor, owner);
+    authorizeInput(session, actor, owner, runtime.cowork);
     session.controllerBinding?.authorize();
   };
   const action = session.actionTail

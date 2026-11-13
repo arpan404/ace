@@ -2,6 +2,7 @@ import { helperGate } from "./testing/gate.ts";
 import { afterEach, expect, it } from "vitest";
 import { computerUseHandler, type Frame } from "./index.ts";
 import { deferred, manager, ready, target } from "./testing/support.ts";
+import { ScreenCowork } from "./cowork.ts";
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()));
@@ -153,4 +154,27 @@ it("takeover during permission inspection prevents the pending input effect", as
   await action;
   expect(screen.state(state.sessionId).controller).toBe("human");
   expect(() => screen.screenshot(state.sessionId)).toThrow("No captured frame");
+});
+it("in cowork the person's live-view input reaches an agent's session without its controls, and shows them active", async () => {
+  let now = 1_000;
+  const cowork = new ScreenCowork({ clock: { now: () => now, set: () => () => {} } });
+  const test = await manager({ FAKE_V2: "1" }, { cowork });
+  cleanups.push(test.close);
+  const screen = test.screen;
+  const state = await ready(screen);
+  const id = state.sessionId;
+  screen.controller(id, "agent", "agent-1");
+  await screen.input(id, "human", { kind: "text.type", text: "hi" }, "human-1");
+  expect(screen.state(id)).toMatchObject({
+    controller: "agent",
+    sharing: "cowork",
+    personActive: true,
+  });
+  // A person's Take control is exclusive: another person's input stays out, as before.
+  now += 10_000;
+  screen.controller(id, "human", "human-1");
+  expect(screen.state(id).sharing).toBe("exclusive");
+  await expect(
+    screen.input(id, "human", { kind: "text.type", text: "x" }, "human-2"),
+  ).rejects.toThrow("ownership");
 });
