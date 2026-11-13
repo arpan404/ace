@@ -1,8 +1,20 @@
 /*
  * `?fakeWorld=spade`: pictures of the bots' browsers and screens, drawn here as SVG, so the
  * computer's tile and expanded view show something real-looking without a daemon. The shape is
- * the Spade slice's `BotStreams`; input is taken and dropped. Fixtures, never the person's screen.
+ * the Spade slice's `BotStreams`; input is taken and dropped. Spade's browser picture carries the
+ * bot's pointer, moving between the hotels every second, as the daemon reports where it acts (the
+ * cowork scene). Fixtures, never the person's screen.
  */
+
+import type { AgentPointer } from "@ace/protocol";
+
+/** A picture as the Spade slice's `BotStreams` shows one, with the bot's pointer. */
+interface BotPicture {
+  src: string;
+  width: number;
+  height: number;
+  pointer?: AgentPointer;
+}
 
 interface Key {
   machine: string;
@@ -108,18 +120,38 @@ const dataUrl = (svg: string) => `data:image/svg+xml;charset=utf-8,${encodeURICo
 
 export function fakeBotStreams() {
   return {
-    watch(key: Key, show: (picture: { src: string; width: number; height: number }) => void) {
+    watch(key: Key, show: (picture: BotPicture) => void) {
       // Only the bots the fake world shows at work have a picture.
       const shown =
         (key.bot === "spade" && key.surface === "browser") ||
         (key.bot === "notes" && key.surface === "screen");
       if (!shown) return () => {};
       const picture = pictures[key.surface];
-      const timer = setTimeout(
-        () => show({ src: dataUrl(picture.svg), width: picture.width, height: picture.height }),
-        0,
-      );
-      return () => clearTimeout(timer);
+      const src = dataUrl(picture.svg);
+      const base = { src, width: picture.width, height: picture.height };
+      // Release notes types in TextEdit; Spade clicks each hotel's price in turn.
+      const spots =
+        key.surface === "browser"
+          ? [866, 866, 866, 866].map((x, index) => ({ x, y: 192 + index * 150 }))
+          : [{ x: 464, y: 312 }];
+      let step = 0;
+      const tick = () => {
+        const spot = spots[step++ % spots.length] ?? { x: 0, y: 0 };
+        show({
+          ...base,
+          pointer: {
+            ...spot,
+            kind: key.surface === "browser" ? "click" : "type",
+            at: Date.now(),
+          },
+        });
+      };
+      const timer = setTimeout(tick, 0);
+      const moving = setInterval(tick, 1000);
+      return () => {
+        clearTimeout(timer);
+        clearInterval(moving);
+      };
     },
     input: async () => {},
   };

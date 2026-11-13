@@ -11,7 +11,8 @@ import type { BotComputerState } from "./use-bot-computer.ts";
  * use it: "Spade is working here" or "Spade is waiting for you" (it yields to the person's
  * input), with Take over, which pauses the bot, as the secondary action. In exclusive mode: "You
  * have it. Spade is paused." or "Stopping Spade…", with Hand back. Words never cut mid-word: in a
- * narrow container (`@container` on the parent) they shorten to the face, "Stopping…" or "You".
+ * narrow container (`@container` on the parent) they shorten to the face with "Working" or
+ * "Waiting for you", "Stopping…" or "You".
  */
 export function DriverStatus(props: {
   bot: { name: string; avatar: SpadeAvatar };
@@ -59,6 +60,11 @@ export function DriverStatus(props: {
               state={state.status === "working" ? "working" : "idle"}
             />
             <span className={long}>{coworkLine(state.status, bot.name)}</span>
+            {state.status !== "idle" && (
+              <span aria-hidden className={short}>
+                {state.status === "waiting" ? "Waiting for you" : "Working"}
+              </span>
+            )}
           </>
         )}
       </p>
