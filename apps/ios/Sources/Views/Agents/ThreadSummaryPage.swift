@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// The thread at a glance, as the web's Summary tab has it: Now (who needs the person, or how long
-/// the work has run or took and what came of it), Since you looked, the agent tree's count opening
-/// Agents, Results (pull requests, files changed and by whom, checks, other failed commands), the
+/// the work has run or took and what came of it), Since you looked, the agent tree across
+/// delegated threads (`SummaryTree`), Results (pull requests, files changed and by whom, checks, other failed commands), the
 /// plan, and the project's automations in one quiet line opening Automations. A section with
 /// nothing in it is left out. The bridge follows the thread only while
 /// this is on screen and words every line (`bridge/thread-summary.ts`); this view only draws and
@@ -48,10 +48,11 @@ struct ThreadSummaryPage: View {
     @ViewBuilder private func content(_ summary: ThreadSummarySheet) -> some View {
         SummaryNowHeader(now: summary.now, open: summary.now.open.map { target in { open(target) } })
         if !summary.catchUp.isEmpty { catchUp(summary.catchUp) }
-        if let agents = summary.agents {
-            QuietSection("Agents") {
-                linkRow(agents, identifier: "summary.agents", action: openAgents)
-            }
+        if let tree = summary.agents {
+            SummaryTree(tree: tree, canStop: model.canOperate,
+                        fold: { line, open in model.sheet(["kind": "summary.fold", "key": line.key, "open": open]) },
+                        open: { target, name in openRow(target, name: name) },
+                        stop: stopRow, openAgents: openAgents)
         }
         if summary.hasResults { results(summary) }
         if let plan = summary.plan { SummaryPlanSection(plan: plan) }
@@ -176,16 +177,20 @@ struct ThreadSummaryPage: View {
         .accessibilityIdentifier("summary.checks")
     }
 
-    private func linkRow(_ title: String, identifier: String, action: (() -> Void)?) -> some View {
-        Button { action?() } label: {
-            QuietSectionRow {
-                QuietRowText(title: title)
-                if action != nil { RowCaret() }
-            }
+    /// A tree row: a delegate as its own thread, an agent of this thread as its transcript, an
+    /// agent of a delegated thread in that thread.
+    private func openRow(_ target: ThreadSummarySheet.Tree.Line.Open, name: String) {
+        if let child = target.childThreadId { openThread?(child) }
+        else if target.threadId == thread.id, let openAgent { openAgent(SubagentRoute(agentId: target.agentId, title: name)) }
+        else if target.threadId != thread.id { openThread?(target.threadId) }
+    }
+
+    /// Stop from a row's long press: the agent itself, or the task its parent holds for it.
+    private func stopRow(_ target: ThreadSummarySheet.Tree.Line.Stop) {
+        Task {
+            if let task = target.taskId { _ = await model.stopTask(task) }
+            else if let agent = target.agentId { _ = await model.interrupt(agentId: agent) }
         }
-        .buttonStyle(.plain)
-        .disabled(action == nil)
-        .accessibilityIdentifier(identifier)
     }
 
     /// The asking agent: its own thread when it delegated to one, its transcript when it lives

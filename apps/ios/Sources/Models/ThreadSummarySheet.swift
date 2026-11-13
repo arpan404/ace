@@ -1,7 +1,8 @@
 import Foundation
 
 /// The open thread's Summary as the bridge words it (`bridge/thread-summary-view.ts`): Now,
-/// Since you looked, the agent tree's count, Results, the plan and the project's automations. Each list is empty, and each
+/// Since you looked, the agent tree across delegated threads, Results, the plan and the
+/// project's automations. Each list is empty, and each
 /// optional nil, when its section has nothing to say; Swift only draws and routes.
 struct ThreadSummarySheet: Codable, Sendable, Equatable {
     struct Now: Codable, Sendable, Equatable {
@@ -62,6 +63,56 @@ struct ThreadSummarySheet: Codable, Sendable, Equatable {
         let total: Int
         let todos: [Todo]
     }
+    /// The agent tree (ADR 0108) as flat lines in the web tree's order, each worded by the bridge.
+    struct Tree: Codable, Sendable, Equatable {
+        /// One line: an agent, a background command, or finished siblings folded into "N done".
+        /// Fields the line's kind doesn't use are nil.
+        struct Line: Codable, Sendable, Equatable, Identifiable {
+            struct Open: Codable, Sendable, Equatable {
+                let threadId: String
+                let agentId: String
+                let childThreadId: String?
+            }
+            struct Stop: Codable, Sendable, Equatable {
+                /// agent or task.
+                let kind: String
+                var agentId: String? = nil
+                var taskId: String? = nil
+            }
+            /// agent, command or finished.
+            let kind: String
+            let key: String
+            let depth: Int
+            var name: String? = nil
+            var machine: String? = nil
+            var step: String? = nil
+            /// plain, needs-you or failed.
+            var tone: String? = nil
+            var folded: String? = nil
+            var time: String? = nil
+            var provider: String? = nil
+            /// The mark breathes.
+            var live: Bool? = nil
+            /// The mark dims.
+            var done: Bool? = nil
+            /// The name steps back.
+            var muted: Bool? = nil
+            /// Has children: whether they show; nil when it has none.
+            var expanded: Bool? = nil
+            var open: Open? = nil
+            var stop: Stop? = nil
+            var label: String? = nil
+            var command: String? = nil
+            var state: String? = nil
+            /// The finished line's words ("3 done").
+            var words: String? = nil
+            var id: String { key }
+        }
+        let count: Int
+        let lines: [Line]
+        /// Lines past the bridge's cap, which live in Agents.
+        let more: Int
+    }
     /// The project's schedules in one line opening Automations; `failed` when the read failed, and
     /// a tap reads again.
     struct Automations: Codable, Sendable, Equatable {
@@ -72,7 +123,7 @@ struct ThreadSummarySheet: Codable, Sendable, Equatable {
     let workspaceId: String
     let now: Now
     let catchUp: [Line]
-    let agents: String?
+    let agents: Tree?
     let prs: [PullRequest]
     let prFold: String?
     let files: Files?

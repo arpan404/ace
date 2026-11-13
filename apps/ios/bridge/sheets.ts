@@ -44,6 +44,12 @@ const OpenAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("summary"), open: z.boolean() }),
   z.object({ kind: z.literal("summary.clear") }),
   z.object({ kind: z.literal("summary.closed"), shown: z.boolean() }),
+  /** Open or fold one of the Summary tree's rows, by its key. */
+  z.object({
+    kind: z.literal("summary.fold"),
+    key: z.string().min(1).max(1024),
+    open: z.boolean(),
+  }),
   /** Read the project's automations again, after the line said the read failed. */
   z.object({ kind: z.literal("summary.automations") }),
   z.object({ kind: z.literal("work"), open: z.boolean() }),
@@ -275,6 +281,9 @@ export class Sheets {
         return this.#summary !== undefined;
       case "summary.closed":
         this.#summary?.closedPrs(action.shown);
+        return this.#summary !== undefined;
+      case "summary.fold":
+        this.#summary?.fold(action.key, action.open);
         return this.#summary !== undefined;
       case "summary.automations":
         this.#summary?.automations();

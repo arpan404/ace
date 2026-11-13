@@ -92,6 +92,8 @@ export class ThreadSummary {
   #turnAgain = false;
   #catchUp: { since: number; reply: ThreadCatchUpResponse } | undefined;
   #showClosed = false;
+  /** The person's folds of the tree's rows, kept while the page shows. */
+  readonly #folds = new Map<string, boolean>();
   #automations: PersonAutomations | undefined;
   #automationsRead = 0;
   #automationsWait: (() => void) | undefined;
@@ -147,6 +149,12 @@ export class ThreadSummary {
   /** Clear: Since you looked goes, until the thread moves on past this cursor. */
   dismiss(): void {
     if (this.#catchUp) this.#deps.cleared.set(this.#threadId, this.#catchUp.since);
+    this.#put();
+  }
+
+  /** Open or fold one of the tree's rows, or its "N done" line. */
+  fold(rowKey: string, open: boolean): void {
+    this.#folds.set(rowKey, open);
     this.#put();
   }
 
@@ -320,8 +328,13 @@ export class ThreadSummary {
     });
   }
 
+  /** The store of a thread the tree holds: the open thread's own, or a delegated one's. */
+  #storeOf(threadId: string): ThreadSource | undefined {
+    return threadId === this.#threadId ? this.#store : this.#held.get(threadId)?.lease.store;
+  }
+
   #name(threadId: string, agent: Agent): string {
-    const store = threadId === this.#threadId ? this.#store : this.#held.get(threadId)?.lease.store;
+    const store = this.#storeOf(threadId);
     return agentName(agent, agent.spawnedBy ? store?.item(agent.spawnedBy) : undefined);
   }
 
@@ -349,16 +362,28 @@ export class ThreadSummary {
           catchUp: shown,
           plans: this.#plans(),
           showClosed: this.#showClosed,
+          folds: this.#folds,
           automations: this.#automations,
           zone: this.#deps.zone(),
           now,
           name: (threadId, agent) => this.#name(threadId, agent),
           agent: (id) => this.#store.agent(id),
           item: (id) => this.#store.item(id),
+          treeItem: (threadId, id) => this.#storeOf(threadId)?.item(id),
         },
         this.#preview,
       );
-      this.#schedule(summary.now.span !== null && summary.now.lead === "Working", now);
+      const counting = summary.now.span !== null && summary.now.lead === "Working";
+      const since = this.#turn?.startedAt;
+      this.#schedule(
+        [
+          ...(counting && since !== undefined ? [since] : []),
+          ...(summary.agents?.lines ?? []).flatMap((line) =>
+            line.kind !== "finished" && line.since !== null ? [line.since] : [],
+          ),
+        ],
+        now,
+      );
       return {
         type: "thread.summary",
         threadId: this.#threadId,
@@ -368,14 +393,20 @@ export class ThreadSummary {
     });
   }
 
-  /** While Now counts the turn's time, say it again when the shown time next changes. */
-  #schedule(counting: boolean, now: number): void {
+  /**
+   * While Now or a tree row counts time, say it again when the soonest shown time next changes:
+   * each second under a minute, then each minute.
+   */
+  #schedule(starts: readonly number[], now: number): void {
     this.#tick?.();
     this.#tick = undefined;
-    const since = this.#turn?.startedAt;
-    if (!counting || since === undefined) return;
-    const elapsed = Math.max(0, now - since);
-    const delay = elapsed < 60_000 ? 1_000 - (elapsed % 1_000) : 60_000 - (elapsed % 60_000);
+    if (!starts.length) return;
+    const delay = Math.min(
+      ...starts.map((since) => {
+        const elapsed = Math.max(0, now - since);
+        return elapsed < 60_000 ? 1_000 - (elapsed % 1_000) : 60_000 - (elapsed % 60_000);
+      }),
+    );
     this.#tick = this.#deps.scheduler.set(delay + 20, () => {
       this.#tick = undefined;
       this.#put();

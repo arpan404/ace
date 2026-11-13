@@ -15,9 +15,7 @@ import {
   checkWords,
   digestLines,
   filesChangedWords,
-  foldWords,
   forestNow,
-  forestTally,
   joinNames,
   latestChecks,
   linkedChecks,
@@ -42,10 +40,11 @@ import {
 } from "@ace/ui-core/automations";
 import type { Preview } from "./agents.ts";
 import type { PersonAutomations } from "./project-automations.ts";
+import { summaryTree, type SummaryTree } from "./summary-tree.ts";
 
 /*
  * The open thread's Summary as the phone draws it, worded by the web Summary tab's own rules
- * (`@ace/ui-core`): Now, Since you looked, the agent tree's count, Results (pull requests, files
+ * (`@ace/ui-core`): Now, Since you looked, the agent tree across delegated threads, Results (pull requests, files
  * changed and by whom, checks, failed commands), the plan and the project's automations line.
  * Every section is left out when it has nothing to say. Pure: the facts come in, the clock is
  * `now`.
@@ -72,11 +71,15 @@ export interface SummaryFacts {
   plans: readonly SummaryPlan[];
   showClosed: boolean;
   now: number;
+  /** The person's folds of the tree's rows, by row key. */
+  folds: ReadonlyMap<string, boolean>;
   /** An agent's name as its tree row says it, in the thread it lives in. */
   name(threadId: string, agent: Agent): string;
   /** The open thread's agent and items, for the files' authors and the checks' steps. */
   agent(id: string): Agent | undefined;
   item(id: string): Item | undefined;
+  /** An item of any thread the tree holds, for its rows' steps and outcomes. */
+  treeItem(threadId: string, id: string): Item | undefined;
 }
 
 type Tone = "plain" | "needs-you" | "failed";
@@ -95,8 +98,8 @@ export interface SummaryView {
     open: { threadId: string; agentId: string; childThreadId: string | null; name: string } | null;
   };
   catchUp: { text: string; tone: Tone }[];
-  /** The tree's count, once there is a tree beyond the main agent. */
-  agents: string | null;
+  /** The agent tree, once there is one beyond the main agent. */
+  agents: SummaryTree | null;
   prs: {
     id: string;
     title: string;
@@ -239,7 +242,20 @@ export function summaryView(facts: SummaryFacts, preview: Preview): SummaryView 
           tone: line.tone ?? "plain",
         }))
       : [],
-    agents: tree ? foldWords(forestTally(roots)) || null : null,
+    agents: tree
+      ? summaryTree(
+          {
+            viewed: facts.threadId,
+            roots,
+            works: facts.works,
+            folds: facts.folds,
+            now: facts.now,
+            name: facts.name,
+            item: facts.treeItem,
+          },
+          preview,
+        )
+      : null,
     prs: rows.map((pr) => ({
       id: `${pr.repo.owner}/${pr.repo.name}#${pr.number}`,
       title: preview(pr.title ?? `#${pr.number}`, 256),

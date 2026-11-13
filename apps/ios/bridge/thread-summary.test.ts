@@ -6,6 +6,7 @@ import { ThreadId, type Automation, type Thread, type ThreadStatus } from "@ace/
 import { Sheets } from "./sheets.ts";
 import { ThreadSummary, type SummaryReads } from "./thread-summary.ts";
 import type { SummaryView } from "./thread-summary-view.ts";
+import type { TreeLine } from "./summary-tree.ts";
 import { plainPreview, RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
 
 /*
@@ -145,6 +146,17 @@ const nightly = (id: string, workspace: string): Automation => ({
   jitterMs: 0,
 });
 
+/** A subagent that ran and finished. */
+const finished = (id: string): Fact[] => [
+  facts.subagent("codex", id, `Check ${id}`, "spawn"),
+  facts.turn(id, "spawn"),
+  facts.endTurn(id),
+];
+
+/** A tree line as the test reads it: indented, its name or words, live when it breathes. */
+const said = (line: TreeLine) =>
+  `${"  ".repeat(line.depth)}${line.kind === "agent" ? `${line.name}${line.live ? " (live)" : ""}` : line.kind === "finished" ? line.words : line.command}`;
+
 describe("the phone's Summary", () => {
   test("Now says working with the subagent at work, then done once the whole tree settled", async () => {
     const { daemon, sink, follow } = await opened("now", [
@@ -158,7 +170,7 @@ describe("the phone's Summary", () => {
     await until(() => view(sink)?.now.sub === "1 agent working", "subagent counted");
     // The main agent's turn ended, but its tree is still at work: never done.
     expect(view(sink)?.now.lead).toBe("Working");
-    expect(view(sink)?.agents).toBe("2 working");
+    expect(view(sink)?.agents?.count).toBe(2);
     daemon.apply("now", [facts.endTurn("reviewer")]);
     await until(() => view(sink)?.now.lead === "Done", "tree settled");
     expect(view(sink)?.now.sub).toBe("1 agent finished");
@@ -412,6 +424,117 @@ describe("the phone's Summary", () => {
     );
   });
 
+  test("the tree spans delegated threads, live branches open and finished siblings folded", async () => {
+    const { sink, follow } = await opened(
+      "forest",
+      [
+        ...working,
+        ...finished("a"),
+        ...finished("b"),
+        ...finished("c"),
+        facts.subagent("claude", "live", "Write the docs", "spawn"),
+        facts.turn("live", "spawn"),
+        ...delegate("kid", "kid", { state: "working", agents: 1 }),
+      ],
+      {
+        before: (fake) =>
+          child(fake, "kid", "forest", [
+            ...working,
+            facts.subagent("codex", "explore", "Explore", "spawn"),
+            facts.turn("explore", "spawn"),
+          ]),
+      },
+    );
+    const summary = follow();
+    const lines = () => view(sink)?.agents?.lines ?? [];
+    const named = (name: string) =>
+      lines().find((line) => line.kind === "agent" && line.name === name);
+    await until(() => named("Explore") !== undefined, "the child's subagent");
+    // The child thread's own subagent hangs under its delegate; three finished ones fold.
+    expect(lines().map(said)).toEqual([
+      "Codex (live)",
+      "  Write the docs (live)",
+      "  kid (live)",
+      "    Explore (live)",
+      "  3 done",
+    ]);
+    const kid = named("kid");
+    expect(kid).toMatchObject({
+      kind: "agent",
+      provider: "codex",
+      expanded: true,
+      open: { threadId: "forest", agentId: expect.any(String), childThreadId: "kid" },
+    });
+    // The thread's own main agent opens nothing: it is the tree itself.
+    expect(lines()[0]).toMatchObject({ kind: "agent", open: null, depth: 0 });
+    const done = lines().find((line) => line.kind === "finished");
+    if (done?.kind !== "finished") throw new Error("no done line");
+    expect(done.expanded).toBe(false);
+    // The person opens the done line: its agents show in place, settled and dimmed.
+    summary.fold(done.key, true);
+    expect(lines().map(said).slice(-3)).toEqual(["  Check a", "  Check b", "  Check c"]);
+    expect(lines().at(-1)).toMatchObject({
+      kind: "agent",
+      done: true,
+      muted: true,
+      live: false,
+      step: "finished",
+    });
+    // Folding a live branch hides what it holds and says it on its row.
+    summary.fold(kid?.key ?? "", false);
+    expect(lines().map(said)).not.toContain("    Explore (live)");
+    expect(named("kid")).toMatchObject({
+      expanded: false,
+      folded: "1 working",
+    });
+  });
+
+  test("a child on another machine is one row in the tree, stopped through its parent's hold", async () => {
+    const remote = "ace-child:remote";
+    const { sink, follow } = await opened("holding", [
+      ...working,
+      {
+        type: "agent.seen",
+        agent: remote,
+        parent: "root",
+        origin: "ace",
+        fidelity: "summary",
+        native: { provider: "claude" },
+        cwd: "",
+        role: "reviewer",
+        machine: { machine: "studio", name: "Studio" },
+      },
+      {
+        type: "agent.external",
+        agent: remote,
+        threadId: ThreadId.parse("remote"),
+        status: { state: "working", agents: 1 },
+      },
+      {
+        type: "background.started",
+        owner: "ace",
+        agent: "root",
+        task: "hold",
+        kind: "subagent",
+        title: "reviewer · Studio",
+        childAgent: remote,
+        stoppable: true,
+      },
+    ]);
+    follow();
+    await until(() => (view(sink)?.agents?.lines.length ?? 0) === 2, "the tree");
+    const [, row] = view(sink)?.agents?.lines ?? [];
+    expect(row).toMatchObject({
+      kind: "agent",
+      machine: "Studio",
+      provider: "claude",
+      live: true,
+      // Its machine's thread isn't here: it opens as its parent's agent.
+      open: { threadId: "holding", childThreadId: null },
+      stop: { kind: "task", taskId: expect.any(String) },
+    });
+  });
+
   test("the thread's sheets open the Summary, and leaving the thread lets it go", async () => {
     const { client, store, sink } = await opened("routed", [
       facts.rootAgent("codex"),
@@ -425,6 +548,9 @@ describe("the phone's Summary", () => {
     expect(sheets.action(thread, { kind: "summary", open: true })).toBe(true);
     await until(() => view(sink)?.now.lead === "Working", "summary opened");
     expect(sheets.action(thread, { kind: "summary.closed", shown: true })).toBe(true);
+    expect(sheets.action(thread, { kind: "summary.fold", key: "routed/root", open: false })).toBe(
+      true,
+    );
     sheets.close();
     expect(view(sink)).toBeUndefined();
     expect(sheets.action(undefined, { kind: "summary", open: false })).toBe(true);
