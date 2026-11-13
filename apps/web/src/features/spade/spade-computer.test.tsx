@@ -460,3 +460,51 @@ test("while the person drives, the bot reads as paused, with no clock and no Sto
     expect((await botRow("Scout")).textContent).toContain("Paused while you have the computer"),
   );
 });
+
+const reads = (spade: FakeSpadeApi) =>
+  spade.requests.filter(
+    (request) => request.method === "GET" && request.path === "/v1/agents/scout/computer",
+  ).length;
+
+test("a read of the computer that lands after the stream dropped gives no controls", async () => {
+  const { app, spade } = await spadeApp("/spade/scout?computer=terminal", seed);
+  const panel = await screen.findByRole("tabpanel", { name: "Terminal" });
+  const input = await within(panel).findByRole<HTMLTextAreaElement>("textbox", {
+    name: "Scout's input",
+  });
+  const release = spade.computer.holdReads();
+  await userEvent.click(screen.getByRole("button", { name: "Take over" }));
+  await waitFor(() => expect(reads(spade)).toBe(1));
+  // The stream drops while the read is out, and can't come back while Spade is away.
+  app.daemon.spade.status = { state: "starting" };
+  app.daemon.spade.endStreams("/v1/conversations/c-scout/live");
+  release();
+  await waitFor(() =>
+    expect((screen.getByRole("button", { name: "Hand back" }) as HTMLButtonElement).disabled).toBe(
+      false,
+    ),
+  );
+  expect(input.disabled).toBe(true);
+});
+
+test("a slow read never overwrites a newer state from the stream", async () => {
+  const { spade } = await spadeApp("/spade/scout?computer=terminal", seed);
+  const panel = await screen.findByRole("tabpanel", { name: "Terminal" });
+  const input = await within(panel).findByRole<HTMLTextAreaElement>("textbox", {
+    name: "Scout's input",
+  });
+  const release = spade.computer.holdReads();
+  await userEvent.click(screen.getByRole("button", { name: "Take over" }));
+  // Read while the bot had stopped; then, before it lands, Spade says the bot is stopping.
+  await waitFor(() => expect(reads(spade)).toBe(1));
+  spade.computer.stopping("scout", true);
+  await screen.findByText("Stopping Scout…");
+  release();
+  await waitFor(() =>
+    expect((screen.getByRole("button", { name: "Hand back" }) as HTMLButtonElement).disabled).toBe(
+      false,
+    ),
+  );
+  expect(screen.getByText("Stopping Scout…")).toBeTruthy();
+  expect(input.disabled).toBe(true);
+});

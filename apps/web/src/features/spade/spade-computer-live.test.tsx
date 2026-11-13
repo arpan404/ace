@@ -162,6 +162,47 @@ test("the screen's controls go back once its view goes, so nothing stays the per
   );
 });
 
+test("a late answer to taking the screen never lets go of the controls taken again since", async () => {
+  const { app, spade } = await spadeApp("/spade/scout?computer=screen", seed, {
+    daemon: (daemon) => void onScreen(daemon),
+  });
+  spade.computer.thread("scout", thread);
+  spade.computer.use("scout", { kind: "screen", live: true, title: "TextEdit" });
+  await screen.findByRole("img", { name: "Scout's screen" });
+  // Taking the controls waits; meanwhile the person hands back and takes over again.
+  const release = app.daemon.screen.holdControl();
+  await userEvent.click(screen.getByRole("button", { name: "Take over" }));
+  await screen.findByRole("button", { name: "Hand back" });
+  await waitFor(() =>
+    expect((screen.getByRole("button", { name: "Hand back" }) as HTMLButtonElement).disabled).toBe(
+      false,
+    ),
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Hand back" }));
+  await screen.findByRole("button", { name: "Take over" });
+  await waitFor(() =>
+    expect((screen.getByRole("button", { name: "Take over" }) as HTMLButtonElement).disabled).toBe(
+      false,
+    ),
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Take over" }));
+  await waitFor(() =>
+    expect((screen.getByRole("button", { name: "Hand back" }) as HTMLButtonElement).disabled).toBe(
+      false,
+    ),
+  );
+  release();
+  await waitFor(async () =>
+    expect((await sessions(app.daemon)).map((each) => each.controller)).toEqual(["human"]),
+  );
+  // Settled: no late "let go" follows.
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  expect((await sessions(app.daemon)).map((each) => each.controller)).toEqual(["human"]);
+  await waitFor(() =>
+    expect(screen.getByRole("img", { name: "Scout's screen" }).getAttribute("tabindex")).toBe("0"),
+  );
+});
+
 test("a bot that hasn't opened its browser yet says so", async () => {
   const { spade } = await spadeApp("/spade/scout?computer=browser", seed);
   spade.computer.use("scout", { kind: "browser", live: true, title: null, url: null });

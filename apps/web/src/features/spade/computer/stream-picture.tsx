@@ -53,9 +53,16 @@ export function StreamPicture(props: {
       .catch((error: unknown) =>
         toast.error({ title: "That didn't reach the computer", description: message(error) }),
       );
+  // A page sits right under its address bar; a screen centres in its pane.
+  const top = props.surfaceKey.surface === "browser";
   const point = (event: { clientX: number; clientY: number }) => {
-    const box = image.current?.getBoundingClientRect();
-    if (!box || !picture) return undefined;
+    const rect = image.current?.getBoundingClientRect();
+    if (!rect || !picture) return undefined;
+    // Drawn at the top, the picture's box is only as tall as the picture at its fitted scale.
+    const fit = Math.min(rect.width / picture.width, rect.height / picture.height);
+    const box = top
+      ? { left: rect.left, top: rect.top, width: rect.width, height: picture.height * fit }
+      : rect;
     return windowPoint(
       { x: event.clientX, y: event.clientY },
       { box, width: picture.width, height: picture.height, scale: 1 },
@@ -120,7 +127,7 @@ export function StreamPicture(props: {
           src={picture.src}
           alt=""
           draggable={false}
-          className="size-full object-contain select-none"
+          className={cn("size-full object-contain select-none", top && "object-top")}
         />
       ) : (
         <p className="px-6 text-center text-ui text-muted-foreground">Waiting for the picture…</p>
