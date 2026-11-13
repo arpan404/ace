@@ -13,7 +13,7 @@ use serde::Deserialize;
 use super::AppState;
 use super::body::Body;
 use super::problem;
-use super::workspace::{files, workspace_of};
+use super::workspace::workspace_of;
 use crate::workspace::PathError;
 
 /// Largest file the person writes or uploads at once.
@@ -76,6 +76,32 @@ fn too_large() -> Response {
     )
 }
 
+/// Runs the check and mutation together off the async threads.
+pub(super) async fn person_files<T: Send + 'static>(
+    state: &AppState,
+    id: &str,
+    work: impl FnOnce() -> Result<T, PathError> + Send + 'static,
+) -> Result<T, Box<Response>> {
+    let computers = state.engine.computers().cloned();
+    let id = id.to_owned();
+    match tokio::task::spawn_blocking(move || {
+        let Some(computers) = computers else {
+            return Err("take over the bot's computer before changing its files");
+        };
+        computers.person_file_write(&id, work)
+    })
+    .await
+    {
+        Ok(Ok(Ok(value))) => Ok(value),
+        Ok(Ok(Err(error))) => Err(Box::new(super::workspace::path_problem(&error))),
+        Ok(Err(error)) => Err(Box::new(problem(StatusCode::CONFLICT, error))),
+        Err(_) => Err(Box::new(problem(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "the request stopped",
+        ))),
+    }
+}
+
 /// Writes `bytes` at `path` as the person's, then tells the bot's computer.
 async fn person_writes(state: AppState, id: String, path: String, bytes: Vec<u8>) -> Response {
     if bytes.len() > LARGEST_UPLOAD {
@@ -85,7 +111,7 @@ async fn person_writes(state: AppState, id: String, path: String, bytes: Vec<u8>
         Ok(workspace) => workspace,
         Err(response) => return *response,
     };
-    let written = files(move || {
+    let written = person_files(&state, &id, move || {
         let path = workspace.normal(&path)?;
         workspace.write_bytes(&path, &bytes, LARGEST_UPLOAD)?;
         workspace.trust().record_person(&path, &bytes);
@@ -141,7 +167,7 @@ async fn mkdir(
         Ok(workspace) => workspace,
         Err(response) => return *response,
     };
-    match files(move || workspace.mkdir(&at.path)).await {
+    match person_files(&state, &id, move || workspace.mkdir(&at.path)).await {
         Ok(path) => {
             if let Some(computers) = state.engine.computers() {
                 computers.person_wrote(&id, &path);
@@ -167,7 +193,7 @@ async fn rename(
         Ok(workspace) => workspace,
         Err(response) => return *response,
     };
-    let moved = files(move || {
+    let moved = person_files(&state, &id, move || {
         let (from, to) = workspace.rename(&body.from, &body.to)?;
         workspace.trust().moved(&from, &to);
         Ok::<_, PathError>((from, to))
