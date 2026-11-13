@@ -5,6 +5,8 @@
 //! tests: each starts real terminals.
 #![cfg(unix)]
 
+#[path = "computer/files.rs"]
+mod file_routes;
 mod support;
 
 use std::sync::Arc;
@@ -642,88 +644,6 @@ async fn a_restart_keeps_the_person_driving_and_messages_waiting() -> Result {
 }
 
 #[tokio::test]
-async fn the_persons_file_changes_are_confined_trusted_and_announced() -> Result {
-    let machine = Machine::new()?;
-    let spade = start(&machine, vec![Script::reply("Hi")], Vec::new()).await?;
-    let (agent, conversation) = bot(&spade).await?;
-    let workspace = machine.workspaces.of(&agent)?;
-    let mut live = Live::open(&spade, &format!("/v1/conversations/{conversation}/live")).await?;
-    let first = live
-        .until("computer", |_| true)
-        .await
-        .ok_or("no computer frame")?;
-    assert_eq!(first["driver"], "bot");
-
-    let files = format!("/v1/agents/{agent}/files");
-    let (status, _) = spade
-        .put(
-            &format!("{files}?path=notes/plan.md"),
-            json!({ "text": "# Plan" }),
-        )
-        .await?;
-    assert_eq!(status, 204);
-    assert!(workspace.file_trusted("notes/plan.md", b"# Plan"));
-    let announced = live
-        .until("files", |f| f["paths"] == json!(["notes/plan.md"]))
-        .await;
-    assert!(announced.is_some());
-
-    let (status, _) = spade
-        .post(
-            &format!("{files}/upload"),
-            json!({ "path": "in/data.bin", "data_b64": b64("\u{1}\u{2}") }),
-        )
-        .await?;
-    assert_eq!(status, 204);
-    assert!(workspace.file_trusted("in/data.bin", b"\x01\x02"));
-    let (status, _) = spade
-        .post(&format!("{files}/mkdir"), json!({ "path": "deep/er" }))
-        .await?;
-    assert_eq!(status, 204);
-    assert!(workspace.path()?.join("deep/er").is_dir());
-
-    let (status, _) = spade
-        .post(
-            &format!("{files}/move"),
-            json!({ "from": "notes/plan.md", "to": "deep/er/plan.md" }),
-        )
-        .await?;
-    assert_eq!(status, 204);
-    assert!(workspace.file_trusted("deep/er/plan.md", b"# Plan"));
-    assert!(!workspace.path()?.join("notes/plan.md").exists());
-    let (status, _) = spade
-        .post(
-            &format!("{files}/move"),
-            json!({ "from": "in/data.bin", "to": "deep/er/plan.md" }),
-        )
-        .await?;
-    assert_eq!(status, 409, "a move never replaces what is there");
-
-    // Nothing leaves the workspace: not by path, not through a link.
-    let outside = tempfile::tempdir()?;
-    std::os::unix::fs::symlink(outside.path(), workspace.path()?.join("out"))?;
-    for path in ["../escape.txt", "/etc/escape.txt", "out/escape.txt"] {
-        let (status, _) = spade
-            .put(&format!("{files}?path={path}"), json!({ "text": "x" }))
-            .await?;
-        assert!(matches!(status, 400 | 422), "{path}: {status}");
-    }
-    let (status, _) = spade
-        .post(&format!("{files}/mkdir"), json!({ "path": "out/inner" }))
-        .await?;
-    assert!(matches!(status, 400 | 422), "{status}");
-    let (status, _) = spade
-        .post(
-            &format!("{files}/move"),
-            json!({ "from": "in/data.bin", "to": "out/data.bin" }),
-        )
-        .await?;
-    assert!(matches!(status, 400 | 422), "{status}");
-    assert_eq!(std::fs::read_dir(outside.path())?.count(), 0);
-    Ok(())
-}
-
-#[tokio::test]
 async fn the_bots_terminal_commands_still_ask_and_always_allows_only_that_command() -> Result {
     let machine = Machine::new()?;
     let spade = start(
@@ -1016,6 +936,22 @@ async fn the_person_gets_the_controls_only_once_ace_says_the_bots_work_stopped()
     let (_, view) = spade.get(&format!("/v1/agents/{agent}/computer")).await?;
     assert_eq!(view["driver"], "person");
     assert_eq!(view["stopping"], true, "{view}");
+    let (status, _) = spade
+        .put(
+            &format!("/v1/agents/{agent}/files?path=not-yet.txt"),
+            json!({"text": "x"}),
+        )
+        .await?;
+    assert_eq!(status, 409);
+    assert!(
+        !machine
+            .workspaces
+            .of(&agent)?
+            .path()?
+            .join("not-yet.txt")
+            .exists()
+    );
+
     // The next round's answer says it has stopped.
     let mut view = Value::Null;
     for _ in 0..100 {

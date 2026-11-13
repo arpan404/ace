@@ -371,6 +371,26 @@ impl Computers {
         lock(&self.records).keys().cloned().collect()
     }
 
+    /// Checks once under the driver lock and holds it until the file operation ends.
+    pub(crate) fn person_file_write<T>(
+        &self,
+        agent: &str,
+        write: impl FnOnce() -> T,
+    ) -> Result<T, &'static str> {
+        let records = lock(&self.records);
+        if !records.contains_key(agent) {
+            return Err("take over the bot's computer before changing its files");
+        }
+        let stopping = lock(&self.stopping);
+        if stopping.contains(agent) || self.terminals.info(agent).busy {
+            return Err("the bot's command is still stopping; try again in a moment");
+        }
+        let result = write();
+        drop(stopping);
+        drop(records);
+        Ok(result)
+    }
+
     /// The bot's computer now.
     pub fn view(&self, agent: &str) -> View {
         let now = self.clock.now_ms();
@@ -588,9 +608,9 @@ impl Computers {
             }
             self.persist(agent, &record)?;
             records.insert(agent.to_owned(), record);
-        }
-        if self.daemon.get().is_some() {
-            lock(&self.stopping).insert(agent.to_owned());
+            if self.daemon.get().is_some() {
+                lock(&self.stopping).insert(agent.to_owned());
+            }
         }
         self.changed(agent);
         Ok(true)

@@ -144,7 +144,7 @@ async fn delete(
         Ok(workspace) => workspace,
         Err(response) => return *response,
     };
-    match files(move || workspace.delete(&at.path)).await {
+    match super::files::person_files(&state, &id, move || workspace.delete(&at.path)).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(response) => *response,
     }
