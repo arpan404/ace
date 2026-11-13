@@ -20,6 +20,11 @@ export const SpadeComputerTab = z.object({
   tabId: z.string().min(1).max(128),
   title: z.string().max(1024),
   url: z.string().max(8192),
+  /**
+   * `user`: a tab in the person's own Chrome (ADR 0084), which the person watches and drives in
+   * that Chrome; ace streams none of it. Absent: ace's browser, watched with `browser.subscribe`.
+   */
+  backend: z.literal("user").optional(),
 });
 export type SpadeComputerTab = z.infer<typeof SpadeComputerTab>;
 
