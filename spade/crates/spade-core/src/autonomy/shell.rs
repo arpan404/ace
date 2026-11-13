@@ -700,26 +700,11 @@ fn gh(words: &[String]) -> Option<Sensitive> {
     match (sub, action) {
         (
             "pr" | "issue" | "release" | "repo" | "gist" | "label" | "project" | "variable",
-            Some(a),
-        ) if matches!(
-            a,
-            "create"
-                | "merge"
-                | "edit"
-                | "close"
-                | "reopen"
-                | "comment"
-                | "review"
-                | "upload"
-                | "delete"
-                | "lock"
-                | "transfer"
-                | "ready"
-                | "set"
-        ) =>
-        {
-            Some(Sensitive::Publish)
-        }
+            Some(
+                "create" | "merge" | "edit" | "close" | "reopen" | "comment" | "review" | "upload"
+                | "delete" | "lock" | "transfer" | "ready" | "set",
+            ),
+        ) => Some(Sensitive::Publish),
         ("api", _) => {
             let writes = method_flag(words, &["-X", "--method"])
                 || words.iter().any(|w| {

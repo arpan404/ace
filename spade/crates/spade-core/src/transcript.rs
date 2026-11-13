@@ -217,7 +217,8 @@ impl Transcript {
             | Known::ComputerHandedBack { .. }
             | Known::AccessChanged { .. }
             | Known::TaskContinued { .. }
-            | Known::TaskPaused { .. } => {}
+            | Known::TaskPaused { .. }
+            | Known::PersonActivity { .. } => {}
         }
         if self.open_reply().is_none() {
             self.running.clear();

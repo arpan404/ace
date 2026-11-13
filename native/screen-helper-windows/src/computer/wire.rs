@@ -161,7 +161,7 @@ mod tests {
     fn an_overlong_line_fails_by_its_id_and_the_next_request_still_runs() {
         let mut framer = LineFramer::new(64);
         let mut line = br#"{"id":"big","op":"act","text":""#.to_vec();
-        line.extend(std::iter::repeat(b'x').take(500));
+        line.extend(std::iter::repeat_n(b'x', 500));
         line.extend_from_slice(b"\"}\n{\"id\":\"next\",\"op\":\"hello\"}\n");
         let parsed = requests(&mut framer, &line);
         assert_eq!(

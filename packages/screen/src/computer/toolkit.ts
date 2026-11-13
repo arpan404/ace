@@ -3,12 +3,12 @@
  * screen_display. They drive the helper's background engine; each caller gets its own diff
  * baseline per app.
  */
-import type { Toolkit, ToolContext } from "@ace/mcp-server";
+import { PublicToolError, type Toolkit, type ToolContext } from "@ace/mcp-server";
 import { actLog, ranSteps, sentInput } from "./act-log.ts";
 import { expandConditions, type WireAction } from "./conditions.ts";
 import { appNote } from "./app-notes.ts";
 import { lookAtDisplays } from "./displays.ts";
-import { ComputerError, type ComputerClient } from "./client.ts";
+import { ComputerError, type ComputerClient, type RequestDispatch } from "./client.ts";
 import { ComputerMemory, type ResolvedApp } from "./memory.ts";
 import {
   baselineOf,
@@ -30,6 +30,8 @@ import {
   type ComputerToolName,
 } from "./schemas.ts";
 import { ComputerActResult, ComputerApps, ComputerState } from "./wire.ts";
+import type { ScreenCowork } from "../cowork.ts";
+import { actsOnApp, lastPoint } from "./cowork-steps.ts";
 import { z } from "zod";
 
 type Content = (
@@ -48,8 +50,10 @@ export interface ComputerToolkitOptions {
   enabled?: () => boolean;
   /** The person's own list of apps agents can't use: app ids or names. */
   blockedApps?: () => readonly string[] | Promise<readonly string[]>;
+  /** True while the person explicitly holds this app's controls, across every thread. */
+  personExclusive?: (appId: string) => boolean;
   /** Told while a thread's agent looks at or acts in an app; the returned function ends it. */
-  using?: (threadId: string, app: string) => () => void;
+  using?: (threadId: string, app: string, appId?: string) => () => void;
   /**
    * Locked computer use: decides whether a state or act runs inside a protected interval on a
    * locked Mac. Absent, every request goes to the helper as it is.
@@ -57,6 +61,11 @@ export interface ComputerToolkitOptions {
   lockedUse?: LockedUseGate;
   /** With a route, every tool also takes `machine` to use another paired machine's apps. */
   route?: ComputerMachineRoute;
+  /**
+   * Cowork (ADR 0143): an act waits while the person uses the same app, and says where the
+   * agent's pointer went. Absent, acts run at once as before.
+   */
+  cowork?: ScreenCowork;
 }
 
 /**
@@ -167,11 +176,21 @@ export function computerToolkit(
     context: ToolContext,
     op: "state" | "act",
     payload: Record<string, unknown>,
+    dispatch?: RequestDispatch,
   ): Promise<unknown> => {
-    const done = options.using?.(context.caller.threadId, app.name);
+    const done =
+      op === "state" ? options.using?.(context.caller.threadId, app.name, app.bundleId) : undefined;
     try {
-      const send = (signal: AbortSignal) =>
-        localClient().request(op, payload, { signal, app: app.bundleId });
+      const send = (signal: AbortSignal) => {
+        // A take-over may happen during the cowork wait or locked-use preparation.
+        if (op === "act" && options.personExclusive?.(app.bundleId))
+          throw new PublicToolError("person_driving");
+        return localClient().request(op, payload, {
+          signal,
+          app: app.bundleId,
+          ...(dispatch ? { dispatch } : {}),
+        });
+      };
       if (!options.lockedUse) return await send(context.signal);
       const { threadId, agentId } = context.caller;
       return await options.lockedUse(
@@ -259,53 +278,104 @@ export function computerToolkit(
     async screen_act(args, context) {
       const { app, actions, window, screenshot, observe } = computerSchemas.screen_act.parse(args);
       const resolved = await target(app, context);
+      if (options.personExclusive?.(resolved.bundleId)) throw new PublicToolError("person_driving");
       if (resolved.running === false)
         throw new ComputerError(
           "app_not_running",
           `${resolved.name} is not running. Call screen_state first to open it.`,
         );
-      const expanded = expandConditions(actions);
-      let result: ComputerActResult;
+      const done = options.using?.(context.caller.threadId, resolved.name, resolved.bundleId);
       try {
-        result = ComputerActResult.parse(
-          await use(resolved, context, "act", {
-            app: resolved.bundleId,
-            actions: expanded.wire,
-            ...(window !== undefined ? { window } : {}),
-            screenshot: !!screenshot,
-            ...(observe === false ? { observe: false } : {}),
-          }),
-        );
-      } catch (error) {
-        // Overdue or cancelled after some steps ran: say which, then why it stopped.
-        const partial =
-          error instanceof ComputerError ? ComputerActResult.safeParse(error.result) : undefined;
-        if (error instanceof ComputerError && partial?.success && partial.data.done.length)
-          return {
-            isError: true,
-            content: [
+        const expanded = expandConditions(actions);
+        // This turn's budget survives locked-use preparation and every native queue retry.
+        const turn =
+          options.cowork && actsOnApp(actions)
+            ? options.cowork.turn([resolved.bundleId], resolved.name)
+            : undefined;
+        let waited: string | undefined;
+        const authorize = () => {
+          context.signal.throwIfAborted();
+          if (options.personExclusive?.(resolved.bundleId))
+            throw new PublicToolError("person_driving");
+          return !turn?.busy();
+        };
+        const wait = async (signal?: AbortSignal) => {
+          authorize();
+          const outcome = await turn?.wait(
+            signal ? AbortSignal.any([context.signal, signal]) : context.signal,
+          );
+          authorize();
+          if (outcome?.busy) throw new PublicToolError("person_busy");
+          waited = outcome?.note;
+        };
+        await wait();
+        const dispatch: RequestDispatch = {
+          ready: async () => (turn ? turn.ready() : true),
+          authorize,
+          wait,
+        };
+        const point = (completed: readonly string[]) => {
+          const pointed = lastPoint(ranSteps(expanded.wire, completed));
+          if (pointed) options.cowork?.acted(resolved.bundleId, pointed.point, pointed.kind);
+        };
+        let result: ComputerActResult;
+        try {
+          result = ComputerActResult.parse(
+            await use(
+              resolved,
+              context,
+              "act",
               {
-                type: "text",
-                text: [
-                  ...actLog(actions, expanded, { done: partial.data.done }),
-                  error.message,
-                ].join("\n"),
+                app: resolved.bundleId,
+                actions: expanded.wire,
+                ...(window !== undefined ? { window } : {}),
+                screenshot: !!screenshot,
+                ...(observe === false ? { observe: false } : {}),
               },
-            ],
-          };
-        throw error;
+              dispatch,
+            ),
+          );
+        } catch (error) {
+          // Overdue or cancelled after some steps ran: say which, then why it stopped.
+          const partial =
+            error instanceof ComputerError ? ComputerActResult.safeParse(error.result) : undefined;
+          if (error instanceof ComputerError && partial?.success && partial.data.done.length) {
+            point(partial.data.done);
+            return {
+              isError: true,
+              content: [
+                {
+                  type: "text",
+                  text: [
+                    ...(waited ? [waited] : []),
+                    ...actLog(actions, expanded, { done: partial.data.done }),
+                    error.message,
+                  ].join("\n"),
+                },
+              ],
+            };
+          }
+          throw error;
+        }
+        point(result.done);
+        const log = [...(waited ? [waited] : []), ...actLog(actions, expanded, result)].join("\n");
+        // A batch that stopped early failed, even when some steps ran.
+        const failed = result.error ? { isError: true } : {};
+        if (!result.state) return { content: [{ type: "text", text: log }], ...failed };
+        const observed = describe(
+          result.state,
+          `${callerOf(context)}/${result.state.app.bundleId}`,
+          {
+            ran: ranSteps(expanded.wire, result.done),
+          },
+        );
+        return {
+          content: [{ type: "text", text: `${log}\n\n${textOf(observed)}` }, ...observed.slice(1)],
+          ...failed,
+        };
+      } finally {
+        done?.();
       }
-      const log = actLog(actions, expanded, result).join("\n");
-      // A batch that stopped early failed, even when some steps ran.
-      const failed = result.error ? { isError: true } : {};
-      if (!result.state) return { content: [{ type: "text", text: log }], ...failed };
-      const observed = describe(result.state, `${callerOf(context)}/${result.state.app.bundleId}`, {
-        ran: ranSteps(expanded.wire, result.done),
-      });
-      return {
-        content: [{ type: "text", text: `${log}\n\n${textOf(observed)}` }, ...observed.slice(1)],
-        ...failed,
-      };
     },
   };
 

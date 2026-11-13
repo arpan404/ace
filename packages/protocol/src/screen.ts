@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ScreenAgentScope } from "./screen-ui.ts";
+import { AgentPointer, CoworkSharing } from "./cowork.ts";
 import {
   ScreenCapabilities,
   ScreenError,
@@ -54,6 +55,15 @@ export const ScreenState = z.object({
   permissions: ScreenPermissions,
   error: z.string().max(1024).optional(),
   capabilities: ScreenCapabilities.optional(),
+  /**
+   * `exclusive` while the person holds the session (`controller: "human"`, Take control);
+   * otherwise the person and an agent share it (ADR 0143). Absent: `cowork`.
+   */
+  sharing: CoworkSharing.optional(),
+  /** Where the agent last acted in the session's app, in this session's picture pixels. */
+  agentPointer: AgentPointer.optional(),
+  /** The person used this session's app within the last 3 s; agents' actions wait meanwhile. */
+  personActive: z.boolean().optional(),
 });
 export type ScreenState = z.infer<typeof ScreenState>;
 const ScreenBounds = z.object({

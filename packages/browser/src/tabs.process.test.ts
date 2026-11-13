@@ -15,6 +15,7 @@ const Tabs = z.object({
       current: z.boolean().optional(),
       private: z.boolean().optional(),
       inUse: z.object({ kind: z.string(), agentId: z.string().optional() }).optional(),
+      personActive: z.boolean().optional(),
     }),
   ),
 });
@@ -120,6 +121,9 @@ describe.skipIf(!executablePath)("tabs in one thread's browser", () => {
     );
     expect(Date.now() - started).toBeLessThan(1_000);
     const tabs = Tabs.parse(await f.service.execute("thread", { action: "tabs" }, person)).tabs;
+    // The person's lease shows on their tab only.
+    expect(tabs.find((tab) => tab.tabId === busy)?.personActive).toBe(true);
+    expect(tabs.find((tab) => tab.tabId === free)?.personActive).toBeUndefined();
     expect(tabs.find((tab) => tab.tabId === free)).toMatchObject({
       inUse: { kind: "agent", agentId: "worker" },
     });

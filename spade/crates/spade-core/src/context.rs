@@ -80,6 +80,19 @@ pub fn handed_back(text: &str, data: &[String]) -> String {
     note
 }
 
+/// What the person did on the bot's computer while sharing it (cowork, ADR 0143): Spade's words,
+/// then the file names and addresses as untrusted data quoted as JSON.
+pub fn person_activity(text: &str, data: &[String]) -> String {
+    let mut note = format!("<person_activity from=\"spade\">\n{text}\n</person_activity>");
+    if !data.is_empty() {
+        let quoted = serde_json::to_string_pretty(data).unwrap_or_default();
+        note.push_str(&format!(
+            "\n<activity_data untrusted=\"true\">\n{quoted}\n</activity_data>"
+        ));
+    }
+    note
+}
+
 /// Where attached images' bytes come from. A failure says why in a few words ("this model cannot
 /// see images"), and the model is told that instead of seeing the image.
 pub trait Images {
@@ -455,8 +468,12 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
                     held.push((nudge.clone(), Vec::new()));
                 }
             }
-            Known::ComputerHandedBack { text, data } => {
-                let text = handed_back(text, data);
+            Known::ComputerHandedBack { text, data } | Known::PersonActivity { text, data } => {
+                let text = if matches!(event, Known::PersonActivity { .. }) {
+                    person_activity(text, data)
+                } else {
+                    handed_back(text, data)
+                };
                 if pending.is_empty() {
                     push_person(&mut out, text, Vec::new());
                 } else {
@@ -541,6 +558,7 @@ fn reading_order(events: &[Event], from: usize) -> Vec<&Event> {
                     | Known::JobFinished { .. }
                     | Known::ComputerHandedBack { .. }
                     | Known::TaskContinued { .. }
+                    | Known::PersonActivity { .. }
             )
         )
     };
@@ -783,7 +801,9 @@ pub fn untrusted_event(event: &Event, registry: &Registry) -> bool {
             untrusted: true, ..
         }) => true,
         // Names of files and pages from the person's turn at the computer (ADR 0142).
-        Event::Known(Known::ComputerHandedBack { data, .. }) => !data.is_empty(),
+        Event::Known(
+            Known::ComputerHandedBack { data, .. } | Known::PersonActivity { data, .. },
+        ) => !data.is_empty(),
         // A search that found tools returns their names, descriptions and schemas, written by
         // whoever serves them (ace, a connector's app): text from outside Spade.
         Event::Known(Known::ToolFinished { name, content, .. }) if name == TOOL_SEARCH => {
@@ -830,6 +850,9 @@ fn describe_event(events: &[Event], event: &Event) -> String {
         Event::Known(Known::JobFinished { name, .. }) => format!("the result of {name}"),
         Event::Known(Known::ComputerHandedBack { .. }) => {
             "file names and addresses from the person's turn at the computer".to_owned()
+        }
+        Event::Known(Known::PersonActivity { .. }) => {
+            "file names and addresses from the person's work on the computer".to_owned()
         }
         _ => "untrusted content".to_owned(),
     }

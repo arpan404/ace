@@ -278,9 +278,9 @@ export function aceToolsBrowser(): Scenario {
             "browser_act",
             { action: "press", key: "Meta+L" },
             failure(
-              "human_active",
-              "The person kept using this tab",
-              "They are working in it right now. Take a fresh snapshot, then retry in a moment or use another tab.",
+              "person_busy",
+              "The person is using this right now; nothing was done",
+              "They kept working in the same tab, app or device for a minute. Try again shortly, or work in another tab or app meanwhile.",
             ),
             true,
           ),

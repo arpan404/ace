@@ -1,10 +1,12 @@
-//! A bot's computer with real shells (ADR 0142): its terminal keeps state between commands and
-//! bounds what it keeps, the person types only while driving, taking over pauses the bot at a
+//! A bot's computer with real shells (ADR 0142, ADR 0143): its terminal keeps state between
+//! commands and bounds what it keeps, the person types in cowork and while driving, taking over pauses the bot at a
 //! safe point and handing back resumes it with Spade's note, a restart keeps the person driving,
 //! the person's file changes are confined and trusted, and the live streams resume. Process
 //! tests: each starts real terminals.
 #![cfg(unix)]
 
+#[path = "computer/cowork.rs"]
+mod cowork;
 #[path = "computer/files.rs"]
 mod file_routes;
 mod support;
@@ -329,7 +331,7 @@ async fn a_finished_take_over_never_comes_back_however_its_writes_race() -> Resu
                     for i in 0..50 {
                         let _ = (n, i);
                         computers.person_typed("a_1");
-                        computers.person_wrote("a_1", "notes.md");
+                        computers.person_changed("a_1", &[("notes.md".to_owned(), "changed")]);
                     }
                 })
             })
@@ -431,23 +433,18 @@ async fn scrollback_keeps_the_newest_output_and_no_more_than_its_bound() -> Resu
 }
 
 #[tokio::test]
-async fn the_person_types_in_the_terminal_only_while_they_drive_and_the_stream_resumes() -> Result {
+async fn the_person_types_in_the_terminal_without_taking_over_and_the_stream_resumes() -> Result {
     let machine = Machine::new()?;
     let spade = start(&machine, vec![Script::reply("Hi")], Vec::new()).await?;
     let (agent, _) = bot(&spade).await?;
     let input = format!("/v1/agents/{agent}/terminal/input");
     let typed = json!({ "data_b64": b64("echo typed-$((40+2))\r") });
-    let (status, _) = spade.post(&input, typed.clone()).await?;
-    assert_eq!(status, 409, "the bot drives");
 
     let mut live = Live::open(&spade, &format!("/v1/agents/{agent}/terminal/live")).await?;
     assert!(live.until("resize", |_| true).await.is_some());
-    let (status, _) = spade
-        .post(&format!("/v1/agents/{agent}/computer/take-over"), json!({}))
-        .await?;
-    assert_eq!(status, 204);
     let (_, view) = spade.get(&format!("/v1/agents/{agent}/computer")).await?;
-    assert_eq!(view["driver"], "person");
+    assert_eq!(view["mode"], "cowork");
+    assert_eq!(view["driver"], "bot");
     let (status, _) = spade.post(&input, typed).await?;
     assert_eq!(status, 204);
     let seen = live
@@ -622,6 +619,7 @@ async fn a_restart_keeps_the_person_driving_and_messages_waiting() -> Result {
     spade.engine.set_computers(machine.computers());
     let (_, view) = spade.get(&format!("/v1/agents/{agent}/computer")).await?;
     assert_eq!(view["driver"], "person");
+    assert_eq!(view["mode"], "exclusive", "the mode survives the restart");
     spade.say(&conversation, "Are you there?").await?;
     tokio::time::sleep(Duration::from_millis(400)).await;
     let events = spade.events(&conversation).await?;
@@ -640,6 +638,8 @@ async fn a_restart_keeps_the_person_driving_and_messages_waiting() -> Result {
     let note = order.iter().position(|t| t == "computer_handed_back");
     let started = order.iter().position(|t| t == "reply_started");
     assert!(note.is_some() && note < started, "{order:?}");
+    let (_, view) = spade.get(&format!("/v1/agents/{agent}/computer")).await?;
+    assert_eq!(view["mode"], "cowork");
     Ok(())
 }
 

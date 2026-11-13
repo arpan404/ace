@@ -1,6 +1,7 @@
 # A bot's computer
 
-Date: 2026-11-13. As built for [ADR 0142](../../docs/adr/0142-a-bots-computer.md), in
+Date: 2026-11-13. As built for [ADR 0142](../../docs/adr/0142-a-bots-computer.md) and
+[ADR 0143](../../docs/adr/0143-cowork-computer-use.md) (cowork), in
 `spade-server` (`computer/`, `engine/computer.rs`, `api/computer.rs`, `api/files.rs`). Extends
 [workspace.md](workspace.md) and [agents.md](agents.md).
 
@@ -13,16 +14,25 @@ Spade without computers: `503`.
 
 ```json
 {
+  "mode": "cowork" | "exclusive",
   "driver": "bot" | "person",
   "stopping": false,
   "thread_id": "string" | null,
   "surfaces": [
     { "kind": "browser" | "screen" | "terminal" | "files",
       "live": true, "title": "string" | null, "since": 0 | null,
-      "url": "string", "tab_id": "string", "ending_stuck": true, "last": 0 | null }
+      "url": "string", "tab_id": "string", "ending_stuck": true, "last": 0 | null,
+      "person_active": false }
   ]
 }
 ```
+
+- `mode` is `cowork` (the default: the person and the bot use the computer at once) or
+  `exclusive` (the person took over and the bot is paused). `driver` follows it: `bot` in cowork,
+  `person` in exclusive mode. See [Cowork](#cowork) below.
+- `person_active`: the person is using that surface now. Terminal and files: they typed or changed
+  a file through the app in the last 10 s. Browser and screen: ace's last report said so
+  (`person_active`), or ace said they acted in the last 10 s.
 
 - `stopping` is true while the person drives and some of the bot's work is still being stopped:
   a command in its terminal, or a call ace hasn't yet seen end. ace's answer to
@@ -49,11 +59,75 @@ Spade without computers: `503`.
 
 Each agent in `GET /agents` carries `computer` with the same object.
 
-| Method and path                            | Body                                                        | Answer                    |
-| ------------------------------------------ | ----------------------------------------------------------- | ------------------------- |
-| `POST /agents/{id}/computer/take-over`     |                                                             | `204`; again changes nothing |
-| `POST /agents/{id}/computer/hand-back`     |                                                             | `204`; again changes nothing |
-| `PUT /agents/{id}/computer/surfaces/{kind}` | `{"live", "title"?, "url"?, "tab_id"?, "thread_id"?, "person_acted"?}` | `204`; ace only, `kind` is `browser` or `screen` |
+| Method and path                             | Body                                                                                              | Answer                                           |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| `POST /agents/{id}/computer/take-over`      |                                                                                                   | `204`; exclusive mode; again changes nothing     |
+| `POST /agents/{id}/computer/hand-back`      |                                                                                                   | `204`; back to cowork; again changes nothing     |
+| `PUT /agents/{id}/computer/surfaces/{kind}` | `{"live", "title"?, "url"?, "tab_id"?, "thread_id"?, "person_acted"?, "person_active"?, "mode"?}` | `204`; ace only, `kind` is `browser` or `screen` |
+
+Take-over and hand-back are the switch between the modes; there is no separate mode route. The
+mode is `exclusive` exactly while the take-over record below exists, so it survives restarts with
+it, and cowork needs nothing stored. A report's `mode` is ace's view and is not used: Spade's
+record is the truth, and the resync below brings ace back in line.
+
+## Cowork
+
+The default. The bot is not paused and keeps answering. The person:
+
+- types into the terminal's shell at once (no take-over). Their shell and the bot's commands are
+  separate processes, and a bot command's input is `/dev/null`, so nothing they type reaches it.
+- changes files through the app at once, checked against the revision they opened (see
+  [Files](#files)).
+- uses the browser and screen through ace. ace makes a bot's action there wait while the person
+  is active on the same tab or screen (3 s after their last input), up to 60 s; then it answers
+  `person_busy`, and Spade tells the model "Not run: the person is using this part of your
+  computer … they come first … don't retry it straight away". Not a failure; reads never wait.
+
+**The bot yields files.** A bot `workspace_write` or `workspace_edit` of a file the person
+changed through the app in the last 30 s is not run: "Not run: the person changed `<path>` N
+seconds ago … read it again before you change it". It is a result, not an error.
+
+- "The same file" is by identity, not by the path as written: the path with links in its folders
+  followed, compared without case on a volume that ignores case (found by looking up the
+  workspace folder's own name with its case swapped), or the same device and inode where the
+  file exists. So `Notes.txt` and `notes.txt` on such a volume, or `alias/a.txt` through a link
+  to `real/`, are one file, and a file the person deleted still counts when the bot makes it
+  again. Linux folders with case folding switched on (ext4 `casefold`) are not detected; there
+  the inode still matches a file that exists.
+- The changes and their times are kept in `<data folder>/computer/recent/<bot>.json` (replaced
+  whole through a temporary file, without waiting for the disk), so a restart keeps the window.
+  Expired entries are dropped when it is read. Changes made in exclusive mode count too.
+
+**One lock per workspace.** The person's file routes (write, upload, mkdir, move, delete) and the
+bot's file tools (`workspace_write`, `workspace_edit`) each run their checks (mode, stopping, the
+revision, the person's recent changes), their change and its record while holding the
+workspace's file lock. So neither lands between the other's check and its write: when both go
+for the same file at once, exactly one wins and the other gets `409 changed` or "Not run".
+**Terminal commands can't take this lock.** They are other processes, the bot's and the
+person's alike, and Spade can't see which files they touch. A command can change a file between
+the person's revision check and their write, and nothing a command does is yielded.
+
+**The bot hears what the person did, as it happens.** Spade gathers it per bot: the surfaces they
+used (the terminal when they typed, never what; the browser and screen when ace reports
+`person_acted`), the files they changed through the app (`changed`, `new`, `removed`), and the
+browser's address when ace reports they acted there (10 at most). Before each model step, never
+mid-call, the engine stores `{"type":"person_activity","text","data"?}` when there is something
+and the last one was at least 60 s ago; what came meanwhile waits for a later step. Nothing is
+stored while the bot isn't working: it waits for its next turn. It opens no reply by itself.
+
+- `text` is Spade's words ("They used your terminal (their own shell, not yours)", "They changed
+  2 files …", "In your browser they were on 1 address …", "The person comes first …").
+- `data` holds the names, `changed: path` or `went to: address`, kept apart exactly as a
+  hand-back's are, and makes the event untrusted content like a fetched page.
+- The model reads `<person_activity from="spade">…</person_activity>`, then, with data,
+  `<activity_data untrusted="true">` with the names as a JSON array. A bot on a subscription
+  (CLI brain) gets the same text in its next turn's message, once, as it gets a hand-back note.
+- What was gathered lives in memory: a restart loses a summary not yet offered.
+
+In exclusive mode none of this is gathered: the take-over record collects it for the hand-back
+note as before.
+
+## Exclusive mode (take over)
 
 **Taking over** saves `<data folder>/computer/<agent>.json` (the conversation, a snapshot of the
 workspace of at most 5,000 entries, and the surfaces used so far). It then pauses
@@ -89,6 +163,12 @@ The daemon keeps each bot's browser and screen in a hidden thread of its own
   `_meta: {"ace/acting-for": "<agent id>"}`. CLI bots' `spade_call`s that reach ace's tools carry
   it too. The id comes from the call's key, which Spade made for the turn, never from the model's
   arguments. ace honours it on Spade's grant only.
+- **Modes.** Every `spade.computer.drive` names both `driver` and `mode`: `person` with
+  `exclusive` for a take-over, `bot` with `cowork` for a hand-back. A daemon that knows modes goes
+  by `mode`; an older one by `driver`. Bots never taken over are never sent one: cowork is the
+  daemon's default. In cowork the daemon PUTs `person_active` (used in the last 3 s) and
+  `person_acted` on its surface reports, and answers a bot's action it waited 60 s for with
+  `person_busy` (see [Cowork](#cowork)).
 - **While the person drives**, ace answers the bot's `browser_*` and `screen_*` calls with the
   public error `person_driving`. Spade gives the model a not-run result that is not an error ("the
   person took over your computer … don't retry"), so it never counts as a failure to try again.
@@ -123,11 +203,11 @@ The shell is ended (with everything in its session: `kill -KILL` on its group, t
 `pkill -KILL -s <session>`) after 6 hours without use, unless the person has the computer. It is
 also ended when the bot is deleted and when Spade stops. The next use starts a new one.
 
-| Method and path                      | Body / query         | Answer                                                         |
-| ------------------------------------ | -------------------- | -------------------------------------------------------------- |
-| `GET /agents/{id}/terminal/live`     | `?after=N`           | SSE (below); starts the shell if it isn't running              |
-| `POST /agents/{id}/terminal/input`   | `{"data_b64"}`       | `204`; `409` unless the person drives, or while a bot command is still stopping; `413` past 64 KiB |
-| `POST /agents/{id}/terminal/resize`  | `{"cols", "rows"}`   | `204`; clamped to 2–1000 × 1–1000                              |
+| Method and path                     | Body / query       | Answer                                                                                                 |
+| ----------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------ |
+| `GET /agents/{id}/terminal/live`    | `?after=N`         | SSE (below); starts the shell if it isn't running                                                      |
+| `POST /agents/{id}/terminal/input`  | `{"data_b64"}`     | `204` in either mode; `409` in exclusive mode while a bot command is still stopping; `413` past 64 KiB |
+| `POST /agents/{id}/terminal/resize` | `{"cols", "rows"}` | `204`; clamped to 2–1000 × 1–1000                                                                      |
 
 SSE events: first `resize {"cols","rows"}`, then each kept `output {"seq","data_b64"}` with `seq`
 above `after`, then live frames: `output`, `resize`, and `exit {"code": int|null}` when the shell
@@ -141,8 +221,8 @@ commands. Asking, the timeouts, the 4 MiB output caps, the
 `[stderr]` part, large output kept as a file, and untrusted output are all as in
 [workspace.md](workspace.md). A bot command never goes through the person's shell:
 
-1. One command at a time per bot. It is refused (an error result) while the person has the
-   computer.
+1. One command at a time per bot. It is refused (an error result) in exclusive mode. In cowork
+   it runs while the person types in their shell.
 2. It runs as the one-shot shell does: `/bin/sh -c`, its own process group, the built
    environment, stdin from `/dev/null`. Two things change. It starts in the folder the bot's last
    command ended in (the workspace at first), and with the variables that command exported. These
@@ -175,7 +255,7 @@ commands. Asking, the timeouts, the 4 MiB output caps, the
    `pbi_start_tvsec` and `pbi_start_tvusec`), checked again right before every signal and skipped
    on a mismatch. So a pid another process has taken is never signalled, and the leader's number is
    never used once reaped. Everything chosen is stopped (`SIGSTOP`). The look is repeated until
-   nothing new turns up and each one is *seen* stopped or gone (Linux `/proc/<pid>/stat` state
+   nothing new turns up and each one is _seen_ stopped or gone (Linux `/proc/<pid>/stat` state
    `T`/`t`/`Z`/`X`, macOS `pbi_status` `SSTOP`/`SZOMB`), then all of it is killed. Adopted ones are reaped,
    each by its own pid, never `waitpid(-1)`. When that doesn't settle within 8 passes, what is
    known is killed anyway, the end is logged, the tool result adds "Not every process this
@@ -186,6 +266,7 @@ commands. Asking, the timeouts, the 4 MiB output caps, the
    the end can survive, such as a daemon left by a command that finished. macOS shows no other
    process's environment and has no subreaper. On Linux, only one that also cleared its
    environment and started another program before its parent exited can.
+
 6. **"Always" holds only in the state it was given in.** Answering `always` covers the exact
    command run from the same folder with the same carried variables. The approval stores that
    scope (`approval_requested.scope`: the command and a digest of the folder and variables), and
@@ -204,17 +285,24 @@ routes answer `503`.
 
 The workspace routes in [workspace.md](workspace.md) (list, open, download, delete) stay. Added:
 
-| Method and path                    | Body                          | Answer                                                |
-| ---------------------------------- | ----------------------------- | ----------------------------------------------------- |
-| `PUT /agents/{id}/files?path=`     | `{"text"}` or `{"data_b64"}`  | `204`; writes or replaces the file                    |
-| `POST /agents/{id}/files/upload`   | `{"path", "data_b64"}`        | `204`                                                 |
-| `POST /agents/{id}/files/mkdir`    | `{"path"}`                    | `204`; makes folders on the way; a file there is `422` |
-| `POST /agents/{id}/files/move`     | `{"from", "to"}`              | `204`; `409` when `to` exists; `422` to another disk; never into itself |
+| Method and path                             | Body                                    | Answer                                                                  |
+| ------------------------------------------- | --------------------------------------- | ----------------------------------------------------------------------- |
+| `PUT /agents/{id}/files?path=`              | `{"text"}` or `{"data_b64"}`, `"base"?` | `204`; writes or replaces the file                                      |
+| `POST /agents/{id}/files/upload`            | `{"path", "data_b64", "base"?}`         | `204`                                                                   |
+| `POST /agents/{id}/files/mkdir`             | `{"path"}`                              | `204`; makes folders on the way; a file there is `422`                  |
+| `POST /agents/{id}/files/move`              | `{"from", "to", "base"?}`               | `204`; `409` when `to` exists; `422` to another disk; never into itself |
+| `DELETE /agents/{id}/workspace?path=&base=` |                                         | `204`; `base` optional                                                  |
 
-- Reading and downloading always work. Every file write (including upload, mkdir, move and
-  delete) requires the person driving and `stopping: false`; otherwise it answers `409` with
-  the terminal input route's error shape. The check runs once under the computer lock right
-  before the mutation, holding the lock through it.
+- **Revisions.** `GET /agents/{id}/workspace/file` answers `revision`: `sha256:<hex>` of the
+  file's content (absent past 32 MiB). A write, upload, move or delete may send it back as
+  `base`. When the file at `path` (a move's `from`) is no longer that revision, or is gone, the
+  route answers `409 {"error":"changed","code":"changed","message","revision"}` (`revision` is
+  the file's now, or null when it is gone or has grown past 32 MiB) and changes nothing. Without `base` the change goes ahead: a new file,
+  or the person chose to overwrite. A `base` for a folder is `422`.
+- Reading and downloading always work. In cowork every file change works at once. In exclusive
+  mode a change also needs `stopping: false`, else `409` with the terminal input route's error
+  shape. The checks run under the workspace's file lock and the computer lock right before the
+  change, holding both through it (see "One lock per workspace" above).
 - Files are 32 MiB at most (`413`).
 - Writes go through a temporary file renamed into place, as for the tools. A file the person
   writes or uploads is recorded as trusted (path and SHA-256 in the trust record). A move carries
@@ -235,4 +323,5 @@ The conversation's `GET /conversations/{id}/live` adds, for a bot:
   change: driver, a surface going live or quiet, a new title.
 - `files {"paths": [string] | null}`: the workspace changed. `null` means Spade can't say which
   files (a bot command ran, or the person typed in the terminal), so re-read. Sent for
-  the person's file routes, `workspace_write`, `workspace_edit` and every bot shell command.
+  the person's file routes (a move names both paths, a delete its path), `workspace_write`,
+  `workspace_edit` and every bot shell command.

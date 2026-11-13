@@ -92,14 +92,14 @@ fn id_safe(text: &str) -> String {
         .collect()
 }
 
-/// Whether ace refused the call because the person is driving the bot's computer (ADR 0142):
-/// an error result whose text is ace's public error with that code.
-fn person_driving(result: &AceToolResult) -> bool {
+/// Whether ace refused the call with the public error `code`: an error result whose text is
+/// that error.
+fn refused_with(result: &AceToolResult, code: &str) -> bool {
     result.is_error
         && result.parts.iter().any(|part| match part {
             Part::Text { text, .. } => serde_json::from_str::<Value>(text)
                 .ok()
-                .is_some_and(|error| error["code"] == spade_ace::PERSON_DRIVING),
+                .is_some_and(|error| error["code"] == code),
             _ => false,
         })
 }
@@ -111,10 +111,21 @@ pub const PERSON_DRIVING_TEXT: &str = "Not run: the person took over your comput
      needs neither, or end your turn saying where you were. You'll be told what they did when \
      they hand it back.";
 
+/// What the model reads when, in cowork, the person kept using the same tab or screen for as
+/// long as ace waited (ADR 0143): the call didn't run, and the person comes first.
+pub const PERSON_BUSY_TEXT: &str = "Not run: the person is using this part of your computer \
+     (the same browser tab or the screen) right now, and they come first. Nothing was done. Work \
+     on something else for now and come back to this later; don't retry it straight away.";
+
 /// What a call's answer tells the model.
 pub fn output(result: Result<AceToolResult, ToolsError>) -> ToolOutput {
     match result {
-        Ok(result) if person_driving(&result) => ToolOutput::ok(PERSON_DRIVING_TEXT),
+        Ok(result) if refused_with(&result, spade_ace::PERSON_DRIVING) => {
+            ToolOutput::ok(PERSON_DRIVING_TEXT)
+        }
+        Ok(result) if refused_with(&result, spade_ace::PERSON_BUSY) => {
+            ToolOutput::ok(PERSON_BUSY_TEXT)
+        }
         Ok(result) => {
             let mut images = Vec::new();
             let parts: Vec<String> = result
@@ -259,6 +270,24 @@ mod tests {
             output(Ok(other)).is_error,
             "any other refusal stays an error"
         );
+    }
+
+    #[test]
+    fn a_call_refused_because_the_person_is_busy_there_is_not_run_and_says_to_come_back_later() {
+        let busy = AceToolResult {
+            parts: vec![Part::Text {
+                text: json!({ "code": "person_busy", "message": "the person is using the tab" })
+                    .to_string(),
+                extra: Map::new(),
+            }],
+            is_error: true,
+            structured: None,
+            extra: Map::new(),
+        };
+        let shown = output(Ok(busy));
+        assert!(!shown.is_error, "not a failure to retry at once");
+        assert!(shown.content.starts_with("Not run: the person is using"));
+        assert!(shown.content.contains("don't retry it straight away"));
     }
 
     #[test]

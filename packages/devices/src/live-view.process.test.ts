@@ -102,6 +102,7 @@ async function fixture(
   };
   const settleReads = () => Promise.allSettled(activeReads);
   const service = new DevicesService({
+    cowork: false,
     platform,
     screen,
     runtime: {
