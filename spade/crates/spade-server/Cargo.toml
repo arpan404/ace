@@ -60,5 +60,9 @@ tower = "0.5"
 [lints]
 workspace = true
 
+[target."cfg(unix)".dependencies]
+# Each bot's persistent terminal (ADR 0142).
+portable-pty = "0.9"
+
 [target."cfg(windows)".dependencies]
 win32job = "2.1.0"

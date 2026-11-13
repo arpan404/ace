@@ -197,6 +197,13 @@ pub enum Known {
         reply: String,
         text: String,
     },
+    /// The person handed the bot's computer back after driving it (ADR 0142). `text` is Spade's
+    /// summary of what they did (commands they ran, files they changed, surfaces they used),
+    /// never their keystrokes. The model reads it as a note from Spade, like a job's result: it
+    /// steers a turn that resumes, and opens no reply by itself.
+    ComputerHandedBack {
+        text: String,
+    },
     ReplyFinished {
         reply: String,
         text: String,

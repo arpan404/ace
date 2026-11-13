@@ -213,7 +213,8 @@ impl Transcript {
             | Known::GroupAsked { .. }
             | Known::GroupAnswered { .. }
             | Known::GroupQueued { .. }
-            | Known::GroupStopped { .. } => {}
+            | Known::GroupStopped { .. }
+            | Known::ComputerHandedBack { .. } => {}
         }
         if self.open_reply().is_none() {
             self.running.clear();

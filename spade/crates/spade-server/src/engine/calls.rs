@@ -289,6 +289,7 @@ async fn run_tools(
             if let Err(error) = engine.record(id, &started) {
                 return Handled::Failed(error.to_string());
             }
+            engine.computer_tool_started(id, &name);
             let bot = (name == "bot_message")
                 .then(|| arguments.get("bot").and_then(Value::as_str))
                 .flatten()

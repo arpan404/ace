@@ -63,6 +63,12 @@ pub fn job_result(job: &str, name: &str, content: &str, is_error: bool) -> Strin
     )
 }
 
+/// The note a bot reads when the person hands its computer back (ADR 0142): from Spade, about
+/// what the person did, so the model never takes the person's commands for its own.
+pub fn handed_back(text: &str) -> String {
+    format!("<computer_handed_back from=\"spade\">\n{text}\n</computer_handed_back>")
+}
+
 /// Where attached images' bytes come from. A failure says why in a few words ("this model cannot
 /// see images"), and the model is told that instead of seeing the image.
 pub trait Images {
@@ -431,6 +437,14 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
                     held.push((text, Vec::new()));
                 }
             }
+            Known::ComputerHandedBack { text } => {
+                let text = handed_back(text);
+                if pending.is_empty() {
+                    push_person(&mut out, text, Vec::new());
+                } else {
+                    held.push((text, Vec::new()));
+                }
+            }
             Known::StepFinished {
                 text,
                 calls,
@@ -504,7 +518,11 @@ fn reading_order(events: &[Event], from: usize) -> Vec<&Event> {
     let arrives = |event: &Event| {
         matches!(
             event,
-            Event::Known(Known::UserMessage { .. } | Known::JobFinished { .. })
+            Event::Known(
+                Known::UserMessage { .. }
+                    | Known::JobFinished { .. }
+                    | Known::ComputerHandedBack { .. }
+            )
         )
     };
     let mut out = Vec::with_capacity(events.len().saturating_sub(from));

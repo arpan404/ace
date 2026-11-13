@@ -141,7 +141,7 @@ pub(super) async fn run(
     if paused {
         // Admission may have reopened while this worker was pausing, after reopening looked for
         // turns without a worker; then this reply carries on now.
-        if *engine.pause.borrow() == Pause::Off {
+        if engine.may_run(&id) {
             engine.spawn_turn(&id);
         }
         return;

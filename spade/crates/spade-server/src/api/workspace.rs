@@ -59,6 +59,7 @@ fn known(state: &AppState, id: &str) -> Result<(), Box<Response>> {
 fn path_problem(error: &PathError) -> Response {
     let status = match error {
         PathError::Missing(_) => StatusCode::NOT_FOUND,
+        PathError::Exists(_) => StatusCode::CONFLICT,
         PathError::Absolute(_)
         | PathError::Parent
         | PathError::Outside(_)

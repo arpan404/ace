@@ -102,6 +102,34 @@ impl Trust {
         });
     }
 
+    /// The person wrote the whole file (ADR 0142): theirs, so trusted.
+    pub fn record_person(&self, path: &str, bytes: &[u8]) {
+        let digest = hash(bytes);
+        self.change(|record| {
+            record.files.insert(path.to_owned(), digest);
+        });
+    }
+
+    /// `from` (a file, or a folder and what is in it) is now at `to`: what was trusted there
+    /// stays trusted at its new path, by the same hash.
+    pub fn moved(&self, from: &str, to: &str) {
+        self.change(|record| {
+            let inside = format!("{from}/");
+            let moving: Vec<String> = record
+                .files
+                .keys()
+                .filter(|path| *path == from || path.starts_with(&inside))
+                .cloned()
+                .collect();
+            for path in moving {
+                if let Some(digest) = record.files.remove(&path) {
+                    let rest = &path[from.len()..];
+                    record.files.insert(format!("{to}{rest}"), digest);
+                }
+            }
+        });
+    }
+
     /// Forgets the record, when the bot is deleted.
     pub(super) fn forget(&self) {
         let _ = std::fs::remove_file(&self.file);
