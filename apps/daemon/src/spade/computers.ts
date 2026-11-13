@@ -96,8 +96,11 @@ export class SpadeComputers {
   private readonly using = new Map<ThreadId, number>();
   private readonly changes = new ReportChanges();
   private readonly calls = new Map<string, BotCalls>();
-  /** The bot each screen session was started or held for, kept when its holder is cleared. */
-  private readonly screens = new Map<string, string>();
+  /**
+   * Whose screen each session is: the bot last holding it (kept when the person's control
+   * clears the holder), undefined once a thread that is no bot's held it.
+   */
+  private readonly screens = new Map<string, string | undefined>();
   constructor(deps: SpadeComputersDeps) {
     this.deps = deps;
     this.drivers = new ComputerDrivers(deps.now, deps.takeovers);
@@ -209,9 +212,10 @@ export class SpadeComputers {
   }
 
   /**
-   * A screen session's state changed. A session started or held for a bot's thread stays that
-   * bot's after its holder is cleared, so the person taking its controls counts as using the
-   * bot's screen.
+   * A screen session's state changed. A session belongs to the bot whose thread holds it now,
+   * and stays that bot's when the person's control clears the holder. A non-bot holder ends
+   * that. Before anyone held it, the thread it was started for stands in. So the person taking
+   * the controls of a session a bot held counts as using that bot's screen.
    */
   screenChanged(state: {
     sessionId: string;
@@ -220,14 +224,13 @@ export class SpadeComputers {
     holder?: { threadId: string } | undefined;
     threadId?: string | undefined;
   }): void {
-    // The thread it was started for, else the agent holding it now.
-    const owner = state.threadId ?? state.holder?.threadId;
-    const held = owner && this.deps.botOf(owner);
-    if (held) this.screens.set(state.sessionId, held);
-    const bot = this.screens.get(state.sessionId);
+    const id = state.sessionId;
+    if (state.holder) this.screens.set(id, this.deps.botOf(state.holder.threadId));
+    else if (!this.screens.has(id) && state.threadId)
+      this.screens.set(id, this.deps.botOf(state.threadId));
+    const bot = this.screens.get(id);
     if (bot && state.controller === "human") this.drivers.usedScreen(bot);
-    if (state.lifecycle === "stopped" || state.lifecycle === "failed")
-      this.screens.delete(state.sessionId);
+    if (state.lifecycle === "stopped" || state.lifecycle === "failed") this.screens.delete(id);
   }
 
   /**
