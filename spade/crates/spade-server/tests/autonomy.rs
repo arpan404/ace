@@ -845,3 +845,26 @@ async fn reading_credentials_is_refused_on_ask_too_for_reads_and_any_reader() ->
     assert_eq!(ran(&read) + ran(&commands), 0);
     Ok(())
 }
+
+#[tokio::test]
+async fn a_reviewer_answer_that_leaves_out_whether_it_reaches_outside_goes_to_the_person() -> Result
+{
+    let tool = shell();
+    let commands = calls_of(&tool);
+    let spade = Spade::start(
+        vec![
+            Script::reply("").call("c1", "shell", json!({ "command": "make" })),
+            Script::reply("").plain(r#"{"verdict":"approve","reason":"Fine."}"#),
+        ],
+        vec![Arc::new(tool) as Arc<dyn Tool>],
+    )
+    .await?;
+    let (_, conversation) = bot(&spade, "auto_review").await?;
+    spade.say(&conversation, "Build it").await?;
+    let events = spade.wait_for(&conversation, "approval_requested").await?;
+    let asked = first(&events, "approval_requested").ok_or("not asked")?;
+    let reason = asked["reviewer_reason"].as_str().unwrap_or("");
+    assert!(reason.starts_with("The review couldn't run"), "{reason}");
+    assert_eq!(ran(&commands), 0);
+    Ok(())
+}

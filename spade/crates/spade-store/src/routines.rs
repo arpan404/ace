@@ -396,6 +396,60 @@ mod tests {
     }
 
     #[test]
+    fn routines_a_bot_set_up_before_taint_was_kept_open_as_untrusted() -> Result<()> {
+        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("temp dir: {e}"));
+        let path = dir.path().join("spade.sqlite");
+        {
+            let store = Store::open(&path)?;
+            store.create_agent(
+                NewAgent {
+                    id: "a_1",
+                    kind: "bot",
+                    name: "Scout",
+                    task: "",
+                    avatar: "{}",
+                    model: "fake/m",
+                    conversation: "c_1",
+                },
+                &[],
+                1,
+            )?;
+            for (id, by) in [("rt_person", "person"), ("rt_bot", "agent"), ("rt_odd", "")] {
+                store.insert_routine(&StoredRoutine {
+                    id: id.into(),
+                    created_by: by.into(),
+                    ..briefing(None)
+                })?;
+            }
+        }
+        {
+            // As a database from before the column: the column goes and the version steps back.
+            let connection = rusqlite::Connection::open(&path)?;
+            connection.execute("ALTER TABLE routines DROP COLUMN untrusted", [])?;
+            connection.pragma_update(
+                None,
+                "user_version",
+                crate::schema::current_version() as i64 - 1,
+            )?;
+        }
+        let store = Store::open(&path)?;
+        let untrusted = |id: &str| {
+            store
+                .routine(id)
+                .map(|r| r.map(|r| r.untrusted))
+                .unwrap_or_else(|e| panic!("{e}"))
+        };
+        assert_eq!(untrusted("rt_person"), Some(false));
+        assert_eq!(untrusted("rt_bot"), Some(true));
+        assert_eq!(
+            untrusted("rt_odd"),
+            Some(true),
+            "an unknown maker is no person"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn a_slot_is_claimed_once_even_when_two_firings_race_for_it() -> Result<()> {
         let (_dir, store) = store();
         assert!(store.insert_routine(&briefing(Some(100)))?);

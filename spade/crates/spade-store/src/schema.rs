@@ -132,8 +132,10 @@ const MIGRATIONS: &[Migration] = &[
         backfill: Some(crate::agents::character_faces),
     },
     Migration {
-        // ADR 0144: a routine set up or changed with untrusted content in view.
-        sql: "ALTER TABLE routines ADD COLUMN untrusted INTEGER NOT NULL DEFAULT 0;",
+        // ADR 0144: a routine set up or changed with untrusted content in view. What a bot set
+        // up before this was never checked, so only the person's own routines start trusted.
+        sql: "ALTER TABLE routines ADD COLUMN untrusted INTEGER NOT NULL DEFAULT 0;
+              UPDATE routines SET untrusted = 1 WHERE created_by IS NOT 'person';",
         backfill: None,
     },
 ];
