@@ -159,6 +159,8 @@ export function AvatarChoice(props: {
 }) {
   const file = useRef<HTMLInputElement>(null);
   const [problem, setProblem] = useState<string>();
+  // The creature and its colours first; More shows every other part.
+  const [more, setMore] = useState(false);
   const { value } = props;
   const face = draftFace(value);
   const raw =
@@ -210,10 +212,18 @@ export function AvatarChoice(props: {
                 Use a face
               </Button>
             )}
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-expanded={more}
+              onClick={() => setMore((open) => !open)}
+            >
+              {more ? "Less" : "More"}
+            </Button>
           </div>
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-          {botFaceFieldOrder.map((field) => (
+          {(more ? botFaceFieldOrder : botFaceFieldOrder.slice(0, 2)).map((field) => (
             <PartRow
               key={field}
               field={field}

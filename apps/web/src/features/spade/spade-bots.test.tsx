@@ -49,7 +49,7 @@ test("New bot creates the bot on the machine chosen for it and opens its convers
   await userEvent.type(form.getByRole("textbox", { name: "Task" }), "Plan and book my trips");
   await userEvent.click(form.getByRole("radio", { name: "Creature: fox" }));
   await userEvent.click(form.getByRole("radio", { name: "Colours: cocoa" }));
-  await choose(form, "Runs on", "Studio Mac");
+  await choose(form, "Machine", "Studio Mac");
   await userEvent.click(form.getByRole("button", { name: "Model" }));
   await userEvent.click(await screen.findByRole("option", { name: /^Sonnet/ }));
   await userEvent.click(form.getByRole("button", { name: "Create bot" }));

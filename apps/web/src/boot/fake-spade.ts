@@ -27,6 +27,13 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
         capabilities: ["images", "tools"],
         source: "typed",
       },
+      {
+        id: "openai/gpt-6.1-mini",
+        name: "GPT-6.1 Mini",
+        context: 400_000,
+        capabilities: ["images", "tools"],
+        source: "typed",
+      },
     ],
   };
   here.endpoints.push(endpoint);
@@ -274,6 +281,16 @@ export function seedFakeSpade(daemon: FakeDaemon, server: FakeDaemon) {
   const flights = here.addAgent({
     id: "flights",
     name: "Flights",
+    task: "Watch fares to Lisbon for the 14th to the 18th and tell me when it's worth booking.",
+    model: "openrouter/openai/gpt-6.1-mini",
+    spending: {
+      today_micros: 180_000,
+      month_micros: 1_240_000,
+      daily_cap_micros: 1_000_000,
+      monthly_cap_micros: null,
+      capped: null,
+      resets_at: null,
+    },
     avatar: {
       kind: "character",
       v: 1,

@@ -30,7 +30,7 @@ test("a machine chosen for a new bot that goes out of reach stays chosen, and Cr
   await openNew("New bot");
   const form = within(await screen.findByRole("dialog", { name: "New bot" }));
   await userEvent.type(form.getByRole("textbox", { name: "Name" }), "Travel");
-  await choose(form, "Runs on", "Studio Mac");
+  await choose(form, "Machine", "Studio Mac");
   await userEvent.click(form.getByRole("button", { name: "Model" }));
   await userEvent.click(await screen.findByRole("option", { name: /^Sonnet/ }));
   expect(form.getByRole("button", { name: "Create bot" }).hasAttribute("disabled")).toBe(false);
@@ -40,7 +40,7 @@ test("a machine chosen for a new bot that goes out of reach stays chosen, and Cr
       "Studio Mac isn't reachable right now. Wait for it, or pick another machine.",
     ),
   ).toBeTruthy();
-  expect(form.getByRole("combobox", { name: "Runs on" }).textContent).toContain("Studio Mac");
+  expect(form.getByRole("combobox", { name: "Machine" }).textContent).toContain("Studio Mac");
   expect(form.getByRole("button", { name: "Create bot" }).hasAttribute("disabled")).toBe(true);
 });
 

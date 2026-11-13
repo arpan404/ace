@@ -226,17 +226,16 @@ test("a bot's edit form turns on the apps it may use, and saves only that", asyn
   expect(spade.sent("PATCH", "/v1/agents/garden")).toEqual([]);
 });
 
-test("Spade may use every connected app until the person narrows it", async () => {
+test("Spade may use every connected app, each its own switch, until the person turns one off", async () => {
   const { spade } = await spadeApp("/spade/main", withApps);
   await feed("Spade");
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Edit Spade" }));
   const dialog = within(await screen.findByRole("dialog", { name: "Edit Spade" }));
-  const every = await dialog.findByRole("switch", { name: "Every connected app" });
-  expect(checked(every)).toBe(true);
-  expect(dialog.queryByRole("switch", { name: "Linear" })).toBeNull();
-  await userEvent.click(every);
-  // Narrowing starts from every app, so turning one off is the change.
+  // Every app is on, each shown by name.
+  expect(checked(await dialog.findByRole("switch", { name: "Linear" }))).toBe(true);
+  expect(checked(dialog.getByRole("switch", { name: "Notion" }))).toBe(true);
+  // Turning one off narrows Spade to the rest.
   await userEvent.click(dialog.getByRole("switch", { name: "Notion" }));
   await userEvent.click(dialog.getByRole("button", { name: "Save" }));
   await waitFor(() =>

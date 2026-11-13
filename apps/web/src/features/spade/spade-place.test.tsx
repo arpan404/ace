@@ -129,7 +129,7 @@ test("an approval waits above the composer, and Send answers it", async () => {
   );
 });
 
-test("editing a bot sends only what changed and says task and model apply from its next reply", async () => {
+test("editing a bot sends only what changed", async () => {
   const { spade } = await spadeApp("/spade/garden", (api) => {
     withEndpoint(api);
     api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
@@ -144,7 +144,6 @@ test("editing a bot sends only what changed and says task and model apply from i
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Edit bot" }));
   const dialog = within(await screen.findByRole("dialog", { name: "Edit Garden" }));
-  expect(dialog.getByText("Task and model changes apply from Garden's next reply.")).toBeTruthy();
   const task = dialog.getByRole("textbox", { name: "Task" });
   await userEvent.clear(task);
   await userEvent.type(task, "Keep the tomatoes alive");

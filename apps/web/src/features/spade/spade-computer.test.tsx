@@ -139,7 +139,7 @@ test("the bot's terminal shows its output to everyone and takes keys only while 
     ),
   );
   expect(panel.isConnected).toBe(true);
-  const input = await within(panel).findByRole("textbox", { name: "Scout's terminal input" });
+  const input = await within(panel).findByRole("textbox", { name: "Scout's input" });
   expect((input as HTMLTextAreaElement).disabled).toBe(true);
   expect(spade.sent("POST", "/v1/agents/scout/terminal/input")).toHaveLength(0);
 
@@ -163,7 +163,7 @@ test("after Take over the terminal waits for the bot's work to stop before takin
     api.computer.stopping("scout", true);
   });
   const panel = await screen.findByRole("tabpanel", { name: "Terminal" });
-  const input = await within(panel).findByRole("textbox", { name: "Scout's terminal input" });
+  const input = await within(panel).findByRole("textbox", { name: "Scout's input" });
   await userEvent.click(screen.getByRole("button", { name: "Take over" }));
   await screen.findByText("Stopping Scout…");
   expect((input as HTMLTextAreaElement).disabled).toBe(true);

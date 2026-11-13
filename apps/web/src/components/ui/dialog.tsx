@@ -47,6 +47,8 @@ function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) 
 const sizes = {
   sm: "w-[min(480px,calc(100vw-2rem))]",
   lg: "w-[min(640px,calc(100vw-2rem))]",
+  /** Two panes side by side (New bot's face and its fields). */
+  xl: "w-[min(900px,calc(100vw-2rem))]",
 } as const;
 
 /**

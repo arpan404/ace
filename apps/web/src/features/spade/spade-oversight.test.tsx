@@ -196,11 +196,12 @@ test("a report's chip on the bot's bubble opens the report in its files", async 
   );
 });
 
-test("Settings › Spade tells Spade the person's zone and shows each bot's spend and caps", async () => {
+test("Settings › Spade tells Spade the person's zone and keeps the totals and the cap, not each bot's", async () => {
   const { spade } = await spadeApp("/settings/spade", seed);
   const group = within(await screen.findByRole("region", { name: "Spending and review" }));
-  expect(await group.findByText("$0.42 today · $3.10 this month · Caps: $1.00 a day")).toBeTruthy();
-  expect(group.getByText("Daily cap $5.00")).toBeTruthy();
+  expect(await group.findByText("Daily cap $5.00")).toBeTruthy();
+  // Scout's own spend is on its page.
+  expect(group.queryByText("Scout")).toBeNull();
   await waitFor(() =>
     expect(spade.sent("PUT", "/v1/oversight")).toContainEqual({
       time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone,

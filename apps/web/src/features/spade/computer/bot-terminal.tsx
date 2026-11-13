@@ -48,7 +48,7 @@ export function BotTerminal(props: { bot: { id: string; name: string }; driving:
           <StandaloneTerminal
             source={source}
             id={`spade:${props.bot.id}`}
-            label={`${props.bot.name}'s terminal`}
+            label={`${props.bot.name}'s`}
             readOnly={!props.driving}
             autoFocus={props.driving}
           />

@@ -44,7 +44,6 @@ export function ConnectorChoice(props: {
   main: boolean;
 }) {
   const { choice } = props;
-  const allId = useId();
   if (choice.problem) return <p className="text-xs text-muted-foreground">{choice.problem}</p>;
   if (choice.loading || !choice.current) return null;
   const current = choice.current;
@@ -58,37 +57,28 @@ export function ConnectorChoice(props: {
       </div>
     );
   const ids = choice.connectors.map((each) => each.id);
+  // Each connected app has its own switch. Spade may use every app (`all`): each shows on, and
+  // turning one off narrows it to the rest.
+  const allowed = current.all ? ids : current.connectors;
   return (
     <ul className="flex flex-col gap-2">
-      {props.main && (
-        <SwitchRow
-          id={allId}
-          label="Every connected app"
-          checked={current.all}
-          onChange={(all) =>
-            // Narrowing starts from everything, so nothing is lost by the switch alone.
-            choice.set({ all, connectors: all ? [] : ids })
+      {choice.connectors.map((connector) => (
+        <ConnectorSwitch
+          key={connector.id}
+          name={connector.name}
+          // Not signed in yet: nothing to give a bot until the sign-in finishes.
+          disabled={connector.state === "signing_in"}
+          checked={allowed.includes(connector.id)}
+          onChange={(on) =>
+            choice.set({
+              all: false,
+              connectors: on
+                ? [...allowed, connector.id]
+                : allowed.filter((id) => id !== connector.id),
+            })
           }
         />
-      )}
-      {!current.all &&
-        choice.connectors.map((connector) => (
-          <ConnectorSwitch
-            key={connector.id}
-            name={connector.name}
-            // Not signed in yet: nothing to give a bot until the sign-in finishes.
-            disabled={connector.state === "signing_in"}
-            checked={current.connectors.includes(connector.id)}
-            onChange={(on) =>
-              choice.set({
-                all: false,
-                connectors: on
-                  ? [...current.connectors, connector.id]
-                  : current.connectors.filter((id) => id !== connector.id),
-              })
-            }
-          />
-        ))}
+      ))}
     </ul>
   );
 }

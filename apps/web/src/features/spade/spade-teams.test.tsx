@@ -430,7 +430,7 @@ test("an imported bot opens on the machine it was sent to, even if Runs on moved
   vi.spyOn(file, "text").mockReturnValue(read.promise);
   await userEvent.upload(form.getByLabelText("Bot file"), file);
   // While the file is still being read, the person picks another machine.
-  await userEvent.click(form.getByRole("combobox", { name: "Runs on" }));
+  await userEvent.click(form.getByRole("combobox", { name: "Machine" }));
   await userEvent.click(await screen.findByRole("option", { name: "Studio Mac" }));
   read.resolve(
     JSON.stringify({ format: "spade-bot", version: 1, name: "Scout", task: "Scout news" }),
