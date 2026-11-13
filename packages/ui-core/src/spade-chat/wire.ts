@@ -95,6 +95,8 @@ const known = z.discriminatedUnion("type", [
     call_id: z.string(),
     name: z.string(),
     arguments: z.unknown().optional(),
+    /** Why the auto-review asked the person rather than approve it itself. */
+    reviewer_reason: z.string().nullish().catch(undefined),
   }),
   z.object({
     type: z.literal("approval_answered"),

@@ -14,6 +14,7 @@ export * from "./skills.ts";
 export * from "./connectors.ts";
 export * from "./routines.ts";
 export * from "./oversight.ts";
+export * from "./autonomy.ts";
 export * from "./activity.ts";
 export * from "./subscriptions.ts";
 export * from "./groups.ts";

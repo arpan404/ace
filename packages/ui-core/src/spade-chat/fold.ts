@@ -345,7 +345,8 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           callId: event.call_id,
           name: event.name,
           arguments: event.arguments,
-          reason: state.reviews.get(event.call_id),
+          // An escalation carries the reviewer's reason itself; an older Spade sent it apart.
+          reason: event.reviewer_reason || state.reviews.get(event.call_id),
         },
       ];
       setCall(state, event.reply, event.call_id, event.name, "waiting");

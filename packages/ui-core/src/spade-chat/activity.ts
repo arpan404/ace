@@ -16,6 +16,7 @@ export const spadeActivityKinds = [
   "approval",
   "routine",
   "review",
+  "task",
   "spend",
   "cap",
 ] as const;
@@ -30,6 +31,7 @@ export const spadeActivityKindWords: Record<SpadeActivityKind, string> = {
   approval: "Approvals",
   routine: "Routines",
   review: "Reviews",
+  task: "Progress",
   spend: "Spending",
   cap: "Caps",
 };
@@ -129,7 +131,28 @@ function connectorParts(name: string): { app: string; tool: string } {
   return at < 0 ? { app: "", tool: name } : { app: name.slice(0, at), tool: name.slice(at + 2) };
 }
 
-function sentenceOf(entry: SpadeActivityEntry): { sentence: string; outcome?: string | undefined } {
+const reviewVerdicts: Record<string, string> = {
+  approved: "approved",
+  allowed: "approved",
+  allow: "approved",
+  refused: "refused",
+  refuse: "refused",
+  denied: "refused",
+  escalated: "asked you",
+  escalate: "asked you",
+};
+
+/** A verdict's reason: Spade's `reason`, else the entry's summary. */
+const reasonOf = (entry: SpadeActivityEntry): string | undefined => {
+  const reason = entry.raw.reason;
+  return (typeof reason === "string" && reason) || entry.summary || undefined;
+};
+
+function sentenceOf(entry: SpadeActivityEntry): {
+  sentence: string;
+  outcome?: string | undefined;
+  detail?: string | undefined;
+} {
   const name = entry.name ?? "";
   const words = spadeToolWords(name);
   const outcome = entry.outcome ?? "";
@@ -158,12 +181,16 @@ function sentenceOf(entry: SpadeActivityEntry): { sentence: string; outcome?: st
     case "routine":
       return { sentence: outcome === "heartbeat" ? "Heartbeat ran" : `${name || "A routine"} ran` };
     case "review":
+      // An older Spade's review only allowed or escalated.
       return {
-        sentence:
-          outcome === "escalated"
-            ? `The review asked you before it would ${words.base}`
-            : `The review allowed it to ${words.base}`,
+        sentence: `The reviewer ${reviewVerdicts[outcome] ?? "approved"}: ${words.base}`,
+        detail: reasonOf(entry),
       };
+    case "task":
+      // It carried on by itself, or stopped because nothing moved: the summary says which step.
+      return outcome === "paused"
+        ? { sentence: `Paused: ${entry.summary || "no progress"}`, detail: "" }
+        : { sentence: `Kept going: ${entry.summary || name || "next step"}`, detail: "" };
     case "spend":
       return { sentence: turnEnds[outcome] ?? "Finished a turn" };
     case "cap":
@@ -174,14 +201,14 @@ function sentenceOf(entry: SpadeActivityEntry): { sentence: string; outcome?: st
 }
 
 export function spadeActivityWords(entry: SpadeActivityEntry): SpadeActivityWords {
-  const { sentence, outcome } = sentenceOf(entry);
+  const { sentence, outcome, detail } = sentenceOf(entry);
   const facts = [
     ...(outcome ? [outcome] : []),
     ...(entry.costMicros === undefined ? [] : [spadeMoney(entry.costMicros)]),
   ];
   return {
     sentence,
-    detail: entry.summary || undefined,
+    detail: (detail ?? entry.summary) || undefined,
     facts: facts.length ? facts.join(" · ") : undefined,
   };
 }

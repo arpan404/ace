@@ -123,11 +123,10 @@ describe("spending", () => {
   });
 });
 
-const words = (fields: Record<string, unknown>) =>
-  spadeActivityWords(
-    parseSpadeActivity(JSON.stringify({ entries: [{ id: "1", seq: 1, ...fields }] }))?.entries[0] ??
-      (undefined as never),
-  ).sentence;
+const parsedEntry = (fields: Record<string, unknown>) =>
+  parseSpadeActivity(JSON.stringify({ entries: [{ id: "1", seq: 1, ...fields }] }))?.entries[0] ??
+  (undefined as never);
+const words = (fields: Record<string, unknown>) => spadeActivityWords(parsedEntry(fields)).sentence;
 
 describe("activity", () => {
   test("a page says where the next one starts, even when it has no entries", () => {
@@ -191,9 +190,37 @@ describe("activity", () => {
       "Asked you to send an email",
     );
     expect(words({ kind: "review", name: "send_email", outcome: "escalated" })).toBe(
-      "The review asked you before it would send an email",
+      "The reviewer asked you: send an email",
     );
     expect(words({ kind: "cap", name: "monthly" })).toBe("Reached its monthly cap");
+  });
+
+  test("a reviewer verdict reads as approved, refused or asked you, with its reason under it", () => {
+    const verdict = (outcome: string, reason: string) =>
+      spadeActivityWords(
+        parsedEntry({ kind: "review", name: "send_email", outcome, reason, summary: "to: x" }),
+      );
+    expect(verdict("approved", "Routine reply the person asked for")).toMatchObject({
+      sentence: "The reviewer approved: send an email",
+      detail: "Routine reply the person asked for",
+    });
+    expect(verdict("refused", "Not part of its task")).toMatchObject({
+      sentence: "The reviewer refused: send an email",
+      detail: "Not part of its task",
+    });
+    expect(verdict("escalated", "Sends as you")).toMatchObject({
+      sentence: "The reviewer asked you: send an email",
+      detail: "Sends as you",
+    });
+  });
+
+  test("carrying on and pausing read as the step it took or why it stopped", () => {
+    expect(
+      spadeActivityWords(parsedEntry({ kind: "task", outcome: "continued", summary: "step 4" })),
+    ).toMatchObject({ sentence: "Kept going: step 4", detail: undefined });
+    expect(
+      spadeActivityWords(parsedEntry({ kind: "task", outcome: "paused", summary: "no progress" })),
+    ).toMatchObject({ sentence: "Paused: no progress", detail: undefined });
   });
 
   test("the query sends only the parts that are set", () => {
