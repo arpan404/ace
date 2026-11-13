@@ -294,8 +294,8 @@ const Bubble = memo(function Bubble(props: {
                 aria-label="What changed"
                 className="mt-1 flex flex-col gap-0.5 font-mono text-xs text-muted-foreground wrap-anywhere"
               >
-                {item.data.map((line, index) => (
-                  <li key={`${index}:${line}`}>{line}</li>
+                {item.data.map((line) => (
+                  <li key={line}>{line}</li>
                 ))}
               </ul>
             </Disclosure>
