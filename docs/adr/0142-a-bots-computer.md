@@ -69,7 +69,9 @@ take over.
    applied to this conversation only. A streaming model step finishes and is stored, nothing new
    starts, and tools cut off are answered "may have run". Messages sent meanwhile are stored and
    wait. Stop still works. While the person has the computer, the bot shows "Paused while you
-   have the computer", never idle.
+   have the computer", never idle. The person gets the controls only once none of the bot's
+   work runs: its terminal command is gone and ace says its calls there have ended (the
+   computer shows `stopping` until then).
 8. **The person drives.** They type into the terminal (refused with `409` while the bot drives,
    so the person's input never mixes into a bot's command), use the browser and screen through
    ace, and change files through the app.
