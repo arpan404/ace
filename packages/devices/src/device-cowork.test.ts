@@ -11,6 +11,8 @@ const agent: Actor = {
 };
 const tap = (x: number) => ({ op: "input", deviceId, input: { kind: "tap", x, y: 10 } }) as const;
 
+const tick = () => new Promise((resolve) => setTimeout(resolve, 1));
+
 /** A cowork devices service over a scripted platform, with a clock the test moves. */
 async function fixture() {
   let now = 1_000;
@@ -49,12 +51,11 @@ async function fixture() {
   onTestFinished(() => service.close());
   await service.request({ op: "enable", enabled: true }, person);
   await service.claimForAgent(deviceId, agent);
-  const tick = () => new Promise((resolve) => setTimeout(resolve, 1));
   const advance = async (ms: number) => {
     const end = now + ms;
     for (;;) {
       await tick();
-      const due = timers.filter((timer) => timer.at <= end).sort((a, b) => a.at - b.at)[0];
+      const due = timers.filter((timer) => timer.at <= end).toSorted((a, b) => a.at - b.at)[0];
       if (!due) break;
       timers = timers.filter((timer) => timer !== due);
       now = due.at;
@@ -64,11 +65,11 @@ async function fixture() {
     await tick();
   };
   const state = () => service.states().find((each) => each.device.id === deviceId);
-  return { service, taps, advance, tick, state };
+  return { service, taps, advance, state };
 }
 
 it("the person's tap goes into a device an agent holds, and the agent's tap waits until they pause", async () => {
-  const { service, taps, advance, tick, state } = await fixture();
+  const { service, taps, advance, state } = await fixture();
   await service.request(tap(1), person);
   expect(taps).toEqual(["1"]);
   expect(state()).toMatchObject({ controller: "agent", sharing: "cowork", personActive: true });

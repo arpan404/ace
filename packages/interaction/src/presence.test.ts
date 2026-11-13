@@ -27,7 +27,7 @@ function fakeClock(start = 1_000_000) {
     for (;;) {
       await Promise.resolve();
       await Promise.resolve();
-      const due = timers.filter((timer) => timer.at <= end).sort((a, b) => a.at - b.at)[0];
+      const due = timers.filter((timer) => timer.at <= end).toSorted((a, b) => a.at - b.at)[0];
       if (!due) break;
       timers = timers.filter((timer) => timer !== due);
       now = due.at;
