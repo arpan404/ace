@@ -19,17 +19,17 @@ spending cap. Tools, memory and channels come later and build on these events.
 Each conversation is an append-only log of numbered events (`seq` from 1). Stored as JSON with a
 `type` field; an unknown type read back is kept as raw JSON, never dropped.
 
-| Type                | Fields                                                            | Meaning                                                                                                                                                                                                            |
-| ------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `user_message`      | `text`                                                            | The person wrote                                                                                                                                                                                                   |
-| `reply_started`     | `reply`, `model`                                                  | Spade began answering                                                                                                                                                                                              |
-| `reply_progress`    | `reply`, `text`                                                   | Checkpoint of the reply so far (at most every 500 ms)                                                                                                                                                              |
-| `reply_finished`    | `reply`, `text`, `input_tokens?`, `output_tokens?`, `cost_micros` | Complete                                                                                                                                                                                                           |
-| `reply_stopped`     | `reply`, `text`                                                   | The person pressed Stop; `text` is what arrived                                                                                                                                                                    |
+| Type                | Fields                                                            | Meaning                                                  |
+| ------------------- | ----------------------------------------------------------------- | -------------------------------------------------------- |
+| `user_message`      | `text`                                                            | The person wrote                                         |
+| `reply_started`     | `reply`, `model`                                                  | Spade began answering                                    |
+| `reply_progress`    | `reply`, `text`                                                   | Checkpoint of the reply so far (at most every 500 ms)    |
+| `reply_finished`    | `reply`, `text`, `input_tokens?`, `output_tokens?`, `cost_micros` | Complete                                                 |
+| `reply_stopped`     | `reply`, `text`                                                   | The person pressed Stop; `text` is what arrived          |
 | `reply_failed`      | `reply`, `text`, `error`, `kind`, `endpoint`?                     | The model call failed; `text` is what arrived; `kind` is `unreachable`, `key`, `rate_limited`, `model`, `cap` or `other` (missing or unknown reads as `other`); `endpoint` names the endpoint when it was to blame |
-| `reply_interrupted` | `reply`, `text`                                                   | Spade restarted mid-reply; `text` is the last checkpoint                                                                                                                                                           |
-| `renamed`           | `title`                                                           | New title                                                                                                                                                                                                          |
-| `agent_configured`  | `task`, `model`                                                   | The agent's task or model changed, from the next turn                                                                                                                                                              |
+| `reply_interrupted` | `reply`, `text`                                                   | Spade restarted mid-reply; `text` is the last checkpoint |
+| `renamed`           | `title`                                                           | New title                                                |
+| `agent_configured`  | `task`, `model`                                                   | The agent's task or model changed, from the next turn    |
 
 A reply is open from `reply_started` until one of finished, stopped, failed or interrupted. At most
 one reply is open per conversation. On startup Spade closes every open reply a crash cut off with
