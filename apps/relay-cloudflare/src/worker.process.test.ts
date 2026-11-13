@@ -333,7 +333,8 @@ it("a device that sends past the relay's frame budget is told it hit the rate li
   const { rawDevice } = await host();
   const { device, sendJson } = await rawDevice();
   // The relay's per-socket budget is 2,000 frames at once; it can't pause a socket, so it closes.
-  const sends = Array.from({ length: 2_500 }, () => sendJson({ type: "ping" }).catch(() => {}));
+  // Far more than the budget refills in the time a loaded test machine takes to read them.
+  const sends = Array.from({ length: 10_000 }, () => sendJson({ type: "ping" }).catch(() => {}));
   expect(await device.closed).toBe(1008);
   await Promise.all(sends);
 });
