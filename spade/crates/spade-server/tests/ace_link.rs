@@ -93,7 +93,7 @@ async fn without_the_daemon_spade_runs_without_ace_tools_and_they_arrive_with_it
     );
     assert_eq!(
         spade.get("/v1/ace").await?.1,
-        json!({ "grant": true, "connected": false })
+        json!({ "grant": true, "connected": false, "refused": false })
     );
     assert!(ace_tool_names(&spade).is_empty());
 
@@ -121,7 +121,7 @@ async fn the_grant_is_kept_in_the_keychain_and_never_returned() -> Result {
     let spade = Spade::start_with(Vec::new(), Vec::new(), with_ace(home.path())).await?;
     assert_eq!(
         spade.get("/v1/ace").await?.1,
-        json!({ "grant": false, "connected": false })
+        json!({ "grant": false, "connected": false, "refused": false })
     );
 
     spade
@@ -137,7 +137,10 @@ async fn the_grant_is_kept_in_the_keychain_and_never_returned() -> Result {
         Some(fake_mcp::TOKEN)
     );
     let state = wait_connected(&spade, true).await?;
-    assert_eq!(state, json!({ "grant": true, "connected": true }));
+    assert_eq!(
+        state,
+        json!({ "grant": true, "connected": true, "refused": false })
+    );
     assert!(!state.to_string().contains(fake_mcp::TOKEN));
 
     let (status, _) = spade.delete("/v1/ace").await?;
@@ -150,7 +153,7 @@ async fn the_grant_is_kept_in_the_keychain_and_never_returned() -> Result {
     );
     assert_eq!(
         spade.get("/v1/ace").await?.1,
-        json!({ "grant": false, "connected": false })
+        json!({ "grant": false, "connected": false, "refused": false })
     );
     assert!(ace_tool_names(&spade).is_empty(), "forgetting disconnects");
     Ok(())
@@ -165,13 +168,24 @@ async fn a_refused_grant_keeps_retrying_and_a_new_grant_connects_at_once() -> Re
     spade
         .put("/v1/ace", json!({ "grant": "revoked-grant" }))
         .await?;
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    assert_eq!(spade.get("/v1/ace").await?.1["connected"], false);
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        let (_, state) = spade.get("/v1/ace").await?;
+        if state["refused"] == true {
+            assert_eq!(state["connected"], false);
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "refusal was never reported: {state}"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
 
     spade
         .put("/v1/ace", json!({ "grant": fake_mcp::TOKEN }))
         .await?;
-    wait_connected(&spade, true).await?;
+    assert_eq!(wait_connected(&spade, true).await?["refused"], false);
     let (status, _) = spade.put("/v1/ace", json!({ "grant": "  " })).await?;
     assert_eq!(status, 400);
     Ok(())

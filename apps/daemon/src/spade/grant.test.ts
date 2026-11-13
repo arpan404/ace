@@ -5,6 +5,7 @@ import { OutsideAccess } from "../external-mcp/outside.ts";
 import { GrantStore } from "../external-mcp/grants.ts";
 import { GrantTokens } from "../external-mcp/tokens.ts";
 import { OlderOutsideResult } from "../spade-test-support.ts";
+import { SpadeGrantDelivery } from "./delivery.ts";
 import { SpadeGrants } from "./grant.ts";
 
 /** Outside clients' grants and Spade's over one database, as the daemon keeps them. */
@@ -79,4 +80,42 @@ test("Spade's status shows its grant: present, used, then revoked by the person 
   // Revoked by the person: a restarted daemon doesn't make another.
   expect(spade.wanted()).toBe(false);
   expect(spade.revoke()).toBeUndefined();
+});
+
+test("a timed-out handover cannot overwrite the acknowledged grant with a refused token", async () => {
+  const { spade } = machine();
+  spade.ensure();
+  let stored = "";
+  let finishSlowWrite: (() => void) | undefined;
+  let puts = 0;
+  const connection = { host: "127.0.0.1", port: 4100, token: "test-spade-token" };
+  const delivery = new SpadeGrantDelivery({
+    now: () => 100_000,
+    grants: spade,
+    prove: async () => true,
+    ready: () => connection,
+    after: () => () => {},
+    log: () => {},
+    call: async (_connection, method, body) => {
+      if (method === "GET") return { status: 200, body: { grant: !!stored } };
+      if (!body) return undefined;
+      const token = body.grant;
+      if (++puts === 1) {
+        // The HTTP deadline expires, but Spade's off-thread keychain write keeps running.
+        finishSlowWrite = () => {
+          stored = token;
+        };
+        return undefined;
+      }
+      stored = token;
+      return { status: 204, body: undefined };
+    },
+  });
+  await delivery.deliver(connection, true);
+  await delivery.deliver(connection, true);
+  expect(spade.verify(stored)).toBeDefined();
+  // The first PUT finishes after the retry has been acknowledged.
+  finishSlowWrite?.();
+  expect(spade.verify(stored)).toBeDefined();
+  delivery.close();
 });

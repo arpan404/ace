@@ -54,15 +54,15 @@ docs/
 
 ## Settings
 
-| Variable                                   | Default              | Meaning                                                                               |
-| ------------------------------------------ | -------------------- | ------------------------------------------------------------------------------------- |
-| `SPADE_LISTEN`                             | `127.0.0.1:3000`     | Address to listen on (loopback)                                                       |
-| `RUST_LOG`                                 | `info`               | Log filter                                                                            |
-| `SPADE_MODEL_CATALOG`                      | built in             | A presets file to use instead of the built-in one (development)                       |
-| `SPADE_ACE_HOME`                           | set by the service   | ace's home: Spade finds the daemon from its `daemon-endpoint` and `daemon-token`      |
-| `SPADE_ACE_MCP_URL`, `SPADE_ACE_MCP_TOKEN` | unset                | Development only: ace's MCP endpoint and a bearer, overriding `SPADE_ACE_HOME`        |
-| `SPADE_ACE_URL`, `SPADE_ACE_TOKEN`         | unset                | Development only: the daemon's WebSocket and local token, for skills                  |
-| Each endpoint's `key.env`                  |                      | That endpoint's key when it is not in the OS keychain, for example `OPENCODE_API_KEY` |
+| Variable                                   | Default            | Meaning                                                                               |
+| ------------------------------------------ | ------------------ | ------------------------------------------------------------------------------------- |
+| `SPADE_LISTEN`                             | `127.0.0.1:3000`   | Address to listen on (loopback)                                                       |
+| `RUST_LOG`                                 | `info`             | Log filter                                                                            |
+| `SPADE_MODEL_CATALOG`                      | built in           | A presets file to use instead of the built-in one (development)                       |
+| `SPADE_ACE_HOME`                           | set by the service | ace's home: Spade finds the daemon from its `daemon-endpoint` and `daemon-token`      |
+| `SPADE_ACE_MCP_URL`, `SPADE_ACE_MCP_TOKEN` | unset              | Development only: ace's MCP endpoint and a bearer, overriding `SPADE_ACE_HOME`        |
+| `SPADE_ACE_URL`, `SPADE_ACE_TOKEN`         | unset              | Development only: the daemon's WebSocket and local token, for skills                  |
+| Each endpoint's `key.env`                  |                    | That endpoint's key when it is not in the OS keychain, for example `OPENCODE_API_KEY` |
 
 ## Models
 
