@@ -337,3 +337,17 @@ it("a device that sends past the relay's frame budget is told it hit the rate li
   expect(await device.closed).toBe(1008);
   await Promise.all(sends);
 });
+
+it("a daemon hears the code and reason its device closed the stream with", async () => {
+  const { rawDevice } = await host();
+  const { device, server } = await rawDevice();
+  device.socket.close(4001, "Path missed its pong");
+  expect(await server.closed).toMatchObject({ code: 4001, reason: "Path missed its pong" });
+});
+
+it("a device whose connection just drops leaves its daemon a plain peer close", async () => {
+  const { rawDevice } = await host();
+  const { device, server } = await rawDevice();
+  device.close();
+  expect(await server.closed).toMatchObject({ code: 1000, reason: "Peer closed" });
+});

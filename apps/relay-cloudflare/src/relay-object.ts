@@ -26,6 +26,21 @@ const limits = LimitsSchema.parse({});
 /** Closes a registered daemon's control socket so it registers again at once. */
 const REGISTER_AGAIN = 4002;
 const tag = (id: string) => `socket:${id}`;
+type Close = { code: number; reason: string };
+const peerClosed: Close = { code: 1000, reason: "Peer closed" };
+
+/**
+ * What a stream's peer is told when this end closed with `code` and `reason`: the same, so a
+ * daemon learns why its device left (and the reverse), when it is a code an endpoint may send.
+ * A connection that just dropped (1005, 1006, 1015) leaves a plain "Peer closed".
+ */
+function closeForPeer(code: number, reason: string): Close {
+  const sendable =
+    (code >= 1000 && code <= 1003) ||
+    (code >= 1007 && code <= 1014) ||
+    (code >= 3000 && code <= 4999);
+  return sendable ? { code, reason: reason || peerClosed.reason } : peerClosed;
+}
 
 function randomTicket(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
@@ -181,9 +196,9 @@ export class RelayObject extends DurableObject<Env> {
     }
   }
 
-  override async webSocketClose(ws: WebSocket): Promise<void> {
+  override async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
     const attachment = this.#read(ws);
-    this.#release(ws);
+    this.#release(ws, closeForPeer(code, reason));
     if (attachment?.kind === "host")
       await machineStore(this.env.ACCOUNTS)
         .seen(attachment.hostId, attachment.account, Date.now())
@@ -390,11 +405,14 @@ export class RelayObject extends DurableObject<Env> {
     } catch {
       /* Already closed. */
     }
-    this.#release(ws);
+    this.#release(ws, { code, reason });
   }
 
-  /** Forget a socket once, closing what depended on it: its stream peer or waiting clients. */
-  #release(ws: WebSocket): void {
+  /**
+   * Forget a socket once, closing what depended on it: its stream peer (told `peer`) or waiting
+   * clients.
+   */
+  #release(ws: WebSocket, peer: Close = peerClosed): void {
     const attachment = this.#read(ws);
     if (!attachment) return;
     try {
@@ -412,8 +430,8 @@ export class RelayObject extends DurableObject<Env> {
       this.#handshakes.delete(attachment.id);
     }
     if (attachment.kind === "stream") {
-      const peer = this.#socket(attachment.peer);
-      if (peer) this.#close(peer, 1000, "Peer closed");
+      const other = this.#socket(attachment.peer);
+      if (other) this.#close(other, peer.code, peer.reason);
       return;
     }
     this.#apply(this.#routing().close(attachment.id));
