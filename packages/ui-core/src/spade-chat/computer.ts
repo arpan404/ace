@@ -23,6 +23,8 @@ export interface SpadeSurface {
   last: number | undefined;
   /** The browser tab the bot uses, as ace reported it. */
   tabId: string | undefined;
+  /** `user`: the bot's tab is in the person's own Chrome, which ace doesn't stream. */
+  backend: "user" | undefined;
   /** The terminal's last command is still being ended (dropped or timed out, past 30 s). */
   endingStuck: boolean;
 }
@@ -64,6 +66,7 @@ export function parseSpadeComputer(value: unknown): SpadeComputer | undefined {
           last: time(surface.last),
           tabId: text(surface.tab_id),
           endingStuck: surface.ending_stuck === true,
+          backend: surface.backend === "user" ? "user" : undefined,
         },
       ];
     },

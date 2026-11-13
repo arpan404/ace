@@ -1,13 +1,15 @@
 import { spadeSurfaceHeading, spadeSurfaceLine, type SpadeSurface } from "@ace/ui-core/spade-chat";
-import { ArrowsOutSimpleIcon, TerminalWindowIcon, XIcon } from "@phosphor-icons/react";
+import { ArrowsOutSimpleIcon, XIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { cn } from "@/lib/cn.ts";
-import { useBotPicture } from "./surface-picture.tsx";
+import { surfaceIcons } from "./computer-view.tsx";
+import { useBotPicture } from "./stream-picture.tsx";
 
 /**
- * Pinned above the chat while the bot uses its computer: a live thumbnail, which surface and
+ * Pinned above the chat while the bot uses its computer: a thumbnail (the supplied picture, else
+ * the surface's mark), which surface and
  * where, what it does there, then Take over, Expand and Hide. Clicking the thumbnail expands too.
  * `compact`: the phone's slimmer tile under the header.
  */
@@ -51,7 +53,8 @@ export function ComputerTile(props: {
         {picture ? (
           <img src={picture.src} alt="" className="size-full object-cover object-top" />
         ) : (
-          <Icon icon={TerminalWindowIcon} size={20} className="text-muted-foreground" />
+          // No picture supplied: the surface's mark; the expanded view is live.
+          <Icon icon={surfaceIcons[kind]} size={20} className="text-muted-foreground" />
         )}
       </button>
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">

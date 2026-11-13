@@ -44,7 +44,7 @@ export interface FilesAt {
  */
 export function ComputerView(props: {
   bot: { id: string; name: string; avatar: SpadeAvatar };
-  machine: { key: string; name: string };
+  machine: { key: string; name: string; primary: boolean };
   state: BotComputerState;
   open: SpadeSurfaceKind;
   onOpen(kind: SpadeSurfaceKind): void;
@@ -118,8 +118,11 @@ export function ComputerView(props: {
       <div role="tabpanel" aria-label={spadeSurfaceNames[props.open]} className="min-h-0 flex-1">
         {props.open === "browser" || props.open === "screen" ? (
           <SurfacePicture
-            surfaceKey={{ machine: props.machine.key, bot: bot.id, surface: props.open }}
+            machine={props.machine}
+            bot={bot}
+            kind={props.open}
             surface={surface}
+            threadId={state.computer?.threadId}
             driving={state.driving}
             label={`${bot.name}'s ${props.open === "browser" ? "browser" : "screen"}`}
           />

@@ -32,6 +32,7 @@ export {
   loadAuthTerminal,
   loadStandaloneTerminal,
   loadThreadBrowser,
+  loadBotBrowser,
   loadFloatingBrowsers,
   DeferredFileDiffBlock,
   DeferredFileTree,

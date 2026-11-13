@@ -15,6 +15,8 @@ export interface FakeSurface {
   since: number | null;
   url?: string | null;
   last?: number | null;
+  tab_id?: string | null;
+  backend?: "user";
 }
 
 interface Terminal {
@@ -58,6 +60,8 @@ export class FakeSpadeComputer {
   private readonly drivers = new Map<string, "bot" | "person">();
   private readonly surfaces = new Map<string, FakeSurface[]>();
   private readonly terminals = new Map<string, Terminal>();
+  /** Each bot's hidden ace thread, once ace reported it (`thread_id`). */
+  private readonly threads = new Map<string, string>();
   /** Bots whose work is still stopping after a take-over (a test sets it, then clears it). */
   private readonly stoppingBots = new Set<string>();
   private sequence = 0;
@@ -80,6 +84,7 @@ export class FakeSpadeComputer {
     return {
       driver: this.drivers.get(agent) ?? "bot",
       stopping: this.stoppingBots.has(agent),
+      thread_id: this.threads.get(agent) ?? null,
       surfaces: [
         ...used.filter((surface) => surface.kind === "browser" || surface.kind === "screen"),
         listed("terminal"),
@@ -93,6 +98,12 @@ export class FakeSpadeComputer {
     const list = (this.surfaces.get(agent) ?? []).filter((each) => each.kind !== surface.kind);
     list.push({ since: surface.live ? this.deps.now() : null, ...surface });
     this.surfaces.set(agent, list);
+    this.changed(agent);
+  }
+
+  /** ace reported the hidden thread the bot's browser and screen run in. */
+  thread(agent: string, threadId: string): void {
+    this.threads.set(agent, threadId);
     this.changed(agent);
   }
 

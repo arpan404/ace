@@ -57,6 +57,8 @@ export class FakeScreen {
   readonly acks: ScreenAck[] = [];
   /** Every stream a view asked a session for, in order. */
   readonly streamRequests: { sessionId: string; settings: ScreenStreamSettings }[] = [];
+  /** The person's input that reached a session, in order. */
+  readonly inputs: { sessionId: string; input: unknown }[] = [];
   private messageIds = 0;
   /** The person's computer use switch. */
   enabled = false;
@@ -351,6 +353,8 @@ export class FakeScreen {
             indicator: false,
             target: op.target,
             permissions: { ...this.permissions },
+            // The thread it was started for, for its whole life (ScreenState `threadId`).
+            ...(op.threadId ? { threadId: op.threadId } : {}),
           }),
         };
         this.sessions.set(session.state.sessionId, session);
@@ -398,6 +402,8 @@ export class FakeScreen {
             );
           return this.controller(session, "agent", holder);
         }
+        // Letting go leaves the session with nobody; anything else is the person taking it.
+        if (op.controller === "none") return this.controller(session, "none");
         return this.controller(session, "human", undefined, channel);
       }
       case "mode":
@@ -423,6 +429,7 @@ export class FakeScreen {
           throw new FakeScreenError("denied", "Controller lease required");
         if (!this.permissions.accessibility)
           throw new FakeScreenError("permission_denied", "Accessibility permission required");
+        if (op.op === "input") this.inputs.push({ sessionId: op.sessionId, input: op.input });
         this.paint(session);
         return {
           mode: session.state.mode,

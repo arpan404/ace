@@ -12,6 +12,8 @@ export const loadAuthTerminal = () => import("./terminal/auth-terminal.tsx");
 export const loadStandaloneTerminal = () => import("./terminal/standalone-terminal.tsx");
 
 export const loadThreadBrowser = () => import("./browser/thread-browser.tsx");
+/** A Spade bot's tab in its hidden thread's browser, live, with input only while the person drives. */
+export const loadBotBrowser = () => import("./browser/bot-browser.tsx");
 /** Every thread's page floating in picture-in-picture, over whatever screen shows. */
 export const loadFloatingBrowsers = () => import("./browser/floating-browsers.tsx");
 
