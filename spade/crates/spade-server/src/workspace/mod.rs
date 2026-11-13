@@ -9,6 +9,10 @@
 
 mod files;
 mod person;
+#[cfg(unix)]
+mod reap;
+#[cfg(unix)]
+pub use reap::adopt_orphans;
 pub mod shell;
 mod tools;
 pub mod trust;

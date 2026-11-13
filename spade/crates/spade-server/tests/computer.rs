@@ -1143,3 +1143,80 @@ async fn an_always_allowed_command_asks_again_once_a_carried_variable_changes_wh
     machine.terminals.end_all();
     Ok(())
 }
+
+/// Starts a child in a session of its own (as `setsid` does) that appends to `file` every 50 ms.
+fn escaping_writer(file: &str) -> String {
+    format!(
+        "perl -MPOSIX -e 'POSIX::setsid(); exec \"/bin/sh\", \"-c\", \"while :; do echo x >> {file}; sleep 0.05; done\"' &"
+    )
+}
+
+/// Whether `path` is still growing.
+async fn growing(path: &std::path::Path) -> bool {
+    let before = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    std::fs::metadata(path).map(|m| m.len()).unwrap_or(0) > before
+}
+
+#[tokio::test]
+async fn a_child_in_a_session_of_its_own_ends_with_its_command() -> Result {
+    let machine = Machine::new()?;
+    let terminal = machine.terminals.of("a_1")?;
+    let root = machine.workspaces.of("a_1")?.path()?;
+    // Past its deadline.
+    let stuck = terminal
+        .run(
+            &format!("{}\nsleep 30", escaping_writer("timed.txt")),
+            Duration::from_millis(600),
+        )
+        .await?;
+    assert!(stuck.timed_out);
+    assert!(root.join("timed.txt").exists(), "the child never started");
+    assert!(
+        !growing(&root.join("timed.txt")).await,
+        "it outlived the timeout"
+    );
+    // Dropped, as by a take-over or Stop.
+    let running = terminal.clone();
+    let writer = escaping_writer("dropped.txt");
+    let call = tokio::spawn(async move {
+        running
+            .run(&format!("{writer}\nsleep 30"), Duration::from_secs(60))
+            .await
+    });
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    call.abort();
+    let next = terminal.run("echo next", Duration::from_secs(10)).await?;
+    assert_eq!(next.stdout, "next\n");
+    assert!(root.join("dropped.txt").exists(), "the child never started");
+    assert!(
+        !growing(&root.join("dropped.txt")).await,
+        "it outlived the stop"
+    );
+    machine.terminals.end_all();
+    Ok(())
+}
+
+/// On Linux the mark finds even a child its finished command left behind; macOS can't read it
+/// (ADR 0142 says so).
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_child_a_finished_command_left_in_a_session_of_its_own_is_ended() -> Result {
+    let machine = Machine::new()?;
+    let terminal = machine.terminals.of("a_1")?;
+    let root = machine.workspaces.of("a_1")?.path()?;
+    let done = terminal
+        .run(
+            &format!("{}\nsleep 0.3", escaping_writer("left.txt")),
+            Duration::from_secs(10),
+        )
+        .await?;
+    assert_eq!(done.code, Some(0));
+    assert!(root.join("left.txt").exists(), "the child never started");
+    assert!(
+        !growing(&root.join("left.txt")).await,
+        "it outlived its command"
+    );
+    machine.terminals.end_all();
+    Ok(())
+}

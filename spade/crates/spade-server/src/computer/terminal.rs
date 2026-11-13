@@ -260,6 +260,7 @@ fn carried_over(name: &str) -> bool {
         || name.starts_with("DYLD_")
         || name.starts_with("BASH_FUNC_")
         || name.starts_with("__spade")
+        || name.starts_with("SPADE_")
         || name.is_empty()
         || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
 }

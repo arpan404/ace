@@ -118,11 +118,14 @@ impl Shell {
     /// [`Shell::run_job`] with `HOME` set to `home`, whatever folder the job starts in.
     pub async fn run_from(&self, home: &Path, job: Job<'_>) -> Result<Ran, String> {
         let (dir, command, timeout) = (job.dir, job.script, job.timeout);
+        // Inherited by everything the command starts, so all of it can be found at the end.
+        let mark = uuid::Uuid::new_v4().simple().to_string();
         let mut child = platform::command(&self.env, command)
             .current_dir(dir)
             .env_clear()
             .envs(self.environment(home))
             .envs(job.env.iter().cloned())
+            .env(platform::MARK, &mark)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -130,7 +133,7 @@ impl Shell {
             .spawn()
             .map_err(|error| format!("the shell could not start: {error}"))?;
         // Kills everything the command started when this run ends, however it ends.
-        let mut contained = platform::contain(&child);
+        let mut contained = platform::contain(&child, &mark);
         if let (Some(started), Some(pid)) = (job.started, child.id()) {
             started(pid);
         }
@@ -264,25 +267,21 @@ mod platform {
         shell
     }
 
-    /// The command's process group, killed on drop.
-    pub(super) struct Contained(Option<u32>);
+    pub(super) use super::super::reap::MARK;
 
-    pub(super) fn contain(child: &Child) -> Contained {
-        Contained(child.id())
+    /// The command (it leads its own process group) and the mark everything it starts carries;
+    /// all of it is ended on drop.
+    pub(super) struct Contained(Option<(u32, String)>);
+
+    pub(super) fn contain(child: &Child, mark: &str) -> Contained {
+        Contained(child.id().map(|pid| (pid, mark.to_owned())))
     }
 
     impl Contained {
-        /// Kills the group (the shell leads its own). `kill` is a program here because Spade
-        /// forbids `unsafe`, which the signal call needs.
+        /// Ends the command and everything it started, sessions of their own included.
         pub(super) fn kill(&mut self) {
-            if let Some(pid) = self.0 {
-                let _ = std::process::Command::new("/bin/kill")
-                    .args(["-KILL", "--", &format!("-{pid}")])
-                    .env_clear()
-                    .stdin(std::process::Stdio::null())
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status();
+            if let Some((pid, mark)) = &self.0 {
+                super::super::reap::end(*pid, mark);
             }
         }
     }
@@ -354,7 +353,10 @@ mod platform {
     /// `kill`) ends them all.
     pub(super) struct Contained(Option<Job>);
 
-    pub(super) fn contain(child: &Child) -> Contained {
+    /// Unused here: the job object holds everything the command starts.
+    pub(super) const MARK: &str = "SPADE_RUN";
+
+    pub(super) fn contain(child: &Child, _mark: &str) -> Contained {
         let job = Job::create().ok().and_then(|job| {
             let mut info = ExtendedLimitInfo::new();
             info.limit_kill_on_job_close();

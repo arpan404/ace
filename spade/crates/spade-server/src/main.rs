@@ -207,6 +207,9 @@ async fn run() -> Result<(), Failure> {
     );
     let search = Arc::new(search);
     // Tools that find the calling bot through the engine, set once it exists (ADR 0130).
+    // What a bot's command leaves behind is reparented to Spade, so it can be ended (Linux).
+    #[cfg(unix)]
+    spade_server::workspace::adopt_orphans();
     let bots = EngineHandle::default();
     if let Some(link) = &ace {
         link.act_for(bots.clone());
