@@ -201,6 +201,9 @@ final class SystemNotificationCenter: NotificationCenterPort {
     /// Nothing is evicted early: dropping one would let an older alert cover a newer request.
     private var live: [String: Live] = [:]
     struct Live: Equatable { let id: String; let cursor: Int? }
+    /// Live alerts a feed has held on this connection: a feed queued before that one keeps them
+    /// in its snapshot, but anything after them in the feed is newer, so they block nothing.
+    private var coveredLive: Set<String> = []
     /// The catch-up running now: each waits for the one before, so a later feed's landings and
     /// retractions always apply after an earlier feed's.
     private var catchingUp: Task<Void, Never>?
@@ -213,7 +216,10 @@ final class SystemNotificationCenter: NotificationCenterPort {
     /// handed the desk that hasn't landed yet is called back.
     /// A new connection: its feed holds everything after the stored cursor, so nothing from the
     /// last one needs holding back, and a rebuilt database starts its cursors over.
-    func connected() { live = [:] }
+    func connected() {
+        live = [:]
+        coveredLive = []
+    }
     func invalidate() {
         valid = false
         live = [:]
@@ -268,12 +274,17 @@ final class SystemNotificationCenter: NotificationCenterPort {
         // From here the feed's order covers a live alert it holds; one it doesn't hold yet
         // arrived after it was read and keeps holding older alerts back until a feed does.
         let covered = Set(entries.map(\.id))
-        defer { live = live.filter { !covered.contains($0.value.id) } }
+        defer {
+            coveredLive.formUnion(live.values.map(\.id).filter(covered.contains))
+            live = live.filter { !covered.contains($0.value.id) }
+        }
         // Checked before each one: an earlier post can be awaited past a turn-off, and a live
         // alert can land meanwhile.
         for alert in newest where freshIds.contains(alert.id) {
             guard valid else { return }
-            let holders = held.map { $0[alert.threadId] } + [live[alert.threadId]]
+            let holders = (held.map { $0[alert.threadId] } + [live[alert.threadId]]).filter { holder in
+                holder.map { !coveredLive.contains($0.id) || covered.contains($0.id) } ?? false
+            }
             guard holders.allSatisfy({ CatchUpOrder.isNewer(alert, than: $0, in: entries) }) else { continue }
             await desk.land(alert, hostId: hostId, owner: ObjectIdentifier(self))
             finish(alert.id)
