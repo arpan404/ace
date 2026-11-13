@@ -55,8 +55,10 @@ pub(super) struct Run {
     /// The leader was reaped: its number may belong to another process now.
     pub reaped: bool,
     /// When it started and ended, in seconds since the epoch, for telling its group's members
-    /// from a later group that reused the number (macOS).
+    /// from a later group that reused the number (macOS; Linux needs neither).
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
     pub started_secs: u64,
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
     pub ended_secs: Option<u64>,
 }
 

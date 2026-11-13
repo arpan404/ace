@@ -1202,6 +1202,8 @@ async fn a_child_in_a_session_of_its_own_ends_with_its_command() -> Result {
 #[cfg(target_os = "linux")]
 #[tokio::test]
 async fn a_child_a_finished_command_left_in_a_session_of_its_own_is_ended() -> Result {
+    // As Spade does at start: orphans are reparented here, where their mark can be checked.
+    spade_server::workspace::adopt_orphans();
     let machine = Machine::new()?;
     let terminal = machine.terminals.of("a_1")?;
     let root = machine.workspaces.of("a_1")?.path()?;
