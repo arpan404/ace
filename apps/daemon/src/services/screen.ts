@@ -5,6 +5,10 @@ import {
   installScreenHelper,
   linuxComputerEnvironment,
   localScreenManager,
+  macPhysicalInput,
+  windowsPhysicalInput,
+  ScreenCowork,
+  type ScreenCoworkOptions,
   screenConnection,
   type Simulators,
 } from "@ace/screen";
@@ -14,12 +18,19 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { LockedUseRuntime, lockedUseSocketPath } from "../locked-use-runtime.ts";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { performance } from "node:perf_hooks";
 import { ComputerUsingThreads } from "../computer-using.ts";
 import { resolveScreenHelper } from "../screen-helper-path.ts";
 import { ScreenSettings } from "../screen-settings.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
-export async function startScreen({ config, options, resources, services, store }: ServiceContext) {
+export async function startScreen(
+  { config, options, resources, services, store, now: epochNow }: ServiceContext,
+  clock: ScreenCoworkOptions["clock"] = {
+    now: () => performance.now(),
+    set: nodeScheduler.after,
+  },
+) {
   const helper = resolveScreenHelper({
     platform: process.platform,
     configured: config.screenHelper,
@@ -30,6 +41,31 @@ export async function startScreen({ config, options, resources, services, store 
   // Linux: the desktop session is read from the user manager each time a helper starts.
   const session =
     process.platform === "linux" ? graphicalSessionEnvironment({ env: process.env }) : undefined;
+  // Cowork (ADR 0143): one lease per app for the live view and the agent tools. On a Mac the
+  // person's own keyboard and mouse count while that app is frontmost. Windows uses filtered
+  // hooks seeded once from GetLastInputInfo. Linux counts only input routed through ace.
+  const cowork = new ScreenCowork({
+    clock,
+    epochNow,
+    // Injected screens and engines (tests) never read this machine's own input.
+    ...(process.platform === "darwin" && !options.screen && !options.computer
+      ? {
+          physical: macPhysicalInput({
+            now: clock.now,
+            ioreg: (args) => output("/usr/sbin/ioreg", args),
+            apps: async () => services.computer?.request("apps", {}),
+          }),
+        }
+      : process.platform === "win32" && !options.screen && !options.computer
+        ? {
+            physical: windowsPhysicalInput({
+              now: clock.now,
+              idle: async () => services.computer?.request("physical_input", {}),
+              apps: async () => services.computer?.request("apps", {}),
+            }),
+          }
+        : {}),
+  });
   const manager =
     options.screen ??
     (helper
@@ -37,9 +73,11 @@ export async function startScreen({ config, options, resources, services, store 
           manifest: config.screenHelperManifest,
           inheritResponsibility: config.screenHelperInheritsResponsibility,
           session,
+          cowork,
         })
       : undefined);
   if (!manager) return;
+  services.screenCowork = cowork;
   const settings = new ScreenSettings(store);
   // Linux: once computer use is on, accessibility is turned on for the desktop session, so the
   // apps the person opens from then on can be seen. Firefox reads it only when it starts, and
@@ -220,4 +258,20 @@ export function createScreenSession(context: SocketContext, simulators: Simulato
       return true;
     },
   };
+}
+
+/** A short command's standard output; it fails if the command does. */
+function output(command: string, args: readonly string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, [...args], { stdio: ["ignore", "pipe", "ignore"] });
+    let text = "";
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      if (text.length < 1_000_000) text += chunk;
+    });
+    child.once("error", reject);
+    child.once("close", (code) =>
+      code === 0 ? resolve(text) : reject(new Error(`${command} ${code}`)),
+    );
+  });
 }

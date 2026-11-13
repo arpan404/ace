@@ -59,10 +59,10 @@ Spade without computers: `503`.
 
 Each agent in `GET /agents` carries `computer` with the same object.
 
-| Method and path                            | Body                                                        | Answer                    |
-| ------------------------------------------ | ----------------------------------------------------------- | ------------------------- |
-| `POST /agents/{id}/computer/take-over`     |                                                             | `204`; exclusive mode; again changes nothing |
-| `POST /agents/{id}/computer/hand-back`     |                                                             | `204`; back to cowork; again changes nothing |
+| Method and path                             | Body                                                                                              | Answer                                           |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| `POST /agents/{id}/computer/take-over`      |                                                                                                   | `204`; exclusive mode; again changes nothing     |
+| `POST /agents/{id}/computer/hand-back`      |                                                                                                   | `204`; back to cowork; again changes nothing     |
 | `PUT /agents/{id}/computer/surfaces/{kind}` | `{"live", "title"?, "url"?, "tab_id"?, "thread_id"?, "person_acted"?, "person_active"?, "mode"?}` | `204`; ace only, `kind` is `browser` or `screen` |
 
 Take-over and hand-back are the switch between the modes; there is no separate mode route. The
@@ -203,11 +203,11 @@ The shell is ended (with everything in its session: `kill -KILL` on its group, t
 `pkill -KILL -s <session>`) after 6 hours without use, unless the person has the computer. It is
 also ended when the bot is deleted and when Spade stops. The next use starts a new one.
 
-| Method and path                      | Body / query         | Answer                                                         |
-| ------------------------------------ | -------------------- | -------------------------------------------------------------- |
-| `GET /agents/{id}/terminal/live`     | `?after=N`           | SSE (below); starts the shell if it isn't running              |
-| `POST /agents/{id}/terminal/input`   | `{"data_b64"}`       | `204` in either mode; `409` in exclusive mode while a bot command is still stopping; `413` past 64 KiB |
-| `POST /agents/{id}/terminal/resize`  | `{"cols", "rows"}`   | `204`; clamped to 2–1000 × 1–1000                              |
+| Method and path                     | Body / query       | Answer                                                                                                 |
+| ----------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------ |
+| `GET /agents/{id}/terminal/live`    | `?after=N`         | SSE (below); starts the shell if it isn't running                                                      |
+| `POST /agents/{id}/terminal/input`  | `{"data_b64"}`     | `204` in either mode; `409` in exclusive mode while a bot command is still stopping; `413` past 64 KiB |
+| `POST /agents/{id}/terminal/resize` | `{"cols", "rows"}` | `204`; clamped to 2–1000 × 1–1000                                                                      |
 
 SSE events: first `resize {"cols","rows"}`, then each kept `output {"seq","data_b64"}` with `seq`
 above `after`, then live frames: `output`, `resize`, and `exit {"code": int|null}` when the shell
@@ -255,7 +255,7 @@ commands. Asking, the timeouts, the 4 MiB output caps, the
    `pbi_start_tvsec` and `pbi_start_tvusec`), checked again right before every signal and skipped
    on a mismatch. So a pid another process has taken is never signalled, and the leader's number is
    never used once reaped. Everything chosen is stopped (`SIGSTOP`). The look is repeated until
-   nothing new turns up and each one is *seen* stopped or gone (Linux `/proc/<pid>/stat` state
+   nothing new turns up and each one is _seen_ stopped or gone (Linux `/proc/<pid>/stat` state
    `T`/`t`/`Z`/`X`, macOS `pbi_status` `SSTOP`/`SZOMB`), then all of it is killed. Adopted ones are reaped,
    each by its own pid, never `waitpid(-1)`. When that doesn't settle within 8 passes, what is
    known is killed anyway, the end is logged, the tool result adds "Not every process this
@@ -266,6 +266,7 @@ commands. Asking, the timeouts, the 4 MiB output caps, the
    the end can survive, such as a daemon left by a command that finished. macOS shows no other
    process's environment and has no subreaper. On Linux, only one that also cleared its
    environment and started another program before its parent exited can.
+
 6. **"Always" holds only in the state it was given in.** Answering `always` covers the exact
    command run from the same folder with the same carried variables. The approval stores that
    scope (`approval_requested.scope`: the command and a digest of the folder and variables), and
@@ -284,13 +285,13 @@ routes answer `503`.
 
 The workspace routes in [workspace.md](workspace.md) (list, open, download, delete) stay. Added:
 
-| Method and path                    | Body                          | Answer                                                |
-| ---------------------------------- | ----------------------------- | ----------------------------------------------------- |
-| `PUT /agents/{id}/files?path=`     | `{"text"}` or `{"data_b64"}`, `"base"?` | `204`; writes or replaces the file          |
-| `POST /agents/{id}/files/upload`   | `{"path", "data_b64", "base"?}` | `204`                                               |
-| `POST /agents/{id}/files/mkdir`    | `{"path"}`                    | `204`; makes folders on the way; a file there is `422` |
-| `POST /agents/{id}/files/move`     | `{"from", "to", "base"?}`     | `204`; `409` when `to` exists; `422` to another disk; never into itself |
-| `DELETE /agents/{id}/workspace?path=&base=` |                      | `204`; `base` optional                                |
+| Method and path                             | Body                                    | Answer                                                                  |
+| ------------------------------------------- | --------------------------------------- | ----------------------------------------------------------------------- |
+| `PUT /agents/{id}/files?path=`              | `{"text"}` or `{"data_b64"}`, `"base"?` | `204`; writes or replaces the file                                      |
+| `POST /agents/{id}/files/upload`            | `{"path", "data_b64", "base"?}`         | `204`                                                                   |
+| `POST /agents/{id}/files/mkdir`             | `{"path"}`                              | `204`; makes folders on the way; a file there is `422`                  |
+| `POST /agents/{id}/files/move`              | `{"from", "to", "base"?}`               | `204`; `409` when `to` exists; `422` to another disk; never into itself |
+| `DELETE /agents/{id}/workspace?path=&base=` |                                         | `204`; `base` optional                                                  |
 
 - **Revisions.** `GET /agents/{id}/workspace/file` answers `revision`: `sha256:<hex>` of the
   file's content (absent past 32 MiB). A write, upload, move or delete may send it back as

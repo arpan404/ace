@@ -104,7 +104,7 @@ it("an agent's drag lets go when the person comes back in the middle of it", asy
   };
   await expect(
     f.service.execute("thread", { action: "drag", ref, toRef: ref }, { kind: "agent" }),
-  ).rejects.toMatchObject({ code: "human_active" });
+  ).rejects.toMatchObject({ code: "person_busy" });
   // The agent pressed, then let go where it was without moving on across the person.
   expect(mouse).toEqual(["mouseMoved", "mousePressed", "mouseReleased"]);
 });

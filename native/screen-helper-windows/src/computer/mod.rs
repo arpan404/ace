@@ -45,6 +45,8 @@ mod messages;
 #[cfg(windows)]
 mod observe;
 #[cfg(windows)]
+mod physical_input;
+#[cfg(windows)]
 mod run;
 #[cfg(windows)]
 mod service;

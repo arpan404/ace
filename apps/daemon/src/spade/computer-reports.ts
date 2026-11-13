@@ -14,6 +14,10 @@ export interface SurfaceReport {
   backend?: "user";
   thread_id: string;
   person_acted?: boolean;
+  /** `exclusive` while the person took over, else `cowork` (ADR 0143). */
+  mode: "cowork" | "exclusive";
+  /** The person used this surface within the last 3 s; the bot's actions there wait. */
+  person_active?: boolean;
 }
 
 export type SurfaceKind = "browser" | "screen";
@@ -40,7 +44,9 @@ export function browserReport(
         }
       : {}),
     thread_id: threadId,
-    ...(personDriving ? { person_acted: true } : {}),
+    ...(personDriving || tab?.personActive ? { person_acted: true } : {}),
+    mode: personDriving ? "exclusive" : "cowork",
+    person_active: tab?.personActive ?? false,
   };
 }
 
@@ -49,12 +55,15 @@ export function screenReport(
   threadId: string,
   apps: readonly string[],
   personDriving: boolean,
+  personActive = false,
 ): SurfaceReport {
   return {
     live: apps.length > 0,
     ...(apps.length ? { title: apps.join(", ") } : {}),
     thread_id: threadId,
-    ...(personDriving ? { person_acted: true } : {}),
+    ...(personDriving || personActive ? { person_acted: true } : {}),
+    mode: personDriving ? "exclusive" : "cowork",
+    person_active: personActive,
   };
 }
 
