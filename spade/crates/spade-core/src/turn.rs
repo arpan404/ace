@@ -330,12 +330,14 @@ mod tests {
             call_id: "c1".into(),
             name: "send_email".into(),
             arguments: json!({}),
+            scope: None,
         }));
         events.push(Event::Known(Known::ApprovalRequested {
             reply: "r1".into(),
             call_id: "c2".into(),
             name: "send_email".into(),
             arguments: json!({}),
+            scope: None,
         }));
         events.push(Event::Known(Known::ApprovalAnswered {
             reply: "r1".into(),

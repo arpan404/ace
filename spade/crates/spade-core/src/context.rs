@@ -63,6 +63,21 @@ pub fn job_result(job: &str, name: &str, content: &str, is_error: bool) -> Strin
     )
 }
 
+/// The note a bot reads when the person hands its computer back (ADR 0142): from Spade, about
+/// what the person did, so the model never takes the person's commands for its own.
+/// File names and addresses follow as untrusted data, quoted as JSON, never as Spade's words.
+pub fn handed_back(text: &str, data: &[String]) -> String {
+    let mut note =
+        format!("<computer_handed_back from=\"spade\">\n{text}\n</computer_handed_back>");
+    if !data.is_empty() {
+        let quoted = serde_json::to_string_pretty(data).unwrap_or_default();
+        note.push_str(&format!(
+            "\n<handback_data untrusted=\"true\">\n{quoted}\n</handback_data>"
+        ));
+    }
+    note
+}
+
 /// Where attached images' bytes come from. A failure says why in a few words ("this model cannot
 /// see images"), and the model is told that instead of seeing the image.
 pub trait Images {
@@ -431,6 +446,14 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
                     held.push((text, Vec::new()));
                 }
             }
+            Known::ComputerHandedBack { text, data } => {
+                let text = handed_back(text, data);
+                if pending.is_empty() {
+                    push_person(&mut out, text, Vec::new());
+                } else {
+                    held.push((text, Vec::new()));
+                }
+            }
             Known::StepFinished {
                 text,
                 calls,
@@ -504,7 +527,11 @@ fn reading_order(events: &[Event], from: usize) -> Vec<&Event> {
     let arrives = |event: &Event| {
         matches!(
             event,
-            Event::Known(Known::UserMessage { .. } | Known::JobFinished { .. })
+            Event::Known(
+                Known::UserMessage { .. }
+                    | Known::JobFinished { .. }
+                    | Known::ComputerHandedBack { .. }
+            )
         )
     };
     let mut out = Vec::with_capacity(events.len().saturating_sub(from));
@@ -722,6 +749,8 @@ pub fn untrusted_event(event: &Event, registry: &Registry) -> bool {
         Event::Known(Known::ToolFinished {
             untrusted: true, ..
         }) => true,
+        // Names of files and pages from the person's turn at the computer (ADR 0142).
+        Event::Known(Known::ComputerHandedBack { data, .. }) => !data.is_empty(),
         // A search that found tools returns their names, descriptions and schemas, written by
         // whoever serves them (ace, a connector's app): text from outside Spade.
         Event::Known(Known::ToolFinished { name, content, .. }) if name == TOOL_SEARCH => {
@@ -766,6 +795,9 @@ fn describe_event(events: &[Event], event: &Event) -> String {
             "another bot's answer".to_owned()
         }
         Event::Known(Known::JobFinished { name, .. }) => format!("the result of {name}"),
+        Event::Known(Known::ComputerHandedBack { .. }) => {
+            "file names and addresses from the person's turn at the computer".to_owned()
+        }
         _ => "untrusted content".to_owned(),
     }
 }

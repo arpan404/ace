@@ -213,7 +213,8 @@ impl Transcript {
             | Known::GroupAsked { .. }
             | Known::GroupAnswered { .. }
             | Known::GroupQueued { .. }
-            | Known::GroupStopped { .. } => {}
+            | Known::GroupStopped { .. }
+            | Known::ComputerHandedBack { .. } => {}
         }
         if self.open_reply().is_none() {
             self.running.clear();
@@ -407,6 +408,7 @@ mod tests {
                 call_id: "c1".into(),
                 name: "send_email".into(),
                 arguments: serde_json::json!({}),
+                scope: None,
             }),
         ];
         let transcript = Transcript::fold(&events);
@@ -425,6 +427,7 @@ mod tests {
                 call_id: "c1".into(),
                 name: "send_email".into(),
                 arguments: serde_json::json!({}),
+                scope: None,
             }),
             Event::Known(Known::StopRequested {
                 reply: Some("r1".into()),
@@ -453,6 +456,7 @@ mod tests {
                 call_id: "c1".into(),
                 name: "send_email".into(),
                 arguments: serde_json::json!({}),
+                scope: None,
             }),
             Event::Known(Known::ApprovalAnswered {
                 reply: "r1".into(),

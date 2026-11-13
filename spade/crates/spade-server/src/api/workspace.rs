@@ -33,7 +33,7 @@ struct At {
 
 /// The agent's workspace, or the problem to answer: `404` for an unknown agent, `503` when this
 /// Spade keeps no workspaces.
-fn workspace_of(state: &AppState, id: &str) -> Result<Workspace, Box<Response>> {
+pub(super) fn workspace_of(state: &AppState, id: &str) -> Result<Workspace, Box<Response>> {
     let Some(all) = &state.workspaces else {
         return Err(Box::new(problem(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -45,7 +45,7 @@ fn workspace_of(state: &AppState, id: &str) -> Result<Workspace, Box<Response>> 
         .map_err(|error| Box::new(problem(StatusCode::NOT_FOUND, &error.to_string())))
 }
 
-fn known(state: &AppState, id: &str) -> Result<(), Box<Response>> {
+pub(super) fn known(state: &AppState, id: &str) -> Result<(), Box<Response>> {
     match state.engine.agent_view(id) {
         Ok(Some(_)) => Ok(()),
         Ok(None) => Err(Box::new(problem(StatusCode::NOT_FOUND, "no such agent"))),
@@ -56,9 +56,10 @@ fn known(state: &AppState, id: &str) -> Result<(), Box<Response>> {
     }
 }
 
-fn path_problem(error: &PathError) -> Response {
+pub(super) fn path_problem(error: &PathError) -> Response {
     let status = match error {
         PathError::Missing(_) => StatusCode::NOT_FOUND,
+        PathError::Exists(_) => StatusCode::CONFLICT,
         PathError::Absolute(_)
         | PathError::Parent
         | PathError::Outside(_)
@@ -69,7 +70,7 @@ fn path_problem(error: &PathError) -> Response {
 }
 
 /// Runs file work off the async threads.
-async fn files<T: Send + 'static>(
+pub(super) async fn files<T: Send + 'static>(
     work: impl FnOnce() -> Result<T, PathError> + Send + 'static,
 ) -> Result<T, Box<Response>> {
     match tokio::task::spawn_blocking(work).await {

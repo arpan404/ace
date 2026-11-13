@@ -27,6 +27,15 @@ struct Place {
 }
 
 impl Place {
+    /// Tells the app's live views that files changed in the calling bot's workspace.
+    fn files_changed(&self, key: &str, paths: Option<Vec<String>>) {
+        if let (Some(engine), Some(bot)) = (self.bots.get(), self.bots.agent_for_key(key))
+            && let Some(computers) = engine.computers()
+        {
+            computers.files_changed(&bot, paths);
+        }
+    }
+
     fn workspace(&self, key: &str) -> Result<Workspace, ToolOutput> {
         let bot = self
             .bots
@@ -38,8 +47,34 @@ impl Place {
     }
 }
 
-/// Every workspace tool, for `bots` (set once the engine exists) and the shell `shell`.
-pub fn tools(all: Workspaces, bots: EngineHandle, shell: Shell) -> Vec<Arc<dyn Tool>> {
+/// Where the bot's `shell` commands run: each on its own (`Shell`), or in the bot's persistent
+/// terminal (ADR 0142), which the person can watch and take over.
+#[derive(Clone)]
+pub enum Commands {
+    OneShot(Shell),
+    Terminal(Arc<crate::computer::Terminals>),
+}
+
+impl From<Shell> for Commands {
+    fn from(shell: Shell) -> Self {
+        Self::OneShot(shell)
+    }
+}
+
+impl From<Arc<crate::computer::Terminals>> for Commands {
+    fn from(terminals: Arc<crate::computer::Terminals>) -> Self {
+        Self::Terminal(terminals)
+    }
+}
+
+/// Every workspace tool, for `bots` (set once the engine exists), running shell commands with
+/// `commands`.
+pub fn tools(
+    all: Workspaces,
+    bots: EngineHandle,
+    commands: impl Into<Commands>,
+) -> Vec<Arc<dyn Tool>> {
+    let shell = commands.into();
     let place = Place { all, bots };
     vec![
         Arc::new(WorkspaceList(place.clone())),
@@ -276,12 +311,14 @@ impl Tool for WorkspaceWrite {
             Err(output) => return Box::pin(async move { output }),
         };
         let untrusted = turn.untrusted.clone();
-        blocking(&self.0, key, move |workspace| {
+        let (place, key) = (self.0.clone(), key.to_owned());
+        blocking(&self.0, &key.clone(), move |workspace| {
             let path = workspace.normal(&args.path)?;
             let bytes = workspace.write(&path, &args.content)?;
             workspace
                 .trust()
                 .record_write(&path, args.content.as_bytes(), untrusted.as_deref());
+            place.files_changed(&key, Some(vec![path.clone()]));
             Ok(ToolOutput::ok(format!("Wrote {bytes} bytes to {path}.")))
         })
     }
@@ -321,7 +358,8 @@ impl Tool for WorkspaceEdit {
             Err(output) => return Box::pin(async move { output }),
         };
         let untrusted = turn.untrusted.clone();
-        blocking(&self.0, key, move |workspace| {
+        let (place, key) = (self.0.clone(), key.to_owned());
+        blocking(&self.0, &key.clone(), move |workspace| {
             let path = workspace.normal(&args.path)?;
             let (before, after) = workspace.edit(&path, &args.old, &args.new)?;
             workspace.trust().record_edit(
@@ -330,6 +368,7 @@ impl Tool for WorkspaceEdit {
                 after.as_bytes(),
                 untrusted.as_deref(),
             );
+            place.files_changed(&key, Some(vec![path.clone()]));
             Ok(ToolOutput::ok(format!("Changed {path}.")))
         })
     }
@@ -337,7 +376,7 @@ impl Tool for WorkspaceEdit {
 
 pub struct ShellTool {
     place: Place,
-    shell: Shell,
+    shell: Commands,
 }
 
 #[derive(Deserialize)]
@@ -377,10 +416,28 @@ impl Tool for ShellTool {
         )
     }
 
+    /// In the bot's terminal, "always" covers the command run from the folder and with the
+    /// variables it has now; when either changes, the same command asks again.
+    fn always_scope_in(&self, key: &str, arguments: &Value) -> Option<String> {
+        let command = self.always_scope(arguments)?;
+        let Commands::Terminal(terminals) = &self.shell else {
+            return Some(command);
+        };
+        let digest = self
+            .place
+            .bots
+            .agent_for_key(key)
+            .and_then(|bot| terminals.of(&bot).ok())
+            .map(|terminal| terminal.state_digest())
+            .unwrap_or_default();
+        Some(format!("{command}{STATE}{digest}]"))
+    }
+
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {
         let workspace = self.place.workspace(key);
         let shell = self.shell.clone();
         let name = output_name(key);
+        let (place, key) = (self.place.clone(), key.to_owned());
         Box::pin(async move {
             let args: ShellArgs = match parse(arguments) {
                 Ok(args) => args,
@@ -398,7 +455,14 @@ impl Tool for ShellTool {
                 .timeout_s
                 .map_or(SHELL_TIMEOUT, Duration::from_secs)
                 .clamp(Duration::from_secs(1), LONGEST_SHELL);
-            let ran = shell.run(&dir, &args.command, timeout).await;
+            let ran = match &shell {
+                Commands::OneShot(shell) => shell.run(&dir, &args.command, timeout).await,
+                Commands::Terminal(terminals) => {
+                    in_terminal(&place, &key, terminals, &args.command, timeout).await
+                }
+            };
+            // Whatever the command did to the folder, the app looks again.
+            place.files_changed(&key, None);
             let failed = ran
                 .as_ref()
                 .map_or(true, |ran| ran.timed_out || ran.code != Some(0));
@@ -417,6 +481,48 @@ impl Tool for ShellTool {
             }
         })
     }
+}
+
+/// How a terminal command's scope names the state it was allowed in.
+const STATE: &str = "\n[terminal state ";
+
+/// Runs the bot's command in its terminal; refused while the person has its computer, and when
+/// the terminal is no longer in the state the command was allowed in.
+async fn in_terminal(
+    place: &Place,
+    key: &str,
+    terminals: &crate::computer::Terminals,
+    command: &str,
+    timeout: Duration,
+) -> Result<Ran, String> {
+    let bot = place
+        .bots
+        .agent_for_key(key)
+        .ok_or_else(|| "This conversation has no bot, so no terminal.".to_owned())?;
+    let held = place
+        .bots
+        .get()
+        .and_then(|engine| engine.computers().cloned())
+        .is_some_and(|c| c.driver(&bot) == crate::computer::Driver::Person);
+    if held {
+        return Err(
+            "The person has your computer right now; wait until they hand it back.".to_owned(),
+        );
+    }
+    // The folder and variables the call was allowed with, if it was allowed for them.
+    let expected = place
+        .bots
+        .get()
+        .and_then(|engine| engine.allowed_scope(key))
+        .and_then(|scope| {
+            scope
+                .rsplit_once(STATE)
+                .map(|(_, digest)| digest.trim_end_matches(']').to_owned())
+        });
+    terminals
+        .of(&bot)?
+        .run_in_state(command, timeout, expected.as_deref())
+        .await
 }
 
 /// A run as the model reads it: how it ended, then its output.
@@ -444,6 +550,12 @@ fn describe(ran: &Ran, timeout: Duration) -> String {
     if ran.cut {
         text.push_str(
             "\n[Some output was dropped: past 4 MiB, or still coming when the command ended.]",
+        );
+    }
+    if ran.incomplete {
+        text.push_str(
+            "\n[Not every process this command started could be seen to stop; some may still \
+             be running.]",
         );
     }
     text

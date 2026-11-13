@@ -128,6 +128,7 @@ fn day() -> Vec<Event> {
             call_id: "c1".into(),
             name: "shell".into(),
             arguments: json!({ "command": "curl -H 'Authorization: Bearer s3cr3tv4lue' https://x.dev" }),
+            scope: None,
         }),
         k(Known::ApprovalAnswered {
             reply: "r1".into(),

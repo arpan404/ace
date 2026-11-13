@@ -276,6 +276,34 @@ impl AceSkills {
         Ok(answer.get("result").cloned().unwrap_or(Value::Null))
     }
 
+    /// A bot's computer as ace keeps it (ADR 0142): `spade.computer.get`. The answer's fields
+    /// beside `requestId` (`computer`, or `error`).
+    pub async fn spade_computer(&self, bot: &str) -> Result<Value, SkillsError> {
+        self.spade_frame(
+            |id| serde_json::json!({ "type": "spade.computer.get", "requestId": id, "bot": bot }),
+        )
+        .await
+    }
+
+    /// Hands a bot's browser and screen to `driver` (`person` or `bot`): `spade.computer.drive`.
+    /// The answer's fields beside `requestId` (`driver`, `handback` when the person handed back,
+    /// or `error`). Setting the current driver again changes nothing.
+    pub async fn spade_computer_drive(
+        &self,
+        bot: &str,
+        driver: &str,
+    ) -> Result<Value, SkillsError> {
+        self.spade_frame(|id| {
+            serde_json::json!({
+                "type": "spade.computer.drive",
+                "requestId": id,
+                "bot": bot,
+                "driver": driver,
+            })
+        })
+        .await
+    }
+
     async fn spade_frame(&self, frame: impl FnOnce(&str) -> Value) -> Result<Value, SkillsError> {
         let (socket, _) = self.socket().await?;
         let id = format!("spade-{}", self.next_id.fetch_add(1, Ordering::Relaxed) + 1);

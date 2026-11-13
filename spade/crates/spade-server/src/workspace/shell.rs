@@ -23,6 +23,75 @@ const DRAIN: Duration = Duration::from_secs(2);
 /// Reads a variable of Spade's own environment, so tests can pass their own.
 pub type Env = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
+/// Sees every chunk of a command's output as it comes, stdout and stderr alike (the bot's
+/// terminal shows it live, ADR 0142).
+pub type Tee = Arc<dyn Fn(&[u8]) + Send + Sync>;
+
+/// One command run with more than [`Shell::run`] gives it.
+pub struct Job<'a> {
+    pub dir: &'a Path,
+    /// What `sh -c` runs.
+    pub script: &'a str,
+    pub timeout: Duration,
+    /// Set after the built environment, overriding it.
+    pub env: &'a [(String, String)],
+    pub tee: Option<Tee>,
+    /// Where the end of everything the command started is recorded, so its owner can wait for
+    /// it even when this run is dropped mid-way.
+    pub cleanup: Option<Cleanup>,
+}
+
+/// The ends of a command's processes, as they happen: each recorded before it runs and settled
+/// when it is done, whether the run that started it finished or was dropped (a take-over,
+/// Stop). The owner of the command waits on it before anything else may run.
+#[derive(Clone, Default)]
+pub struct Cleanup(Arc<Mutex<CleanupState>>);
+
+#[derive(Default)]
+struct CleanupState {
+    pending: Vec<tokio::sync::watch::Receiver<Option<bool>>>,
+    incomplete: bool,
+}
+
+impl Cleanup {
+    /// Records an end about to run; answers where it says how it went.
+    fn begin(&self) -> tokio::sync::watch::Sender<Option<bool>> {
+        let (done, waiting) = tokio::sync::watch::channel(None);
+        self.lock().pending.push(waiting);
+        done
+    }
+
+    /// An end that already ran.
+    fn ended(&self, settled: bool) {
+        if !settled {
+            self.lock().incomplete = true;
+        }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, CleanupState> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Waits until every end recorded so far is done; answers whether all of them settled.
+    /// A wait given up on (a deadline) loses nothing: the ends stay recorded until one is
+    /// seen done.
+    pub async fn settled(&self) -> bool {
+        let pending = self.lock().pending.clone();
+        let mut settled = true;
+        for mut waiting in pending {
+            match waiting.wait_for(Option::is_some).await {
+                Ok(result) => settled &= result.unwrap_or(false),
+                Err(_) => settled = false,
+            }
+        }
+        let mut state = self.lock();
+        state.pending.retain(|waiting| waiting.borrow().is_none());
+        settled && !std::mem::take(&mut state.incomplete)
+    }
+}
+
 /// How a command ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ran {
@@ -33,18 +102,34 @@ pub struct Ran {
     pub timed_out: bool,
     /// Output past [`MOST_OUTPUT`] was dropped, or a pipe stayed open past the end.
     pub cut: bool,
+    /// Not everything the command started could be seen to stop: some may still run.
+    pub incomplete: bool,
 }
 
 #[derive(Clone)]
 pub struct Shell {
     env: Env,
+    /// How long ending a command's processes waits before it starts (zero but in tests, which
+    /// stand in for a machine too loaded to end them at once).
+    end_delay: Duration,
 }
 
 impl Shell {
     /// `env` is Spade's environment; only the few variables a shell needs are taken from it,
     /// and never `PATH`.
     pub fn new(env: Env) -> Self {
-        Self { env }
+        Self {
+            env,
+            end_delay: Duration::ZERO,
+        }
+    }
+
+    /// Makes every end of a command's processes wait `delay` first: for tests of what happens
+    /// while an end is still going on. Only with the `test-hooks` feature.
+    #[cfg(feature = "test-hooks")]
+    pub fn with_end_delay(mut self, delay: Duration) -> Self {
+        self.end_delay = delay;
+        self
     }
 
     /// The machine's own environment.
@@ -82,10 +167,35 @@ impl Shell {
 
     /// Runs `command` in `dir` for at most `timeout`.
     pub async fn run(&self, dir: &Path, command: &str, timeout: Duration) -> Result<Ran, String> {
+        self.run_job(Job {
+            dir,
+            script: command,
+            timeout,
+            env: &[],
+            tee: None,
+            cleanup: None,
+        })
+        .await
+    }
+
+    /// Runs `job`. `HOME` stays the folder the environment was built for (`home`).
+    pub async fn run_job(&self, job: Job<'_>) -> Result<Ran, String> {
+        self.run_from(job.dir, job).await
+    }
+
+    /// [`Shell::run_job`] with `HOME` set to `home`, whatever folder the job starts in.
+    pub async fn run_from(&self, home: &Path, job: Job<'_>) -> Result<Ran, String> {
+        let (dir, command, timeout) = (job.dir, job.script, job.timeout);
+        // Inherited by everything the command starts, so all of it can be found at the end.
+        let mark = uuid::Uuid::new_v4().simple().to_string();
+        // Before it starts, so everything of its group started after this.
+        let spawned_us = platform::now_us();
         let mut child = platform::command(&self.env, command)
             .current_dir(dir)
             .env_clear()
-            .envs(self.environment(dir))
+            .envs(self.environment(home))
+            .envs(job.env.iter().cloned())
+            .env(platform::MARK, &mark)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -93,21 +203,37 @@ impl Shell {
             .spawn()
             .map_err(|error| format!("the shell could not start: {error}"))?;
         // Kills everything the command started when this run ends, however it ends.
-        let mut contained = platform::contain(&child);
+        let mut contained = platform::contain(
+            &child,
+            &mark,
+            spawned_us,
+            job.cleanup.clone().unwrap_or_default(),
+        );
+        contained.delay(self.end_delay);
         let mut readers = Readers::default();
-        let stdout = child.stdout.take().map(|pipe| readers.read(pipe));
-        let stderr = child.stderr.take().map(|pipe| readers.read(pipe));
-        let (status, timed_out) = match tokio::time::timeout(timeout, child.wait()).await {
-            Ok(status) => (status.ok(), false),
+        let stdout = child
+            .stdout
+            .take()
+            .map(|pipe| readers.read(pipe, job.tee.clone()));
+        let stderr = child
+            .stderr
+            .take()
+            .map(|pipe| readers.read(pipe, job.tee.clone()));
+        let (status, timed_out, settled) = match tokio::time::timeout(timeout, child.wait()).await {
+            Ok(status) => {
+                contained.reaped();
+                (status.ok(), false, true)
+            }
             Err(_) => {
-                contained.kill();
+                // The leader is still there: it goes first, with everything it started.
+                let settled = contained.kill().await;
                 let _ = child.start_kill();
                 let status = tokio::time::timeout(DRAIN, child.wait()).await;
-                (status.ok().and_then(Result::ok), true)
+                (status.ok().and_then(Result::ok), true, settled)
             }
         };
         // Whatever it left running in the background goes now, before the pipes are drained.
-        contained.kill();
+        let settled = contained.kill().await && settled;
         let pipes_closed = readers.finish(DRAIN).await;
         let (stdout, out_cut) = stdout.map(|o| o.take()).unwrap_or_default();
         let (stderr, err_cut) = stderr.map(|o| o.take()).unwrap_or_default();
@@ -117,6 +243,7 @@ impl Shell {
             code: status.and_then(|s| s.code()),
             timed_out,
             cut: out_cut || err_cut || !pipes_closed,
+            incomplete: !settled,
         })
     }
 }
@@ -140,10 +267,10 @@ impl Output {
 struct Readers(Vec<JoinHandle<()>>);
 
 impl Readers {
-    fn read(&mut self, pipe: impl AsyncRead + Unpin + Send + 'static) -> Output {
+    fn read(&mut self, pipe: impl AsyncRead + Unpin + Send + 'static, tee: Option<Tee>) -> Output {
         let output = Output::default();
         let kept = output.clone();
-        self.0.push(tokio::spawn(capped(pipe, kept)));
+        self.0.push(tokio::spawn(capped(pipe, kept, tee)));
         output
     }
 
@@ -162,12 +289,15 @@ impl Drop for Readers {
     }
 }
 
-async fn capped(mut pipe: impl AsyncRead + Unpin, output: Output) {
+async fn capped(mut pipe: impl AsyncRead + Unpin, output: Output, tee: Option<Tee>) {
     let mut buffer = [0u8; 16 * 1024];
     loop {
         match pipe.read(&mut buffer).await {
             Ok(0) | Err(_) => break,
             Ok(read) => {
+                if let Some(tee) = &tee {
+                    tee(&buffer[..read]);
+                }
                 let mut held = output
                     .0
                     .lock()
@@ -215,33 +345,83 @@ mod platform {
         shell
     }
 
-    /// The command's process group, killed on drop.
-    pub(super) struct Contained(Option<u32>);
+    pub(super) use super::super::reap::MARK;
+    use super::super::reap::{Run, end};
 
-    pub(super) fn contain(child: &Child) -> Contained {
-        Contained(child.id())
+    /// The command (it leads its own process group) and the mark everything it starts carries;
+    /// all of it is ended once, by `kill` or else on drop.
+    pub(super) struct Contained(Option<Run>, super::Cleanup);
+
+    pub(super) fn now_us() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| u64::try_from(d.as_micros()).unwrap_or(u64::MAX))
+    }
+
+    pub(super) fn contain(
+        child: &Child,
+        mark: &str,
+        spawned_us: u64,
+        cleanup: super::Cleanup,
+    ) -> Contained {
+        Contained(
+            child
+                .id()
+                .and_then(|pid| i32::try_from(pid).ok())
+                .map(|leader| Run {
+                    leader,
+                    mark: mark.to_owned(),
+                    reaped: false,
+                    started_us: spawned_us,
+                    ended_us: None,
+                    delay: std::time::Duration::ZERO,
+                }),
+            cleanup,
+        )
     }
 
     impl Contained {
-        /// Kills the group (the shell leads its own). `kill` is a program here because Spade
-        /// forbids `unsafe`, which the signal call needs.
-        pub(super) fn kill(&mut self) {
-            if let Some(pid) = self.0 {
-                let _ = std::process::Command::new("/bin/kill")
-                    .args(["-KILL", "--", &format!("-{pid}")])
-                    .env_clear()
-                    .stdin(std::process::Stdio::null())
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status();
+        pub(super) fn delay(&mut self, delay: std::time::Duration) {
+            if let Some(run) = self.0.as_mut() {
+                run.delay = delay;
+            }
+        }
+
+        /// The leader was reaped: its number is never signalled again.
+        pub(super) fn reaped(&mut self) {
+            if let Some(run) = self.0.as_mut() {
+                run.reaped = true;
+                run.ended_us = Some(now_us());
+            }
+        }
+
+        /// Ends the command and everything it started, sessions of their own included, off the
+        /// async threads. Disarms: later calls and the drop do nothing. The end is recorded in
+        /// the cleanup before it starts, and runs to its end even if this run is dropped
+        /// meanwhile, so the command's owner can wait for it. Answers whether it all stopped.
+        pub(super) async fn kill(&mut self) -> bool {
+            let Some(run) = self.0.take() else {
+                return true;
+            };
+            let done = self.1.begin();
+            let mut told = done.subscribe();
+            tokio::task::spawn_blocking(move || {
+                let settled = end(&run);
+                done.send_replace(Some(settled));
+            });
+            match told.wait_for(Option::is_some).await {
+                Ok(settled) => settled.unwrap_or(false),
+                Err(_) => false,
             }
         }
     }
 
     impl Drop for Contained {
+        /// The run was dropped (a take-over or Stop) before its end: ended here, at once.
         fn drop(&mut self) {
-            self.kill();
-            self.0 = None;
+            if let Some(run) = self.0.take() {
+                self.1.ended(end(&run));
+            }
         }
     }
 }
@@ -305,7 +485,19 @@ mod platform {
     /// `kill`) ends them all.
     pub(super) struct Contained(Option<Job>);
 
-    pub(super) fn contain(child: &Child) -> Contained {
+    /// Unused here: the job object holds everything the command starts.
+    pub(super) const MARK: &str = "SPADE_RUN";
+
+    pub(super) fn now_us() -> u64 {
+        0
+    }
+
+    pub(super) fn contain(
+        child: &Child,
+        _mark: &str,
+        _spawned_us: u64,
+        _cleanup: super::Cleanup,
+    ) -> Contained {
         let job = Job::create().ok().and_then(|job| {
             let mut info = ExtendedLimitInfo::new();
             info.limit_kill_on_job_close();
@@ -323,9 +515,15 @@ mod platform {
     }
 
     impl Contained {
-        pub(super) fn kill(&mut self) {
+        pub(super) fn delay(&mut self, _delay: std::time::Duration) {}
+
+        /// Nothing to note: the job holds the command whatever its number.
+        pub(super) fn reaped(&mut self) {}
+
+        pub(super) async fn kill(&mut self) -> bool {
             // Closing the last handle with kill-on-close set ends every process in the job.
             self.0 = None;
+            true
         }
     }
 }

@@ -4,6 +4,7 @@
 
 use std::sync::Arc;
 
+use crate::tools::EngineHandle;
 use serde_json::Value;
 use spade_ace::{AceTool, AceToolResult, AceTools, Part, Risk as AceRisk, ToolsError};
 use spade_core::context::MAYBE_RAN;
@@ -91,9 +92,29 @@ fn id_safe(text: &str) -> String {
         .collect()
 }
 
+/// Whether ace refused the call because the person is driving the bot's computer (ADR 0142):
+/// an error result whose text is ace's public error with that code.
+fn person_driving(result: &AceToolResult) -> bool {
+    result.is_error
+        && result.parts.iter().any(|part| match part {
+            Part::Text { text, .. } => serde_json::from_str::<Value>(text)
+                .ok()
+                .is_some_and(|error| error["code"] == spade_ace::PERSON_DRIVING),
+            _ => false,
+        })
+}
+
+/// What the model reads when the person drives: the call didn't run, and it isn't a failure to
+/// retry.
+pub const PERSON_DRIVING_TEXT: &str = "Not run: the person took over your computer (your browser \
+     and screen) and is driving it now. Don't retry or work around it: carry on with work that \
+     needs neither, or end your turn saying where you were. You'll be told what they did when \
+     they hand it back.";
+
 /// What a call's answer tells the model.
 pub fn output(result: Result<AceToolResult, ToolsError>) -> ToolOutput {
     match result {
+        Ok(result) if person_driving(&result) => ToolOutput::ok(PERSON_DRIVING_TEXT),
         Ok(result) => {
             let mut images = Vec::new();
             let parts: Vec<String> = result
@@ -142,12 +163,18 @@ pub fn output(result: Result<AceToolResult, ToolsError>) -> ToolOutput {
 }
 
 /// Spade's tools for ace's `list`, each calling through `client`.
-pub(crate) fn tools(client: &Arc<AceTools>, list: &[AceTool]) -> Vec<Arc<dyn Tool>> {
+/// `bots` finds the bot each call is made for, named to ace on the call (ADR 0142).
+pub(crate) fn tools(
+    client: &Arc<AceTools>,
+    list: &[AceTool],
+    bots: Option<&EngineHandle>,
+) -> Vec<Arc<dyn Tool>> {
     list.iter()
         .map(|tool| {
             Arc::new(AceCall {
                 def: def(tool),
                 client: client.clone(),
+                bots: bots.cloned(),
             }) as Arc<dyn Tool>
         })
         .collect()
@@ -156,6 +183,7 @@ pub(crate) fn tools(client: &Arc<AceTools>, list: &[AceTool]) -> Vec<Arc<dyn Too
 struct AceCall {
     def: ToolDef,
     client: Arc<AceTools>,
+    bots: Option<EngineHandle>,
 }
 
 impl Tool for AceCall {
@@ -166,7 +194,14 @@ impl Tool for AceCall {
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {
         let (client, name) = (self.client.clone(), self.def.spec.name.clone());
         let arguments = prepare_delegate(&name, key, arguments);
-        Box::pin(async move { output(client.call(&name, arguments).await) })
+        // From the call's key, which Spade made for the turn: never from the model's arguments.
+        let bot = self.bots.as_ref().and_then(|bots| bots.agent_for_key(key));
+        Box::pin(async move {
+            output(match bot {
+                Some(bot) => client.call_for(&name, arguments, &bot).await,
+                None => client.call(&name, arguments).await,
+            })
+        })
     }
 }
 
@@ -183,6 +218,36 @@ mod tests {
             input_schema: json!({ "type": "object" }),
             risk,
         }
+    }
+
+    #[test]
+    fn a_call_refused_because_the_person_drives_is_not_run_and_not_a_failure() {
+        let refused = AceToolResult {
+            parts: vec![Part::Text {
+                text: json!({ "code": "person_driving", "message": "The person is driving this computer" })
+                    .to_string(),
+                extra: Map::new(),
+            }],
+            is_error: true,
+            structured: None,
+            extra: Map::new(),
+        };
+        let shown = output(Ok(refused));
+        assert!(!shown.is_error);
+        assert_eq!(shown.content, PERSON_DRIVING_TEXT);
+        let other = AceToolResult {
+            parts: vec![Part::Text {
+                text: json!({ "code": "browser_closed" }).to_string(),
+                extra: Map::new(),
+            }],
+            is_error: true,
+            structured: None,
+            extra: Map::new(),
+        };
+        assert!(
+            output(Ok(other)).is_error,
+            "any other refusal stays an error"
+        );
     }
 
     #[test]

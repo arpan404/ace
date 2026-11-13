@@ -99,7 +99,7 @@ impl Engine {
         let mut events = self.load(id)?;
         events.push(close.clone());
         // While closed for an update nothing new starts; reopening answers what is left.
-        let admitted = self.admission.load(std::sync::atomic::Ordering::SeqCst);
+        let admitted = self.admission.load(std::sync::atomic::Ordering::SeqCst) && !self.held(id);
         if admitted && !self.deleting(id) && unanswered_after(&events, reply) {
             let model = self.reply_model(id);
             let started = Event::reply_started(self.ids.next("r"), model);

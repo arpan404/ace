@@ -254,7 +254,19 @@ impl McpClient {
     /// removed from the answer, text and structured content alike, and from errors: a server
     /// that echoes a token back never gets it stored or shown to a model.
     pub async fn call(&self, name: &str, arguments: Value) -> Result<McpToolResult, ToolsError> {
-        match self.call_raw(name, arguments).await {
+        self.call_with_meta(name, arguments, serde_json::Map::new())
+            .await
+    }
+
+    /// [`McpClient::call`], with `meta` sent as the call's `_meta` (beside this client's own
+    /// routing key, which wins).
+    pub async fn call_with_meta(
+        &self,
+        name: &str,
+        arguments: Value,
+        meta: serde_json::Map<String, Value>,
+    ) -> Result<McpToolResult, ToolsError> {
+        match self.call_raw(name, arguments, meta).await {
             Ok(mut result) => {
                 self.config.scrub_value(&mut result);
                 Ok(map::call_result(result))
@@ -263,7 +275,12 @@ impl McpClient {
         }
     }
 
-    async fn call_raw(&self, name: &str, arguments: Value) -> Result<Value, ToolsError> {
+    async fn call_raw(
+        &self,
+        name: &str,
+        arguments: Value,
+        mut meta: serde_json::Map<String, Value>,
+    ) -> Result<Value, ToolsError> {
         let mut params = json!({ "name": name });
         match arguments {
             Value::Object(object) => params["arguments"] = Value::Object(object),
@@ -279,7 +296,6 @@ impl McpClient {
         self.refuse_if_closed()?;
         // The token names this call alone; the HTTP layer hands its raw answer to this waiter.
         let token = self.next_call.fetch_add(1, Ordering::Relaxed) + 1;
-        let mut meta = serde_json::Map::new();
         meta.insert(ROUTE_KEY.into(), token.into());
         params["_meta"] = Value::Object(meta);
         let mut raw = routes.register(token);

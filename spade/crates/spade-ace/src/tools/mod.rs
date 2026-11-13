@@ -19,6 +19,14 @@ pub use spade_mcp::{McpTool as AceTool, McpToolResult as AceToolResult, Part, Ri
 /// Asks the daemon for a session with a list-change stream (`packages/mcp-server/src/http.ts`).
 const NOTIFICATIONS_HEADER: &str = "x-ace-notifications";
 
+/// The `_meta` key naming the bot a call is made for (`actingForMetaKey` in
+/// `packages/mcp-server/src/http.ts`).
+pub const ACTING_FOR: &str = "ace/acting-for";
+
+/// The public error code ace's browser and screen tools answer while the person drives the bot's
+/// computer (`person_driving` in `packages/mcp-server/src/public-error.ts`).
+pub const PERSON_DRIVING: &str = "person_driving";
+
 pub struct AceTools(McpClient);
 
 impl AceTools {
@@ -54,5 +62,19 @@ impl AceTools {
     /// once: `NotRun` means it did not run, `OutcomeUnknown` and `Timeout` that it may have.
     pub async fn call(&self, name: &str, arguments: Value) -> Result<AceToolResult, ToolsError> {
         self.0.call(name, arguments).await
+    }
+
+    /// [`AceTools::call`] made for one Spade bot (ADR 0142): `_meta` names it as
+    /// `ace/acting-for`, so its browser and screen calls run in that bot's own hidden thread.
+    /// `bot` comes from Spade's own state for the turn, never from the model's arguments.
+    pub async fn call_for(
+        &self,
+        name: &str,
+        arguments: Value,
+        bot: &str,
+    ) -> Result<AceToolResult, ToolsError> {
+        let mut meta = serde_json::Map::new();
+        meta.insert(ACTING_FOR.into(), Value::String(bot.to_owned()));
+        self.0.call_with_meta(name, arguments, meta).await
     }
 }
