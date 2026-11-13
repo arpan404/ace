@@ -23,6 +23,23 @@ const DRAIN: Duration = Duration::from_secs(2);
 /// Reads a variable of Spade's own environment, so tests can pass their own.
 pub type Env = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
+/// Sees every chunk of a command's output as it comes, stdout and stderr alike (the bot's
+/// terminal shows it live, ADR 0142).
+pub type Tee = Arc<dyn Fn(&[u8]) + Send + Sync>;
+
+/// One command run with more than [`Shell::run`] gives it.
+pub struct Job<'a> {
+    pub dir: &'a Path,
+    /// What `sh -c` runs.
+    pub script: &'a str,
+    pub timeout: Duration,
+    /// Set after the built environment, overriding it.
+    pub env: &'a [(String, String)],
+    pub tee: Option<Tee>,
+    /// Told the command's process id (its process group's) once it starts.
+    pub started: Option<&'a (dyn Fn(u32) + Send + Sync)>,
+}
+
 /// How a command ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ran {
@@ -82,10 +99,30 @@ impl Shell {
 
     /// Runs `command` in `dir` for at most `timeout`.
     pub async fn run(&self, dir: &Path, command: &str, timeout: Duration) -> Result<Ran, String> {
+        self.run_job(Job {
+            dir,
+            script: command,
+            timeout,
+            env: &[],
+            tee: None,
+            started: None,
+        })
+        .await
+    }
+
+    /// Runs `job`. `HOME` stays the folder the environment was built for (`home`).
+    pub async fn run_job(&self, job: Job<'_>) -> Result<Ran, String> {
+        self.run_from(job.dir, job).await
+    }
+
+    /// [`Shell::run_job`] with `HOME` set to `home`, whatever folder the job starts in.
+    pub async fn run_from(&self, home: &Path, job: Job<'_>) -> Result<Ran, String> {
+        let (dir, command, timeout) = (job.dir, job.script, job.timeout);
         let mut child = platform::command(&self.env, command)
             .current_dir(dir)
             .env_clear()
-            .envs(self.environment(dir))
+            .envs(self.environment(home))
+            .envs(job.env.iter().cloned())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -94,9 +131,18 @@ impl Shell {
             .map_err(|error| format!("the shell could not start: {error}"))?;
         // Kills everything the command started when this run ends, however it ends.
         let mut contained = platform::contain(&child);
+        if let (Some(started), Some(pid)) = (job.started, child.id()) {
+            started(pid);
+        }
         let mut readers = Readers::default();
-        let stdout = child.stdout.take().map(|pipe| readers.read(pipe));
-        let stderr = child.stderr.take().map(|pipe| readers.read(pipe));
+        let stdout = child
+            .stdout
+            .take()
+            .map(|pipe| readers.read(pipe, job.tee.clone()));
+        let stderr = child
+            .stderr
+            .take()
+            .map(|pipe| readers.read(pipe, job.tee.clone()));
         let (status, timed_out) = match tokio::time::timeout(timeout, child.wait()).await {
             Ok(status) => (status.ok(), false),
             Err(_) => {
@@ -140,10 +186,10 @@ impl Output {
 struct Readers(Vec<JoinHandle<()>>);
 
 impl Readers {
-    fn read(&mut self, pipe: impl AsyncRead + Unpin + Send + 'static) -> Output {
+    fn read(&mut self, pipe: impl AsyncRead + Unpin + Send + 'static, tee: Option<Tee>) -> Output {
         let output = Output::default();
         let kept = output.clone();
-        self.0.push(tokio::spawn(capped(pipe, kept)));
+        self.0.push(tokio::spawn(capped(pipe, kept, tee)));
         output
     }
 
@@ -162,12 +208,15 @@ impl Drop for Readers {
     }
 }
 
-async fn capped(mut pipe: impl AsyncRead + Unpin, output: Output) {
+async fn capped(mut pipe: impl AsyncRead + Unpin, output: Output, tee: Option<Tee>) {
     let mut buffer = [0u8; 16 * 1024];
     loop {
         match pipe.read(&mut buffer).await {
             Ok(0) | Err(_) => break,
             Ok(read) => {
+                if let Some(tee) = &tee {
+                    tee(&buffer[..read]);
+                }
                 let mut held = output
                     .0
                     .lock()

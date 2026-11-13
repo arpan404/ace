@@ -65,6 +65,10 @@ impl Terminals {
 pub struct Terminal;
 
 impl Terminal {
+    pub fn bot_running(&self) -> bool {
+        false
+    }
+
     pub fn attach(
         self: &Arc<Self>,
         _after: u64,

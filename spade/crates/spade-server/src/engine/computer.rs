@@ -38,10 +38,19 @@ impl Engine {
     }
 
     /// Whether the person has the computer of the bot in `conversation`.
+    /// Checked by the bot's id, so a record that could not be read still holds its bot.
     pub(super) fn held(&self, conversation: &str) -> bool {
-        self.computers
-            .get()
-            .is_some_and(|c| c.holds_conversation(conversation))
+        let Some(computers) = self.computers.get() else {
+            return false;
+        };
+        if !computers.holds_any() {
+            return false;
+        }
+        match self.agent_of(conversation) {
+            Some(agent) => computers.driver(&agent) == crate::computer::Driver::Person,
+            // No bot (a group's own conversation): there is no computer to hold.
+            None => false,
+        }
     }
 
     fn conversation_of_agent(&self, agent: &str) -> Result<String, TakeOverError> {
@@ -76,12 +85,15 @@ impl Engine {
     ) -> Result<(), TakeOverError> {
         let computers = self.computers.get().ok_or(TakeOverError::Unavailable)?;
         let conversation = self.conversation_of_agent(agent)?;
-        let Some(text) = computers.note(agent, handback) else {
+        let Some(note) = computers.note(agent, handback) else {
             return Ok(());
         };
         self.record(
             &conversation,
-            &Event::Known(Known::ComputerHandedBack { text }),
+            &Event::Known(Known::ComputerHandedBack {
+                text: note.text,
+                data: note.data,
+            }),
         )
         .map_err(|e| TakeOverError::Failed(e.to_string()))?;
         computers

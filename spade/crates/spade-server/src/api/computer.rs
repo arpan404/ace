@@ -247,6 +247,13 @@ async fn input(
         Ok(terminal) => terminal,
         Err(error) => return problem(StatusCode::SERVICE_UNAVAILABLE, &error),
     };
+    // The bot's last command is still being stopped: nothing the person types may reach it.
+    if terminal.bot_running() {
+        return problem(
+            StatusCode::CONFLICT,
+            "the bot's command is still stopping; try again in a moment",
+        );
+    }
     match terminal.input(data).await {
         Ok(entered) => {
             let _ =

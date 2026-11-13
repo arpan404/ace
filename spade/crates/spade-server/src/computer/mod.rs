@@ -347,11 +347,9 @@ impl Computers {
         }
     }
 
-    /// Whether the person has the computer of the bot whose conversation is `conversation`.
-    pub fn holds_conversation(&self, conversation: &str) -> bool {
-        lock(&self.records)
-            .values()
-            .any(|r| r.conversation == conversation)
+    /// Whether the person has any bot's computer, so a check by bot can be skipped.
+    pub fn holds_any(&self) -> bool {
+        !lock(&self.records).is_empty()
     }
 
     /// Bots the person has, for the terminal reaper.
@@ -565,14 +563,21 @@ impl Computers {
             snapshot,
             ..Record::default()
         };
-        self.persist(agent, &record)?;
-        lock(&self.records).insert(agent.to_owned(), record);
+        // Checked, written and kept under one lock, so no other change can come between.
+        {
+            let mut records = lock(&self.records);
+            if records.contains_key(agent) {
+                return Ok(false);
+            }
+            self.persist(agent, &record)?;
+            records.insert(agent.to_owned(), record);
+        }
         self.changed(agent);
         Ok(true)
     }
 
     /// The note for the bot about the person's turn, or `None` when the bot drives.
-    pub fn note(&self, agent: &str, handback: Option<&daemon::Handback>) -> Option<String> {
+    pub fn note(&self, agent: &str, handback: Option<&daemon::Handback>) -> Option<note::Note> {
         let record = lock(&self.records).get(agent).cloned()?;
         let now = self
             .workspaces
@@ -597,20 +602,27 @@ impl Computers {
 
     /// The bot drives again.
     pub fn release(&self, agent: &str) -> Result<(), ComputerError> {
-        match std::fs::remove_file(self.file(agent)) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(ComputerError::Io(error.to_string())),
+        {
+            // Under the lock every change to the record is written under, so none lands after.
+            let mut records = lock(&self.records);
+            match std::fs::remove_file(self.file(agent)) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(ComputerError::Io(error.to_string())),
+            }
+            records.remove(agent);
         }
-        lock(&self.records).remove(agent);
         self.changed(agent);
         Ok(())
     }
 
     /// Forgets the bot's computer and ends its terminal, when the bot is deleted.
     pub fn remove(&self, agent: &str) {
-        let _ = std::fs::remove_file(self.file(agent));
-        lock(&self.records).remove(agent);
+        {
+            let mut records = lock(&self.records);
+            let _ = std::fs::remove_file(self.file(agent));
+            records.remove(agent);
+        }
         lock(&self.surfaces).retain(|(a, _), _| a != agent);
         lock(&self.files).remove(agent);
         lock(&self.threads).remove(agent);
@@ -647,9 +659,11 @@ impl Computers {
             return Ok(false);
         };
         edit(record);
+        // Written before the lock goes, so a release never comes between and no older change
+        // is written over a newer one.
         let record = record.clone();
-        drop(records);
         self.persist(agent, &record)?;
+        drop(records);
         Ok(true)
     }
 }

@@ -1,36 +1,46 @@
 //! Each bot's terminal (ADR 0142): one interactive `/bin/sh` in a pseudo-terminal, in the bot's
-//! workspace, kept between commands. The bot's `shell` tool types its commands into it; the
-//! person watches it live and types into it while they drive. Started on demand, ended when idle
-//! for a long time or when the bot goes, and everything left in its session ends with it.
+//! workspace, that the person watches live and types into while they drive, and the bot's own
+//! commands, shown in it as they run.
 //!
-//! A bot command is written to a file in Spade's scratch folder and sourced, between two marker
-//! sequences the reader looks for (`plain::Capture`), so it runs in the terminal's own shell
-//! (its folder and variables carry over) with stdin from `/dev/null`. The shell's job control
-//! puts each foreground job in its own process group; when the terminal's foreground group is
-//! not the shell's, something is running there, and the bot waits its turn rather than typing
-//! into it.
+//! A bot command never goes through the person's shell. Each runs as Spade's own child
+//! (`workspace::shell`: `sh -c`, its own process group, the built environment, stdin from
+//! `/dev/null`), started in the folder the bot's last command ended in and with the variables it
+//! exported, minus those that decide which program a name runs. Its output is copied into the
+//! terminal's view as it comes. A supervisor owns each command: it ends when the process does,
+//! however the call that asked for it ends (finished, timed out, or dropped by a take-over or
+//! Stop), and the next command waits until the whole process group is gone. Nothing a command
+//! prints can end it early or speak for Spade.
+//!
+//! The person's shell draws a mark before each prompt, carrying a token set through a startup
+//! file that is deleted once read and never exported. A line the person enters counts as a
+//! command only when it answers that mark; anything typed into a program (a password prompt,
+//! `read`) is never kept.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
-use tokio::sync::{Notify, broadcast};
+use tokio::sync::{broadcast, oneshot};
 use tokio::time::Instant;
 
-use super::plain::{Capture, Lines, marker_printf};
+use super::plain::{Lines, PromptMarks, as_terminal, prompt_mark};
 use super::ring::{Ring, SCROLLBACK};
 use crate::clock::Clock;
-use crate::workspace::shell::{Ran, Shell};
+use crate::workspace::shell::{Job, Ran, Shell, Tee};
 
 /// How long a terminal may sit unused before it is ended; the next use starts a new one.
 pub const IDLE: Duration = Duration::from_secs(6 * 60 * 60);
-/// How long a bot command gets to stop after Ctrl-C before its job is killed.
-const INTERRUPT_GRACE: Duration = Duration::from_secs(1);
+/// How long a stopped command's process group may take to be gone.
+const GONE: Duration = Duration::from_secs(5);
 /// The size a terminal starts at, until a viewer says otherwise.
 const START_SIZE: (u16, u16) = (120, 32);
+/// Most variables a bot's commands carry over, and their total size.
+const MOST_VARIABLES: usize = 200;
+const MOST_VARIABLE_BYTES: usize = 64 * 1024;
 
 /// What a viewer of the terminal receives.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,6 +63,7 @@ pub enum Frame {
 /// What the computer view shows of a terminal.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Info {
+    /// The person's shell runs, or a bot command runs or has run, in it.
     pub running: bool,
     /// When the running shell started.
     pub since: Option<i64>,
@@ -67,7 +78,7 @@ pub type Changed = Arc<dyn Fn(&str) + Send + Sync>;
 
 /// Every bot's terminal.
 pub struct Terminals {
-    /// Spade's own folder for the files bot commands are sourced from, outside every workspace.
+    /// Spade's own folder for each bot's startup file and command state, outside every workspace.
     scratch: PathBuf,
     workspaces: crate::workspace::Workspaces,
     shell: Shell,
@@ -108,26 +119,30 @@ impl Terminals {
         let dir = workspace.path().map_err(|e| e.to_string())?;
         let terminal = Arc::new(Terminal {
             bot: bot.to_owned(),
-            dir: dir.clone(),
-            scratch: self.scratch.join(bot),
             environment: environment(&self.shell, &dir),
+            dir,
+            scratch: self.scratch.join(bot),
+            shell: self.shell.clone(),
             clock: self.clock.clone(),
             state: Mutex::new(State {
                 session: None,
                 generation: 0,
                 ring: Ring::new(SCROLLBACK, first_seq(self.clock.as_ref())),
                 size: START_SIZE,
-                capture: None,
                 since: None,
                 last: None,
                 last_use: Instant::now(),
                 title: None,
                 lines: Lines::default(),
+                marks: None,
+                at_prompt: false,
             }),
+            carried: Mutex::default(),
             writer: Mutex::new(None),
             frames: broadcast::channel(1024).0,
-            commands: tokio::sync::Mutex::new(()),
-            wake: Notify::new(),
+            commands: Arc::new(tokio::sync::Mutex::new(())),
+            running: AtomicBool::new(false),
+            group: AtomicU32::new(0),
             changed: lock(&self.changed).clone(),
         });
         all.insert(bot.to_owned(), terminal.clone());
@@ -146,17 +161,18 @@ impl Terminals {
     pub fn remove(&self, bot: &str) {
         if let Some(terminal) = lock(&self.all).remove(bot) {
             terminal.end();
+            terminal.stop_command();
         }
         let _ = std::fs::remove_dir_all(self.scratch.join(bot));
     }
 
     /// Ends every terminal unused for `idle`, except those `keep` names (a bot whose computer
-    /// the person has). Answers how many ended.
+    /// the person has) and those running a bot command. Answers how many ended.
     pub fn reap(&self, idle: Duration, keep: impl Fn(&str) -> bool) -> usize {
         let terminals: Vec<Arc<Terminal>> = lock(&self.all).values().cloned().collect();
         let mut ended = 0;
         for terminal in terminals {
-            if keep(&terminal.bot) {
+            if keep(&terminal.bot) || terminal.bot_running() {
                 continue;
             }
             let stale = {
@@ -171,10 +187,11 @@ impl Terminals {
         ended
     }
 
-    /// Ends every terminal, when Spade stops.
+    /// Ends every terminal and every bot command, when Spade stops.
     pub fn end_all(&self) {
         for terminal in lock(&self.all).values() {
             terminal.end();
+            terminal.stop_command();
         }
     }
 }
@@ -187,8 +204,8 @@ fn first_seq(clock: &dyn Clock) -> u64 {
         .saturating_mul(1000)
 }
 
-/// The shell's environment: the one-shot shell's (none of Spade's secrets, system `PATH`, `HOME`
-/// the workspace), with a terminal type a person's programs can draw with and a plain prompt.
+/// The person's shell's environment: the one-shot shell's (none of Spade's secrets, system
+/// `PATH`, `HOME` the workspace), with a terminal type a person's programs can draw with.
 fn environment(shell: &Shell, dir: &Path) -> Vec<(String, String)> {
     let mut vars: Vec<(String, String)> = shell
         .environment(dir)
@@ -196,8 +213,44 @@ fn environment(shell: &Shell, dir: &Path) -> Vec<(String, String)> {
         .filter(|(name, _)| name != "TERM")
         .collect();
     vars.push(("TERM".to_owned(), "xterm-256color".to_owned()));
-    vars.push(("PS1".to_owned(), "$ ".to_owned()));
     vars
+}
+
+/// Whether a variable a bot's command exported is carried to its next command: never those that
+/// decide which program a name runs, what a shell reads at start, or what Spade sets itself.
+fn carried_over(name: &str) -> bool {
+    const NEVER: &[&str] = &[
+        "PATH",
+        "HOME",
+        "USERPROFILE",
+        "SHELL",
+        "ENV",
+        "BASH_ENV",
+        "IFS",
+        "CDPATH",
+        "PS1",
+        "PS2",
+        "PS4",
+        "PROMPT_COMMAND",
+        "SHELLOPTS",
+        "BASHOPTS",
+        "TERM",
+        "PWD",
+        "OLDPWD",
+        "SHLVL",
+        "_",
+        "TMPDIR",
+        "LANG",
+        "USER",
+        "LOGNAME",
+    ];
+    !(NEVER.contains(&name)
+        || name.starts_with("LD_")
+        || name.starts_with("DYLD_")
+        || name.starts_with("BASH_FUNC_")
+        || name.starts_with("__spade")
+        || name.is_empty()
+        || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -211,16 +264,27 @@ pub struct Terminal {
     dir: PathBuf,
     scratch: PathBuf,
     environment: Vec<(String, String)>,
+    shell: Shell,
     clock: Arc<dyn Clock>,
     state: Mutex<State>,
+    /// Where the bot's last command ended and what it exported.
+    carried: Mutex<Carried>,
     /// Kept apart from `state`: a write can wait on a shell that is not reading.
     writer: Mutex<Option<(u64, Box<dyn Write + Send>)>>,
     frames: broadcast::Sender<Frame>,
-    /// One bot command at a time.
-    commands: tokio::sync::Mutex<()>,
-    /// Woken when output arrives or the shell ends.
-    wake: Notify,
+    /// One bot command at a time; held by the command's supervisor until it is gone.
+    commands: Arc<tokio::sync::Mutex<()>>,
+    /// A bot command runs, or is being stopped.
+    running: AtomicBool,
+    /// The running command's process group.
+    group: AtomicU32,
     changed: Option<Changed>,
+}
+
+#[derive(Debug, Default, Clone)]
+struct Carried {
+    dir: Option<PathBuf>,
+    env: Vec<(String, String)>,
 }
 
 struct State {
@@ -229,46 +293,39 @@ struct State {
     generation: u64,
     ring: Ring,
     size: (u16, u16),
-    /// The bot command whose output is being cut out of the stream.
-    capture: Option<Capture>,
     since: Option<i64>,
     last: Option<i64>,
     last_use: Instant,
     title: Option<String>,
     lines: Lines,
+    /// Finds the running shell's prompt mark.
+    marks: Option<PromptMarks>,
+    /// The shell drew its prompt and no line has answered it yet.
+    at_prompt: bool,
 }
 
 struct Session {
     master: Box<dyn MasterPty + Send>,
     killer: Box<dyn ChildKiller + Send + Sync>,
     pid: u32,
-    generation: u64,
-}
-
-impl Session {
-    /// Whether the shell itself is in the foreground: at its prompt, or running a builtin. A
-    /// running program has its own process group there.
-    fn at_shell(&self) -> bool {
-        match self.master.process_group_leader() {
-            Some(leader) => i64::from(leader) == i64::from(self.pid),
-            None => true,
-        }
-    }
-
-    fn foreground(&self) -> Option<i64> {
-        self.master.process_group_leader().map(i64::from)
-    }
 }
 
 impl Terminal {
     pub fn info(&self) -> Info {
         let state = lock(&self.state);
         Info {
-            running: state.session.is_some(),
+            // Used: the person's shell runs, a bot command runs, or one ran in it.
+            running: state.session.is_some() || self.bot_running() || state.last.is_some(),
             since: state.session.as_ref().and(state.since),
             last: state.last,
             title: state.title.clone(),
         }
+    }
+
+    /// Whether a bot command runs (or is still being stopped). The person types only once it is
+    /// gone.
+    pub fn bot_running(&self) -> bool {
+        self.running.load(Ordering::SeqCst)
     }
 
     fn touched(&self) {
@@ -277,7 +334,19 @@ impl Terminal {
         }
     }
 
-    /// Starts the shell unless it runs.
+    /// Adds `data` to what viewers see, as the terminal's own output does.
+    fn show(&self, data: &[u8]) {
+        let mut state = lock(&self.state);
+        let seq = state.ring.push(data);
+        state.last = Some(self.clock.now_ms());
+        state.last_use = Instant::now();
+        let _ = self.frames.send(Frame::Output {
+            seq,
+            data: Arc::from(data),
+        });
+    }
+
+    /// Starts the person's shell unless it runs.
     pub fn ensure(self: &Arc<Self>) -> Result<(), String> {
         let mut state = lock(&self.state);
         if state.session.is_some() {
@@ -292,17 +361,23 @@ impl Terminal {
                 pixel_height: 0,
             })
             .map_err(|e| format!("the terminal could not open: {e}"))?;
+        let token = uuid::Uuid::new_v4().simple().to_string();
+        let startup = self.startup_file(&token)?;
         let mut command = CommandBuilder::new("/bin/sh");
         command.arg("-i");
         command.env_clear();
         for (name, value) in &self.environment {
             command.env(name, value);
         }
+        command.env("ENV", &startup);
         command.cwd(&self.dir);
-        let mut child = pty
-            .slave
-            .spawn_command(command)
-            .map_err(|e| format!("the terminal's shell could not start: {e}"))?;
+        let mut child = match pty.slave.spawn_command(command) {
+            Ok(child) => child,
+            Err(error) => {
+                let _ = std::fs::remove_file(&startup);
+                return Err(format!("the terminal's shell could not start: {error}"));
+            }
+        };
         drop(pty.slave);
         let pid = child.process_id().unwrap_or(0);
         let reader = pty
@@ -319,19 +394,20 @@ impl Terminal {
             master: pty.master,
             killer: child.clone_killer(),
             pid,
-            generation,
         });
         let now = self.clock.now_ms();
         state.since = Some(now);
         state.last = Some(now);
         state.last_use = Instant::now();
         state.lines = Lines::default();
+        state.marks = Some(PromptMarks::new(&token));
+        state.at_prompt = false;
         drop(state);
         *lock(&self.writer) = Some((generation, writer));
         let terminal = self.clone();
         std::thread::Builder::new()
             .name("spade-terminal-read".into())
-            .spawn(move || terminal.read_loop(reader, generation))
+            .spawn(move || terminal.read_loop(reader, generation, startup))
             .map_err(|e| format!("the terminal could not be read: {e}"))?;
         let terminal = self.clone();
         std::thread::Builder::new()
@@ -349,31 +425,52 @@ impl Terminal {
         Ok(())
     }
 
-    fn read_loop(&self, mut reader: Box<dyn Read + Send>, generation: u64) {
+    /// The file the shell reads at start (`ENV`): its prompt, with the mark, set but not
+    /// exported, and `ENV` itself unset. Deleted once the first prompt is drawn.
+    fn startup_file(&self, token: &str) -> Result<PathBuf, String> {
+        let failed = |e: std::io::Error| format!("the terminal could not be prepared: {e}");
+        std::fs::create_dir_all(&self.scratch).map_err(failed)?;
+        let path = self.scratch.join(format!(".{token}.rc"));
+        let mut text = b"PS1='".to_vec();
+        text.extend_from_slice(&prompt_mark(token));
+        text.extend_from_slice(b"$ '\nunset ENV\n");
+        std::fs::write(&path, text).map_err(failed)?;
+        Ok(path)
+    }
+
+    fn read_loop(&self, mut reader: Box<dyn Read + Send>, generation: u64, startup: PathBuf) {
         let mut buffer = vec![0u8; 16 * 1024];
+        let mut startup = Some(startup);
         loop {
             let read = match reader.read(&mut buffer) {
-                Ok(0) | Err(_) => return,
+                Ok(0) | Err(_) => break,
                 Ok(read) => read,
             };
             let chunk = &buffer[..read];
-            {
+            let prompted = {
                 let mut state = lock(&self.state);
                 if state.generation != generation {
-                    return;
+                    break;
                 }
                 let seq = state.ring.push(chunk);
                 state.last = Some(self.clock.now_ms());
                 state.last_use = Instant::now();
-                if let Some(capture) = state.capture.as_mut() {
-                    capture.feed(chunk);
+                let prompted = state.marks.as_mut().is_some_and(|m| m.feed(chunk));
+                if prompted {
+                    state.at_prompt = true;
                 }
                 let _ = self.frames.send(Frame::Output {
                     seq,
                     data: Arc::from(chunk),
                 });
+                prompted
+            };
+            if prompted && let Some(file) = startup.take() {
+                let _ = std::fs::remove_file(file);
             }
-            self.wake.notify_waiters();
+        }
+        if let Some(file) = startup {
+            let _ = std::fs::remove_file(file);
         }
     }
 
@@ -387,6 +484,8 @@ impl Terminal {
             let pid = state.session.take().map(|s| s.pid);
             state.since = None;
             state.last = Some(self.clock.now_ms());
+            state.at_prompt = false;
+            state.marks = None;
             pid
         };
         {
@@ -399,11 +498,10 @@ impl Terminal {
             kill_session(pid);
         }
         let _ = self.frames.send(Frame::Exit { code });
-        self.wake.notify_waiters();
         self.touched();
     }
 
-    /// Ends the shell and everything in its session. The next use starts a new one.
+    /// Ends the person's shell and everything in its session. The next use starts a new one.
     pub fn end(&self) {
         let session = {
             let mut state = lock(&self.state);
@@ -415,6 +513,14 @@ impl Terminal {
         if let Some((pid, mut killer)) = session {
             let _ = killer.kill();
             kill_session(pid);
+        }
+    }
+
+    /// Kills the running bot command's process group, if any.
+    fn stop_command(&self) {
+        let group = self.group.load(Ordering::SeqCst);
+        if group > 1 {
+            kill_group(i64::from(group));
         }
     }
 
@@ -463,16 +569,23 @@ impl Terminal {
         Ok(())
     }
 
-    /// Types the person's input. Answers the lines they entered at the shell's prompt (never one
-    /// typed into a running program, such as a password at a `sudo` prompt).
+    /// Types the person's input. Answers the lines they entered at the shell's prompt: each
+    /// must answer a prompt the shell drew, so a line typed into a program (a password at a
+    /// `sudo` prompt, `read`) or a second line pasted with the first is never kept.
     pub async fn input(self: &Arc<Self>, data: Vec<u8>) -> Result<Vec<String>, String> {
         self.ensure()?;
         let entered = {
             let mut state = lock(&self.state);
             state.last_use = Instant::now();
-            let at_shell = state.session.as_ref().is_some_and(Session::at_shell);
             let lines = state.lines.feed(&data);
-            if at_shell { lines } else { Vec::new() }
+            let mut kept = Vec::new();
+            for line in lines {
+                let answered_prompt = std::mem::replace(&mut state.at_prompt, false);
+                if answered_prompt && !line.is_empty() {
+                    kept.push(line);
+                }
+            }
+            kept
         };
         self.write(data).await?;
         Ok(entered)
@@ -494,148 +607,160 @@ impl Terminal {
         .unwrap_or_else(|_| Err("the terminal could not be written".to_owned()))
     }
 
-    /// Runs the bot's `command` in the terminal for at most `timeout`. Refused while a program
-    /// holds the terminal's foreground. A command past its deadline gets Ctrl-C, then its job is
-    /// killed; the shell itself stays.
+    /// Runs the bot's `command` for at most `timeout`, shown in the terminal as it runs. Its
+    /// supervisor owns it: if this call is dropped, the command's whole process group is killed,
+    /// and the next command starts only once that group is gone.
     pub async fn run(self: &Arc<Self>, command: &str, timeout: Duration) -> Result<Ran, String> {
-        let _one = self.commands.lock().await;
-        self.ensure()?;
+        let one = self.commands.clone().lock_owned().await;
+        let (answer, answered) = oneshot::channel();
+        let (held, abandoned) = oneshot::channel::<()>();
+        let terminal = self.clone();
+        let command = command.to_owned();
+        self.running.store(true, Ordering::SeqCst);
+        tokio::spawn(async move {
+            let finished = tokio::select! {
+                ran = terminal.supervised(&command, timeout) => Some(ran),
+                _ = abandoned => None,
+            };
+            // Dropped, the command's future killed its group; wait until no process is left. (A
+            // command that finished was reaped and its group killed already, and its id may be
+            // another process's by now, so it is left alone.)
+            if finished.is_none() {
+                terminal.stop_command();
+                terminal.wait_gone().await;
+            }
+            terminal.group.store(0, Ordering::SeqCst);
+            terminal.running.store(false, Ordering::SeqCst);
+            drop(one);
+            terminal.touched();
+            if let Some(ran) = finished {
+                let _ = answer.send(ran);
+            }
+        });
+        let _held = held;
+        answered
+            .await
+            .unwrap_or_else(|_| Err("the command was stopped".to_owned()))
+    }
+
+    /// Waits until the running command's process group has no process left.
+    async fn wait_gone(&self) {
+        let group = self.group.load(Ordering::SeqCst);
+        if group <= 1 {
+            return;
+        }
+        let until = Instant::now() + GONE;
+        while group_alive(group) && Instant::now() < until {
+            kill_group(i64::from(group));
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
+    async fn supervised(self: &Arc<Self>, command: &str, timeout: Duration) -> Result<Ran, String> {
+        let carried = lock(&self.carried).clone();
+        let dir = carried
+            .dir
+            .filter(|dir| dir.is_dir())
+            .unwrap_or_else(|| self.dir.clone());
+        std::fs::create_dir_all(&self.scratch)
+            .map_err(|e| format!("the command could not be prepared: {e}"))?;
         let nonce = uuid::Uuid::new_v4().simple().to_string();
-        let (generation, busy) = {
-            let state = lock(&self.state);
-            let session = state.session.as_ref();
-            (
-                session.map_or(0, |s| s.generation),
-                session.is_some_and(|s| !s.at_shell()),
-            )
+        let state_files = StateFiles {
+            dir: self.scratch.join(format!("{nonce}.cwd")),
+            env: self.scratch.join(format!("{nonce}.env")),
         };
-        if busy {
-            return Err(
-                "Your terminal is busy: a program is running in its foreground (the \
-                        person may have left one open). Ask the person, or try again later."
-                    .to_owned(),
-            );
-        }
-        let files = Scratch::write(&self.scratch, &nonce, command)?;
-        {
-            let mut state = lock(&self.state);
-            state.capture = Some(Capture::new(&nonce));
-            state.title = Some(
-                command
-                    .lines()
-                    .next()
-                    .unwrap_or_default()
-                    .chars()
-                    .take(80)
-                    .collect(),
-            );
-            state.last_use = Instant::now();
-        }
+        // On any exit (the end, or `exit`), the folder and the exported variables are written
+        // down for the next command.
+        let script = format!(
+            "__spade_end() {{ __spade_c=$?; pwd >{} 2>/dev/null; /usr/bin/env -0 >{} 2>/dev/null; exit $__spade_c; }}\ntrap __spade_end EXIT\n{command}\n",
+            quoted(&state_files.dir),
+            quoted(&state_files.env),
+        );
+        let first_line: String = command
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .chars()
+            .take(80)
+            .collect();
+        lock(&self.state).title = Some(first_line.clone());
+        self.show(&as_terminal(format!("\n[bot] $ {first_line}\n").as_bytes()));
         self.touched();
-        // Ctrl-U first: anything half typed at the prompt is dropped, not run with the command.
-        let line = format!("\x15 . {}\n", quoted(&files.run));
-        let deadline = Instant::now() + timeout;
-        let wrote = self.write(line.into_bytes()).await;
-        let mut timed_out = false;
-        let mut shell_ended = false;
-        if wrote.is_ok() {
-            loop {
-                let woken = self.wake.notified();
-                tokio::pin!(woken);
-                woken.as_mut().enable();
-                {
-                    let state = lock(&self.state);
-                    if state.capture.as_ref().is_some_and(|c| c.code().is_some()) {
-                        break;
-                    }
-                    if state
-                        .session
-                        .as_ref()
-                        .is_none_or(|s| s.generation != generation)
-                    {
-                        shell_ended = true;
-                        break;
-                    }
+        let viewer = Arc::downgrade(self);
+        let tee: Tee = Arc::new(move |chunk: &[u8]| {
+            if let Some(terminal) = viewer.upgrade() {
+                terminal.show(&as_terminal(chunk));
+            }
+        });
+        let group = &self.group;
+        let started = move |pid: u32| group.store(pid, Ordering::SeqCst);
+        let ran = self
+            .shell
+            .run_from(
+                &self.dir,
+                Job {
+                    dir: &dir,
+                    script: &script,
+                    timeout,
+                    env: &carried.env,
+                    tee: Some(tee),
+                    started: Some(&started),
+                },
+            )
+            .await;
+        *lock(&self.carried) = state_files.read();
+        if let Ok(ran) = &ran {
+            let ending = match (ran.timed_out, ran.code) {
+                (true, _) => "[bot] stopped: past its deadline\n".to_owned(),
+                (false, Some(code)) => format!("[bot] exit {code}\n"),
+                (false, None) => "[bot] ended by a signal\n".to_owned(),
+            };
+            self.show(&as_terminal(ending.as_bytes()));
+        }
+        ran
+    }
+}
+
+/// Where a command writes down its folder and exported variables as it exits; read, then
+/// removed. A command can write here too, but only ever for its own next command, and through
+/// the same filter.
+struct StateFiles {
+    dir: PathBuf,
+    env: PathBuf,
+}
+
+impl StateFiles {
+    fn read(&self) -> Carried {
+        let dir = std::fs::read_to_string(&self.dir)
+            .ok()
+            .map(|text| PathBuf::from(text.trim_end_matches('\n')))
+            .filter(|dir| dir.is_absolute());
+        let mut env = Vec::new();
+        let mut bytes = 0;
+        if let Ok(raw) = std::fs::read(&self.env) {
+            for entry in raw.split(|b| *b == 0) {
+                let text = String::from_utf8_lossy(entry);
+                let Some((name, value)) = text.split_once('=') else {
+                    continue;
+                };
+                if !carried_over(name) {
+                    continue;
                 }
-                tokio::select! {
-                    () = &mut woken => {}
-                    () = tokio::time::sleep_until(deadline) => {
-                        timed_out = true;
-                        break;
-                    }
+                bytes += name.len() + value.len();
+                if env.len() >= MOST_VARIABLES || bytes > MOST_VARIABLE_BYTES {
+                    break;
                 }
+                env.push((name.to_owned(), value.to_owned()));
             }
         }
-        if timed_out {
-            self.interrupt(generation).await;
-        }
-        let capture = lock(&self.state).capture.take();
-        drop(files);
-        wrote?;
-        let (text, cut) = capture.as_ref().map(Capture::output).unwrap_or_default();
-        let mut stdout = text;
-        if shell_ended && !timed_out {
-            stdout.push_str("\n[The terminal's shell ended; the next command starts a new one.]");
-        }
-        Ok(Ran {
-            stdout,
-            stderr: String::new(),
-            code: capture.as_ref().and_then(Capture::code),
-            timed_out,
-            cut,
-        })
-    }
-
-    /// Stops what a timed-out command left running: Ctrl-C, then the foreground job is killed.
-    async fn interrupt(self: &Arc<Self>, generation: u64) {
-        let _ = self.write(b"\x03".to_vec()).await;
-        tokio::time::sleep(INTERRUPT_GRACE).await;
-        let foreground = {
-            let state = lock(&self.state);
-            state
-                .session
-                .as_ref()
-                .filter(|s| s.generation == generation && !s.at_shell())
-                .and_then(Session::foreground)
-        };
-        if let Some(group) = foreground {
-            kill_group(group);
-        }
+        Carried { dir, env }
     }
 }
 
-/// The two files a bot command is sourced from, removed when dropped.
-struct Scratch {
-    command: PathBuf,
-    run: PathBuf,
-}
-
-impl Scratch {
-    fn write(folder: &Path, nonce: &str, command: &str) -> Result<Self, String> {
-        let failed = |e: std::io::Error| format!("the command could not be prepared: {e}");
-        std::fs::create_dir_all(folder).map_err(failed)?;
-        let files = Self {
-            command: folder.join(format!("{nonce}.cmd")),
-            run: folder.join(format!("{nonce}.sh")),
-        };
-        std::fs::write(&files.command, format!("{command}\n")).map_err(failed)?;
-        // The command is sourced on its own, so a syntax error in it still reaches the end
-        // marker with its status.
-        let run = format!(
-            "{}\n. {} </dev/null\n{} \"$?\"\n",
-            marker_printf(nonce, "start"),
-            quoted(&files.command),
-            marker_printf(nonce, "end;%s"),
-        );
-        std::fs::write(&files.run, run).map_err(failed)?;
-        Ok(files)
-    }
-}
-
-impl Drop for Scratch {
+impl Drop for StateFiles {
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.command);
-        let _ = std::fs::remove_file(&self.run);
+        let _ = std::fs::remove_file(&self.dir);
+        let _ = std::fs::remove_file(&self.env);
     }
 }
 
@@ -644,18 +769,27 @@ fn quoted(path: &Path) -> String {
     format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"))
 }
 
-/// Kills one process group. `kill` is a program because Spade forbids `unsafe`.
-fn kill_group(group: i64) {
-    if group <= 1 {
-        return;
-    }
-    let _ = std::process::Command::new("/bin/kill")
-        .args(["-KILL", "--", &format!("-{group}")])
+fn quiet(program: &str, args: &[&str]) -> bool {
+    std::process::Command::new(program)
+        .args(args)
         .env_clear()
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .status();
+        .status()
+        .is_ok_and(|s| s.success())
+}
+
+/// Kills one process group. `kill` is a program because Spade forbids `unsafe`.
+fn kill_group(group: i64) {
+    if group > 1 {
+        quiet("/bin/kill", &["-KILL", "--", &format!("-{group}")]);
+    }
+}
+
+/// Whether any process is left in `group`.
+fn group_alive(group: u32) -> bool {
+    group > 1 && quiet("/bin/kill", &["-0", "--", &format!("-{group}")])
 }
 
 /// Kills everything in the session `leader` leads: its own group and every job's.
@@ -666,13 +800,7 @@ fn kill_session(leader: u32) {
     kill_group(i64::from(leader));
     for pkill in ["/usr/bin/pkill", "/bin/pkill"] {
         if Path::new(pkill).exists() {
-            let _ = std::process::Command::new(pkill)
-                .args(["-KILL", "-s", &leader.to_string()])
-                .env_clear()
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status();
+            quiet(pkill, &["-KILL", "-s", &leader.to_string()]);
             break;
         }
     }

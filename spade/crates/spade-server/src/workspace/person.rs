@@ -112,16 +112,95 @@ impl Workspace {
                 .map_err(|error| PathError::at(to, error))?;
         }
         let to_at = folder(&dir, parent, to)?;
-        match to_at.symlink_metadata(new_name) {
-            Ok(_) => return Err(PathError::Exists(to.to_owned())),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(PathError::at(to, error)),
-        }
-        from_at
-            .rename(name, &to_at, new_name)
-            .map_err(|error| PathError::at(from, error))?;
+        move_no_replace(&from_at, name, &to_at, new_name).map_err(|error| match error {
+            Moved::Exists => PathError::Exists(to.to_owned()),
+            Moved::Failed(error) => PathError::at(from, error),
+        })?;
         Ok((shown(&source), shown(&target)))
     }
+}
+
+/// Why a move did not happen.
+#[derive(Debug)]
+enum Moved {
+    /// Something is at the target: it is never replaced.
+    Exists,
+    Failed(std::io::Error),
+}
+
+impl From<std::io::Error> for Moved {
+    fn from(error: std::io::Error) -> Self {
+        if error.kind() == std::io::ErrorKind::AlreadyExists {
+            Self::Exists
+        } else {
+            Self::Failed(error)
+        }
+    }
+}
+
+/// Moves `name` in `from` to `new_name` in `to` without ever replacing what is there, even
+/// something made there a moment ago: each step that claims the target fails if it is taken.
+/// A file is hard-linked at the target, then unlinked; a folder gets an empty folder made at the
+/// target (refused if taken), which `rename` then replaces with it; a link is made again at the
+/// target, then removed. A plain `rename` would replace a file there.
+fn move_no_replace(
+    from: &cap_std::fs::Dir,
+    name: &std::ffi::OsStr,
+    to: &cap_std::fs::Dir,
+    new_name: &std::ffi::OsStr,
+) -> Result<(), Moved> {
+    let meta = from.symlink_metadata(name)?;
+    if meta.is_dir() {
+        if !cfg!(windows) {
+            // Windows never lets a folder replace another, so it renames straight away.
+            to.create_dir(new_name)?;
+        }
+        if let Err(error) = from.rename(name, to, new_name) {
+            if !cfg!(windows) {
+                // Only ours, and only while empty: anything put in it meanwhile stays.
+                let _ = to.remove_dir(new_name);
+            }
+            return Err(error.into());
+        }
+        return Ok(());
+    }
+    if meta.file_type().is_symlink() {
+        return relink(from, name, to, new_name);
+    }
+    from.hard_link(name, to, new_name)?;
+    if let Err(error) = from.remove_file(name) {
+        let _ = to.remove_file(new_name);
+        return Err(error.into());
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn relink(
+    from: &cap_std::fs::Dir,
+    name: &std::ffi::OsStr,
+    to: &cap_std::fs::Dir,
+    new_name: &std::ffi::OsStr,
+) -> Result<(), Moved> {
+    let target = from.read_link_contents(name)?;
+    to.symlink_contents(&target, new_name)?;
+    if let Err(error) = from.remove_file(name) {
+        let _ = to.remove_file(new_name);
+        return Err(error.into());
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn relink(
+    _from: &cap_std::fs::Dir,
+    _name: &std::ffi::OsStr,
+    _to: &cap_std::fs::Dir,
+    _new_name: &std::ffi::OsStr,
+) -> Result<(), Moved> {
+    Err(Moved::Failed(std::io::Error::other(
+        "links are not moved on Windows",
+    )))
 }
 
 /// What changed between two snapshots, for the hand-back note: each path new, changed or gone.
@@ -147,6 +226,43 @@ pub fn changes(before: &Snapshot, after: &Snapshot) -> Vec<(String, &'static str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn folder_at(path: &Path) -> cap_std::fs::Dir {
+        cap_std::fs::Dir::open_ambient_dir(path, cap_std::ambient_authority())
+            .unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    #[test]
+    fn a_move_never_replaces_a_file_or_folder_already_at_the_target() {
+        let root = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        let dir = folder_at(root.path());
+        std::fs::write(root.path().join("a.txt"), "mine").unwrap_or_default();
+        std::fs::write(root.path().join("b.txt"), "theirs").unwrap_or_default();
+        let moved = move_no_replace(&dir, "a.txt".as_ref(), &dir, "b.txt".as_ref());
+        assert!(matches!(moved, Err(Moved::Exists)), "{moved:?}");
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("b.txt")).unwrap_or_default(),
+            "theirs"
+        );
+        assert!(root.path().join("a.txt").exists());
+
+        std::fs::create_dir(root.path().join("src")).unwrap_or_default();
+        std::fs::create_dir(root.path().join("empty")).unwrap_or_default();
+        let moved = move_no_replace(&dir, "src".as_ref(), &dir, "empty".as_ref());
+        assert!(matches!(moved, Err(Moved::Exists)), "{moved:?}");
+        assert!(root.path().join("src").is_dir());
+
+        move_no_replace(&dir, "a.txt".as_ref(), &dir, "c.txt".as_ref())
+            .unwrap_or_else(|e| panic!("{e:?}"));
+        move_no_replace(&dir, "src".as_ref(), &dir, "dst".as_ref())
+            .unwrap_or_else(|e| panic!("{e:?}"));
+        assert!(!root.path().join("a.txt").exists());
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("c.txt")).unwrap_or_default(),
+            "mine"
+        );
+        assert!(root.path().join("dst").is_dir() && !root.path().join("src").exists());
+    }
 
     fn file(size: u64, at: i64) -> Seen {
         Seen {

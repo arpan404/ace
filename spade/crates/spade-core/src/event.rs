@@ -203,6 +203,10 @@ pub enum Known {
     /// steers a turn that resumes, and opens no reply by itself.
     ComputerHandedBack {
         text: String,
+        /// File names and addresses from the person's turn, kept apart from Spade's words:
+        /// whoever made a file or a page chose its name, so these are untrusted data.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        data: Vec<String>,
     },
     ReplyFinished {
         reply: String,
