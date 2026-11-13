@@ -314,3 +314,25 @@ test("on a phone the list is its own screen, and the computer fills the screen w
   await userEvent.click(screen.getByRole("button", { name: "Chat" }));
   await screen.findByRole("combobox", { name: "Message Scout" });
 });
+
+test("handing back leaves one quiet line in the chat, with what changed behind a disclosure as plain text", async () => {
+  const { spade } = await spadeApp("/spade/scout", seed);
+  await screen.findByRole("feed", { name: "Conversation with Scout" });
+  spade.store("c-scout", {
+    type: "computer_handed_back",
+    text: "They had it for about 3 minutes. They used your terminal.",
+    data: ["new: notes/plan.md", "went to: https://example.com/account"],
+  });
+  const note = await within(screen.getByRole("feed")).findByRole("note");
+  expect(note.textContent).toContain("They had it for about 3 minutes. They used your terminal.");
+  const changed = within(note).getByText("What changed");
+  // Closed at first, and the names are never links.
+  expect(changed.closest("details")?.open).toBe(false);
+  await userEvent.click(changed);
+  expect(
+    within(within(note).getByRole("list", { name: "What changed" }))
+      .getAllByRole("listitem")
+      .map((item) => item.textContent),
+  ).toEqual(["new: notes/plan.md", "went to: https://example.com/account"]);
+  expect(within(note).queryByRole("link")).toBeNull();
+});

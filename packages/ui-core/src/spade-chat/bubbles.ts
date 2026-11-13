@@ -60,6 +60,8 @@ export type SpadeBubble =
   | { kind: "remembered"; key: string; note: SpadeRememberedNote }
   /** Web search had nothing set up: a quiet line that opens Settings › Spade › Web search. */
   | { kind: "search-setup"; key: string }
+  /** The person handed the computer back: one quiet line, its names behind a disclosure. */
+  | { kind: "handback"; key: string; text: string; data: readonly string[] }
   /** `name`: the tool it asks to use, for `spadeApprovalSentence` with the bot's name. */
   | {
       kind: "ask";
@@ -109,6 +111,10 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
       inputs = true;
       onlyBeats = false;
       hold(held, entry.key, entry.files);
+    }
+    if (entry.kind === "handback") {
+      bubbles.push({ kind: "handback", key: entry.key, text: entry.text, data: entry.data });
+      continue;
     }
     if (entry.kind === "cap") {
       pushBot(bubbles, held, {

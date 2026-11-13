@@ -15,6 +15,7 @@ import { formatElapsed } from "@ace/ui-core/time";
 import { Link } from "@tanstack/react-router";
 import { memo, useEffect, useId, useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
+import { Disclosure } from "@/components/ui/disclosure.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useSeconds } from "@/lib/time.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
@@ -276,6 +277,30 @@ const Bubble = memo(function Bubble(props: {
             <FileChips paths={item.paths} onOpen={props.onOpenFile} first />
           </div>
         </BotRow>
+      );
+    case "handback":
+      // The person handed the computer back: Spade's narration as one quiet line, and the names
+      // it involved (files, addresses) as plain text behind a disclosure, never as links.
+      return (
+        <div role="note" className="flex flex-col items-center gap-1 text-center">
+          <p className="max-w-[80%] text-xs text-muted-foreground wrap-anywhere">{item.text}</p>
+          {item.data.length > 0 && (
+            <Disclosure
+              summary="What changed"
+              summaryClassName="text-xs"
+              className="flex max-w-[80%] flex-col items-center"
+            >
+              <ul
+                aria-label="What changed"
+                className="mt-1 flex flex-col gap-0.5 font-mono text-xs text-muted-foreground wrap-anywhere"
+              >
+                {item.data.map((line, index) => (
+                  <li key={`${index}:${line}`}>{line}</li>
+                ))}
+              </ul>
+            </Disclosure>
+          )}
+        </div>
       );
     case "remembered":
       return (
