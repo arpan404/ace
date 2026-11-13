@@ -293,3 +293,52 @@ it("an agent folds a foldable simulator, sees its posture, and a phone that does
   expect(phone.json).toMatchObject({ code: "not_supported" });
   expect(h.service.states().find((state) => state.device.id === android)?.posture).toBeUndefined();
 });
+
+it("a sim_start stopped while it takes the device starts nothing more on it", async () => {
+  const fake = await fakeSimService();
+  onTestFinished(() => fake.close());
+  const registry = new ToolRegistry({ scheduler: { after: () => () => {} } });
+  devicesToolkit(fake.service).register(registry);
+  const credentials = new CredentialRegistry(() => "c".repeat(64));
+  onTestFinished(() => credentials.close());
+  const lease = credentials.issue(
+    {
+      sessionId: "sim-tools",
+      threadId: ThreadId.parse("thread-1"),
+      agentId: AgentId.parse("agent-1"),
+      capabilities: ["devices"],
+    },
+    new AbortController().signal,
+  );
+  // The call is stopped (a person took over) just as the device is claimed.
+  const stop = new AbortController();
+  const claim = fake.service.claimForAgent.bind(fake.service);
+  let finished = Promise.resolve();
+  fake.service.claimForAgent = async (...args) => {
+    const claimed = await claim(...args);
+    stop.abort();
+    return claimed;
+  };
+  const sent: string[] = [];
+  const request = fake.service.request.bind(fake.service);
+  fake.service.request = (operation, actor) => {
+    sent.push(operation.op);
+    const answer = request(operation, actor);
+    finished = answer.then(
+      () => {},
+      () => {},
+    );
+    return answer;
+  };
+  const result = await registry.call(
+    "sim_start",
+    { simId: ios, boot: true },
+    lease.principal,
+    stop.signal,
+  );
+  expect(result.isError).toBe(true);
+  await finished;
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(sent).not.toContain("start");
+  expect(sent).not.toContain("boot");
+});
