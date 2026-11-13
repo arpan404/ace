@@ -121,4 +121,10 @@ struct PushedAlerts: @unchecked Sendable {
         defaults.set(Array(ids.suffix(Self.capacity)), forKey: Self.key)
     }
     func contains(_ id: String) -> Bool { defaults?.stringArray(forKey: Self.key)?.contains(id) ?? false }
+    /// The alerts shown from a push after `id`, oldest first; empty when `id` wasn't pushed.
+    func after(_ id: String) -> Set<String> {
+        let ids = defaults?.stringArray(forKey: Self.key) ?? []
+        guard let index = ids.firstIndex(of: id) else { return [] }
+        return Set(ids[(index + 1)...])
+    }
 }

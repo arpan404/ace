@@ -640,8 +640,8 @@ private final class FakeCenter: NotificationCenterPort, @unchecked Sendable {
         let wanted = Set(identifiers)
         remove(pushes.filter { wanted.contains($0.value.alert) || wanted.contains($0.value.standsFor) }.keys)
     }
-    func withdrawPushed(standingFor thread: String, except alert: String) {
-        remove(pushes.filter { $0.value.standsFor == thread && $0.value.alert != alert }.keys)
+    func withdrawPushed(standingFor thread: String, keep: Set<String>) {
+        remove(pushes.filter { $0.value.standsFor == thread && !keep.contains($0.value.alert) }.keys)
     }
     /// What `AceNotificationService` does with a push while ace is closed: shows the alert under
     /// APNs' identifier and notes it in `PushedAlerts`.
@@ -670,7 +670,7 @@ private final class HeldCenter: NotificationCenterPort, @unchecked Sendable {
     }
     func release() { lock.withLock { let held = gate; gate = nil; return held }?.resume() }
     func withdraw(_ identifiers: [String]) { lock.withLock { for id in identifiers { shown.removeValue(forKey: id) } } }
-    func withdrawPushed(standingFor thread: String, except alert: String) {}
+    func withdrawPushed(standingFor thread: String, keep: Set<String>) {}
 }
 private struct FakeAuthorizer: NotificationAuthorizer {
     func status() async -> NotificationCoordinator.Permission { .allowed }

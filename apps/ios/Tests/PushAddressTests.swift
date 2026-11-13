@@ -104,7 +104,7 @@ private final class Center: NotificationCenterPort, @unchecked Sendable {
     var posted: [AlertContent] { lock.withLock { posts } }
     func post(_ content: AlertContent) async { lock.withLock { posts.append(content) } }
     func withdraw(_ identifiers: [String]) {}
-    func withdrawPushed(standingFor thread: String, except alert: String) {}
+    func withdrawPushed(standingFor thread: String, keep: Set<String>) {}
 }
 private struct Authorizer: NotificationAuthorizer {
     var allowed = true
