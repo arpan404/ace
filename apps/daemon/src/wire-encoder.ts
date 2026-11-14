@@ -1,5 +1,6 @@
 import type { ServerMessage, DeliveryEvent } from "@ace/protocol";
 import type { PluginServerMessage } from "@ace/protocol/plugins";
+import type { SuitServerMessage } from "@ace/protocol/suits";
 import { EventEncodings } from "./event-encodings.ts";
 
 /** One encoder per server. Weak keys cannot retain disconnected threads or past batches. */
@@ -40,7 +41,7 @@ export class WireEncoder {
   eventBytes(event: DeliveryEvent): number {
     return this.encodings.bytes(event);
   }
-  encode(message: ServerMessage | PluginServerMessage): string {
+  encode(message: ServerMessage | PluginServerMessage | SuitServerMessage): string {
     if (message.type !== "events") return JSON.stringify(message);
     const encoded = message.events.map((event) => this.event(event));
     return `${eventsPrefix(message)}${encoded.join(",")}]}`;

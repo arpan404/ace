@@ -128,6 +128,8 @@ export interface Services {
   cursorHosts?: CursorHostSlots;
   cursorAccounts?: ReturnType<typeof bindCursorSdk>;
   plugins: PluginService;
+  /** The Suit library (ADR 0150). */
+  suits?: import("../suits/library.ts").SuitLibrary;
   preparePlugins(provider: Provider, root: string): ReturnType<typeof preparePluginSession>;
   launchPlugins(
     provider: Provider,

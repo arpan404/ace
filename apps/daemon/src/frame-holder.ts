@@ -1,5 +1,6 @@
 import type { ServerMessage } from "@ace/protocol";
 import type { PluginServerMessage } from "@ace/protocol/plugins";
+import type { SuitServerMessage } from "@ace/protocol/suits";
 
 /** How long a streamed delta may wait for company before its frame goes. */
 export const frameHoldMs = 16;
@@ -11,7 +12,7 @@ export const heldFrameBytes = 64 * 1024;
  * events made entirely of streamed text. Anything a person or a request waits on (approvals,
  * interactions, status, errors, acks, replies) goes at once, taking what waits before it.
  */
-export function mayHold(message: ServerMessage | PluginServerMessage): boolean {
+export function mayHold(message: ServerMessage | PluginServerMessage | SuitServerMessage): boolean {
   return message.type === "events" && message.events.every(isDelta);
 }
 

@@ -8,6 +8,8 @@ import type { MaintenanceGate } from "@ace/service";
 import { accessHttp } from "./access-http.ts";
 import { attachmentsHttp } from "./attachments-http.ts";
 import { iconsHttp } from "./icons-http.ts";
+import { suitsHttp } from "./suits/http.ts";
+import { webOriginAllowlist } from "./web-origins.ts";
 import { machineCallsHttp } from "./machines/http.ts";
 import { transfersHttp } from "./transfers/http.ts";
 import { previewHttp } from "./preview-http.ts";
@@ -72,6 +74,9 @@ export function httpChains(
       if (options.externalMcp?.tailscale(request, response)) return;
       next(request, response);
     };
+  // A Suit's scene and assets, by their URL's own grant (`suits/urls.ts`).
+  const origins = webOriginAllowlist(options.webOrigins);
+  const suits = (next: Handler): Handler => suitsHttp(() => options.suits, origins, next);
   const local = httpServer(
     // `<daemon-endpoint>/mcp` (contract, "Finding the daemon"): the same MCP handler as its own
     // listener, for clients such as Spade that know only the daemon's address. Loopback only.
@@ -87,14 +92,16 @@ export function httpChains(
             options,
             auth,
             false,
-            previewHttp(
-              preview,
-              accessHttp({
-                ...access,
-                authenticate: auth.localBearer.bind(auth),
-                maintenance,
-                ...(options.shutdown ? { shutdown: options.shutdown } : {}),
-              }),
+            suits(
+              previewHttp(
+                preview,
+                accessHttp({
+                  ...access,
+                  authenticate: auth.localBearer.bind(auth),
+                  maintenance,
+                  ...(options.shutdown ? { shutdown: options.shutdown } : {}),
+                }),
+              ),
             ),
           ),
         ),
@@ -120,9 +127,11 @@ export function httpChains(
                 options,
                 auth,
                 true,
-                previewHttp(
-                  preview,
-                  accessHttp({ ...access, authenticate: auth.deviceBearer.bind(auth) }),
+                suits(
+                  previewHttp(
+                    preview,
+                    accessHttp({ ...access, authenticate: auth.deviceBearer.bind(auth) }),
+                  ),
                 ),
               ),
             ),
