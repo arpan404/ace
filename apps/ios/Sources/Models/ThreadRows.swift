@@ -87,6 +87,8 @@ struct BlockRow: Codable, Sendable, Equatable {
             var meta: String = ""
             /// The paired machine it runs on, when that is another one.
             var machine: String = ""
+            /// That machine's host id, to open the child there; empty when unknown.
+            var machineHost: String = ""
             /// Its second line: what it does now, waits on, failed with or found.
             var detail: String = ""
             /// "live", "result", "human", "failed" or empty.

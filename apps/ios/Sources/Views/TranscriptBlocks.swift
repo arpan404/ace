@@ -40,7 +40,16 @@ struct BlockView: View {
     @Bindable var block: BlockModel
     let thread: ThreadModel
     let links: TranscriptLinks
+    @Environment(\.openElsewhere) private var openElsewhere
+    /// Why a subagent on another machine couldn't open just now.
+    @State private var away: String?
     var body: some View {
+        content
+            .alert("Can't open this subagent", isPresented: Binding(get: { away != nil }, set: { if !$0 { away = nil } })) {
+                Button("OK", role: .cancel) { away = nil }
+            } message: { Text(away ?? "") }
+    }
+    @ViewBuilder private var content: some View {
         let row = block.row
         switch row.kind {
         case "work": WorkBlockView(row: row, blockId: block.id, thread: thread, steps: links.steps, openMedia: links.openMedia, openMessage: links.openMessage)
@@ -101,7 +110,11 @@ struct BlockView: View {
         }
     }
     private func open(_ entry: BlockRow.Agents.Entry) {
-        if !entry.threadId.isEmpty { links.openThread(entry.threadId) }
+        // A thread ace delegated to another machine lives there: it opens on that machine or not
+        // at all, never as a thread of this one.
+        if !entry.machine.isEmpty, !entry.threadId.isEmpty, let openElsewhere {
+            away = openElsewhere(entry.machineHost, entry.threadId, entry.machine)
+        } else if !entry.threadId.isEmpty { links.openThread(entry.threadId) }
         else if !entry.agentId.isEmpty { links.openAgent(entry) }
         else { links.openAgents?() }
     }

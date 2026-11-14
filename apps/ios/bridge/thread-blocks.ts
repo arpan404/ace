@@ -171,6 +171,8 @@ function agentRow(store: ThreadSource, entry: SubagentEntry, fresh: boolean) {
     result: preview(entry.result ?? "", 512),
     meta: preview(subagentMeta(entry) ?? "", 128),
     machine: preview(entry.machine ?? "", 128),
+    /** That machine's host id, so the phone opens the child there; empty when unknown. */
+    machineHost: entry.machineHost ?? "",
     detail: preview(detail ?? "", 256),
     detailKind: kind ?? "",
     ...elapsedRow(subagentElapsed({ ...entry, running: subagentRunning(entry.state) }, fresh)),
