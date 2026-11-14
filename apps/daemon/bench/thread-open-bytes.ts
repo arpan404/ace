@@ -191,10 +191,8 @@ for (const [label, items] of [
   const list = wire(scope);
   const listWithReads = wire(scope, undefined, undefined, phone);
   const first = list[0];
-  const listed =
-    first?.type === "snapshot" && first.view.kind === "threads"
-      ? rows.filter((thread) => Object.hasOwn(first.view.threads, thread))
-      : [];
+  const view = first?.type === "snapshot" && first.view.kind === "threads" ? first.view : undefined;
+  const listed = view ? rows.filter((thread) => Object.hasOwn(view.threads, thread)) : [];
   let requests = 0;
   for (const thread of listed) {
     const request = { type: "thread.readState", requestId: `read-${thread}`, threadId: thread };

@@ -81,15 +81,16 @@ function open(store: Store, threadId: ThreadView["thread"]["id"], tail?: Snapsho
 
 /** What a client holds after paging older items in from the snapshot's cursor. */
 function pageIn(store: Store, view: ThreadView): string[] {
-  let order = [...view.itemOrder];
+  const pages: string[][] = [[...view.itemOrder]];
+  const held = new Set(view.itemOrder);
   let before = view.itemsBefore;
   while (typeof before === "number") {
     const page = store.readBoundedItemPage(view.thread.id, before, 50, 1024 * 1024);
-    const held = new Set(order);
-    order = [...page.items.map((item) => item.id).filter((id) => !held.has(id)), ...order];
+    pages.unshift(page.items.map((item) => item.id).filter((id) => !held.has(id)));
+    for (const item of page.items) held.add(item.id);
     before = page.itemsBefore;
   }
-  return order;
+  return pages.flat();
 }
 
 it("a small-tail open carries the whole status and the newest items, and pages give the rest", () => {
