@@ -180,6 +180,7 @@ function pinnedOnce(
       settled = true;
       clearTimeout(deadline);
       options.signal?.removeEventListener("abort", abort);
+      lease.ended?.removeEventListener("abort", ended);
       // A failed request's socket is destroyed with it; only a whole answer leaves it reusable.
       lease.release(answer);
       if (error) reject(error);
@@ -217,6 +218,15 @@ function pinnedOnce(
     }, options.timeoutMs);
     deadline.unref();
     options.signal?.addEventListener("abort", abort, { once: true });
+    // The pairing's connections ended (unpaired, re-paired, shut down): a call still waiting for
+    // a connection was never sent; one in flight is lost with its connection.
+    const ended = () => {
+      request.destroy();
+      finish(
+        assigned ? lost() : new MachineNotSent("offline", undefined, "Machine call never sent"),
+      );
+    };
+    lease.ended?.addEventListener("abort", ended, { once: true });
     request.on("socket", (socket) => {
       assigned = true;
       // A kept-open connection is already up: what is written to it may reach the machine.
@@ -238,6 +248,10 @@ function pinnedOnce(
     // After the error listener: destroying an aborted request reports through it.
     if (options.signal?.aborted) {
       abort();
+      return;
+    }
+    if (lease.ended?.aborted) {
+      ended();
       return;
     }
     request.on("response", (response) => {

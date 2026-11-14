@@ -157,9 +157,13 @@ async function busyMachine(slowMs: number, slow: (asked: MachineCall) => boolean
         : undefined,
     (_request, response) => response.writeHead(404).end(),
   );
+  const sockets = new Set<TLSSocket>();
   const listener = sniListener({
     tls: identity,
-    requests: handler,
+    requests: (request, response) => {
+      sockets.add(request.socket as TLSSocket);
+      handler(request, response);
+    },
     delay: systemDeliveryRuntime.delay,
     log: () => {},
   });
@@ -167,6 +171,7 @@ async function busyMachine(slowMs: number, slow: (asked: MachineCall) => boolean
   cleanups.push(() => listener.close());
   return {
     arrived,
+    sockets,
     profile: {
       id: "5b0f3f4e-8f3a-4b8e-9d3c-2f6a1c7e9b10",
       name: "studio",
@@ -521,3 +526,77 @@ test("a read sent again on a fresh connection keeps the call's own deadline", as
   // Never much past the caller's own 1 s, however the time was spent.
   expect(Date.now() - started).toBeLessThan(1300);
 });
+
+/** A pool whose timers the test can count, to show nothing is left running. */
+function countedPool() {
+  const live = new Set<object>();
+  const connections = new MachineConnections({
+    schedule: (ms, run) => {
+      const handle = {};
+      live.add(handle);
+      const timer = setTimeout(() => {
+        live.delete(handle);
+        run();
+      }, ms);
+      return () => {
+        live.delete(handle);
+        clearTimeout(timer);
+      };
+    },
+  });
+  cleanups.push(() => connections.close());
+  return { connections, live };
+}
+
+const followUp: MachineCall = {
+  op: "message",
+  threadId: ThreadId.parse("child-1"),
+  requestId: "follow-up",
+  text: "Run the tests again",
+  delivery: "queue",
+};
+
+for (const [ending, end] of [
+  ["unpaired", (connections: MachineConnections) => connections.retain([])],
+  ["shut down", (connections: MachineConnections) => connections.close()],
+] as const)
+  test(`a call queued for a machine ${ending} never reaches it, and nothing is left open`, async () => {
+    const target = await busyMachine(1500);
+    const { connections, live } = countedPool();
+    const long = Array.from({ length: 6 }, () =>
+      machineRequest(
+        target.profile,
+        { origin, call: browserCall },
+        { timeoutMs: 10_000, connections },
+      ).catch((error: unknown) => error),
+    );
+    await expect.poll(() => target.arrived.length).toBe(6);
+    const queued = machineRequest(
+      target.profile,
+      { origin, call: followUp },
+      { timeoutMs: 10_000, connections },
+    ).catch((error: unknown) => error);
+    end(connections);
+    // The queued message fails at once as never sent; the calls in flight fail as lost.
+    const started = Date.now();
+    expect(await queued).toBeInstanceOf(MachineNotSent);
+    expect(Date.now() - started).toBeLessThan(500);
+    for (const failure of await Promise.all(long)) {
+      expect(failure).toBeInstanceOf(MachineFailure);
+      expect((failure as MachineFailure).kind).toBe("disconnected");
+    }
+    // Long after the calls would have finished, the message still never arrived.
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    expect(target.arrived.map((entry) => entry.op)).not.toContain("message");
+    expect([...target.sockets].every((socket) => socket.destroyed)).toBe(true);
+    expect(live.size).toBe(0);
+    // Nothing can be sent through the ended pool's pairing again without a new pool entry.
+    if (ending === "shut down") {
+      const after = await machineRequest(
+        target.profile,
+        { origin, call: followUp },
+        { timeoutMs: 2000, connections },
+      ).catch((error: unknown) => error);
+      expect(after).toBeInstanceOf(MachineNotSent);
+    }
+  });
