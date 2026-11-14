@@ -253,6 +253,59 @@ table, including timed-out trials and the ranking cache.
   most 8 MiB on the normal lane, 64 KiB on the priority lane), then `u32 BE JSON length`, the
   JSON message in UTF-8, then an optional binary payload (the rest of the frame).
 - **Exit.** ace-media exits within 1 s of stdin closing.
+- **As built in M7** (`native/media/crates/ace-media`: the pure `engine`, `auth`, `secret` and
+  `probe`, and the I/O in `shell`).
+  - **Sockets.** The control and ingest sockets are `m<pid>c.sock` and `m<pid>i.sock` in
+    `init.runtimeDir`, removed at exit. ace-media refuses (exit 1) a runtime directory that is a
+    symlink, is owned by another user or isn't mode 0700, and binds its sockets under a 0177
+    umask, so they are never reachable by anyone else. A path longer than `sun_path` allows is
+    a start failure. The control socket keeps accepting after both lanes are up and closes
+    every later connection after its hello, unanswered; at most 8 connections may be sending a
+    hello at once.
+  - **Grant order.** Grants on the normal lane arrive with non-decreasing `issued` (one FIFO, one
+    monotonic sequence); one older than a grant already seen is refused as `revoked`. So a
+    revocation is forgotten once a later grant arrives. Past 4,096 outstanding revocations the
+    oldest is dropped and every grant at or below its `issued` is refused (fail closed).
+  - **Closed ids.** `connection.close`, `relay.close`, revocations and expiry remember the closed
+    connection and stream ids for the process's lifetime, and a grant naming one is refused
+    (`unknown-connection`) before any ticket is stored or key imported. Past 65,536 remembered
+    ids ace-media exits 1, so the restart ends every connection.
+  - **Limits.** 256 open sources and 65,536 handles (`source.status ended` with reason
+    `source-limit`); 1,024 connections (a refused `media.ticket` gets `connection.closed` with
+    reason `limit`), 4,096 viewers (logged) and 1,024 relay streams (`relay.failed` `limit`).
+    Outbound lanes hold at most 32 MiB (normal) and 1 MiB (priority) of queued bytes; past
+    that, or on a failed write, ace-media exits 1. Neither lane ever waits for the other.
+  - **Producers before their hello.** At most 64 producer connections, 16 of them without an
+    accepted hello; more are closed at accept. A connection has 2 s from accept (the WebSocket
+    handshake included) to send its hello, and may send only what a hello needs: the hello
+    frame's header announces its size, so a larger first frame is refused unread, and a
+    WebSocket client may send 8 KiB of upgrade request and one hello message. The token is
+    read into wiped buffers on every path. A shared buffer inside the WebSocket library can't
+    be wiped from outside; it is reused for the next message.
+  - **Exit codes.** 0 after stdin EOF or `shutdown`; 2 when the first message isn't a valid `init`
+    or any normal-lane frame is invalid; 1 when a socket lane drops or a socket can't be bound.
+  - **Secrets.** Tickets and ingest tokens live in one locked 64 KiB slab (2,048 slots), compared
+    in constant time and wiped when used, closed or revoked; a full slab refuses the grant. The
+    lane secret has a locked page of its own until both lanes are up.
+  - **Ingest status.** `source.open` reports `starting`; the first unit `playing`; a producer
+    connection that closes without an end frame `retrying` with `attempts`; an end frame `ended`.
+    Tokens are single use, so a producer that reconnects needs the daemon to reopen the source.
+    The origins ace-media must read itself (`simulator`, `scrcpy`, `emulator-frames`) report
+    `ended` with reason `reader-unavailable` until their readers land, so the daemon keeps them.
+  - **Not built yet, failing at once so the daemon falls back:** `still.take` (`still.failed`
+    `stills-unavailable`, F2), `relay.dial` (`relay.failed` `relay-unavailable`, D2), and
+    `record.start` (`record.failed` `recorder-unavailable`, F1). The recorder seam is wired: a
+    recording's frames pass through `media-core::privacy` and `record.epochs` is answered with
+    `epochs.applied` either way. `listen` is accepted and its payload wiped (D1);
+    `ready.listen.loopbackPort` is 0.
+  - **Probe.** One trial today, M5's CPU path (`jpeg-decode`, `jpeg-encode`, `scale` on `cpu`,
+    never `hardware`). Backends add a `probe::Trial`; trials run on threads of their own and
+    `ready` waits at most the 2 s trial deadline.
+  - **Windows.** The lanes on named pipes with a current-user ACL are not built; the binary exits
+    1 there.
+  - **Acceptance.** `bun run check:media` builds the binary and runs `@ace/media`'s supervisor
+    process test against it. `cargo run --release -p ace-media --example ingest` measures the
+    ingest budget: 0.37 % of a core for 60 fps of 33 KB units on the Mac (0.04 % idle).
 
 ### Types
 
@@ -673,7 +726,9 @@ ace-media.
   `KILL_ON_JOB_CLOSE`.
 - **Effects of a restart** (ADR 0147 §5.7):
   - every media connection closes;
-  - sources reopen, with `source.status: retrying` until their first unit;
+  - sources reopen, and the daemon shows them as retrying until their first unit. ace-media holds
+    no state across restarts, so the new process reports a replayed source `starting`, then
+    `playing` at its first unit;
   - recordings continue in a new part;
   - pending stills fail and fall back to their legacy path.
 - **Revocation deadline** (ADR 0147 §5.6).
@@ -975,7 +1030,7 @@ depend on it.
 
 | PR                                | Needs          | Owns                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Tests                                                                                                                                                                                                                                                                                                                                           | Bench and acceptance                                                                                                   |
 | --------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| **M7** ace-media core             | M1, M5, M6, M8 | `crates/ace-media` (runtime, normal and priority lanes with lane authentication, ingest socket/pipe, loopback WS ingest with origin and token checks, sources, epochs, health, idle, revocation bookkeeping with `issued`)                                                                                                                                                                                                                                                                                                                                    | one process test: `@ace/media` supervises the real binary; a fake producer streams; kill -9 → restart within backoff, sources replayed, `source.status` retrying then playing; the priority lane answered within 50 ms p99 while the normal lane is saturated                                                                                   | idle RSS ≤ 15 MB; ingest 60 fps 33 KB units ≤ 1 % of a core                                                            |
+| **M7** ace-media core             | M1, M5, M6, M8 | `crates/ace-media` (runtime, normal and priority lanes with lane authentication, ingest socket/pipe, loopback WS ingest with origin and token checks, sources, epochs, health, idle, revocation bookkeeping with `issued`)                                                                                                                                                                                                                                                                                                                                    | one process test: `@ace/media` supervises the real binary; a fake producer streams; kill -9 → restart within backoff, sources replayed, `source.status` starting then playing; the priority lane answered within 50 ms p99 while the normal lane is saturated                                                                                   | idle RSS ≤ 15 MB; ingest 60 fps 33 KB units ≤ 1 % of a core                                                            |
 | **B1** VideoToolbox backend       | M5             | `media-vt` (encode, decode with destination size, Metal scale/convert via `CVMetalTextureCache` with `VTPixelTransferSession`/vImage only as CPU fallback, VT JPEG decode and encode, transcode, `CVPixelBufferPool`s); its `probe()` (one bounded availability trial, cancellable)                                                                                                                                                                                                                                                                           | encode H.264/HEVC at 1280×800 and 2560×1600, forced keyframe, rate change in place, decode back to size; transcode (decode → scale → encode) with no CPU copy; JPEG decode and encode report `hardware` exactly when their sessions report hardware use; the probe reports `zeroCopy` truthfully (a test forces a CPU copy and expects `false`) | `bench/encode --backend vt`: 2560×1600 HEVC ≥ 100 fps, 1080p H.264 ≥ 240 fps; Mac numbers in "Acceleration acceptance" |
 | **B2** Media Foundation backend   | M5             | `media-mf` (D3D11 video processor, hardware MFTs with D3D11 input, DXVA decode, hardware MJPEG decode/encode MFTs where present, WIC as CPU fallback, texture rings); its `probe()` (one bounded availability trial, cancellable)                                                                                                                                                                                                                                                                                                                             | the same as B1 on a GPU machine; on the Windows VM: the software MFT path and no MFT reported; staging readbacks counted and 0 on the hardware path                                                                                                                                                                                             | VM: 1080p30 software H.264 ≥ 30 fps (labelled fallback); GPU numbers in "Acceleration acceptance"                      |
 | **B3** VA-API backend + bitstream | M5             | `media-vaapi` (encode, VPP, DMA-BUF import, VA JPEG decode and encode, surface pools), `media-bitstream`; its `probe()` (one bounded availability trial, cancellable)                                                                                                                                                                                                                                                                                                                                                                                         | SPS/PPS/VPS writer vectors; on an Intel or AMD host: encode → decode round trip from an imported DMA-BUF with no CPU copy; VA JPEG decode/encode where the driver lists them; with `libva` absent: reports no backend, no crash                                                                                                                 | Linux Intel/AMD numbers in "Acceleration acceptance"                                                                   |
