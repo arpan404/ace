@@ -321,6 +321,26 @@ describe("checkpoints hold the bytes on disk", () => {
       expect(await service.listCheckpoints({ repo, threadId: "sparse-mode" })).toHaveLength(1);
     });
 
+  test("a cached sparse checkout answer is read again once the config changes", async () => {
+    const repo = await repository({ "included/a.txt": "a\n", "other/b.txt": "b\n" });
+    const warm = new GitService();
+    try {
+      // Config files this old are trusted, so the first answer ("not sparse") is cached.
+      await new Promise((resolve) => setTimeout(resolve, 2_500));
+      await warm.createCheckpoint({ worktree: repo, threadId: "sparse-cache", label: "warm" });
+      await git(repo, "config", "core.sparseCheckout", "true");
+      await expect(
+        warm.createCheckpoint({ worktree: repo, threadId: "sparse-cache", label: "sparse" }),
+      ).rejects.toMatchObject({ code: "unsupported_repository" });
+      await git(repo, "config", "core.sparseCheckout", "false");
+      await expect(
+        warm.createCheckpoint({ worktree: repo, threadId: "sparse-cache", label: "full" }),
+      ).resolves.toMatchObject({ sequence: 2 });
+    } finally {
+      await warm.close();
+    }
+  });
+
   test("turning sparse checkout off lets the next snapshot run", async () => {
     const repo = await repository({ "included/a.txt": "a\n", "other/b.txt": "b\n" });
     await git(repo, "sparse-checkout", "init", "--cone");
