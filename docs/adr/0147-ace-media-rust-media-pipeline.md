@@ -11,6 +11,7 @@ Status: accepted. Date: 2026-11-14. Decided by: the owner.
   is deleted.
 
 Amends:
+
 - [ADR 0088](0088-remote-browser-view-v2.md): who carries, paces and records video;
 - [ADR 0011](0011-screen-and-computer-use.md) and [ADR 0049](0049-linux-screen-helper.md):
   screens are encoded as video in the helpers;
@@ -19,6 +20,7 @@ Amends:
 - [ADR 0110](0110-cloudflare-relay.md): a `media` relay ticket.
 
 Builds on:
+
 - [ADR 0002](0002-local-cli-providers.md): ace is never hosted;
 - [ADR 0123](0123-spade-runs-as-its-own-service.md);
 - [ADR 0125](0125-validate-at-trust-boundaries.md);
@@ -44,6 +46,7 @@ carrying H.264, HEVC, VP9 or VP8, paced by each viewer's acks. A measurement on 
   The helper encodes a JPEG on the CPU, the daemon base64s it into a second Chrome of
   10 processes, and that Chrome decodes it and encodes H.264. That is two lossy steps at
   30–60 % of a core per stream.
+
 - **Pixel transcodes in the daemon's process.** `Bun.Image`, and sharp before it, takes about
   10 ms per frame. It was half of the daemon's busy samples in the 2026-11-02 profile, and frame
   buffers drove a 1 GB footprint.
@@ -204,6 +207,7 @@ daemon.
    It then zeroes its copies. From then on ace-media alone encrypts and decrypts the stream.
    Because the daemon decrypted only the frames it pulled, nothing in flight is lost or seen
    twice.
+
 4. **Rekeying** continues Noise's `REKEY` every 2^20 frames per direction, counted from the
    stream's start, exactly as `apps/relay/src/channel.ts` does. Test transcripts from the
    TypeScript implementation check the Rust one byte for byte.
