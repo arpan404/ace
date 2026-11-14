@@ -1179,6 +1179,21 @@ export class Store {
     }
     return events;
   }
+  /** How many of a thread's events lie in (afterSeq, throughSeq], counting at most `limit`. */
+  countThreadEvents(
+    threadId: ThreadId,
+    afterSeq: number,
+    throughSeq: number,
+    limit: number,
+  ): number {
+    this.flushLiveWrites();
+    // Index only (events_thread_seq): no payload is read.
+    return Number(
+      this.statement(
+        "SELECT count(*) AS n FROM (SELECT 1 FROM events WHERE thread_id = ? AND seq > ? AND seq <= ? LIMIT ?)",
+      ).get(threadId, afterSeq, throughSeq, limit)?.n,
+    );
+  }
   readSearchPage(options: { afterSeq: number; limit: number; maxBytes: number }) {
     this.flushLiveWrites();
     return this.searchReplay.read(options, this.headSeq());

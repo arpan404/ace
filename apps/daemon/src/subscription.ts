@@ -28,7 +28,7 @@ export type SubscriptionStore = Pick<
   | "sidebarPage"
   | "readEvents"
 > &
-  Partial<Pick<Store, "replaySafe" | "sidebarRowRevision" | "sidebarToken">>;
+  Partial<Pick<Store, "replaySafe" | "sidebarRowRevision" | "sidebarToken" | "countThreadEvents">>;
 
 const fallbackPlacements = new WeakMap<object, SidebarPlacement>();
 /**
@@ -197,16 +197,24 @@ export function subscribe(
       if (head > afterSeq) {
         // A list is within replayLimit of head already; a thread reads one past the limit of its
         // own events, so more than the limit shows as overflow and gets a snapshot.
-        const events = store
-          .readEvents({
-            afterSeq,
-            limit: replayLimit + 1,
-            byteLimit: replayFrameBytes * 2,
-            ...(scope.kind === "thread" ? { threadId: scope.threadId } : {}),
-          })
-          .filter((event) => event.seq <= head);
+        // Too many events shows from the index alone, before any payload is read.
+        const overflows =
+          scope.kind === "thread" &&
+          store.countThreadEvents !== undefined &&
+          store.countThreadEvents(scope.threadId, afterSeq, head, replayLimit + 1) > replayLimit;
+        const events = overflows
+          ? []
+          : store
+              .readEvents({
+                afterSeq,
+                limit: replayLimit + 1,
+                byteLimit: replayFrameBytes * 2,
+                ...(scope.kind === "thread" ? { threadId: scope.threadId } : {}),
+              })
+              .filter((event) => event.seq <= head);
         const bytes = events.reduce((total, event) => total + encoder.eventBytes(event), 0);
         if (
+          overflows ||
           events.length > replayLimit ||
           bytes > replayFrameBytes * 2 ||
           events.some((event) => encoder.eventBytes(event) > replayFrameBytes)
