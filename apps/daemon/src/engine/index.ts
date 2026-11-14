@@ -1195,6 +1195,11 @@ export class Engine {
   heldInterrupted(id: ThreadId): boolean {
     return heldInterrupted(this.repo, id, Boolean(this.actors.get(id)?.session));
   }
+  /** Whether account limits must stay fresh: a thread waits on one, or a session is open. */
+  limitsMatter(): boolean {
+    for (const actor of this.actors.values()) if (actor.session) return true;
+    return this.repo.queue.limited().length > 0;
+  }
   /** A fresh reading says account `instanceId` has room: threads its limit held carry on. */
   accountRecovered(instanceId: string): void {
     if (this.closing || this.repo.store.isHistoryWriting()) return;

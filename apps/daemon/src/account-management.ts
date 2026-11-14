@@ -41,6 +41,10 @@ import { consumeAccountReset, type ConsumeReset } from "./account-reset.ts";
 import type { AccountResetOutcome } from "@ace/protocol/accounts";
 import { defaultUsagePorts, refreshDeclaredLimits } from "./declared-limits.ts";
 import type { ModelCatalog } from "@ace/models";
+import { LimitsSchedule } from "./account-limits-schedule.ts";
+
+/** How often the limits schedule checks whether to re-read every account's limits. */
+export const limitsRefreshMs = 5 * 60_000;
 
 interface AuthTerminal {
   cancelTimer?: () => void;
@@ -97,6 +101,8 @@ export interface AccountManagementOptions {
   usagePorts?: UsagePorts | undefined;
   /** An account whose limits couldn't be read. */
   limitsError?(instance: string, error: unknown): void;
+  /** Whether a thread waits on an account's limit or an agent works now: limits stay fresh. */
+  limitsBusy?(): boolean;
 }
 
 /** Host-local account changes. Provider auth output has no persistence or replay path. */
@@ -107,8 +113,17 @@ export class AccountManagement {
   private closed = false;
   private resetting = new Set<string>();
   private restorations = new Set<Promise<void>>();
+  /** When limits are re-read; `refreshLimits` itself always reads. */
+  readonly limits: LimitsSchedule;
   constructor(options: AccountManagementOptions) {
     this.options = options;
+    this.limits = new LimitsSchedule({
+      intervalMs: limitsRefreshMs,
+      now: options.now,
+      read: () => this.refreshLimits(),
+      busy: () => options.limitsBusy?.() ?? false,
+      quotas: () => options.registry.list().map(({ quota }) => quota),
+    });
     this.manager = new TerminalManager({
       ...options.terminal,
       dependencies: {
@@ -157,7 +172,7 @@ export class AccountManagement {
         void refresh.catch(() => {}).finally(() => this.restorations.delete(refresh));
       }
     // Limits as they stand now, not only as the last session left them.
-    const limits = this.refreshLimits();
+    const limits = this.limits.refresh();
     this.restorations.add(limits);
     void limits.catch(() => {}).finally(() => this.restorations.delete(limits));
   }
@@ -608,6 +623,7 @@ export class AccountManagement {
     }
   }
   async disconnect(owner: string): Promise<void> {
+    this.limits.readerGone(owner);
     await Promise.all(
       [...this.terminals]
         .filter(([, entry]) => entry.owner === owner)
@@ -705,6 +721,7 @@ export class AccountManagement {
 
   async close(): Promise<void> {
     this.closed = true;
+    await this.limits.stop();
     await Promise.all([...this.terminals].map(([id, entry]) => this.stop(id, entry.owner)));
     await Promise.allSettled(this.restorations);
     await this.manager.closeAll();
