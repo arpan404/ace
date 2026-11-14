@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { extname } from "node:path";
+import { sceneRuntimeScript } from "@ace/suit-scene-runtime";
 import type { SuitLibrary } from "./library.ts";
 import { suitsPathPrefix } from "./urls.ts";
 
@@ -16,15 +17,27 @@ export const sceneCsp =
 /** Files are data: an SVG or HTML among the assets can't run anything. */
 const fileCsp = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox";
 
-/** The scene's page: one full-window canvas (`#scene`) and the Suit's scene.js. */
+/**
+ * ace's scene runtime, served beside every Suit's scene.js under the same grant. A Suit's own
+ * files are only scene.js and assets/, so this name never shadows one of them.
+ */
+export const sceneRuntimeFile = "scene-runtime.js";
+const runtimeBytes = Buffer.from(sceneRuntimeScript);
+
+/**
+ * The scene's page: the runtime first (it makes the one canvas and speaks to ace), then the
+ * Suit's scene.js, which calls `ace.scene({...})`. Both load same-origin, as `script-src 'self'`
+ * asks.
+ */
 export const scenePage = `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer">
-<style>html,body{margin:0;height:100%;overflow:hidden;background:transparent}canvas{display:block;width:100%;height:100%}</style>
-</head><body><canvas id="scene"></canvas><script src="scene.js"></script></body></html>
+<style>html,body{margin:0;height:100%;overflow:hidden;background:transparent}</style>
+</head><body><script src="${sceneRuntimeFile}"></script><script src="scene.js"></script></body></html>
 `;
 
+const jsType = "text/javascript; charset=utf-8";
 const types: Record<string, string> = {
-  ".js": "text/javascript; charset=utf-8",
+  ".js": jsType,
   ".woff2": "font/woff2",
   ".woff": "font/woff",
   ".ttf": "font/ttf",
@@ -80,19 +93,27 @@ export function suitsHttp(
       return;
     }
     const scene = target.file === "scene.html";
-    const file = await suits.file(target.id, target.hash, scene ? "scene.js" : target.file);
+    const runtime = target.file === sceneRuntimeFile;
+    // The page and the runtime exist only for a Suit whose current version has a scene.
+    const file = await suits.file(
+      target.id,
+      target.hash,
+      scene || runtime ? "scene.js" : target.file,
+    );
     if (!file) {
       response.statusCode = 404;
       response.end();
       return;
     }
-    const body = scene ? Buffer.from(scenePage) : file.bytes;
+    const body = scene ? Buffer.from(scenePage) : runtime ? runtimeBytes : file.bytes;
     response.setHeader("Content-Security-Policy", scene ? sceneCsp : fileCsp);
     response.setHeader(
       "Content-Type",
       scene
         ? "text/html; charset=utf-8"
-        : (types[extname(file.path).toLowerCase()] ?? "application/octet-stream"),
+        : runtime
+          ? jsType
+          : (types[extname(file.path).toLowerCase()] ?? "application/octet-stream"),
     );
     // The path names one version of the Suit, so what it serves never changes.
     response.setHeader("Cache-Control", "private, max-age=31536000, immutable");

@@ -26,6 +26,8 @@ import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { createAppRouter } from "./router.ts";
 import { SuitLibraryProvider, suitTransportFor } from "@/theme/suits/suit-library.tsx";
 import type { SuitTransport } from "@/theme/suits/suit-transport.ts";
+import { useDaemonConnection } from "@/boot/connection.tsx";
+import { directOrigin } from "@/boot/main-machine.ts";
 
 /** A provider CLI's sign-in terminal: its code and renderer load when someone opens one. */
 const AuthTerminal = deferredComponent(() => loadAuthTerminal().then((m) => m.default));
@@ -93,9 +95,11 @@ export function App(props: {
   suits?: SuitTransport | undefined;
 }) {
   useEffect(() => () => disposePanelServices(props.client), [props.client]);
+  // The Suit's scene and fonts load from the daemon's own HTTP routes, when this page can dial it.
+  const daemonOrigin = directOrigin(useDaemonConnection().endpoint);
   const suitTransport = useMemo(
-    () => props.suits ?? suitTransportFor(props.client),
-    [props.suits, props.client],
+    () => props.suits ?? suitTransportFor(props.client, daemonOrigin),
+    [props.suits, props.client, daemonOrigin],
   );
   const [queryClient] = useState(() => props.queryClient ?? createQueryClient());
   const [router] = useState(() => {

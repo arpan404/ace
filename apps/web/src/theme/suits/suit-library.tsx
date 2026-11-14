@@ -37,10 +37,18 @@ const noSuits: readonly SuitSummary[] = [];
 
 const versionKey = (summary: SuitSummary) => `${summary.id}\u0000${summary.contentHash}`;
 
-/** The transport for this client; tests pass their own. */
-export function suitTransportFor(client: ClientApi): SuitTransport | undefined {
-  const channel = daemonSuitChannel(client);
-  return channel ? suitTransport(channel) : undefined;
+/**
+ * The transport for this client; tests pass their own. `origin` is the daemon's HTTP origin
+ * when this page may dial it, for the Suit's scene and fonts.
+ */
+export function suitTransportFor(client: ClientApi, origin: string | undefined): SuitTransport {
+  return suitTransport(daemonSuitChannel(client, origin));
+}
+
+/** A read detail and the socket it was read over; its URLs work only for that socket's run. */
+interface Read {
+  detail: SuitDetail;
+  socket: number | undefined;
 }
 
 export function SuitLibraryProvider(props: {
@@ -54,7 +62,9 @@ export function SuitLibraryProvider(props: {
   // With no channel to the daemon there are no Suits, and the theme shows.
   const summaries = transport ? heard : noSuits;
   const [failed, setFailed] = useState(false);
-  const [details, setDetails] = useState<ReadonlyMap<string, SuitDetail>>(new Map());
+  const [details, setDetails] = useState<ReadonlyMap<string, Read>>(new Map());
+  // The daemon socket the list last came over: a detail read over an older one is read again.
+  const [socket, setSocket] = useState<number | undefined>(undefined);
   const [wanted, setWanted] = useState<ReadonlySet<string>>(new Set());
 
   // Each version is read once; a read in flight is never started twice.
@@ -63,9 +73,10 @@ export function SuitLibraryProvider(props: {
     reading.current = new Set();
     if (!transport) return;
     return transport.watch(
-      (suits) => {
+      (suits, over) => {
         setFailed(false);
         setHeard(suits);
+        setSocket(over);
       },
       () => {
         setFailed(true);
@@ -79,16 +90,36 @@ export function SuitLibraryProvider(props: {
     setWanted((known) => (known.has(key) ? known : new Set(known).add(key)));
   }, []);
 
-  // An agent's preview shows until it ends; a keep or revert becomes this device's setting.
+  // An agent's preview shows until it ends; a keep becomes this device's setting, and its undo
+  // puts back what this device had, which only this device knows.
+  const setting = useRef(appearance.suit);
+  useEffect(() => {
+    setting.current = appearance.suit;
+  }, [appearance.suit]);
+  const undos = useRef(new Map<string, { kept: SuitId; before: SuitId | null }>());
   useEffect(() => {
     if (!transport) return;
     return transport.watchActive((active) => {
-      if (active.preview) {
-        setPreview(active.suitId);
-        return;
+      switch (active.kind) {
+        case "preview":
+          setPreview(active.suitId);
+          return;
+        case "none":
+          setPreview(undefined);
+          return;
+        case "keep":
+          setPreview(undefined);
+          undos.current.set(active.keepId, { kept: active.suitId, before: setting.current });
+          update({ suit: active.suitId });
+          return;
+        case "restore": {
+          const undo = undos.current.get(active.keepId);
+          undos.current.delete(active.keepId);
+          // The person picked something else since: theirs stays.
+          if (undo && setting.current === undo.kept) update({ suit: undo.before });
+          return;
+        }
       }
-      setPreview(undefined);
-      update({ suit: active.suitId });
     });
   }, [transport, update]);
 
@@ -99,8 +130,16 @@ export function SuitLibraryProvider(props: {
   const toRead = useMemo(() => {
     const keys = new Set(wanted);
     if (pickedKey) keys.add(pickedKey);
-    return [...keys].filter((key) => !details.has(key));
-  }, [wanted, pickedKey, details]);
+    return [...keys].filter((key) => {
+      const read = details.get(key);
+      return !read || read.socket !== socket;
+    });
+  }, [wanted, pickedKey, details, socket]);
+
+  // Reads over an older socket are dropped as they land; their URLs are dead.
+  useEffect(() => {
+    reading.current = new Set();
+  }, [socket]);
 
   useEffect(() => {
     if (!transport || !summaries) return;
@@ -112,16 +151,17 @@ export function SuitLibraryProvider(props: {
       transport.read(summary.id).then(
         (detail) => {
           if (reading.current !== inFlight) return;
-          setDetails((known) => new Map(known).set(versionKey(detail.summary), detail));
+          setDetails((known) => new Map(known).set(versionKey(detail.summary), { detail, socket }));
         },
         () => {
           // An unreadable Suit stays unapplied; a new version in the list is read afresh.
         },
       );
     }
-  }, [transport, summaries, toRead]);
+  }, [transport, summaries, toRead, socket]);
 
-  const pickedDetail = pickedKey ? details.get(pickedKey) : undefined;
+  // Until a detail is read again over a new socket, the older read keeps the look on screen.
+  const pickedDetail = pickedKey ? details.get(pickedKey)?.detail : undefined;
   useEffect(() => {
     reportSuits({ summaries, detail: pickedDetail, preview });
   }, [reportSuits, summaries, pickedDetail, preview]);
@@ -130,7 +170,7 @@ export function SuitLibraryProvider(props: {
     () => ({
       summaries,
       failed,
-      detail: (summary) => details.get(versionKey(summary)),
+      detail: (summary) => details.get(versionKey(summary))?.detail,
       want,
       preview,
     }),

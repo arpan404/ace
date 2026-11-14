@@ -43,6 +43,8 @@ export function bindLiveServices(serverOptions: ServerOptions, services: Service
     "threadFiles",
     "handler",
     "plugins",
+    "suits",
+    "suitLooks",
     "browser",
     "context",
     "settings",

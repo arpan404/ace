@@ -12,7 +12,7 @@ import {
   type FleetOperation,
   type FleetOutcome,
 } from "@ace/protocol";
-import type { ChannelEndpoint } from "@/boot/main-machine.ts";
+import { accessOrigin, type ChannelEndpoint } from "@/boot/main-machine.ts";
 import type { AccessGaps } from "./access-gaps.ts";
 import type { Pairing } from "./backend.ts";
 
@@ -25,12 +25,7 @@ export interface AccessSource extends AccessGaps {
   revoke(deviceId: string): Promise<void>;
 }
 
-/** The daemon's HTTP origin for its WebSocket address: same host and port, http(s). */
-export function accessOrigin(socketUrl: string): string {
-  const url = new URL(socketUrl);
-  url.protocol = url.protocol === "wss:" ? "https:" : "http:";
-  return `${url.origin}/`;
-}
+export { accessOrigin } from "@/boot/main-machine.ts";
 
 /** What a pairing URL carries in its fragment: the one-time code, also typed by hand. */
 export function pairing(response: { url: string; expiresAt: number }): Pairing {

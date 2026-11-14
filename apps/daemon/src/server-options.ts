@@ -157,6 +157,7 @@ export interface ServerOptions {
   plugins?: { handle(input: unknown): Promise<PluginResponse> };
   /** The Suit library (ADR 0150): socket requests, change pushes and its asset URLs. */
   suits?: import("./suits/library.ts").SuitLibrary;
+  suitLooks?: import("./suits/looks.ts").SuitLooks;
   browser?: BrowserService;
   userBrowser?: import("./user-browser.ts").UserBrowserService;
   review?: ReviewPort;
