@@ -92,7 +92,7 @@ describe.skipIf(!executablePath)("an unwatched browser in ace's Chrome", () => {
     const [width, height, r, g, b] = after as number[];
     expect(width).toBeGreaterThan(1000);
     expect(height).toBeGreaterThan(500);
-    expect([r > 240, (g ?? 255) < 16, (b ?? 255) < 16]).toEqual([true, true, true]);
+    expect([(r ?? 0) > 240, (g ?? 255) < 16, (b ?? 255) < 16]).toEqual([true, true, true]);
   }, 60_000);
 
   it("the shown tab nobody watches freezes when idle, and runs again for the agent", async () => {

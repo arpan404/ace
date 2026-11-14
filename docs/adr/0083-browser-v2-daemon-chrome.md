@@ -203,7 +203,10 @@ A thread's browser holds ordered tabs on whichever backend serves it.
   the live capture is attached to its page. A viewer arriving wakes it at once, and watching
   counts as use of the tab. The desktop's views keep the old rule (its active view is shown on
   screen) and have no rest step. Reopening tabs never fails because one page cannot load; that
-  page shows the browser's error page and keeps its address.
+  page shows the browser's error page and keeps its address. A tab's rest, freeze, discard and
+  wake run one at a time in its own lifecycle turn, each change decided from the tab's use at
+  that moment, so nothing ever runs on a page half-way into a change. Commands, the person's
+  input and dropped files, recordings and print requests all wake the tab first.
 - **Restore**: tabs are kept in the daemon's SQLite `browser_tabs` table (thread, tab id,
   position, URL, title, label, opener, last activity) behind the `BrowserTabStore` port. A
   restarted daemon reopens them lazily, on the first viewer or tool call, with the same tab ids;
