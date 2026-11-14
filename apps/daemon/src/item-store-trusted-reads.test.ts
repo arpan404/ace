@@ -228,14 +228,16 @@ it("a snapshot never adds chunks to a body another connection completed while it
   expect(other.prepare("SELECT COUNT(*) AS n FROM item_text_chunks").get()?.n).toBe(0);
 });
 
+/** A text delta for the streaming message. */
+const delta = (append: string) =>
+  ({ type: "item.delta", itemId: liveId, agentId: owner, field: "text", append }) as const;
+
 it("an item streamed across two builds reads its older chunks validated and its newer as stored", () => {
   const { open } = setup();
   const older = open("older build");
   const workspace = older.createWorkspace("/repo", "Repo", 1);
   const thread = createDevThread(older, workspace).id;
   older.appendEvents(thread, [{ type: "item.created", item: streaming("live", "message") }]);
-  const delta = (append: string) =>
-    ({ type: "item.delta", itemId: liveId, agentId: owner, field: "text", append }) as const;
   for (const append of ["one ", "two "]) older.appendEvents(thread, [delta(append)]);
   const newer = open("newer build");
   for (const append of ["three ", "four"]) newer.appendEvents(thread, [delta(append)]);
