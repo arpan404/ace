@@ -5,27 +5,13 @@ import type { Frame, ProviderSession, Translator } from "@ace/engine-api";
 import type { ThreadId, EventPayload, Capabilities } from "@ace/protocol";
 import { z } from "zod";
 import { isStoreRetry } from "../store-busy.ts";
-import { ProviderPayload } from "@ace/provider-kit/payload";
+import { frameEnvelopeError } from "./frame-envelope.ts";
 import { boundedJson } from "@ace/provider-kit/ipc";
 import type { EngineLimits } from "./limits.ts";
 import type { EngineRepository } from "./repository.ts";
 
 const CursorSend = z.object({ kind: z.literal("send") });
 
-const frameSchema = z.object({
-  seq: z.number().int().nonnegative(),
-  t: z.number().nonnegative(),
-  dir: z.enum(["send", "recv", "stderr", "note"]),
-  channel: z.string(),
-  data: z.unknown(),
-  payload: z.custom<ProviderPayload>(ProviderPayload.is).optional(),
-  usageAccount: z
-    .object({
-      id: z.string().min(1).max(512),
-      billingMode: z.enum(["api", "subscription", "unknown"]),
-    })
-    .optional(),
-});
 const sdkBody = z.object({ kind: z.string(), body: z.unknown() });
 export interface EngineClock {
   now(): number;
@@ -292,15 +278,14 @@ export class ThreadActor {
   frame(frame: Frame, generation: number): Promise<void> {
     if (this.stopped || generation !== this.generation) return Promise.resolve();
     if (this.poisoned) return Promise.reject(new Error("Provider frame failed to commit"));
-    const result = frameSchema.safeParse(frame);
-    if (!result.success) {
+    const malformed = frameEnvelopeError(frame);
+    if (malformed !== undefined) {
       this.enqueue(() => {
-        throw result.error;
+        throw new Error(`Provider frame envelope is malformed: ${malformed}`);
       });
       return this.flush();
     }
-    const { payload, ...metadata } = result.data;
-    const decoded: Frame = { ...metadata, ...(payload ? { payload } : {}) };
+    const decoded = frame;
     let bytes: number;
     try {
       const certificate = decoded.payload;
