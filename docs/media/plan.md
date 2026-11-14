@@ -435,6 +435,11 @@ H   ..   payload
 - **Shared codec.** The codec lives in `media-wire::frame`, and in TypeScript in
   `packages/media/src/frame.ts`, which is portable (no Node built-ins) so the video extension's
   bundle includes it. Vectors live in `vectors/frame/`.
+- **Producer stamp.** A producer that needs its own frame header rebuilt after egress adds a
+  header extension: u16 tag 1, u16 length 24, then u64 its frame sequence, f64 its capture
+  time (Unix ms) and f64 its exact scale (`packages/media/src/producer-stamp.ts`). ace-media
+  passes extensions through untouched. The Mac screen helper sends it on every unit, so the
+  daemon's legacy consumers get the same frame header and packet the helper socket carries.
 - **Restarts.** The ingest socket path and WebSocket port change on every ace-media start.
   Producers learn them from the daemon with each `stream.configure` or capture start, so a
   restart never leaves a producer writing to a dead address.
@@ -1449,3 +1454,46 @@ hardware, zeroCopy, state, maxWidth, maxHeight}`. `step` is one of `encode`, `de
   devices). Moving each of them onto `MediaRecording` with a tee, the browser recording onto
   the tab's video encode, the playback checks in Chrome and Windows' player, and the 1080p60
   CPU bench remain for F1's follow-up.
+
+## E3 notes
+
+- **Built: the Mac screen.** `stream.configure` carries `ingest: {socket, token}` (the token
+  base64) and `epoch`; each request is the whole state, so an absent `ingest` means the helper
+  socket. While `ingest` is set the helper writes its H.264 units to ace-media as MediaFrames
+  with the producer stamp; JPEG stills stay on the helper socket. The helper stamps each
+  picture with the epoch it holds at the ScreenCaptureKit callback (0 before any is given),
+  asks ScreenCaptureKit for `420v` at the encode size while streaming video (BGRA for stills),
+  and leaves the VideoToolbox session as it was. Its hello's `encoders` comes from one
+  bounded trial frame (NV12 IOSurface into a hardware H.264 session) at the first hello.
+- **Switching paths.** The helper picks the path per unit under one lock, so a switch has an
+  exact boundary: its reply says `switched` and `boundary`, the last sequence the previous
+  path took, and the new path starts at a keyframe. The daemon's `PathMerge`
+  (`packages/screen/src/media-path-merge.ts`) holds the new path's frames until the previous
+  path has delivered the boundary, 500 ms at most, and drops a frame older than one already
+  handed on. `IngestSources` keeps a source's egress until its producer has switched away
+  (`EgressRouter.open` takes a per-source route for that), so units already in ace-media still
+  arrive. A failed ingest connection (ace-media killed) sends video back to the helper socket
+  at once, said with a `stream.ingest` event; the measured fallback on the M4 Max was
+  milliseconds, well inside the 2 s bound.
+- **Wiring.** `IngestSources` (`packages/media/src/ingest-sources.ts`) opens each producer's
+  source with a fresh token while its route says `ace-media`, points the producer at the
+  ingest socket once ace-media reports the source `starting`, reopens it after the producer's
+  connection ends (three times, then the daemon until the route changes), and holds a
+  `need()` while the settings want ace-media, so it restarts after a crash. `MediaProducers`
+  wires it with the supervisor, `RouteWatch` and `EgressRouter`; the daemon builds it on a Mac
+  when it finds a binary and hands its sources to the screen manager. `media.encode` is a
+  stored setting, `legacy` by default. `builtRouteCapabilities(platform)` lists `screen` for
+  ingest on macOS only.
+- **Tests.** `media-ingest.native.process.test.ts` (real helper, real ace-media, the screen
+  manager's legacy viewer: headers, epochs, four route flips with no hole or repeat in the
+  helper's sequence, `kill -9` back to the helper socket within 2 s and onto the restarted
+  process) and `helper-identity.native.process.test.ts` (the built app's designated
+  requirement equals `identity.txt`) run from `check:media` on macOS; the first only with
+  `ACE_SCREEN_INTEGRATION=1`, since it shows a fixture window.
+- **Not built yet.** The device producers: ace-media's readers for serve-sim, scrcpy and the
+  emulator frame file (`source.open` for those origins still ends `reader-unavailable`), the
+  Simulator transcode wired from `media-vt::VtTranscoder`, `--encode-frames` to ingest, and
+  `packages/devices` opening those sources. Until then devices stay on the daemon's path
+  whatever `media.encode` says. Epochs for screens are the source's opening one until F1's
+  wiring issues them, and no acceleration or bench numbers are reported yet (A1, and the
+  Mac rows of "Acceleration acceptance").
