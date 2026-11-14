@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-
 use std::io::{self, Write};
 
 const VERSION: &str = match option_env!("ACE_MEDIA_VERSION") {
@@ -7,29 +6,32 @@ const VERSION: &str = match option_env!("ACE_MEDIA_VERSION") {
     None => env!("CARGO_PKG_VERSION"),
 };
 
-fn run(argument: Option<&str>, output: &mut impl Write) -> io::Result<()> {
-    if argument == Some("--version") {
-        writeln!(output, "{VERSION}")?;
+fn main() {
+    if std::env::args().nth(1).as_deref() == Some("--version") {
+        let _ = writeln!(io::stdout().lock(), "{VERSION}");
+        return;
     }
-    Ok(())
+    // Before any secret can arrive: no payload in a panic message, no core dump.
+    media_noise::install_payload_free_panic_hook();
+    ace_media::os::harden();
+    std::process::exit(run());
 }
 
-fn main() -> io::Result<()> {
-    run(std::env::args().nth(1).as_deref(), &mut io::stdout().lock())
+#[cfg(unix)]
+fn run() -> i32 {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build();
+    match runtime {
+        Ok(runtime) => runtime.block_on(ace_media::shell::run(VERSION)),
+        Err(_) => 1,
+    }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn version_flag_prints_only_the_version_and_normal_launch_stays_silent() -> io::Result<()> {
-        let mut output = Vec::new();
-        run(Some("--version"), &mut output)?;
-        assert_eq!(output, format!("{VERSION}\n").as_bytes());
-        output.clear();
-        run(None, &mut output)?;
-        assert!(output.is_empty());
-        Ok(())
-    }
+/// The Windows lanes (named pipes with a current-user ACL) are not built yet.
+#[cfg(not(unix))]
+fn run() -> i32 {
+    eprintln!("ace-media: this platform is not supported yet");
+    1
 }
