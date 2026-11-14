@@ -88,51 +88,40 @@ enum Origin {
     Next,
 }
 
-/// What the coordinator does about a replacement subscription.
-#[derive(Debug, PartialEq, Eq)]
-enum Retry {
-    No,
-    /// Open a replacement, if none is open.
-    Open,
-    /// End the open replacement and open another.
-    Replace,
-}
-
 /// Getting back to a usable IDR after records were dropped. The active subscription asks once,
 /// then drops until a replacement takes over, so the request stays open until one does: a
-/// replacement that drops its own IDR, times out or ends is followed by another.
+/// replacement that drops its own IDR, times out or ends is followed by another. Every opening
+/// goes through [`Recovery::attempt`], at most once per [`RETRY_EVERY`], so a serve-sim that
+/// accepts and ends connections at once is not hammered. Time is given, never read.
 #[derive(Default)]
 struct Recovery {
     open: bool,
+    last: Option<Instant>,
 }
 
 impl Recovery {
-    fn gap(&mut self, origin: Origin) -> Retry {
-        match (origin, self.open) {
-            (Origin::Next, _) => {
-                self.open = true;
-                Retry::Replace
-            }
-            (Origin::Active, true) => Retry::No,
-            (Origin::Active, false) => {
-                self.open = true;
-                Retry::Open
-            }
-        }
+    /// Records were dropped by `origin`; true when that subscription (a replacement) must end.
+    fn gap(&mut self, origin: Origin) -> bool {
+        self.open = true;
+        origin == Origin::Next
     }
 
-    /// The open replacement timed out or ended before its IDR.
-    fn next_failed(&self) -> Retry {
-        if self.open { Retry::Open } else { Retry::No }
+    /// Whether to open a replacement now: recovering, none open, and the last attempt long
+    /// enough ago. An early one is deferred: the next call past the limit says yes.
+    fn attempt(&mut self, now: Instant, next_open: bool) -> bool {
+        let due = self
+            .last
+            .is_none_or(|last| now.saturating_duration_since(last) >= RETRY_EVERY);
+        if !self.open || next_open || !due {
+            return false;
+        }
+        self.last = Some(now);
+        true
     }
 
     /// A replacement's IDR went out: the stream is whole again.
     fn started(&mut self) {
         self.open = false;
-    }
-
-    fn open(&self) -> bool {
-        self.open
     }
 }
 
@@ -282,8 +271,6 @@ struct Coordinator {
     /// Each subscription's decoder configuration: each opens with its own description.
     translators: HashMap<u32, Translator>,
     recovery: Recovery,
-    /// When a replacement was last tried while recovering.
-    tried: Option<Instant>,
     #[cfg(target_os = "macos")]
     transcode: Option<super::sim_transcode::Transcode>,
     reported: Option<media_wire::capability::Acceleration>,
@@ -303,7 +290,6 @@ impl Coordinator {
             streams: HashMap::new(),
             translators: HashMap::new(),
             recovery: Recovery::default(),
-            tried: None,
             #[cfg(target_os = "macos")]
             transcode: None,
             reported: None,
@@ -452,29 +438,18 @@ impl Coordinator {
         }
     }
 
-    /// Acts on what recovery decided.
-    fn retry(&mut self, retry: Retry) {
-        match retry {
-            Retry::No => return,
-            Retry::Replace => {
-                if let Some((id, _)) = self.next.take() {
-                    self.end(id);
-                }
-            }
-            Retry::Open => {}
-        }
-        if self.next.is_none() {
-            self.tried = Some(Instant::now());
+    /// Opens a replacement if recovery says it is time (`now` from the shell's clock).
+    fn attempt(&mut self, now: Instant) {
+        if self.recovery.attempt(now, self.next.is_some()) {
             let _ = self.subscribe();
         }
     }
 
     /// The subscription `id` gave up before its IDR (timed out or ended).
-    fn next_failed(&mut self, id: u32) {
+    fn next_failed(&mut self, id: u32, now: Instant) {
         self.next = None;
         self.end(id);
-        let retry = self.recovery.next_failed();
-        self.retry(retry);
+        self.attempt(now);
     }
 
     fn end(&mut self, id: u32) {
@@ -508,6 +483,8 @@ fn run(
         return;
     }
     loop {
+        // The shell's clock, read once per turn: the recovery decisions are given it.
+        let now = Instant::now();
         // The source must start in time, or the daemon reads serve-sim again; replacements
         // opened before the first IDR don't move the deadline.
         if coordinator.active.is_none() && coordinator.started.elapsed() >= FIRST_KEY_DEADLINE {
@@ -521,17 +498,10 @@ fn run(
             && opened.elapsed() >= KEY_DEADLINE
             && coordinator.active.is_some()
         {
-            coordinator.next_failed(id);
+            coordinator.next_failed(id, now);
         }
-        // Recovering with no replacement open (one couldn't connect): try again, not too often.
-        if coordinator.recovery.open()
-            && coordinator.next.is_none()
-            && coordinator
-                .tried
-                .is_none_or(|tried| tried.elapsed() >= RETRY_EVERY)
-        {
-            coordinator.retry(Retry::Open);
-        }
+        // A deferred or failed attempt is tried again once its turn comes.
+        coordinator.attempt(now);
         // While re-encoding, the encoder's own threads finish units between records.
         let wait = if coordinator.transcoding() {
             Duration::from_millis(4)
@@ -555,10 +525,13 @@ fn run(
                 } else {
                     None
                 };
-                if let Some(origin) = origin {
-                    let retry = coordinator.recovery.gap(origin);
-                    coordinator.retry(retry);
+                if let Some(origin) = origin
+                    && coordinator.recovery.gap(origin)
+                    && let Some((next, _)) = coordinator.next.take()
+                {
+                    coordinator.end(next);
                 }
+                coordinator.attempt(now);
                 Ok(())
             }
             Ok(Message::Configure(encodes)) => coordinator.configure(&encodes),
@@ -573,7 +546,7 @@ fn run(
                     Err(format!("ended: {reason}"))
                 } else {
                     if coordinator.next.is_some_and(|(next, _)| next == id) {
-                        coordinator.next_failed(id);
+                        coordinator.next_failed(id, now);
                     } else {
                         coordinator.end(id);
                     }

@@ -89,20 +89,38 @@ fn a_close_or_drain_is_taken_before_video_already_queued() {
 
 #[test]
 fn recovery_from_dropped_records_stays_open_until_a_replacement_starts() {
+    let t0 = Instant::now();
+    let at = |ms: u64| t0 + Duration::from_millis(ms);
     let mut recovery = Recovery::default();
-    // Nothing dropped: a replacement that times out is simply given up.
-    assert_eq!(recovery.next_failed(), Retry::No);
-    // The active subscription dropped records: a replacement is opened.
-    assert_eq!(recovery.gap(Origin::Active), Retry::Open);
-    // Its first IDR didn't fit either: it is replaced in turn, not ignored.
-    assert_eq!(recovery.gap(Origin::Next), Retry::Replace);
-    // The replacement never sent an IDR in time, or ended: another one is opened.
-    assert_eq!(recovery.next_failed(), Retry::Open);
-    assert_eq!(recovery.next_failed(), Retry::Open);
-    // A further gap from the active one while a replacement is open changes nothing.
-    assert_eq!(recovery.gap(Origin::Active), Retry::No);
+    // Nothing dropped: nothing to open.
+    assert!(!recovery.attempt(at(0), false));
+    // The active subscription dropped records: a replacement opens at once.
+    assert!(!recovery.gap(Origin::Active));
+    assert!(recovery.attempt(at(0), false));
+    // One is open: no other.
+    assert!(!recovery.attempt(at(300), true));
+    // Its first IDR didn't fit either: it is ended, not ignored, and replaced in turn.
+    assert!(recovery.gap(Origin::Next));
+    assert!(recovery.attempt(at(300), false));
+    // A further gap from the active one changes nothing.
+    assert!(!recovery.gap(Origin::Active));
     // A replacement started: recovery is over.
     recovery.started();
-    assert_eq!(recovery.next_failed(), Retry::No);
-    assert_eq!(recovery.gap(Origin::Active), Retry::Open);
+    assert!(!recovery.attempt(at(2_000), false));
+}
+
+#[test]
+fn a_serve_sim_that_keeps_ending_replacements_is_retried_at_most_every_250_ms() {
+    let t0 = Instant::now();
+    let mut recovery = Recovery::default();
+    recovery.gap(Origin::Active);
+    // Each replacement is accepted and ended at once, every millisecond for a second.
+    let opened = (0..1_000)
+        .filter(|ms| recovery.attempt(t0 + Duration::from_millis(*ms), false))
+        .count();
+    assert_eq!(opened, 4, "at 0, 250, 500 and 750 ms");
+    // A replacement that drops its IDR is ended at once, but the next waits its turn.
+    assert!(recovery.gap(Origin::Next));
+    assert!(!recovery.attempt(t0 + Duration::from_millis(800), false));
+    assert!(recovery.attempt(t0 + Duration::from_millis(1_000), false));
 }
