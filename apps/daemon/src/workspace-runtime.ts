@@ -268,14 +268,10 @@ export class WorkspaceRuntime {
         "SELECT path FROM workspaces WHERE NOT EXISTS(SELECT 1 FROM workspace_unregistered WHERE workspace_id=workspaces.id) ORDER BY id",
       )
       .all();
-    for (const row of rows) {
-      const path = String(row.path);
-      try {
-        await this.git.heal(path);
-      } catch (error) {
-        failed(path, error);
-      }
-    }
+    await this.git.healAll(
+      rows.map((row) => String(row.path)),
+      failed,
+    );
   }
   /**
    * Self-healing for checkout moves: settle every move a restart interrupted, or whose failure
