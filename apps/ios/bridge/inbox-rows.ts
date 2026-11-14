@@ -1,5 +1,7 @@
 import {
   emptyInboxLine,
+  eventSnoozes,
+  snoozeLabel,
   emptyTabTitle,
   listOrderOf,
   threadsTabs,
@@ -86,6 +88,17 @@ export function inboxRow(thread: InboxThread, context: RowContext) {
     /** Places a move is worked out from (`inbox-place.ts`): among pinned, and sorted by hand. */
     pinOrder: entry.pinned === true ? (entry.pinOrder ?? null) : null,
     listOrder: listOrderOf(entry),
+    /**
+     * The snoozes that end on an event and fit this thread now ("Until it needs you", "Until the
+     * PR changes"), offered beside the layout's time presets; `id` is the action's preset.
+     */
+    snoozeEvents: eventSnoozes(entry).map((choice) => ({
+      id: choice.wake,
+      label: choice.label,
+      detail: choice.detail,
+    })),
+    /** Why an event snooze sleeps ("until it needs you"); null for a timed one or none. */
+    snoozeWake: entry.snoozeWake ? (snoozeLabel(entry, context.now) ?? null) : null,
     /** False when the thread never settles by itself. */
     autoSettle: entry.autoSettle !== false,
     /**

@@ -66,8 +66,8 @@ struct InboxView: View {
             .outsideAccessPrompt(inbox)
             .modifier(InboxRename(inbox: inbox, key: $renamingRow))
             .confirmationDialog("Snooze until", isPresented: Binding(get: { snoozing != nil }, set: { if !$0 { snoozing = nil } }), presenting: snoozing) { key in
-                ForEach(inbox.merged.snooze) { option in
-                    Button(option.label) { Task { _ = await inbox.client(key.machineId)?.snooze(key.id, preset: option.id) } }
+                ForEach(SnoozeChoice.list(times: inbox.merged.snooze, row: inbox.row(key))) { choice in
+                    Button(choice.label) { Task { _ = await inbox.client(key.machineId)?.snooze(key.id, preset: choice.id) } }
                 }
             }
             .newThreadEntry(inbox: inbox, composing: $composing, project: composeProject ?? projectFilter) { key in openThread(key) }

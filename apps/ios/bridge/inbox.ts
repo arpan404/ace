@@ -5,7 +5,13 @@ import {
   type PendingSend,
   type SidebarSource,
 } from "@ace/client";
-import { placeReader, settledTotal, type HomeSort, type ThreadPlace } from "@ace/ui-core";
+import {
+  eventSnoozeBackstopMs,
+  placeReader,
+  settledTotal,
+  type HomeSort,
+  type ThreadPlace,
+} from "@ace/ui-core";
 import type { ThreadListEntry } from "@ace/protocol";
 import {
   inboxNextChange,
@@ -400,7 +406,8 @@ const InboxAction = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("snooze"),
     threadId: ThreadId,
-    preset: z.enum(["hour", "tomorrow", "monday"]),
+    /** A time preset, or an event the daemon wakes it on (the row's `snoozeEvents`). */
+    preset: z.enum(["hour", "tomorrow", "monday", "needs_you", "pr"]),
   }),
   z.object({ kind: z.literal("wake"), threadId: ThreadId }),
   /** A title the person typed; surrounding space goes, and an empty one is refused. */
@@ -433,6 +440,15 @@ function payloadOf(action: z.infer<typeof InboxAction>, now: number): CommandPay
     case "unsettle":
       return { type: "thread.unsettle", threadId: action.threadId };
     case "snooze": {
+      // An event snooze keeps a backstop time, so nothing sleeps for good; the daemon refuses
+      // one that doesn't fit the thread.
+      if (action.preset === "needs_you" || action.preset === "pr")
+        return {
+          type: "thread.snooze",
+          threadId: action.threadId,
+          until: now + eventSnoozeBackstopMs,
+          wake: action.preset,
+        };
       const until = snoozePresets(now).find((preset) => preset.id === action.preset)?.until;
       return until === undefined
         ? undefined

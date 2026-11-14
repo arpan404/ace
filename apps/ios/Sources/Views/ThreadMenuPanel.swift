@@ -252,11 +252,9 @@ struct ThreadMenuPanel: View {
         if organizer == nil || row == nil {
             if model.canOperate, !model.inboxLayout.snooze.isEmpty {
                 Menu {
-                    ForEach(model.inboxLayout.snooze) { option in
-                        Button(option.label) {
-                            Task { if await model.snooze(thread.id, preset: option.id) { leave() } }
-                            dismiss()
-                        }
+                    SnoozeChoiceButtons(choices: SnoozeChoice.list(times: model.inboxLayout.snooze, row: model.inbox[thread.id])) { preset in
+                        Task { if await model.snooze(thread.id, preset: preset) { leave() } }
+                        dismiss()
                     }
                 } label: {
                     Label("Snooze", ace: .bellSimpleZ)

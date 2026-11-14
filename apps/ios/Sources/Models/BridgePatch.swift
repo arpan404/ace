@@ -56,6 +56,11 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     var group: String? = nil
     /// Inbox rows only: false when the thread never settles by itself.
     var autoSettle: Bool? = nil
+    /// Inbox rows only: the snoozes that end on an event and fit the thread now ("Until it
+    /// needs you", "Until the PR changes"), beside the layout's times. Nil from older bridges.
+    var snoozeEvents: [SnoozeEvent]? = nil
+    /// Inbox rows only: what an event snooze waits for ("until it needs you"); nil for a timed one.
+    var snoozeWake: String? = nil
     /// Inbox rows only: what its menus offer, in order, by the shared rules (`threadMenu`);
     /// the words are the layout's `menuLabels`. Nil from older bridges.
     var menu: [String]? = nil
@@ -76,6 +81,7 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     var startedBy: String? = nil
 
     struct Work: Codable, Sendable, Equatable { let added: Int; let removed: Int }
+    struct SnoozeEvent: Codable, Sendable, Equatable, Identifiable { let id: String; let label: String; let detail: String }
     struct LinkedPull: Codable, Sendable, Equatable { let number: Int; let state: String; let repo: String; let title: String? }
     /// The preview's first line: the sentence, what it is about, and its ink ("warning",
     /// "destructive" or "muted").
