@@ -299,15 +299,18 @@ import XCTest
         // Setup fails: the card stays with its way on.
         let card = element(app, "worktree.card")
         XCTAssertTrue(card.waitForExistence(timeout: 20))
-        XCTAssertTrue(app.buttons["worktree.continue"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["worktree.continue"].waitForExistence(timeout: 30))
         screenshot("worktree-setup-failed")
-        app.buttons.matching(NSPredicate(format: "label == %@", "Close")).firstMatch.tap()
+        // The card's own close, never New thread's.
+        app.buttons["worktree.close"].tap()
         XCTAssertTrue(app.buttons["worktree.continue"].waitForNonExistence(timeout: 10))
         // The start waits in Unsent; its row opens the same card again.
         // Picked by its words: earlier runs' starts may wait in Unsent too.
+        // Unsent sits under the fixture's pinned, needs-you and working rows: scroll to it.
         let unsent = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "unsent.", words)).firstMatch
-        XCTAssertTrue(unsent.waitForExistence(timeout: 15))
-        app.bringToMiddle(unsent)
+        XCTAssertTrue(app.waitForInbox(timeout: 15))
+        app.bringToMiddle(unsent, attempts: 40)
+        XCTAssertTrue(unsent.isHittable, "the start's Unsent row never showed")
         unsent.tap()
         XCTAssertTrue(app.buttons["worktree.continue"].waitForExistence(timeout: 10))
         screenshot("worktree-card-reopened")
@@ -319,11 +322,12 @@ import XCTest
     func testRetryRunsTheWorktreeAgainAndDontUseWorktreeOpensTheThreadOnTheLocalCheckout() {
         let app = launch()
         sendInWorktree(app, project: "setup-script", text: "Retry the setup, then go local")
-        XCTAssertTrue(app.buttons["worktree.retry"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["worktree.retry"].waitForExistence(timeout: 30))
         app.buttons["worktree.retry"].tap()
-        // It runs again, and stops at the same script again.
+        // It runs again (the fixture paces each step), then stops at the same script again.
         XCTAssertTrue(app.buttons["worktree.retry"].waitForNonExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["worktree.retry"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["worktree.cancel"].exists)
+        XCTAssertTrue(app.buttons["worktree.retry"].waitForExistence(timeout: 30))
         XCTAssertTrue(app.buttons["worktree.local"].exists)
         app.buttons["worktree.local"].tap()
         XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 30))
@@ -335,7 +339,7 @@ import XCTest
         let words = "Give these words back \(UUID().uuidString.prefix(4))"
         sendInWorktree(app, project: "setup-script", text: words)
         let back = app.buttons["worktree.back"]
-        XCTAssertTrue(back.waitForExistence(timeout: 20))
+        XCTAssertTrue(back.waitForExistence(timeout: 30))
         back.tap()
         let message = element(app, "newThread.message")
         XCTAssertTrue(message.waitForExistence(timeout: 10))

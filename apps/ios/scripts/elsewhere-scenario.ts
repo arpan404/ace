@@ -8,7 +8,8 @@ import { HostId, ThreadId } from "@ace/protocol";
  *   phone has it, so the child opens there) and one to a machine the phone isn't paired with
  *   (it says so instead of opening).
  * - project `setup-script` (`ios-setup-seed`'s): its worktree setup script fails, so a worktree
- *   start there keeps its card with Retry, Continue and Don't use worktree.
+ *   start there keeps its card with Retry, Continue and Don't use worktree. Its steps take 0.7s
+ *   each, so the card is seen running between attempts.
  */
 
 const delegated = (child: string, title: string, machine: { name: string; hostId: string }) => ({
@@ -74,6 +75,8 @@ export function seedWorktreeStops(daemon: FakeDaemon): void {
     details: { workspace: { id: "setup-script", name: "setup-script", path: "/tmp/setup-script" } },
   });
   daemon.apply("ios-setup-seed", [facts.rootAgent("claude")]);
+  // Each step takes a moment, so Retry is seen running before it stops at the script again.
+  daemon.workspace.git.paceCreation("setup-script", 700);
   daemon.workspace.git.failSetup("setup-script", [
     "$ bun install",
     "error: lockfile had changes, but lockfile is frozen",
