@@ -245,3 +245,19 @@ test("outside clients, Spade and scheduled runs start no work before machines an
   await listening;
   for (const name of workStarters) expect(state(subject, name)).toBe("ready");
 });
+
+test("agent control failing keeps machines and transfers off, and Spade and scheduled runs still start", async () => {
+  const order = daemonOrder({}, ["agentControl"]);
+  const subject = startup();
+  await subject.start(order.definitions);
+  await subject.listening(server);
+  for (const name of ["machines", "transfers", "externalMcp"]) {
+    expect(order.entered.has(name)).toBe(false);
+    expect(subject.status().find((entry) => entry.name === name)).toMatchObject({
+      state: "degraded",
+      error: `Service ${name}: Dependency agentControl is unavailable`,
+    });
+  }
+  for (const name of ["spade", "automations", "storage"])
+    expect(state(subject, name)).toBe("ready");
+});

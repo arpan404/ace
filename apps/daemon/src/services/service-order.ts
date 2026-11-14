@@ -144,15 +144,18 @@ export const serviceOrder = [
     after: ["accounts", "context", "notifications", "settings"],
   },
   {
+    // Machines attach remote cancellation, Stop and result delivery to agent control's
+    // delegation journal: without it, other machines' children here would run unpoliced.
     name: "machines",
     phase: "listener",
-    requires: ["engine"],
+    requires: ["engine", "agentControl"],
     after: ["agentControl", "settings", "browser"],
   },
   {
+    // A transferred thread's results are delivered as delegation results.
     name: "transfers",
     phase: "listener",
-    requires: ["engine"],
+    requires: ["engine", "agentControl"],
     after: ["machines", "projects", "workspaceActions", "settings", "agentControl"],
   },
   {
