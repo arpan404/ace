@@ -8,11 +8,7 @@ import XCTest
 
     func testScopesTreePagingAndALineCommentGoToTheAgent() {
         let app = launch()
-        app.revealRow("thread.ios-changes").tap()
-        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 20))
-        app.buttons["thread.menu"].tap()
-        let changes = app.threadMenuItem("thread.changes")
-        XCTAssertTrue(changes.waitForExistence(timeout: 10)); changes.tap()
+        openChanges(app)
 
         // The sheet opens on the last turn, with every scope in the title's menu.
         let scope = app.buttons["changes.scope"]
@@ -106,7 +102,8 @@ import XCTest
         capture("approved")
         app.buttons["Done"].firstMatch.tap()
 
-        // Viewed marks are kept on the phone between runs: swipe one that isn't viewed yet.
+        // Viewed marks are kept on the phone between runs: mark one that isn't viewed yet, from
+        // its long-press menu (the swipe is checked on its own below).
         let progress = app.descendants(matching: .any)["review.progress"]
         XCTAssertTrue(progress.waitForExistence(timeout: 10))
         let before = viewedCount(progress.label)
@@ -117,8 +114,10 @@ import XCTest
         let id = unviewed.identifier
         let row = app.buttons[id]
         if !row.isHittable { app.bringToMiddle(row) }
-        XCTAssertTrue(row.isHittable, "\(id) is on screen to swipe")
-        row.swipeLeft()
+        XCTAssertTrue(row.isHittable, "\(id) is on screen to mark")
+        row.press(forDuration: 1.0)
+        let mark = app.buttons.matching(NSPredicate(format: "label == 'Mark as viewed'")).firstMatch
+        XCTAssertTrue(mark.waitForExistence(timeout: 5)); mark.tap()
         let viewed = expectation(for: NSPredicate(format: "value CONTAINS 'Viewed'"), evaluatedWith: app.buttons[id])
         wait(for: [viewed], timeout: 10)
         // The review bar counts it.
@@ -154,6 +153,42 @@ import XCTest
         capture("viewed-reopened")
     }
 
+    /// On a phone Changes is a page beside Chat: a sideways swipe on a file's header must mark it,
+    /// not be taken by the swipe between the pages.
+    func testSwipingAFileHeaderMarksItViewed() {
+        let app = launch()
+        openChanges(app)
+        let scope = app.buttons["changes.scope"]
+        XCTAssertTrue(scope.waitForExistence(timeout: 20))
+        if !scope.label.contains("Uncommitted") {
+            scope.tap()
+            XCTAssertTrue(app.buttons["Uncommitted"].waitForExistence(timeout: 5)); app.buttons["Uncommitted"].tap()
+            wait(for: [expectation(for: NSPredicate(format: "label CONTAINS 'Uncommitted'"), evaluatedWith: scope)], timeout: 20)
+        }
+        let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'changes.file.' AND NOT (value CONTAINS 'Viewed')"))
+        XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 10))
+        guard let row = rows.allElementsBoundByIndex.first(where: { $0.isHittable }) else {
+            return XCTFail("no unviewed file on screen to swipe")
+        }
+        let id = row.identifier
+        row.swipeLeft()
+        let viewed = expectation(for: NSPredicate(format: "value CONTAINS 'Viewed'"), evaluatedWith: app.buttons[id])
+        wait(for: [viewed], timeout: 10)
+        XCTAssertTrue(app.buttons["changes.scope"].exists, "the swipe stayed on Changes")
+        capture("swiped-viewed")
+    }
+
+    /// The fixture's `ios-changes` thread opened at launch, then its Changes.
+    private func openChanges(_ app: XCUIApplication) {
+        let page = app.buttons["thread.page.changes"]
+        let menu = app.buttons["thread.menu"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 30), "the thread opens at launch")
+        if page.waitForExistence(timeout: 5) { page.tap(); return }
+        menu.tap()
+        let changes = app.threadMenuItem("thread.changes")
+        XCTAssertTrue(changes.waitForExistence(timeout: 10)); changes.tap()
+    }
+
     /// "3 of 7 files viewed" → 3.
     private func viewedCount(_ label: String) -> Int {
         Int(label.split(separator: " ").first ?? "") ?? -1
@@ -176,7 +211,8 @@ import XCTest
     }
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
+        app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841",
+                               "--spike-open", "ios-changes"]
         app.launch()
         return app
     }
