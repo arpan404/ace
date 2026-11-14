@@ -45,7 +45,7 @@ struct ThreadPageButtons: View {
         .buttonStyle(.plain)
         .accessibilityShowsLargeContentViewer {
             AceIcon(kind.icon, size: AceDesign.Size.navGlyph + 1)
-            Text(kind.title)
+            Text(pages.label(of: kind))
         }
         .accessibilityLabel(pages.label(of: kind))
         .accessibilityAddTraits(chosen ? [.isSelected, .isButton] : .isButton)
