@@ -5,6 +5,7 @@ import {
   defaultScheduleConfig,
   restored,
   foldCall,
+  machineBack,
   nextDue,
   planTurn,
   type CallOutcome,
@@ -140,10 +141,22 @@ function simulate(children: SimChild[], ms: number, restarts: number[] = [], sta
   };
   /** Children whose last call failed or was refused, until a call of them alone is answered. */
   const tainted = new Set<string>();
-  const pending: { at: number; ids: string[]; result: CallOutcome }[] = [];
-  const fold = (ids: string[], result: CallOutcome, now: number) => {
+  const pending: { at: number; started: number; ids: string[]; result: CallOutcome }[] = [];
+  /** When the machine last answered any call, as the shell keeps it. */
+  let answeredAt = Number.NEGATIVE_INFINITY;
+  const fold = (ids: string[], given: CallOutcome, now: number, started = now) => {
+    // A failure while nothing else there answered is the machine's (as the shell marks it).
+    const result: CallOutcome =
+      given.kind === "failed"
+        ? { kind: "failed", machineWide: answeredAt < started - 2 * POLL }
+        : given;
     const folded = foldCall(records, tracked, ids, result, now, config);
     records = folded.records;
+    if (result.kind !== "failed") {
+      answeredAt = now;
+      // The directory's recovery callback, as wired in the daemon: the machine answered.
+      records = machineBack(records, now);
+    }
     for (const id of folded.ended) trace.ended.set(id, now);
     tracked = tracked.filter((child) => !folded.ended.includes(child.id));
     if (result.kind === "answered") {
@@ -165,7 +178,8 @@ function simulate(children: SimChild[], ms: number, restarts: number[] = [], sta
       // Calls on their way when it stopped never come back.
       pending.splice(0);
     }
-    for (const call of pending.filter((entry) => entry.at <= now)) fold(call.ids, call.result, now);
+    for (const call of pending.filter((entry) => entry.at <= now))
+      fold(call.ids, call.result, now, call.started);
     pending.splice(0, pending.length, ...pending.filter((entry) => entry.at > now));
     const plan = planTurn(tracked, records, now, config);
     records = plan.records;
@@ -181,7 +195,7 @@ function simulate(children: SimChild[], ms: number, restarts: number[] = [], sta
       }
       const result = outcome(ids, byId, asks);
       if (ids.some((id) => byId.get(id)?.behaviour.kind === "times_out"))
-        pending.push({ at: now + TIMEOUT_MS, ids, result: { kind: "failed" } });
+        pending.push({ at: now + TIMEOUT_MS, started: now, ids, result: { kind: "failed" } });
       else fold(ids, result, now);
     }
   }

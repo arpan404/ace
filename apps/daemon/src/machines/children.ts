@@ -29,6 +29,7 @@ import {
   foldCall,
   nextDue,
   planTurn,
+  machineBack,
   restored,
   type CallOutcome,
   type ChildRecord,
@@ -123,6 +124,8 @@ export class MachineChildren implements RemoteChildren {
    * asked when is the scheduler's (child-schedule.ts), not this.
    */
   private reach: RetryBackoff;
+  /** When a status call to each machine was last answered, by the injected clock. */
+  private answeredAt = new Map<string, number>();
   /** Status calls on their way. */
   private running = new Set<Promise<void>>();
   /** What the scheduler remembers of each machine's children; lost on restart but `alone`. */
@@ -442,11 +445,14 @@ export class MachineChildren implements RemoteChildren {
     this.arm();
   }
   /**
-   * Another call to the machine got through. That says nothing of a child whose own read just
-   * failed, so no child's wait is cut short; only the machine's failure episode is told.
+   * Another call to the machine got through. Children whose reads failed while nothing there
+   * answered are asked again next poll; a child whose own read failed while the machine answered
+   * others keeps its wait, as the machine answering says nothing of it.
    */
   machineReachable(machine: string): void {
     this.reach.retryNow(machine);
+    const records = this.records.get(machine);
+    if (records) this.records.set(machine, machineBack(records, this.deps.now()));
   }
   /** A status call to the machine got through: its failure episode, if any, ends. */
   private reached(machine: string) {
@@ -477,6 +483,11 @@ export class MachineChildren implements RemoteChildren {
     // Settled children whose machine was unpaired: watched again once it is paired back.
     this.settledLost();
     const now = this.deps.now();
+    // A poll called directly counts as one interval after the last, as one its timer runs does.
+    if (scheduledFor === undefined) {
+      scheduledFor = Math.max(now, this.lastSetFor + this.deps.pollMs);
+      this.lastSetFor = scheduledFor;
+    }
     const calls: Promise<void>[] = [];
     for (const machine of this.ledger.watchedMachines()) {
       // Pairings that can't be read leave every child as it was, lost or not.
@@ -565,6 +576,7 @@ export class MachineChildren implements RemoteChildren {
   ): Promise<void> {
     const first = rows.get(ids[0] ?? "");
     if (!first) return;
+    const startedAt = this.deps.now();
     let outcome: CallOutcome;
     try {
       const views = await this.deps.status(
@@ -573,6 +585,7 @@ export class MachineChildren implements RemoteChildren {
         ids.map((id) => ThreadId.parse(id)),
       );
       outcome = { kind: "answered" };
+      this.answeredAt.set(machine, this.deps.now());
       this.reached(machine);
       for (const view of views) {
         const row = rows.get(view.threadId);
@@ -586,7 +599,13 @@ export class MachineChildren implements RemoteChildren {
       // The machine saying it holds no record of a child is its answer for that child; any
       // other failure is no answer. A working child stays as last seen, saying why; a settled
       // child stays settled. Neither is ever settled for want of an answer.
-      outcome = refusedNotFound(error) ? { kind: "not_found" } : { kind: "failed" };
+      // Nothing there answered since shortly before this call: the machine's failure, not the
+      // child's own.
+      const answered = this.answeredAt.get(machine) ?? Number.NEGATIVE_INFINITY;
+      const machineWide = answered < startedAt - 2 * this.deps.pollMs;
+      outcome = refusedNotFound(error) ? { kind: "not_found" } : { kind: "failed", machineWide };
+      // A refusal for a child it doesn't hold is the machine answering.
+      if (outcome.kind === "not_found") this.answeredAt.set(machine, this.deps.now());
       if (outcome.kind === "failed") this.unreached(machine, error);
       const reason = unreadReason(this.deps.label(machine), error);
       const working = ids.filter((id) => rows.get(id)?.settled === 0);

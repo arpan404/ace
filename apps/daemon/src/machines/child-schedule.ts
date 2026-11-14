@@ -48,6 +48,11 @@ export interface ChildRecord {
   failures: number;
   /** Not asked again before this, after a failure. */
   retryAt?: number;
+  /**
+   * Its last failure came while nothing else on its machine answered either: the machine's, not
+   * its own, so the machine answering again ends the wait.
+   */
+  machineWide?: boolean;
   /** It was in a call that failed or was refused with others: alone until it answers alone. */
   suspect: boolean;
   /** When it was last implicated; it is asked again, alone, at once after that. */
@@ -167,18 +172,18 @@ export function planTurn(
     .map((child) => {
       const record = records.get(child.id);
       const waiting = record !== undefined && record.failures > 0 && record.retryAt !== undefined;
-      return { child, at: dueAt(child, record, by, config), limit: waiting ? now : by };
+      return {
+        child,
+        at: dueAt(child, record, by, config),
+        limit: waiting ? now : by,
+        asked: record?.lastAskedAt ?? Number.NEGATIVE_INFINITY,
+      };
     })
     .filter(
-      (entry): entry is { child: ScheduleChild; at: number; limit: number } =>
+      (entry): entry is { child: ScheduleChild; at: number; limit: number; asked: number } =>
         entry.at !== undefined && entry.at <= entry.limit,
     )
-    .toSorted((a, b) => {
-      if (a.at !== b.at) return a.at - b.at;
-      const asked = (entry: { child: ScheduleChild }) =>
-        records.get(entry.child.id)?.lastAskedAt ?? Number.NEGATIVE_INFINITY;
-      return asked(a) - asked(b) || (a.child.id < b.child.id ? -1 : 1);
-    });
+    .toSorted((a, b) => a.at - b.at || a.asked - b.asked || (a.child.id < b.child.id ? -1 : 1));
   const calls: string[][] = [];
   let open: string[] | undefined;
   for (const { child } of due) {
@@ -243,8 +248,11 @@ export type CallOutcome =
   | { kind: "answered" }
   /** The machine refused the call: it holds no record of a child in it from this machine. */
   | { kind: "not_found" }
-  /** No answer: unreachable, lost, timed out, or refused for any other reason. */
-  | { kind: "failed" };
+  /**
+   * No answer: unreachable, lost, timed out, or refused for any other reason. `machineWide` when
+   * nothing else on the machine answered around it either.
+   */
+  | { kind: "failed"; machineWide?: boolean };
 
 export interface FoldResult {
   records: Map<string, ChildRecord>;
@@ -308,6 +316,7 @@ export function foldCall(
         ...rec,
         failures,
         retryAt: now + backoff(failures, config),
+        machineWide: outcome.kind === "failed" && outcome.machineWide === true,
         ...(outcome.kind === "not_found" ? { lastAnsweredAt: now } : {}),
       });
       // The machine saying it doesn't hold the child is its answer for it.
@@ -315,4 +324,17 @@ export function foldCall(
     }
   }
   return { records: next, ended };
+}
+
+/**
+ * The machine answered again. Children whose last failure was the machine's (nothing else there
+ * answered then) are due now; a child whose own read failed while its machine answered others
+ * keeps its wait: the machine answering says nothing of it.
+ */
+export function machineBack(records: Records, now: number): Map<string, ChildRecord> {
+  const next = new Map(records);
+  for (const [id, rec] of records)
+    if (rec.machineWide && rec.failures > 0 && rec.retryAt !== undefined && rec.retryAt > now)
+      next.set(id, { ...rec, retryAt: now });
+  return next;
 }
