@@ -4,17 +4,30 @@
 //! without heap allocations.
 #![allow(unsafe_code)]
 use crate::cf;
-use media_codec::CodecError;
+use media_codec::{BitstreamFormat, Codec, CodecError, Size};
 use objc2_core_foundation::{CFBoolean, CFData, CFDictionary, CFString, CFType};
 use objc2_core_media::{
     CMSampleBuffer, kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms,
     kCMSampleAttachmentKey_NotSync,
 };
 use std::collections::VecDeque;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Mutex, MutexGuard, PoisonError};
+
+/// What a session's output is. Each slot is stamped with the stream that
+/// produced it, so units queued before a reconfigure keep their own metadata.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct StreamMeta {
+    pub codec: Codec,
+    pub size: Size,
+    pub format: BitstreamFormat,
+    /// The configuration record's atom name: `avcC` or `hvcC`.
+    pub atom: &'static str,
+}
 
 #[derive(Default)]
 pub(crate) struct Slot {
+    pub stream: Option<StreamMeta>,
     pub data: Vec<u8>,
     pub key: bool,
     pub pts_us: u64,
@@ -29,8 +42,8 @@ pub(crate) struct Queue {
     pub in_flight: usize,
     pub error: Option<CodecError>,
     pub dropped: u64,
-    /// The configuration record's atom name: `avcC`, `hvcC`, or none for JPEG.
-    pub atom: Option<&'static str>,
+    /// The stream frames submitted from now on belong to; none for JPEG.
+    pub stream: Option<StreamMeta>,
 }
 
 #[derive(Default)]
@@ -57,10 +70,21 @@ impl Shared {
             });
         }
     }
-    /// Called on VideoToolbox's thread for each finished frame.
+    /// Called on VideoToolbox's thread for each finished frame. A panic in the
+    /// recording is caught (it must not unwind into VideoToolbox) and becomes
+    /// a backend error; the in-flight count is released either way.
     pub fn complete(&self, status: i32, dropped: bool, sample: Option<&CMSampleBuffer>) {
+        let recorded = catch_unwind(AssertUnwindSafe(|| self.record(status, dropped, sample)));
         let mut queue = self.lock();
         queue.in_flight = queue.in_flight.saturating_sub(1);
+        if recorded.is_err() {
+            queue.error = Some(CodecError::Backend(
+                "VideoToolbox output callback panicked".into(),
+            ));
+        }
+    }
+    fn record(&self, status: i32, dropped: bool, sample: Option<&CMSampleBuffer>) {
+        let mut queue = self.lock();
         if status != 0 {
             queue.error = Some(CodecError::Backend(format!(
                 "VideoToolbox encode callback failed ({status})"
@@ -72,14 +96,15 @@ impl Shared {
             return;
         };
         let mut slot = queue.free.pop().unwrap_or_default();
-        let atom = queue.atom;
+        let stream = queue.stream;
         // Copy outside the lock would need a second slot hand-off; the copy is
         // one memcpy of the compressed frame.
-        if let Err(error) = fill(&mut slot, sample, atom) {
+        if let Err(error) = fill(&mut slot, sample, stream.map(|s| s.atom)) {
             queue.error = Some(error);
             queue.free.push(slot);
             return;
         }
+        slot.stream = stream;
         queue.ready.push_back(slot);
     }
 }

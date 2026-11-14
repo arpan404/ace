@@ -68,12 +68,21 @@ pub fn main() -> Fallible<()> {
         return Err("still has the wrong size".into());
     }
     let path = jpeg.last_path();
+    // The path follows the plan's expectations for what the sessions observe:
+    // HEVC decode on hardware, then hardware JPEG with 0 / 0 copies where the
+    // JPEG session is hardware, else one readback and the CPU encoder.
+    let observed = jpeg.encode_hardware(target)?;
+    let expected_copies = if observed { (0, 0) } else { (1, 0) };
+    let path_ok = decoder.hardware()
+        && path.hardware == observed
+        && (path.copies.readbacks, path.copies.uploads) == expected_copies;
     let p95 = percentile(&mut totals, 0.95);
     let median = percentile(&mut totals, 0.5);
     let enforced = enforce(load);
-    let pass = p95 <= 8.0;
+    let latency_ok = p95 <= 8.0;
+    let pass = latency_ok && path_ok;
     println!(
-        "{{\"bench\":\"still\",\"path\":\"gpu\",\"backend\":\"vt\",\"machine\":\"{}\",\"os\":\"{}\",\"load\":{load:.1},\"cores\":{},\"enforced\":{enforced},\"source\":\"1206x2622 hevc\",\"target\":\"{}x{}\",\"samples\":{},\"medianMs\":{median:.3},\"p95Ms\":{p95:.3},\"decodeP95Ms\":{:.3},\"jpegP95Ms\":{:.3},\"decodeHardware\":{},\"jpegEncodeHardware\":{},\"readbacks\":{},\"uploads\":{},\"bytes\":{},\"maximumP95Ms\":8,\"pass\":{pass}}}",
+        "{{\"bench\":\"still\",\"path\":\"gpu\",\"backend\":\"vt\",\"machine\":\"{}\",\"os\":\"{}\",\"load\":{load:.1},\"cores\":{},\"enforced\":{enforced},\"source\":\"1206x2622 hevc\",\"target\":\"{}x{}\",\"samples\":{},\"medianMs\":{median:.3},\"p95Ms\":{p95:.3},\"decodeP95Ms\":{:.3},\"jpegP95Ms\":{:.3},\"decodeHardware\":{},\"jpegEncodeHardware\":{},\"readbacks\":{},\"uploads\":{},\"bytes\":{},\"maximumP95Ms\":8,\"pathOk\":{path_ok},\"pass\":{pass}}}",
         machine(),
         os_build(),
         cores(),
@@ -88,7 +97,11 @@ pub fn main() -> Fallible<()> {
         path.copies.uploads,
         out.len(),
     );
-    if enforced && !pass {
+    // A path regression isn't load-dependent, so it fails even on a loaded machine.
+    if !path_ok && std::env::var_os("ACE_MEDIA_BENCH_REPORT_ONLY").is_none() {
+        return Err("the still ran below its expected path or made extra copies".into());
+    }
+    if enforced && !latency_ok {
         return Err("below acceptance".into());
     }
     Ok(())

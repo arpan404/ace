@@ -137,9 +137,23 @@ pub fn main() -> Fallible<()> {
     result?;
 
     let per = |calls: usize, n: u64| calls as f64 / n as f64;
-    let pass = encode_calls == 0;
+    // Expected: encode 0; decode exactly the one `Box<dyn PlatformSurface>`
+    // per picture that media-codec's `Decoder` trait returns; JPEG 0 per still
+    // on either path (the CPU fallback reuses its RGB and output buffers).
+    let failures: Vec<&str> = [
+        (encode_calls != 0, "encode allocated"),
+        (
+            decode_calls > MEASURE as usize,
+            "decode allocated more than its boxed surface",
+        ),
+        (jpeg_calls != 0, "the still path allocated"),
+    ]
+    .into_iter()
+    .filter_map(|(failed, why)| failed.then_some(why))
+    .collect();
+    let pass = failures.is_empty();
     println!(
-        "{{\"bench\":\"alloc\",\"backend\":\"vt\",\"machine\":\"{}\",\"os\":\"{}\",\"load\":{:.1},\"encodeFrames\":{MEASURE},\"encodeAllocations\":{encode_calls},\"decodeAllocationsPerFrame\":{:.2},\"jpegHardware\":{},\"jpegAllocationsPerStill\":{:.2},\"pass\":{pass}}}",
+        "{{\"bench\":\"alloc\",\"backend\":\"vt\",\"machine\":\"{}\",\"os\":\"{}\",\"load\":{:.1},\"encodeFrames\":{MEASURE},\"encodeAllocations\":{encode_calls},\"decodeAllocationsPerFrame\":{:.2},\"decodeExpectedPerFrame\":1,\"jpegHardware\":{},\"jpegAllocationsPerStill\":{:.2},\"pass\":{pass}}}",
         machine(),
         os_build(),
         load_average(),
@@ -148,7 +162,7 @@ pub fn main() -> Fallible<()> {
         per(jpeg_calls, 200),
     );
     if !pass {
-        return Err("the encode path allocated in steady state".into());
+        return Err(failures.join("; ").into());
     }
     Ok(())
 }

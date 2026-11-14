@@ -145,15 +145,28 @@ unsafe extern "C-unwind" fn on_decoded(
     // SAFETY: `refcon` is the session's owned Arc<DecodeSlot>; `image` is a
     // borrowed buffer we retain.
     let slot = unsafe { &*refcon.cast_const().cast::<DecodeSlot>() };
-    let result = match NonNull::new(image) {
-        _ if status != 0 => Err(CodecError::Backend(format!(
-            "VideoToolbox decode failed ({status})"
-        ))),
-        _ if flags.contains(VTDecodeInfoFlags::FrameDropped) => return,
-        Some(image) => Ok((unsafe { CFRetained::retain(image) }, cf::us_from_time(pts))),
-        None => return,
-    };
-    *slot.out.lock().unwrap_or_else(PoisonError::into_inner) = Some(result);
+    // A panic must not unwind into VideoToolbox: it becomes the frame's error.
+    let result =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match NonNull::new(image) {
+            _ if status != 0 => Some(Err(CodecError::Backend(format!(
+                "VideoToolbox decode failed ({status})"
+            )))),
+            _ if flags.contains(VTDecodeInfoFlags::FrameDropped) => None,
+            // SAFETY: A valid borrowed image buffer, retained for the slot.
+            Some(image) => Some(Ok((
+                unsafe { CFRetained::retain(image) },
+                cf::us_from_time(pts),
+            ))),
+            None => None,
+        }))
+        .unwrap_or_else(|_| {
+            Some(Err(CodecError::Backend(
+                "VideoToolbox decode callback panicked".into(),
+            )))
+        });
+    if let Some(result) = result {
+        *slot.out.lock().unwrap_or_else(PoisonError::into_inner) = Some(result);
+    }
 }
 
 /// A ready sample holding a copy of `bytes` (compressed data, not a picture).
@@ -256,6 +269,17 @@ pub(crate) fn format_description(
     }
 }
 
+/// The only units VideoToolbox is handed: length-prefixed H.264 or HEVC.
+fn stream_kind(unit: &EncodedUnit) -> Result<(CMVideoCodecType, &'static str), CodecError> {
+    match (unit.codec, unit.format) {
+        (Codec::H264, BitstreamFormat::Avcc) => Ok((kCMVideoCodecType_H264, "avcC")),
+        (Codec::Hevc, BitstreamFormat::Hvcc) => Ok((kCMVideoCodecType_HEVC, "hvcC")),
+        _ => Err(CodecError::Unsupported(
+            "VideoToolbox decodes length-prefixed H.264 (avcC) or HEVC (hvcC)".into(),
+        )),
+    }
+}
+
 /// The decoder's output: its destination size (`None` keeps the coded size)
 /// and pixel layout.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -308,15 +332,7 @@ impl VtDecoder {
         self.output = output;
     }
     fn open(&mut self, unit: &EncodedUnit, description: &[u8]) -> Result<(), CodecError> {
-        let (codec_type, atom) = match (unit.codec, unit.format) {
-            (Codec::H264, BitstreamFormat::Avcc) => (kCMVideoCodecType_H264, "avcC"),
-            (Codec::Hevc, BitstreamFormat::Hvcc) => (kCMVideoCodecType_HEVC, "hvcC"),
-            _ => {
-                return Err(CodecError::Unsupported(
-                    "VideoToolbox decodes length-prefixed H.264 (avcC) or HEVC (hvcC)".into(),
-                ));
-            }
-        };
+        let (codec_type, atom) = stream_kind(unit)?;
         let format = format_description(codec_type, unit.size, Some((atom, description)))?;
         // SAFETY: Reading an immutable framework key constant.
         let specification = dictionary(&[(
@@ -344,6 +360,16 @@ impl VtDecoder {
 }
 impl Decoder for VtDecoder {
     fn decode(&mut self, unit: &EncodedUnit) -> Result<Option<Picture>, CodecError> {
+        // Checked on every unit, before anything reaches CoreMedia.
+        stream_kind(unit)?;
+        if unit.description.is_none()
+            && let Some(stream) = self.stream.as_ref()
+            && (stream.codec, stream.format_kind) != (unit.codec, unit.format)
+        {
+            return Err(CodecError::InvalidInput(
+                "unit differs from the configured stream's codec".into(),
+            ));
+        }
         if let Some(description) = unit.description.as_deref()
             && self
                 .stream

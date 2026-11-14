@@ -344,3 +344,160 @@ fn an_unsupported_codec_is_refused_and_keeps_the_previous_stream() -> TestResult
     );
     Ok(())
 }
+
+#[test]
+fn units_queued_before_a_reconfigure_keep_the_stream_they_came_from() -> TestResult {
+    let small = Frames::new(
+        Size {
+            width: 640,
+            height: 400,
+        },
+        3,
+    )?;
+    let large = Frames::new(
+        Size {
+            width: 1280,
+            height: 800,
+        },
+        2,
+    )?;
+    let mut encoder = VtEncoder::new();
+    encoder.configure(&spec(Codec::H264, 640, 400, 2_000_000))?;
+    for index in 0..3 {
+        encoder.encode(small.picture(index, u64::from(index))?, false)?;
+    }
+    // Nothing polled yet: the old stream's bytes are still queued.
+    encoder.configure(&spec(Codec::Hevc, 1280, 800, 4_000_000))?;
+    for index in 0..2 {
+        encoder.encode(large.picture(index, u64::from(index))?, false)?;
+    }
+    encoder.flush()?;
+    let mut units = Vec::new();
+    while let Some(unit) = encoder.poll_result()? {
+        units.push((unit.codec, unit.size, unit.format));
+    }
+    let old = (
+        Codec::H264,
+        Size {
+            width: 640,
+            height: 400,
+        },
+        BitstreamFormat::Avcc,
+    );
+    let new = (
+        Codec::Hevc,
+        Size {
+            width: 1280,
+            height: 800,
+        },
+        BitstreamFormat::Hvcc,
+    );
+    assert_eq!(units, [old, old, old, new, new]);
+    Ok(())
+}
+
+struct Foreign;
+impl PlatformSurface for Foreign {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+#[test]
+fn refused_pictures_never_hold_a_queue_slot() -> TestResult {
+    let size = Size {
+        width: 640,
+        height: 400,
+    };
+    let frames = Frames::new(size, 1)?;
+    let mut encoder = VtEncoder::new();
+    encoder.configure(&spec(Codec::H264, 640, 400, 2_000_000))?;
+    for _ in 0..20 {
+        let foreign = Picture::Platform(PlatformPicture {
+            size,
+            format: PixelFormat::Nv12,
+            pts_us: 0,
+            surface: Box::new(Foreign),
+        });
+        assert!(matches!(
+            encoder.encode(foreign, false),
+            Err(CodecError::InvalidInput(_))
+        ));
+    }
+    assert!(encoder.has_room());
+    encoder.encode(frames.picture(0, 0)?, false)?;
+    encoder.flush()?;
+    assert!(encoder.poll_result()?.is_some());
+    Ok(())
+}
+
+#[test]
+fn leaving_quantizer_mode_lifts_its_qp_bounds() -> TestResult {
+    let size = Size {
+        width: 1280,
+        height: 800,
+    };
+    let frames = Frames::new(size, 8)?;
+    let mut encoder = VtEncoder::new();
+    let at = |rate| EncodeSpec {
+        codec: Codec::H264,
+        size,
+        fps: 60,
+        rate,
+    };
+    encoder.configure(&at(RateControl::Quantizer(51)))?;
+    let coarse = encode_all(&mut encoder, &frames, 0..60, &[])?;
+    encoder.configure(&at(RateControl::Bitrate(20_000_000)))?;
+    let fine = encode_all(&mut encoder, &frames, 60..120, &[])?;
+    let tail = |units: &[EncodedUnit]| {
+        units
+            .iter()
+            .rev()
+            .take(20)
+            .map(|u| u.data.len())
+            .sum::<usize>()
+    };
+    let (coarse, fine) = (tail(&coarse), tail(&fine));
+    assert!(
+        fine > coarse * 3,
+        "QP 51 tail {coarse} B, 20 Mbit/s tail {fine} B"
+    );
+    Ok(())
+}
+
+#[test]
+fn annex_b_or_a_mismatched_unit_never_reaches_videotoolbox() -> TestResult {
+    let size = Size {
+        width: 640,
+        height: 400,
+    };
+    let frames = Frames::new(size, 2)?;
+    let mut encoder = VtEncoder::new();
+    encoder.configure(&spec(Codec::H264, 640, 400, 2_000_000))?;
+    let units = encode_all(&mut encoder, &frames, 0..3, &[])?;
+    let mut decoder = VtDecoder::new(DecodeOutput::default());
+    decoder.decode(&units[0])?;
+    let annex_b = EncodedUnit {
+        format: BitstreamFormat::AnnexB,
+        ..units[1].clone()
+    };
+    assert!(matches!(
+        decoder.decode(&annex_b),
+        Err(CodecError::Unsupported(_))
+    ));
+    let hevc = EncodedUnit {
+        codec: Codec::Hevc,
+        format: BitstreamFormat::Hvcc,
+        ..units[1].clone()
+    };
+    assert!(matches!(
+        decoder.decode(&hevc),
+        Err(CodecError::InvalidInput(_))
+    ));
+    assert_eq!(
+        decoder.decode(&units[1])?.ok_or("nothing decoded")?.size(),
+        size,
+        "the stream carries on"
+    );
+    Ok(())
+}

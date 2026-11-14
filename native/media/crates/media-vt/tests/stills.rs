@@ -146,3 +146,67 @@ fn quality_outside_one_to_a_hundred_is_refused() -> TestResult {
     ));
     Ok(())
 }
+
+#[test]
+fn without_hardware_jpeg_takes_one_readback_or_one_upload_and_no_session() -> TestResult {
+    let size = Size {
+        width: 320,
+        height: 240,
+    };
+    // Mid-grey NV12 (video range): Y 126, Cb = Cr = 128.
+    let grey = CpuPicture::new(
+        size,
+        PixelFormat::Nv12,
+        [
+            Plane {
+                data: vec![126; 320 * 240],
+                stride: 320,
+            },
+            Plane {
+                data: vec![128; 320 * 120],
+                stride: 320,
+            },
+        ],
+        0,
+    )?;
+    let pool = media_vt::PixelPool::new(size, VtFormat::Nv12, 1)?;
+    let surface = pool.upload(&grey)?;
+    let mut jpeg = VtJpeg::without_hardware(VtFormat::Nv12);
+    assert!(!jpeg.encode_hardware(size)?);
+    let still = JpegCodec::encode(&mut jpeg, &surface, 90)?;
+    assert_eq!(
+        jpeg.last_path(),
+        media_vt::JpegPath {
+            hardware: false,
+            copies: Copies {
+                readbacks: 1,
+                uploads: 0
+            }
+        }
+    );
+    let decoded = StillCodec::decode(&mut CpuJpegCodec::default(), &still)?;
+    let pixel = &decoded.planes()[0].data[..3];
+    assert!(
+        pixel.iter().all(|v| (125..=131).contains(v)),
+        "grey stays grey: {pixel:?}"
+    );
+    let picture = JpegCodec::decode(&mut jpeg, &still, 160, 120)?;
+    assert_eq!(
+        picture.size(),
+        Size {
+            width: 160,
+            height: 120
+        }
+    );
+    assert_eq!(
+        jpeg.last_path(),
+        media_vt::JpegPath {
+            hardware: false,
+            copies: Copies {
+                readbacks: 0,
+                uploads: 1
+            }
+        }
+    );
+    Ok(())
+}

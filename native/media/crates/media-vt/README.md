@@ -32,12 +32,24 @@ record from the format description.
   copy); a CPU picture costs one upload. `force_key` sets
   `kVTEncodeFrameOptionKey_ForceKeyFrame`.
 - `configure` with only the rate or fps changed updates the open session in
-  place: same stream, no keyframe. A codec or size change drains the old
-  session, then opens a new one that starts at a keyframe. A refused
-  configuration leaves the previous one intact.
+  place: same stream, no keyframe. A codec or size change opens the new
+  session first, then drains the old one; the new stream starts at a
+  keyframe.
+- Configuration is all or nothing. If a setting is refused, the previous
+  settings are applied again and the error is returned; a new stream that
+  fails to open leaves the old session running. The plan and its rollback
+  live in `settings.rs`, which is unit-tested with a failing sink.
 - `Bitrate` sets `AverageBitRate`; `Quantizer` sets min/max allowed frame QP.
+  Leaving a mode resets it: the QP bounds open to 0–51, or the bitrate goes
+  back to 0 (the encoder's choice). VideoToolbox refuses NULL here.
+- Every output unit carries the codec, size and format of the stream that
+  produced it, so units still queued across a reconfigure keep their own.
 - At most 8 pictures may be in flight or unpolled before `encode` returns
-  `Backpressure`.
+  `Backpressure`. A slot is reserved only once a picture is ready to submit,
+  so a refused picture never holds one.
+- Output callbacks catch panics instead of unwinding into VideoToolbox: a
+  panic becomes a backend error from `poll_result`, and the in-flight count
+  is still released.
 - `poll_into(&mut unit)` swaps the next frame's bytes into the caller's unit
   and recycles the caller's old buffer. The output slots are sized at
   configure time, so a stream makes no heap allocations per frame. The
@@ -46,8 +58,9 @@ record from the format description.
 ## Decode, scale, transcode
 
 `VtDecoder` takes `Avcc`/`Hvcc` units: the first must carry the
-configuration record, and a changed record reopens the session. Annex B input
-is refused as unsupported. Its output is NV12 or BGRA at a destination
+configuration record, and a changed record reopens the session. Every unit
+is checked before it reaches CoreMedia: Annex B is refused as unsupported,
+and a unit of another codec than the open stream is refused as invalid. Its output is NV12 or BGRA at a destination
 size, scaled by the decoder session itself. When the destination changes
 mid-stream, pictures are scaled with `VTPixelTransferSession` until the next
 keyframe reopens the session at the new size, so no keyframe has to be forced.
@@ -63,11 +76,16 @@ decoding, so a unit is never lost.
 
 `VtJpeg` decodes `kCMVideoCodecType_JPEG` at the requested size and encodes
 JPEG from a `VtSurface`, through VideoToolbox only where its session reports
-hardware. Otherwise:
+hardware. Otherwise, including when no VideoToolbox JPEG session opens at
+all, it uses media-codec's cached CPU codec and never another VideoToolbox
+session:
 
-- decode runs on media-codec's CPU codec, followed by one upload;
-- encode converts on the GPU to BGRA, reads back once, then runs the CPU
-  encoder.
+- decode runs on the CPU codec, followed by one upload;
+- encode reads back once, converting NV12 (BT.709) or BGRA to RGB while
+  copying, then runs the CPU encoder into the caller's buffer.
+
+`VtJpeg::without_hardware` never opens a JPEG session; it suits machines
+whose probe found no hardware JPEG.
 
 `last_path()` says which path ran and what it copied. A CPU picture is
 encoded on the CPU directly.
@@ -86,8 +104,9 @@ decoder session instead.
 
 ## Probe
 
-`probe(&ProbeOptions)` runs on its own thread. It opens each session, pushes
-one 1280×720 frame, and waits at most `deadline` (2 s by default) for:
+`probe(&ProbeOptions)` runs its trials on one worker thread. Each trial
+opens a session and pushes one 1280×720 frame. The probe waits at most
+`deadline` (2 s by default) for:
 
 - H.264 and HEVC encode and decode;
 - JPEG encode and decode;
@@ -96,10 +115,19 @@ one 1280×720 frame, and waits at most `deadline` (2 s by default) for:
 It returns one `media_wire::capability::Capability` per step, in a fixed
 order. Codec strings are WebCodecs strings built from the trial's own
 `avcC`/`hvcC`. `maxWidth`/`maxHeight` for video are the largest candidate size
-a hardware session opens and prepares at. Unfinished trials are `timed-out`,
-and their results arrive later on `ProbeReport::late`. `ProbeCancel` stops
-the wait at once. `TrialInput::Cpu` feeds the encode trial a CPU picture,
-which must show up as `zeroCopy: false`.
+a hardware session opens and prepares at. `TrialInput::Cpu` feeds the encode
+trial a CPU picture, which must show up as `zeroCopy: false`.
+
+- **Deadline and cancellation.** The worker checks both before every
+  operation and stops starting work once either closes. A trial already
+  inside a VideoToolbox call finishes; its result arrives on
+  `ProbeReport::late`, which closes when the worker stops. Unfinished steps
+  are `timed-out`. A probe cancelled before it starts returns at once and
+  starts nothing.
+- **One worker.** At most one worker is in flight per process. A probe with
+  the same input joins it, reusing a late result and extending its
+  deadline. A probe with another input waits for it, within its own
+  deadline. A joined worker that stopped short is replaced by a fresh one.
 
 On the Mac (M4 Max) the probe takes 450–730 ms and reports:
 
@@ -123,7 +151,9 @@ cargo run --release -p media-vt --example vt_probe
 
 Each prints one JSON line with the load average, machine and OS build. A
 bench fails below its acceptance number unless `ACE_MEDIA_BENCH_REPORT_ONLY=1`
-is set or the load is above 2 × cores.
+is set or the load is above 2 × cores. Path and allocation checks don't
+depend on load, so `vt_still` fails on a path or copy regression and
+`vt_alloc` on any allocation beyond the expected ones, at any load.
 
 - **Source frames.** Encode benches cycle a ring of pre-filled IOSurface
   frames: a scrolling text-like pattern, as a capture source would hand them
@@ -137,18 +167,18 @@ is set or the load is above 2 × cores.
 Mac16,5 (M4 Max), macOS 27.0.1 (26A434), 16 cores, 2026-11-14. The Mac was
 shared and loaded, with six other VideoToolbox encode clients running.
 
-| Measure                                           | Result                                               | Target | Load |
-| ------------------------------------------------- | ---------------------------------------------------- | ------ | ---- |
-| 2560×1600 HEVC encode, unpaced                    | 110.3 fps                                            | ≥ 100  | 12.9 |
-| 1920×1080 H.264 encode, unpaced                   | 217.9 fps (236 fps without low-latency rate control) | ≥ 240  | 12.9 |
-| 1080p60 H.264 encode, CPU per stream              | 1.96 % (XPC services 4.5 %)                          | ≤ 3 %  | 54.3 |
-| 4K30 HEVC encode, CPU per stream                  | 0.55 % (XPC services 3.5 %)                          | ≤ 4 %  | 19.6 |
-| Transcode 1206×2622 HEVC → 588×1280 H.264, 60 fps | 2.72 % (XPC services 7.1 %)                          | ≤ 3 %  | 13.2 |
-| Still: HEVC → 722×1568 JPEG, p95                  | 5.71 ms (median 5.42; decode 3.91, JPEG 1.79 p95)    | ≤ 8 ms | 13.7 |
-| Still copies                                      | 0 readbacks, 0 uploads (H → H → H)                   | 0 / 0  |      |
-| Heap allocations, steady-state encode             | 0 in 600 frames                                      | 0      | 51.7 |
-| Heap allocations, decode                          | 1 per frame (the trait's `PlatformPicture` box)      | 0      | 51.7 |
-| Heap allocations, hardware JPEG still             | 0 per still                                          | 0      | 51.7 |
+| Measure                                           | Result                                                                        | Target | Load |
+| ------------------------------------------------- | ----------------------------------------------------------------------------- | ------ | ---- |
+| 2560×1600 HEVC encode, unpaced                    | 110.3 fps                                                                     | ≥ 100  | 12.9 |
+| 1920×1080 H.264 encode, unpaced                   | 217.9 fps (236 fps without low-latency rate control)                          | ≥ 240  | 12.9 |
+| 1080p60 H.264 encode, CPU per stream              | 1.96 % (XPC services 4.5 %)                                                   | ≤ 3 %  | 54.3 |
+| 4K30 HEVC encode, CPU per stream                  | 0.55 % (XPC services 3.5 %)                                                   | ≤ 4 %  | 19.6 |
+| Transcode 1206×2622 HEVC → 588×1280 H.264, 60 fps | 2.72 % (XPC services 7.1 %)                                                   | ≤ 3 %  | 13.2 |
+| Still: HEVC → 722×1568 JPEG, p95                  | 5.71 ms (median 5.42; decode 3.91, JPEG 1.79 p95)                             | ≤ 8 ms | 13.7 |
+| Still path and copies (fails on any regression)   | 0 readbacks, 0 uploads (H → H → H); rerun after the review fixes: p95 6.84 ms | 0 / 0  | 10.2 |
+| Heap allocations, steady-state encode             | 0 in 600 frames                                                               | 0      | 51.7 |
+| Heap allocations, decode                          | 1 per frame: the trait's `PlatformPicture` box (enforced as the maximum)      | ≤ 1    | 10.2 |
+| Heap allocations, JPEG still (either path)        | 0 per still                                                                   | 0      | 10.2 |
 
 1080p H.264 throughput misses its target. Low-latency rate control keeps
 about one frame in the engine at a time, roughly 4.6 ms per frame here.

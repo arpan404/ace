@@ -1,45 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The backend's availability trial: open each session, push one frame, and
-//! report what the session itself says (ADR 0148). Trials run on a thread of
-//! their own under a deadline; anything unfinished is reported `timed-out` and
-//! arrives later on [`ProbeReport::late`].
-use crate::decoder::{DecodeOutput, VtDecoder};
-use crate::encoder::{CompressionSession, VtEncoder};
-use crate::jpeg::VtJpeg;
-use crate::output::Shared;
-use crate::surface::{PixelPool, VtFormat};
-use crate::transfer::VtScaler;
-use media_codec::*;
+//! The backend's availability trial (ADR 0148). Trials run on one worker
+//! thread under a gate: the caller's cancellation and deadline, checked before
+//! every operation. At most one worker is in flight per process: a probe that
+//! finds one running with the same input joins it (and extends its deadline),
+//! and a probe with another input waits for it. A trial still running past an
+//! earlier probe's deadline is therefore reused, never duplicated. Unfinished
+//! steps are `timed-out`; their results arrive later on [`ProbeReport::late`].
+use crate::trials::run_trials;
 use media_wire::capability::{Backend, Capability, Step, TrialState};
-use objc2_core_media::{kCMVideoCodecType_H264, kCMVideoCodecType_HEVC};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
-use std::sync::{Arc, OnceLock};
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
-
-const TRIAL: Size = Size {
-    width: 1280,
-    height: 720,
-};
-/// Candidate sizes, largest first, for the largest hardware encode session.
-const CANDIDATES: [Size; 4] = [
-    Size {
-        width: 8192,
-        height: 4320,
-    },
-    Size {
-        width: 4096,
-        height: 2304,
-    },
-    Size {
-        width: 3840,
-        height: 2160,
-    },
-    Size {
-        width: 1920,
-        height: 1088,
-    },
-];
 
 /// How the trial feeds its encode sessions. `Cpu` forces one upload per frame,
 /// which the report must show as `zeroCopy: false`.
@@ -79,7 +51,8 @@ impl Default for ProbeOptions {
 pub struct ProbeReport {
     /// One entry per step and codec, in a fixed order.
     pub capabilities: Vec<Capability>,
-    /// Results of trials that finished after the deadline.
+    /// Results of trials that finished after the deadline. Closed once the
+    /// worker stops.
     pub late: Receiver<Capability>,
 }
 
@@ -98,7 +71,7 @@ fn family(capability: &Capability) -> (Step, &str) {
     (capability.step, codec.get(..4).unwrap_or(codec))
 }
 
-fn unfinished(step: Step, codec: &str, state: TrialState) -> Capability {
+pub(crate) fn unfinished(step: Step, codec: &str, state: TrialState) -> Capability {
     Capability {
         step,
         codec: (!codec.is_empty()).then(|| codec.to_owned()),
@@ -111,335 +84,167 @@ fn unfinished(step: Step, codec: &str, state: TrialState) -> Capability {
     }
 }
 
-/// Runs the trials and waits at most `options.deadline` for them.
-pub fn probe(options: &ProbeOptions) -> ProbeReport {
-    let (sender, receiver) = mpsc::channel();
-    let input = options.input;
-    let cancel = options.cancel.clone();
-    let spawned = std::thread::Builder::new()
-        .name("media-vt-probe".into())
-        .spawn(move || run_trials(input, &cancel, &sender));
-    let mut found: Vec<Capability> = Vec::with_capacity(STEPS.len());
-    let started = Instant::now();
-    let mut disconnected = spawned.is_err();
-    if spawned.is_ok() {
-        while found.len() < STEPS.len() && !options.cancel.is_cancelled() {
-            let Some(left) = options.deadline.checked_sub(started.elapsed()) else {
-                break;
-            };
-            match receiver.recv_timeout(left.min(Duration::from_millis(50))) {
-                Ok(capability) => found.push(capability),
-                Err(RecvTimeoutError::Timeout) => {}
-                Err(RecvTimeoutError::Disconnected) => {
-                    disconnected = true;
-                    break;
-                }
+/// What the worker checks before each operation.
+pub(crate) struct Gate {
+    cancel: ProbeCancel,
+    deadline: Mutex<Instant>,
+}
+impl Gate {
+    pub(crate) fn open(&self) -> bool {
+        !self.cancel.is_cancelled() && Instant::now() < *lock(&self.deadline)
+    }
+    fn extend(&self, until: Instant) {
+        let mut deadline = lock(&self.deadline);
+        *deadline = (*deadline).max(until);
+    }
+}
+
+#[derive(Default)]
+struct RunState {
+    results: Vec<Capability>,
+    late: Vec<Sender<Capability>>,
+    done: bool,
+}
+
+struct Run {
+    input: TrialInput,
+    gate: Gate,
+    state: Mutex<RunState>,
+    changed: Condvar,
+}
+impl Run {
+    fn publish(&self, capability: Capability) {
+        let mut state = lock(&self.state);
+        state
+            .late
+            .retain(|late| late.send(capability.clone()).is_ok());
+        state.results.push(capability);
+        self.changed.notify_all();
+    }
+    fn finish(&self) {
+        let mut state = lock(&self.state);
+        state.done = true;
+        state.late.clear();
+        self.changed.notify_all();
+    }
+}
+
+static ACTIVE: Mutex<Option<Arc<Run>>> = Mutex::new(None);
+
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Joins the worker in flight with the same input, or starts one.
+/// `Ok(None)` when the caller's own deadline or cancellation came first while
+/// waiting for another input's worker; `Err` when no thread could start.
+fn acquire(options: &ProbeOptions, deadline: Instant) -> Result<Option<Arc<Run>>, ()> {
+    loop {
+        let mut active = lock(&ACTIVE);
+        if let Some(run) = active.as_ref().filter(|run| run.input == options.input) {
+            if !lock(&run.state).done {
+                run.gate.extend(deadline);
+                return Ok(Some(Arc::clone(run)));
             }
         }
+        if let Some(run) = active.as_ref().filter(|run| !lock(&run.state).done) {
+            // Another input's worker is in flight: wait for it, within our deadline.
+            let run = Arc::clone(run);
+            drop(active);
+            let mut state = lock(&run.state);
+            while !state.done {
+                let now = Instant::now();
+                if now >= deadline || options.cancel.is_cancelled() {
+                    return Ok(None);
+                }
+                let wait = (deadline - now).min(Duration::from_millis(20));
+                state = run
+                    .changed
+                    .wait_timeout(state, wait)
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .0;
+            }
+            continue;
+        }
+        let run = Arc::new(Run {
+            input: options.input,
+            gate: Gate {
+                cancel: options.cancel.clone(),
+                deadline: Mutex::new(deadline),
+            },
+            state: Mutex::new(RunState::default()),
+            changed: Condvar::new(),
+        });
+        let worker = Arc::clone(&run);
+        std::thread::Builder::new()
+            .name("media-vt-probe".into())
+            .spawn(move || {
+                run_trials(worker.input, &worker.gate, &|c| worker.publish(c));
+                worker.finish();
+            })
+            .map_err(|_| ())?;
+        *active = Some(Arc::clone(&run));
+        return Ok(Some(run));
     }
-    let capabilities = STEPS
+}
+
+fn report(found: &[Capability], missing: TrialState) -> Vec<Capability> {
+    STEPS
         .iter()
         .map(|&(step, codec)| {
             found
                 .iter()
                 .find(|c| family(c) == (step, codec))
                 .cloned()
-                .unwrap_or_else(|| {
-                    let state = if disconnected {
-                        TrialState::Failed
-                    } else {
-                        TrialState::TimedOut
-                    };
-                    unfinished(step, codec, state)
-                })
+                .unwrap_or_else(|| unfinished(step, codec, missing))
         })
-        .collect();
-    ProbeReport {
-        capabilities,
-        late: receiver,
-    }
+        .collect()
 }
 
-fn run_trials(input: TrialInput, cancel: &ProbeCancel, out: &Sender<Capability>) {
-    let send = |capability: Capability| out.send(capability).is_ok() && !cancel.is_cancelled();
-    let frame = trial_frame();
-    let mut units = Vec::new();
-    for (codec, name) in [(Codec::H264, "avc1"), (Codec::Hevc, "hvc1")] {
-        let (capability, unit) = match &frame {
-            Ok(pool) => encode_trial(pool, codec, input),
-            Err(_) => (unfinished(Step::Encode, name, TrialState::Failed), None),
+/// Runs (or joins) the trials and waits at most `options.deadline`. A probe
+/// cancelled before it starts returns at once and starts nothing.
+pub fn probe(options: &ProbeOptions) -> ProbeReport {
+    let deadline = Instant::now() + options.deadline;
+    let (sender, late) = mpsc::channel();
+    let empty = |state| ProbeReport {
+        capabilities: report(&[], state),
+        late: mpsc::channel().1,
+    };
+    if options.cancel.is_cancelled() {
+        return empty(TrialState::TimedOut);
+    }
+    loop {
+        let run = match acquire(options, deadline) {
+            Ok(Some(run)) => run,
+            Ok(None) => return empty(TrialState::TimedOut),
+            Err(()) => return empty(TrialState::Failed),
         };
-        units.push((name, unit, capability.max_width, capability.max_height));
-        if !send(capability) {
-            return;
-        }
-    }
-    for (name, unit, width, height) in units {
-        if !send(decode_trial(name, unit.as_ref(), width, height)) {
-            return;
-        }
-    }
-    let mut jpeg = VtJpeg::new(VtFormat::Nv12);
-    let (encode, still) = match &frame {
-        Ok(pool) => jpeg_encode_trial(&mut jpeg, pool),
-        Err(_) => (
-            unfinished(Step::JpegEncode, "jpeg", TrialState::Failed),
-            None,
-        ),
-    };
-    if !send(encode) || !send(jpeg_decode_trial(&mut jpeg, still.as_deref())) {
-        return;
-    }
-    let scale = match &frame {
-        Ok(pool) => scale_trial(pool),
-        Err(_) => unfinished(Step::Scale, "", TrialState::Failed),
-    };
-    send(scale);
-}
-
-/// A pooled NV12 surface with a gradient, filled once.
-fn trial_frame() -> Result<(PixelPool, Picture), CodecError> {
-    let pool = PixelPool::new(TRIAL, VtFormat::Nv12, 2)?;
-    let cpu = gradient(TRIAL, 0)?;
-    let picture = pool.upload(&cpu)?;
-    Ok((pool, picture))
-}
-
-pub(crate) fn gradient(size: Size, phase: u32) -> Result<CpuPicture, CodecError> {
-    let (w, h) = (size.width as usize, size.height as usize);
-    let luma = (0..w * h)
-        .map(|i| ((i % w + i / w + phase as usize) % 220 + 16) as u8)
-        .collect();
-    let chroma = (0..w * h / 2)
-        .map(|i| if i % 2 == 0 { 100 } else { 150 })
-        .collect();
-    CpuPicture::new(
-        size,
-        PixelFormat::Nv12,
-        [
-            Plane {
-                data: luma,
-                stride: w,
-            },
-            Plane {
-                data: chroma,
-                stride: w,
-            },
-        ],
-        0,
-    )
-}
-
-fn encode_trial(
-    frame: &(PixelPool, Picture),
-    codec: Codec,
-    input: TrialInput,
-) -> (Capability, Option<EncodedUnit>) {
-    let name = if codec == Codec::H264 { "avc1" } else { "hvc1" };
-    let attempt = || -> Result<(Capability, EncodedUnit), CodecError> {
-        let mut encoder = VtEncoder::new();
-        encoder.configure(&EncodeSpec {
-            codec,
-            size: TRIAL,
-            fps: 60,
-            rate: RateControl::Bitrate(4_000_000),
-        })?;
-        let picture = match input {
-            TrialInput::Surface => {
-                let surface =
-                    crate::surface::VtSurface::of(&frame.1).ok_or(CodecError::NotConfigured)?;
-                surface.share().into_picture(0)?
+        let mut state = lock(&run.state);
+        while state.results.len() < STEPS.len() && !state.done && !options.cancel.is_cancelled() {
+            let now = Instant::now();
+            if now >= deadline {
+                break;
             }
-            TrialInput::Cpu => Picture::Cpu(gradient(TRIAL, 0)?),
+            let wait = (deadline - now).min(Duration::from_millis(20));
+            state = run
+                .changed
+                .wait_timeout(state, wait)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+        // A joined worker may have stopped at its old deadline before ours
+        // extended it: start a fresh one while our own time remains.
+        let stopped_short = state.done && state.results.len() < STEPS.len();
+        if stopped_short && Instant::now() < deadline && !options.cancel.is_cancelled() {
+            continue;
+        }
+        let found = state.results.clone();
+        if !state.done {
+            state.late.push(sender);
+        }
+        return ProbeReport {
+            capabilities: report(&found, TrialState::TimedOut),
+            late,
         };
-        encoder.encode(picture, true)?;
-        encoder.flush()?;
-        let unit = encoder
-            .poll_result()?
-            .ok_or_else(|| CodecError::Backend("trial frame produced no output".into()))?;
-        let copies = encoder.last_copies();
-        let max = largest_encode(codec);
-        Ok((
-            Capability {
-                step: Step::Encode,
-                codec: Some(
-                    codec_string(codec, unit.description.as_deref()).unwrap_or_else(|| name.into()),
-                ),
-                backend: Backend::Vt,
-                hardware: encoder.hardware(),
-                zero_copy: encoder.hardware() && copies.uploads == 0 && copies.readbacks == 0,
-                state: TrialState::Ok,
-                max_width: max.width,
-                max_height: max.height,
-            },
-            unit,
-        ))
-    };
-    match attempt() {
-        Ok((capability, unit)) => (capability, Some(unit)),
-        Err(_) => (unfinished(Step::Encode, name, TrialState::Failed), None),
-    }
-}
-
-fn decode_trial(
-    name: &str,
-    unit: Option<&EncodedUnit>,
-    max_width: u32,
-    max_height: u32,
-) -> Capability {
-    let Some(unit) = unit else {
-        return unfinished(Step::Decode, name, TrialState::Failed);
-    };
-    let mut decoder = VtDecoder::new(DecodeOutput::default());
-    match decoder.decode(unit) {
-        Ok(Some(picture)) if picture.size() == unit.size => Capability {
-            step: Step::Decode,
-            codec: Some(
-                codec_string(unit.codec, unit.description.as_deref())
-                    .unwrap_or_else(|| name.into()),
-            ),
-            backend: Backend::Vt,
-            hardware: decoder.hardware(),
-            zero_copy: decoder.hardware()
-                && crate::surface::VtSurface::of(&picture).is_some_and(|s| s.is_io_surface()),
-            state: TrialState::Ok,
-            max_width,
-            max_height,
-        },
-        _ => unfinished(Step::Decode, name, TrialState::Failed),
-    }
-}
-
-fn jpeg_encode_trial(
-    jpeg: &mut VtJpeg,
-    frame: &(PixelPool, Picture),
-) -> (Capability, Option<Vec<u8>>) {
-    let mut out = Vec::new();
-    match jpeg.encode_into(&frame.1, 80, &mut out) {
-        Ok(()) => {
-            let path = jpeg.last_path();
-            let capability = Capability {
-                step: Step::JpegEncode,
-                codec: Some("jpeg".into()),
-                backend: Backend::Vt,
-                hardware: path.hardware,
-                zero_copy: path.hardware && path.copies.readbacks == 0,
-                state: TrialState::Ok,
-                max_width: MAX_DIMENSION,
-                max_height: MAX_DIMENSION,
-            };
-            (capability, Some(out))
-        }
-        Err(_) => (
-            unfinished(Step::JpegEncode, "jpeg", TrialState::Failed),
-            None,
-        ),
-    }
-}
-
-fn jpeg_decode_trial(jpeg: &mut VtJpeg, still: Option<&[u8]>) -> Capability {
-    let half = Size {
-        width: TRIAL.width / 2,
-        height: TRIAL.height / 2,
-    };
-    let result = still
-        .ok_or(CodecError::NotConfigured)
-        .and_then(|still| JpegCodec::decode(jpeg, still, half.width, half.height));
-    match result {
-        Ok(picture) if picture.size() == half => {
-            let path = jpeg.last_path();
-            Capability {
-                step: Step::JpegDecode,
-                codec: Some("jpeg".into()),
-                backend: Backend::Vt,
-                hardware: path.hardware,
-                zero_copy: path.hardware && path.copies.uploads == 0,
-                state: TrialState::Ok,
-                max_width: MAX_DIMENSION,
-                max_height: MAX_DIMENSION,
-            }
-        }
-        _ => unfinished(Step::JpegDecode, "jpeg", TrialState::Failed),
-    }
-}
-
-/// `VTPixelTransferSession` reports no hardware property, so `hardware` stays
-/// false: it is never inferred from the chip.
-fn scale_trial(frame: &(PixelPool, Picture)) -> Capability {
-    let half = Size {
-        width: TRIAL.width / 2,
-        height: TRIAL.height / 2,
-    };
-    let result = VtScaler::new(VtFormat::Bgra)
-        .and_then(|mut scaler| scaler.scale(&frame.1, half.width, half.height));
-    match result {
-        Ok(picture) if picture.size() == half => Capability {
-            step: Step::Scale,
-            codec: None,
-            backend: Backend::Vt,
-            hardware: false,
-            zero_copy: true,
-            state: TrialState::Ok,
-            max_width: MAX_DIMENSION,
-            max_height: MAX_DIMENSION,
-        },
-        _ => unfinished(Step::Scale, "", TrialState::Failed),
-    }
-}
-
-/// The largest candidate size a hardware session opens and prepares at.
-pub(crate) fn largest_encode(codec: Codec) -> Size {
-    static H264: OnceLock<Size> = OnceLock::new();
-    static HEVC: OnceLock<Size> = OnceLock::new();
-    let (cell, codec_type) = match codec {
-        Codec::Hevc => (&HEVC, kCMVideoCodecType_HEVC),
-        _ => (&H264, kCMVideoCodecType_H264),
-    };
-    *cell.get_or_init(|| {
-        let shared = Arc::new(Shared::default());
-        let specification = crate::encoder::hardware_only();
-        CANDIDATES
-            .into_iter()
-            .find(|size| {
-                CompressionSession::open(codec_type, *size, &specification, None, &shared)
-                    .and_then(|session| session.prepare().map(|()| session.hardware()))
-                    .unwrap_or(false)
-            })
-            .unwrap_or(Size {
-                width: 0,
-                height: 0,
-            })
-    })
-}
-
-/// The WebCodecs codec string from an `avcC` or `hvcC` record (ISO/IEC 14496-15).
-pub(crate) fn codec_string(codec: Codec, record: Option<&[u8]>) -> Option<String> {
-    let record = record?;
-    match codec {
-        Codec::H264 => {
-            let [_, profile, compat, level, ..] = record else {
-                return None;
-            };
-            Some(format!("avc1.{profile:02X}{compat:02X}{level:02X}"))
-        }
-        Codec::Hevc => {
-            let first = *record.get(1)?;
-            let space = ["", "A", "B", "C"][usize::from(first >> 6)];
-            let tier = if first & 0x20 != 0 { 'H' } else { 'L' };
-            let profile = first & 0x1f;
-            let compat = u32::from_be_bytes(record.get(2..6)?.try_into().ok()?).reverse_bits();
-            let constraints = record.get(6..12)?;
-            let level = record.get(12)?;
-            let used = constraints
-                .iter()
-                .rposition(|b| *b != 0)
-                .map_or(0, |i| i + 1);
-            let mut out = format!("hvc1.{space}{profile}.{compat:X}.{tier}{level}");
-            for byte in constraints.iter().take(used) {
-                out.push_str(&format!(".{byte:X}"));
-            }
-            Some(out)
-        }
-        _ => None,
     }
 }

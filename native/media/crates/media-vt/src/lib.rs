@@ -19,11 +19,15 @@ mod output;
 #[cfg(target_os = "macos")]
 mod probe;
 #[cfg(target_os = "macos")]
+mod settings;
+#[cfg(target_os = "macos")]
 mod surface;
 #[cfg(target_os = "macos")]
 mod transcode;
 #[cfg(target_os = "macos")]
 mod transfer;
+#[cfg(target_os = "macos")]
+mod trials;
 
 #[cfg(target_os = "macos")]
 pub use decoder::{DecodeOutput, VtDecoder};

@@ -4,7 +4,8 @@
 #![allow(unsafe_code)]
 use crate::Copies;
 use crate::cf::{self, boolean, dictionary, number};
-use crate::output::Shared;
+use crate::output::{Shared, StreamMeta};
+use crate::settings::{self, Setting, Sink};
 use crate::surface::{PixelPool, VtFormat, VtSurface, buffer_attributes};
 use media_codec::*;
 use objc2_core_foundation::{CFDictionary, CFRetained, CFString, CFType};
@@ -248,9 +249,6 @@ impl VtEncoder {
     /// The allocation-free poll: swaps the next unit's bytes into `unit`, whose
     /// previous buffer is recycled for a later frame.
     pub fn poll_into(&mut self, unit: &mut EncodedUnit) -> Result<bool, CodecError> {
-        let Some(spec) = self.spec.as_ref() else {
-            return Ok(false);
-        };
         let mut queue = self.shared.lock();
         if let Some(error) = queue.error.take() {
             return Err(error);
@@ -258,10 +256,13 @@ impl VtEncoder {
         let Some(mut slot) = queue.ready.pop_front() else {
             return Ok(false);
         };
+        // Each unit carries the stream that produced it, not the current one.
+        if let Some(stream) = slot.stream {
+            unit.codec = stream.codec;
+            unit.size = stream.size;
+            unit.format = stream.format;
+        }
         std::mem::swap(&mut unit.data, &mut slot.data);
-        unit.codec = spec.codec;
-        unit.size = spec.size;
-        unit.format = format_of(spec.codec);
         unit.key = slot.key;
         unit.pts_us = slot.pts_us;
         unit.duration_us = slot.duration_us;
@@ -270,7 +271,7 @@ impl VtEncoder {
         Ok(true)
     }
     fn open(&mut self, spec: &EncodeSpec) -> Result<CompressionSession, CodecError> {
-        let (codec_type, atom) = codec_type(spec.codec)?;
+        let (codec_type, _) = codec_type(spec.codec)?;
         // Low-latency rate control is preferred; an OS without it for this codec
         // still gets a hardware real-time session.
         let session = CompressionSession::open(
@@ -311,48 +312,68 @@ impl VtEncoder {
                 profile.as_ref(),
                 "profile",
             )?;
-            let fps = number(i64::from(spec.fps));
-            session.set(
-                kVTCompressionPropertyKey_ExpectedFrameRate,
-                fps.as_ref(),
-                "frame rate",
-            )?;
         }
-        apply_rate(&session, spec.rate)?;
+        apply_settings(&session, None, spec)?;
         session.prepare()?;
-        self.shared.lock().atom = Some(atom);
         Ok(session)
     }
 }
 
-fn apply_rate(session: &CompressionSession, rate: RateControl) -> Result<(), CodecError> {
-    // SAFETY: Reading immutable framework key constants with matching value types.
-    unsafe {
-        match rate {
-            RateControl::Bitrate(bits) => session.set(
-                kVTCompressionPropertyKey_AverageBitRate,
-                number(i64::from(bits)).as_ref(),
-                "bitrate",
-            ),
-            RateControl::Quantizer(qp) => {
-                let qp = number(i64::from(qp));
-                session
-                    .set(
-                        kVTCompressionPropertyKey_MinAllowedFrameQP,
-                        qp.as_ref(),
-                        "minimum QP",
-                    )
-                    .and_then(|()| {
-                        session.set(
-                            kVTCompressionPropertyKey_MaxAllowedFrameQP,
-                            qp.as_ref(),
-                            "maximum QP",
-                        )
-                    })
-                    .map_err(|_| CodecError::Unsupported("this encoder has no QP control".into()))
+impl Sink for &CompressionSession {
+    fn apply(&mut self, setting: Setting) -> Result<(), CodecError> {
+        // SAFETY: Reading immutable framework key constants; each value is the
+        // CFNumber the key documents.
+        unsafe {
+            let (key, value, what) = match setting {
+                Setting::FrameRate(fps) => (
+                    kVTCompressionPropertyKey_ExpectedFrameRate,
+                    i64::from(fps),
+                    "frame rate",
+                ),
+                Setting::Bitrate(bits) => (
+                    kVTCompressionPropertyKey_AverageBitRate,
+                    i64::from(bits),
+                    "bitrate",
+                ),
+                Setting::MinQp(qp) => (
+                    kVTCompressionPropertyKey_MinAllowedFrameQP,
+                    i64::from(qp),
+                    "minimum QP",
+                ),
+                Setting::MaxQp(qp) => (
+                    kVTCompressionPropertyKey_MaxAllowedFrameQP,
+                    i64::from(qp),
+                    "maximum QP",
+                ),
+            };
+            let result = self.set(key, number(value).as_ref(), what);
+            match setting {
+                Setting::MinQp(_) | Setting::MaxQp(_) => result
+                    .map_err(|_| CodecError::Unsupported("this encoder has no QP control".into())),
+                _ => result,
             }
         }
     }
+}
+
+/// Applies `spec` over `previous`, all or nothing (see `settings`).
+fn apply_settings(
+    session: &CompressionSession,
+    previous: Option<&EncodeSpec>,
+    spec: &EncodeSpec,
+) -> Result<(), CodecError> {
+    let mut sink = session;
+    settings::apply(&mut sink, previous, spec)
+}
+
+fn meta(spec: &EncodeSpec) -> Result<StreamMeta, CodecError> {
+    let (_, atom) = codec_type(spec.codec)?;
+    Ok(StreamMeta {
+        codec: spec.codec,
+        size: spec.size,
+        format: format_of(spec.codec),
+        atom,
+    })
 }
 
 fn format_of(codec: Codec) -> BitstreamFormat {
@@ -372,35 +393,29 @@ fn slot_capacity(spec: &EncodeSpec) -> usize {
 }
 
 impl Encoder for VtEncoder {
+    /// Transactional: on any error the previous configuration stays in force.
     fn configure(&mut self, spec: &EncodeSpec) -> Result<(), CodecError> {
         spec.validate()?;
-        codec_type(spec.codec)?;
+        let meta = meta(spec)?;
         let same_stream = self
             .spec
             .as_ref()
             .is_some_and(|old| old.codec == spec.codec && old.size == spec.size);
-        if let (true, Some(session)) = (same_stream, self.session.as_ref()) {
-            apply_rate(session, spec.rate)?;
-            if let Some(old) = self.spec.as_mut() {
-                old.fps = spec.fps;
-                old.rate = spec.rate;
-            }
-            // SAFETY: Reading an immutable key constant; the value is a CFNumber.
-            unsafe {
-                session.set(
-                    kVTCompressionPropertyKey_ExpectedFrameRate,
-                    number(i64::from(spec.fps)).as_ref(),
-                    "frame rate",
-                )?;
-            }
+        if let (true, Some(session), Some(old)) =
+            (same_stream, self.session.as_ref(), self.spec.as_ref())
+        {
+            apply_settings(session, Some(old), spec)?;
+            self.spec = Some(spec.clone());
             self.shared.reserve(MAX_PENDING + 2, slot_capacity(spec));
             return Ok(());
         }
-        // A new stream: drain the old session first so its frames keep their order.
+        // A new stream opens first, so a refusal leaves the old one running.
+        // The old session then drains, its frames stamped with its own stream.
+        let session = self.open(spec)?;
         if let Some(old) = self.session.as_ref() {
             old.complete()?;
         }
-        let session = self.open(spec)?;
+        self.shared.lock().stream = Some(meta);
         self.hardware = session.hardware();
         self.session = Some(session);
         self.spec = Some(spec.clone());
@@ -418,12 +433,8 @@ impl Encoder for VtEncoder {
                 "picture size differs from encode size".into(),
             ));
         }
-        {
-            let mut queue = self.shared.lock();
-            if queue.in_flight + queue.ready.len() >= MAX_PENDING {
-                return Err(CodecError::Backpressure);
-            }
-            queue.in_flight += 1;
+        if !self.has_room() {
+            return Err(CodecError::Backpressure);
         }
         let (picture, copies) = match picture {
             Picture::Cpu(cpu) => {
@@ -453,6 +464,8 @@ impl Encoder for VtEncoder {
             .ok_or_else(|| CodecError::InvalidInput("not a CVPixelBuffer picture".into()))?;
         let key = force_key || self.key_owed;
         let duration = 1_000_000 / u64::from(spec.fps);
+        // Reserved only now: a picture refused above never holds a slot.
+        self.shared.lock().in_flight += 1;
         let result = session.encode(
             surface,
             picture.pts_us(),
@@ -473,13 +486,13 @@ impl Encoder for VtEncoder {
         self.poll_result().ok().flatten()
     }
     fn poll_result(&mut self) -> Result<Option<EncodedUnit>, CodecError> {
-        let Some(spec) = self.spec.as_ref() else {
-            return Ok(None);
-        };
         let mut unit = EncodedUnit {
-            codec: spec.codec,
-            size: spec.size,
-            format: format_of(spec.codec),
+            codec: Codec::H264,
+            size: Size {
+                width: 0,
+                height: 0,
+            },
+            format: BitstreamFormat::Avcc,
             data: Vec::new(),
             key: false,
             description: None,
@@ -492,7 +505,7 @@ impl Encoder for VtEncoder {
         EncoderCaps {
             hardware: self.hardware,
             codecs: vec![Codec::H264, Codec::Hevc],
-            max_size: crate::probe::largest_encode(
+            max_size: crate::trials::largest_encode(
                 self.spec.as_ref().map_or(Codec::H264, |s| s.codec),
             ),
             quantizer: true,

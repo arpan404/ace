@@ -375,3 +375,67 @@ pub fn read_back_into(picture: &Picture, storage: Vec<u8>) -> Result<CpuPicture,
     drop(locked);
     picture
 }
+
+/// One GPU→CPU copy of `surface` into packed RGB8 in `out`, converting while
+/// copying: BGRA is reordered, NV12 goes through BT.709 (video or full range,
+/// per the buffer's format). Reuses `out`'s capacity; returns the size.
+pub(crate) fn read_back_rgb(surface: &VtSurface, out: &mut Vec<u8>) -> Result<Size, CodecError> {
+    let format = surface
+        .format()
+        .ok_or_else(|| CodecError::Unsupported("pixel buffer layout".into()))?;
+    let size = surface.size();
+    let (w, h) = (size.width as usize, size.height as usize);
+    out.clear();
+    out.resize(w * h * 3, 0);
+    let locked = Locked::new(surface.buffer(), true)?;
+    match format {
+        VtFormat::Bgra => {
+            let (base, stride, _) = locked.plane(0)?;
+            for (y, row) in out.chunks_exact_mut(w * 3).enumerate() {
+                // SAFETY: Row `y` < height of a locked plane with stride ≥ 4w.
+                let from = unsafe { std::slice::from_raw_parts(base.add(y * stride), w * 4) };
+                for (rgb, bgra) in row.chunks_exact_mut(3).zip(from.chunks_exact(4)) {
+                    rgb.copy_from_slice(&[bgra[2], bgra[1], bgra[0]]);
+                }
+            }
+        }
+        VtFormat::Nv12 => {
+            let full = CVPixelBufferGetPixelFormatType(surface.buffer())
+                == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange;
+            let (luma, luma_stride, _) = locked.plane(0)?;
+            let (chroma, chroma_stride, _) = locked.plane(1)?;
+            for (y, row) in out.chunks_exact_mut(w * 3).enumerate() {
+                // SAFETY: Luma row `y` and chroma row `y / 2` are within the
+                // locked planes; each holds ≥ w bytes.
+                let (ys, cs) = unsafe {
+                    (
+                        std::slice::from_raw_parts(luma.add(y * luma_stride), w),
+                        std::slice::from_raw_parts(chroma.add(y / 2 * chroma_stride), w),
+                    )
+                };
+                for (x, rgb) in row.chunks_exact_mut(3).enumerate() {
+                    let c = x & !1;
+                    rgb.copy_from_slice(&bt709(ys[x], cs[c], cs[c + 1], full));
+                }
+            }
+        }
+    }
+    Ok(size)
+}
+
+/// BT.709 Y'CbCr → R'G'B' with 8-bit fixed-point coefficients.
+fn bt709(y: u8, cb: u8, cr: u8, full: bool) -> [u8; 3] {
+    let (cb, cr) = (i32::from(cb) - 128, i32::from(cr) - 128);
+    // Video range folds 255/219 (luma) and 255/224 (chroma) into the factors.
+    let (y, r_cr, g_cb, g_cr, b_cb) = if full {
+        (i32::from(y) * 256, 403, 48, 120, 475)
+    } else {
+        ((i32::from(y) - 16) * 298, 459, 55, 136, 541)
+    };
+    let clamp = |v: i32| ((v + 128) >> 8).clamp(0, 255) as u8;
+    [
+        clamp(y + r_cr * cr),
+        clamp(y - g_cb * cb - g_cr * cr),
+        clamp(y + b_cb * cb),
+    ]
+}
