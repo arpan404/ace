@@ -9,7 +9,7 @@ import {
 } from "@ace/ui-core";
 import { useTreeWork } from "@/features/panels/index.ts";
 import { useShownPlans } from "@/lib/use-plans.ts";
-import { useLiveConnection } from "@/lib/live-connection.ts";
+import { useThreadFreshness } from "@/lib/live-connection.ts";
 import { ElapsedTime } from "@/components/working-indicator.tsx";
 import { StatusGlyph } from "@/components/status-glyph.tsx";
 import { PauseCircleIcon } from "@phosphor-icons/react";
@@ -39,7 +39,8 @@ export function LiveHead(props: { threadId: string }) {
       ? { ...turn, label: askingLabel(descendant.kind) }
       : turn;
   const plans = useShownPlans(props.threadId);
-  const live = useLiveConnection();
+  // Not fresh (offline, reconnecting, catching up): the header says so; no live line here.
+  const live = useThreadFreshness(props.threadId);
   const progress = plans[0] ? livePlanStep(plans[0].progress) : undefined;
   const subagents = useWorkingSubagents(props.threadId, activity?.subagents);
   // A pause is the turn's own row; a lost connection is the header's to say; what the agent
