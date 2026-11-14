@@ -84,9 +84,15 @@ async function probe(page: Page, origin: string): Promise<boolean> {
   const text = (await answers.last().textContent())?.trim() ?? "";
   const answer = feed.locator(".markit-ace").filter({ hasText: text });
   const height = () => answer.first().evaluate((node) => node.getBoundingClientRect().height);
+  // Drawn: markit's output is in and its plain-text stand-in gone. Only a drawn answer can be
+  // kept, so the probe never sends one away before its first render lands.
   const settled = async () => {
     await answer.first().waitFor();
-    // Long enough for a markit job and its frame to land.
+    await expect(answer.first().locator(":scope > p.whitespace-pre-wrap")).toHaveCount(0, {
+      timeout: 20_000,
+    });
+    await expect(answer.first().locator(".markit .mk-block").first()).toBeAttached();
+    // Long enough for a late markit job and its frame to land.
     await page.waitForTimeout(400);
   };
   await settled();
@@ -97,6 +103,7 @@ async function probe(page: Page, origin: string): Promise<boolean> {
   for (let step = 0; step < 30 && (await answer.count()) > 0; step++)
     await scrollTranscript(page, -1_500, 60);
   if ((await answer.count()) > 0) throw new Error("The answer never left the transcript");
+  await expect(toEnd).toBeVisible({ timeout: 20_000 });
   await toEnd.click();
   await toEnd.waitFor({ state: "detached" });
   await settled();
