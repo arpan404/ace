@@ -1,8 +1,9 @@
-import { facts, watchingRelay } from "@ace/fake-daemon";
+import { facts, flakyCheckout, watchingRelay } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, expect, test } from "vitest";
 import { slowReplay } from "@/test/held-replay.ts";
 import { harness } from "@/test/harness.tsx";
+import { openWorkPanel } from "@/test/open-work.ts";
 
 /*
  * The work log after a reconnect's welcome and before its replay lands: a cached group still in
@@ -102,4 +103,21 @@ test("connected again but not caught up: an unfinished thought doesn't say Think
 
   replay.release(app.client);
   expect(await within(feed).findByRole("button", thinking)).toBeTruthy();
+});
+
+test("connected again but not caught up: the Summary's now line says so instead of what works", async () => {
+  const app = harness();
+  const replay = slowReplay(app.daemon);
+  app.play(flakyCheckout()).runThrough("watcher-started");
+  await app.open("/t/thread-checkout");
+  await screen.findByRole("combobox", { name: "Message" });
+  const work = await openWorkPanel();
+  const now = () => within(work).getByRole("status", { name: /^Thread status: / });
+  await waitFor(() => expect(now().getAttribute("aria-label")).not.toBe("Thread status: Syncing…"));
+
+  await replay.hold(app.client);
+  await waitFor(() => expect(now().getAttribute("aria-label")).toBe("Thread status: Syncing…"));
+
+  replay.release(app.client);
+  await waitFor(() => expect(now().getAttribute("aria-label")).not.toBe("Thread status: Syncing…"));
 });

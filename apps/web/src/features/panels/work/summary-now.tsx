@@ -13,6 +13,7 @@ import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
 import { useOpenSubagent } from "@/lib/subagent-link.tsx";
 import { useNow } from "@/lib/time.ts";
 import { agentModelLine } from "../agents/agent-details.ts";
+import { useThreadFreshness } from "@/lib/live-connection.ts";
 import { useAgentIdentity } from "../agents/agent-identity.ts";
 
 /** The provider, model and effort the thread runs on, quiet in the header row. */
@@ -58,7 +59,11 @@ export function SummaryNow(props: {
   const openSubagent = useOpenSubagent();
   const asker = summaryAsker(props.threadId, props.forest, props.works);
   const identity = useAgentIdentity(asker?.node.threadId ?? "", asker?.node.agent);
-  const line = nowLine({
+  // What works now and for how long is the copy's fact: while it isn't current the line says only
+  // that ("Syncing…"), with no request to open.
+  const { staleLabel } = useThreadFreshness(props.threadId);
+  const fresh = staleLabel === undefined;
+  const computed = nowLine({
     status: props.thread.status,
     // The whole tree, not just the thread's own status: never done while any branch is live.
     ...forestNow(props.forest),
@@ -72,8 +77,18 @@ export function SummaryNow(props: {
     asker: asker && { name: identity.name, root: asker.root, request: asker.request },
     error: mainAgentError(props.forest),
   });
+  const line = fresh
+    ? computed
+    : {
+        ...computed,
+        tone: "plain" as const,
+        say: staleLabel,
+        speak: staleLabel,
+        span: undefined,
+        sub: undefined,
+      };
   const tone = line.tone === "plain" ? undefined : line.tone;
-  const target = asker?.open;
+  const target = fresh ? asker?.open : undefined;
   const open = target ? () => openSubagent(target) : undefined;
   return (
     <div className="flex min-w-0 flex-col gap-[2px] px-2 pt-1">
