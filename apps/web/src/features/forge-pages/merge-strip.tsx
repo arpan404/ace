@@ -1,5 +1,12 @@
 import { useState, type ReactNode } from "react";
-import { formatElapsed, type MergeMethod } from "@ace/ui-core";
+import {
+  formatElapsed,
+  mergePickWords,
+  mergeRunMethods,
+  runWords,
+  type MergeMethod,
+  type StripAction,
+} from "@ace/ui-core";
 import type { VerifyRun } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
@@ -8,13 +15,8 @@ import { useSeconds } from "@/lib/time.ts";
 import { useVerifyLog } from "@/lib/verify.ts";
 import { PrCheckLog } from "@/features/forge/index.ts";
 import type { MergeRun } from "./merge-run.ts";
-import { pullRequests, runWords, type StripAction } from "./merge-run-words.ts";
 
-const methods: { value: MergeMethod; label: string }[] = [
-  { value: "squash", label: "Squash" },
-  { value: "merge", label: "Merge commit" },
-  { value: "rebase", label: "Rebase" },
-];
+const methods: { value: MergeMethod; label: string }[] = [...mergeRunMethods];
 
 function Dot() {
   return (
@@ -124,7 +126,7 @@ export function MergeStrip(props: {
   return (
     <Strip>
       <span className="min-w-0 truncate text-foreground">
-        {`Verify and merge ${pullRequests(merge.selected.length)} into ${merge.base ?? "main"}`}
+        {mergePickWords(merge.selected.length, merge.base ?? "main")}
       </span>
       <Dot />
       <FilterMenu

@@ -1,27 +1,32 @@
 import SwiftUI
 
 /// The person's message, as the web draws it: a quiet "Steer" or "Queued" eyebrow when it wasn't
-/// simply sent, its attachments above, unframed, then a right-aligned bubble of its words (none for
-/// a message of attachments only), and its time and Copy under the bubble. Everything is the
+/// simply sent, its attachments above, unframed, then a right-aligned bubble of what it replies to
+/// and its words (none for a message of attachments only), and its time and Copy under the bubble. Everything is the
 /// bridge's (`BubbleLine`); Swift only lays it out.
 struct UserMessageRow: View {
     let row: TranscriptRow
     var body: some View {
         let readable = row.bubble?.readable ?? !row.text.isEmpty
+        let quoted = !(row.bubble?.quotes ?? []).isEmpty
         VStack(alignment: .trailing, spacing: AceDesign.Space.tight) {
             if let origin = row.bubble?.origin, !origin.isEmpty { MessageEyebrow(origin: origin) }
             if let attachments = row.attachments, !attachments.isEmpty {
                 MessageAttachments(row: row, attachments: attachments, more: row.moreAttachments ?? 0)
                     .padding(.leading, UserBubble.inset)
             }
-            if readable { UserBubble(text: row.text, bubble: row.bubble, id: row.id).messageMenu(copyText, title: "Message", row: row) }
+            if readable || quoted { UserBubble(text: row.text, bubble: row.bubble, id: row.id).messageMenu(copyText, title: "Message", row: row) }
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("message.user.\(row.id)")
     }
-    /// The bubble's words as shown: mentions by name, code as written.
+    /// The bubble's words as shown: mentions by name, code as written. A message of only quotes
+    /// copies the passages, never the block the agent reads.
     private var copyText: String {
+        if row.bubble?.readable == false, let quotes = row.bubble?.quotes, !quotes.isEmpty {
+            return quotes.map(\.text).joined(separator: "\n\n")
+        }
         guard let segments = row.bubble?.segments, !segments.isEmpty else { return row.text }
         return segments.map { $0.kind == "code" ? "\n\($0.text)\n" : $0.text }.joined()
             .trimmingCharacters(in: .newlines)
@@ -60,15 +65,21 @@ struct UserBubble: View {
         HStack(spacing: AceTheme.Spacing.none) {
             Spacer(minLength: Self.inset)
             VStack(alignment: .trailing, spacing: AceDesign.Space.tight) {
-                // Full height, then clipped: the fold cuts the text rather than squeezing it.
-                BubbleText(text: text, bubble: bubble)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxHeight: folded ? foldHeight : nil, alignment: .top)
-                    .clipped()
-                    .mask {
-                        LinearGradient(stops: [.init(color: .black, location: folded ? 0.7 : 1), .init(color: folded ? .clear : .black, location: 1)],
-                                       startPoint: .top, endPoint: .bottom)
+                // What it replies to shares the words' leading edge, above them.
+                VStack(alignment: .leading, spacing: AceDesign.Space.related) {
+                    if let quotes = bubble?.quotes, !quotes.isEmpty { BubbleQuotes(quotes: quotes) }
+                    // Full height, then clipped: the fold cuts the text rather than squeezing it.
+                    if bubble?.readable != false {
+                        BubbleText(text: text, bubble: bubble)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxHeight: folded ? foldHeight : nil, alignment: .top)
+                            .clipped()
+                            .mask {
+                                LinearGradient(stops: [.init(color: .black, location: folded ? 0.7 : 1), .init(color: folded ? .clear : .black, location: 1)],
+                                               startPoint: .top, endPoint: .bottom)
+                            }
                     }
+                }
                 if long {
                     Button(open ? "Show less" : "Show more") { open.toggle() }
                         .buttonStyle(.plain)
@@ -84,6 +95,29 @@ struct UserBubble: View {
             // The raised fill with 19pt continuous corners, as the approved mockup draws it.
             .background(AceDesign.Surface.group, in: RoundedRectangle(cornerRadius: AceDesign.Size.bubbleCorner, style: .continuous))
         }
+    }
+}
+
+/// What the message replied to, at the top of its bubble: each quoted passage of the agent's
+/// words set off by a rule, muted, to three lines, as the web's quotes card draws them.
+private struct BubbleQuotes: View {
+    let quotes: [BubbleLine.Quote]
+    var body: some View {
+        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+            ForEach(Array(quotes.enumerated()), id: \.offset) { _, quote in
+                Text(verbatim: quote.text)
+                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, AceDesign.Space.related)
+                    .overlay(alignment: .leading) {
+                        Rectangle().fill(AceTheme.Colours.separator).frame(width: 2)
+                    }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Replying to \(quotes.map(\.text).joined(separator: ", "))")
     }
 }
 

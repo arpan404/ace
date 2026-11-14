@@ -115,6 +115,40 @@ test("a usage-limit choice is saved on the machine and the page says so", async 
   expect(limit.source?.label).toBe("This machine");
 });
 
+test("a machine's icon is picked from the web's set, kept in its colour, and saved on the machine", async () => {
+  const p = await ports();
+  await p.owner.request({
+    type: "settings.set",
+    key: "host.icon",
+    value: { kind: "laptop", color: "green" },
+    layer: { kind: "global" },
+  });
+  const icon = row(await page(p, "remote"), "host.icon");
+  expect(labels(icon)).toEqual([
+    "Laptop",
+    "Desktop",
+    "Monitor",
+    "Server",
+    "Cloud",
+    "CPU",
+    "Terminal",
+    "Phone",
+  ]);
+  const server =
+    icon.control.kind === "choice"
+      ? icon.control.choices.find((choice) => choice.label === "Server")
+      : undefined;
+  const written = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "remote",
+    row: "host.icon",
+    value: server?.id,
+  });
+  expect(written.ok).toBe(true);
+  expect(p.daemon.services.settings.get("host.icon")).toEqual({ kind: "server", color: "green" });
+  expect(row(written.page!, "host.icon").value).toBe(server?.id);
+});
+
 test("the child limit saves a count and No limit saves none", async () => {
   const p = await ports();
   const write = (value: string) =>
@@ -337,6 +371,31 @@ test("the machine's other pages save lists and text, refusing what the setting w
     ok: false,
     message: "Use a secure relay address without credentials",
   });
+});
+
+test("the Simulators page asks before turning a machine's simulators off, then saves it there", async () => {
+  const p = await ports();
+  const shown = await page(p, "simulators");
+  const enabled = row(shown, "devices.enabled");
+  // On until turned off, as on the web, and only turning it off asks first.
+  expect(enabled).toMatchObject({ title: "Use simulators and emulators", value: true });
+  expect(enabled.control).toEqual({
+    kind: "toggle",
+    askOff: {
+      title: "Turn off simulators and emulators?",
+      message: expect.stringContaining("Agents lose the devices they are using"),
+      confirm: "Turn off",
+    },
+  });
+  expect(row(shown, "devices.emulatorWindow").control).toEqual({ kind: "toggle" });
+  const off = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "simulators",
+    row: "devices.enabled",
+    value: false,
+  });
+  expect(off.ok).toBe(true);
+  expect(p.daemon.services.settings.get("devices.enabled")).toBe(false);
 });
 
 /** A write that names the Build role's provider, sent alone or in a batch. */

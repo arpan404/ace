@@ -9,7 +9,8 @@ import Testing
         await model.connect(target: try target("first"), directory: directory)
         let first = try #require(sessions.values.first)
         first.emit("ready")
-        await drain()
+        // Frames decode on their own queue, then apply on the main actor: wait for the state.
+        await settle { model.connection == "ready" }
         #expect(model.connection == "ready")
         model.open("old-thread")
         model.inboxLoaded = true
@@ -31,6 +32,8 @@ import Testing
         second.emit("ready")
         first.emit("offline")
         first.fail("Late old failure")
+        await settle { model.connection == "ready" }
+        // The retired runtime's late updates had their chance to land too; none may show.
         await drain()
         #expect(model.connection == "ready")
         #expect(model.error == "second")
@@ -135,6 +138,40 @@ import Testing
         await model.disconnectAndWait()
     }
 
+    @Test func aRouteChangeKeepsTheTypedReviewReplyAndAnswersItsUnansweredSend() async throws {
+        let sessions = Sessions()
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
+        await model.connect(target: try target("mac", port: SpikeFixture.port), directory: directory)
+        let direct = try #require(sessions.values.first)
+        direct.emit("ready")
+        await settle { model.connection == "ready" }
+        model.open("thread")
+        model.sheets.replyTexts["comment-1"] = "Half-typed reply"
+        model.sheets.sent("reply-1")
+
+        // Direct to relay on the same machine: the thread stays open, and so does the reply.
+        let relay = Task { await model.connect(target: try target("mac", port: SpikeFixture.port + 1), directory: directory) }
+        await drain()
+        direct.finishShutdown()
+        try await relay.value
+        #expect(model.sheets.replyTexts["comment-1"] == "Half-typed reply")
+        // The retired route can't answer the send, so it reads as uncertain instead of Sending….
+        let notice = try #require(model.sheets.notices["reply-1"])
+        #expect(!notice.ok)
+
+        // Another machine: nothing typed for this one's comments carries over.
+        let other = Task { await model.connect(target: try target("other"), directory: directory) }
+        await drain()
+        sessions.values.last?.finishShutdown()
+        try await other.value
+        #expect(model.sheets.replyTexts.isEmpty)
+        #expect(model.sheets.notices.isEmpty)
+        model.disconnect()
+        await drain()
+        sessions.values.last?.finishShutdown()
+        await model.disconnectAndWait()
+    }
+
     private var directory: URL { URL(fileURLWithPath: "/unused-lifecycle-contract") }
     private func target(_ host: String, port: Int = SpikeFixture.port) throws -> ConnectionTarget {
         ConnectionTarget(endpoint: try #require(URL(string: "ws://127.0.0.1:\(port)")),
@@ -153,6 +190,10 @@ import Testing
     }
     private func frame(_ values: [[String: Any]]) throws -> Data { try JSONSerialization.data(withJSONObject: values) }
     private func drain() async { for _ in 0..<20 { await Task.yield() } }
+    /// Until `done`, for at most a second: what crosses the decoder's queue lands in its own time.
+    private func settle(_ done: () -> Bool) async {
+        for _ in 0..<500 where !done() { try? await Task.sleep(for: .milliseconds(2)) }
+    }
 }
 
 /// Only the uncontrolled VM/shutdown boundary is substituted. Model state uses its real decoder.

@@ -48,9 +48,32 @@ struct NotificationPreferences: Codable, Sendable, Equatable {
     static let standard = NotificationPreferences(quietHours: nil, includePreview: false, agentSays: nil)
 }
 
+/// A usage-limit change the bridge judged (`bridge/limit-alerts.ts`), with how this phone shows it.
+struct LimitNotification: Codable, Sendable, Equatable {
+    let key: String
+    let title: String
+    let body: String
+    var delivery: AlertNotification.Delivery? = nil
+}
+
+/// A finished or failed automation run the bridge picked (`bridge/run-alerts.ts`), or a summary
+/// of many, with how this phone shows it. Its body says how runs went, never what they printed.
+struct RunNotification: Codable, Sendable, Equatable {
+    let key: String
+    let title: String
+    let body: String
+    /// The thread the run started, which a tap opens; nil opens ace.
+    var threadId: String? = nil
+    /// Nil for a summary of several runs ("57 more automation runs finished").
+    var automationId: String? = nil
+    var delivery: AlertNotification.Delivery? = nil
+}
+
 /// Bridge patches whose `type` starts with `notifications.`.
 enum NotificationPatch: Decodable, Sendable, Equatable {
     case alert(AlertNotification)
+    case limit(LimitNotification)
+    case run(RunNotification)
     case feed(cursor: Int, entries: [AlertNotification], retracted: [String])
     case config(NotificationPreferences)
     case action(id: String, outcome: ActionOutcome)
@@ -63,6 +86,8 @@ enum NotificationPatch: Decodable, Sendable, Equatable {
         let box = try decoder.container(keyedBy: Keys.self)
         switch try box.decode(String.self, forKey: .type) {
         case "notifications.alert": self = .alert(try box.decode(AlertNotification.self, forKey: .notification))
+        case "notifications.limit": self = .limit(try LimitNotification(from: decoder))
+        case "notifications.run": self = .run(try RunNotification(from: decoder))
         case "notifications.feed":
             self = .feed(cursor: try box.decode(Int.self, forKey: .cursor),
                          entries: try box.decode([AlertNotification].self, forKey: .entries),

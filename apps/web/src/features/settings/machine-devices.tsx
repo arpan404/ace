@@ -15,7 +15,7 @@ import { useMachinePool } from "@/lib/machine-pool.ts";
 import type { Machine } from "@/lib/machines.ts";
 import { useNow } from "@/lib/time.ts";
 import { fleetProblem, revokeDevice } from "./data/fleet.ts";
-import { linkDeviceIds } from "./data/fleet-links.ts";
+import { linkDeviceIds } from "@ace/ui-core/fleet-map";
 import type { Fleet } from "./data/use-fleet.ts";
 import { deviceScopeLabels } from "./device-scopes.ts";
 import { DeviceGlyph } from "./fleet-devices.tsx";

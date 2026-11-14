@@ -20,10 +20,18 @@ import {
   PhoneNotificationPrefs,
   alertDelivery,
   defaultPhonePrefs,
+  phoneDelivery,
   type PhoneDelivery,
 } from "./notification-delivery.ts";
+import { accountView } from "@ace/ui-core";
+import { host } from "./host.ts";
+import { LimitWatch, type LimitAlert } from "./limit-alerts.ts";
+import { RunWatch, type RunAlert } from "./run-alerts.ts";
+import type { KeptValue } from "./kept-value.ts";
 
 const boundedId = z.string().min(1).max(200);
+/** As many recent runs as the web's inbox reads for its toasts. */
+const runInboxLimit = 50;
 export const NotificationAction = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("notifications.sync"),
@@ -103,6 +111,10 @@ export class NotificationBridge {
   readonly detailsMs: number;
   /** How long an alert waits to read its request before posting without it. */
   readonly requestMs: number;
+  /** Usage-limit alerts: read while notifications are on, the machine is ready and limits are wanted. */
+  #limits: LimitWatch | undefined;
+  /** Automation-run alerts: read while notifications are on, the machine is ready and runs are wanted. */
+  #runs: RunWatch | undefined;
 
   constructor(
     client: ClientCore,
@@ -111,6 +123,10 @@ export class NotificationBridge {
     minuteOfDay: MinuteOfDay,
     detailsMs = 8000,
     requestMs = 1500,
+    /** The phone's clock in milliseconds, for usage-limit and run alerts; none watched without it. */
+    now?: () => number,
+    /** How far this machine's runs were said, kept between launches (`run-alerts.ts`). */
+    runProgress?: KeptValue,
   ) {
     this.requestMs = requestMs;
     this.#client = client;
@@ -118,11 +134,44 @@ export class NotificationBridge {
     this.#put = put;
     this.#schedule = schedule;
     this.detailsMs = detailsMs;
+    if (now)
+      this.#limits = new LimitWatch(
+        async () =>
+          (
+            await client.request(
+              { type: "accounts.list", requestId: host.uuid() },
+              { timeoutMs: 15_000 },
+            )
+          ).accounts.map(accountView),
+        schedule,
+        now,
+        (alert) => this.#limit(alert),
+      );
+    if (now)
+      this.#runs = new RunWatch(
+        // A page of recent runs, newest first; `before` reads further back.
+        (before, finishedAfter) =>
+          client.request(
+            {
+              type: "automation.inbox",
+              limit: runInboxLimit,
+              ...(before ? { before } : {}),
+              ...(finishedAfter === undefined ? {} : { finishedAfter: Math.max(0, finishedAfter) }),
+            },
+            { timeoutMs: 15_000 },
+          ),
+        schedule,
+        now,
+        (alert) => this.#run(alert),
+        runProgress,
+      );
     const connection = client.connectionState();
     this.#stop.push(
       connection.subscribe(() => {
         if (connection.getSnapshot() === "ready") void this.#connected();
         else {
+          this.#limits?.stop();
+          this.#runs?.stop();
           this.#connection++;
           this.#daemon = undefined;
         }
@@ -133,6 +182,8 @@ export class NotificationBridge {
     );
   }
   close(): void {
+    this.#limits?.stop();
+    this.#runs?.stop();
     for (const stop of this.#stop.splice(0)) stop();
   }
   handle(action: NotificationAction): void {
@@ -143,6 +194,8 @@ export class NotificationBridge {
         this.#synced = true;
         this.#appState = action.appState;
         if (action.phone) this.#phone = action.phone;
+        this.#watchLimits();
+        this.#watchRuns();
         this.#cursor = Math.max(this.#cursor, action.cursor);
         if (this.#client.state === "ready") {
           if (changed) this.#presence();
@@ -170,7 +223,58 @@ export class NotificationBridge {
         void this.#reply(action).catch(() => this.#outcome(action.requestId, "unsaved"));
     }
   }
+  /** Watches usage limits only while an alert could show: on, ready, and the category wanted. */
+  #watchLimits(): void {
+    const wanted =
+      this.#enabled &&
+      this.#client.state === "ready" &&
+      (this.#phone.inApp.limits || this.#phone.system.limits);
+    if (wanted) this.#limits?.start();
+    else this.#limits?.stop();
+  }
+  /** One usage-limit change, with how this phone shows it now. */
+  #limit(alert: LimitAlert): void {
+    const delivery = phoneDelivery("limits", this.#phone, {
+      foreground: this.#appState === "foreground",
+      minuteOfDay: this.#minuteOfDay(),
+    });
+    this.#put(`notifications:limit:${alert.key}`, () => ({
+      type: "notifications.limit",
+      ...alert,
+      delivery,
+    }));
+  }
+  /**
+   * Watches automation runs only while an alert could show. A dropped connection pauses it, so a
+   * run that finished meanwhile is said on return; turning alerts off forgets where it was.
+   */
+  #watchRuns(): void {
+    // Until Swift says what the person wants, nothing is known to be off: pause, never forget.
+    if (!this.#synced) {
+      this.#runs?.stop();
+      return;
+    }
+    const wanted =
+      this.#enabled && (this.#phone.inApp.automations || this.#phone.system.automations);
+    if (!wanted) this.#runs?.forget();
+    else if (this.#client.state === "ready") this.#runs?.start();
+    else this.#runs?.stop();
+  }
+  /** One finished automation run, with how this phone shows it now. */
+  #run(alert: RunAlert): void {
+    const delivery = phoneDelivery("automations", this.#phone, {
+      foreground: this.#appState === "foreground",
+      minuteOfDay: this.#minuteOfDay(),
+    });
+    this.#put(`notifications:run:${alert.key}`, () => ({
+      type: "notifications.run",
+      ...alert,
+      delivery,
+    }));
+  }
   async #connected(): Promise<void> {
+    this.#watchLimits();
+    this.#watchRuns();
     this.#presence();
     // Native state (on/off, app state, cursor) may postdate this runtime; ask for it again.
     this.#put("notifications:connected", () => ({ type: "notifications.connected" }));

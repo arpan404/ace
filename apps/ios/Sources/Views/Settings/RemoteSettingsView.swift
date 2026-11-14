@@ -13,7 +13,9 @@ struct RemoteSettingsCategory: Identifiable {
     /// Default provider, access, recovery and limits, roles, the thread list, generation and
     /// automations, as the web's Agents page groups them.
     static let agents = RemoteSettingsCategory(title: "Agents", symbol: "person.2", page: "agents")
-    static let computer = RemoteSettingsCategory(title: "App access and devices", page: "computer")
+    static let computer = RemoteSettingsCategory(title: "App access", page: "computer")
+    /// Simulators and emulators on or off, the emulator window, and the tools they need.
+    static let simulators = RemoteSettingsCategory(title: "Simulators", symbol: "iphone", page: "simulators")
     static let browser = RemoteSettingsCategory(title: "Browser and computer", symbol: "safari", page: "browser")
     /// Moving work to the machines this one links to (ADR 0101); shown only while it links to one.
     static let fleet = RemoteSettingsCategory(title: "Fleet", symbol: "point.3.connected.trianglepath.dotted", page: "fleet")
@@ -21,6 +23,7 @@ struct RemoteSettingsCategory: Identifiable {
         agents,
         .init(title: "Remote access", symbol: "antenna.radiowaves.left.and.right", page: "remote"),
         browser,
+        simulators,
     ]
 }
 
@@ -28,6 +31,10 @@ struct RemoteSettingsView: View {
     let model: ClientModel
     let category: RemoteSettingsCategory
     var body: some View {
-        SettingsPageView(model: model, page: category.page, title: category.title)
+        if category.page == RemoteSettingsCategory.simulators.page {
+            SimulatorsSettingsView(model: model)
+        } else {
+            SettingsPageView(model: model, page: category.page, title: category.title)
+        }
     }
 }

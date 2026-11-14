@@ -1,4 +1,10 @@
-import { CommandId, ForgeRepository, WorkspaceId, type CommandResult } from "@ace/protocol";
+import {
+  CommandId,
+  ForgeIssueWrite,
+  ForgeRepository,
+  WorkspaceId,
+  type CommandResult,
+} from "@ace/protocol";
 import { actionErrorText } from "@ace/ui-core";
 import { z } from "zod";
 import type { ForgeOwner, ForgeReads } from "./forge-reads.ts";
@@ -22,6 +28,21 @@ export const ForgeIssueReconcileRequest = z.object({
   repository: ForgeRepository,
   actionId: CommandId,
 });
+/**
+ * Any other write to an issue, as the web's issue page makes it: open one, edit its title and
+ * description, close (completed or not planned) or reopen it, and change its labels, assignees or
+ * milestone. Comments keep their own request, with the box's checks.
+ */
+export const ForgeIssueChangeRequest = z.object({
+  type: z.literal("forge.issue.change"),
+  project: z.string().min(1).max(512),
+  repository: ForgeRepository,
+  input: ForgeIssueWrite.refine(
+    (input) => input.action !== "comment",
+    "Comments use forge.issue.comment",
+  ),
+});
+export type ForgeIssueChangeRequest = z.infer<typeof ForgeIssueChangeRequest>;
 export type ForgeIssueCommentRequest = z.infer<typeof ForgeIssueCommentRequest>;
 export type ForgeIssueReconcileRequest = z.infer<typeof ForgeIssueReconcileRequest>;
 
@@ -30,6 +51,8 @@ export interface IssueWriteReply {
   ok: boolean;
   message: string;
   uncertain: boolean;
+  /** The issue a create opened; null for every other write. */
+  opened?: number | null;
 }
 
 const unconfirmed =
@@ -72,6 +95,31 @@ export async function commentOnIssue(
     .catch(() => undefined);
   reads.forget(request.project);
   return outcome(result);
+}
+
+export async function changeIssue(
+  owner: ForgeOwner,
+  reads: ForgeReads,
+  request: ForgeIssueChangeRequest,
+  newId: () => string,
+): Promise<IssueWriteReply> {
+  const result = await owner
+    .command(
+      {
+        type: "forge.issue.write",
+        workspaceId: WorkspaceId.parse(request.project),
+        repository: request.repository,
+        input: request.input,
+      },
+      {},
+      newId(),
+    )
+    .catch(() => undefined);
+  reads.forget(request.project);
+  const answer = outcome(result);
+  return request.input.action === "create"
+    ? { ...answer, opened: answer.ok ? (result?.issueAction?.issue?.number ?? null) : null }
+    : answer;
 }
 
 export async function checkIssueWrite(

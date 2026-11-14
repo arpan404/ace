@@ -1,4 +1,22 @@
 import { NativeTranscript, NativeTranscriptRequest } from "./native-transcript.ts";
+import { openPastSession, PastSessionOpenRequest } from "./past-sessions.ts";
+import { readSimulatorTools, SimulatorToolsRequest } from "./simulator-tools.ts";
+import {
+  FleetRunRequest,
+  FleetUpdatesRequest,
+  fleetRun,
+  fleetUpdates,
+  MachineUpdateStartRequest,
+  MachineUpdateStatusRequest,
+  readMachineUpdate,
+  startMachineUpdate,
+} from "./fleet-updates.ts";
+import {
+  combineProfile,
+  ProfileCombineRequest,
+  ProfilePartRequest,
+  readProfilePart,
+} from "./profile-report.ts";
 import type { ClientCore } from "@ace/client";
 import {
   AutomationRequest,
@@ -66,11 +84,14 @@ import { ProviderServices } from "./provider-services.ts";
 import type { NativeReads, ReadKey, ReadTicket } from "./native-reads.ts";
 import { NativeProjectRequest, type ProjectManage } from "./project-manage.ts";
 import { answerFleet, NativeFleetRequest } from "./fleet-admin.ts";
+import { combineFleetMap, FleetMapCombineRequest } from "./fleet-map.ts";
+import { FleetMapPartRequest, readFleetMapPart } from "./fleet-map-part.ts";
 import { answerOutside, NativeOutsideRequest } from "./outside-clients.ts";
 import type { InboxRequests } from "./inbox-manage.ts";
 import { NativeSkillLibrary, NativeSkillsRequest } from "./skill-library.ts";
 import { NativePluginsRequest, NativeSkillPlugins } from "./skill-plugins.ts";
 import { NativeAutomationRequest, type NativeAutomations } from "./automations.ts";
+import { NativeCatalogRequest, type CatalogPage } from "./catalog-page.ts";
 
 // The SDK validates every request and reply. The native bridge exposes only these services;
 // mutations of threads continue to go through the SDK's durable command outbox.
@@ -134,6 +155,8 @@ export class NativeServices {
   readonly threadFiles = new ThreadFileIndex();
   /** The files the fork being written in a thread carries, which its list can't remove. */
   carried: (threadId: string) => ReadonlySet<string> = () => new Set();
+  /** The Skills and commands pages' catalog reads, shared with the composer. */
+  catalog: CatalogPage | undefined;
   readonly owner: ClientCore;
   readonly sink: PatchSink;
   readonly devices: NativeDevices | undefined;
@@ -279,9 +302,24 @@ export class NativeServices {
         this.#reply(id, true, await answerFleet(this.owner, fleet.data), "");
         return;
       }
+      // The Fleet map: this machine's part, and every part put together in shared code.
+      if (FleetMapPartRequest.safeParse(raw).success) {
+        this.#answer(id, raw, await readFleetMapPart(this.owner, controller.signal), read);
+        return;
+      }
+      const fleetMap = FleetMapCombineRequest.safeParse(raw);
+      if (fleetMap.success) {
+        this.#reply(id, true, combineFleetMap(fleetMap.data, this.now()), "");
+        return;
+      }
       const outside = NativeOutsideRequest.safeParse(raw);
       if (outside.success) {
         this.#reply(id, true, await answerOutside(this.owner, outside.data, this.now), "");
+        return;
+      }
+      const catalog = NativeCatalogRequest.safeParse(raw);
+      if (catalog.success && this.catalog) {
+        this.#reply(id, true, await this.catalog.answer(catalog.data, controller.signal), "");
         return;
       }
       const skills = NativeSkillsRequest.safeParse(raw);
@@ -363,6 +401,40 @@ export class NativeServices {
       const part = UsagePartRequest.safeParse(raw);
       if (part.success) {
         this.#answer(id, raw, await readUsagePart(this.owner, part.data, controller.signal), read);
+        return;
+      }
+      if (MachineUpdateStatusRequest.safeParse(raw).success) {
+        this.#answer(id, raw, await readMachineUpdate(this.owner, controller.signal), read);
+        return;
+      }
+      const updateStart = MachineUpdateStartRequest.safeParse(raw);
+      if (updateStart.success) {
+        this.#reply(
+          id,
+          true,
+          await startMachineUpdate(this.owner, updateStart.data, controller.signal),
+          "",
+        );
+        return;
+      }
+      // The fleet's update decisions, in shared code; nothing here reaches this machine.
+      const updates = FleetUpdatesRequest.safeParse(raw);
+      if (updates.success) {
+        this.#reply(id, true, fleetUpdates(updates.data), "");
+        return;
+      }
+      const run = FleetRunRequest.safeParse(raw);
+      if (run.success) {
+        this.#reply(id, true, fleetRun(run.data), "");
+        return;
+      }
+      if (ProfilePartRequest.safeParse(raw).success) {
+        this.#answer(id, raw, await readProfilePart(this.owner, controller.signal), read);
+        return;
+      }
+      const profile = ProfileCombineRequest.safeParse(raw);
+      if (profile.success) {
+        this.#reply(id, true, combineProfile(profile.data), "");
         return;
       }
       // Sums other machines' parts in shared code; nothing here reaches this machine.
@@ -461,6 +533,20 @@ export class NativeServices {
           await writeNativeTerminalInput(this.owner, typed.data, controller.signal),
           "",
         );
+        return;
+      }
+      const pastSession = PastSessionOpenRequest.safeParse(raw);
+      if (pastSession.success) {
+        this.#reply(
+          id,
+          true,
+          await openPastSession(this.owner, pastSession.data, controller.signal),
+          "",
+        );
+        return;
+      }
+      if (SimulatorToolsRequest.safeParse(raw).success) {
+        this.#reply(id, true, await readSimulatorTools(this.owner, controller.signal), "");
         return;
       }
       const request = Request.parse({

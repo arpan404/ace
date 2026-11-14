@@ -5,6 +5,7 @@ import Observation
 /// rows arrive shaped, and git outcomes are correlated by request id.
 @MainActor @Observable final class ThreadSheetsModel {
     var agents: AgentSheet?
+    var summary: ThreadSummarySheet?
     var logs: LogsSheet?
     /// Logs Copy answers, by request.
     var copies: [String: String] = [:]
@@ -34,11 +35,26 @@ import Observation
     /// Work writes' outcomes and stale-lock clears, by request id.
     var workResults: [String: WorkResult] = [:]
 
+    /// Another machine, or no thread: nothing kept here applies any more.
     func reset() {
+        forgetFollowed()
+        notices = [:]; awaitingNotices = []; replyTexts = [:]
+    }
+
+    /// Another route to the same machine: the new runtime sends every sheet again, but what the
+    /// person typed stays, and sends the old route never answered read as uncertain.
+    func routeChanged() {
+        connectionLost()
+        forgetFollowed()
+    }
+
+    /// What the bridge sends while a sheet is followed. Visiting the thread already on screen
+    /// again drops only this: the bridge sends it again, and replies typed there stay.
+    func forgetFollowed() {
         agents = nil; changes = nil; tree = []; files = [:]; pages = [:]; wholeLines = [:]
-        review = nil; replies = nil; notices = [:]; awaitingNotices = []; replyTexts = [:]; ready = nil; chip = nil; outcomes = [:]; draft = nil
+        review = nil; replies = nil; ready = nil; chip = nil; outcomes = [:]; draft = nil
         work = nil; branches = nil; workResults = [:]
-        logs = nil; copies = [:]
+        logs = nil; copies = [:]; summary = nil
     }
 
     /// A review request went out; its notice answers it.

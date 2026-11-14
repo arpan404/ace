@@ -1,5 +1,6 @@
 import type { TurnStepsStore } from "@ace/client/turn-steps";
 import { SubagentRetries } from "./subagent-retries.ts";
+import { QuoteShelf } from "./thread-quotes.ts";
 import type { CatalogEntry } from "@ace/protocol";
 import type { ClientCore, Lease, ThreadSource } from "@ace/client";
 import type { ChatCacheHost } from "./chat-cache.ts";
@@ -38,6 +39,8 @@ export class ThreadVisit {
    * 4 Mi UTF-16 units go too, the oldest first.
    */
   readonly #ledgers = new LedgerShelf(7, 4 * 1024 * 1024);
+  /** Each thread's quotes for its next message, kept across visits. */
+  readonly #quotes = new QuoteShelf();
   #lease: Lease<ThreadSource> | undefined;
   #stop: (() => void) | undefined;
   #session: ThreadSession | undefined;
@@ -95,6 +98,7 @@ export class ThreadVisit {
       kept,
       this.#retries,
       this.#hooks.keptSteps?.(),
+      this.#quotes,
     );
     this.#hooks.opened(threadId, this.#epoch, lease.store);
   }

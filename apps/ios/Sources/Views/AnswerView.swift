@@ -34,7 +34,7 @@ struct AnswerRow: View {
                 let menu = !between && !live
                 AceMarkdown(text: shown, streaming: live, selectable: !menu, resolveImage: images(of: row.id))
                     .fileLinks(fileLinks, itemId: row.id)
-                    .messageMenu(menu ? shown : "", title: "Answer", row: row)
+                    .messageMenu(menu ? shown : "", title: "Answer", row: row, quotable: true)
             }
             if row.truncated && !live && full == nil { partial }
         }

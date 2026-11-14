@@ -2,7 +2,7 @@ import { useState } from "react";
 import { formatAge } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
 import { useNow } from "@/lib/time.ts";
-import { startRowLimit, type StartRow } from "./start-from-model.ts";
+import { startRowLimit, type StartRow } from "@ace/ui-core";
 
 const row =
   "flex h-8 w-full min-w-0 items-center gap-3 rounded-md px-2.5 text-left text-ui transition-colors duration-(--motion-fast) focus-ring hover:bg-accent hover:text-foreground";

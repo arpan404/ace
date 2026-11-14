@@ -69,6 +69,7 @@ import { FakeAppDevices } from "./app-devices.ts";
 import { FakeReviewDesk } from "./review-desk.ts";
 import { fakeTransfers, type FakeTransfers } from "./transfers.ts";
 import { ThreadHost } from "./thread-host.ts";
+import { readTextSource } from "./text-source.ts";
 import { numberedRun } from "./run-turns.ts";
 import { historyPage, windowSnapshot } from "./window.ts";
 import { FakeServices } from "./services/index.ts";
@@ -93,6 +94,7 @@ import {
   type ThreadCommandOutcome,
 } from "./thread-commands.ts";
 import { holdOnLimit, isQueueCommand, queueCommand, queuePage } from "./queue-commands.ts";
+import type { FakeSkillLibrary } from "./skill-library.ts";
 import { limitSwitchEvents, switchEvents } from "./transitions.ts";
 import { forkThread, mergeFork, type ForkCommandHost } from "./fork-commands.ts";
 import { fakeCheckoutPath, fakeWorktreeBase } from "./worktree-base.ts";
@@ -351,8 +353,11 @@ export class FakeDaemon implements Host {
   get terminals(): FakeTerminals {
     return this.servicesWire.workspace.terminals;
   }
-  /** Past-session requests clients made: lists read provider history, releases end it. */
-  get pastSessions(): Pick<FakeHistory, "lists" | "releases"> {
+  /**
+   * Past-session requests clients made: lists read provider history, releases end it, and each
+   * continue carried out.
+   */
+  get pastSessions(): Pick<FakeHistory, "lists" | "releases" | "continued"> {
     return this.servicesWire.history;
   }
   /** "Pause new work" behind `admission.request`; `set("user", …)` is the desktop tray's pause. */
@@ -378,8 +383,8 @@ export class FakeDaemon implements Host {
   > {
     return this.servicesWire.files;
   }
-  /** The skill library behind `skills.request`, for seeding skills. */
-  get skills(): Pick<import("./skill-library.ts").FakeSkillLibrary, "seed"> {
+  /** The skill library behind `skills.request`, for seeding skills and slowing updates. */
+  get skills(): Pick<FakeSkillLibrary, "seed" | "holdUpdatePreparations"> {
     return this.servicesWire.skills;
   }
   /** Providers' own MCP servers behind `mcp.provider.sources` and its controls. */
@@ -516,9 +521,12 @@ export class FakeDaemon implements Host {
       },
     };
   }
-  /** A page of a shell's full output (`output.read`), or undefined for an unknown stream. */
+  /** A page of a shell's output or a clipped text (`output.read`); undefined for an unknown stream. */
   output(streamId: string, offset: number, limit: number) {
-    return this.outputs.read(streamId, offset, limit);
+    const views = Array.from(this.threads.values(), (host) => host.view);
+    return (
+      this.outputs.read(streamId, offset, limit) ?? readTextSource(views, streamId, offset, limit)
+    );
   }
   get head(): number {
     return this.seq;

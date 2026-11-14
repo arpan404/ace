@@ -89,6 +89,19 @@ import XCTest
         XCTAssertTrue(app.images["Orange fixture image"].waitForExistence(timeout: 20))
         capture("image")
     }
+    /// The menu leaves before the sheet it picked arrives; a sheet asked for while the menu is
+    /// still leaving would never show.
+    func testThreadMenuItemsThatOpenASheetOpenIt() {
+        let app = launch()
+        XCTAssertTrue(app.buttons["thread.ios-approval"].waitForExistence(timeout: 30)); app.buttons["thread.ios-approval"].tap()
+        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 20)); app.buttons["thread.menu"].tap()
+        app.threadMenuItem("thread.search").tap()
+        XCTAssertTrue(app.navigationBars["Search conversation"].waitForExistence(timeout: 10))
+        app.closeSheet()
+        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 10)); app.buttons["thread.menu"].tap()
+        app.threadMenuItem("thread.tools").tap()
+        XCTAssertTrue(app.buttons["MCP servers"].waitForExistence(timeout: 10))
+    }
     func testThreadMcpControlsUpdateCanonicalServerState() {
         let app = launch()
         XCTAssertTrue(app.buttons["thread.ios-approval"].waitForExistence(timeout: 30)); app.buttons["thread.ios-approval"].tap()

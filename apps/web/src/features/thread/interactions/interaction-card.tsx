@@ -9,6 +9,8 @@ import {
   approvalCopy,
   browserHelpTitle,
   displayCommand,
+  lostChildAsk,
+  lostChildCopy,
   questionTitle,
   requestIdentity,
   closedMeta,
@@ -188,7 +190,10 @@ function OpenRequest(props: {
     call?.type === "tool_call" && call.call.detail.kind === "shell"
       ? displayCommand(call.call.detail).command
       : undefined;
-  const copy = request.kind === "approval" ? approvalCopy(request, { mode, command }) : undefined;
+  const plain = request.kind === "approval" ? approvalCopy(request, { mode, command }) : undefined;
+  // The daemon's request about a lost child: its one option reads Stop tracking, as on the iPhone.
+  const lost = lostChildAsk(interaction);
+  const copy = plain && lost ? lostChildCopy(plain, lost) : plain;
   const title =
     request.kind === "approval"
       ? (copy?.title ?? request.title)

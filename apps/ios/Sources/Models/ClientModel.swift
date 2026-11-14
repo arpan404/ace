@@ -205,10 +205,11 @@ import QuartzCore
         // so each is read whole again behind its kept rows (`ThreadModel.beginSnapshot`).
         let sameMachine = scope == target.scope
         let keeping = sameMachine ? thread : nil
-        if sameMachine { shelf.needSnapshots(); keeping?.requiresSnapshot = true } else { shelf.clear() }
+        // Typed review replies stay with it; the new runtime sends each sheet again.
+        if sameMachine { shelf.needSnapshots(); keeping?.requiresSnapshot = true; sheets.routeChanged() } else { shelf.clear(); sheets.reset() }
         scope = target.scope
         hostId = target.scope.hostId
-        inbox.removeAll(); projectsVersion &+= 1; pending = [:]; thread = keeping; inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
+        inbox.removeAll(); projectsVersion &+= 1; pending = [:]; thread = keeping; inboxLoaded = false; archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
         // Another machine's runtime: this one's saves and computer access no longer apply.
         browser.forgetSaves(); computerAccess.reset(); outside.reset()
         inboxLayout = .empty; chatLayout = .empty
@@ -555,6 +556,14 @@ import QuartzCore
                     added = []
                     continue
                 }
+                // A newer pass before the open's first fence: the bridge's ledger sends it only what
+                // changed since the rows already staged, so the staging carries on under its
+                // revision. Restaging empty would lose those rows and fail every fence after.
+                if let thread, thread.id == id, thread.epoch == epoch, thread.refresh != nil {
+                    thread.refreshRevision = revision
+                    thread.refreshBefore = before
+                    continue
+                }
                 guard let target = scoped(id, epoch) else { continue }
                 moving(target)
                 target.beginSnapshot(revision: revision, warm: true, before: before)
@@ -659,6 +668,8 @@ import QuartzCore
                 }
             case .agents(let id, let epoch, let sheet):
                 if thread?.id == id, thread?.epoch == epoch { sheets.agents = sheet; ThreadOpenTrace.shared.sheetFilled("agents") }
+            case .summary(let id, let epoch, let summary):
+                if thread?.id == id, thread?.epoch == epoch, sheets.summary != summary { sheets.summary = summary }
             case .logs(let id, let epoch, let logs):
                 if thread?.id == id, thread?.epoch == epoch, sheets.logs != logs { sheets.logs = logs }
             case .logsCopy(let id, let text): sheets.copies[id] = text
@@ -717,7 +728,9 @@ import QuartzCore
         if !isSnapshotRetry { onOpenThread?(id) }
         flushFrames()
         generation += 1
-        sheets.reset()
+        // The thread already on screen, visited again (a new route, a snapshot retry), keeps
+        // what was typed in its sheets; another thread starts them empty.
+        if thread?.id == id { sheets.forgetFollowed() } else { sheets.reset() }
         browser.close(streams: runtime?.browserStreams)
         // A fresh navigation may retry once; a retry itself must not reset the bound.
         if !isSnapshotRetry { snapshotRetries[id] = nil }

@@ -119,7 +119,9 @@ Budgets fail tests when the app gets slower. Two suites hold them:
   terminal emulator (`Sources/Terminal`) parsing a coloured build log (budget 2 MB/s, measured
   6.3 MB/s in Debug on the iOS 26 simulator, 2026-10-27), parsing one 120×50 full-screen redraw
   (budget 8 ms, measured 1.0 ms) and building every row of a 50-row coloured screen for drawing
-  (budget 16 ms, measured 5.8 ms; only changed rows are rebuilt while output streams). Output is
+  (budget 16 ms, measured 5.8 ms; only changed rows are rebuilt while output streams). The
+  log-parse and screen-build tests time the median of several warmed-up runs. CI's simulator is 3 to 4 times slower, so the
+  workflow sets `TEST_RUNNER_ACE_PERF_SLACK=4` and these budgets stretch by that factor there. Output is
   parsed off the main thread in 4,096-character slices and credit to the daemon follows parsing,
   so a program printing faster than the phone draws is paced rather than queued.
 
