@@ -36,6 +36,12 @@ struct ProviderSettingsView: View {
     @State private var checkProblem: String?
     var body: some View {
         List {
+            // The first run after pairing, skipped or finished, opens again from here.
+            Section {
+                NavigationLink { FirstRunView(model: model) } label: { InsetRow("Set up agents", systemImage: "checklist") }
+                    .accessibilityIdentifier("providers.setup")
+            }
+            .insetRowBackground()
             Section {
                 ForEach(model.providers?.providers ?? []) { provider in
                     NavigationLink { ProviderPageView(model: model, provider: provider.provider, name: provider.name) } label: {

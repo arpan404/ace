@@ -16,7 +16,7 @@ struct RemoteSettingsCategory: Identifiable {
     static let computer = RemoteSettingsCategory(title: "App access", page: "computer")
     /// Simulators and emulators on or off, the emulator window, and the tools they need.
     static let simulators = RemoteSettingsCategory(title: "Simulators", symbol: "iphone", page: "simulators")
-    static let browser = RemoteSettingsCategory(title: "Browser and computer", symbol: "safari", page: "browser")
+    static let browser = RemoteSettingsCategory(title: "Browser", symbol: "safari", page: "browser")
     /// Moving work to the machines this one links to (ADR 0101); shown only while it links to one.
     static let fleet = RemoteSettingsCategory(title: "Fleet", symbol: "point.3.connected.trianglepath.dotted", page: "fleet")
     static let all: [RemoteSettingsCategory] = [

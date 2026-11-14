@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// One paired computer: connection, access and address, the coding-agent CLIs it reports with
-/// their sign-in and usage, its own settings, then rename and remove. Words arrive from
+/// their sign-in and usage, its ace version and update, its own settings, then rename and remove. Words arrive from
 /// `@ace/ui-core/mobile`.
 struct MachineDetailView: View {
     let inbox: MachineInbox
@@ -10,11 +10,6 @@ struct MachineDetailView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var typeSize
-    @State private var renaming = false
-    @State private var newName = ""
-    @State private var removing = false
-    @State private var removalFailed = false
-    @State private var notice: ProblemNotice?
     @State private var enteringCode = false
     @State private var code = ""
 
@@ -46,7 +41,6 @@ struct MachineDetailView: View {
                 if let address = facts.address {
                     LabeledContent("Address") { Text(address).font(AceDesign.Typeface.code) }
                 }
-                if let version = client?.providers?.version { LabeledContent("ace", value: version) }
                 if let update = client?.appUpdate, update.known { MachineAppUpdateRow(update: update) }
                 if let client, let ask = client.machineCodeAsk {
                     HStack {
@@ -73,6 +67,7 @@ struct MachineDetailView: View {
             }
             providers
             if let client {
+                MachineSoftwareSection(model: client, name: facts.name)
                 Section {
                     NavigationLink { MachineDevicesView(model: client, machine: facts.name) } label: {
                         InsetRow("Devices", systemImage: "iphone.and.arrow.forward", subtitle: "Pair, review and revoke devices")
@@ -104,46 +99,7 @@ struct MachineDetailView: View {
                 } header: { InsetHeader("On this machine") }
                 .insetRowBackground()
             }
-            if let machines, machines.entry(hostId)?.isAccountMachine == true {
-                Section {
-                    Button("Forget this machine", role: .destructive) { removing = true }.accessibilityIdentifier("machine.remove")
-                } footer: {
-                    Text("\(facts.name) leaves your ace account's list and this phone's unsent work for it is deleted. It comes back when it signs in to ace again.")
-                }
-                .confirmationDialog("Forget \(facts.name)?", isPresented: $removing, titleVisibility: .visible) {
-                    Button("Forget \(facts.name)", role: .destructive) {
-                        Task {
-                            await machines.remove(hostId)
-                            if machines.entry(hostId) == nil { dismiss() }
-                            else { removalFailed = true; notice = machines.problem ?? .unknown }
-                        }
-                    }.accessibilityIdentifier("machine.remove.confirm")
-                } message: { Text("It leaves your ace account's list on every device.") }
-                .insetRowBackground()
-            } else if let machines {
-                Section {
-                    Button("Rename") { newName = facts.name; renaming = true }.accessibilityIdentifier("machine.rename")
-                        .foregroundStyle(AceDesign.Ink.primary)
-                    Button("Remove from this phone", role: .destructive) { removing = true }.accessibilityIdentifier("machine.remove")
-                } footer: {
-                    Text("Removing forgets this phone's access and unsent work for \(facts.name). Revoke the device on the computer too.")
-                }
-                .alert("Rename machine", isPresented: $renaming) {
-                    TextField("Name", text: $newName).accessibilityIdentifier("machine.rename.field")
-                    Button("Cancel", role: .cancel) {}
-                    Button("Save") { Task { notice = await machines.rename(hostId, to: newName) } }
-                } message: { Text("The name is for this phone; the computer keeps its own.") }
-                .confirmationDialog("Remove \(facts.name)?", isPresented: $removing, titleVisibility: .visible) {
-                    Button("Remove \(facts.name)", role: .destructive) {
-                        Task {
-                            await machines.remove(hostId)
-                            if machines.entry(hostId) == nil { dismiss() }
-                            else { removalFailed = true; notice = machines.problem ?? .unknown }
-                        }
-                    }.accessibilityIdentifier("machine.remove.confirm")
-                } message: { Text("This phone forgets its access and unsent work for that computer.") }
-                .insetRowBackground()
-            }
+            MachineManageSection(inbox: inbox, machines: machines, hostId: hostId, name: facts.name) { dismiss() }
         }
         .insetGroupedList()
         .navigationTitle(facts.name).navigationBarTitleDisplayMode(.inline)
@@ -155,10 +111,6 @@ struct MachineDetailView: View {
             Button("Cancel", role: .cancel) { code = "" }
             Button("Open") { let typed = code; code = ""; client?.enterMachineCode(typed) }
         } message: { Text(client?.machineCodeAsk?.message(lockedUntil: client?.machineCodeLockedUntil) ?? "") }
-        .alert("Couldn't update machine", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
-            if removalFailed { Button("Retry") { notice = nil; removing = true } }
-            Button("OK") { notice = nil }
-        } message: { Text(notice?.message ?? "") }
     }
 
     private func problemText(_ message: String) -> some View {

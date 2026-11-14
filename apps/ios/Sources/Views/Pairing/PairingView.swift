@@ -78,6 +78,8 @@ struct ConfirmPairingView: View {
     @State private var pairing = false
     @State private var submission: Task<Void, Never>?
     @State private var failure: ProblemNotice?
+    /// The machine just paired, while its first run shows (`FirstRunView`).
+    @State private var settingUp: String?
 
     var body: some View {
         QuietPage {
@@ -116,6 +118,11 @@ struct ConfirmPairingView: View {
 
         .navigationTitle("Confirm computer")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(isPresented: Binding(get: { settingUp != nil }, set: { if !$0 { settingUp = nil } })) {
+            if let host = settingUp, let client = machines.inbox.client(host) {
+                FirstRunView(model: client, afterPairing: true, done: onPaired)
+            }
+        }
         .onDisappear { submission?.cancel(); submission = nil }
     }
     private func pair() async {
@@ -124,7 +131,9 @@ struct ConfirmPairingView: View {
         let problem = await machines.pair(link, name: pairingDeviceName(name))
         pairing = false
         guard !Task.isCancelled else { return }
-        if let problem { failure = problem } else { onPaired() }
+        if let problem { failure = problem; return }
+        // The new machine's agents next, when none can run a thread yet.
+        if let host = machines.lastPaired, machines.inbox.client(host) != nil { settingUp = host } else { onPaired() }
     }
 }
 

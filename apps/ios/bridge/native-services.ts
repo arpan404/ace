@@ -11,6 +11,8 @@ import {
   readMachineUpdate,
   startMachineUpdate,
 } from "./fleet-updates.ts";
+import { MachineSoftware, MachineSoftwareRequest } from "./machine-software.ts";
+import { MachineRenameRequest, renameMachine } from "./machine-rename.ts";
 import {
   combineProfile,
   ProfileCombineRequest,
@@ -169,6 +171,8 @@ export class NativeServices {
   readonly care: HostCare | undefined;
   /** A provider's Settings page: its reads, edits and CLI installs (`provider-services.ts`). */
   readonly providers: ProviderServices;
+  /** A machine page's Software, keeping the last status through ace's restart (`machine-software.ts`). */
+  readonly software: MachineSoftware;
   readonly skills: NativeSkillLibrary;
   readonly plugins: NativeSkillPlugins;
   readonly automations: NativeAutomations | undefined;
@@ -203,6 +207,7 @@ export class NativeServices {
     this.inbox = inbox;
     this.care = care;
     this.providers = new ProviderServices(owner);
+    this.software = new MachineSoftware(owner);
   }
   /**
    * This runtime's services are stopping or being replaced: requests in flight are cancelled,
@@ -415,6 +420,18 @@ export class NativeServices {
           await startMachineUpdate(this.owner, updateStart.data, controller.signal),
           "",
         );
+        return;
+      }
+      // A machine page's Software and Rename (`machine-software.ts`, `machine-rename.ts`).
+      const software = MachineSoftwareRequest.safeParse(raw);
+      if (software.success) {
+        const value = await this.software.answer(software.data, controller.signal);
+        this.#reply(id, true, value, "");
+        return;
+      }
+      const rename = MachineRenameRequest.safeParse(raw);
+      if (rename.success) {
+        this.#reply(id, true, await renameMachine(this.owner, rename.data, controller.signal), "");
         return;
       }
       // The fleet's update decisions, in shared code; nothing here reaches this machine.
