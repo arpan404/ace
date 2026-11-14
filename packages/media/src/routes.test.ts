@@ -26,7 +26,8 @@ const everything: RouteCapabilities = {
 };
 const capabilityTable: [string, RouteCapabilities][] = [
   ["all present", everything],
-  ["all absent", builtRouteCapabilities],
+  ["all absent", { ingest: [], recordings: false, stills: false, delivery: false }],
+  ["this build", builtRouteCapabilities],
   ["no ingest", { ...everything, ingest: [] }],
   ["tab ingest only", { ...everything, ingest: ["tab"] }],
   ["no recorder", { ...everything, recordings: false }],
@@ -178,33 +179,26 @@ describe("named routes", () => {
     expect(routes.simulator).toMatchObject({ producer: "daemon", tee: true, egress: false });
   });
 
-  it("today's build routes nothing through ace-media whatever the settings", () => {
+  it("this build streams browser producers into ace-media with every consumer still legacy", () => {
     const auto: MediaSettings = {
       encode: "auto",
       delivery: "auto",
       recordings: "auto",
       stills: "auto",
     };
-    for (const kind of sourceKinds)
-      expect(mediaRoutes(auto, "healthy", builtRouteCapabilities)[kind]).toMatchObject({
-        producer: "daemon",
+    const routes = mediaRoutes(auto, "healthy", builtRouteCapabilities);
+    for (const kind of ["tab", "tab-pictures", "user-tab", "embedded"] as const)
+      expect(routes[kind]).toMatchObject({
+        producer: "ace-media",
         tee: false,
-        egress: false,
+        egress: true,
+        deliverer: "legacy",
+        recorder: "legacy",
+        stills: "legacy",
       });
+    for (const kind of ["screen", "simulator", "scrcpy", "emulator-frames"] as const)
+      expect(routes[kind]).toMatchObject({ producer: "daemon", tee: false, egress: false });
+    for (const health of ["restarting", "unavailable"] as const)
+      expect(mediaRoutes(auto, health, builtRouteCapabilities).tab.producer).toBe("daemon");
   });
-});
-
-it("ace-media going away changes exactly the kinds that were routed through it", () => {
-  const settings: MediaSettings = {
-    encode: "auto",
-    delivery: "legacy",
-    recordings: "legacy",
-    stills: "legacy",
-  };
-  const capabilities = { ...builtRouteCapabilities, ingest: ["tab", "screen"] as const };
-  const up = mediaRoutes(settings, "healthy", capabilities);
-  const down = mediaRoutes(settings, "restarting", capabilities);
-  expect(changedRoutes(up, down)).toEqual(["tab", "screen"]);
-  expect(down.tab.producer).toBe("daemon");
-  expect(changedRoutes(down, mediaRoutes(settings, "unavailable", capabilities))).toEqual([]);
 });
