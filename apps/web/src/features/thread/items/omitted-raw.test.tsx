@@ -67,3 +67,70 @@ test("a step's raw payloads left out of the transcript load when its Raw view op
   expect(log.getByText(/frame-from-the-provider/)).toBeTruthy();
   expect(log.queryByRole("button", { name: "Show more" })).toBeNull();
 });
+
+test("Raw opened on a running step reads again when the step finishes, and says it may change", async () => {
+  const running: Scenario = {
+    thread: { id: "thread-running", workspaceId: "relay", provider: "claude", title: "Running" },
+    steps: [
+      {
+        kind: "facts",
+        facts: [
+          facts.rootAgent("claude"),
+          facts.turn("root"),
+          {
+            type: "item.upsert",
+            agent: "root",
+            item: "page",
+            draft: {
+              type: "tool_call",
+              complete: false,
+              call: {
+                status: "running",
+                kind: "browser",
+                title: "Opening the pricing page",
+                detail: { kind: "browser" },
+                raw: [{ type: "browser_frame", data: { marker: "first-frame" } }],
+              },
+            },
+          },
+        ],
+      },
+    ],
+  };
+  const app = await componentClient(running);
+  const threadId = ThreadId.parse("thread-running");
+  const view = app.daemon.snapshot({ kind: "thread", threadId });
+  const itemId =
+    view && "items" in view
+      ? Object.values(view.items).find((item) => item.type === "tool_call")?.id
+      : undefined;
+  if (!itemId) throw new Error("The scenario has no step");
+  app.render(
+    <ul aria-label="Work log">
+      <ToolStep threadId="thread-running" itemId={itemId} />
+    </ul>,
+  );
+  const log = within(await screen.findByRole("list", { name: "Work log" }));
+  await userEvent.click(await log.findByRole("button", { name: /pricing page/ }));
+  await userEvent.click(await log.findByRole("button", { name: "Raw" }));
+  expect(await log.findByText(/first-frame/)).toBeTruthy();
+  expect(log.getByText(/still running/i)).toBeTruthy();
+  app.daemon.apply("thread-running", [
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: "page",
+      draft: {
+        type: "tool_call",
+        complete: true,
+        call: {
+          status: "succeeded",
+          title: "Opened the pricing page",
+          raw: [{ type: "browser_frame", data: { marker: "final-frame" } }],
+        },
+      },
+    },
+  ]);
+  expect(await log.findByText(/final-frame/)).toBeTruthy();
+  expect(log.queryByText(/still running/i)).toBeNull();
+});

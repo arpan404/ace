@@ -154,7 +154,7 @@ function CallBody(props: { item: ToolItem; cwd: string | undefined; threadId?: s
           </ToolDetails>
         ) : (
           props.item.rawOmitted &&
-          props.threadId && <OmittedRaw threadId={props.threadId} itemId={props.item.id} />
+          props.threadId && <OmittedRaw threadId={props.threadId} item={props.item} />
         ))
       )}
     </div>
