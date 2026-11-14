@@ -146,6 +146,58 @@ impl Trial for CpuTrial {
     }
 }
 
+/// B1's VideoToolbox trial. It answers within ace-media's deadline with what it found by
+/// then; results VideoToolbox finds later replace their entries, and the whole list then
+/// arrives as this trial's late result.
+#[cfg(target_os = "macos")]
+pub struct VtTrial;
+
+#[cfg(target_os = "macos")]
+impl Trial for VtTrial {
+    fn steps(&self) -> Vec<(Step, Option<String>, Backend)> {
+        let codec = |c: &str| Some(c.to_owned());
+        vec![
+            (Step::Encode, codec("avc1"), Backend::Vt),
+            (Step::Encode, codec("hvc1"), Backend::Vt),
+            (Step::Decode, codec("avc1"), Backend::Vt),
+            (Step::Decode, codec("hvc1"), Backend::Vt),
+            (Step::JpegEncode, codec("jpeg"), Backend::Vt),
+            (Step::JpegDecode, codec("jpeg"), Backend::Vt),
+            (Step::Scale, None, Backend::Vt),
+        ]
+    }
+
+    fn run(self: Box<Self>) -> Vec<Capability> {
+        let options = media_vt::ProbeOptions {
+            deadline: TRIAL_DEADLINE.saturating_sub(Duration::from_millis(200)),
+            ..Default::default()
+        };
+        let report = media_vt::probe(&options);
+        let mut found = report.capabilities;
+        let family = |c: &Capability| {
+            let codec = c.codec.as_deref().unwrap_or("");
+            (c.step, codec.get(..4).unwrap_or(codec).to_owned())
+        };
+        while let Ok(late) = report.late.recv() {
+            let key = family(&late);
+            match found.iter_mut().find(|c| family(c) == key) {
+                Some(entry) => *entry = late,
+                None => found.push(late),
+            }
+        }
+        found
+    }
+}
+
+/// The trials this build runs: the platform's hardware backend first, then the CPU path.
+pub fn trials() -> Vec<Box<dyn Trial>> {
+    vec![
+        #[cfg(target_os = "macos")]
+        Box::new(VtTrial),
+        Box::new(CpuTrial),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

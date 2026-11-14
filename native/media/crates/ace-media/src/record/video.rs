@@ -33,24 +33,29 @@ pub enum Refused {
 }
 
 pub fn unit(frame: &MediaFrame) -> Result<Unit, Refused> {
-    let given = (!frame.description.is_empty()).then(|| frame.description.clone());
-    match frame.codec {
+    encoded(frame.codec, &frame.payload, &frame.description)
+}
+
+/// A unit from its `MediaFrame` codec, payload and description (empty when absent).
+pub fn encoded(codec: u8, payload: &[u8], description: &[u8]) -> Result<Unit, Refused> {
+    let given = (!description.is_empty()).then(|| description.to_vec());
+    match codec {
         CODEC_H264_AVCC | CODEC_HEVC_HVCC => {
-            if frame.payload.is_empty() {
+            if payload.is_empty() {
                 return Err(Refused::Empty);
             }
             Ok(Unit {
-                codec: if frame.codec == CODEC_H264_AVCC {
+                codec: if codec == CODEC_H264_AVCC {
                     VideoCodec::H264
                 } else {
                     VideoCodec::Hevc
                 },
-                data: frame.payload.clone(),
+                data: payload.to_vec(),
                 description: given,
             })
         }
-        CODEC_H264_ANNEXB => annex_b(&frame.payload, VideoCodec::H264, given),
-        CODEC_HEVC_ANNEXB => annex_b(&frame.payload, VideoCodec::Hevc, given),
+        CODEC_H264_ANNEXB => annex_b(payload, VideoCodec::H264, given),
+        CODEC_HEVC_ANNEXB => annex_b(payload, VideoCodec::Hevc, given),
         _ => Err(Refused::Codec),
     }
 }

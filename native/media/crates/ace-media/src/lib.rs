@@ -11,3 +11,5 @@ pub mod record;
 pub mod secret;
 #[cfg(unix)]
 pub mod shell;
+#[cfg(unix)]
+pub mod stills;
