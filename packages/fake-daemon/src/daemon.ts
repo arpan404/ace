@@ -1449,10 +1449,22 @@ export class FakeDaemon implements Host {
         if (sent.ok) this.markSent(payload.threadId);
         return sent;
       }
-      case "thread.interrupt":
-        return this.run(commandId, payload.threadId, (host) =>
-          interruptFacts(host, payload.agentId, payload.cascade),
+      case "thread.interrupt": {
+        // As the daemon does: a Stop naming a run that is no longer its agent's active one is
+        // refused, so it never stops a run started after it was pressed.
+        const host = this.threads.get(payload.threadId);
+        const run = payload.runId === undefined ? undefined : host?.view.runs[payload.runId];
+        const target = payload.agentId ?? host?.view.thread.rootAgentId;
+        if (
+          host &&
+          payload.runId !== undefined &&
+          (run?.state !== "active" || run.agentId !== target)
+        )
+          return { commandId, ok: false, error: "stale_interrupt" };
+        return this.run(commandId, payload.threadId, (next) =>
+          interruptFacts(next, payload.agentId, payload.cascade),
         );
+      }
       case "background_task.stop": {
         for (const host of this.threads.values()) {
           const outcome = stopTaskFacts(host, payload.taskId);
