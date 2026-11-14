@@ -540,7 +540,7 @@ struct ThreadView: View {
         case .tools: showTools = true
         case .logs: showLogs = true
         // Pages: with the side panel they opened as its tabs above.
-        case .changes, .files, .terminal, .browser, .agents, .summary: break
+        case .chat, .changes, .files, .terminal, .browser, .agents, .summary: break
         }
     }
     /// The title menu's actions, by the shared menu rules (`threadMenu`) for this thread's row.
