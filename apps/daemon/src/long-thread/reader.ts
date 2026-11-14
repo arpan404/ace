@@ -1,14 +1,14 @@
 import { z } from "zod";
 import {
-  AgentId,
-  ThreadStatus,
-  AgentStatus,
-  TurnSummary,
-  TurnsPageResponse,
   ThreadCatchUpResponse,
   ThreadReadStateResponse,
   type Thread,
+  type ThreadId,
+  type ThreadStatus,
+  type TurnDigest,
+  type TurnSummary,
   type TurnsPageRequest,
+  type TurnsPageResponse,
   type ThreadCatchUpRequest,
   type TurnSubagentSummary,
 } from "@ace/protocol";
@@ -18,8 +18,10 @@ import {
   turnIsSettled,
   turnActivityStatus,
 } from "@ace/projection";
-import { LongThreadDatabase } from "./database.ts";
+import { storedIndexAgentId, storedIndexAgentStatus, storedIndexStatus } from "../stored-decode.ts";
+import { LongThreadDatabase, type Counters } from "./database.ts";
 import { Digests } from "./digests.ts";
+import { readAgentDigests, readTurnDigests, type AgentKey, type TurnKey } from "./turn-digests.ts";
 
 const TurnRow = z.object({
   ordinal: z.number(),
@@ -41,89 +43,116 @@ export class TurnReader {
     this.digests = new Digests(data);
     this.thread = thread;
   }
+  /** The turn's status, read with the page's one `long_heads` row and the turn's counters. */
   private status(
     thread: string,
-    ordinal: number,
     row: z.infer<typeof TurnRow>,
-  ): import("@ace/protocol").ThreadStatus {
-    const head = this.data
-      .sql("SELECT ordinal,status FROM long_heads WHERE thread_id=?")
-      .get(thread);
-    if (Number(head?.ordinal) === ordinal) {
-      const status =
-        this.thread(thread)?.status ?? ThreadStatus.parse(JSON.parse(String(head?.status)));
+    head: Record<string, unknown> | undefined,
+    counters: Counters,
+  ): ThreadStatus {
+    if (Number(head?.ordinal) === row.ordinal) {
+      const status = this.thread(thread)?.status ?? storedIndexStatus(String(head?.status));
       if (!turnIsSettled(status) || status.state === "failed") return status;
     }
     const linked = this.data
       .sql(
         "SELECT t.status FROM long_agents a JOIN threads t ON t.id=a.child_thread WHERE a.thread_id=? AND a.ordinal=? AND json_extract(t.status,'$.state')='working' AND json_extract(t.client,'$.deletedAt') IS NULL ORDER BY CASE json_extract(t.status,'$.state') WHEN 'needs_you' THEN 0 WHEN 'working' THEN 1 WHEN 'limited' THEN 2 WHEN 'waiting' THEN CASE json_extract(t.status,'$.on') WHEN 'network' THEN 3 WHEN 'upstream' THEN 4 WHEN 'background_task' THEN 5 ELSE 7 END ELSE 6 END LIMIT 1",
       )
-      .get(thread, ordinal);
+      .get(thread, row.ordinal);
     const owned = this.data
       .sql(
         "SELECT status FROM long_agents WHERE thread_id=? AND ordinal=? AND completion_relevant=1 AND json_extract(status,'$.state') NOT IN ('idle','interrupted','failed') ORDER BY CASE json_extract(status,'$.state') WHEN 'blocked' THEN CASE json_extract(status,'$.on') WHEN 'human' THEN 0 WHEN 'subagents' THEN 1 WHEN 'rate_limit' THEN 2 WHEN 'network' THEN 3 WHEN 'upstream' THEN 4 ELSE 5 END WHEN 'unresponsive' THEN 6 ELSE 1 END LIMIT 1",
       )
-      .get(thread, ordinal);
-    const counters = this.digests.counts(thread, ordinal);
+      .get(thread, row.ordinal);
     const active = turnActivityStatus(counters, [
-      ...(linked ? [ThreadStatus.parse(JSON.parse(String(linked.status)))] : []),
-      ...(owned ? [agentThreadStatus(AgentStatus.parse(JSON.parse(String(owned.status))))] : []),
+      // A linked child's row is the threads table's, which this build stores validated.
+      ...(linked ? [storedIndexStatus(String(linked.status))] : []),
+      ...(owned ? [agentThreadStatus(storedIndexAgentStatus(String(owned.status)))] : []),
     ]);
     if (active) return active;
     if (row.settled_seq === null) return { state: "working", agents: 1 };
     return { state: row.root_outcome === "failed" ? "failed" : "done" };
   }
-  summary(thread: string, value: unknown): import("@ace/protocol").TurnSummary {
-    const row = TurnRow.parse(value);
-    const root = this.data.sql("SELECT root FROM long_heads WHERE thread_id=?").get(thread)?.root;
-    const agents = this.data
+  /**
+   * The summaries of a page's turns, in the order of `rows`. Their agents and every digest are
+   * read for the whole page at once, one statement per table (`turn-digests.ts`).
+   */
+  private summaries(thread: ThreadId, rows: readonly z.infer<typeof TurnRow>[]): TurnSummary[] {
+    if (!rows.length) return [];
+    const head = this.data
+      .sql("SELECT ordinal,root,status FROM long_heads WHERE thread_id=?")
+      .get(thread);
+    const root = head?.root == null ? undefined : String(head.root);
+    const agents = Array.from({ length: rows.length }, (): Record<string, unknown>[] => []);
+    for (const agent of this.data
       .sql(
-        "SELECT * FROM long_agents WHERE thread_id=? AND ordinal=? AND id<>? ORDER BY id LIMIT 33",
+        "SELECT j.key AS k, a.* FROM json_each(?) j CROSS JOIN long_agents a WHERE a.rowid IN (SELECT rowid FROM long_agents WHERE thread_id=? AND ordinal=j.value AND id<>? ORDER BY id LIMIT 33) ORDER BY j.key, a.id",
       )
-      .all(thread, row.ordinal, String(root ?? ""));
-    const subagents = agents.slice(0, 32).map((agent) => {
-      const child = agent.child_thread == null ? undefined : String(agent.child_thread);
-      const childThread = child ? this.thread(child) : undefined;
-      const summary: TurnSubagentSummary = {
-        agentId: AgentId.parse(agent.id),
-        status:
-          childThread?.status ??
-          agentThreadStatus(AgentStatus.parse(JSON.parse(String(agent.status)))),
-        startedAt: Number(agent.started_at),
-        digest: childThread
-          ? this.digests.read(childThread.id, 0)
-          : this.digests.readAgent(thread, row.ordinal, String(agent.id)),
-      };
-      if (childThread) summary.threadId = childThread.id;
-      if (agent.name != null) summary.name = String(agent.name);
-      if (agent.ended_at != null) summary.endedAt = Number(agent.ended_at);
-      return summary;
+      .iterate(JSON.stringify(rows.map((row) => row.ordinal)), thread, root ?? ""))
+      agents[Number(agent.k)]?.push(agent);
+    // Every digest the page shows: each turn's, then each child thread's; each agent's share.
+    const turnKeys: TurnKey[] = rows.map((row) => [thread, row.ordinal]);
+    const agentKeys: AgentKey[] = [];
+    const shown = rows.map((row, index) => {
+      const main = root === undefined ? undefined : agentKeys.push([row.ordinal, root]) - 1;
+      const subagents = (agents[index] ?? []).slice(0, 32).map((agent) => {
+        const child =
+          agent.child_thread == null ? undefined : this.thread(String(agent.child_thread));
+        const digest = child
+          ? { turn: turnKeys.push([child.id, 0]) - 1 }
+          : { agent: agentKeys.push([row.ordinal, String(agent.id)]) - 1 };
+        return { agent, child, digest };
+      });
+      return { main, subagents };
     });
-    return TurnSummary.parse({
-      threadId: thread,
-      ordinal: row.ordinal,
-      startSeq: row.start_seq,
-      endSeq: row.end_seq,
-      startedAt: row.started_at,
-      ...(row.ended_at === null ? {} : { endedAt: row.ended_at }),
-      status: this.status(thread, row.ordinal, row),
-      outcome: row.root_outcome,
-      initiatingMessagePreview: row.initiating,
-      latestAgentMessagePreview: row.latest,
-      digest: this.digests.read(thread, row.ordinal),
-      ...(root == null
-        ? {}
-        : {
-            main: {
-              agentId: String(root),
-              digest: this.digests.readAgent(thread, row.ordinal, String(root)),
-            },
-          }),
-      subagents,
-      subagentsTruncated: agents.length > 32,
+    const turnDigests = readTurnDigests(this.data, turnKeys);
+    const agentDigests = readAgentDigests(this.data, thread, agentKeys);
+    const digestAt = (at: { turn: number } | { agent: number }): TurnDigest => {
+      const digest = "turn" in at ? turnDigests[at.turn]?.digest : agentDigests[at.agent];
+      if (!digest) throw new Error("Missing turn digest");
+      return digest;
+    };
+    return rows.map((row, index) => {
+      const own = turnDigests[index];
+      const page = shown[index];
+      if (!own || !page) throw new Error("Missing turn digest");
+      const subagents = page.subagents.map(({ agent, child, digest }) => {
+        // In the schema's field order, as a parse of it would give.
+        const summary: TurnSubagentSummary = {
+          agentId: storedIndexAgentId(agent.id),
+          ...(child ? { threadId: child.id } : {}),
+          ...(agent.name == null ? {} : { name: String(agent.name) }),
+          status: child?.status ?? agentThreadStatus(storedIndexAgentStatus(String(agent.status))),
+          startedAt: Number(agent.started_at),
+          ...(agent.ended_at == null ? {} : { endedAt: Number(agent.ended_at) }),
+          digest: digestAt(digest),
+        };
+        return summary;
+      });
+      return {
+        threadId: thread,
+        ordinal: row.ordinal,
+        startSeq: row.start_seq,
+        endSeq: row.end_seq,
+        startedAt: row.started_at,
+        ...(row.ended_at === null ? {} : { endedAt: row.ended_at }),
+        status: this.status(thread, row, head, own.counters),
+        outcome: row.root_outcome,
+        initiatingMessagePreview: row.initiating,
+        latestAgentMessagePreview: row.latest,
+        digest: own.digest,
+        ...(root === undefined || page.main === undefined
+          ? {}
+          : {
+              main: { agentId: storedIndexAgentId(root), digest: digestAt({ agent: page.main }) },
+            }),
+        subagents,
+        subagentsTruncated: (agents[index]?.length ?? 0) > 32,
+      };
     });
   }
-  page(input: TurnsPageRequest, seq: number): import("@ace/protocol").TurnsPageResponse {
+  /** Built from rows the summary index holds (`storedIndex*`), so it is not validated again. */
+  page(input: TurnsPageRequest, seq: number): TurnsPageResponse {
     const rows =
       input.after === undefined
         ? this.data
@@ -136,10 +165,12 @@ export class TurnReader {
               "SELECT * FROM long_turns WHERE thread_id=? AND ordinal>? ORDER BY ordinal LIMIT ?",
             )
             .all(input.threadId, input.after, input.limit);
-    const turns: import("@ace/protocol").TurnSummary[] = [];
+    const turns: TurnSummary[] = [];
     let bytes = 1024;
-    for (const row of rows) {
-      const turn = this.summary(input.threadId, row);
+    for (const turn of this.summaries(
+      input.threadId,
+      rows.map((row) => TurnRow.parse(row)),
+    )) {
       let size = Buffer.byteLength(JSON.stringify(turn));
       if (size > 1024 * 1024 - 1024) {
         for (const child of turn.main ? [...turn.subagents, turn.main] : turn.subagents) {
@@ -177,7 +208,7 @@ export class TurnReader {
         .get(input.threadId, last)
         ? Number(last)
         : null;
-    return TurnsPageResponse.parse({
+    return {
       type: "turns.page",
       requestId: input.requestId,
       threadId: input.threadId,
@@ -187,7 +218,7 @@ export class TurnReader {
       turns,
       before,
       after,
-    });
+    };
   }
   catchUp(
     input: ThreadCatchUpRequest,

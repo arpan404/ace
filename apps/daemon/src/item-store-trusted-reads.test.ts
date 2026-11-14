@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AgentItem, type ThreadId } from "@ace/protocol";
+import { AgentId, AgentItem, ItemId, type ThreadId } from "@ace/protocol";
 import { afterEach, expect, it } from "vitest";
 import { createDevThread } from "./commands.ts";
 import { message, shell } from "./payload-test-support.ts";
@@ -46,6 +46,10 @@ function tool(id: string, length: number) {
 }
 
 /** Finished and unfinished text, tool bodies of growing size, and deltas still unmerged. */
+const live = ItemId.parse("live");
+const thinking = ItemId.parse("thinking");
+const owner = AgentId.parse("root");
+
 function seed(store: Store): ThreadId {
   const workspace = store.createWorkspace("/repo", "Repo", 1);
   const thread = createDevThread(store, workspace).id;
@@ -60,16 +64,22 @@ function seed(store: Store): ThreadId {
   const chunks = ["Hel", "lo ", "\ud83d", "\ude00", "", " wörld", ..."x".repeat(40)];
   for (const append of chunks) {
     store.appendEvents(thread, [
-      { type: "item.delta", itemId: "live", agentId: "root", field: "text", append },
+      { type: "item.delta", itemId: live, agentId: owner, field: "text", append },
     ]);
     store.appendEvents(thread, [
-      { type: "item.delta", itemId: "thinking", agentId: "root", field: "reasoning", append },
+      { type: "item.delta", itemId: thinking, agentId: owner, field: "reasoning", append },
     ]);
   }
   store.appendEvents(thread, [{ type: "item.created", item: tool("tool-last", 50) }]);
   // Output rewrites the shell body in place, and its stored size with it.
   store.appendEvents(thread, [
-    { type: "item.delta", itemId: "tool-last", agentId: "root", field: "output", append: "out\n" },
+    {
+      type: "item.delta",
+      itemId: ItemId.parse("tool-last"),
+      agentId: owner,
+      field: "output",
+      append: "out\n",
+    },
   ]);
   return thread;
 }
