@@ -110,7 +110,11 @@ async function pageImage(url: string, signal: AbortSignal): Promise<Blob | null>
  */
 const proseFlavor = "agent";
 
-const fallbackStream = (props: ProseProps) => props.stream ?? `#${contentHash(props.text)}`;
+/** The stream prose is drawn as: its own, else its text's hash, hashed once per text. */
+function useStreamName(props: ProseProps): string {
+  const { stream, text } = props;
+  return useMemo(() => stream ?? `#${contentHash(text)}`, [stream, text]);
+}
 
 function useThreadNavigation(): LinkActions["openThread"] {
   const navigate = useNavigate();
@@ -131,6 +135,7 @@ function MarkitPlainProse(props: ProseProps) {
   const openIssue = useContext(IssueOpener);
   const openThread = useThreadNavigation();
   const { forgeReference } = props;
+  const stream = useStreamName(props);
   const callbacks = useMemo(
     () => ({
       ...linkCallbacks({ openWeb, openPullRequest, openIssue, openThread, forgeReference }),
@@ -142,7 +147,7 @@ function MarkitPlainProse(props: ProseProps) {
     <MarkitView
       markdown={props.text}
       finalized={!props.streaming}
-      stream={fallbackStream(props)}
+      stream={stream}
       className={props.className}
       callbacks={callbacks}
       flavor={forgeReference ? "github" : proseFlavor}
@@ -190,6 +195,7 @@ function MarkitThreadProse(
   const { client } = props;
   const { threadId, cwd, itemId } = props.thread;
   const meta = useThreadMeta(threadId);
+  const stream = useStreamName(props);
   const workspace = useOptionalWorkspace(threadId);
   const openWeb = useOpenWebAddress();
   const panelOpener = useContext(PullRequestOpener);
@@ -266,7 +272,7 @@ function MarkitThreadProse(
     <MarkitView
       markdown={props.text}
       finalized={!props.streaming}
-      stream={fallbackStream(props)}
+      stream={stream}
       className={props.className}
       callbacks={callbacks}
       flavor={proseFlavor}
