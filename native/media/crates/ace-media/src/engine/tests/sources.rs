@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Sources, ingest connections, epochs and the recording barrier.
+use super::super::egress::NoEgress;
 use super::super::recorder::{RecordSpec, Recorder, Recorders};
 use super::super::*;
 use super::*;
@@ -205,7 +206,7 @@ fn decide(
 #[test]
 fn recorded_frames_reach_the_recorder_only_once_their_epoch_is_decided_clear() {
     let log = Log::default();
-    let mut engine = Engine::new(Box::new(FakeRecorders(log.clone())));
+    let mut engine = Engine::new(Box::new(FakeRecorders(log.clone())), Box::new(NoEgress));
     open_tab(&mut engine, "s1", 1, 9);
     send(
         &mut engine,
@@ -249,7 +250,7 @@ fn recorded_frames_reach_the_recorder_only_once_their_epoch_is_decided_clear() {
 #[test]
 fn frames_held_past_the_bound_become_a_gap_and_never_reach_the_recorder() {
     let log = Log::default();
-    let mut engine = Engine::new(Box::new(FakeRecorders(log.clone())));
+    let mut engine = Engine::new(Box::new(FakeRecorders(log.clone())), Box::new(NoEgress));
     open_tab(&mut engine, "s1", 1, 9);
     send(
         &mut engine,
@@ -321,7 +322,7 @@ fn work_this_binary_does_not_do_yet_fails_at_once_so_the_daemon_falls_back() {
 #[test]
 fn finishing_closes_every_connection_and_recording() {
     let log = Log::default();
-    let mut engine = Engine::new(Box::new(FakeRecorders(log.clone())));
+    let mut engine = Engine::new(Box::new(FakeRecorders(log.clone())), Box::new(NoEgress));
     open_tab(&mut engine, "s1", 1, 9);
     send(
         &mut engine,
