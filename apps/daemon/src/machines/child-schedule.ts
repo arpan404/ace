@@ -81,6 +81,14 @@ export type Records = ReadonlyMap<string, ChildRecord>;
 
 const blank = (): ChildRecord => ({ failures: 0, suspect: false, implicated: 0, inFlight: false });
 
+/**
+ * The record of a child saved as asked alone, after a restart: alone until it answers alone,
+ * asked again at once (ADR 0099: isolation outlives a restart).
+ */
+export function restored(): ChildRecord {
+  return { ...blank(), suspect: true };
+}
+
 /** Whether `record`'s child goes in a call of its own at `now`. */
 export function asksAlone(record: ChildRecord | undefined, now: number): boolean {
   if (!record) return false;

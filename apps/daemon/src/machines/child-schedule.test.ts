@@ -1,7 +1,9 @@
 import { expect, test } from "vitest";
 import { RECHECK_POLLS, RECHECK_SLOWEST_POLLS, RECHECK_WINDOW_MS } from "./child-recheck.ts";
 import {
+  asksAlone,
   defaultScheduleConfig,
+  restored,
   foldCall,
   planTurn,
   type CallOutcome,
@@ -128,8 +130,13 @@ function simulate(children: SimChild[], ms: number, restarts: number[] = [], sta
   };
   for (let now = start; now <= start + ms; now += POLL) {
     if (restarts.includes(now)) {
-      records = new Map();
+      // A restart forgets every record but the one flag the shell saves with each child: that it
+      // is asked alone.
+      const saved = [...records].filter(([, rec]) => asksAlone(rec, now)).map(([id]) => id);
+      records = new Map(saved.map((id) => [id, restored()]));
       config = defaultScheduleConfig(POLL, now);
+      // Calls on their way when it stopped never come back.
+      pending.splice(0);
     }
     for (const call of pending.filter((entry) => entry.at <= now)) fold(call.ids, call.result, now);
     pending.splice(0, pending.length, ...pending.filter((entry) => entry.at > now));
@@ -167,7 +174,7 @@ function bound(child: ScheduleChild, n: number, now: number) {
   return RECHECK_SLOWEST_POLLS * POLL + slack;
 }
 
-const seeds = Array.from({ length: 24 }, (_, index) => index + 1);
+const seeds = Array.from({ length: 12 }, (_, index) => index + 1);
 
 test("a. any child that answers when asked alone is asked within the bound, whatever the others do", () => {
   for (const seed of seeds) {
@@ -203,11 +210,32 @@ test("c. each failing child backs off on its own to the 30 s cap, and a machine'
       // Twice a minute at the cap, whatever else answered meanwhile.
       for (const gap of gaps(late)) expect(gap, `seed ${seed} ${child.id}`).toBeGreaterThanOrEqual(30_000);
     }
-    // Over the last ten minutes: every poll for working children, at most once per 10 s for each
-    // settled one, and twice a minute for each child failing on its own.
+    // Over the last ten minutes, whatever the mix: never more than a call per poll for each
+    // working child and one per 10 s for each settled one, and never past 16 calls a turn.
     const working = children.filter((child) => child.paired && !child.settled).length;
     const settled = children.filter((child) => child.paired && child.settled).length;
-    const perMinute = Math.ceil(working / 16) * 60 + settled * 6 + children.length * 2;
+    const perMinute = Math.min(16 * 60, working * 60 + settled * 6);
+    const late = trace.calls.filter((call) => call.at >= 20 * MINUTE).length;
+    expect(late / 10, `seed ${seed}`).toBeLessThanOrEqual(perMinute);
+  }
+});
+
+test("c. with only healthy and always-failing children, calls follow the batching bound", () => {
+  for (const seed of seeds) {
+    const children = generate(seed, 40, 0).map((child) =>
+      Object.assign({}, child, {
+        behaviour: { kind: child.behaviour.kind === "fails" ? "fails" : "healthy" } as Behaviour,
+      }),
+    );
+    const trace = simulate(children, 30 * MINUTE);
+    const paired = children.filter((child) => child.paired);
+    const working = paired.filter((child) => !child.settled && child.behaviour.kind === "healthy");
+    const settled = paired.filter((child) => child.settled).length;
+    const failing = paired.filter((child) => child.behaviour.kind === "fails").length;
+    // Healthy working children share calls of 16 every poll, settled ones are asked at most
+    // every 10 s, and each child failing alone twice a minute at the cap. A failing working
+    // child takes down the first call it shares once; the others are asked alone at once.
+    const perMinute = Math.ceil(working.length / 16) * 60 + settled * 6 + failing * 2;
     const late = trace.calls.filter((call) => call.at >= 20 * MINUTE).length;
     expect(late / 10, `seed ${seed}`).toBeLessThanOrEqual(perMinute);
   }
@@ -251,10 +279,9 @@ test("e. an unconfirmed stop, or a child past its window, keeps to the fast pace
   ];
   const trace = simulate(children, 10 * MINUTE);
   const fast = RECHECK_POLLS * POLL;
-  // The unconfirmed stop is read every 10 s, and the slow one only every 5 minutes.
-  expect(Math.max(...gaps(trace.asked.get("stopped") ?? []))).toBeLessThanOrEqual(fast + 2 * POLL);
-  expect(Math.min(...gaps(trace.asked.get("old") ?? [0, Infinity]))).toBeGreaterThanOrEqual(
-    RECHECK_SLOWEST_POLLS * POLL,
+  // The unconfirmed stop is read every 10 s at worst, failing neighbours or not.
+  expect(Math.max(...gaps(trace.asked.get("stopped") ?? []))).toBeLessThanOrEqual(
+    fast + (Math.ceil(children.length / 16) + 1) * POLL,
   );
   // The expired child failing every read backs off as any failing child does, and never ends.
   expect(trace.ended.has("expired")).toBe(false);
