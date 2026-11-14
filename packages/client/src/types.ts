@@ -124,6 +124,14 @@ export interface ClientOptions {
    * before it runs out (ADR 0114). None: the socket is closed at expiry and reconnects.
    */
   grant?(): Promise<string>;
+  /**
+   * The daemon or the relay refused a device grant this connection presented, in a hello or a
+   * refresh (`grant` undefined: an attempt ended before its welcome, whatever grant it held).
+   * An app that keeps grants drops it at once, and returns true when it was a kept one: the
+   * connection then tries once more with a fresh grant instead of stopping. False or absent:
+   * the refusal is final, as before.
+   */
+  grantRefused?(grant: string | undefined): boolean;
   storage: Storage;
   /**
    * Where thread and thread-list views keep read snapshots between sessions, so a reload paints

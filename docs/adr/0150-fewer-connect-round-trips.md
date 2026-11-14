@@ -35,9 +35,16 @@ fixed 150 ms race stagger dialed every path every time.
    ignore; relayed sockets get none. The client keeps it in memory only, strips it from the
    welcome it passes on, and uses it for its next hello if it has at least 15 s left. A handed
    ticket the daemon refuses (it restarted) is replaced by an exchange at once, never a stop.
-4. **The web client keeps its account grant.** Grants are kept in memory per ace session until
-   two minutes before they run out; concurrent asks share one fetch, so a race fetches once. The
-   margin stays above the grant keeper's 60 s refresh lead. The daemon still checks expiry.
+4. **The web client keeps its account grant.** Grants are kept in memory only, in the window's
+   account options (`grant-cache.ts`), for one ace session: an account switch or a sign-out
+   forgets them. Concurrent asks share one fetch, so a race fetches once. A grant is reused until
+   two minutes before it runs out, measured on a forward-only clock from its fetch and never
+   past the five minutes a grant lives, so a browser clock minutes off cannot stretch it; the
+   margin stays above the grant keeper's 60 s refresh lead. The daemon's or the relay's refusal
+   is the authority: the client reports every refused grant (`ClientOptions.grantRefused`: a
+   refused hello, a refused refresh, or an attempt that ended before its welcome), the cache
+   drops it at once, and a kept grant refused in a hello earns one retry with a fresh grant; a
+   fresh grant refused is final, as before.
 5. **Liveness scales to the link.** The pong deadline is four smoothed round trips, at least 2 s
    and at most 10 s. With a warm standby one miss fails over; without one, two misses in a row.
 6. **The race stagger scales too.** It is 1.5 times how long the last race took to open its

@@ -18,6 +18,8 @@ export function browserClientOptions(options: {
   credential(): Promise<Credential>;
   /** An account device's fresh grant, to keep its sockets open (ADR 0114). */
   grant?: (() => Promise<string>) | undefined;
+  /** A grant the daemon or relay refused: the app's grant cache drops it (`grant-cache.ts`). */
+  grantRefused?: ClientOptions["grantRefused"];
   storage: Storage;
   readSnapshots?: ClientOptions["readSnapshots"];
   /** The desktop's own daemon: the identity its current home names (`localHostId`). */
@@ -35,6 +37,7 @@ export function browserClientOptions(options: {
     transport: options.transport,
     credential: options.credential,
     ...(options.grant ? { grant: options.grant } : {}),
+    ...(options.grantRefused ? { grantRefused: options.grantRefused } : {}),
     storage: options.storage,
     ...(options.readSnapshots ? { readSnapshots: options.readSnapshots } : {}),
     scheduler: {

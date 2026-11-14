@@ -745,6 +745,7 @@ export class MachinePool {
       transport: route.transport,
       credential: route.credential,
       grant: () => account.grant(),
+      grantRefused: (grant) => account.grantRefused?.(grant) ?? false,
     });
     client.usePaths?.(paths);
     return client;

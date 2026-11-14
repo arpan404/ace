@@ -1,4 +1,4 @@
-import { parseCredential, type Credential } from "./credentials.ts";
+import { parseCredential, relayGrant, type Credential } from "./credentials.ts";
 import { handshakePath, type PathRoute, type WelcomedPath } from "./path-handshake.ts";
 import { pathTiming } from "./path-plan.ts";
 import { stageDeadline } from "./handshake-deadline.ts";
@@ -125,6 +125,11 @@ export class Connection {
   #lastOpenMs: number | undefined;
   #lastWelcomeMs: number | undefined;
   #stageAt: number | undefined;
+  /** The device grant this attempt's hello carried, and whether a refused one was retried. */
+  #helloGrant: string | undefined;
+  #grantRetried = false;
+  /** The grant each open socket's last refresh carried, to name it if that is refused. */
+  #refreshGrants = new Map<Transport, string>();
   /** The daemon of this attempt said `starting`: its welcome waits out a cold start. */
   #starting = false;
   constructor(
@@ -273,6 +278,10 @@ export class Connection {
    * help. `error` is what the person should know while it retries (a version mismatch).
    */
   #lost(code: number, reason: string, error?: ClientError): void {
+    // An attempt that ended before its welcome may have been the relay refusing its grant at
+    // the upgrade, which reads as any drop: the next attempt asks for a fresh one.
+    if (this.state !== "ready") this.#options.grantRefused?.(this.#helloGrant);
+    this.#helloGrant = undefined;
     const at = this.#options.now?.();
     this.#lastClose = { code, reason, ...(at === undefined ? {} : { at }) };
     const decision = disconnectDecision(this.#active, this.#online, code, reason);
@@ -365,6 +374,7 @@ export class Connection {
             .then((credential) => {
               const hello = this.#hello(transport, credential, true);
               if (epoch !== this.#epoch || !this.send(hello)) return;
+              this.#helloGrant = relayGrant(credential);
               this.#greeted = epoch;
               this.#greeting?.();
             })
@@ -534,6 +544,22 @@ export class Connection {
         // A handed-over ticket the daemon no longer knows (it restarted, or the ticket ran out
         // on the way): exchange one at once instead of stopping. That attempt can't loop: the
         // handed ticket is gone.
+        // A grant refused from the app's cache (a clock far off, a grant revoked meanwhile): it
+        // is dropped, and one fresh grant is tried before the refusal is final.
+        const grant = this.state === "ready" ? undefined : this.#helloGrant;
+        this.#helloGrant = undefined;
+        const fresh =
+          grant !== undefined &&
+          this.#options.grantRefused?.(grant) === true &&
+          !this.#grantRetried;
+        if (fresh) {
+          this.#grantRetried = true;
+          this.#report("connection.kept_grant_refused", {});
+          this.#cleanup();
+          this.#disconnected();
+          this.#connect();
+          return;
+        }
         if (this.#usedHanded === epoch && this.state !== "ready") {
           this.#report("connection.handed_ticket_refused", {});
           // This socket is gone, as after any drop: what it carried (the subscribes sent with
@@ -576,6 +602,8 @@ export class Connection {
         this.#cancel?.();
         this.#cancel = undefined;
         if (!this.#starting) this.#lastWelcomeMs = this.#elapsed() ?? this.#lastWelcomeMs;
+        this.#helloGrant = undefined;
+        this.#grantRetried = false;
         // Backoff starts over only once this connection has stayed up for a while.
         this.#healthy = this.#options.scheduler.set(this.#limits.healthyMs, () => {
           this.#attempt = 0;
@@ -777,7 +805,11 @@ export class Connection {
       transport,
       keepGrant({
         ttlMs: welcome.grantTtlMs,
-        grant: () => grant(),
+        grant: async () => {
+          const next = await grant();
+          this.#refreshGrants.set(transport, next);
+          return next;
+        },
         scheduler: this.#options.scheduler,
         id: () => this.#options.id(),
         send: (message) => transport.send(JSON.stringify(this.#codec.encode(message))),
@@ -787,10 +819,14 @@ export class Connection {
   }
   #unkeep(transport: Transport | undefined): void {
     if (!transport) return;
+    this.#refreshGrants.delete(transport);
     this.#keepers.get(transport)?.stop();
     this.#keepers.delete(transport);
   }
   #grantAnswered(transport: Transport | undefined, message: GrantRefreshResult): void {
+    // A refused refresh's grant is never offered again: the keeper's retry fetches a fresh one.
+    if (transport && !message.result.ok)
+      this.#options.grantRefused?.(this.#refreshGrants.get(transport));
     if (transport) this.#keepers.get(transport)?.answered(message);
   }
   /**

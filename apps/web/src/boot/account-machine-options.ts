@@ -117,6 +117,7 @@ export function accountMachineClient(
       owned();
       return route.grant();
     },
+    grantRefused: (grant) => route.grantRefused?.(grant) ?? false,
     expectedHostId: route.expectedHostId,
     ...(pairing ? { deviceAliases: [pairing.entry.deviceId] } : {}),
     storage: pairing ? adoptedOutbox(own, pairing.outbox, pairing.entry.hostId) : own,
@@ -151,18 +152,23 @@ export function accountMachineOptions(options: {
   const grants = grantCache(
     (token) =>
       account.grant(token, { kind: "device", subject: deviceId }, AbortSignal.timeout(15_000)),
-    () => Date.now(),
+    { wall: () => Date.now(), elapsed: () => performance.now() },
   );
   return {
     relayUrl,
     deviceId,
     async grant() {
       const session = windowAccountSession(options.session, origin);
-      if (!session) throw new ClientError("auth", "Sign in to your ace account again.");
+      if (!session) {
+        // Signed out: no grant of the last session stays in memory.
+        grants.clear();
+        throw new ClientError("auth", "Sign in to your ace account again.");
+      }
       // The desktop app admits only addresses the person chose; the relay is one of them.
       await authorizeDaemonUrl(relayUrl);
-      return grants(session.token);
+      return grants.grant(session.token);
     },
+    grantRefused: (grant) => grants.refused(grant),
     socket: browserDeviceSocket,
     // The network changed: a better path may be back, or the active one gone.
     watchNetwork: (changed) => {
