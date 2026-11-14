@@ -30,6 +30,11 @@ export const VideoEncoderEvent = z.discriminatedUnion("t", [
   }),
   z.object({ t: z.literal("failed"), capture: z.string().max(256), encode: z.string().max(256) }),
   z.object({
+    t: z.literal("moved"),
+    capture: z.string().max(256),
+    to: z.enum(["ingest", "daemon"]),
+  }),
+  z.object({
     t: z.literal("ended"),
     capture: z.string().max(256),
     reason: z.string().max(2048).optional(),
@@ -55,6 +60,7 @@ export function deliverVideoEvent(
     return;
   }
   if (event.t === "failed") return events.failed(event.encode);
+  if (event.t === "moved") return events.moved?.(event.to);
   if (!bytes) return;
   if (event.t === "audio") {
     const { capture: _capture, t: _t, ...audio } = event;

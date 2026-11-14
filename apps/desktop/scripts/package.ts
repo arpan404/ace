@@ -206,7 +206,7 @@ const config: Configuration = {
       const original = options.optionsForFile;
       await signAsync({
         ...options,
-        optionsForFile: (file) =>
+        optionsForFile: (file: string) =>
           file.endsWith("/media/ace-media")
             ? { hardenedRuntime: true, entitlements: [] }
             : (original?.(file) ?? {}),

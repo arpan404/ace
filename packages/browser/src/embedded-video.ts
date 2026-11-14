@@ -25,6 +25,10 @@ export class EmbeddedVideo {
   /** The encoder as one page sees it: codec support is asked of that page's desktop. */
   host(page: BrowserCdp): VideoHost {
     return {
+      mediaKind: "embedded",
+      reach: async (url) => {
+        await page.send("ace.video.reach", { url });
+      },
       supported: async (codecs, width, height) =>
         Supported.parse(
           await page.send("ace.video.supported", { codecs: [...codecs], width, height }),
@@ -53,6 +57,7 @@ export class EmbeddedVideo {
       encodes: (specs) => call("ace.video.encodes", { encodes: specs }),
       keyframe: (encode) => call("ace.video.keyframe", { encode }),
       audio: (on) => call("ace.video.audio", { on }),
+      ingest: (target) => call("ace.video.ingest", target ? { target } : {}),
       close: () => {
         if (!this.captures.delete(id)) return;
         call("ace.video.stop", {});

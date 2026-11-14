@@ -1,0 +1,9 @@
+{
+  "direction": "ToMedia",
+  "message": {
+    "type": "session.link",
+    "session": "session-1",
+    "rttMs": 420,
+    "backlogBytes": 65536
+  }
+}
