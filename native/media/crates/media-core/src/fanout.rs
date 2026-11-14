@@ -25,6 +25,7 @@ impl Default for Window {
 pub enum Event {
     Keyframe,
     Playing(bool),
+    /// The transport accepted this piece. Refused attempts are never reported.
     Sent(Piece),
     Dropped,
 }
@@ -35,7 +36,7 @@ pub struct Viewer {
     inflight: VecDeque<Piece>,
     inflight_bytes: usize,
     queue: VecDeque<Piece>,
-    queued_bytes: i128,
+    queued_bytes: usize,
     need_key: bool,
     dropping: bool,
     playing: bool,
@@ -93,7 +94,7 @@ impl Viewer {
     fn retain_key(&mut self) {
         if let Some(head) = self.queue.front().copied().filter(|p| p.key) {
             self.queue.truncate(1);
-            self.queued_bytes = head.bytes as i128;
+            self.queued_bytes = head.bytes;
         } else {
             self.clear_queue();
         }
@@ -109,7 +110,10 @@ impl Viewer {
     fn fits(&self, piece: Piece) -> bool {
         self.inflight.is_empty()
             || (self.inflight.len() < self.window.frames
-                && self.inflight_bytes + piece.bytes <= self.window.bytes)
+                && self
+                    .inflight_bytes
+                    .checked_add(piece.bytes)
+                    .is_some_and(|total| total <= self.window.bytes))
     }
     pub fn publish(
         &mut self,
@@ -124,20 +128,26 @@ impl Viewer {
         if piece.key {
             self.clear_queue();
             self.queue.push_back(piece);
-            self.queued_bytes = piece.bytes as i128;
+            self.queued_bytes = piece.bytes;
             self.need_key = false;
             self.dropping = false;
         } else if self.need_key {
             return;
         } else if !self.queue.is_empty() || !self.fits(piece) {
-            let allowance =
-                self.window.bytes + self.queue.front().filter(|p| p.key).map_or(0, |p| p.bytes);
+            // Sizes near usize::MAX saturate the allowance and refuse the delta; nothing wraps.
+            let allowance = self
+                .window
+                .bytes
+                .saturating_add(self.queue.front().filter(|p| p.key).map_or(0, |p| p.bytes));
             if !self.queue.is_empty()
                 && self.queue.len() < self.window.frames
-                && self.queued_bytes + piece.bytes as i128 <= allowance as i128
+                && self
+                    .queued_bytes
+                    .checked_add(piece.bytes)
+                    .is_some_and(|total| total <= allowance)
             {
                 self.queue.push_back(piece);
-                self.queued_bytes += piece.bytes as i128;
+                self.queued_bytes += piece.bytes;
             } else {
                 self.need_key = true;
                 self.dropping = true;
@@ -149,7 +159,7 @@ impl Viewer {
         } else {
             self.clear_queue();
             self.queue.push_back(piece);
-            self.queued_bytes = piece.bytes as i128;
+            self.queued_bytes = piece.bytes;
         }
         self.flush(send, event);
     }
@@ -165,7 +175,7 @@ impl Viewer {
             .is_some_and(|p| p.sequence <= sequence)
         {
             if let Some(p) = self.inflight.pop_front() {
-                self.inflight_bytes -= p.bytes;
+                self.inflight_bytes = self.inflight_bytes.saturating_sub(p.bytes);
             }
         }
         if self.encode.is_some() {
@@ -180,18 +190,20 @@ impl Viewer {
                 return;
             }
             self.queue.pop_front();
-            self.queued_bytes -= piece.bytes as i128;
+            self.queued_bytes -= piece.bytes;
             self.inflight.push_back(piece);
+            // `fits` bounded this, or the window was empty.
             self.inflight_bytes += piece.bytes;
-            event(Event::Sent(piece));
             if !send(piece) {
+                // Refused: back at the head of the queue with its bytes, as if never sent.
                 self.inflight.pop_back();
                 self.inflight_bytes -= piece.bytes;
                 self.queue.push_front(piece);
-                // TS subtracts before send and does not restore this counter on refusal.
-                // Keep that observable admission behaviour until the legacy path is removed.
+                self.queued_bytes += piece.bytes;
                 return;
             }
+            // Only accepted pieces are reported, so a rate estimator never counts retries.
+            event(Event::Sent(piece));
             if piece.key && !self.playing {
                 self.playing = true;
                 event(Event::Playing(true));

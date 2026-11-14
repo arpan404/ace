@@ -81,15 +81,42 @@ fn oversized_key_goes_alone_and_a_dropped_delta_requires_a_new_key() {
     assert!(!v.backlogged());
 }
 #[test]
-fn refused_key_retries_without_overflow_and_keeps_legacy_byte_admission() {
+fn refused_key_keeps_its_bytes_so_retries_never_widen_the_delta_allowance() {
     let mut v = viewer(Window {
-        frames: 3,
+        frames: 4,
         bytes: 100,
     });
+    let mut events = Vec::new();
+    v.publish(1, piece(0, true, 100), |_| false, |e| events.push(e));
+    for _ in 0..100 {
+        v.flush(|_| false, |e| events.push(e));
+    }
+    assert!(
+        events.is_empty(),
+        "refused attempts are not sends: {events:?}"
+    );
+    // Behind the waiting key, deltas get exactly the window's 100 bytes.
+    v.publish(
+        1,
+        piece(1, false, 60),
+        |_| panic!("waiting key"),
+        |e| events.push(e),
+    );
+    v.publish(
+        1,
+        piece(2, false, 40),
+        |_| panic!("waiting key"),
+        |e| events.push(e),
+    );
+    assert!(events.is_empty());
+    v.publish(
+        1,
+        piece(3, false, 1),
+        |_| panic!("waiting key"),
+        |e| events.push(e),
+    );
+    assert_eq!(events, [Event::Dropped, Event::Keyframe]);
     let mut sent = Vec::new();
-    v.publish(1, piece(0, true, 100), |_| false, |_| {});
-    // Legacy refusal subtracts the key's bytes; this delta still fits the queue allowance.
-    v.publish(1, piece(1, false, 150), |_| panic!("waiting key"), |_| {});
     v.flush(
         |p| {
             sent.push(p.sequence);
@@ -98,15 +125,7 @@ fn refused_key_retries_without_overflow_and_keeps_legacy_byte_admission() {
         |_| {},
     );
     assert_eq!(sent, [0]);
-    v.acknowledge(
-        0,
-        |p| {
-            sent.push(p.sequence);
-            true
-        },
-        |_| {},
-    );
-    assert_eq!(sent, [0, 1]);
+    v.acknowledge(0, |_| panic!("deltas went with the drop"), |_| {});
     assert!(v.playing());
 }
 #[test]

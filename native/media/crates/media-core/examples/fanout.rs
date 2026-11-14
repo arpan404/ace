@@ -19,6 +19,25 @@ fn load_average() -> Option<f64> {
     let text = String::from_utf8(output.stdout).ok()?;
     text.split_whitespace().find_map(|v| v.parse().ok())
 }
+/// Feeds a viewer's sends and drops into its link estimator, counting both.
+fn track<'a>(
+    rate: &'a mut LinkRate,
+    at: f64,
+    sent: &'a mut u64,
+    dropped: &'a mut u64,
+) -> impl FnMut(Event) + 'a {
+    move |e| match e {
+        Event::Sent(p) => {
+            *sent += 1;
+            rate.sent(p.sequence, p.bytes, at);
+        }
+        Event::Dropped => {
+            *dropped += 1;
+            rate.dropped(at);
+        }
+        _ => {}
+    }
+}
 fn main() {
     let load = load_average();
     let cores = std::thread::available_parallelism().map_or(1, usize::from);
@@ -53,21 +72,12 @@ fn main() {
             // 80 immediate-ack viewers, 10 with a 30-frame RTT, 10 stalled/refusing.
             let accepts = id < 90 || sequence % 90 >= 60;
             let at = black_box(now);
+            // Publication and ack-triggered flushes both send; the estimator sees every send.
             viewer.publish(
                 1,
                 black_box(piece),
                 |_| black_box(accepts),
-                |e| match e {
-                    Event::Sent(p) => {
-                        sent += 1;
-                        rate.sent(p.sequence, p.bytes, at);
-                    }
-                    Event::Dropped => {
-                        dropped += 1;
-                        rate.dropped(at);
-                    }
-                    _ => {}
-                },
+                track(rate, at, &mut sent, &mut dropped),
             );
             let ack = if id < 80 {
                 Some(sequence)
@@ -80,7 +90,7 @@ fn main() {
             };
             if let Some(ack) = ack {
                 rate.acknowledged(ack, at);
-                viewer.acknowledge(ack, |_| accepts, |_| {});
+                viewer.acknowledge(ack, |_| accepts, track(rate, at, &mut sent, &mut dropped));
             }
             black_box(scale.update(rate.rate(), 1920.0 * 1080.0, 60.0, at));
             black_box(pacer.frame(at, false));

@@ -16,6 +16,10 @@ impl Default for Limits {
         }
     }
 }
+/// Sends awaiting an ack that are remembered; past this the oldest is forgotten. A viewer's
+/// window holds 60, and even an unwindowed sender on a link that just slowed stays near 300,
+/// so this only bounds memory when acks stop coming. Reserved up front: no growth.
+pub const OUTSTANDING_SENDS: usize = 512;
 #[derive(Debug)]
 struct Sent {
     sequence: u64,
@@ -41,7 +45,7 @@ impl LinkRate {
         Self {
             limits,
             rate: limits.initial,
-            inflight: VecDeque::with_capacity(64),
+            inflight: VecDeque::with_capacity(OUTSTANDING_SENDS),
             floor: VecDeque::with_capacity(1024),
             smoothed: None,
             delivered: VecDeque::with_capacity(128),
@@ -59,6 +63,9 @@ impl LinkRate {
         self.smoothed
     }
     pub fn sent(&mut self, sequence: u64, bytes: usize, at: f64) {
+        if self.inflight.len() >= OUTSTANDING_SENDS {
+            self.inflight.pop_front();
+        }
         self.inflight.push_back(Sent {
             sequence,
             bytes,
@@ -70,20 +77,24 @@ impl LinkRate {
     }
     pub fn acknowledged(&mut self, sequence: u64, at: f64) {
         let mut newest = None;
+        let mut bytes = 0_usize;
         while self
             .inflight
             .front()
             .is_some_and(|c| c.sequence <= sequence)
         {
             if let Some(c) = self.inflight.pop_front() {
-                self.delivered.push_back((at, c.bytes));
-                self.delivered_bytes += c.bytes;
+                // Saturates rather than wraps on absurd sizes; the rate is clamped anyway.
+                bytes = bytes.saturating_add(c.bytes);
                 newest = Some(c.at);
             }
         }
         let Some(sent_at) = newest else {
             return;
         };
+        // One entry per ack (they share its time), so a large cumulative ack never grows this.
+        self.delivered.push_back((at, bytes));
+        self.delivered_bytes = self.delivered_bytes.saturating_add(bytes);
         let sample = (at - sent_at).max(0.0);
         let value = self.smoothed.map_or(sample, |v| v * 0.875 + sample * 0.125);
         self.smoothed = Some(value);
@@ -105,7 +116,7 @@ impl LinkRate {
         self.last_step = at;
         while self.delivered.front().is_some_and(|c| c.0 < at - 1000.0) {
             if let Some(c) = self.delivered.pop_front() {
-                self.delivered_bytes -= c.1;
+                self.delivered_bytes = self.delivered_bytes.saturating_sub(c.1);
             }
         }
         let delivered = self.delivered_bytes as f64 * 8.0;

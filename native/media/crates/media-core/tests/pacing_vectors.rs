@@ -201,3 +201,80 @@ fn fanout_replays_waiting_keyframes_drops_and_cumulative_ack_events() {
     }
     assert_eq!(Value::Array(log.into_inner()), v["events"]);
 }
+fn edge_event(event: Event, log: &mut Vec<Value>) {
+    match event {
+        Event::Sent(p) => log.push(json!({"counted":p.sequence,"bytes":p.bytes})),
+        other => record(other, log),
+    }
+}
+#[test]
+fn fanout_replays_refusals_wraparound_stale_acks_empty_frames_and_late_joins() {
+    for scenario in rows(&load("fanout-edges")) {
+        let name = s(scenario, "name");
+        let w = &scenario["window"];
+        let mut viewer = Viewer::new(Window {
+            frames: u(w, "frames") as usize,
+            bytes: u(w, "bytes") as usize,
+        });
+        let log = std::cell::RefCell::new(Vec::new());
+        let accepting = std::cell::Cell::new(true);
+        let send = |p: Piece| {
+            log.borrow_mut().push(json!({"offered":p.sequence}));
+            accepting.get()
+        };
+        let event = |e| edge_event(e, &mut log.borrow_mut());
+        for op in rows(&scenario["ops"]) {
+            if let Some(p) = op.get("publish") {
+                let p = Piece {
+                    sequence: u(p, "sequence"),
+                    key: b(p, "key"),
+                    bytes: u(&p["bytes"], "length") as usize,
+                };
+                viewer.publish(1, p, send, event);
+            } else if let Some(ack) = op["ack"].as_u64() {
+                viewer.acknowledge(ack, send, event);
+            } else if let Some(refuse) = op["refuse"].as_bool() {
+                accepting.set(!refuse);
+            } else if op.get("flush").is_some() {
+                viewer.flush(send, event);
+            } else if op.get("assign").is_some() {
+                viewer.assign(Some(1), event);
+            } else {
+                panic!("{name}: unknown op {op}");
+            }
+        }
+        assert_eq!(Value::Array(log.into_inner()), scenario["events"], "{name}");
+    }
+}
+#[test]
+fn link_rate_replays_wraparound_stale_acks_empty_frames_and_the_outstanding_bound() {
+    for scenario in rows(&load("link-rate-edges")) {
+        let name = s(scenario, "name");
+        let mut rate = LinkRate::new(Limits {
+            initial: 1_000_000.0,
+            ..Limits::default()
+        });
+        for (index, step) in rows(&scenario["steps"]).iter().enumerate() {
+            let op = &step["op"];
+            if let Some(sent) = op.get("sent") {
+                rate.sent(
+                    u(sent, "sequence"),
+                    u(sent, "bytes") as usize,
+                    n(sent, "at"),
+                );
+            } else if let Some(ack) = op.get("ack") {
+                rate.acknowledged(u(ack, "sequence"), n(ack, "at"));
+            } else {
+                rate.dropped(n(&op["drop"], "at"));
+            }
+            let out = &step["output"];
+            assert_eq!(rate.rate(), n(out, "rate"), "{name} step {index}");
+            match (rate.rtt(), out["rtt"].as_f64()) {
+                (Some(actual), Some(expected)) => {
+                    assert!((actual - expected).abs() < 1e-10, "{name} step {index}")
+                }
+                (actual, expected) => assert_eq!(actual, expected, "{name} step {index}"),
+            }
+        }
+    }
+}
