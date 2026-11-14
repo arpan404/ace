@@ -139,7 +139,9 @@ export function dueAt(
   const expired = child.settledAt !== null && now - child.settledAt >= RECHECK_WINDOW_MS;
   if (expired || child.unconfirmed || child.settledAt === null) return rec.lastAnsweredAt + fast;
   const agePolls = Math.max(0, now - child.settledAt) / config.pollMs;
-  return rec.lastAnsweredAt + recheckEveryPolls(agePolls) * config.pollMs;
+  const slow = rec.lastAnsweredAt + recheckEveryPolls(agePolls) * config.pollMs;
+  // Its 24 h mark comes before its next slow check: checked then, at the fast pace from then on.
+  return Math.min(slow, Math.max(child.settledAt + RECHECK_WINDOW_MS, rec.lastAnsweredAt + fast));
 }
 
 export interface TurnPlan {

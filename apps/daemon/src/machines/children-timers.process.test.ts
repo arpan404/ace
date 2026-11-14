@@ -165,6 +165,23 @@ it("c. a lone child on a machine that was down is read again as soon as the mach
   expect(h.state(child)).toBe("done");
 });
 
+it("c. a child failing alone keeps its own wait while its machine goes down and comes back", async () => {
+  const h = machine(undefined, { pollMs: POLL });
+  const failing = h.add("failing");
+  const healthy = h.add("healthy");
+  h.report(failing, working);
+  h.report(healthy, working);
+  // Up four polls, down four: every eight seconds the machine comes back.
+  const down = () => Math.floor(h.clock.now / (4 * POLL)) % 2 === 1;
+  h.reads.decide = (asked) =>
+    down() || asked.includes("failing") ? new MachineFailure("offline") : undefined;
+  h.reads.answered = (host) => h.children.machineReachable(host);
+  await run(h, h.clock.now + 3 * 60_000);
+  const calls = await run(h, h.clock.now + 60_000);
+  // Its own wait is at the 30 s cap; the machine's seven recoveries a minute don't end it.
+  expect(timesOf(calls, "failing").length).toBeLessThanOrEqual(5);
+});
+
 it("d. a settled child leaves tracking only after a check answered at or after its 24 h mark", async () => {
   const h = machine(undefined, { pollMs: POLL });
   const id = h.add("child");
@@ -199,6 +216,35 @@ it("e. a child past its 24 h mark is read every 10 s until it answers, then let 
   for (const gap of gaps(times)) expect(gap).toBeLessThanOrEqual(RECHECK_POLLS * POLL);
   // Answered past its mark: it leaves tracking, and nothing more is asked or scheduled.
   expect(h.timers).toEqual([]);
+});
+
+it("e. a settled child is checked within 10 s of its 24 h mark, however long its interval was", async () => {
+  const h = machine(undefined, { pollMs: POLL });
+  const id = h.add("child");
+  h.report(id, done("Done."));
+  await run(h, h.clock.now + 5_000);
+  const mark = h.clock.now + RECHECK_WINDOW_MS;
+  // Checked every five minutes by then.
+  await run(h, mark - 1);
+  const calls = await run(h, mark + 6 * 60_000);
+  const first = timesOf(calls, id).find((at) => at >= mark);
+  expect(first).toBeDefined();
+  expect((first ?? Infinity) - mark).toBeLessThanOrEqual(RECHECK_POLLS * POLL + POLL);
+});
+
+it("e. a child stopped without confirmation is read every 10 s while its machine says it still works", async () => {
+  const h = machine(undefined, { pollMs: POLL, stopPlan: [{ action: "cancel", waitMs: 2_000 }] });
+  const id = h.add("child");
+  h.report(id, working);
+  await run(h, h.clock.now + 2_000);
+  h.children.stop(id);
+  await run(h, h.clock.now + 10_000);
+  expect(h.children.watched(id)?.view.contact).toBe("unconfirmed");
+  const from = h.clock.now;
+  const calls = await run(h, from + 5 * 60_000);
+  expect(longestWait(timesOf(calls, id), from, from + 5 * 60_000)).toBeLessThanOrEqual(
+    RECHECK_POLLS * POLL,
+  );
 });
 
 it("a poll is still set after the pairings could not be read while only settled children remain", async () => {
