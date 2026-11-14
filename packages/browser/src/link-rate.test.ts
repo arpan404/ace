@@ -42,7 +42,7 @@ describe("a viewer's link rate", () => {
     const rate = new LinkRate(phone);
     const rates = simulate(rate, { link: link(0.4, 200), seconds: 30, fps: 5 }).slice(-15);
     const mean = rates.reduce((sum, value) => sum + value, 0) / rates.length;
-    expect(mean).toBeLessThan(480_000);
+    expect(mean).toBeLessThan(500_000);
     expect(mean).toBeGreaterThan(250_000);
     expect(Math.min(...rates)).toBeGreaterThan(200_000);
   });

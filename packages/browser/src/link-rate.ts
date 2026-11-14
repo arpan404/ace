@@ -336,11 +336,14 @@ export class LinkRate {
       this.#drain = { until: at + Math.max(stepMs, 2 * (this.#smoothed ?? 0)), hold, resume };
       rate = hold;
     };
-    if (this.#dropped) cut(Math.min(rate, delivered || rate) * dropFall);
+    // A drop cuts deep only when the link delivered less than the rate (the queue is ours); with
+    // another flow's queue on the path, the rate eases off.
+    if (this.#dropped) cut(Math.min(rate * deliveredShare, (delivered || rate) * dropFall));
     else if (this.#queuedSince !== undefined) {
       if (at >= this.#holdUntil && at - this.#queuedSince >= persistMs)
-        // A queue that lasts means too much: below the rate, whatever was delivered.
-        cut(Math.min(rate, Math.max(delivered, rates.longer)) * deliveredShare);
+        // A queue that lasts cuts to what the link delivered: if that is more than the rate, the
+        // queue is another flow's, and cutting would only hand it the link.
+        cut(Math.max(delivered, rates.longer) * deliveredShare);
     } else if (queueing < calm && at >= this.#holdUntil && at - this.#lastRise >= floor) {
       // Once a path round trip (the floor, not one a queue inflates): what a rise did shows then.
       this.#lastRise = at;

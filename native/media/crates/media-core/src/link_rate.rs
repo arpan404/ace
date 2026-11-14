@@ -364,11 +364,10 @@ impl LinkRate {
         }
         let mut rate = self.rate;
         let cut = if self.dropped {
-            // A drop cuts to CUBIC's beta.
-            Some(rate.min(if delivered == 0.0 { rate } else { delivered }) * 0.7)
+            // A drop cuts deep (CUBIC's beta) only when the queue is ours.
+            Some((rate * 0.9).min((if delivered == 0.0 { rate } else { delivered }) * 0.7))
         } else if let Some(since) = self.queued_since {
-            (at >= self.hold_until && at - since >= PERSIST_MS)
-                .then(|| rate.min(delivered.max(longer)) * 0.9)
+            (at >= self.hold_until && at - since >= PERSIST_MS).then(|| delivered.max(longer) * 0.9)
         } else {
             None
         };

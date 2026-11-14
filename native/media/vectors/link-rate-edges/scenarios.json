@@ -11587,10 +11587,10 @@
           }
         },
         "output": {
-          "rate": 378000,
+          "rate": 420000,
           "rtt": 1959.5687866210938,
           "probing": false,
-          "backlogBytes": 68513
+          "backlogBytes": 76125
         }
       },
       {
@@ -11600,10 +11600,10 @@
           }
         },
         "output": {
-          "rate": 378000,
+          "rate": 420000,
           "rtt": 1959.5687866210938,
           "probing": false,
-          "backlogBytes": 68513
+          "backlogBytes": 76125
         }
       },
       {
@@ -11613,10 +11613,10 @@
           }
         },
         "output": {
-          "rate": 378000,
+          "rate": 420000,
           "rtt": 1959.5687866210938,
           "probing": false,
-          "backlogBytes": 68513
+          "backlogBytes": 76125
         }
       },
       {
@@ -11626,10 +11626,10 @@
           }
         },
         "output": {
-          "rate": 378000,
+          "rate": 420000,
           "rtt": 1959.5687866210938,
           "probing": false,
-          "backlogBytes": 68513
+          "backlogBytes": 76125
         }
       },
       {
@@ -11640,10 +11640,10 @@
           }
         },
         "output": {
-          "rate": 378000,
+          "rate": 420000,
           "rtt": 1959.5687866210938,
           "probing": false,
-          "backlogBytes": 68513
+          "backlogBytes": 76125
         }
       },
       {
@@ -11653,10 +11653,10 @@
           }
         },
         "output": {
-          "rate": 378000,
+          "rate": 420000,
           "rtt": 1959.5687866210938,
           "probing": false,
-          "backlogBytes": 68513
+          "backlogBytes": 76125
         }
       },
       {
@@ -11666,10 +11666,10 @@
           }
         },
         "output": {
-          "rate": 378000,
+          "rate": 420000,
           "rtt": 1959.5687866210938,
           "probing": false,
-          "backlogBytes": 68513
+          "backlogBytes": 76125
         }
       },
       {
@@ -11679,10 +11679,10 @@
           }
         },
         "output": {
-          "rate": 378000,
+          "rate": 420000,
           "rtt": 1959.5687866210938,
           "probing": false,
-          "backlogBytes": 68513
+          "backlogBytes": 76125
         }
       },
       {
@@ -11692,10 +11692,10 @@
           }
         },
         "output": {
-          "rate": 378000,
+          "rate": 420000,
           "rtt": 1959.5687866210938,
           "probing": false,
-          "backlogBytes": 68513
+          "backlogBytes": 76125
         }
       },
       {
@@ -11706,55 +11706,55 @@
           }
         },
         "output": {
-          "rate": 378000,
+          "rate": 420000,
           "rtt": 1959.5687866210938,
           "probing": false,
-          "backlogBytes": 68513
+          "backlogBytes": 76125
         }
       },
       {
         "op": {
           "sent": {
             "sequence": 12,
-            "bytes": 9450,
+            "bytes": 10500,
             "at": 8000
           }
         },
         "output": {
-          "rate": 378000,
+          "rate": 420000,
           "rtt": 1959.5687866210938,
           "probing": false,
-          "backlogBytes": 68513
+          "backlogBytes": 76125
         }
       },
       {
         "op": {
           "sent": {
             "sequence": 13,
-            "bytes": 9450,
+            "bytes": 10500,
             "at": 8200
           }
         },
         "output": {
-          "rate": 378000,
+          "rate": 420000,
           "rtt": 1959.5687866210938,
           "probing": false,
-          "backlogBytes": 68513
+          "backlogBytes": 76125
         }
       },
       {
         "op": {
           "sent": {
             "sequence": 14,
-            "bytes": 9450,
+            "bytes": 10500,
             "at": 8400
           }
         },
         "output": {
-          "rate": 378000,
+          "rate": 420000,
           "rtt": 1959.5687866210938,
           "probing": false,
-          "backlogBytes": 68513
+          "backlogBytes": 76125
         }
       },
       {
@@ -11764,10 +11764,10 @@
           }
         },
         "output": {
-          "rate": 378000,
+          "rate": 420000,
           "rtt": 1959.5687866210938,
           "probing": false,
-          "backlogBytes": 68513
+          "backlogBytes": 76125
         }
       },
       {
@@ -11778,460 +11778,446 @@
           }
         },
         "output": {
-          "rate": 378000,
+          "rate": 420000,
           "rtt": 1959.5687866210938,
           "probing": false,
-          "backlogBytes": 68513
+          "backlogBytes": 76125
         }
       },
       {
         "op": {
           "sent": {
             "sequence": 15,
-            "bytes": 9450,
+            "bytes": 10500,
             "at": 8800
           }
         },
         "output": {
-          "rate": 378000,
+          "rate": 420000,
           "rtt": 1959.5687866210938,
           "probing": false,
-          "backlogBytes": 68513
+          "backlogBytes": 76125
         }
       },
       {
         "op": {
           "ack": {
             "sequence": 12,
-            "at": 8839
+            "at": 8860
           }
         },
         "output": {
-          "rate": 378000,
-          "rtt": 839,
+          "rate": 420000,
+          "rtt": 860,
           "probing": false,
-          "backlogBytes": 53818
+          "backlogBytes": 60900
         }
       },
       {
         "op": {
           "sent": {
             "sequence": 16,
-            "bytes": 9450,
+            "bytes": 10500,
             "at": 9000
           }
         },
         "output": {
-          "rate": 378000,
-          "rtt": 839,
+          "rate": 420000,
+          "rtt": 860,
           "probing": false,
-          "backlogBytes": 53818
+          "backlogBytes": 60900
         }
       },
       {
         "op": {
           "ack": {
             "sequence": 13,
-            "at": 9028
+            "at": 9070
           }
         },
         "output": {
-          "rate": 378000,
-          "rtt": 839,
+          "rate": 420000,
+          "rtt": 860,
           "probing": false,
-          "backlogBytes": 53818
+          "backlogBytes": 60900
         }
       },
       {
         "op": {
           "sent": {
             "sequence": 17,
-            "bytes": 9450,
+            "bytes": 10500,
             "at": 9200
           }
         },
         "output": {
-          "rate": 378000,
-          "rtt": 839,
+          "rate": 420000,
+          "rtt": 860,
           "probing": false,
-          "backlogBytes": 53818
+          "backlogBytes": 60900
         }
       },
       {
         "op": {
           "ack": {
             "sequence": 14,
-            "at": 9217
+            "at": 9280
           }
         },
         "output": {
-          "rate": 378000,
-          "rtt": 839,
+          "rate": 420000,
+          "rtt": 860,
           "probing": false,
-          "backlogBytes": 53818
+          "backlogBytes": 60900
         }
       },
       {
         "op": {
           "sent": {
             "sequence": 18,
-            "bytes": 9450,
+            "bytes": 10500,
             "at": 9400
           }
         },
         "output": {
-          "rate": 378000,
-          "rtt": 839,
+          "rate": 420000,
+          "rtt": 860,
           "probing": false,
-          "backlogBytes": 53818
+          "backlogBytes": 60900
         }
       },
       {
         "op": {
           "ack": {
             "sequence": 15,
-            "at": 9406
+            "at": 9490
           }
         },
         "output": {
-          "rate": 378000,
-          "rtt": 809.875,
+          "rate": 420000,
+          "rtt": 838.75,
           "probing": false,
-          "backlogBytes": 52442
+          "backlogBytes": 59784
+        }
+      },
+      {
+        "op": {
+          "sent": {
+            "sequence": 19,
+            "bytes": 10500,
+            "at": 9600
+          }
+        },
+        "output": {
+          "rate": 420000,
+          "rtt": 838.75,
+          "probing": false,
+          "backlogBytes": 59784
         }
       },
       {
         "op": {
           "ack": {
             "sequence": 16,
-            "at": 9595
+            "at": 9700
           }
         },
         "output": {
-          "rate": 378000,
-          "rtt": 783.015625,
+          "rate": 420000,
+          "rtt": 821.40625,
           "probing": false,
-          "backlogBytes": 51172
+          "backlogBytes": 58874
         }
       },
       {
         "op": {
           "sent": {
-            "sequence": 19,
-            "bytes": 9450,
-            "at": 9600
+            "sequence": 20,
+            "bytes": 10500,
+            "at": 9800
           }
         },
         "output": {
-          "rate": 378000,
-          "rtt": 783.015625,
+          "rate": 420000,
+          "rtt": 821.40625,
           "probing": false,
-          "backlogBytes": 51172
+          "backlogBytes": 58874
         }
       },
       {
         "op": {
           "ack": {
             "sequence": 17,
-            "at": 9789
+            "at": 9910
           }
         },
         "output": {
-          "rate": 408240,
-          "rtt": 758.763671875,
+          "rate": 453600,
+          "rtt": 807.48046875,
           "probing": false,
-          "backlogBytes": 54029
+          "backlogBytes": 62794
         }
       },
       {
         "op": {
           "sent": {
-            "sequence": 20,
-            "bytes": 10206,
-            "at": 9800
+            "sequence": 21,
+            "bytes": 11340,
+            "at": 10000
           }
         },
         "output": {
-          "rate": 408240,
-          "rtt": 758.763671875,
+          "rate": 453600,
+          "rtt": 807.48046875,
           "probing": false,
-          "backlogBytes": 54029
+          "backlogBytes": 62794
         }
       },
       {
         "op": {
           "ack": {
             "sequence": 18,
-            "at": 9989
+            "at": 10120
           }
         },
         "output": {
-          "rate": 408240,
-          "rtt": 737.543212890625,
+          "rate": 453600,
+          "rtt": 796.54541015625,
           "probing": false,
-          "backlogBytes": 52946
+          "backlogBytes": 62174
         }
       },
       {
         "op": {
           "sent": {
-            "sequence": 21,
-            "bytes": 10206,
-            "at": 10000
+            "sequence": 22,
+            "bytes": 11340,
+            "at": 10200
           }
         },
         "output": {
-          "rate": 408240,
-          "rtt": 737.543212890625,
+          "rate": 453600,
+          "rtt": 796.54541015625,
           "probing": false,
-          "backlogBytes": 52946
+          "backlogBytes": 62174
         }
       },
       {
         "op": {
           "ack": {
             "sequence": 19,
-            "at": 10189
+            "at": 10330
           }
         },
         "output": {
-          "rate": 408240,
-          "rtt": 718.9753112792969,
+          "rate": 453600,
+          "rtt": 788.2272338867188,
           "probing": false,
-          "backlogBytes": 51998
-        }
-      },
-      {
-        "op": {
-          "sent": {
-            "sequence": 22,
-            "bytes": 10206,
-            "at": 10200
-          }
-        },
-        "output": {
-          "rate": 408240,
-          "rtt": 718.9753112792969,
-          "probing": false,
-          "backlogBytes": 51998
+          "backlogBytes": 61702
         }
       },
       {
         "op": {
           "sent": {
             "sequence": 23,
-            "bytes": 10206,
+            "bytes": 11340,
             "at": 10400
           }
         },
         "output": {
-          "rate": 408240,
-          "rtt": 718.9753112792969,
+          "rate": 453600,
+          "rtt": 788.2272338867188,
           "probing": false,
-          "backlogBytes": 51998
+          "backlogBytes": 61702
         }
       },
       {
         "op": {
           "ack": {
             "sequence": 20,
-            "at": 10404.12
+            "at": 10540
           }
         },
         "output": {
-          "rate": 408240,
-          "rtt": 704.6183973693849,
+          "rate": 453600,
+          "rtt": 782.1988296508789,
           "probing": false,
-          "backlogBytes": 51266
+          "backlogBytes": 61361
         }
       },
       {
         "op": {
           "sent": {
             "sequence": 24,
-            "bytes": 10206,
+            "bytes": 11340,
             "at": 10600
           }
         },
         "output": {
-          "rate": 408240,
-          "rtt": 704.6183973693849,
+          "rate": 453600,
+          "rtt": 782.1988296508789,
           "probing": false,
-          "backlogBytes": 51266
+          "backlogBytes": 61361
         }
       },
       {
         "op": {
           "ack": {
             "sequence": 21,
-            "at": 10608.240000000002
+            "at": 10766.8
           }
         },
         "output": {
-          "rate": 440899,
-          "rtt": 692.5710976982119,
+          "rate": 489888,
+          "rtt": 780.273975944519,
           "probing": false,
-          "backlogBytes": 54703
+          "backlogBytes": 66152
         }
       },
       {
         "op": {
           "sent": {
             "sequence": 25,
-            "bytes": 11022,
+            "bytes": 12247,
             "at": 10800
           }
         },
         "output": {
-          "rate": 440899,
-          "rtt": 692.5710976982119,
+          "rate": 489888,
+          "rtt": 780.273975944519,
           "probing": false,
-          "backlogBytes": 54703
+          "backlogBytes": 66152
         }
       },
       {
         "op": {
           "ack": {
             "sequence": 22,
-            "at": 10812.360000000002
+            "at": 10993.599999999999
           }
         },
         "output": {
-          "rate": 440899,
-          "rtt": 682.5447104859358,
+          "rate": 489888,
+          "rtt": 780.273975944519,
           "probing": false,
-          "backlogBytes": 54150
+          "backlogBytes": 66152
         }
       },
       {
         "op": {
           "sent": {
             "sequence": 26,
-            "bytes": 11022,
+            "bytes": 12247,
             "at": 11000
           }
         },
         "output": {
-          "rate": 440899,
-          "rtt": 682.5447104859358,
+          "rate": 489888,
+          "rtt": 780.273975944519,
           "probing": false,
-          "backlogBytes": 54150
-        }
-      },
-      {
-        "op": {
-          "ack": {
-            "sequence": 23,
-            "at": 11016.480000000003
-          }
-        },
-        "output": {
-          "rate": 440899,
-          "rtt": 674.2866216751942,
-          "probing": false,
-          "backlogBytes": 53695
+          "backlogBytes": 66152
         }
       },
       {
         "op": {
           "sent": {
             "sequence": 27,
-            "bytes": 11022,
+            "bytes": 12247,
             "at": 11200
           }
         },
         "output": {
-          "rate": 440899,
-          "rtt": 674.2866216751942,
+          "rate": 489888,
+          "rtt": 780.273975944519,
           "probing": false,
-          "backlogBytes": 53695
+          "backlogBytes": 66152
         }
       },
       {
         "op": {
           "ack": {
-            "sequence": 24,
-            "at": 11220.600000000004
+            "sequence": 23,
+            "at": 11220.399999999998
           }
         },
         "output": {
-          "rate": 440899,
-          "rtt": 667.5757939657954,
+          "rate": 489888,
+          "rtt": 780.273975944519,
           "probing": false,
-          "backlogBytes": 53325
+          "backlogBytes": 66152
         }
       },
       {
         "op": {
           "sent": {
             "sequence": 28,
-            "bytes": 11022,
+            "bytes": 12247,
             "at": 11400
           }
         },
         "output": {
-          "rate": 440899,
-          "rtt": 667.5757939657954,
+          "rate": 489888,
+          "rtt": 780.273975944519,
           "probing": false,
-          "backlogBytes": 53325
+          "backlogBytes": 66152
         }
       },
       {
         "op": {
           "ack": {
-            "sequence": 25,
-            "at": 11441.040000000005
+            "sequence": 24,
+            "at": 11447.199999999997
           }
         },
         "output": {
-          "rate": 484989,
-          "rtt": 664.2588197200715,
+          "rate": 489888,
+          "rtt": 780.273975944519,
           "probing": false,
-          "backlogBytes": 58457
+          "backlogBytes": 66152
         }
       },
       {
         "op": {
           "sent": {
             "sequence": 29,
-            "bytes": 12125,
+            "bytes": 12247,
             "at": 11600
           }
         },
         "output": {
-          "rate": 484989,
-          "rtt": 664.2588197200715,
+          "rate": 489888,
+          "rtt": 780.273975944519,
           "probing": false,
-          "backlogBytes": 58457
+          "backlogBytes": 66152
         }
       },
       {
         "op": {
           "ack": {
-            "sequence": 26,
-            "at": 11661.480000000005
+            "sequence": 25,
+            "at": 11692.139999999998
           }
         },
         "output": {
-          "rate": 484989,
-          "rtt": 663.9114672550633,
+          "rate": 538877,
+          "rtt": 780.273975944519,
           "probing": false,
-          "backlogBytes": 58436
+          "backlogBytes": 72767
         }
       },
       {
         "op": {
           "sent": {
             "sequence": 30,
-            "bytes": 12125,
+            "bytes": 13472,
             "at": 11800
           }
         },
         "output": {
-          "rate": 484989,
-          "rtt": 663.9114672550633,
+          "rate": 538877,
+          "rtt": 780.273975944519,
           "probing": false,
-          "backlogBytes": 58436
+          "backlogBytes": 72767
         }
       }
     ]
@@ -16094,25 +16080,25 @@
           }
         },
         "output": {
-          "rate": 1300238,
+          "rate": 1444709,
           "rtt": 718.4973043794894,
           "probing": false,
-          "backlogBytes": 123496
+          "backlogBytes": 137218
         }
       },
       {
         "op": {
           "sent": {
             "sequence": 128,
-            "bytes": 10835,
+            "bytes": 12039,
             "at": 9999.999999999998
           }
         },
         "output": {
-          "rate": 1300238,
+          "rate": 1444709,
           "rtt": 718.4973043794894,
           "probing": false,
-          "backlogBytes": 123496
+          "backlogBytes": 137218
         }
       },
       {
@@ -16123,38 +16109,40 @@
           }
         },
         "output": {
-          "rate": 1300238,
-          "rtt": 742.9643928187694,
+          "rate": 1444709,
+          "rtt": 744.5075729049237,
           "probing": false,
-          "backlogBytes": 123496
+          "backlogBytes": 137218
         }
       },
       {
         "op": {
           "sent": {
             "sequence": 129,
-            "bytes": 10835,
+            "bytes": 12039,
             "at": 10066.666666666664
           }
         },
         "output": {
-          "rate": 1300238,
-          "rtt": 742.9643928187694,
+          "rate": 1444709,
+          "rtt": 744.5075729049237,
           "probing": false,
-          "backlogBytes": 123496
+          "backlogBytes": 137218
         }
       },
       {
         "op": {
-          "drop": {
+          "sent": {
+            "sequence": 130,
+            "bytes": 12039,
             "at": 10133.33333333333
           }
         },
         "output": {
-          "rate": 1300238,
-          "rtt": 742.9643928187694,
+          "rate": 1444709,
+          "rtt": 744.5075729049237,
           "probing": false,
-          "backlogBytes": 123496
+          "backlogBytes": 137218
         }
       },
       {
@@ -16165,10 +16153,10 @@
           }
         },
         "output": {
-          "rate": 1300238,
-          "rtt": 742.9643928187694,
+          "rate": 1444709,
+          "rtt": 771.4738495313454,
           "probing": false,
-          "backlogBytes": 123496
+          "backlogBytes": 137218
         }
       },
       {
@@ -16179,25 +16167,25 @@
           }
         },
         "output": {
-          "rate": 1300238,
-          "rtt": 742.9643928187694,
+          "rate": 1444709,
+          "rtt": 741.4824939503173,
           "probing": false,
-          "backlogBytes": 123496
+          "backlogBytes": 137218
         }
       },
       {
         "op": {
           "sent": {
-            "sequence": 130,
-            "bytes": 10835,
+            "sequence": 131,
+            "bytes": 12039,
             "at": 10199.999999999996
           }
         },
         "output": {
-          "rate": 1300238,
-          "rtt": 742.9643928187694,
+          "rate": 1444709,
+          "rtt": 741.4824939503173,
           "probing": false,
-          "backlogBytes": 123496
+          "backlogBytes": 137218
         }
       },
       {
@@ -16208,25 +16196,25 @@
           }
         },
         "output": {
-          "rate": 1300238,
-          "rtt": 742.9643928187694,
+          "rate": 1444709,
+          "rtt": 714.4310994835844,
           "probing": false,
-          "backlogBytes": 123496
+          "backlogBytes": 137218
         }
       },
       {
         "op": {
           "sent": {
-            "sequence": 131,
-            "bytes": 10835,
+            "sequence": 132,
+            "bytes": 12039,
             "at": 10266.666666666662
           }
         },
         "output": {
-          "rate": 1300238,
-          "rtt": 742.9643928187694,
+          "rate": 1444709,
+          "rtt": 714.4310994835844,
           "probing": false,
-          "backlogBytes": 123496
+          "backlogBytes": 137218
         }
       },
       {
@@ -16237,25 +16225,25 @@
           }
         },
         "output": {
-          "rate": 1300238,
-          "rtt": 742.9643928187694,
+          "rate": 1444709,
+          "rtt": 689.9521709918599,
           "probing": false,
-          "backlogBytes": 123496
+          "backlogBytes": 137218
         }
       },
       {
         "op": {
           "sent": {
-            "sequence": 132,
-            "bytes": 10835,
+            "sequence": 133,
+            "bytes": 12039,
             "at": 10333.333333333328
           }
         },
         "output": {
-          "rate": 1300238,
-          "rtt": 742.9643928187694,
+          "rate": 1444709,
+          "rtt": 689.9521709918599,
           "probing": false,
-          "backlogBytes": 123496
+          "backlogBytes": 137218
         }
       },
       {
@@ -16266,25 +16254,25 @@
           }
         },
         "output": {
-          "rate": 1300238,
-          "rtt": 742.9643928187694,
+          "rate": 1444709,
+          "rtt": 667.7241502282677,
           "probing": false,
-          "backlogBytes": 123496
+          "backlogBytes": 137218
         }
       },
       {
         "op": {
           "sent": {
-            "sequence": 133,
-            "bytes": 10835,
+            "sequence": 134,
+            "bytes": 12039,
             "at": 10399.999999999995
           }
         },
         "output": {
-          "rate": 1300238,
-          "rtt": 742.9643928187694,
+          "rate": 1444709,
+          "rtt": 667.7241502282677,
           "probing": false,
-          "backlogBytes": 123496
+          "backlogBytes": 137218
         }
       },
       {
@@ -16295,70 +16283,68 @@
           }
         },
         "output": {
-          "rate": 1300238,
-          "rtt": 742.9643928187694,
+          "rate": 1444709,
+          "rtt": 647.4656737267912,
           "probing": false,
-          "backlogBytes": 123496
-        }
-      },
-      {
-        "op": {
-          "sent": {
-            "sequence": 134,
-            "bytes": 10835,
-            "at": 10466.66666666666
-          }
-        },
-        "output": {
-          "rate": 1300238,
-          "rtt": 742.9643928187694,
-          "probing": false,
-          "backlogBytes": 123496
+          "backlogBytes": 137218
         }
       },
       {
         "op": {
           "sent": {
             "sequence": 135,
-            "bytes": 10835,
-            "at": 10533.333333333327
+            "bytes": 12039,
+            "at": 10466.66666666666
           }
         },
         "output": {
-          "rate": 1300238,
-          "rtt": 742.9643928187694,
+          "rate": 1444709,
+          "rtt": 647.4656737267912,
           "probing": false,
-          "backlogBytes": 123496
+          "backlogBytes": 137218
         }
       },
       {
         "op": {
           "sent": {
             "sequence": 136,
-            "bytes": 10835,
-            "at": 10599.999999999993
+            "bytes": 12039,
+            "at": 10533.333333333327
           }
         },
         "output": {
-          "rate": 1300238,
-          "rtt": 742.9643928187694,
+          "rate": 1444709,
+          "rtt": 647.4656737267912,
           "probing": false,
-          "backlogBytes": 123496
+          "backlogBytes": 137218
         }
       },
       {
         "op": {
           "sent": {
             "sequence": 137,
-            "bytes": 10835,
+            "bytes": 12039,
+            "at": 10599.999999999993
+          }
+        },
+        "output": {
+          "rate": 1444709,
+          "rtt": 647.4656737267912,
+          "probing": false,
+          "backlogBytes": 137218
+        }
+      },
+      {
+        "op": {
+          "drop": {
             "at": 10666.666666666659
           }
         },
         "output": {
-          "rate": 1300238,
-          "rtt": 742.9643928187694,
+          "rate": 898912,
+          "rtt": 647.4656737267912,
           "probing": false,
-          "backlogBytes": 123496
+          "backlogBytes": 85378
         }
       },
       {
@@ -16369,7 +16355,7 @@
         },
         "output": {
           "rate": 898912,
-          "rtt": 742.9643928187694,
+          "rtt": 647.4656737267912,
           "probing": false,
           "backlogBytes": 85378
         }
@@ -16382,7 +16368,7 @@
         },
         "output": {
           "rate": 898912,
-          "rtt": 742.9643928187694,
+          "rtt": 647.4656737267912,
           "probing": false,
           "backlogBytes": 85378
         }
@@ -16395,7 +16381,7 @@
         },
         "output": {
           "rate": 898912,
-          "rtt": 742.9643928187694,
+          "rtt": 647.4656737267912,
           "probing": false,
           "backlogBytes": 85378
         }
@@ -16409,7 +16395,7 @@
         },
         "output": {
           "rate": 898912,
-          "rtt": 757.4322365735682,
+          "rtt": 673.8708573680873,
           "probing": false,
           "backlogBytes": 85378
         }
@@ -16423,7 +16409,7 @@
         },
         "output": {
           "rate": 898912,
-          "rtt": 763.0976634855642,
+          "rtt": 688.6420597208881,
           "probing": false,
           "backlogBytes": 85378
         }
@@ -16437,7 +16423,7 @@
         },
         "output": {
           "rate": 898912,
-          "rtt": 759.7215787002275,
+          "rtt": 693.2335284462556,
           "probing": false,
           "backlogBytes": 85378
         }
@@ -16451,7 +16437,7 @@
         },
         "output": {
           "rate": 898912,
-          "rtt": 740.1008378463913,
+          "rtt": 688.9177302476189,
           "probing": false,
           "backlogBytes": 85378
         }
@@ -16465,7 +16451,7 @@
         },
         "output": {
           "rate": 898912,
-          "rtt": 714.5993562659514,
+          "rtt": 676.8080734904785,
           "probing": false,
           "backlogBytes": 85378
         }
@@ -16479,7 +16465,7 @@
         },
         "output": {
           "rate": 898912,
-          "rtt": 683.9522265497333,
+          "rtt": 657.8787904946473,
           "probing": false,
           "backlogBytes": 85378
         }
@@ -16493,7 +16479,7 @@
         },
         "output": {
           "rate": 898912,
-          "rtt": 655.9375732310166,
+          "rtt": 633.1233166828164,
           "probing": false,
           "backlogBytes": 85378
         }
@@ -16502,12 +16488,12 @@
         "op": {
           "ack": {
             "sequence": 134,
-            "at": 10920.84166666666
+            "at": 10920.548333333347
           }
         },
         "output": {
           "rate": 898912,
-          "rtt": 630.7172515771395,
+          "rtt": 611.4622770974644,
           "probing": false,
           "backlogBytes": 85378
         }
@@ -16522,7 +16508,7 @@
         },
         "output": {
           "rate": 898912,
-          "rtt": 630.7172515771395,
+          "rtt": 611.4622770974644,
           "probing": false,
           "backlogBytes": 85378
         }
@@ -16531,12 +16517,12 @@
         "op": {
           "ack": {
             "sequence": 135,
-            "at": 10987.508333333326
+            "at": 10980.743333333347
           }
         },
         "output": {
           "rate": 898912,
-          "rtt": 608.6494701299969,
+          "rtt": 592.5088674602813,
           "probing": false,
           "backlogBytes": 85378
         }
@@ -16551,7 +16537,7 @@
         },
         "output": {
           "rate": 898912,
-          "rtt": 608.6494701299969,
+          "rtt": 592.5088674602813,
           "probing": false,
           "backlogBytes": 85378
         }
@@ -16560,12 +16546,12 @@
         "op": {
           "ack": {
             "sequence": 136,
-            "at": 11054.174999999992
+            "at": 11040.938333333346
           }
         },
         "output": {
           "rate": 898912,
-          "rtt": 589.3401613637471,
+          "rtt": 575.9246340277462,
           "probing": false,
           "backlogBytes": 85378
         }
@@ -16580,7 +16566,7 @@
         },
         "output": {
           "rate": 898912,
-          "rtt": 589.3401613637471,
+          "rtt": 575.9246340277462,
           "probing": false,
           "backlogBytes": 85378
         }
@@ -16589,12 +16575,12 @@
         "op": {
           "ack": {
             "sequence": 137,
-            "at": 11120.841666666658
+            "at": 11101.133333333346
           }
         },
         "output": {
           "rate": 898912,
-          "rtt": 572.4445161932787,
+          "rtt": 561.4134297742779,
           "probing": false,
           "backlogBytes": 85378
         }
@@ -16609,7 +16595,7 @@
         },
         "output": {
           "rate": 898912,
-          "rtt": 572.4445161932787,
+          "rtt": 561.4134297742779,
           "probing": false,
           "backlogBytes": 85378
         }
@@ -16624,7 +16610,7 @@
         },
         "output": {
           "rate": 898912,
-          "rtt": 572.4445161932787,
+          "rtt": 561.4134297742779,
           "probing": false,
           "backlogBytes": 85378
         }
@@ -16639,7 +16625,7 @@
         },
         "output": {
           "rate": 898912,
-          "rtt": 572.4445161932787,
+          "rtt": 561.4134297742779,
           "probing": false,
           "backlogBytes": 85378
         }
@@ -16654,7 +16640,7 @@
         },
         "output": {
           "rate": 898912,
-          "rtt": 572.4445161932787,
+          "rtt": 561.4134297742779,
           "probing": false,
           "backlogBytes": 85378
         }
@@ -16668,7 +16654,7 @@
         },
         "output": {
           "rate": 898912,
-          "rtt": 555.5708266691188,
+          "rtt": 545.9186260524932,
           "probing": false,
           "backlogBytes": 85378
         }
@@ -16683,7 +16669,7 @@
         },
         "output": {
           "rate": 898912,
-          "rtt": 555.5708266691188,
+          "rtt": 545.9186260524932,
           "probing": false,
           "backlogBytes": 85378
         }
@@ -16697,7 +16683,7 @@
         },
         "output": {
           "rate": 898912,
-          "rtt": 540.8063483354789,
+          "rtt": 532.3606727959316,
           "probing": false,
           "backlogBytes": 85378
         }
@@ -16712,7 +16698,7 @@
         },
         "output": {
           "rate": 898912,
-          "rtt": 540.8063483354789,
+          "rtt": 532.3606727959316,
           "probing": false,
           "backlogBytes": 85378
         }
@@ -16726,7 +16712,7 @@
         },
         "output": {
           "rate": 898912,
-          "rtt": 527.887429793544,
+          "rtt": 520.4974636964401,
           "probing": false,
           "backlogBytes": 85378
         }
@@ -16741,7 +16727,7 @@
         },
         "output": {
           "rate": 898912,
-          "rtt": 527.887429793544,
+          "rtt": 520.4974636964401,
           "probing": false,
           "backlogBytes": 85378
         }
@@ -16755,7 +16741,7 @@
         },
         "output": {
           "rate": 898912,
-          "rtt": 516.5833760693511,
+          "rtt": 510.1171557343851,
           "probing": false,
           "backlogBytes": 85378
         }
@@ -16770,7 +16756,7 @@
         },
         "output": {
           "rate": 898912,
-          "rtt": 516.5833760693511,
+          "rtt": 510.1171557343851,
           "probing": false,
           "backlogBytes": 85378
         }
@@ -16783,25 +16769,25 @@
           }
         },
         "output": {
-          "rate": 898912,
-          "rtt": 506.69232906068214,
+          "rate": 970825,
+          "rtt": 501.03438626758697,
           "probing": false,
-          "backlogBytes": 85378
+          "backlogBytes": 92208
         }
       },
       {
         "op": {
           "sent": {
             "sequence": 149,
-            "bytes": 7491,
+            "bytes": 8090,
             "at": 11666.66666666665
           }
         },
         "output": {
-          "rate": 898912,
-          "rtt": 506.69232906068214,
+          "rate": 970825,
+          "rtt": 501.03438626758697,
           "probing": false,
-          "backlogBytes": 85378
+          "backlogBytes": 92208
         }
       },
       {
@@ -16812,25 +16798,25 @@
           }
         },
         "output": {
-          "rate": 898912,
-          "rtt": 498.0376629280969,
+          "rate": 970825,
+          "rtt": 493.0869629841386,
           "probing": false,
-          "backlogBytes": 85378
+          "backlogBytes": 92208
         }
       },
       {
         "op": {
           "sent": {
             "sequence": 150,
-            "bytes": 7491,
+            "bytes": 8090,
             "at": 11733.333333333316
           }
         },
         "output": {
-          "rate": 898912,
-          "rtt": 498.0376629280969,
+          "rate": 970825,
+          "rtt": 493.0869629841386,
           "probing": false,
-          "backlogBytes": 85378
+          "backlogBytes": 92208
         }
       },
       {
@@ -16841,25 +16827,25 @@
           }
         },
         "output": {
-          "rate": 898912,
-          "rtt": 490.4648300620848,
+          "rate": 970825,
+          "rtt": 486.1329676111213,
           "probing": false,
-          "backlogBytes": 85378
+          "backlogBytes": 92208
         }
       },
       {
         "op": {
           "sent": {
             "sequence": 151,
-            "bytes": 7491,
+            "bytes": 8090,
             "at": 11799.999999999982
           }
         },
         "output": {
-          "rate": 898912,
-          "rtt": 490.4648300620848,
+          "rate": 970825,
+          "rtt": 486.1329676111213,
           "probing": false,
-          "backlogBytes": 85378
+          "backlogBytes": 92208
         }
       },
       {
@@ -16870,25 +16856,25 @@
           }
         },
         "output": {
-          "rate": 898912,
-          "rtt": 483.8386013043242,
+          "rate": 970825,
+          "rtt": 480.0482216597311,
           "probing": false,
-          "backlogBytes": 85378
+          "backlogBytes": 92208
         }
       },
       {
         "op": {
           "sent": {
             "sequence": 152,
-            "bytes": 7491,
+            "bytes": 8090,
             "at": 11866.666666666648
           }
         },
         "output": {
-          "rate": 898912,
-          "rtt": 483.8386013043242,
+          "rate": 970825,
+          "rtt": 480.0482216597311,
           "probing": false,
-          "backlogBytes": 85378
+          "backlogBytes": 92208
         }
       },
       {
@@ -16900,7 +16886,7 @@
         },
         "output": {
           "rate": 970825,
-          "rtt": 478.04065114128366,
+          "rtt": 474.7240689522647,
           "probing": false,
           "backlogBytes": 92208
         }
@@ -16915,7 +16901,7 @@
         },
         "output": {
           "rate": 970825,
-          "rtt": 478.04065114128366,
+          "rtt": 474.7240689522647,
           "probing": false,
           "backlogBytes": 92208
         }
@@ -16929,7 +16915,7 @@
         },
         "output": {
           "rate": 970825,
-          "rtt": 472.96744474862317,
+          "rtt": 470.0654353332316,
           "probing": false,
           "backlogBytes": 92208
         }
@@ -16944,7 +16930,7 @@
         },
         "output": {
           "rate": 970825,
-          "rtt": 472.96744474862317,
+          "rtt": 470.0654353332316,
           "probing": false,
           "backlogBytes": 92208
         }
