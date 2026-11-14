@@ -1,6 +1,5 @@
-import { useThreadStore } from "@ace/client-react";
+import { useClient, useThreadStore } from "@ace/client-react";
 import type { Agent } from "@ace/protocol";
-import { ThreadId } from "@ace/protocol";
 import { useStopIntent } from "./use-stop-intent.ts";
 import { agentName, isRunning, type StopFence } from "@ace/ui-core";
 import { StopIcon } from "@phosphor-icons/react";
@@ -11,6 +10,7 @@ import { Tip } from "@/components/ui/tooltip.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { whenIdle } from "@/lib/idle.ts";
 import { useThreadFreshness } from "@/lib/live-connection.ts";
+import { stopAgent } from "@/lib/live-actions.ts";
 import { agentStopFence } from "./agent-stop-fence.ts";
 import { stopLabel } from "./subagents.ts";
 
@@ -48,7 +48,9 @@ export function StopAgent(props: {
 }) {
   const stop = useStopIntent();
   const toast = useToast();
-  const { fresh, isFresh } = useThreadFreshness(props.threadId);
+  const client = useClient();
+  // For disabling only: the Stop itself checks the copy as it sends (`stopAgent`).
+  const { fresh } = useThreadFreshness(props.threadId);
   const store = useThreadStore(props.threadId);
   // Read when the Stop is first pressed: the run the person chose to stop, even if they confirm later.
   const [fence, setFence] = useState<StopFence>();
@@ -73,14 +75,7 @@ export function StopAgent(props: {
   const pressed = () => (store ? agentStopFence(store, props.agent.id) : undefined);
   const send = (named = fence) => {
     setAsking(false);
-    if (!isFresh()) return;
-    void stop.send({
-      type: "thread.interrupt",
-      threadId: ThreadId.parse(props.threadId),
-      agentId: props.agent.id,
-      cascade: true,
-      ...named,
-    });
+    stopAgent(client, props.threadId, props.agent.id, named, (payload) => stop.send(payload));
   };
   const ask = () => {
     setFence(pressed());

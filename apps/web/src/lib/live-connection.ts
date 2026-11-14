@@ -1,12 +1,13 @@
 import type { ClientApi, SidebarReader, ThreadReader } from "@ace/client";
 import {
+  useClient,
   useConnectionState,
   useSidebar,
   useSidebarUnconfirmed,
   useThreadSyncing,
   useThreadUnconfirmed,
 } from "@ace/client-react";
-import { useCallback, useLayoutEffect, useRef } from "react";
+import { useCallback } from "react";
 
 /** Connection freshness is shared by every thread indicator, including the phone header. */
 export function useLiveConnection() {
@@ -40,6 +41,8 @@ export function isCurrent(
 export function currentNow(client: ClientApi, threadId?: string): boolean {
   const ready = client.state === "ready";
   if (threadId === undefined) {
+    const list = client.cachedThreads?.();
+    if (list) return isCurrent(ready, list);
     const lease = client.threads();
     try {
       return isCurrent(ready, lease.store);
@@ -47,7 +50,9 @@ export function currentNow(client: ClientApi, threadId?: string): boolean {
       lease.release();
     }
   }
-  const copy: ThreadReader | undefined = client.cachedThread?.(threadId);
+  // Read, not kept: checking a thread must not itself keep its copy cached.
+  const copy: ThreadReader | undefined =
+    client.peekThread?.(threadId) ?? client.cachedThread?.(threadId);
   return copy !== undefined && isCurrent(ready, copy);
 }
 
@@ -66,28 +71,26 @@ export const syncingLabel = "Syncing…";
 export function useThreadFreshness(threadId: string | undefined): {
   fresh: boolean;
   staleLabel: string | undefined;
-  /** `fresh` as it is when called: an action checks it as it runs, not as it was drawn. */
+  /**
+   * Whether the copy is current when called, read from the client and its store (`currentNow`),
+   * never from what was last drawn: for an action deciding as it runs.
+   */
   isFresh(): boolean;
 } {
+  const client = useClient();
   const connection = useLiveConnection();
   const unconfirmed = useThreadUnconfirmed(threadId);
   const syncing = useThreadSyncing(threadId);
   const fresh = isCurrent(connection.fresh, { unconfirmed, syncing });
-  const isFresh = useLatest(fresh);
+  const isFresh = useCallback(
+    () => (threadId === undefined ? client.state === "ready" : currentNow(client, threadId)),
+    [client, threadId],
+  );
   return {
     fresh,
     staleLabel: fresh ? undefined : (connection.staleLabel ?? syncingLabel),
     isFresh,
   };
-}
-
-/** A reader of `value` as last committed, stable across renders. */
-function useLatest(value: boolean): () => boolean {
-  const latest = useRef(value);
-  useLayoutEffect(() => {
-    latest.current = value;
-  }, [value]);
-  return useCallback(() => latest.current, []);
 }
 
 /**
@@ -106,6 +109,7 @@ export function useListFreshness(): { fresh: boolean; isFresh(): boolean } {
   const unconfirmed = useSidebarUnconfirmed();
   const syncing = useSidebar(["sync"], readListSyncing) ?? false;
   const fresh = isCurrent(connection.fresh, { unconfirmed, syncing });
-  return { fresh, isFresh: useLatest(fresh) };
+  const client = useClient();
+  return { fresh, isFresh: useCallback(() => currentNow(client), [client]) };
 }
 const readListSyncing = (reader: SidebarReader) => reader.syncing ?? false;

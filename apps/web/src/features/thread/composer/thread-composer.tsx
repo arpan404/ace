@@ -46,7 +46,7 @@ import {
 import { DeferredComposerStrip } from "./deferred-cards.ts";
 import { useTurnActivity } from "../transcript/use-turn-activity.ts";
 import { finishQueueEdit, queueEditSession, saveQueueEdit } from "./queue-edit.ts";
-import { sentText } from "@ace/ui-core";
+import { requestIdentity, sentText } from "@ace/ui-core";
 import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
 import { useThreadStop } from "./use-thread-stop.ts";
 import { useActiveRootRun } from "./stop-state.ts";
@@ -326,6 +326,22 @@ export function ThreadComposer({
   useComposerActions(props.thread.id, canStop ? stop : undefined, {
     chooseModel: () => requestPicker((count) => count + 1),
     tuneEffort: () => requestTune((count) => count + 1),
+    // The palette's Approve and Deny: the card's own sender, which checks the copy as it sends.
+    approve: (interactionId, optionId) =>
+      void import("../interactions/answer-sender.ts").then(({ sendAnswer }) => {
+        const request = client.peekThread?.(props.thread.id)?.interaction(interactionId);
+        sendAnswer(
+          client,
+          (payload) => client.enqueue(payload),
+          {
+            threadId: props.thread.id,
+            interactionId,
+            identity: request ? requestIdentity(request) : undefined,
+            questions: [],
+          },
+          { kind: "approval", optionId },
+        );
+      }),
   });
 
   // What the thread's provider and model read, for the files attached to the next message.

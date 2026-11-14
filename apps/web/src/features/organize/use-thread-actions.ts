@@ -1,7 +1,7 @@
 import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import type { CommandPayload, ThreadListEntry } from "@ace/protocol";
-import { ThreadId, WorkspaceId } from "@ace/protocol";
+import { RunId, ThreadId, WorkspaceId } from "@ace/protocol";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -21,6 +21,13 @@ import {
 } from "./delete-confirmation.ts";
 import { chatChoice } from "@/lib/chat-choice.ts";
 import { currentNow } from "@/lib/live-connection.ts";
+import {
+  archiveAction,
+  deleteAction,
+  stopTask,
+  stopThread,
+  type ListAction,
+} from "@/lib/live-actions.ts";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
 import { useOrganizeOverlay, type OrganizeOverlay } from "./overlay.ts";
 
@@ -114,9 +121,7 @@ type Organize = Extract<
       | "thread.pin"
       | "thread.read"
       | "thread.rename"
-      | "thread.archive"
       | "thread.unarchive"
-      | "thread.delete"
       | "thread.place"
       | "thread.move";
   }
@@ -132,7 +137,8 @@ interface Refusal {
 /** One organize action: what it shows at once, the command, and words for its list and toast. */
 interface Action {
   patch: OrganizePatch;
-  payload: Organize;
+  /** Archive and delete decide on the list: built and checked as they send by `live-actions`. */
+  payload: Organize | ListAction;
   /** "Archive", for the list of what waits for the daemon. */
   verb: string;
   /** "archive the thread", after "Couldn't". */
@@ -239,7 +245,7 @@ const snooze = (entry: ThreadTarget, until: number | null, wake?: SnoozeWakeOn):
 
 const archive = (entry: ThreadTarget): Action => ({
   patch: { archived: true },
-  payload: { type: "thread.archive", threadId: id(entry) },
+  payload: archiveAction(entry.id),
   verb: "Archive",
   failed: "archive the thread",
 });
@@ -363,23 +369,31 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
    */
   const stopTree = (listed: ThreadListEntry): boolean => {
     const runId = listed.live?.rootRunId ?? undefined;
-    const cursor = client.cachedThread?.(listed.id)?.cursor;
-    const fence = runId ? { runId } : cursor === undefined ? undefined : { beforeSeq: cursor };
-    if (!fence) {
+    const cursor = client.peekThread?.(listed.id)?.cursor;
+    const fence = runId
+      ? { runId: RunId.parse(runId) }
+      : cursor === undefined
+        ? undefined
+        : { beforeSeq: cursor };
+    const enqueue = (payload: CommandPayload) => client.enqueue(payload, crypto.randomUUID());
+    // Decided on the list as it is now; refused without a fence or a current list.
+    const stop = stopThread(client, "list", listed.id, fence, enqueue);
+    if (!stop.ok) {
       toast.error({
         title: "Couldn't stop the thread",
-        description: "Open it and stop it there, then archive it.",
+        description:
+          stop.refused === "unfenced"
+            ? "Open it and stop it there, then archive it."
+            : "Try again once the thread list is up to date.",
       });
       return false;
     }
     const sends = [
-      client.enqueue(
-        { type: "thread.interrupt", threadId: listed.id, cascade: true, ...fence },
-        crypto.randomUUID(),
-      ),
-      ...(listed.live?.watching ?? []).map((task) =>
-        client.enqueue({ type: "background_task.stop", taskId: task.id }, crypto.randomUUID()),
-      ),
+      stop.sent,
+      ...(listed.live?.watching ?? []).flatMap((task) => {
+        const sent = stopTask(client, "list", task.id, enqueue);
+        return sent.ok ? [sent.sent] : [];
+      }),
     ];
     void Promise.all(sends).catch((error: unknown) =>
       toast.error({ title: "Couldn't stop the thread", description: failureMessage(error) }),
@@ -391,7 +405,7 @@ export function threadActionsOn(deps: ThreadActionsDeps): ThreadActions {
       .run(
         entry.id,
         { deleted: true },
-        { type: "thread.delete", threadId: id(entry), ...(force ? { force } : {}) },
+        deleteAction(entry.id, force),
         `${force ? "Stop and delete" : "Delete"} · ${entry.title}`,
         Date.now(),
       )

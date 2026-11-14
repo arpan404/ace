@@ -1,8 +1,7 @@
 import { useClient } from "@ace/client-react";
-import { ThreadId } from "@ace/protocol";
 import { useEffect } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
-import { useThreadFreshness } from "@/lib/live-connection.ts";
+import { stopThread } from "@/lib/live-actions.ts";
 import { clearStop, recordStop, useStopFence, useStopping } from "./stop-state.ts";
 
 /**
@@ -18,20 +17,18 @@ export function useThreadStop(threadId: string, busy: boolean) {
   const fence = useStopFence(threadId);
   const run = fence && "runId" in fence ? fence.runId : undefined;
   const stopping = useStopping(threadId);
-  const { isFresh } = useThreadFreshness(threadId);
   const stop = () => {
-    if (!fence || !isFresh()) return;
     const commandId = crypto.randomUUID();
     recordStop(threadId, { commandId, runId: run });
-    void client
-      .enqueue(
-        { type: "thread.interrupt", threadId: ThreadId.parse(threadId), cascade: true, ...fence },
-        commandId,
-      )
-      .catch(() => {
-        clearStop(threadId);
-        toast.error({ title: "Couldn't stop the agent" });
-      });
+    // Sent only while the copy is current and with the run (or cursor) it was pressed in.
+    const live = stopThread(client, { threadId }, threadId, fence, (payload) =>
+      client.enqueue(payload, commandId),
+    );
+    if (!live.ok) return clearStop(threadId);
+    void live.sent.catch(() => {
+      clearStop(threadId);
+      toast.error({ title: "Couldn't stop the agent" });
+    });
   };
   useEffect(() => {
     if (!busy) clearStop(threadId);

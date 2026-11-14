@@ -4,6 +4,7 @@
 import type { ClientApi } from "@ace/client";
 import { actionErrorText, type MergeMethod } from "@ace/ui-core";
 import { readPushRemote } from "@/lib/project-repositories.ts";
+import { resumeQueue } from "@/lib/live-actions.ts";
 import {
   ThreadId,
   type SourceControlContext,
@@ -359,8 +360,8 @@ export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
     async resolveSetup(thread, action) {
       const threadId = id(thread);
       await run({ type: "thread.workspace.setup", threadId, action });
-      const { queue } = await client.request({ type: "queue.get", threadId, limit: 1 });
-      await run({ type: "queue.resume", threadId, expectedRevision: queue.revision });
+      // At the queue's current revision, and only while the thread's copy is current.
+      await resumeQueue(client, threadId);
     },
   };
 }

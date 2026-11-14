@@ -6,8 +6,8 @@ import {
   ProhibitIcon,
   StopIcon,
 } from "@phosphor-icons/react";
-import { useInteraction, useInteractions, useIntentSender } from "@ace/client-react";
-import { InteractionId, type Interaction } from "@ace/protocol";
+import { useInteraction, useInteractions } from "@ace/client-react";
+import type { Interaction } from "@ace/protocol";
 import { approvalCopy } from "@ace/ui-core";
 import { useParams } from "@tanstack/react-router";
 import { useThreadSteps } from "@/features/home/index.ts";
@@ -27,18 +27,21 @@ const verbWords = {
 } as const;
 
 /**
- * The open thread's oldest approval, answered in the same verbs its card offers. None while the
- * thread's copy isn't confirmed (its card can't be answered then either), and one picked just as
- * the connection drops does nothing.
+ * The open thread's oldest approval, answered in the same verbs its card offers, through the
+ * thread's own answer sender (`ComposerActions.approve`), which checks the copy as it sends. None
+ * offered while the thread's copy isn't confirmed (its card can't be answered then either).
  */
-function useApprovalCommands(threadId: string | undefined, close: () => void): PaletteCommand[] {
+function useApprovalCommands(
+  threadId: string | undefined,
+  approve: ((interactionId: string, optionId: string) => void) | undefined,
+  close: () => void,
+): PaletteCommand[] {
   const ids = useInteractions(threadId, isApproval);
   const id = ids?.[0] ?? "";
   const interaction = useInteraction(threadId, id);
-  const sender = useIntentSender();
-  const { fresh, isFresh } = useThreadFreshness(threadId);
+  const { fresh } = useThreadFreshness(threadId);
   const request = interaction?.request;
-  if (!fresh || !threadId || !interaction || request?.kind !== "approval") return [];
+  if (!fresh || !approve || !threadId || !interaction || request?.kind !== "approval") return [];
   const copy = approvalCopy(request);
   const about = copy.command ?? copy.heading;
   return copy.decisions.map((decision): PaletteCommand => ({
@@ -50,14 +53,7 @@ function useApprovalCommands(threadId: string | undefined, close: () => void): P
     danger: decision.verb === "deny",
     run: () => {
       close();
-      if (!isFresh()) return;
-      void sender
-        .send({
-          type: "interaction.resolve",
-          interactionId: InteractionId.parse(interaction.id),
-          resolution: { kind: "approval", optionId: decision.option.id },
-        })
-        .catch(() => {});
+      approve(interaction.id, decision.option.id);
     },
   }));
 }
@@ -71,8 +67,8 @@ export function useLiveCommands(close: () => void): PaletteGroup[] {
   const current = useParams({ strict: false }).threadId;
   const { composerActions } = useLayout();
   const steps = useThreadSteps();
-  const approvals = useApprovalCommands(current, close);
   const composer = composerActions?.scope === current ? composerActions : undefined;
+  const approvals = useApprovalCommands(current, composer?.approve, close);
   const run = (action: () => void) => () => {
     close();
     action();

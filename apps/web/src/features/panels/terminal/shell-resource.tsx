@@ -39,6 +39,7 @@ import { setTabUi, useTabUi } from "./tab-ui.ts";
 import { ScreenRows, useScreenSurface, type ScreenMark } from "./terminal-view.tsx";
 import { useNewTerminalHotkey } from "./new-terminal-button.tsx";
 import { useThreadFreshness } from "@/lib/live-connection.ts";
+import { stopTask } from "@/lib/live-actions.ts";
 import { ToolbarButton } from "./toolbar.tsx";
 
 /*
@@ -195,6 +196,7 @@ function ShellHeader(props: { scope: string; task: BackgroundTask; command: stri
   const { send, intent, error } = useIntentSender();
   // A task that was running when last seen may have ended: Stop waits for a confirmed copy.
   const live = useThreadFreshness(props.scope);
+  const client = useClient();
   const elapsed = (task.endedAt ?? now) - task.startedAt;
   // A clock disagreement with the daemon shows no age rather than a wrong one.
   const age = elapsed >= 0 && elapsed < 7 * 24 * 3_600_000 ? formatElapsed(elapsed) : undefined;
@@ -238,8 +240,8 @@ function ShellHeader(props: { scope: string; task: BackgroundTask; command: stri
               variant="ghost"
               disabled={!task.stoppable || stopping || !live.fresh}
               onClick={() => {
-                if (!live.isFresh()) return;
-                void send({ type: "background_task.stop", taskId: task.id }).catch(() => {});
+                const stop = stopTask(client, { threadId: props.scope }, task.id, send);
+                if (stop.ok) void stop.sent.catch(() => {});
               }}
             >
               {stopping ? <Spinner /> : <StopIcon aria-hidden size={14} />}

@@ -37,17 +37,19 @@ export function useQuestionReply(threadId: string) {
     if (!resolution) return undefined;
     if (!isFresh()) return "held";
     const { sendAnswer } = await import("../interactions/answer-sender.ts");
+    // The sender checks again as it sends: the copy may have gone stale during the import.
     const sent = sendAnswer(
       client,
       (payload) => client.enqueue(payload),
       {
+        threadId,
         interactionId: first.id,
         identity: requestIdentity(first),
         questions: first.request.questions,
       },
       resolution,
     );
-    return sent ? "answered" : undefined;
+    return sent === "sent" ? "answered" : sent === "stale" ? "held" : undefined;
   };
   return { placeholder, reply };
 }

@@ -21,7 +21,8 @@ function useLostAsk(threadId: string, childThreadId: string) {
  */
 export function LostChildAction(props: { threadId: string; childThreadId: string }) {
   const ask = useLostAsk(props.threadId, props.childThreadId);
-  const { answer, failed, held } = useAnswerSender(props.threadId, {
+  const { answer, failed, held } = useAnswerSender({
+    threadId: props.threadId,
     interactionId: ask?.id ?? "",
     identity: undefined,
     questions: [],

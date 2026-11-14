@@ -21,6 +21,7 @@ import { z } from "zod";
 import { readDraft } from "./draft-store.ts";
 import { releaseUploadFiles } from "./release-upload-files.ts";
 import { rememberAttachments, type StagedSend } from "./send-store.ts";
+import { followUpDelivery } from "@/lib/live-actions.ts";
 import {
   browserUploadClock,
   claimUpload,
@@ -438,6 +439,18 @@ function sentFiles(
   });
 }
 
+/**
+ * The delivery a held message goes with, decided as it goes (`followUpDelivery`): a steer names
+ * the run it was typed against, and one that names none queues while the copy isn't current.
+ */
+function followUp(client: ClientApi, send: StagedSend) {
+  const delivery = followUpDelivery(client, send.threadId, send.delivery, send.runId);
+  return {
+    ...(delivery ? { delivery } : {}),
+    ...(delivery === "steer" && send.runId ? { runId: RunId.parse(send.runId) } : {}),
+  };
+}
+
 async function enqueueReady(client: ClientApi, commandId: string): Promise<boolean> {
   refreshHeldSends();
   const send = find(commandId);
@@ -451,8 +464,7 @@ async function enqueueReady(client: ClientApi, commandId: string): Promise<boole
       mentions: send.context?.mentions ?? send.mentions.map((path) => ({ path })),
       attachments: sentFiles(send.attachments),
     },
-    ...(send.delivery ? { delivery: send.delivery } : {}),
-    ...(send.delivery === "steer" && send.runId ? { runId: RunId.parse(send.runId) } : {}),
+    ...followUp(client, send),
     ...(send.options ? { options: send.options } : {}),
   };
   const local = withPreviews(send);

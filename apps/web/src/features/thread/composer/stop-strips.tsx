@@ -8,6 +8,7 @@ import { useWatched, type Watched } from "@/lib/use-watched.ts";
 import { Icon } from "@/components/icon.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useThreadFreshness } from "@/lib/live-connection.ts";
+import { stopTask } from "@/lib/live-actions.ts";
 import { useBackgroundShells } from "@/features/panels/index.ts";
 
 const noShells: readonly BackgroundTask[] = [];
@@ -67,13 +68,14 @@ export function useStopCommands(threadId: string, commands: readonly BackgroundT
   const [sending, setSending] = useState(false);
   const stoppable = live.fresh ? commands.filter((task) => task.stoppable) : [];
   const stopAll = () => {
-    if (!live.isFresh()) return;
-    setSending(true);
-    void Promise.all(
-      stoppable.map((task) =>
-        client.enqueue({ type: "background_task.stop", taskId: task.id }, crypto.randomUUID()),
+    const sends = stoppable.map((task) =>
+      stopTask(client, { threadId }, task.id, (payload) =>
+        client.enqueue(payload, crypto.randomUUID()),
       ),
-    )
+    );
+    if (!sends.length || sends.some((stop) => !stop.ok)) return;
+    setSending(true);
+    void Promise.all(sends.map((stop) => (stop.ok ? stop.sent : undefined)))
       .catch(() => toast.error({ title: "Couldn't stop the background commands" }))
       .finally(() => setSending(false));
   };

@@ -12,7 +12,7 @@ import {
   type AgentForestNode,
   type CommandForestNode,
 } from "@ace/ui-core";
-import { useItem, useThreadMeta } from "@ace/client-react";
+import { useClient, useItem, useThreadMeta } from "@ace/client-react";
 import type { BackgroundTask, Interaction, ProviderKind } from "@ace/protocol";
 import { CaretDownIcon } from "@phosphor-icons/react";
 import type { KeyboardEvent, ReactNode } from "react";
@@ -26,6 +26,7 @@ import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useAgentDetails } from "../agents/agent-details.ts";
 import { useAgentIdentity } from "../agents/agent-identity.ts";
 import { StopAgent } from "../agents/stop-agent.tsx";
+import { stopTask } from "@/lib/live-actions.ts";
 import { useStopIntent } from "../agents/use-stop-intent.ts";
 
 /** Each level of the tree steps in this far. */
@@ -313,6 +314,7 @@ export function AgentLine(
  */
 function TaskStop(props: { task: BackgroundTask; threadId: string; stale: boolean }) {
   const stop = useStopIntent();
+  const client = useClient();
   const live = useThreadFreshness(props.threadId);
   const held = props.stale || !live.fresh;
   return (
@@ -335,8 +337,10 @@ function TaskStop(props: { task: BackgroundTask; threadId: string; stale: boolea
         disabled={stop.busy || held}
         onKeyDown={backToRow}
         onClick={() => {
-          if (props.stale || !live.isFresh()) return;
-          void stop.send({ type: "background_task.stop", taskId: props.task.id });
+          if (props.stale) return;
+          stopTask(client, { threadId: props.threadId }, props.task.id, (payload) =>
+            stop.send(payload),
+          );
         }}
         className="focus-ring mr-1.5 hidden shrink-0 rounded-sm px-1 text-xs text-muted-foreground group-focus-within/row:inline group-hover/row:inline hover:text-foreground pointer-coarse:inline"
       >
