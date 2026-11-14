@@ -37,32 +37,42 @@ export function decodeStoredItem(value: unknown): Item {
 }
 
 /**
- * Where this build's own rows start (`stored-shape.ts`). Shared by the stores that read rows,
- * and set once at open, after migrations. Until then nothing is trusted.
+ * Which stored rows are read as stored (`stored-shape.ts`). Shared by the stores that read rows,
+ * set once at open, after migrations, and widened by the idle pass (`stored-trust-pass.ts`).
+ * Rows from `from` on are trusted, except the sequences in `rejected`: older rows the pass found
+ * the validating decode would change. Until open sets it nothing is trusted.
  */
 export interface StoredTrust {
   from: number;
+  rejected: Set<number>;
 }
-export const untrusted = (): StoredTrust => ({ from: Number.POSITIVE_INFINITY });
+export const untrusted = (): StoredTrust => ({ from: Number.POSITIVE_INFINITY, rejected: new Set() });
+/** Trust in every row from `from` on. */
+export const trustedFrom = (from: number): StoredTrust => ({ from, rejected: new Set() });
+/** Whether the row whose body was written at `seq` is read as stored. */
+export function isTrusted(trust: StoredTrust, seq: number): boolean {
+  return seq >= trust.from && (trust.rejected.size === 0 || !trust.rejected.has(seq));
+}
 /**
- * A stored payload by its row's sequence. Rows from `trustedFrom` on were validated by this
- * build's writer and are already in its shape (`stored-shape.ts`), so they are parsed as JSON
- * only; older rows are decoded leniently as above.
+ * A stored payload by its row's sequence. Trusted rows were validated by this build's writer, or
+ * confirmed to read the same as validated (`stored-shape.ts`), so they are parsed as JSON only;
+ * other rows are decoded leniently as above.
  */
-export function storedPayload(seq: number, json: string, trustedFrom: number): EventPayload {
+export function storedPayload(seq: number, json: string, trust: StoredTrust): EventPayload {
   const value: unknown = JSON.parse(json);
-  // Trusted: this build's writer produced this JSON from a validated EventPayload.
-  return seq >= trustedFrom ? (value as EventPayload) : decodeStoredPayload(value);
+  // Trusted: this build's writer produced this JSON from a validated EventPayload, or the idle
+  // pass confirmed decoding it changes nothing.
+  return isTrusted(trust, seq) ? (value as EventPayload) : decodeStoredPayload(value);
 }
 /**
  * A stored item by the sequence its body was written at, see `storedPayload`: an `items` row's
  * creation sequence, or a history revision's own sequence (`history_item_revisions.seq`, written
  * in the transaction of the event at that sequence).
  */
-export function storedItem(createdSeq: number, json: string, trustedFrom: number): Item {
+export function storedItem(createdSeq: number, json: string, trust: StoredTrust): Item {
   const value: unknown = JSON.parse(json);
-  // Trusted: this build's writer produced this JSON from a validated Item.
-  return createdSeq >= trustedFrom ? (value as Item) : decodeStoredItem(value);
+  // Trusted: as `storedPayload`, for a validated Item.
+  return isTrusted(trust, createdSeq) ? (value as Item) : decodeStoredItem(value);
 }
 /**
  * An item row the current write transaction stored moments ago from a validated Item, such as
@@ -75,22 +85,22 @@ export function justWrittenItem(json: string): Item {
 }
 /**
  * An `events` row as an Event, with its size as JSON (what replay pages budget by). A row this
- * build wrote is rebuilt in the schema's field order from its columns and stored JSON, so its
- * size is the stored JSON plus the envelope, without serialising it again. Older rows are
+ * build trusts is rebuilt in the schema's field order from its columns and stored JSON, so its
+ * size is the stored JSON plus the envelope, without serialising it again. Other rows are
  * decoded and validated as before.
  */
 export function storedEvent(
   row: Record<string, unknown>,
-  trustedFrom: number,
+  trust: StoredTrust,
 ): { event: Event; bytes: number } {
   const seq = Number(row.seq);
   const json = String(row.payload);
-  const payload = storedPayload(seq, json, trustedFrom);
-  if (seq < trustedFrom) {
+  const payload = storedPayload(seq, json, trust);
+  if (!isTrusted(trust, seq)) {
     const event = Event.parse({ seq, id: row.id, threadId: row.thread_id, at: row.at, payload });
     return { event, bytes: Buffer.byteLength(JSON.stringify(event)) };
   }
-  // Trusted: this build wrote the row's id and thread id from validated values.
+  // Trusted: the row's id and thread id were written from validated values or confirmed.
   const id = String(row.id) as EventId;
   const threadId = String(row.thread_id) as ThreadId;
   const at = Number(row.at);

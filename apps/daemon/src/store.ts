@@ -1,6 +1,7 @@
 import { storedEvent, untrusted, untrustedEntities } from "./stored-decode.ts";
 import { storedEntityShape } from "./entity-shape.ts";
-import { storedEventShape, trustedSequenceStart } from "./stored-shape.ts";
+import { openStoredTrust, storedEventShape } from "./stored-shape.ts";
+import { scheduleTrustPass, startStoredTrustPass, type TrustPassScheduler } from "./stored-trust-pass.ts";
 import { confirmThreadRows, openThreadRowTrust, threadRowShape } from "./thread-row-trust.ts";
 import { ThreadReads } from "./thread-reads.ts";
 import { LongThreadQueries } from "./long-thread/queries.ts";
@@ -102,6 +103,8 @@ export interface StoreOptions extends Partial<CredentialRuntime> {
   checkpointWorker?: CheckpointWorkerFactory;
   /** The stored-event shape fingerprint; tests change it to stand in for a schema change. */
   eventShape?: string;
+  /** Ticks of the idle pass that confirms older rows (`stored-trust-pass.ts`), for tests. */
+  trustPass?: { scheduler: TrustPassScheduler; batchesPerTick?: number };
   /** Stands in for this build's thread row shape (`thread-row-trust.ts`), for tests. */
   threadRowShape?: string;
   /** The entity row shape this store reads in (`entity-shape.ts`); tests stand in builds with it. */
@@ -253,6 +256,7 @@ export class Store {
       this.trust,
     );
     this.status = new StatusStore(this.db, (sql) => this.statement(sql), this.entityTrust);
+    const eventShape = options.eventShape ?? storedEventShape(schemaVersion);
     try {
       this.db.exec(
         // The busy wait comes first: on an existing file auto_vacuum writes the header, so it
@@ -275,10 +279,7 @@ export class Store {
       });
       migrate(this.db);
       this.sequences.initialize();
-      this.trust.from = trustedSequenceStart(
-        this.db,
-        options.eventShape ?? storedEventShape(schemaVersion),
-      );
+      openStoredTrust(this.db, eventShape, this.trust);
       migrateSidebarRevisions(this.db);
       this.keepLineage(options.lineage);
       openThreadRowTrust(this.db, options.threadRowShape ?? threadRowShape(schemaVersion));
@@ -423,7 +424,22 @@ export class Store {
       })
       .catch(this.onError);
     void this.longThreads.backfill(this, this.searchAbort.signal).catch(this.onError);
+    this.trustPass = startStoredTrustPass({
+      scheduler: options.trustPass?.scheduler ?? scheduleTrustPass,
+      batchesPerTick: options.trustPass?.batchesPerTick,
+      atomic: (run) => this.atomic(run),
+      shape: eventShape,
+      trust: this.trust,
+      busy: () =>
+        !!this.transactionEvents ||
+        this.historyWriting ||
+        this.writes.isHeld() ||
+        this.streaming.buffer.bytes > 0,
+      headSeq: () => this.headSeq(),
+      report: (error) => this.onError(error),
+    });
   }
+  private readonly trustPass: { close(): void };
   private onError: (error: unknown) => void;
   /** A checkpoint on this connection that gives up rather than wait for a lock. */
   private checkpointWal(mode: "PASSIVE" | "TRUNCATE"): boolean {
@@ -447,6 +463,7 @@ export class Store {
         () => this.wal.stop(),
         () => this.searchAbort.abort(),
         () => this.searchMaintenance.close(),
+        () => this.trustPass.close(),
       ],
       workers: async () => {
         await Promise.all([this.searchQueries.close(), this.wal.close()]);
@@ -1155,7 +1172,7 @@ export class Store {
     const events: Event[] = [];
     let bytes = 0;
     for (const row of rows) {
-      const { event, bytes: size } = storedEvent(row, this.trust.from);
+      const { event, bytes: size } = storedEvent(row, this.trust);
       events.push(event);
       bytes += size;
       // Include the crossing event so replay's caller can distinguish overflow from completion.

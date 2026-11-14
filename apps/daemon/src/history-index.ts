@@ -62,7 +62,7 @@ export class HistoryIndex {
   private texts: ItemTextStore;
   private readBytes: ReadBytes;
   private archiveOutput: ArchiveOutput;
-  /** Revisions from `trust.from` on were written by this build and are read as stored. */
+  /** Which revisions are read as stored, by their sequence (`isTrusted`). */
   private readonly trust: StoredTrust;
   constructor(
     db: DatabaseSync,
@@ -172,7 +172,7 @@ export class HistoryIndex {
     const row = this.statement(
       "SELECT seq,item FROM history_item_revisions WHERE item_id=? AND seq<=? ORDER BY seq DESC LIMIT 1",
     ).get(id, through);
-    return row ? storedItem(Number(row.seq), String(row.item), this.trust.from) : undefined;
+    return row ? storedItem(Number(row.seq), String(row.item), this.trust) : undefined;
   }
   /** A replay revision refers to durable text streams, never a full canonical message body. */
   searchItem(
@@ -313,7 +313,7 @@ export class HistoryIndex {
       );
     if (!row) throw new Error("Item completion boundary is unavailable");
     const throughSeq = count.parse(row.seq);
-    return { throughSeq, item: storedItem(throughSeq, String(row.item), this.trust.from) };
+    return { throughSeq, item: storedItem(throughSeq, String(row.item), this.trust) };
   }
   stream(threadId: ThreadId, streamId: string, through: number) {
     const version = this.latest(streamId, through);

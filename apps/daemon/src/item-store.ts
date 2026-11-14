@@ -172,7 +172,7 @@ export class ItemStore {
   }
   /** `created` (the item's creation sequence) decides whether this build wrote the body (see `storedItem`). */
   private materialize(id: string, body: unknown, created: unknown): Item {
-    const item = storedItem(Number(created), String(body), this.trust.from);
+    const item = storedItem(Number(created), String(body), this.trust);
     let field: unknown;
     const appends: string[] = [];
     // Stream rows instead of retaining their objects. Accepted fields share one append target.
