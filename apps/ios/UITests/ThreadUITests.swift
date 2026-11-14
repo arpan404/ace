@@ -108,13 +108,22 @@ import XCTest
         let app = launch()
         reveal("thread.ios-question", in: app)
         app.buttons["thread.ios-question"].tap()
-        XCTAssertTrue(app.buttons["question.answer"].waitForExistence(timeout: 25))
-        // The question sits on the strip with the composer still under it, as on the web; the
+        // The question waits on a strip with the composer still under it, as on the web; the
         // transcript says who asks it.
+        let answer = app.descendants(matching: .any)["request.question"].buttons["strip.answer"]
+        XCTAssertTrue(answer.waitForExistence(timeout: 25))
         XCTAssertTrue(app.textViews["composer.input"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["transcript.question"].waitForExistence(timeout: 10))
+        // Answer opens the question's options in a sheet; picking one lets it be answered.
+        answer.tap()
+        let send = app.buttons["question.answer"]
+        XCTAssertTrue(send.waitForExistence(timeout: 10))
+        XCTAssertFalse(send.isEnabled, "nothing is picked yet")
         app.buttons["question.archive.skip"].tap()
+        XCTAssertTrue(send.isEnabled)
         screenshot("thread-question")
+        app.buttons["request.close"].tap()
+        XCTAssertTrue(send.waitForNonExistence(timeout: 5))
         app.navigationBars.buttons.firstMatch.tap()
         reveal("thread.ios-approval", in: app)
         app.buttons["thread.ios-approval"].tap()
