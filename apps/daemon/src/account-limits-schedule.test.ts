@@ -109,14 +109,14 @@ describe("account limits schedule", () => {
   });
 
   it("joins a reading under way instead of starting another", async () => {
-    let release = () => {};
+    const gate = Promise.withResolvers<void>();
     let reads = 0;
     const schedule = new LimitsSchedule({
       intervalMs: interval,
       now: () => 0,
       read: () => {
         reads++;
-        return new Promise<void>((resolve) => (release = resolve));
+        return gate.promise;
       },
       busy: () => true,
       quotas: () => [],
@@ -124,7 +124,7 @@ describe("account limits schedule", () => {
     const first = schedule.refresh();
     schedule.tick();
     const second = schedule.refresh();
-    release();
+    gate.resolve();
     await Promise.all([first, second]);
     expect(reads).toBe(1);
   });

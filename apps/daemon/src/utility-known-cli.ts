@@ -21,8 +21,7 @@ export interface KnownCli {
 export function knownCliPath(known: KnownCli): string | "unavailable" | "probe" {
   if (known.needsLogin && known.auth === "logged_out") return "unavailable";
   const { status } = known;
-  if (!status || status.runtime !== "cli" || status.installed === null)
-    return "probe";
+  if (!status || status.runtime !== "cli" || status.installed === null) return "probe";
   if (known.binary !== undefined && known.binary !== status.path) return "probe";
   if (status.installed === false) return "unavailable";
   return status.path ?? "probe";
