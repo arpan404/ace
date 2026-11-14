@@ -100,21 +100,14 @@ test("a remembered filter repaints its tabs as the daemon placed them, then resu
 test("a resumed list takes the kept rows' read cursors the daemon sends with it", async () => {
   const { f, collection, store, snapshot } = await sidebar();
   const unread = { lastSeenSeq: 0, updatedAt: null };
-  snapshot(
-    listOf(
-      [
-        { ...placed("a", "p", "inbox", 3), readState: unread },
-        { ...placed("b", "p", "inbox", 2), readState: unread },
-      ],
-      7,
-    ),
-  );
+  const first = listOf([placed("a", "p", "inbox", 3), placed("b", "p", "inbox", 2)], 7);
+  const read = (row: Row | undefined) => ({ ...row, readState: unread });
+  const opened = { ...first, threads: { a: read(first.threads.a), b: read(first.threads.b) } };
+  snapshot(opened);
   await f.reconnect(12);
   // While away, this device read a on another socket: the row is kept, its cursor moved.
-  snapshot({
-    ...listOf([], 9, ["a", "b"]),
-    reads: { a: { lastSeenSeq: 9, updatedAt: 5 } },
-  });
+  const resumed = { ...listOf([], 9, ["a", "b"]), reads: { a: { lastSeenSeq: 9, updatedAt: 5 } } };
+  snapshot(resumed);
   expect(store.thread("a")?.readState).toEqual({ lastSeenSeq: 9, updatedAt: 5 });
   expect(store.thread("b")?.readState).toEqual(unread);
   expect(store.thread("a")?.place?.tab).toBe("inbox");
