@@ -3,6 +3,7 @@
 //! what to send and which connections to close comes out as [`Effect`]s, in order. The shell
 //! executes them; a revocation's answer always follows the closes it caused.
 pub mod grants;
+pub mod ledger;
 pub mod recorder;
 pub mod sources;
 #[cfg(test)]
@@ -30,6 +31,9 @@ pub enum Effect {
     Shutdown {
         grace_ms: u32,
     },
+    /// Bookkeeping that must never forget is full: exit, so the supervisor restarts the
+    /// process and every connection ends with it.
+    Fatal(&'static str),
 }
 
 pub(crate) fn normal(out: &mut Vec<Effect>, message: FromMedia) {
@@ -228,7 +232,7 @@ impl Engine {
                 out,
             ),
             ToMedia::RelayClose { id, stream, .. } => {
-                self.grants.close_stream(stream.get());
+                self.grants.close_stream(stream.get(), out);
                 priority(out, FromMedia::Closed { id });
             }
             ToMedia::ConnectionClose {
@@ -284,9 +288,16 @@ impl Engine {
         }
     }
 
-    pub fn ingest(&mut self, conn: IngestId, frame: MediaFrame, now: Now) {
+    /// An ingest connection's hello token. True when it named an open source, which the
+    /// connection now feeds; otherwise the connection is to be closed.
+    pub fn ingest_hello(&mut self, conn: IngestId, token: &[u8]) -> bool {
         self.sources
-            .ingest(conn, frame, &mut self.vault, now.mono_ms, &mut self.out);
+            .hello(conn, token, &mut self.vault, &mut self.out)
+    }
+
+    /// A frame from an ingest connection the engine admitted.
+    pub fn ingest(&mut self, conn: IngestId, frame: MediaFrame, now: Now) {
+        self.sources.ingest(conn, frame, now.mono_ms, &mut self.out);
     }
 
     pub fn ingest_closed(&mut self, conn: IngestId, now: Now) {

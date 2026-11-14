@@ -64,8 +64,12 @@ fn frame(kind: u8, flags: u32, epoch: u32, payload: Vec<u8>) -> MediaFrame {
     }
 }
 
-fn hello(token: u8) -> MediaFrame {
-    frame(5, 0, 0, vec![token; 32])
+/// The shell hands a connection's hello to the engine; the effects say whether it stays.
+fn hello(engine: &mut Engine, conn: u64, token: u8) -> Vec<Effect> {
+    let admitted = engine.ingest_hello(conn, &[token; 32]);
+    let effects: Vec<Effect> = engine.effects().collect();
+    assert_eq!(admitted, closes(&effects).is_empty());
+    effects
 }
 
 fn unit(epoch: u32, key: bool) -> MediaFrame {
@@ -144,17 +148,18 @@ fn engine() -> Engine {
 fn an_ingest_connection_stays_open_only_after_a_hello_with_an_unused_token_of_an_open_source() {
     let mut engine = engine();
     open_tab(&mut engine, "s1", 1, 9);
-    let cases: [(&str, MediaFrame, bool); 3] = [
-        ("unit before hello", unit(1, true), false),
-        ("wrong token", hello(8), false),
-        ("right token", hello(9), true),
-    ];
-    for (conn, (name, first, kept)) in (1u64..).zip(cases) {
-        let effects = ingest(&mut engine, conn, first, NOW);
-        assert_eq!(closes(&effects).is_empty(), kept, "{name}");
-    }
+    assert_eq!(
+        closes(&ingest(&mut engine, 1, unit(1, true), NOW)),
+        [1],
+        "unit before hello"
+    );
+    assert_eq!(closes(&hello(&mut engine, 2, 8)), [2], "wrong token");
+    assert!(closes(&hello(&mut engine, 3, 9)).is_empty(), "right token");
+    // A second hello on an admitted connection is a protocol error.
+    let again = ingest(&mut engine, 3, frame(5, 0, 0, vec![9; 32]), NOW);
+    assert_eq!(closes(&again), [3]);
     // Tokens are single use.
-    assert_eq!(closes(&ingest(&mut engine, 4, hello(9), NOW)), [4]);
+    assert_eq!(closes(&hello(&mut engine, 4, 9)), [4]);
     // A closed source's token is gone with it.
     open_tab(&mut engine, "s2", 2, 3);
     send(
@@ -163,7 +168,7 @@ fn an_ingest_connection_stays_open_only_after_a_hello_with_an_unused_token_of_an
         &[],
         NOW,
     );
-    assert_eq!(closes(&ingest(&mut engine, 5, hello(3), NOW)), [5]);
+    assert_eq!(closes(&hello(&mut engine, 5, 3)), [5]);
 }
 
 #[test]
@@ -172,7 +177,7 @@ fn a_source_reports_starting_then_playing_at_its_first_unit_retrying_when_its_pr
     let mut engine = engine();
     let opened = open_tab(&mut engine, "s1", 1, 9);
     assert_eq!(statuses(&opened), [("s1".into(), Status::Starting, None)]);
-    assert!(statuses(&ingest(&mut engine, 1, hello(9), NOW)).is_empty());
+    assert!(statuses(&hello(&mut engine, 1, 9)).is_empty());
     let first = ingest(&mut engine, 1, unit(1, true), NOW);
     assert_eq!(statuses(&first), [("s1".into(), Status::Playing, None)]);
     assert!(statuses(&ingest(&mut engine, 1, unit(1, false), NOW)).is_empty());
@@ -190,7 +195,7 @@ fn a_source_reports_starting_then_playing_at_its_first_unit_retrying_when_its_pr
 
     // The daemon reopens the source with a fresh token; the producer streams again and ends.
     open_tab(&mut engine, "s1", 2, 4);
-    ingest(&mut engine, 2, hello(4), NOW);
+    hello(&mut engine, 2, 4);
     ingest(&mut engine, 2, unit(1, true), NOW);
     let ended = ingest(&mut engine, 2, frame(4, 0, 0, Vec::new()), NOW);
     assert_eq!(statuses(&ended), [("s1".into(), Status::Ended, None)]);
@@ -307,55 +312,66 @@ fn viewer_grants_are_refused_for_unknown_connections_other_owners_and_revoked_ow
         issued: u64,
         refused: Option<Refusal>,
     }
+    let case = |name, connection, owner, issued, refused| Case {
+        name,
+        connection,
+        owner,
+        issued,
+        refused,
+    };
     let cases = [
-        Case {
-            name: "unknown connection",
-            connection: "nope",
-            owner: owner("d1", pairing(1)),
-            issued: 5,
-            refused: Some(Refusal::UnknownConnection),
-        },
-        Case {
-            name: "another device",
-            connection: "c1",
-            owner: owner("d2", pairing(1)),
-            issued: 5,
-            refused: Some(Refusal::Owner),
-        },
-        Case {
-            name: "another admission",
-            connection: "c1",
-            owner: owner("d1", pairing(2)),
-            issued: 5,
-            refused: Some(Refusal::Owner),
-        },
-        Case {
-            name: "issued before the revocation",
-            connection: "c2",
-            owner: owner("d3", pairing(1)),
-            issued: 6,
-            refused: Some(Refusal::Revoked),
-        },
-        Case {
-            name: "issued after the revocation",
-            connection: "c2",
-            owner: owner("d3", pairing(1)),
-            issued: 8,
-            refused: None,
-        },
-        Case {
-            name: "its own owner",
-            connection: "c1",
-            owner: owner("d1", pairing(1)),
-            issued: 5,
-            refused: None,
-        },
+        case(
+            "unknown connection",
+            "nope",
+            owner("d1", pairing(1)),
+            6,
+            Some(Refusal::UnknownConnection),
+        ),
+        case(
+            "another device",
+            "c1",
+            owner("d2", pairing(1)),
+            6,
+            Some(Refusal::Owner),
+        ),
+        case(
+            "another admission",
+            "c1",
+            owner("d1", pairing(2)),
+            6,
+            Some(Refusal::Owner),
+        ),
+        case(
+            "issued before the revocation",
+            "c2",
+            owner("d3", pairing(1)),
+            6,
+            Some(Refusal::Revoked),
+        ),
+        case(
+            "a connection the revocation closed",
+            "c2",
+            owner("d3", pairing(1)),
+            8,
+            Some(Refusal::UnknownConnection),
+        ),
+        case(
+            "a connection issued after the revocation",
+            "c3",
+            owner("d3", pairing(1)),
+            9,
+            None,
+        ),
+        case("its own owner", "c1", owner("d1", pairing(1)), 6, None),
     ];
     for case in cases {
         let mut engine = engine();
         ticket(&mut engine, "c1", owner("d1", pairing(1)), 4, 1);
+        ticket(&mut engine, "c2", owner("d3", pairing(1)), 5, 2);
         revoke(&mut engine, "r", 7, "d3", None);
-        ticket(&mut engine, "c2", owner("d3", pairing(1)), 8, 2);
+        if case.connection == "c3" {
+            ticket(&mut engine, "c3", owner("d3", pairing(1)), 8, 3);
+        }
         let effects = viewer(&mut engine, case.connection, case.owner, case.issued);
         let expected: Vec<_> = case
             .refused
@@ -364,6 +380,89 @@ fn viewer_grants_are_refused_for_unknown_connections_other_owners_and_revoked_ow
             .collect();
         assert_eq!(refusals(&effects), expected, "{}", case.name);
     }
+}
+
+#[test]
+fn a_grant_issued_before_a_close_that_overtook_it_is_refused_and_installs_nothing() {
+    let mut engine = engine();
+    // The daemon issued a ticket and keys for c1, then closed it; the close (priority lane)
+    // arrives first.
+    let closed = send(
+        &mut engine,
+        json!({ "type": "connection.close", "id": "k", "connection": "c1", "reason": "session" }),
+        &[],
+        NOW,
+    );
+    assert!(matches!(
+        closed.as_slice(),
+        [Effect::Priority(FromMedia::Closed { .. })]
+    ));
+    let late_ticket = ticket(&mut engine, "c1", owner("d1", pairing(1)), 1, 1);
+    assert_eq!(
+        refusals(&late_ticket),
+        [("media.ticket".into(), Refusal::UnknownConnection)]
+    );
+    assert!(engine.claim_ticket(&[1; 32], NOW).is_none());
+    let late_keys = send(
+        &mut engine,
+        json!({ "type": "relay.keys", "stream": "st", "connection": "c1",
+                "owner": owner("d1", pairing(1)), "issued": 2 }),
+        &key_block(),
+        NOW,
+    );
+    assert_eq!(
+        refusals(&late_keys),
+        [("relay.keys".into(), Refusal::UnknownConnection)]
+    );
+
+    // The same for one stream: closed before its keys arrive.
+    send(
+        &mut engine,
+        json!({ "type": "relay.close", "id": "x", "stream": "st2", "reason": "done" }),
+        &[],
+        NOW,
+    );
+    let late_stream = send(
+        &mut engine,
+        json!({ "type": "relay.keys", "stream": "st2", "connection": "c2",
+                "owner": owner("d1", pairing(1)), "issued": 3 }),
+        &key_block(),
+        NOW,
+    );
+    assert_eq!(
+        refusals(&late_stream),
+        [("relay.keys".into(), Refusal::UnknownConnection)]
+    );
+    assert_eq!(engine.counts().connections, 0, "nothing installed");
+}
+
+#[test]
+fn a_grant_arriving_out_of_issue_order_is_refused() {
+    let mut engine = engine();
+    ticket(&mut engine, "c1", owner("d1", pairing(1)), 5, 1);
+    let older = ticket(&mut engine, "c2", owner("d1", pairing(1)), 4, 2);
+    assert_eq!(
+        refusals(&older),
+        [("media.ticket".into(), Refusal::Revoked)]
+    );
+}
+
+#[test]
+fn sources_past_the_limit_end_at_once_with_the_limit_as_the_reason() {
+    let mut engine = engine();
+    for handle in 0..sources::MAX_SOURCES as u32 {
+        open_tab(&mut engine, &format!("s{handle}"), handle, 1);
+    }
+    let refused = open_tab(&mut engine, "one-more", 100_000, 2);
+    assert_eq!(
+        statuses(&refused),
+        [(
+            "one-more".into(),
+            Status::Ended,
+            Some("source-limit".into())
+        )]
+    );
+    assert_eq!(engine.counts().sources, sources::MAX_SOURCES as u64);
 }
 
 #[test]
@@ -614,7 +713,7 @@ fn recorded_frames_reach_the_recorder_only_once_their_epoch_is_decided_clear() {
         &[],
         NOW,
     );
-    ingest(&mut engine, 1, hello(9), NOW);
+    hello(&mut engine, 1, 9);
     ingest(&mut engine, 1, unit(1, true), NOW);
     ingest(&mut engine, 1, unit(2, false), NOW);
     ingest(&mut engine, 1, unit(3, true), NOW);
@@ -658,7 +757,7 @@ fn frames_held_past_the_bound_become_a_gap_and_never_reach_the_recorder() {
         &[],
         NOW,
     );
-    ingest(&mut engine, 1, hello(9), NOW);
+    hello(&mut engine, 1, 9);
     ingest(&mut engine, 1, unit(1, true), at(1_000));
     engine.tick(at(1_000 + media_core::privacy::HOLD_MS + 1));
     let ticked: Vec<Effect> = engine.effects().collect();

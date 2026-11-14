@@ -1,17 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Media connections, the grants on them and revocations (docs/media/plan.md, "Media
 //! connection authorization" and "Revocation deadline"). Pure: `now` is the daemon's wall
-//! clock in milliseconds, the clock `media.ticket.expiresAt` is written in.
-use super::{Effect, normal};
+//! clock in milliseconds, the clock `media.ticket.expiresAt` is written in. Every grant first
+//! passes the [`Ledger`], before any secret is stored or imported for it.
+use super::ledger::{Full, Ledger};
+use super::{Effect, log, normal};
 use crate::secret::{SecretId, Vault};
 use media_noise::RelayStream;
-use media_wire::control::{Admission, ConnectionKind, FromMedia, Id, Owner, Refusal};
-use std::collections::{HashMap, VecDeque};
+use media_wire::control::{Admission, ConnectionKind, FromMedia, Id, Level, Owner, Refusal};
+use std::collections::HashMap;
 use zeroize::Zeroizing;
 
-/// Revocations kept to refuse late grants. A grant can only trail its revocation by what the
-/// normal lane held when the revocation overtook it, so the oldest are safe to forget.
-pub const MAX_REVOCATIONS: usize = 4096;
+/// Connections (with unused tickets), viewers and relay streams held at once. A grant past a
+/// limit is refused and logged.
+pub const MAX_CONNECTIONS: usize = 1024;
+pub const MAX_VIEWERS: usize = 4096;
+pub const MAX_STREAMS: usize = 1024;
 
 enum State {
     /// A `media.ticket` not yet presented by a client.
@@ -29,24 +33,6 @@ struct Connection {
     state: State,
 }
 
-struct Revocation {
-    issued: u64,
-    device: String,
-    admission: Option<Admission>,
-}
-
-impl Revocation {
-    /// The same rule the daemon applies to the grants it still holds (`grants.ts`).
-    fn covers(&self, owner: &Owner, issued: u64) -> bool {
-        owner.device.get() == self.device
-            && issued <= self.issued
-            && self
-                .admission
-                .as_ref()
-                .is_none_or(|a| *a == owner.admission)
-    }
-}
-
 /// A granted viewer: delivery to it (D1) runs on its connection.
 struct Viewer {
     connection: String,
@@ -60,7 +46,7 @@ struct Stream {
 #[derive(Default)]
 pub struct Grants {
     connections: HashMap<String, Connection>,
-    revocations: VecDeque<Revocation>,
+    ledger: Ledger,
     viewers: HashMap<String, Viewer>,
     streams: HashMap<String, Stream>,
 }
@@ -71,6 +57,23 @@ pub struct Grant<'a> {
     pub connection: &'a Id,
     pub owner: &'a Owner,
     pub issued: u64,
+}
+
+fn refuse(out: &mut Vec<Effect>, grant: &Grant<'_>, reason: Refusal) {
+    normal(
+        out,
+        FromMedia::GrantRefused {
+            kind: grant.kind.into(),
+            id: grant.id.clone(),
+            reason,
+        },
+    );
+}
+
+fn full(out: &mut Vec<Effect>, result: Result<(), Full>) {
+    if result.is_err() {
+        out.push(Effect::Fatal("closed-id bookkeeping is full"));
+    }
 }
 
 impl Grants {
@@ -86,19 +89,18 @@ impl Grants {
         self.streams.len()
     }
 
-    fn revoked(&self, owner: &Owner, issued: u64) -> bool {
-        self.revocations.iter().any(|r| r.covers(owner, issued))
-    }
-
-    fn refuse(out: &mut Vec<Effect>, kind: &str, id: &Id, reason: Refusal) {
-        normal(
-            out,
-            FromMedia::GrantRefused {
-                kind: kind.into(),
-                id: id.clone(),
-                reason,
-            },
-        );
+    /// The ledger's verdict, sent as `grant.refused` when it refuses.
+    fn admit(&mut self, grant: &Grant<'_>, stream: Option<&str>, out: &mut Vec<Effect>) -> bool {
+        let verdict = self
+            .ledger
+            .admit(grant.owner, grant.issued, grant.connection.get(), stream);
+        match verdict {
+            Ok(()) => true,
+            Err(reason) => {
+                refuse(out, grant, reason);
+                false
+            }
+        }
     }
 
     /// `media.ticket`: a connection a client may open once, before `expires_at`.
@@ -111,17 +113,33 @@ impl Grants {
         now: u64,
         out: &mut Vec<Effect>,
     ) {
-        if self.revoked(grant.owner, grant.issued) {
-            return Self::refuse(out, grant.kind, grant.id, Refusal::Revoked);
+        if !self.admit(&grant, None, out) {
+            return;
         }
         if expires_at <= now {
-            return Self::refuse(out, grant.kind, grant.id, Refusal::Expired);
+            return refuse(out, &grant, Refusal::Expired);
         }
-        let Some(secret) = vault.store(ticket) else {
-            return Self::refuse(out, grant.kind, grant.id, Refusal::Expired);
-        };
         let key = grant.connection.get().to_owned();
-        self.close(&key, "replaced", vault, out);
+        self.remove(&key, "replaced", vault, out);
+        let stored = (self.connections.len() < MAX_CONNECTIONS)
+            .then(|| vault.store(ticket))
+            .flatten();
+        let Some(secret) = stored else {
+            log(
+                out,
+                Level::Warn,
+                "media.ticket refused: connection limit",
+                grant.connection,
+            );
+            // The daemon counts the connection from its ticket until `connection.closed`.
+            return normal(
+                out,
+                FromMedia::ConnectionClosed {
+                    connection: grant.connection.clone(),
+                    reason: "limit".into(),
+                },
+            );
+        };
         self.connections.insert(
             key,
             Connection {
@@ -174,16 +192,24 @@ impl Grants {
 
     /// `viewer.open`: only on a known connection, for its own owner, and not revoked.
     pub fn viewer(&mut self, grant: Grant<'_>, out: &mut Vec<Effect>) -> bool {
-        if self.revoked(grant.owner, grant.issued) {
-            Self::refuse(out, grant.kind, grant.id, Refusal::Revoked);
+        if !self.admit(&grant, None, out) {
             return false;
         }
         let Some(connection) = self.connections.get(grant.connection.get()) else {
-            Self::refuse(out, grant.kind, grant.id, Refusal::UnknownConnection);
+            refuse(out, &grant, Refusal::UnknownConnection);
             return false;
         };
         if connection.owner != *grant.owner {
-            Self::refuse(out, grant.kind, grant.id, Refusal::Owner);
+            refuse(out, &grant, Refusal::Owner);
+            return false;
+        }
+        if self.viewers.len() >= MAX_VIEWERS && !self.viewers.contains_key(grant.id.get()) {
+            log(
+                out,
+                Level::Warn,
+                "viewer.open refused: viewer limit",
+                grant.id,
+            );
             return false;
         }
         self.viewers.insert(
@@ -196,21 +222,34 @@ impl Grants {
     }
 
     /// `relay.keys`: the stream's cipher states, installed for its connection. The payload is
-    /// wiped whatever happens.
+    /// wiped whatever happens, and nothing is imported for a refused grant.
     pub fn relay_keys(
         &mut self,
         grant: Grant<'_>,
         keys: Zeroizing<Vec<u8>>,
         out: &mut Vec<Effect>,
     ) {
-        if self.revoked(grant.owner, grant.issued) {
-            return Self::refuse(out, grant.kind, grant.id, Refusal::Revoked);
+        if !self.admit(&grant, Some(grant.id.get()), out) {
+            return;
         }
         let key = grant.connection.get().to_owned();
         if let Some(existing) = self.connections.get(&key)
             && existing.owner != *grant.owner
         {
-            return Self::refuse(out, grant.kind, grant.id, Refusal::Owner);
+            return refuse(out, &grant, Refusal::Owner);
+        }
+        let new = !self.connections.contains_key(&key);
+        let replacing = self.streams.contains_key(grant.id.get());
+        if (new && self.connections.len() >= MAX_CONNECTIONS)
+            || (!replacing && self.streams.len() >= MAX_STREAMS)
+        {
+            return normal(
+                out,
+                FromMedia::RelayFailed {
+                    stream: grant.id.clone(),
+                    reason: "limit".into(),
+                },
+            );
         }
         let Ok(transport) = RelayStream::import(keys) else {
             return normal(
@@ -221,8 +260,7 @@ impl Grants {
                 },
             );
         };
-        self.close_stream(grant.id.get());
-        let new = !self.connections.contains_key(&key);
+        self.end_stream(grant.id.get());
         if new {
             self.connections.insert(
                 key.clone(),
@@ -256,7 +294,7 @@ impl Grants {
     }
 
     /// `revoke`: shut every connection of the owner it names (all its admissions when none is
-    /// given), wipe their keys, and refuse its grants issued before it from now on.
+    /// given), wipe their keys, and refuse its grants still on the way.
     pub fn revoke(
         &mut self,
         issued: u64,
@@ -265,29 +303,38 @@ impl Grants {
         vault: &mut Vault,
         out: &mut Vec<Effect>,
     ) {
-        let revocation = Revocation {
-            issued,
-            device: device.get().to_owned(),
-            admission: admission.cloned(),
-        };
+        self.ledger.revoke(issued, device.get(), admission);
         let covered: Vec<String> = self
             .connections
             .iter()
-            .filter(|(_, c)| revocation.covers(&c.owner, c.issued))
+            .filter(|(_, c)| self.ledger.latest_covers(&c.owner, c.issued))
             .map(|(key, _)| key.clone())
             .collect();
         for key in covered {
             self.close(&key, "revoked", vault, out);
         }
-        if self.revocations.len() == MAX_REVOCATIONS {
-            self.revocations.pop_front();
-        }
-        self.revocations.push_back(revocation);
     }
 
-    /// Closes a connection with everything on it: its viewers, its relay streams and their keys,
-    /// an unused ticket. Tells the daemon with `connection.closed`.
+    /// Closes a connection for good: a grant naming it later is refused. Tells the daemon with
+    /// `connection.closed` when ace-media held it.
     pub fn close(&mut self, key: &str, reason: &str, vault: &mut Vault, out: &mut Vec<Effect>) {
+        let remembered = self.ledger.close_connection(key);
+        full(out, remembered);
+        let streams: Vec<String> = self
+            .streams
+            .iter()
+            .filter(|(_, s)| s.connection == key)
+            .map(|(id, _)| id.clone())
+            .collect();
+        for stream in streams {
+            self.close_stream(&stream, out);
+        }
+        self.remove(key, reason, vault, out);
+    }
+
+    /// Drops a connection with everything on it: its viewers, its relay streams and their keys,
+    /// an unused ticket.
+    fn remove(&mut self, key: &str, reason: &str, vault: &mut Vault, out: &mut Vec<Effect>) {
         let Some(connection) = self.connections.remove(key) else {
             return;
         };
@@ -302,7 +349,7 @@ impl Grants {
             .map(|(id, _)| id.clone())
             .collect();
         for stream in streams {
-            self.close_stream(&stream);
+            self.end_stream(&stream);
         }
         normal(
             out,
@@ -313,8 +360,15 @@ impl Grants {
         );
     }
 
-    /// Ends one relay stream and wipes its cipher states. Its connection stays open.
-    pub fn close_stream(&mut self, stream: &str) {
+    /// `relay.close`: ends one relay stream for good and wipes its cipher states. Its
+    /// connection stays open.
+    pub fn close_stream(&mut self, stream: &str, out: &mut Vec<Effect>) {
+        let remembered = self.ledger.close_stream(stream);
+        full(out, remembered);
+        self.end_stream(stream);
+    }
+
+    fn end_stream(&mut self, stream: &str) {
         if let Some(mut stream) = self.streams.remove(stream) {
             stream.transport.close();
         }
@@ -335,10 +389,11 @@ impl Grants {
         }
     }
 
+    /// Shutdown: the process is ending, so nothing needs remembering.
     pub fn close_all(&mut self, reason: &str, vault: &mut Vault, out: &mut Vec<Effect>) {
         let keys: Vec<String> = self.connections.keys().cloned().collect();
         for key in keys {
-            self.close(&key, reason, vault, out);
+            self.remove(&key, reason, vault, out);
         }
     }
 }

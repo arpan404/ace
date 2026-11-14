@@ -19,6 +19,10 @@ pub const KIND_PICTURE: u8 = 3;
 pub const KIND_END: u8 = 4;
 pub const KIND_HELLO: u8 = 5;
 const FLAG_KEYFRAME: u32 = 1;
+/// Sources open at once, and handles remembered (handles are never reused in one process).
+/// A `source.open` past either limit ends at once with the limit as its reason.
+pub const MAX_SOURCES: usize = 256;
+pub const MAX_HANDLES: usize = 65_536;
 const CODEC_JPEG: u8 = 7;
 
 struct Recording {
@@ -96,11 +100,16 @@ impl Sources {
         now: u64,
         out: &mut Vec<Effect>,
     ) {
-        if !self.handles.insert(handle) {
+        if self.handles.contains(&handle) {
             log(out, Level::Warn, "source handle reused", id);
             return status(out, id, Status::Ended, Some("handle-reused"), None);
         }
         self.close(id.get(), vault, out);
+        if self.by_id.len() >= MAX_SOURCES || self.handles.len() >= MAX_HANDLES {
+            log(out, Level::Warn, "source.open refused: source limit", id);
+            return status(out, id, Status::Ended, Some("source-limit"), None);
+        }
+        self.handles.insert(handle);
         let Some(secret) = vault.store(token) else {
             return status(out, id, Status::Ended, Some("too-many-sources"), None);
         };
@@ -252,16 +261,9 @@ impl Sources {
 
     /// A frame from an ingest connection. The first must be a hello with an unused token of an
     /// open source; anything else closes the connection.
-    pub fn ingest(
-        &mut self,
-        conn: IngestId,
-        frame: MediaFrame,
-        vault: &mut Vault,
-        now: u64,
-        out: &mut Vec<Effect>,
-    ) {
+    pub fn ingest(&mut self, conn: IngestId, frame: MediaFrame, now: u64, out: &mut Vec<Effect>) {
         let Some(id) = self.bindings.get(&conn).cloned() else {
-            return self.hello(conn, &frame, vault, out);
+            return out.push(Effect::CloseIngest(conn));
         };
         match frame.kind {
             KIND_VIDEO | KIND_AUDIO | KIND_PICTURE => self.unit(&id, frame, now, out),
@@ -278,30 +280,31 @@ impl Sources {
         }
     }
 
-    fn hello(
+    /// A connection's hello: binds it to the open source whose unused token it presents. The
+    /// token is single use. False when no source matches; the shell then closes it.
+    pub fn hello(
         &mut self,
         conn: IngestId,
-        frame: &MediaFrame,
+        token: &[u8],
         vault: &mut Vault,
         out: &mut Vec<Effect>,
-    ) {
+    ) -> bool {
         let candidates = self
             .by_id
             .iter()
             .filter_map(|(key, s)| s.token.map(|t| (key.as_str(), t)));
-        let found = (frame.kind == KIND_HELLO)
-            .then(|| vault.find(candidates, &frame.payload))
-            .flatten()
-            .map(str::to_owned);
+        let found = vault.find(candidates, token).map(str::to_owned);
         let source = found.as_ref().and_then(|key| self.by_id.get_mut(key));
         let Some(source) = source else {
-            return out.push(Effect::CloseIngest(conn));
+            out.push(Effect::CloseIngest(conn));
+            return false;
         };
         if let Some(token) = source.token.take() {
             vault.erase(token);
         }
         source.ingest = Some(conn);
         self.bindings.insert(conn, source.id.get().to_owned());
+        true
     }
 
     /// The producer's connection ended without an end-of-source frame.
