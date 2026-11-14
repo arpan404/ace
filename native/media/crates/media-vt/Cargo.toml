@@ -46,7 +46,12 @@ objc2-core-video = { version = "0.3", default-features = false, features = [
   "CVPixelBufferIOSurface",
   "objc2-io-surface",
 ] }
-objc2-io-surface = { version = "0.3", default-features = false, features = ["std", "IOSurfaceRef", "IOSurfaceTypes", "objc2-core-foundation"] }
+objc2-io-surface = { version = "0.3", default-features = false, features = [
+  "std",
+  "IOSurfaceRef",
+  "IOSurfaceTypes",
+  "objc2-core-foundation",
+] }
 objc2-video-toolbox = { version = "0.3", default-features = false, features = [
   "std",
   "VTBase",

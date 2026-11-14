@@ -170,7 +170,12 @@ probe found no hardware for it, and then the source says so.
 "timed-out" | "failed", maxWidth, maxHeight}`.
   - `hardware` is what the session itself reports (VideoToolbox's
     `UsingHardwareAccelerated…` properties, an MFT's `MFT_ENUM_FLAG_HARDWARE`, a VA entrypoint,
-    NVENC). It is never inferred from the chip family.
+    NVENC). It is never inferred from the chip family. VideoToolbox sessions that don't
+    report the property (low-latency encode and JPEG sessions on macOS 27 return
+    `kVTPropertyNotSupportedErr`) are opened with hardware required first; one that opens
+    under that requirement counts as the session's answer, and one that doesn't is not
+    hardware. `VTPixelTransferSession` reports nothing, so its `scale` step is
+    `hardware: false`.
 - **The helpers** report the same for capture → encode in their hello.
 - **The probe never ranks.**
 
