@@ -170,7 +170,8 @@ struct UsageView: View {
                     empty("No usage could be read", systemImage: "chart.xyaxis.line", detail: report.coverage.line)
                 }
             } else {
-                UsageSpendView(view: view)
+                UsageSpendView(view: view, ledger: report.from.isEmpty ? nil : UsageLedgerContext(
+                    reads: reads, from: report.from, to: report.to, cost: tab == .cost, provider: provider))
             }
         } else if reportLoading {
             loading("Reading usage")

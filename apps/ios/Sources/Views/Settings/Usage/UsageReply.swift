@@ -169,3 +169,32 @@ enum UsageColour {
         UInt32(hex.hasPrefix("#") ? String(hex.dropFirst()) : hex, radix: 16)
     }
 }
+
+/// One level of the Usage ledger (`usage.combineLedger`): spend grouped by one dimension within
+/// the rows opened above it, each row worded for both metrics.
+struct UsageLedgerReply: Decodable, Sendable, Equatable {
+    struct Cell: Decodable, Sendable, Equatable { let figure: String; let change: String }
+    struct Metrics: Decodable, Sendable, Equatable { let cost: Double; let tokens: Double }
+    struct Trend: Decodable, Sendable, Equatable { let cost: [Double]; let tokens: [Double] }
+    struct Row: Decodable, Sendable, Equatable, Identifiable {
+        let key: String
+        let name: String
+        /// The provider whose mark the row wears; nil when it has none.
+        let provider: String?
+        let cost: Cell
+        let tokens: Cell
+        /// Its share of this level, 0 to 1.
+        let share: Metrics
+        let trend: Trend
+        var id: String { key }
+    }
+    struct Group: Decodable, Sendable, Equatable, Hashable { let value: String; let label: String }
+    let group: String
+    /// What a row opens to; nil when a row is as deep as the ledger goes.
+    let next: Group?
+    let groups: [Group]
+    let rows: [Row]
+    /// Rows shown before "Show all".
+    let top: Int
+    let coverage: UsageCoverage
+}

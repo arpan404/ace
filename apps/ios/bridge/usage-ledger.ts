@@ -11,6 +11,7 @@ import {
   ledgerChange,
   ledgerGroups,
   ledgerLines,
+  ledgerTop,
   machineLedgerLines,
   nextLedgerGroup,
   providerNames,
@@ -276,8 +277,9 @@ export interface UsageLedgerReply {
   next: { group: LedgerGroup; label: string } | null;
   /** Every grouping, for the Group by menu. */
   groups: { value: LedgerGroup; label: string }[];
-  /** Most cost first; the phone shows the first few and "Show all". */
+  /** Most cost first; the phone shows the first `top` and "Show all". */
   rows: UsageLedgerRow[];
+  top: number;
   coverage: UsageCoverageView;
 }
 
@@ -359,6 +361,7 @@ export function combineLedger(request: UsageLedgerCombineRequest): UsageLedgerRe
         tokens: line.days.map((day: LedgerFigure) => day.tokens),
       },
     })),
+    top: ledgerTop,
     coverage: { line: coverage.line, complete: coverage.complete },
   };
 }

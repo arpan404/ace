@@ -53,6 +53,39 @@ import XCTest
         try await control(9922, online: true)
     }
 
+    func testTheLedgerGroupsSpendByMachineAndOpensARowToWhatIsInsideIt() async throws {
+        try await control(9922, online: true)
+        let app = XCUIApplication()
+        app.launchArguments = ["--spike", "--spike-machines", ports.map(String.init).joined(separator: ",")]
+        app.launch()
+        defer { app.terminate() }
+        XCTAssertTrue(app.buttons["thread.ios-spike-host-9922.ios-approval"].waitForExistence(timeout: 30))
+        app.openBrowseDestination("library.usage")
+        app.buttons["Cost"].tap()
+
+        let rows = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "usage.ledger.row."))
+        let group = app.buttons["usage.ledger.group"]
+        reveal(group, in: app)
+        XCTAssertTrue(group.waitForExistence(timeout: 20))
+        // By provider first; a provider opens in place to its accounts.
+        XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 20))
+        let before = rows.count
+        rows.firstMatch.tap()
+        let opened = expectation(for: NSPredicate(format: "count > %d", before), evaluatedWith: rows)
+        XCTAssertEqual(XCTWaiter().wait(for: [opened], timeout: 20), .completed)
+        screenshot("usage-ledger-opened")
+
+        group.tap()
+        app.buttons["Machine"].firstMatch.tap()
+        // One row per machine, both counted.
+        let two = expectation(for: NSPredicate(format: "count == 2"), evaluatedWith: rows)
+        XCTAssertEqual(XCTWaiter().wait(for: [two], timeout: 20), .completed)
+        screenshot("usage-ledger-machines")
+    }
+
+    private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
+        for _ in 0..<8 where !(element.exists && element.isHittable) { app.swipeUp() }
+    }
     private func waitFor(_ element: XCUIElement, label: String, timeout: TimeInterval = 20) -> Bool {
         let matched = expectation(for: NSPredicate(format: "label == %@", label), evaluatedWith: element)
         return XCTWaiter().wait(for: [matched], timeout: timeout) == .completed
