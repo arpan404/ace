@@ -4,6 +4,7 @@ import type {
   ThreadActions,
   ThreadTarget,
 } from "./use-thread-actions.ts";
+import type { Decided } from "@/lib/list-actions.ts";
 import { askBeforeArchive, type useArchiveConfirmation } from "./delete-confirmation.ts";
 
 /** Where one list row's action goes: its machine's actions, and the thread's id there. */
@@ -100,8 +101,12 @@ export function routedThreadActions(
     archiveManyNow: (items, decided) => {
       for (const [actions, group] of entries(items)) actions.archiveManyNow(group, decided);
     },
-    decisions: (items) =>
-      new Map(entries(items).flatMap(([actions, group]) => [...actions.decisions(group)])),
+    decisions: (items) => {
+      const all = new Map<string, Decided>();
+      for (const [actions, group] of entries(items))
+        for (const [id, decided] of actions.decisions(group)) all.set(id, decided);
+      return all;
+    },
     leftRunning: (items) =>
       entries(items).flatMap(([actions, group]) => actions.leftRunning(group)),
     removeMany: (items) => {
