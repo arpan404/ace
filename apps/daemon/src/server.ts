@@ -540,7 +540,7 @@ export async function startServer(options: ServerOptions): Promise<{
         trimmer = new WireTrimmer(message.trims);
         // Only the main socket streams deltas, so only it packs frames (`frame-holder.ts`).
         if (message.channel === undefined && message.framing?.includes("lines"))
-          outbox.packFrames();
+          outbox.packFrames(peer.remote);
         outbox.shapeEvents({
           rawOnDemand: message.trims?.includes(wireTrims.rawOnDemand) === true,
           shortDeltas: message.framing?.includes(shortDeltasFraming) === true,

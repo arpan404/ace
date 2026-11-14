@@ -5,7 +5,8 @@ import type { MainSocket } from "./main-socket.ts";
 import type { DeliveryEvent, ServerMessage } from "@ace/protocol";
 import { WireEncoder, eventFrameBytes, wholeEvents, type EventShape } from "./wire-encoder.ts";
 import { mayCompress } from "./compression-policy.ts";
-import { FrameHolder, isDelta, mayHold } from "./frame-holder.ts";
+import { FrameHolder, frameHoldFor, isDelta, mayHold } from "./frame-holder.ts";
+import { trackLink } from "./link-estimate.ts";
 
 export const RESYNC_CLOSE_CODE = 4009;
 // Service envelopes can contain a 1 MiB artifact plus metadata. Events have a smaller budget.
@@ -95,6 +96,8 @@ export class Outbox {
   private holder: FrameHolder | undefined;
   /** What this client's hello said it takes in place of whole events. */
   private shape: EventShape = wholeEvents;
+  /** Samples this socket's link estimate after each write, once frames are packed. */
+  private sampleLink: (() => void) | undefined;
   constructor(
     socket: MainSocket,
     options: PressureOptions,
@@ -120,8 +123,19 @@ export class Outbox {
   shapeEvents(shape: EventShape): void {
     this.shape = shape;
   }
-  packFrames(): void {
-    this.holder ??= new FrameHolder((text) => this.transmit(text, true), this.delay);
+  /**
+   * `remote`: the socket is not loopback, so a backlog on it holds deltas longer
+   * (`frameHoldFor`); loopback always holds 16 ms.
+   */
+  packFrames(remote = false): void {
+    if (this.holder) return;
+    const link = trackLink(this.socket, remote);
+    this.sampleLink = link.sample;
+    this.holder = new FrameHolder(
+      (text) => this.transmit(text, true),
+      this.delay,
+      () => frameHoldFor(link.view),
+    );
   }
   send(message: ServerMessage | PluginServerMessage): void {
     if (message.type === "events") {
@@ -310,6 +324,7 @@ export class Outbox {
       if (error) this.socket.terminate();
       else this.flush();
     });
+    this.sampleLink?.();
   }
   tick(now = this.now()): void {
     if (this.socket.bufferedAmount > this.options.hardLimit) {
