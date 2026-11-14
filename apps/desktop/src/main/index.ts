@@ -535,25 +535,16 @@ function main(target: DaemonTarget, crashDumps: string): void {
         : serveRenderer(paths.renderer, remote, network);
     [rendererUrl] = await Promise.all([served, isolateVisualizationSession()]);
 
-    // The page's hand-off: early while the daemon starts, else once it answers, and the reloads
-    // that keep the page following the daemon (`page-connection.ts`).
+    // The page's hand-off once its daemon answers, and its reload after a missed one
+    // (`page-connection.ts`).
     const handoff = createPageConnection({
-      early: () => runtime.earlyConnection(),
       connection: () => runtime.connection(),
-      current: () => runtime.current(),
       onStatus: (listener) => runtime.onStatus(listener),
       reload: () => window?.webContents.reload(),
-      handed: (kind) =>
-        log(
-          "info",
-          kind === "early"
-            ? "Handed the page what the daemon's home kept"
-            : "Handed the daemon to the page",
-          { sinceLaunchMs: sinceLaunchMs() },
-        ),
+      handed: () =>
+        log("info", "Handed the daemon to the page", { sinceLaunchMs: sinceLaunchMs() }),
     });
-    const connection = handoff.daemon;
-    const pageConnection = handoff.page;
+    const connection = handoff.connection;
     // View › Reload and ⌘R. The page's client worker goes with the page, so the new page opens
     // a fresh socket. A daemon that crashed or failed to start is restarted; a running one,
     // and the agents in it, is left alone.
@@ -639,7 +630,6 @@ function main(target: DaemonTarget, crashDumps: string): void {
       window: () => window,
       toolchains: () => toolchains(process.env),
       connection,
-      pageConnection,
       authorizeDaemon: (url) => network.authorize(url),
       quit: () => app.quit(),
       reload,

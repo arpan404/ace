@@ -25,14 +25,6 @@ const Origin = z
   })
   .transform((value) => new URL(value).origin);
 const Token = z.string().regex(/^[0-9a-f]{64}$/);
-/** A loopback origin, or undefined for anything else (an empty or half-written file too). */
-function parseOrigin(text: string): string | undefined {
-  try {
-    return Origin.parse(text);
-  } catch {
-    return undefined;
-  }
-}
 /** As the daemon writes it (a UUID, untrimmed); anything else is not trusted as an identity. */
 const HostIdFile = z.string().regex(/^[0-9A-Za-z][0-9A-Za-z._-]{0,127}$/);
 
@@ -71,44 +63,6 @@ export async function readLocalDaemon(home: string): Promise<LocalDaemon | undef
   } catch {
     return undefined;
   }
-}
-
-/**
- * What a home kept of its daemon while none answers yet: the token and `host-id`, written once
- * and kept across runs, and its address. A clean shutdown removes the endpoint file, so the
- * address is then `origin` (where this app's daemon listens: `ACE_PORT`). Undefined when the
- * token or the identity is missing or malformed: a first start has nothing to show early.
- */
-export async function readKeptDaemon(
-  home: string,
-  origin: string,
-): Promise<LocalDaemon | undefined> {
-  const endpoint = await readFile(join(home, "daemon-endpoint"), "utf8").catch(() => "");
-  const [token, hostId] = await Promise.all([
-    readFile(join(home, "daemon-token"), "utf8").catch(() => ""),
-    readHostId(home),
-  ]);
-  const parsedToken = Token.safeParse(token.trim());
-  if (!parsedToken.success || !hostId) return undefined;
-  const address = parseOrigin(endpoint.trim()) ?? parseOrigin(origin);
-  if (!address) return undefined;
-  return {
-    origin: address,
-    url: address.replace(/^http:/, "ws:") + "/",
-    token: parsedToken.data,
-    hostId,
-  };
-}
-
-/**
- * Where a daemon listens for `ACE_PORT` (default 4242), as the daemon's config reads it.
- * Undefined for port 0 (any free port, `""` included) or a value the daemon refuses.
- */
-export function configuredOrigin(env: NodeJS.ProcessEnv): string | undefined {
-  const port = env.ACE_PORT === undefined ? 4242 : Number(env.ACE_PORT.trim());
-  return Number.isInteger(port) && port > 0 && port <= 65_535
-    ? `http://127.0.0.1:${port}/`
-    : undefined;
 }
 
 /**

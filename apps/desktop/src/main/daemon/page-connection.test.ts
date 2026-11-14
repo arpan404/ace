@@ -1,27 +1,25 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { DaemonConnection, DaemonStatus } from "../../shared/contract.ts";
 import { createPageConnection } from "./page-connection.ts";
+import { DaemonRuntime } from "./runtime.ts";
 
-const kept: DaemonConnection = {
+const real: DaemonConnection = {
   mode: "daemon",
-  url: "ws://127.0.0.1:4242/",
+  url: "ws://127.0.0.1:5151/",
   token: "ab".repeat(32),
   localHostId: "host-1",
 };
-const real: DaemonConnection = { ...kept, url: "ws://127.0.0.1:5151/" };
 
-/** An app whose daemon starts when the test says; the home's files are read when it says too. */
+/** An app whose daemon answers, or fails, when the test says. */
 function app() {
-  let status: DaemonStatus = { state: "starting", source: "app", restarts: 0, paused: false };
   const listeners = new Set<(status: DaemonStatus) => void>();
-  const read = Promise.withResolvers<DaemonConnection | undefined>();
+  let answer = Promise.withResolvers<DaemonConnection>();
   let reloads = 0;
-  const failure = () =>
-    status.state === "failed" ? Promise.reject(new Error("The daemon could not start")) : undefined;
   const handoff = createPageConnection({
-    early: () => read.promise,
-    connection: () => failure() ?? Promise.resolve(real),
-    current: () => status,
+    connection: () => answer.promise,
     onStatus: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -31,63 +29,81 @@ function app() {
   return {
     handoff,
     reloads: () => reloads,
-    filesRead: (connection: DaemonConnection | undefined = kept) => read.resolve(connection),
-    emit(patch: Partial<DaemonStatus>) {
-      status = { ...status, ...patch };
-      for (const listener of listeners) listener(status);
+    fail() {
+      answer.reject(new Error("The daemon could not start"));
+      answer = Promise.withResolvers();
+    },
+    answer: () => answer.resolve(real),
+    emit(state: DaemonStatus["state"]) {
+      for (const listener of listeners)
+        listener({ state, source: "app", restarts: 0, paused: false });
     },
   };
 }
 
 describe("the page's daemon hand-off", () => {
-  it("a start that fails while the home's files are read refuses the page, which shows the failure", async () => {
+  it("a page refused on a failed start reloads once the daemon runs again", async () => {
     const a = app();
-    const asked = a.handoff.page();
-    a.emit({ state: "failed", message: "The daemon could not start" });
-    a.filesRead();
+    const asked = a.handoff.connection();
+    a.fail();
     await expect(asked).rejects.toThrow("could not start");
-    // Refused, not reconnecting: once the daemon runs after a repair, the page reloads.
     expect(a.reloads()).toBe(0);
-    a.emit({ state: "running" });
+    a.emit("running");
+    expect(a.reloads()).toBe(1);
+    // Once: a later start of the same daemon is the reconnecting notice's to show.
+    a.emit("running");
     expect(a.reloads()).toBe(1);
   });
 
-  it("a start that fails after the page opened on what the home kept reloads the page", async () => {
+  it("a page handed its daemon is never reloaded by the daemon's status", async () => {
     const a = app();
-    const asked = a.handoff.page();
-    a.filesRead();
-    expect(await asked).toEqual(kept);
-    a.emit({ state: "failed", message: "The daemon could not start" });
-    expect(a.reloads()).toBe(1);
-  });
-
-  it("a daemon that runs while the files are read hands the page the real target", async () => {
-    const a = app();
-    const asked = a.handoff.page();
-    a.emit({ state: "running" });
-    a.filesRead();
+    const asked = a.handoff.connection();
+    a.answer();
     expect(await asked).toEqual(real);
+    a.emit("restarting");
+    a.emit("running");
     expect(a.reloads()).toBe(0);
   });
 
-  it("a page that opened early follows the daemon without reloading once it runs", async () => {
-    const a = app();
-    const asked = a.handoff.page();
-    a.filesRead();
-    await asked;
-    a.emit({ state: "running" });
-    // A later crash is the reconnecting notice's to show, not a reload.
-    a.emit({ state: "restarting", message: "The daemon exited" });
-    expect(a.reloads()).toBe(0);
-  });
-
-  it("quitting while the page opened early does not reload it", async () => {
-    const a = app();
-    const asked = a.handoff.page();
-    a.filesRead();
-    await asked;
-    a.emit({ state: "stopping" });
-    a.emit({ state: "stopped" });
-    expect(a.reloads()).toBe(0);
+  it("on a cold start the page is handed nothing until the daemon answers, even with a kept home", async () => {
+    const home = await mkdtemp(join(tmpdir(), "ace-cold-handoff-"));
+    // A home from an earlier run: token and identity kept, no daemon running.
+    await writeFile(join(home, "daemon-token"), "ab".repeat(32));
+    await writeFile(join(home, "host-id"), "host-1");
+    const runtime = new DaemonRuntime({
+      target: { kind: "managed", home, entry: join(home, "unused.mjs") },
+      packaged: false,
+      version: "0.0.0",
+      resources: { entry: join(home, "unused.mjs") },
+      env: { SHELL: "/bin/sh", PATH: "/usr/bin:/bin", ACE_PORT: "5151" },
+      // A daemon that starts but never answers; it exits when told to stop.
+      spawnDaemon: () => {
+        let exited: ((code: number | null, signal: NodeJS.Signals | null) => void) | undefined;
+        return {
+          kill: (signal: NodeJS.Signals) => exited?.(null, signal),
+          onExit: (listener) => (exited = listener),
+        };
+      },
+      log: () => {},
+    });
+    try {
+      void runtime.start();
+      let handed = false;
+      const page = createPageConnection({
+        connection: () => runtime.connection(),
+        onStatus: (listener) => runtime.onStatus(listener),
+        reload: () => {},
+      });
+      void page.connection().then(
+        () => (handed = true),
+        () => {},
+      );
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      expect(handed).toBe(false);
+      expect(runtime.current().state).toBe("starting");
+    } finally {
+      await runtime.stop();
+      await rm(home, { recursive: true, force: true });
+    }
   });
 });

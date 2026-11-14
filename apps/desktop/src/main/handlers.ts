@@ -65,10 +65,8 @@ export function createHandlers(options: {
   window(): BrowserWindow | undefined;
   /** Git, Xcode and the Android tools on this machine (system/toolchains.ts). */
   toolchains(): Promise<Toolchain[]>;
-  /** The daemon's connection once it answers; rejects on a failed start. */
+  /** The renderer's daemon hand-off; may reject while the daemon is still starting. */
   connection(): Promise<DaemonConnection>;
-  /** The page's hand-off (`daemon.connection`): may come before the daemon answers. */
-  pageConnection(): Promise<DaemonConnection>;
   authorizeDaemon(url: string): void;
   quit(): void;
   reload(): void;
@@ -149,7 +147,7 @@ export function createHandlers(options: {
       options.reload();
       return undefined;
     },
-    "daemon.connection": () => options.pageConnection(),
+    "daemon.connection": () => options.connection(),
     "daemon.authorize": (url) => {
       options.authorizeDaemon(url);
       return undefined;
