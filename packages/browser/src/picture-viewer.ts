@@ -15,8 +15,12 @@ export interface CapturedPicture extends Omit<PictureChunk, "bytes" | "still"> {
   codecNamed: boolean;
 }
 
+/** Weak memoization retains pieces only as long as their immutable captured picture. */
+const piecesByPicture = new WeakMap<CapturedPicture, Map<string, Uint8Array[]>>();
+
 /** A picture waiting for its viewer's window, encoded only when it is sent. */
 interface Waiting {
+  picture: CapturedPicture;
   sequence: number;
   key: boolean;
   bytes: Uint8Array;
@@ -85,6 +89,7 @@ export class PictureViewer {
       this.#fanout.assign("viewer", header.streamId);
     }
     this.#fanout.publish(header.streamId, {
+      picture,
       sequence: header.sequence,
       key: header.key,
       bytes,
@@ -113,16 +118,26 @@ export class PictureViewer {
   }
   #send(waiting: Waiting): boolean {
     if (this.#closed) return false;
-    return this.#ports.write(
-      encodePicture(
+    let cached = piecesByPicture.get(waiting.picture);
+    if (!cached) {
+      cached = new Map();
+      piecesByPicture.set(waiting.picture, cached);
+    }
+    const key = `${this.#kind}:${this.#sourceId}:${waiting.header.codec}`;
+    let pieces = cached.get(key);
+    if (!pieces) {
+      pieces = encodePicture(
         this.#kind,
         this.#ports.messageId(),
         this.#sourceId,
         waiting.header,
         waiting.bytes,
-      ),
-    );
+      );
+      cached.set(key, pieces);
+    }
+    return this.#ports.write(pieces);
   }
+
   #askKeyframe(): void {
     if (this.#closed || this.#cancelKeyframe) return;
     const wait = this.#lastKeyframe + pictureKeyframeGapMs - this.#ports.now();
