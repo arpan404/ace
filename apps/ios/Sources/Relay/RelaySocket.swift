@@ -39,6 +39,8 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
     private var grant: String?
     /// The daemon's welcome arrived; until then an `unauthorized` error refuses the grant.
     private var welcomed = false
+    /// This connection presented a kept grant rather than one fetched for it.
+    private var presentedKept = false
 
     private enum Phase {
         case connecting
@@ -62,7 +64,7 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
         // The kept device grant while it has time left (it also names this device in the
         // hello), so a reconnect opens its socket at once; a new one only when none is kept.
         if let kept = route.grants.kept() {
-            queue.addOperation { [weak self] in self?.connect(grant: kept) }
+            queue.addOperation { [weak self] in self?.presentedKept = true; self?.connect(grant: kept) }
         } else {
             Task { [weak self] in
                 let grant: String
@@ -232,7 +234,7 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
                             finish(code, reason: Self.channelCloseReason(text), cause: "daemon closed the channel")
                             return false
                         }
-                        if !welcomed { admission(text) }
+                        if !welcomed, !admission(text) { return false }
                         event("message", .text(text))
                     case .binary(let data): return deliver(data)
                     }
@@ -250,10 +252,18 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
         }
     }
     /// Before the welcome: the daemon either welcomes this device or refuses its hello. A grant
-    /// it refused is not presented again.
-    private func admission(_ text: String) {
-        if text.hasPrefix(#"{"type":"welcome""#) { welcomed = true; LaunchTrace.mark("relay.welcome"); return }
-        if Self.refusesGrant(text), let grant { route.grants.discard(grant) }
+    /// it refused is not presented again. A refused kept grant may only have outlived the
+    /// daemon's view of it (clocks that differ near its expiry): the channel drops as a lost
+    /// connection instead (1006), so the SDK reconnects once with a newly fetched grant. A
+    /// fetched grant refused the same way reaches the SDK as the refusal it is. False once the
+    /// channel ended.
+    private func admission(_ text: String) -> Bool {
+        if text.hasPrefix(#"{"type":"welcome""#) { welcomed = true; LaunchTrace.mark("relay.welcome"); return true }
+        guard Self.refusesGrant(text), let grant else { return true }
+        route.grants.discard(grant)
+        guard presentedKept else { return true }
+        finish(1006, cause: "the daemon refused the kept grant; the next connection fetches one")
+        return false
     }
     /// The daemon's refusal of a hello's grant: an `error` naming `unauthorized`. Pure.
     static func refusesGrant(_ text: String) -> Bool {
