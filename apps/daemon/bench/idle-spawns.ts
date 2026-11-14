@@ -171,6 +171,7 @@ try {
       quotas: () => [
         { auth: "logged_in", observedAt: 0, windows: { session: window }, blockers: {}, usage: {} },
       ],
+      after: () => () => {},
     });
     await limits.refresh();
     reads = 0;

@@ -45,6 +45,8 @@ import { LimitsSchedule } from "./account-limits-schedule.ts";
 
 /** How often the limits schedule checks whether to re-read every account's limits. */
 export const limitsRefreshMs = 5 * 60_000;
+/** The longest a turn or a client's first account read waits for limits read again. */
+export const freshLimitsWaitMs = 3_000;
 
 interface AuthTerminal {
   cancelTimer?: () => void;
@@ -103,6 +105,8 @@ export interface AccountManagementOptions {
   limitsError?(instance: string, error: unknown): void;
   /** Whether a thread waits on an account's limit or an agent works now: limits stay fresh. */
   limitsBusy?(): boolean;
+  /** Runs `run` after `ms` (a timer); returns a cancel. Tests pass their own clock's. */
+  after?(ms: number, run: () => void): () => void;
 }
 
 /** Host-local account changes. Provider auth output has no persistence or replay path. */
@@ -123,6 +127,13 @@ export class AccountManagement {
       read: () => this.refreshLimits(),
       busy: () => options.limitsBusy?.() ?? false,
       quotas: () => options.registry.list().map(({ quota }) => quota),
+      after:
+        options.after ??
+        ((ms, run) => {
+          const timer = setTimeout(run, ms);
+          timer.unref();
+          return () => clearTimeout(timer);
+        }),
     });
     this.manager = new TerminalManager({
       ...options.terminal,

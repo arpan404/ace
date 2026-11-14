@@ -5,7 +5,7 @@ import { cursorHosts } from "./cursor-hosts.ts";
 import { warmup } from "./warmup.ts";
 import { AccountManagementRequest, type AccountsResponse } from "@ace/protocol/accounts";
 import type { ProviderLoginSessions } from "@ace/accounts";
-import { AccountManagement, limitsRefreshMs } from "../account-management.ts";
+import { AccountManagement, freshLimitsWaitMs, limitsRefreshMs } from "../account-management.ts";
 import { providerMigrationSafety } from "../account-leases.ts";
 import { AccountService, openRegistryIndex, cursorSdkLoginDriver } from "@ace/accounts";
 import { join } from "node:path";
@@ -55,6 +55,8 @@ export async function startAccounts(context: ServiceContext) {
     cursorEnv: options.engine?.cursor?.env ?? process.env,
     resolveAcpLogin: (identity, env) =>
       services.agentRegistry?.resolveLogin(identity, env) ?? Promise.resolve(undefined),
+    freshen: (signal) =>
+      services.accountManagement?.limits.fresh(freshLimitsWaitMs, signal) ?? Promise.resolve(),
   });
 }
 export function startAccountManagement(context: ServiceContext): void {
@@ -138,14 +140,14 @@ export function createAccountsSession(context: SocketContext): SocketService {
       }
     },
     async handle(message, device) {
-      // A client reading account data shows limits: they stay fresh while it stays connected.
-      if (
+      // A client reading account data shows limits: they stay fresh while it stays connected,
+      // and its first answer waits a moment for readings older than the refresh interval.
+      const fresh =
         message.type === "accounts.list" ||
         message.type === "accounts.status" ||
-        message.type === "accounts.refreshLimits" ||
         message.type === "provider.accounts.list"
-      )
-        context.options.accountManagement?.limits.reader(context.sessionId);
+          ? context.options.accountManagement?.limits.reader(context.sessionId, freshLimitsWaitMs)
+          : undefined;
       const request = ProviderAccountsRequest.safeParse(message);
       if (request.success) {
         const scope = request.data.type === "provider.accounts.list" ? "read" : "operate";
@@ -169,6 +171,7 @@ export function createAccountsSession(context: SocketContext): SocketService {
               const management = context.options.accountManagement;
               const login = context.options.providerLogin;
               if (!management || !login) throw new Error("Unavailable");
+              await fresh;
               const result = await providerAccounts(management, login, device, request.data);
               if (context.connected() && context.authorize(scope)) context.send(result);
             } catch (cause) {
@@ -233,7 +236,10 @@ export function createAccountsSession(context: SocketContext): SocketService {
         }
         const accounts = context.options.accounts;
         const task = (async () => {
-          await context.options.accountManagement?.limits.refresh();
+          // Facts from after the ask, then this client counts as reading limits.
+          const limits = context.options.accountManagement?.limits;
+          await limits?.refreshAfter();
+          await limits?.reader(context.sessionId, freshLimitsWaitMs);
           if (!accounts) throw new Error("Accounts unavailable");
           const listed = await accounts.handle({
             type: "accounts.list",
@@ -282,6 +288,7 @@ export function createAccountsSession(context: SocketContext): SocketService {
       else if (pending >= 8) reject("accounts_busy", "Too many account requests");
       else {
         pending++;
+        const accounts = context.options.accounts;
         const task = (
           management.success
             ? handleAccountRequest(
@@ -291,7 +298,7 @@ export function createAccountsSession(context: SocketContext): SocketService {
                 device,
                 management.data,
               )
-            : context.options.accounts.handle(message)
+            : (fresh ?? Promise.resolve()).then(() => accounts.handle(message))
         )
           .then((result) => {
             if (context.connected() && context.authorize(scope)) context.send(result);
