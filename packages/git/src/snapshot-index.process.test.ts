@@ -34,15 +34,19 @@ async function disk(root: string, prefix = ""): Promise<Record<string, string>> 
 }
 
 /** Checkpoint, scramble the checkout, restore: the checkout must be exactly as it was. */
-async function roundTrip(repo: string, threadId: string, git: GitService = service) {
+async function roundTrip(repo: string, threadId: string, checkpoints: GitService = service) {
   const expected = await disk(repo);
   const index = await readFile(join(repo, ".git", "index"));
-  const checkpoint = await git.createCheckpoint({ worktree: repo, threadId, label: "before" });
+  const checkpoint = await checkpoints.createCheckpoint({
+    worktree: repo,
+    threadId,
+    label: "before",
+  });
   // A snapshot only reads the checkout's index.
   expect(await readFile(join(repo, ".git", "index"))).toEqual(index);
   for (const path of Object.keys(expected)) await rm(join(repo, path), { force: true });
   await put(repo, "scrambled.txt", "agent output\n");
-  await git.restoreCheckpoint({ worktree: repo, checkpoint: checkpoint.id });
+  await checkpoints.restoreCheckpoint({ worktree: repo, checkpoint: checkpoint.id });
   expect(await disk(repo)).toEqual(expected);
   return checkpoint;
 }
@@ -157,22 +161,25 @@ describe("snapshots seeded from the checkout's own index", () => {
     );
   });
 
-  test.runIf(posix)("a file staged through a clean filter restores its own bytes when filters are off", async () => {
-    const repo = await repository({ ".gitattributes": "*.bin filter=pointer\n" });
-    await git(repo, "config", "filter.pointer.clean", "printf pointer");
-    await git(repo, "config", "filter.pointer.smudge", "cat");
-    await put(repo, "large.bin", "the real large content\n");
-    // Old enough that Git trusts the stat data it records for the filtered file.
-    const old = new Date(Date.now() - 120_000);
-    await utimes(join(repo, "large.bin"), old, old);
-    await git(repo, "add", "large.bin");
-    await git(repo, "commit", "-qm", "Large file");
-    await new Promise((resolve) => setTimeout(resolve, 6_000));
-    // ace's own snapshots run without the person's filters.
-    const guarded = new GitService();
-    await guarded.nonExecuting(() => roundTrip(repo, "filter", guarded));
-    await guarded.close();
-  });
+  test.runIf(posix)(
+    "a file staged through a clean filter restores its own bytes when filters are off",
+    async () => {
+      const repo = await repository({ ".gitattributes": "*.bin filter=pointer\n" });
+      await git(repo, "config", "filter.pointer.clean", "printf pointer");
+      await git(repo, "config", "filter.pointer.smudge", "cat");
+      await put(repo, "large.bin", "the real large content\n");
+      // Old enough that Git trusts the stat data it records for the filtered file.
+      const old = new Date(Date.now() - 120_000);
+      await utimes(join(repo, "large.bin"), old, old);
+      await git(repo, "add", "large.bin");
+      await git(repo, "commit", "-qm", "Large file");
+      await new Promise((resolve) => setTimeout(resolve, 6_000));
+      // ace's own snapshots run without the person's filters.
+      const guarded = new GitService();
+      await guarded.nonExecuting(() => roundTrip(repo, "filter", guarded));
+      await guarded.close();
+    },
+  );
 
   test("an index in version 4 format, and one held by another Git's index.lock, is read", async () => {
     const repo = await repository({ "a.txt": "a\n", "b/c.txt": "c\n" });
@@ -260,7 +267,13 @@ describe("snapshots seeded from the checkout's own index", () => {
         threadId: "sparse-mode",
         label: "full",
       });
-      await git(repo, "sparse-checkout", "set", mode, mode === "--cone" ? "included" : "/included/");
+      await git(
+        repo,
+        "sparse-checkout",
+        "set",
+        mode,
+        mode === "--cone" ? "included" : "/included/",
+      );
       const files = await disk(repo);
       expect(Object.keys(files)).not.toContain("other/b.txt");
       const index = await readFile(join(repo, ".git", "index"));

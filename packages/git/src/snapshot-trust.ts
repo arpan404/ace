@@ -149,8 +149,7 @@ async function readSettings(repository: Repository, root: string): Promise<Setti
     cli.call(root, ["rev-parse", "--git-common-dir"]),
     cli.call(root, ["var", "GIT_ATTR_SYSTEM"], { allowFailure: true }),
   ]);
-  if (config.exitCode !== 0 && config.exitCode !== 1)
-    return { trusted: false, attributeFiles: [] };
+  if (config.exitCode !== 0 && config.exitCode !== 1) return { trusted: false, attributeFiles: [] };
   // An unknown system attributes location could hold any rule.
   if (system.exitCode !== 0) return { trusted: false, attributeFiles: [] };
   const values = new Map<string, string>();
