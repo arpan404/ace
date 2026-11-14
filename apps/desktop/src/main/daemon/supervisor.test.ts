@@ -3,6 +3,34 @@ import { DaemonSupervisor, incompatibleDataMessage, newerDataMessage } from "./s
 import { local, machine, track } from "./supervisor-test-support.ts";
 
 describe("daemon supervisor", () => {
+  it("adopts a daemon that already runs without waiting for the login shell's PATH", async () => {
+    const m = machine();
+    m.state.answering = true;
+    m.state.external = true;
+    // The login shell never answers.
+    m.ports.prepareSpawn = () => new Promise(() => {});
+    const supervisor = new DaemonSupervisor(m.ports);
+    await supervisor.start();
+    expect(supervisor.current()).toMatchObject({ state: "running", source: "external" });
+    expect(m.children).toHaveLength(0);
+  });
+
+  it("spawns its own daemon only once the login shell's PATH is known", async () => {
+    const m = machine();
+    const path = Promise.withResolvers<void>();
+    m.ports.prepareSpawn = () => path.promise;
+    const supervisor = new DaemonSupervisor(m.ports);
+    const starting = supervisor.start();
+    await m.advance(1_000);
+    expect(m.children).toHaveLength(0);
+    path.resolve();
+    await starting;
+    expect(m.children).toHaveLength(1);
+    m.state.answering = true;
+    await m.advance(300);
+    expect(supervisor.current()).toMatchObject({ state: "running", source: "app" });
+  });
+
   it.each(["external", "app"] as const)(
     "recovers %s readiness after a transient admission timeout and resumes health monitoring",
     async (source) => {

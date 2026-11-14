@@ -8,6 +8,11 @@ export interface SupervisorPorts {
    * supervisor only waits for a daemon.
    */
   spawn?: (() => DaemonProcess) | undefined;
+  /**
+   * Settles once a spawn has what it needs (the login shell's PATH). Awaited only on the way to
+   * spawning, so adopting a daemon that already runs never waits on it.
+   */
+  prepareSpawn?: (() => Promise<void>) | undefined;
   /** A healthy daemon already serving this ACE_HOME, if any. */
   find(): Promise<LocalDaemon | undefined>;
   /** Whether the daemon answers its status endpoint, giving up after `timeoutMs`. */

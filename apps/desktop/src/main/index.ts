@@ -203,6 +203,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
     },
     env: process.env,
     log: logger("supervisor"),
+    sinceLaunch: () => performance.now(),
     daemonOutput: operation.wrap("daemon output", (line: string, stream: "stdout" | "stderr") =>
       daemonLog(stream === "stderr" ? "warn" : "info", line, { stream }),
     ),
@@ -498,9 +499,15 @@ function main(target: DaemonTarget, crashDumps: string): void {
     // takes. Only a real failure rejects; the page then shows its connection screen and
     // reloads once the daemon is running again.
     let missedConnection = false;
+    const sinceLaunchMs = () => Math.round(performance.now());
+    let handedOnce = false;
     const connection = async () => {
       try {
-        return await runtime.connection();
+        const handed = await runtime.connection();
+        if (!handedOnce)
+          log("info", "Handed the daemon to the page", { sinceLaunchMs: sinceLaunchMs() });
+        handedOnce = true;
+        return handed;
       } catch (error) {
         missedConnection = true;
         throw error;
@@ -707,7 +714,12 @@ function main(target: DaemonTarget, crashDumps: string): void {
         process.platform === "darwin" && app.getLoginItemSettings().wasOpenedAtLogin,
       background: settings.get().background,
     });
-    if (!hidden) createWindow();
+    if (!hidden) {
+      createWindow();
+      window?.webContents.once("did-finish-load", () =>
+        log("info", "The page loaded", { sinceLaunchMs: sinceLaunchMs() }),
+      );
+    }
     // The background link follows the daemon from here on: it attaches whenever one is ready.
     background.start();
     // The daemon starts first: nothing the updater does can keep it from running.

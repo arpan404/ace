@@ -63,6 +63,11 @@ export interface RuntimeOptions {
   log: Log;
   /** Each line the spawned daemon prints; by default logged as `daemon: <line>`. */
   daemonOutput?: (line: string, stream: "stdout" | "stderr") => void;
+  /**
+   * Milliseconds since the app launched, for the launch steps the log records (login PATH,
+   * first lookup, spawn, running). Without it those records are not written.
+   */
+  sinceLaunch?: () => number;
 }
 
 /**
@@ -89,6 +94,12 @@ export class DaemonRuntime {
         platform: options.platform ?? process.platform,
       });
     this.path = loginShellPath(options.env);
+    const launchStep = (message: string, data: Record<string, unknown> = {}) => {
+      if (options.sinceLaunch)
+        options.log("info", message, { ...data, sinceLaunchMs: Math.round(options.sinceLaunch()) });
+    };
+    void this.path.then(() => launchStep("The login shell's PATH is ready"));
+    let looked = false;
     const source =
       this.target.kind === "remote" ? "remote" : this.target.kind === "fake" ? "fake" : "external";
     this.status =
@@ -116,17 +127,27 @@ export class DaemonRuntime {
         {
           spawn:
             this.target.kind === "managed"
-              ? () =>
-                  (options.spawnDaemon ?? spawnDaemon)({
+              ? () => {
+                  launchStep("Spawning the daemon");
+                  return (options.spawnDaemon ?? spawnDaemon)({
                     ...this.spawnOptions(home, this.resolvedPath),
                     prioritize,
                     onOutput:
                       options.daemonOutput ??
                       ((line, stream) =>
                         options.log(stream === "stderr" ? "warn" : "info", `daemon: ${line}`)),
-                  })
+                  });
+                }
               : undefined,
-          find: () => findRunningDaemon(home),
+          prepareSpawn: async () => {
+            this.resolvedPath = await this.path;
+          },
+          find: async () => {
+            const found = await findRunningDaemon(home);
+            if (!looked) launchStep("Looked for a running daemon", { found: Boolean(found) });
+            looked = true;
+            return found;
+          },
           healthy,
           service: this.target.kind === "managed" ? loginService(home) : undefined,
           setMaintenance,
@@ -144,12 +165,22 @@ export class DaemonRuntime {
         },
         {},
       );
-      this.supervisor.onStatus((status) => this.update(status));
+      let ran = false;
+      this.supervisor.onStatus((status) => {
+        if (status.state === "running" && !ran) {
+          ran = true;
+          launchStep("The daemon is running", { source: status.source });
+        }
+        this.update(status);
+      });
     }
   }
 
+  /**
+   * Adopting a daemon that already runs needs no PATH, so the login shell (about a second on a
+   * busy shell profile) is waited for only before this app spawns its own.
+   */
   async start(): Promise<void> {
-    this.resolvedPath = await this.path;
     if (this.target.kind === "remote" || this.target.kind === "fake") {
       this.update({
         ...this.status,

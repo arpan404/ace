@@ -227,6 +227,10 @@ export class DaemonSupervisor {
         if (found) return this.running(found, "external", generation);
       }
     }
+    if (this.ports.prepareSpawn) {
+      await this.ports.prepareSpawn();
+      if (this.stale(generation)) return;
+    }
     let spawned: Child;
     try {
       spawned = this.spawnChild(spawn);
