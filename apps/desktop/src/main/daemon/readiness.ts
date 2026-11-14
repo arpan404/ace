@@ -30,22 +30,23 @@ export interface ReadinessPorts {
 const pause = (ports: ReadinessPorts) =>
   new Promise<void>((resolve) => ports.timers.set(POLL_MS, resolve));
 
-/** The next endpoint change, or the fallback poll, whichever comes first. */
-function nextChange(ports: ReadinessPorts, watch: EndpointWatch): Promise<void> {
+/** The next endpoint change (true), or the fallback poll (false), whichever comes first. */
+function nextChange(ports: ReadinessPorts, watch: EndpointWatch): Promise<boolean> {
   return new Promise((resolve) => {
-    const cancel = ports.timers.set(WATCHED_POLL_MS, resolve);
+    const cancel = ports.timers.set(WATCHED_POLL_MS, () => resolve(false));
     void watch.changed().then(() => {
       cancel();
-      resolve();
+      resolve(true);
     });
   });
 }
 
 /**
  * Look for a daemon serving this home until one answers, `live` turns false (the start was
- * superseded, or our child exited) or `timeoutMs` passes. Each lookup reads the home's files
- * and asks the daemon's status, so where the endpoint file can be watched the next lookup
- * waits for it to change (a daemon writes it once it listens), with a slow poll behind that.
+ * superseded, or our child exited) or `timeoutMs` passes. Where the endpoint file can be
+ * watched, the lookups wait for the daemon to write it (once it listens), with a slow poll
+ * behind that. From then on they poll every 200 ms as without a watch: a daemon answers its
+ * status before it is ready, and turning ready changes no file.
  */
 export async function waitForDaemon(
   ports: ReadinessPorts,
@@ -53,12 +54,20 @@ export async function waitForDaemon(
   live: () => boolean,
 ): Promise<LocalDaemon | undefined> {
   const deadline = ports.now() + timeoutMs;
-  const watch = ports.watchEndpoint?.();
+  let watch = ports.watchEndpoint?.();
   try {
     while (live() && ports.now() < deadline) {
       const found = await ports.find();
       if (found) return found;
-      await (watch ? nextChange(ports, watch) : pause(ports));
+      if (!watch) {
+        await pause(ports);
+        continue;
+      }
+      if (await nextChange(ports, watch)) {
+        // Published: the daemon is coming up, and its readiness is polled for.
+        watch.close();
+        watch = undefined;
+      }
     }
   } finally {
     watch?.close();

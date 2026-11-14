@@ -6,6 +6,7 @@ import { local } from "./supervisor-test-support.ts";
 function home(options: { watched: boolean }) {
   let now = 0;
   let published = false;
+  let ready = true;
   let lookups = 0;
   const timers = new Set<{ at: number; callback: () => void }>();
   let notify: (() => void) | undefined;
@@ -16,7 +17,7 @@ function home(options: { watched: boolean }) {
   const ports: ReadinessPorts = {
     find: async () => {
       lookups++;
-      return published ? local : undefined;
+      return published && ready ? local : undefined;
     },
     watchEndpoint: options.watched ? () => watch : undefined,
     maintenance: async () => ({ draining: false }),
@@ -34,6 +35,8 @@ function home(options: { watched: boolean }) {
   return {
     ports,
     lookups: () => lookups,
+    notReady: () => void (ready = false),
+    ready: () => void (ready = true),
     now: () => now,
     async publish() {
       published = true;
@@ -67,6 +70,22 @@ describe("waiting for a starting daemon", () => {
     await h.publish();
     expect(found).toEqual(local);
     expect(h.now()).toBe(950);
+  });
+
+  it("polls every 200 ms once the endpoint is published, for a daemon not ready yet", async () => {
+    const h = home({ watched: true });
+    let found: unknown;
+    void waitForDaemon(h.ports, 60_000, () => true).then((daemon) => (found = daemon));
+    await h.advance(500);
+    // Published but still starting: its status does not count yet, and readiness changes no file.
+    h.notReady();
+    await h.publish();
+    const after = h.lookups();
+    await h.advance(600);
+    expect(h.lookups()).toBe(after + 3);
+    h.ready();
+    await h.advance(200);
+    expect(found).toEqual(local);
   });
 
   it("still looks again every second when the watch reports nothing", async () => {
