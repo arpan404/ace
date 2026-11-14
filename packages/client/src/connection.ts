@@ -432,8 +432,15 @@ export class Connection {
   }
   #hello(transport: Transport, credential: Credential, main = false): ClientMessage {
     const parsed = parseCredential(credential);
-    // Only the main socket asks: a side path's welcome would add a ticket nobody uses.
-    const ask = main && "ticket" in parsed && this.#options.now !== undefined;
+    // Asked only where the next connect can use it: on the main socket (not a side path), and
+    // on a transport without a credential of its own (not a relay attempt or a path race,
+    // whose winner's route picks the credential). Otherwise the daemon's per-device pool would
+    // hold a ticket nobody uses.
+    const ask =
+      main &&
+      "ticket" in parsed &&
+      transport.credential === undefined &&
+      this.#options.now !== undefined;
     return {
       type: "hello",
       protocolVersion: 1,

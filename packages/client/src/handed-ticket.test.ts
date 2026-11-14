@@ -158,3 +158,42 @@ test("a handed ticket too close to running out is not offered", async () => {
   await h.drop();
   expect(h.socket().hellos[0]).toMatchObject({ ticket: exchangedTicket });
 });
+
+test("a race, whose paths each bring their own credential, never asks for a ticket it can't use", async () => {
+  const sent: Record<string, unknown>[] = [];
+  let events: TransportEvents | undefined;
+  const connection = new Connection(
+    {
+      deviceId: DeviceId.parse("phone"),
+      // As `racingTransport` is: the winning path's credential, a ticket here.
+      transport: () => ({
+        credential: async () => ({ ticket: exchangedTicket }),
+        open(next) {
+          events = next;
+          next.open();
+        },
+        send(text) {
+          sent.push(JSON.parse(text));
+        },
+        close() {},
+      }),
+      credential: async () => ({ ticket: exchangedTicket }),
+      storage: { load: async () => null, save: async () => {} },
+      scheduler: { set: () => () => {} },
+      random: () => 0.5,
+      id: () => "id",
+      now: () => 0,
+    },
+    new WireCodec(),
+    defaultLimits,
+    () => {},
+    () => {},
+    () => {},
+  );
+  connection.start();
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  expect(events).toBeDefined();
+  expect(sent[0]).toMatchObject({ type: "hello", ticket: exchangedTicket });
+  // No ticket is handed over that would sit unused in the daemon's per-device pool.
+  expect(sent[0]).not.toHaveProperty("nextTicket");
+});
