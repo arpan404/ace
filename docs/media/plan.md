@@ -1034,7 +1034,7 @@ depend on it.
 | **B1** VideoToolbox backend       | M5             | `media-vt` (encode, decode with destination size, Metal scale/convert via `CVMetalTextureCache` with `VTPixelTransferSession`/vImage only as CPU fallback, VT JPEG decode and encode, transcode, `CVPixelBufferPool`s); its `probe()` (one bounded availability trial, cancellable)                                                                                                                                                                                                                                                                           | encode H.264/HEVC at 1280×800 and 2560×1600, forced keyframe, rate change in place, decode back to size; transcode (decode → scale → encode) with no CPU copy; JPEG decode and encode report `hardware` exactly when their sessions report hardware use; the probe reports `zeroCopy` truthfully (a test forces a CPU copy and expects `false`) | `bench/encode --backend vt`: 2560×1600 HEVC ≥ 100 fps, 1080p H.264 ≥ 240 fps; Mac numbers in "Acceleration acceptance" |
 | **B2** Media Foundation backend   | M5             | `media-mf` (D3D11 video processor, hardware MFTs with D3D11 input, DXVA decode, hardware MJPEG decode/encode MFTs where present, WIC as CPU fallback, texture rings); its `probe()` (one bounded availability trial, cancellable)                                                                                                                                                                                                                                                                                                                             | the same as B1 on a GPU machine; on the Windows VM: the software MFT path and no MFT reported; staging readbacks counted and 0 on the hardware path                                                                                                                                                                                             | VM: 1080p30 software H.264 ≥ 30 fps (labelled fallback); GPU numbers in "Acceleration acceptance"                      |
 | **B3** VA-API backend + bitstream | M5             | `media-vaapi` (encode, VPP, DMA-BUF import, VA JPEG decode and encode, surface pools), `media-bitstream`; its `probe()` (one bounded availability trial, cancellable)                                                                                                                                                                                                                                                                                                                                                                                         | SPS/PPS/VPS writer vectors; on an Intel or AMD host: encode → decode round trip from an imported DMA-BUF with no CPU copy; VA JPEG decode/encode where the driver lists them; with `libva` absent: reports no backend, no crash                                                                                                                 | Linux Intel/AMD numbers in "Acceleration acceptance"                                                                   |
-| **B4** Last-resort encoder        | M5             | `media-chrome` (Chrome for Testing over its own `--remote-debugging-pipe`, the video extension's `openPictures`), used only when the probe found no hardware encoder at all; its `probe()` (one bounded availability trial, cancellable)                                                                                                                                                                                                                                                                                                                      | JPEG pictures in → H.264 units out; Chrome crash → restarted, encode resumes at a keyframe; never chosen on a machine whose probe lists a hardware encoder; the source reports its encode step with `backend: "chrome"`                                                                                                                         | parity with today's encoder Chrome (60 fps at 1280×800), reported on a VM                                              |
+| **B4** Last-resort encoder        | M5             | `media-chrome` (Chrome for Testing over its own `--remote-debugging-pipe`, running its own encoder page fed binary pictures over loopback WebSockets; see "B4 notes"), used only when the probe found no hardware encoder at all; its `probe()` (one bounded availability trial, cancellable)                                                                                                                                                                                                                                                                 | JPEG pictures in → H.264 units out; Chrome crash → restarted, encode resumes at a keyframe; never chosen on a machine whose probe lists a hardware encoder; the source reports its encode step with `backend: "chrome"`                                                                                                                         | parity with today's encoder Chrome (60 fps at 1280×800), reported on a VM                                              |
 | **B5** NVENC/NVDEC backend        | M5             | `media-nv`: own `#[repr(C)]` bindings for one pinned API version, written from NVIDIA's public docs; run-time loading of the driver's libraries (Linux `libnvidia-encode.so.1`, `libnvcuvid.so.1`, `libcuda.so.1`; Windows `nvEncodeAPI64.dll`, `nvcuvid.dll`, `nvcuda.dll`); NVENC with OpenGL (Linux) and D3D11 (Windows) input; NVDEC (H.264/HEVC only; never its hybrid JPEG) with output scaling; only the P1–P7 presets with tuning info; the developer-only `ACE_NV_HEADERS` layout check; its `probe()` (one bounded availability trial, cancellable) | on an NVIDIA host: encode → decode round trip from a GL texture made from a DMA-BUF, with no CPU copy; NVDEC still at the requested size; a missing or too-old driver → no backend, no crash; `cargo deny` and a repo check that no NVIDIA header or binary is committed                                                                        | Linux NVIDIA numbers in "Acceleration acceptance"; on Windows NVIDIA, the MFT-vs-NVENC result recorded                 |
 
 ### Wave 4: phase 1 (parallel)
@@ -1225,3 +1225,57 @@ hardware, zeroCopy, state, maxWidth, maxHeight}`. `step` is one of `encode`, `de
   never fail an older client. On the browser it sits beside `video`, not inside it:
   `BrowserState.video` exists only while the live video retries, and making it present while
   playing would fail older clients, whose schema requires `status: "retrying"`.
+
+## B4 notes
+
+- **Its own page, not the video extension.** `media-chrome` serves `assets/encoder.html` at
+  `http://127.0.0.1:<port>/<token>/` and the page opens two WebSockets back to it: pictures in,
+  chunks out, both binary, so nothing is base64 in JSON. The token is random per browser and
+  reaches Chrome only over the debugging pipe (`Target.createTarget`); the sockets take only the
+  page's origin, and the listener closes once both are open. The extension's `openPictures` stays
+  with the daemon's encoder Chrome until X2 removes it.
+- **Pictures.** JPEG as it is (`jpeg_picture`, decoded by Chrome's `ImageDecoder`), or CPU
+  RGBA, BGRA, NV12 and RGB (widened to RGBX). Output is AVCC with the avcC description on
+  keyframes, Constrained Baseline at the lowest level that holds the size and rate. The page asks
+  for `prefer-software`, so `hardware: false` is true of what runs.
+- **Fixed command line.** Callers pass the executable and the profile root, never switches: the
+  sandbox, web security, the debugging transport and the profile can't be changed from outside.
+- **Lifetime.** A guard owns Chrome and its profile from the moment it exists, on every path.
+  Chrome runs in its own process group (Unix) or a kill-on-close job (Windows), and cleanup ends
+  the whole tree. If ace-media dies, Chrome exits because its debugging pipe closes (checked on
+  macOS and Windows); Linux also sets `PR_SET_PDEATHSIG`, from a reaper thread that lives as
+  long as Chrome. Abandoned profiles (`chrome-encoder-*`, this user's, a minute old, owner and
+  `SingletonLock` holder gone) are reclaimed at start.
+- **Bounds.** The page's request head is read under an absolute deadline (one second per
+  client), and the token is compared in constant time. Unread replies from the pipe (16), page
+  events (256) and chunk bytes (64 MiB) are bounded; past a bound the session ends with the
+  reason, like a protocol error.
+- **Supervision.** At most three pictures in flight, then `Backpressure`. A browser that exits
+  or crashes is replaced on the next picture, configured the same way, and that picture is a
+  keyframe. Deaths and failed launches both count, and a failed launch is retried after a
+  doubling backoff (pictures get `Backpressure` meanwhile). After three in a row with no chunk
+  the encoder gives up for good. `poll_result` reports a browser death or a page encoder failure
+  once, after the units already out.
+- **Selection.** `last_resort_needed` is true only when no other backend's encode trial is
+  hardware and `ok`. The trial (`probe`) runs on its own thread and returns `timed-out` at its
+  deadline; the abandoned thread closes its browser.
+- **Windows.** Chrome takes the pipe from C runtime descriptors 3 and 4, handed over through
+  `STARTUPINFO.lpReserved2`, with a `STARTUPINFOEX` handle list so only those handles and `NUL`
+  are inherited. Chrome and Edge are found where the daemon looks (Program Files, LocalAppData,
+  `PATH`).
+- **Measured** on the M-series Mac (shared, load average 16–38 during the runs), Chrome for
+  Testing 153, `cargo run --release -p media-chrome --example encode`, 10 s after 2 s warm-up:
+
+  | Input                         | fps out | CPU, Chrome's processes | CPU, ace-media side | Latency p50 / p95 |
+  | ----------------------------- | ------- | ----------------------- | ------------------- | ----------------- |
+  | 1920×1080 JPEG q80 @ 30, 6 Mb | 30.1    | 79 % of a core          | 0.9 %               | 11 / 19 ms        |
+  | 1920×1080 RGBA @ 30, 6 Mb     | 28.1    | 79 % of a core          | 5.7 %               | 12 / 129 ms       |
+  | 1280×800 JPEG q80 @ 60, 8 Mb  | 60.1    | 77 % of a core          | 1.0 %               | 6 / 11 ms         |
+
+  Cold start to a configured encoder is 0.4–0.7 s and the probe trial 0.65 s here.
+
+  On the Windows 11 ARM64 VM (VMware, 8 vCPU, Edge, native build): 1920×1080 JPEG q80 @ 30
+  gave 30.1 fps out, p50/p95 13/21 ms; 1280×800 JPEG q80 @ 60 gave 60.1 fps, 7/11 ms. The bench
+  doesn't measure CPU on Windows. Cold start there is 1.3–1.5 s and the probe trial 1.7 s, close
+  to the probe's 2 s deadline, so a slower VM's first trial may time out; a late success then
+  arrives as `capabilities.changed`. An x64 Windows VM and a Linux VM are still unmeasured.
