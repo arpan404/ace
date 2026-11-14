@@ -4,11 +4,9 @@ import {
   spadeCappedLine,
   spadeTaskLine,
   spadeGroupLine,
-  spadeLiveSurfaces,
   spadeProblemStep,
   spadeSetupSentence,
   spadeStateLine,
-  spadeSurfaceNames,
 } from "@ace/ui-core/spade-chat";
 import {
   ArrowSquareInIcon,
@@ -31,7 +29,6 @@ import { ViewSidebar } from "@/features/shell/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { useMachines } from "@/lib/machines.ts";
 import { useNow } from "@/lib/time.ts";
-import { surfaceIcons } from "./computer/computer-view.tsx";
 import { NewBotDialog } from "./spade-bot-dialog.tsx";
 import { botFileMax } from "./spade-bot-start.tsx";
 import { filterSpadeList, spadeListCounts, type SpadeListFilter } from "./spade-list-filter.ts";
@@ -329,7 +326,6 @@ function Row(props: { bot: RosterBot; current: boolean; now: number }) {
           >
             {bot.name}
           </span>
-          <SurfaceMarks bot={bot} />
           <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">
             {formatAge(bot.lastActivity, props.now)}
           </span>
@@ -354,25 +350,6 @@ function Row(props: { bot: RosterBot; current: boolean; now: number }) {
         </span>
       </span>
     </Link>
-  );
-}
-
-/** What the bot uses on its computer now: a globe, a screen, a terminal. */
-function SurfaceMarks(props: { bot: RosterBot }) {
-  if (props.bot.away || props.bot.unavailable) return null;
-  const live = spadeLiveSurfaces(props.bot.computer);
-  if (!live.length) return null;
-  return (
-    <span
-      data-tone="working"
-      role="img"
-      aria-label={`Using its ${live.map((surface) => spadeSurfaceNames[surface.kind].toLowerCase()).join(" and ")}`}
-      className="flex shrink-0 items-center gap-1 self-center text-(--tone-text)"
-    >
-      {live.map((surface) => (
-        <Icon key={surface.kind} icon={surfaceIcons[surface.kind]} size={13} />
-      ))}
-    </span>
   );
 }
 
