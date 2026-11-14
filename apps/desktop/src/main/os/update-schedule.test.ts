@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { scheduleChecks, type UpdateSchedule } from "./update-schedule.ts";
 
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+
 const schedule: UpdateSchedule = {
   afterDaemonMs: 5_000,
   launchLatestMs: 60_000,
@@ -38,7 +40,6 @@ function app(options: { draws?: number[] } = {}) {
     },
     schedule,
   );
-  const settle = () => new Promise((resolve) => setImmediate(resolve));
   return {
     schedule: checkSchedule,
     state,

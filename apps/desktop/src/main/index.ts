@@ -138,6 +138,9 @@ else
     crashDumpDir,
   );
 
+/** Milliseconds since the app launched, for the launch steps the log records. */
+const sinceLaunchMs = () => Math.round(performance.now());
+
 function isDirectory(path: string): boolean {
   try {
     return statSync(path).isDirectory();
@@ -288,12 +291,12 @@ function main(target: DaemonTarget, crashDumps: string): void {
     timers,
     log: logger("quit"),
   });
-  const daemonRunning = new Promise<void>((resolve) => {
-    if (runtime.current().state === "running") return resolve();
+  const daemonRunning = new Promise<void>((settle) => {
+    if (runtime.current().state === "running") return settle();
     const stop = runtime.onStatus((status) => {
       if (status.state !== "running") return;
       stop();
-      resolve();
+      settle();
     });
   });
   const updates = appUpdates({
@@ -535,7 +538,6 @@ function main(target: DaemonTarget, crashDumps: string): void {
     // takes. Only a real failure rejects; the page then shows its connection screen and
     // reloads once the daemon is running again.
     let missedConnection = false;
-    const sinceLaunchMs = () => Math.round(performance.now());
     let handedOnce = false;
     const connection = async () => {
       try {

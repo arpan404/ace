@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { waitForDaemon, type EndpointWatch, type ReadinessPorts } from "./readiness.ts";
 import { local } from "./supervisor-test-support.ts";
 
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+
 /** A home whose daemon publishes its endpoint when the test says, on a fake clock. */
 function home(options: { watched: boolean }) {
   let now = 0;
@@ -31,7 +33,6 @@ function home(options: { watched: boolean }) {
     now: () => now,
     log: () => {},
   };
-  const settle = () => new Promise((resolve) => setImmediate(resolve));
   return {
     ports,
     lookups: () => lookups,

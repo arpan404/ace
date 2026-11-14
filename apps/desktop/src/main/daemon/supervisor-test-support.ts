@@ -140,12 +140,11 @@ export function machine(options: { sharedBeat?: boolean } = {}) {
       now: () => now,
       clock: {
         every(milliseconds, tick) {
-          let cancel = () => {};
           const beat = () => {
             tick();
             cancel = ports.timers.set(milliseconds, beat);
           };
-          cancel = ports.timers.set(milliseconds, beat);
+          let cancel = ports.timers.set(milliseconds, beat);
           return () => cancel();
         },
       },
