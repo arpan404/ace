@@ -47,7 +47,8 @@ struct LargeFileText: Equatable {
         /// The bytes of the file the part covers: `[offset, end)`.
         let offset: Int
         let end: Int
-        /// The 0-based line number of its first line in the file.
+        /// The 0-based line number of its first line in the file (the line it starts in, which a
+        /// part after a cut long line shares with the part before).
         let firstLine: Int
         let lines: [String]
         /// The part's text ended with a line break (every part but a file's last one does).
@@ -128,7 +129,9 @@ struct LargeFileText: Equatable {
                           endsWithBreak: lines.endsWithBreak, last: page.done))
         version = page.version
         size = page.size
-        if !page.done { learn(Start(offset: page.nextOffset, firstLine: firstLine + lines.lines.count)) }
+        // A page that ends inside a line (one longer than a page) leaves the next page in it.
+        let carried = lines.endsWithBreak || lines.lines.isEmpty ? 0 : 1
+        if !page.done { learn(Start(offset: page.nextOffset, firstLine: firstLine + lines.lines.count - carried)) }
     }
 }
 
