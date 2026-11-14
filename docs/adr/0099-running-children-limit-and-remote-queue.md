@@ -108,16 +108,16 @@ settle, and the caller must notice so the parent never reads done while it runs.
   - a child past its 24 hours, or a stop not yet confirmed, keeps its machine on the fast pace;
   - a child leaves tracking only once a check made at or after its 24-hour mark is answered
     (its `settled_at` is cleared then), never on a timer, across restarts too.
-  Work started again on a settled child is read within one wait plus one round: at most
-  5 minutes + `ceil(n / 16)` × 10 s with n children tracked on the machine (5 min 40 s for 64),
-  and after a restart within `ceil(n / 16)` × 10 s. On each machine
-  the children checked longest ago go first (a saved turn number), so every eligible child is
-  checked in turn however many there are. A child
-  found running again reopens: the parent's row shows it running and the parent waits until it
-  settles again. One that ran and settled with a different result hands the parent that result;
-  changes that leave the outcome and result alone (a title, a pin) are ignored. Work started
-  there more than 24 hours after the child settled is not noticed; the parent was told its result
-  long before.
+    Work started again on a settled child is read within one wait plus one round: at most
+    5 minutes + `ceil(n / 16)` × 10 s with n children tracked on the machine (5 min 40 s for 64),
+    and after a restart within `ceil(n / 16)` × 10 s. On each machine
+    the children checked longest ago go first (a saved turn number), so every eligible child is
+    checked in turn however many there are. A child
+    found running again reopens: the parent's row shows it running and the parent waits until it
+    settles again. One that ran and settled with a different result hands the parent that result;
+    changes that leave the outcome and result alone (a title, a pin) are ignored. Work started
+    there more than 24 hours after the child settled is not noticed; the parent was told its result
+    long before.
 
 **Every unsettled child is read in turn.** Each poll reads unsettled children with at most 16
 status calls of 16 children each, and at most 64 children from any one machine. Each machine

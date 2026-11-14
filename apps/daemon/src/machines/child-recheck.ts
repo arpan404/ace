@@ -118,9 +118,7 @@ export class RecheckSchedule {
   due(machine: string, facts: RecheckFacts, now: number): boolean {
     const polls = (this.polls.get(machine) ?? 0) + 1;
     this.polls.set(machine, polls);
-    return (
-      now >= this.dueAt(machine, facts, now) || polls >= this.everyPolls(machine, facts, now)
-    );
+    return now >= this.dueAt(machine, facts, now) || polls >= this.everyPolls(machine, facts, now);
   }
   /** Machines with no settled child to re-check keep no schedule. */
   retain(machines: ReadonlySet<string>): void {

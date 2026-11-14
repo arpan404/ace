@@ -127,20 +127,20 @@ test("an idle connection closes before the machine's own limit, and the next one
   expect(target.sockets[1]?.isSessionReused()).toBe(true);
 });
 
-const isBrowser = (call: MachineCall) => call.op === "browser";
+const isBrowser = (asked: MachineCall) => asked.op === "browser";
 
 /**
  * A machine running this build's `/v1/machine-calls` handler: browser calls take `slowMs` to
  * answer, anything else answers at once; each call's arrival time is recorded by op.
  */
-async function busyMachine(slowMs: number, slow: (call: MachineCall) => boolean = isBrowser) {
+async function busyMachine(slowMs: number, slow: (asked: MachineCall) => boolean = isBrowser) {
   const arrived: { op: string; at: number }[] = [];
   const handler = machineCallsHttp(
     () => ({
       handle: async (_device, body) => {
-        const { call } = MachineCallRequest.parse(body);
-        arrived.push({ op: call.op, at: Date.now() });
-        if (slow(call)) await new Promise((resolve) => setTimeout(resolve, slowMs));
+        const asked = MachineCallRequest.parse(body).call;
+        arrived.push({ op: asked.op, at: Date.now() });
+        if (slow(asked)) await new Promise((resolve) => setTimeout(resolve, slowMs));
         return { status: 200, body: { ok: true } };
       },
     }),
@@ -215,7 +215,11 @@ test("a call that never gets a connection fails at its own deadline, saying it w
   const target = await busyMachine(3000);
   const connections = pool();
   const long = Array.from({ length: 6 }, () =>
-    machineRequest(target.profile, { origin, call: browserCall }, { timeoutMs: 10_000, connections }),
+    machineRequest(
+      target.profile,
+      { origin, call: browserCall },
+      { timeoutMs: 10_000, connections },
+    ),
   );
   await expect.poll(() => target.arrived.length).toBe(6);
   const started = Date.now();
@@ -232,7 +236,7 @@ test("a call that never gets a connection fails at its own deadline, saying it w
 
 test("an answer to the person reaches its machine at once while stops hold the urgent connections", async () => {
   const stop: MachineCall = { op: "commands", tool: "command_stop", args: { jobId: "job-1" } };
-  const target = await busyMachine(4000, (call) => call.op === "commands");
+  const target = await busyMachine(4000, (asked) => asked.op === "commands");
   const connections = pool();
   const stops = Array.from({ length: 2 }, () =>
     machineRequest(target.profile, { origin, call: stop }, { timeoutMs: 25_000, connections }),

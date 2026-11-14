@@ -81,13 +81,16 @@ test("a field this build doesn't know, anywhere in the answer, keeps it uncompre
     ["describe", { ...describe, grants: { ...describe.grants, link } }],
     ["describe", { ...describe, homepage: link }],
   ] as const;
-  for (const [op, body] of nested) expect(compressibleAnswer(op, body), JSON.stringify(body)).toBe(false);
+  for (const [op, body] of nested)
+    expect(compressibleAnswer(op, body), JSON.stringify(body)).toBe(false);
 });
 
 test("a status answer holding a request for the person is never compressed", () => {
   const asking = {
     ...view,
-    requests: [{ threadId: "child-1", interactionId: "i-1", request: { kind: "browser_help", url: link } }],
+    requests: [
+      { threadId: "child-1", interactionId: "i-1", request: { kind: "browser_help", url: link } },
+    ],
   };
   expect(compressibleAnswer("status", { threads: [asking] })).toBe(false);
   expect(
@@ -98,6 +101,8 @@ test("a status answer holding a request for the person is never compressed", () 
 });
 
 test("a field of the wrong type is not taken as safe", () => {
-  expect(compressibleAnswer("status", { threads: [{ ...view, title: { url: link } }] })).toBe(false);
+  expect(compressibleAnswer("status", { threads: [{ ...view, title: { url: link } }] })).toBe(
+    false,
+  );
   expect(compressibleAnswer("describe", { ...describe, tools: [{ url: link }] })).toBe(false);
 });

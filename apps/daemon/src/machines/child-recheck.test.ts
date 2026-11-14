@@ -80,8 +80,6 @@ test("a stop still unconfirmed keeps its machine on the fast pace, however old i
   schedule.answered("studio", [{ id: "child-a", settledAt: hoursAgo }], 0);
   const quiet = { latest: hoursAgo, expired: false, unconfirmed: false };
   expect(schedule.dueAt("studio", quiet, 0)).toBe(RECHECK_SLOWEST_POLLS * pollMs);
-  expect(schedule.dueAt("studio", { ...quiet, unconfirmed: true }, 0)).toBe(
-    RECHECK_POLLS * pollMs,
-  );
+  expect(schedule.dueAt("studio", { ...quiet, unconfirmed: true }, 0)).toBe(RECHECK_POLLS * pollMs);
   expect(schedule.dueAt("studio", { ...quiet, expired: true }, 0)).toBe(RECHECK_POLLS * pollMs);
 });
