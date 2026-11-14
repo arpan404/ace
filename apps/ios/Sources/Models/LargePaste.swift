@@ -28,10 +28,17 @@ enum LargePaste {
 
     private static func name(_ lines: Int) -> String { "Pasted \(lines) \(lines == 1 ? "line" : "lines").txt" }
 
+    /// Lines as the web counts them: one trailing `\n` or `\r\n` ends the last line, every other
+    /// `\n` starts one. Counted in UTF-16 units, where `\r\n` is two, not one Character.
     private static func lineCount(_ text: String) -> Int {
-        // One trailing line break ends the last line rather than starting another.
-        var body = Substring(text)
-        if body.hasSuffix("\r\n") { body = body.dropLast(2) } else if body.hasSuffix("\n") { body = body.dropLast() }
-        return body.utf8.reduce(1) { $1 == UInt8(ascii: "\n") ? $0 + 1 : $0 }
+        let units = text.utf16
+        var end = units.endIndex
+        if end > units.startIndex, units[units.index(before: end)] == newline {
+            end = units.index(before: end)
+            if end > units.startIndex, units[units.index(before: end)] == carriageReturn { end = units.index(before: end) }
+        }
+        return units[units.startIndex..<end].reduce(1) { $1 == newline ? $0 + 1 : $0 }
     }
+    private static let newline: UInt16 = 0x0A
+    private static let carriageReturn: UInt16 = 0x0D
 }

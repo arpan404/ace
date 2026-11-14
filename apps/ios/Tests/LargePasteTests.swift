@@ -17,6 +17,18 @@ import Testing
         #expect(LargePaste.file(for: lines(41) + "\n") == LargePaste.File(name: "Pasted 41 lines.txt", lines: 41))
         #expect(LargePaste.file(for: lines(41).replacingOccurrences(of: "\n", with: "\r\n"))?.lines == 41)
     }
+    @Test func aTrailingWindowsLineBreakEndsTheLastLineAsTheWebCountsIt() {
+        let crlf = (0..<41).map { "line \($0)" }.joined(separator: "\r\n")
+        #expect(LargePaste.file(for: crlf + "\r\n")?.lines == 41)
+        #expect(LargePaste.file(for: lines(40).replacingOccurrences(of: "\n", with: "\r\n") + "\r\n") == nil)
+    }
+    @Test func blankLinesAtTheEndCountPastTheFirstBreak() {
+        // Only one trailing break ends the last line: each further one is a blank line, as on the web.
+        #expect(LargePaste.file(for: lines(40) + "\n") == nil)
+        #expect(LargePaste.file(for: lines(40) + "\n\n")?.lines == 41)
+        #expect(LargePaste.file(for: lines(40) + "\r\n\r\n")?.lines == 41)
+        #expect(LargePaste.file(for: lines(39) + "\n\n") == nil)
+    }
     @Test func oneVeryLongLineBecomesAFileToo() {
         #expect(LargePaste.file(for: String(repeating: "x", count: 2_049)) == LargePaste.File(name: "Pasted 1 line.txt", lines: 1))
     }
