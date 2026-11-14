@@ -6,6 +6,7 @@ import type { AccountMachineOptions } from "@ace/client-worker/machines";
 import type { KeyValueStorage } from "@ace/ui-core";
 import { accountOrigin, hostedRelayUrl, windowAccountSession } from "./account-config.ts";
 import { createBrowserClient } from "./client.ts";
+import { grantCache } from "./grant-cache.ts";
 import { browserInstallId } from "./install-id.ts";
 import { authorizeDaemonUrl } from "./daemon-network.ts";
 import { browserChecksDirect, checkedSocketTransport, httpsProbe } from "./machine-routes.ts";
@@ -124,8 +125,8 @@ export function accountMachineClient(
 
 /**
  * How the machine pool opens machines on the person's ace account (ADR 0111): through ace's
- * hosted relay, with a fresh device grant from the account backend for every attempt and the
- * ace session this window holds at that moment. Undefined in a build without ace accounts.
+ * hosted relay, with a device grant from the account backend (kept for most of its life and
+ * shared by every path of an attempt) and the ace session this window holds at that moment. Undefined in a build without ace accounts.
  */
 export function accountMachineOptions(options: {
   /** Long-lived storage: this browser's device id on the account. */
@@ -145,6 +146,13 @@ export function accountMachineOptions(options: {
   });
   // The account knows this install by its install id, the id every machine knows it by too.
   const deviceId = browserInstallId(options.storage);
+  // One grant serves every path of a race and the reconnects of its life; the clock is the
+  // browser's, read here at the boundary.
+  const grants = grantCache(
+    (token) =>
+      account.grant(token, { kind: "device", subject: deviceId }, AbortSignal.timeout(15_000)),
+    () => Date.now(),
+  );
   return {
     relayUrl,
     deviceId,
@@ -153,12 +161,7 @@ export function accountMachineOptions(options: {
       if (!session) throw new ClientError("auth", "Sign in to your ace account again.");
       // The desktop app admits only addresses the person chose; the relay is one of them.
       await authorizeDaemonUrl(relayUrl);
-      const grant = await account.grant(
-        session.token,
-        { kind: "device", subject: deviceId },
-        AbortSignal.timeout(15_000),
-      );
-      return grant.token;
+      return grants(session.token);
     },
     socket: browserDeviceSocket,
     // The network changed: a better path may be back, or the active one gone.
