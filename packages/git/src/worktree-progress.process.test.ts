@@ -98,7 +98,10 @@ async function files(root: string): Promise<Map<string, string>> {
     const info = await lstat(join(root, name));
     if (info.isSymbolicLink()) found.set(name, `link:${await readlink(join(root, name))}`);
     else if (info.isFile())
-      found.set(name, `${info.mode & 0o100 ? "x" : "-"}:${await readFile(join(root, name), "hex")}`);
+      found.set(
+        name,
+        `${info.mode & 0o100 ? "x" : "-"}:${await readFile(join(root, name), "hex")}`,
+      );
   }
   return found;
 }
@@ -110,7 +113,10 @@ test("a checkout written in batches has exactly the files a plain worktree add w
     await Promise.all(
       Array.from({ length: 3000 }, async (_, index) => {
         await mkdir(join(f.repo, `dir-${index % 7}`, `sub-${index % 3}`), { recursive: true });
-        await writeFile(join(f.repo, `dir-${index % 7}`, `sub-${index % 3}`, `n-${index}`), `${index}\n`);
+        await writeFile(
+          join(f.repo, `dir-${index % 7}`, `sub-${index % 3}`, `n-${index}`),
+          `${index}\n`,
+        );
       }),
     );
     if (process.platform !== "win32") {
@@ -120,8 +126,19 @@ test("a checkout written in batches has exactly the files a plain worktree add w
     }
     await git("git", ["-C", f.repo, "add", "."]);
     await git("git", [
-      "-C", f.repo, "-c", "maintenance.auto=false", "-c", "gc.auto=0",
-      "-c", "user.name=Test", "-c", "user.email=test@ace.local", "commit", "-qm", "More",
+      "-C",
+      f.repo,
+      "-c",
+      "maintenance.auto=false",
+      "-c",
+      "gc.auto=0",
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@ace.local",
+      "commit",
+      "-qm",
+      "More",
     ]);
     const plain = join(f.home, "plain");
     await git("git", ["-C", f.repo, "worktree", "add", "-q", "-b", "plain", plain]);

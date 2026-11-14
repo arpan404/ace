@@ -205,13 +205,16 @@ export class WorkspaceCreations {
     // Reads that touch no remote run together: the worktree list, a free branch name and a
     // local base. A fetch or a pull request's preparation still waits for the checks below.
     const local =
-      requested.kind !== "pull-request" && !(context.host && requested.kind === "branch" && requested.remote);
+      requested.kind === "pull-request"
+        ? undefined
+        : context.host && requested.kind === "branch" && requested.remote
+          ? undefined
+          : requested;
     const early = {
       branch: freeBranch(this.git, project, `ace/${key.slice(0, 24)}`, bounded),
-      base:
-        local && requested.kind !== "pull-request"
-          ? this.resolveBase(project, requested, { ...io, reads: bounded }, context.host)
-          : undefined,
+      base: local
+        ? this.resolveBase(project, local, { ...io, reads: bounded }, context.host)
+        : undefined,
     };
     // A read abandoned by an early return or failure must not surface as unhandled.
     early.branch.catch(() => {});
@@ -240,7 +243,8 @@ export class WorkspaceCreations {
       requested.kind === "pull-request"
         ? { head: preparedPr?.head ?? "", record: undefined }
         : await abortable(
-            early.base ?? this.resolveBase(project, requested, { ...io, reads: bounded }, context.host),
+            early.base ??
+              this.resolveBase(project, requested, { ...io, reads: bounded }, context.host),
             bounded,
           ).catch(async (error: unknown) => {
             if (await noCommits(this.git, project, error)) throw new CreationError("no_commits");

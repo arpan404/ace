@@ -111,7 +111,13 @@ export function startUtility(context: ServiceContext): void {
       void (async () => {
         try {
           const execute = promisify(execFile);
-          await nameWorktreeBranch(store, threadId, now(), worktreeGitScope(execute, process.env), slug);
+          await nameWorktreeBranch(
+            store,
+            threadId,
+            now(),
+            worktreeGitScope(execute, process.env),
+            slug,
+          );
         } catch (error) {
           log.log(
             "debug",

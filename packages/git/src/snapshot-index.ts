@@ -99,8 +99,8 @@ async function copyIndex(
   const entries = records.length
     ? parseIndex(Buffer.from(records.map((record) => record.slice(2)).join("\0") + "\0"))
     : [];
-  for (const [index, entry] of entries.entries()) {
-    const tag = records[index]?.[0] ?? "";
+  for (const [position, entry] of entries.entries()) {
+    const tag = records[position]?.[0] ?? "";
     if (tag === "S") skipped.push(entry.path);
     else if (tag !== tag.toUpperCase()) assumed.push(entry.path);
   }

@@ -75,7 +75,7 @@ describe("snapshots seeded from the checkout's own index", () => {
   });
 
   test("a path HEAD has as a file and the index as a directory keeps the index's shape", async () => {
-    const repo = await repository({ "shape": "a file in HEAD\n" });
+    const repo = await repository({ shape: "a file in HEAD\n" });
     await git(repo, "rm", "--cached", "-q", "shape");
     await rm(join(repo, "shape"));
     await put(repo, "shape/inner.txt", "now a directory\n");

@@ -12,7 +12,11 @@ import { promisify } from "node:util";
 import { spawnGitProcess } from "@ace/git";
 import { Command, CommandId, Thread, ThreadId } from "@ace/protocol";
 import { WorkspaceCreations } from "../src/creation-workspace.ts";
-import { nameWorktreeBranch, runWorktreeGit, worktreeGitScope } from "../src/engine/worktree-title.ts";
+import {
+  nameWorktreeBranch,
+  runWorktreeGit,
+  worktreeGitScope,
+} from "../src/engine/worktree-title.ts";
 import { Store } from "../src/store.ts";
 import { WorkspaceRuntime } from "../src/workspace-runtime.ts";
 
@@ -85,7 +89,8 @@ const name = (args: string[]) => {
     ? `${plain[0]} ${plain.find((arg, index) => index > 0 && arg.startsWith("-")) ?? plain[1] ?? ""}`.trim()
     : (plain[0] ?? "?");
 };
-const median = (values: number[]) => values.toSorted((a, b) => a - b)[Math.floor(values.length / 2)];
+const median = (values: number[]) =>
+  values.toSorted((a, b) => a - b)[Math.floor(values.length / 2)];
 const measure = async (work: (index: number) => Promise<void>) => {
   const times: number[] = [];
   let counts: Record<string, number> = {};
@@ -144,7 +149,10 @@ const worktreeCreate = await measure(async (index) => {
 // The first send in a worktree thread renames ace's provisional branch from the title.
 const renameSpawns = async (scoped: boolean, index: number) => {
   // A worktree outside the creation journal, so renaming its branch leaves cleanup alone.
-  const workspace = { path: join(home, `rename-${index}`), branch: `ace/${"c".repeat(23)}${index}` };
+  const workspace = {
+    path: join(home, `rename-${index}`),
+    branch: `ace/${"c".repeat(23)}${index}`,
+  };
   await git(repo, "worktree", "add", "-q", "-b", workspace.branch, workspace.path, "main");
   const id = ThreadId.parse(`rename-${index}`);
   const named = Thread.parse({

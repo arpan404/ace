@@ -34,7 +34,7 @@ export async function createWorktree(
     const { cli } = repository;
     checkCancellation(options.signal);
     // Independent reads, all under the lock; failures still surface in this order.
-    const [valid, commit, exists, trees] = await Promise.allSettled([
+    const [valid, commit, exists, listed] = await Promise.allSettled([
       cli.call(root, ["check-ref-format", `refs/heads/${options.branch}`], { allowFailure: true }),
       repository.commit(root, options.baseRef),
       cli.call(root, ["show-ref", "--verify", "--quiet", `refs/heads/${options.branch}`], {
@@ -58,7 +58,7 @@ export async function createWorktree(
     if (existing.exitCode !== 0) await assertNoRefConflict(repository, root, options.branch);
     const path = resolve(options.path);
     // A worktree folder deleted by hand still holds its path and branch until its entry goes.
-    for (const stale of await missingBlockers(settled(trees), path, options.branch))
+    for (const stale of await missingBlockers(settled(listed), path, options.branch))
       await forgetMissing(repository, root, stale);
     const branchArgs = existing.exitCode === 0 ? [] : ["-b", options.branch];
     const staged = options.onProgress !== undefined || options.signal !== undefined;
