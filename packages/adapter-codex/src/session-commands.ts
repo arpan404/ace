@@ -1,7 +1,14 @@
 import { CodexInteractionUnavailable } from "./interaction-lifecycle.ts";
 import { z } from "zod";
 import { readBackgroundTerminals } from "./background-terminals.ts";
-import { InputRejected, type ProviderSession, type SessionContext } from "@ace/engine-api";
+import {
+  assertSteerTarget,
+  InputRejected,
+  SteerTargetLost,
+  type ProviderSession,
+  type SessionContext,
+  type SteerFence,
+} from "@ace/engine-api";
 import type { ContentPart, InteractionId, Question, PermissionMode } from "@ace/protocol";
 import type { ServerRequest } from "@ace/provider-kit/jsonrpc";
 import type { TurnStartParams } from "./generated/v2/TurnStartParams.ts";
@@ -75,9 +82,17 @@ export function createSessionCommands(
     delivery: "steer" | "queue",
     origin?: "ace",
     commandId?: string,
+    fence?: SteerFence,
   ): Promise<void> {
     assertOpen();
     const turn = active.get(threadId);
+    // A fenced steer joins only the turn it was aimed at: no turn running now, or another one,
+    // and it is refused unread, never retried into that other turn or a new one.
+    if (fence && delivery === "steer") {
+      assertSteerTarget(delivery, fence);
+      const target = fence.turn ?? turn;
+      if (!turn || target !== turn) throw new SteerTargetLost();
+    }
     const clientUserMessageId = origin !== "ace" || turn ? config.userMessageId() : undefined;
     if (commandId && clientUserMessageId)
       config.onInputMessage?.({ commandId, nativeId: clientUserMessageId });
@@ -104,6 +119,19 @@ export function createSessionCommands(
         await steerTurn(turn);
       } catch (error) {
         let message = error instanceof Error ? error.message : "";
+        if (fence) {
+          const reply = (() => {
+            try {
+              return SteerErrorReply.safeParse(JSON.parse(message));
+            } catch {
+              return undefined;
+            }
+          })();
+          const text = reply?.success ? reply.data.message : message;
+          if (/^(?:no active turn to steer|expected active turn id .+ but found .+)$/i.test(text))
+            throw new SteerTargetLost(text);
+          throw error;
+        }
         try {
           const reply = SteerErrorReply.safeParse(JSON.parse(message));
           if (reply.success) message = reply.data.message;
@@ -229,8 +257,8 @@ export function createSessionCommands(
     }
   }
   return {
-    send: (parts, delivery, commandId, origin) =>
-      sendTo(nativeSessionId, parts, delivery, origin, commandId),
+    send: (parts, delivery, commandId, origin, fence) =>
+      sendTo(nativeSessionId, parts, delivery, origin, commandId, fence),
     async interrupt(target) {
       assertOpen();
       const thread = !target.agent || target.agent === "root" ? nativeSessionId : target.agent;

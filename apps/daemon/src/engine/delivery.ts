@@ -6,7 +6,7 @@ import type { ThreadActor } from "./actor.ts";
 import type { EngineRepository, Intent } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
 import type { Sessions } from "./sessions.ts";
-import { InputRejected } from "@ace/engine-api";
+import { SteerTargetLost, type SteerFence } from "@ace/engine-api";
 import { steerLostRun } from "./steer-selection.ts";
 
 export class InteractionUnavailable extends Error {
@@ -193,11 +193,19 @@ export async function executeIntent(
       // The last moment before the provider reads it: a steer aimed at a run that has since
       // ended, while another runs, never joins that other run. Refused unread, it goes back in
       // the queue as the next message, as a steer that lost its turn does.
+      // The adapter checks the same fence again after its own last await, right before writing.
+      let fence: SteerFence | undefined;
       if (steering && p.type === "thread.send" && p.runId !== undefined) {
+        const runId = p.runId;
         const live = repo.requireState(actor.id);
         const running = live.agents[live.rootKey ?? ""]?.activeRun;
-        if (running !== undefined && steerLostRun(repo, actor.id, p.runId))
-          throw new InputRejected("The turn this message was meant to join has ended");
+        if (running !== undefined && steerLostRun(repo, actor.id, runId))
+          throw new SteerTargetLost();
+        if (running !== undefined)
+          fence = {
+            turn: live.runs[runId]?.nativeId,
+            current: () => !steerLostRun(repo, actor.id, runId),
+          };
       }
       const input = [
         ...transitions.input(actor.id).map((text) => ({ type: "text" as const, text })),
@@ -219,6 +227,7 @@ export async function executeIntent(
         repo.inputs.origin(actor.id, `input:${intent.command.id}`)?.kind === "subagent_result"
           ? "ace"
           : undefined,
+        fence,
       );
       await repo.store.writable();
       transitions.delivered(actor.id);

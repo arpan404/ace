@@ -11,7 +11,13 @@ import { ProviderPayload } from "@ace/provider-kit/payload";
 import { elidedJson } from "@ace/provider-kit/binary-elision";
 import { ShellSettlement } from "./shell-settlement.ts";
 import { cancellationGraceMs, promptStop } from "./settlement.ts";
-import { InputRejected, type ProviderSession, type SessionContext } from "@ace/engine-api";
+import {
+  InputRejected,
+  SteerTargetLost,
+  type ProviderSession,
+  type SessionContext,
+  type SteerFence,
+} from "@ace/engine-api";
 import { encodeContent } from "./content.ts";
 import type { ContentPart, InteractionResolution } from "@ace/protocol";
 import { JsonRpcPeer, MethodNotFound, type ServerRequest } from "@ace/provider-kit/jsonrpc";
@@ -41,6 +47,8 @@ interface Queued {
   input: ContentPart[];
   commandId?: string;
   origin?: "ace";
+  /** A fenced steer: written only while its turn is still current (ACP writes when idle). */
+  fence?: SteerFence;
   bytes: number;
   resolve(): void;
   reject(error: unknown): void;
@@ -369,9 +377,10 @@ class AcpSession implements ProviderSession {
   }
   async send(
     input: ContentPart[],
-    _delivery: "steer" | "queue",
+    delivery: "steer" | "queue",
     commandId?: string,
     origin?: "ace",
+    fence?: SteerFence,
   ): Promise<void> {
     // Refusals before queueing write nothing, so the agent provably took none of the input.
     if (this.closed) throw new InputRejected("ACP session closed");
@@ -386,11 +395,18 @@ class AcpSession implements ProviderSession {
       throw new InputRejected("ACP input queue capacity reached");
     const batch: Batch = { written: false };
     try {
-      await this.enqueue(inputs, batch, commandId, origin);
+      await this.enqueue(
+        inputs,
+        batch,
+        commandId,
+        origin,
+        delivery === "steer" ? fence : undefined,
+      );
     } catch (error) {
       if (batch.written) throw error;
       // No prompt of this send reached the agent; drop the rest so none goes out later.
       this.dropBatch(batch);
+      if (error instanceof InputRejected) throw error;
       throw new InputRejected(error instanceof Error ? error.message : String(error), {
         cause: error,
       });
@@ -401,6 +417,7 @@ class AcpSession implements ProviderSession {
     batch: Batch,
     commandId: string | undefined,
     origin: "ace" | undefined,
+    fence: SteerFence | undefined,
   ): Promise<void[]> {
     return Promise.all(
       inputs.map(
@@ -413,6 +430,7 @@ class AcpSession implements ProviderSession {
               input: structuredClone(parts),
               ...(commandId ? { commandId } : {}),
               ...(origin ? { origin } : {}),
+              ...(fence ? { fence } : {}),
               bytes: partBytes,
               resolve,
               reject,
@@ -445,6 +463,13 @@ class AcpSession implements ProviderSession {
       return;
     const next = this.queue.shift();
     if (!next) return;
+    // Its turn ended before ACP was idle to take it: refused unread, never written into another.
+    if (next.fence && !next.fence.current() && !next.batch.written) {
+      this.queuedBytes -= next.bytes;
+      next.reject(new SteerTargetLost());
+      this.queueChanged();
+      return void this.drain();
+    }
     this.queuedBytes -= next.bytes;
     this.active = true;
     this.queueChanged();
