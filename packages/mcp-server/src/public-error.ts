@@ -49,6 +49,7 @@ export const PublicToolCode = z.enum([
   "tab_not_found",
   "tab_limit",
   "tab_crashed",
+  "tab_unavailable",
   "element_unavailable",
   "not_visible",
   "not_hittable",
@@ -295,6 +296,10 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   tab_crashed: {
     message: "Browser tab crashed",
     hint: "The page crashed repeatedly and stays down. Reload it (browser_history direction reload) or navigate it to bring it back.",
+  },
+  tab_unavailable: {
+    message: "The browser tab could not be shown",
+    hint: "The tab was idle and did not come back this time; other tabs still work. Try the command again in a moment, and tell the person if it keeps failing.",
   },
   tab_limit: {
     message: "Browser tab limit reached",
