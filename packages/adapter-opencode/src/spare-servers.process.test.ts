@@ -9,6 +9,7 @@ import { CredentialRegistry, ToolRegistry, nodeScheduler, startMcpServer } from 
 import { spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
 import { createOpenCodeAdapter, type ServerOptions } from "./index.ts";
 import { cli, setup } from "./testing/v2-session.ts";
+import { installationIdentity } from "./installation.ts";
 
 // Real edges: each OpenCode server is a separate fake `opencode serve` process, and what this
 // file guards is which of those processes run, serve whom, and when they exit.
@@ -210,4 +211,60 @@ test("closing an adapter waits for a spare it was replacing to exit", async () =
   await o.adapter.close();
   await due();
   expect(o.processes[2]?.gone).toBe(true);
+});
+
+/** Holds the next installation check until released, so a test can act during a handoff. */
+function handoffGate() {
+  let armed = false;
+  const reached = Promise.withResolvers<void>();
+  const released = Promise.withResolvers<void>();
+  return {
+    arm: () => (armed = true),
+    reached: reached.promise,
+    release: () => released.resolve(),
+    installationIdentity: async (path: string) => {
+      if (armed) {
+        armed = false;
+        reached.resolve();
+        await released.promise;
+      }
+      return installationIdentity(path);
+    },
+  };
+}
+
+test("closing the adapter while a spare is being handed over stops it before close returns, and the open fails", async () => {
+  const gate = handoffGate();
+  const o = await observed({ runtime: { installationIdentity: gate.installationIdentity } });
+  await o.open(0);
+  await until(() => o.processes.length === 3);
+  gate.arm();
+  const opening = o.open(1);
+  await gate.reached;
+
+  await o.adapter.close();
+  await due();
+  // Process 0 is setup's own adapter; every process of this adapter has exited.
+  expect(o.processes.slice(1).map((tracked) => tracked.gone)).toEqual([true, true]);
+  gate.release();
+  await expect(opening).rejects.toThrow("OpenCode adapter is closed");
+  expect(o.processes).toHaveLength(3);
+});
+
+test("the last session closing while a spare is being handed over stops it, and the opening session starts its own", async () => {
+  const gate = handoffGate();
+  const o = await observed({ runtime: { installationIdentity: gate.installationIdentity } });
+  const first = await o.open(0);
+  await until(() => o.processes.length === 3);
+  gate.arm();
+  const opening = o.open(1);
+  await gate.reached;
+
+  await first.close("shutdown");
+  await due();
+  expect(o.processes[2]?.gone).toBe(true);
+  gate.release();
+  const second = await opening;
+  expect(running(o.processes[3])).toBe(true);
+  await second.close("shutdown");
 });

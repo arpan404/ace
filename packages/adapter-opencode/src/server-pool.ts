@@ -2,7 +2,7 @@ import { mcpReadyPluginDirectory } from "./mcp-ready.ts";
 import { z } from "zod";
 import type { SessionContext } from "@ace/engine-api";
 import { OpenCodeServer, type ServerOptions } from "./server.ts";
-import { installationIdentity } from "./installation.ts";
+import { runtime } from "./runtime.ts";
 import { AceMcpConnectionSchema } from "@ace/mcp-server";
 const Environment = z
   .record(z.string().max(256), z.string().max(32768).optional())
@@ -106,21 +106,24 @@ export class ServerPool {
     const serverOptions: ServerOptions = connection
       ? { ...credentialFree, secrets: [...(this.options.secrets ?? []), connection.bearer] }
       : credentialFree;
-    // A spare never served anyone: it gets this session's credential and nothing else's.
-    const spare = connection ? await this.takeSpare(configuration, env) : undefined;
-    if (spare && connection) spare.addSecret(connection.bearer);
-    const server = () => spare ?? new OpenCodeServer(serverOptions);
+    // Checked while it stays a spare: shutdown, the last session's close and the cap all still
+    // see it. It leaves the spares only in the same step that makes it this session's entry.
+    const checked = connection ? await this.checkedSpare(configuration, env) : undefined;
+    const server = () => {
+      if (!connection || !checked || this.closed || this.spares.get(configuration) !== checked)
+        return new OpenCodeServer(serverOptions);
+      this.spares.delete(configuration);
+      // A spare never served anyone: it gets this session's credential and nothing else's.
+      checked.server.addSecret(connection.bearer);
+      return checked.server;
+    };
     let entry = this.entries.get(key);
     if (!entry) {
       if (this.entries.size >= 128) {
         const idle = [...this.entries].find(
           ([, candidate]) => candidate.users === 0 && !candidate.scoped,
         );
-        if (!idle) {
-          // A refused open never strands a running spare.
-          if (spare) await this.retire(spare);
-          throw new Error("OpenCode instance limit reached");
-        }
+        if (!idle) throw new Error("OpenCode instance limit reached");
         this.entries.delete(idle[0]);
         // Reserve the replacement before awaiting shutdown, keeping concurrent opens bounded.
         entry = {
@@ -145,7 +148,6 @@ export class ServerPool {
     } else entry.users++;
     if (this.closed) {
       entry.users--;
-      if (spare) await this.retire(spare);
       throw new Error("OpenCode adapter is closed");
     }
     const acquired = entry;
@@ -200,23 +202,27 @@ export class ServerPool {
   }
   /**
    * The spare for this configuration, if it still runs the installation discovery found for
-   * it. An update, reinstall or retargeted link since then retires it instead.
+   * it. An update, reinstall or retargeted link since then retires it instead. The spare stays
+   * in the spares while this is checked; the caller takes it.
    */
-  private async takeSpare(
+  private async checkedSpare(
     configuration: string,
     env: NodeJS.ProcessEnv | undefined,
-  ): Promise<OpenCodeServer | undefined> {
+  ): Promise<Spare | undefined> {
     const spare = this.spares.get(configuration);
     if (!spare || !sameEnvironment(spare.env, env)) return undefined;
-    this.spares.delete(configuration);
     // A spare still discovering resolves its executable now, like a server started here would.
     const installed = spare.server.installedAs;
-    if (installed && (await installationIdentity(installed.path)) !== installed.identity) {
+    if (
+      installed &&
+      (await runtime(this.options.runtime).installationIdentity(installed.path)) !==
+        installed.identity
+    ) {
       // Counted until it exits; this session need not wait for that.
-      void this.retire(spare.server);
+      if (this.spares.get(configuration) === spare) void this.retireSpare(configuration);
       return undefined;
     }
-    return spare.server;
+    return spare;
   }
   /**
    * A scoped session left. With it the last of its configuration, the spare stops too, and the

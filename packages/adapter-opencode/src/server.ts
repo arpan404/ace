@@ -15,7 +15,6 @@ import { Routes } from "./routes.ts";
 import { RecentMap } from "./cache.ts";
 import { waitForOutput } from "@ace/provider-kit/flow-control";
 import { transientFailure } from "./recovery-failure.ts";
-import { installationIdentity } from "./installation.ts";
 import type { LaunchedTree, TreeLeader } from "./launched-tree.ts";
 import type { WindowsTreeMember } from "@ace/provider-kit/process-identity";
 export { eventSession } from "./boundaries.ts";
@@ -219,7 +218,10 @@ export class OpenCodeServer {
         expected = cli.version ?? "";
         if (!version(expected)) throw versionRefusal(cli.version);
         // Read before the spawn: a file replaced after this no longer matches what runs.
-        this.installed = { path: cli.path, identity: await installationIdentity(cli.path) };
+        this.installed = {
+          path: cli.path,
+          identity: await this.runtime.installationIdentity(cli.path),
+        };
         const password = this.runtime.entropy(32);
         this.authorization = basicAuthorization(password);
         this.secrets = [
