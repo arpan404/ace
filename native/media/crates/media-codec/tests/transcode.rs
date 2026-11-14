@@ -44,6 +44,9 @@ fn size_helpers_widen_instead_of_overflowing() {
     );
 }
 
+/// JPEG, its colour and the transcode target.
+type Frame<'a> = (&'a [u8], [u8; 3], (u32, u32));
+
 /// A solid frame: `colour` everywhere, at an odd size so planes carry padding.
 fn solid(width: usize, height: usize, colour: [u8; 3]) -> Vec<u8> {
     libjpeg_turbo_rs::Encoder::new(
@@ -69,7 +72,7 @@ fn alternating_frames_never_show_the_previous_frame_at_edges_or_padding() -> Res
     // a stale sample would surface along the small frames' last row/column.
     let large = solid(96, 80, red);
     let small = solid(37, 23, blue);
-    let frames: [(&[u8], [u8; 3], (u32, u32)); 4] = [
+    let frames: [Frame<'_>; 4] = [
         (&large, red, (96, 80)),
         (&small, blue, (37, 23)),
         (&large, red, (48, 40)),

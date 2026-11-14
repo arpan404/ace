@@ -197,7 +197,11 @@ fn extreme_dequantised_coefficients_decode_at_every_dct_scale() -> Result<(), Co
     // raising every quantiser to 255 then multiplies them far past 8 bits.
     let board: Vec<u8> = (0..W * H)
         .flat_map(|i| {
-            let v = if (i % W + i / W) % 2 == 0 { 0 } else { 255 };
+            let v = if (i % W + i / W).is_multiple_of(2) {
+                0
+            } else {
+                255
+            };
             [v, 255 - v, v]
         })
         .collect();
