@@ -166,6 +166,7 @@ export interface NativeHost {
   readonly capabilities: readonly OptionalCapability[];
 
   // Clock, identity and entropy.
+  /** Epoch milliseconds, whole, as `Date.now()`: protocol Timestamps are built from it. */
   now(): number;
   uuid(): string;
   /** Uniform in [0, 1). */

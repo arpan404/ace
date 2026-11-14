@@ -13,7 +13,9 @@ enum HostContract {
 
     /// Clock, ids, entropy, text, bytes and URL parsing, as `aceHost` members.
     static func stateless() -> [String: Any] {
-        let now: @convention(block) () -> Double = { Date().timeIntervalSince1970 * 1000 }
+        // Whole epoch milliseconds, as `Date.now()` and the Node host give: the bridge builds
+        // protocol Timestamps (integers) from it, and a fraction fails their validation.
+        let now: @convention(block) () -> Double = { (Date().timeIntervalSince1970 * 1000).rounded(.down) }
         let uuid: @convention(block) () -> String = { UUID().uuidString.lowercased() }
         let random: @convention(block) () -> Double = { Double(UInt32.random(in: .min ... .max)) / 4294967296 }
         let randomBytes: @convention(block) (Int) -> JSValue = { count in
