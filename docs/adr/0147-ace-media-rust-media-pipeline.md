@@ -111,7 +111,13 @@ paths. Spade itself carries no pixels.
    - **ace-media keeps:** encoded and decoded pictures, encoders and decoders, per-viewer
      windows, link rate, picture scale, encode planning, keyframe rules, the envelope,
      recordings, stills, the media sockets, and the session keys of media relay streams.
-3. **The control protocol** is length-prefixed JSON over stdio. The plan lists every message.
+3. **The control protocol** is length-prefixed JSON over stdio, which is the normal lane. Two
+   more lanes run on ace-media's private control socket:
+   - a priority lane, for revocation, closes and privacy barriers and their answers;
+   - while some setting needs it, an egress lane that carries encoded units back to the
+     daemon's legacy delivery.
+
+   The plan lists every message.
    - The daemon parses ace-media's `ready` message fully. The versions must match, or the
      process is stopped.
    - Later control messages are parsed with Zod, which is cheap at their rate.
@@ -177,6 +183,26 @@ paths. Spade itself carries no pixels.
    - **Binding.** Subscriptions still go to the daemon, naming the media connection. The daemon
      authorizes them and tells ace-media which sources each viewer may receive. ace-media
      sends nothing that wasn't granted.
+   - **Owner.** A media connection belongs to the authenticated main session that asked for it
+     with `media.connect`. It is bound to that session, its device, and how that device was
+     admitted:
+     - a pairing, with the credential's generation;
+     - or an account device, with its admission, which holds only while the machine keeps the
+       device on its account.
+
+     Pairing and account admission stay distinct, as in the relay code today. Revoking a
+     pairing closes only the media connections the pairing opened, and an account change
+     closes only those the account admitted.
+
+   - **Lifetime.** The connection lives no longer than any of the things it is bound to. It
+     closes when its main session closes, when its credential is revoked or replaced, or when
+     its admission lapses.
+   - **Grants.** A subscription may name only a media connection owned by the same main
+     session, and only sources that session may see (the same checks as today: thread access,
+     workspace, `admin` for screens and devices). A subscription naming another session's or
+     another device's media connection is refused. The daemon puts the owner (session, device,
+     admission) on every grant it sends ace-media, and ace-media refuses a grant whose owner
+     differs from the connection's. Each grant is checked twice.
 3. **iOS turns on HEVC** where the device decodes it in hardware, for browser video and for
    device and screen pictures.
 
@@ -197,29 +223,58 @@ daemon.
    - The daemon runs the responder handshake with its own static and ephemeral keys, exactly as
      for every other stream. To the handshake, ace-media is as untrusted as the relay itself.
    - The daemon pulls inbound frames one at a time (`relay.pull`). It decrypts the client's
-     `hello`, admits the device as for any channel, requires `channel: "media"`, and sends the
-     `welcome`.
-3. **Hand-over.** The daemon sends `relay.keys` with:
+     `hello` and admits the device as for any channel. It requires `channel: "media"` and the
+     single-use ticket that the client's authenticated main session got from `media.connect`,
+     then sends the `welcome`. The connection is bound as in decision 4.2.
+   - **A relay `media` ticket only arranges the meeting.** It carries no authority over
+     sources, RPC, HTTP or keys. A media stream that isn't admitted and bound gets no grants and
+     no keys. Once bound it accepts only acks; any other message (a subscribe, an RPC, an HTTP
+     exchange, anything asking for keys) closes it. The host refuses a `media` ticket whose
+     hello names another channel, and a client ticket whose hello names `media`.
+3. **Hand-over.** The daemon sends `relay.keys`. The JSON names only the stream. The key
+   material travels in the frame's binary payload, never in a JSON string:
    - the send and receive keys and their next nonces;
    - the frame counts that schedule rekeys;
    - the flow-credit state.
 
-   It then zeroes its copies. From then on ace-media alone encrypts and decrypts the stream.
-   Because the daemon decrypted only the frames it pulled, nothing in flight is lost or seen
-   twice.
+   The daemon writes the key bytes straight from its cipher states into one buffer it
+   allocated for this, then destroys the cipher states. It zeroes that buffer once the pipe
+   write completes.
+
+   From then on ace-media alone encrypts and decrypts the stream. Because the daemon decrypted
+   only the frames it pulled, nothing in flight is lost or seen twice.
 
 4. **Rekeying** continues Noise's `REKEY` every 2^20 frames per direction, counted from the
    stream's start, exactly as `apps/relay/src/channel.ts` does. Test transcripts from the
    TypeScript implementation check the Rust one byte for byte.
-5. **The keys live only in ace-media's memory.**
-   - They are zeroed on drop and never written to disk. They are never sent back to the daemon,
-     never logged, and never in a crash report.
-   - ace-media's stdio carries keys only in `relay.keys`, from the daemon to it.
-6. **Revocation stays the daemon's.**
-   - When a device is revoked, its pairing replaced, or an account device no longer admitted,
-     the daemon sends `relay.close` or `revoke`. ace-media closes those streams before handling
-     its next message.
-   - A media stream also closes when the device's main channel can no longer authorize it.
+5. **After hand-over the keys live only in ace-media's memory.**
+   - In Rust they sit in zeroizing buffers. The control reader reads every payload into a
+     buffer that is wiped when dropped. Key pages are locked where the OS allows.
+   - They are never written to disk, never sent back to the daemon, never logged, and never in
+     diagnostics.
+   - Crash reports can't carry them:
+     - ace-media disables core dumps (`RLIMIT_CORE` 0, and `PR_SET_DUMPABLE` 0 on Linux);
+     - on Windows it excludes key pages from error reports (`WerRegisterExcludedMemoryBlock`);
+     - its panic hook prints no payloads.
+   - **The daemon side is honest about JavaScript's limits.**
+     - A key is never put in a string, because strings can't be wiped.
+     - The daemon wipes every buffer it owns.
+     - It can't wipe copies the JS engine or the cipher library made internally, or the bytes
+       the kernel's pipe buffer holds until ace-media reads them. Those are the same exposure
+       today's relay channels already have.
+6. **Revocation stays the daemon's, and has a deadline.**
+   - **The trigger.** A device is revoked, its pairing replaced, an account device no longer
+     admitted, or a main session that owns media connections closes.
+   - **The message.** The daemon sends `revoke` or `connection.close` on a priority control
+     lane of its own, so no bulk traffic can delay it. Every revocation has an id and the
+     daemon's issue sequence.
+   - **What ace-media does.** It handles the priority lane ahead of everything else. It shuts
+     the matching sockets and zeroes their keys. It drops every queued grant, ticket and
+     `relay.keys` for that owner issued before the revocation, so a grant already in the normal
+     lane can't take effect after it. Then it answers `revoked` with the id.
+   - **The deadline.** With no answer within 250 ms, the daemon kills ace-media. Every media
+     stream ends with the process, so revocation completes either way. The daemon stops
+     minting anything for a revoked owner at once.
 7. **When ace-media restarts, every media stream ends.** Session keys can't be recovered and are
    never re-created for an old stream.
    - Clients reopen their media connection with backoff and resubscribe, which they already do
@@ -235,8 +290,30 @@ daemon.
     of pictures, and the daemon continues the recording in a new part.
   - **Browser recordings** use the tab's video encode instead of a JPEG screencast. A recording
     nobody watches gets its own encode.
-  - **Privacy epochs** (ADR 0088) become cuts: a private transition ends the fragment, and the
-    next starts at a keyframe captured after it.
+  - **Privacy epochs** (ADR 0088) become a barrier that holds even when control messages and
+    frames arrive out of order. The daemon's control lane and a producer's ingest connection are
+    separate, so a frame captured after a private transition can reach ace-media before the
+    daemon's message about that transition does. The barrier has four parts:
+    - **Epochs on every frame.** Every video and audio frame carries the privacy epoch that its
+      producer held when it captured it. The daemon gives producers each new epoch; sources
+      that ace-media reads itself are stamped from ace-media's own record of the source's
+      epoch.
+    - **Pause.** When a tab goes private, the daemon sends a pause barrier on the priority
+      lane, carrying the new epoch and the transition time on the host's monotonic clock. Both
+      processes read that clock identically. From then on nothing is recorded: not a frame of
+      the old epoch captured at or after the transition (less a safety margin), and not a frame
+      of the private epoch.
+    - **A watermark.** ace-media writes a frame to a recording only when it is below the
+      daemon's watermark. The watermark says "no transition before this time", the daemon
+      advances it every 100 ms while recording, and any pause is sent before it. Until then the
+      frame is held: at most 2 s or 32 MiB, and past that the recording drops frames and marks
+      a gap. A daemon that stalls makes a recording lag. It never makes it leak.
+    - **Resume.** When the tab is public again, the daemon sends a resume barrier with the
+      newer epoch and its time, and asks the producer for a keyframe. The next fragment starts
+      only at a keyframe of at least that epoch, captured at or after that time. Deltas before
+      it are dropped. A delayed keyframe from an older epoch, or from before the barrier, is
+      refused even when it arrives after the resume. Audio follows the same epoch and time
+      rules.
   - **Cowork.** The agent's pointer and the person's lease are kept as a timed JSON track
     beside the MP4, never drawn into the pictures.
 - **Stills.** Stills for agents and models come from ace-media: the current picture, decoded on
@@ -276,6 +353,17 @@ daemon.
    - Each is `auto` (ace-media, falling back to the legacy path when ace-media is unavailable
      or lacks the capability) or `legacy`.
    - `auto` becomes the default when the phase lands.
+   - **Every combination is a complete route.** That is 16 combinations, each with ace-media
+     healthy, restarting or unavailable.
+     - With `media.encode: auto` and `media.delivery: legacy`, producers send to ace-media, and
+       ace-media sends the encoded units back to the daemon's existing delivery over a
+       temporary egress lane, with the same drop-to-keyframe rule.
+     - With `media.encode: legacy` and recordings, stills or delivery on `auto`, the daemon
+       tees the frames it receives into ace-media's ingest.
+     - When ace-media becomes unavailable, the daemon points producers back at itself.
+
+     The routing is one pure function, tested over every combination. An end-to-end matrix
+     test must pass on the release candidate before any deletion PR merges.
 3. **Deletion.** After a release ships with `auto` as the default and needs no fallback, a
    deletion PR removes that phase's TypeScript path. That includes:
    - the daemon's fanout, link rate and envelope;
@@ -290,7 +378,9 @@ daemon.
 
 ## Consequences
 
-- **Bun touches no video bytes,** except the screencast of private-context tabs (decision 2.2).
+- **Bun touches no video bytes** once every setting is `auto`, except the screencast of
+  private-context tabs (decision 2.2). Until then the egress and tee routes carry bytes through
+  the daemon by design.
   The daemon's thread keeps agent state without keyframes, ciphers or transcodes in its way.
 - **Linux and Windows screens** are encoded once, on the GPU where there is one, instead of a
   CPU JPEG plus a Chrome decode and encode per viewer.
