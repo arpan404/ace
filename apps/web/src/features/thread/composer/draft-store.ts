@@ -249,22 +249,6 @@ export function discardDraft(storage: KeyValueStorage | undefined, key: string):
   return true;
 }
 
-/** `writeDraft` for a draft held as JSON (the composer serialises it to notice changes). */
-export function writeDraftJson(
-  storage: KeyValueStorage | undefined,
-  key: string,
-  json: string,
-): boolean {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(json);
-  } catch {
-    return false;
-  }
-  const draft = ComposerDraftSchema.safeParse(parsed);
-  return draft.success && writeDraft(storage, key, draft.data);
-}
-
 /** Files mentioned lately in a project, most recent first. */
 export function recentFiles(
   storage: KeyValueStorage | undefined,
