@@ -35,6 +35,9 @@ struct ProviderPageData: Decodable, Equatable {
     let about: [Fact]
     let settings: Settings
     let models: ProviderModelsData?
+    /// Codex's tool folder; nil for other providers and older machines.
+    struct ToolSource: Decodable, Equatable { let path: String; let reason: String?; let chosen: Bool }
+    let toolSource: ToolSource?
     /// `admin`: this phone may change provider preferences (`ClientModel.canAdmin`).
     static func read(_ provider: String, admin: Bool) -> [String: Any] { ["type": "provider.page", "provider": provider, "admin": admin] }
 }
