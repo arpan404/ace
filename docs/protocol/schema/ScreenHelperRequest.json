@@ -226,11 +226,19 @@
     },
     {
       "properties": {
+        "epoch": {
+          "maximum": 4294967295,
+          "minimum": 0,
+          "type": "integer"
+        },
         "humanDeviceInput": {
           "type": "boolean"
         },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "ingest": {
+          "$ref": "https://ace.local/protocol/v1/ScreenStreamIngest.json"
         },
         "mode": {
           "enum": [

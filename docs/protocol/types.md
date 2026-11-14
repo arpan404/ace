@@ -27717,6 +27717,8 @@ Example:
 | person | no | boolean |  |
 | op | yes | `"stream.configure"` |  |
 | settings | yes | [ScreenStreamSettings.json](schema/ScreenStreamSettings.json) |  |
+| ingest | no | [ScreenStreamIngest.json](schema/ScreenStreamIngest.json) |  |
+| epoch | no | integer | {"minimum":0,"maximum":4294967295} |
 
 Example:
 
@@ -29862,6 +29864,68 @@ Example:
     "screenRecording": false
   },
   "sessions": 5
+}
+```
+
+## ScreenStreamConfigured
+
+[JSON Schema](schema/ScreenStreamConfigured.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| codec | yes | ["jpeg","h264"] |  |
+| ingest | no | ["on","off"] |  |
+| switched | no | boolean |  |
+| boundary | no | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]} |
+
+Example:
+
+```json
+{
+  "boundary": 8,
+  "codec": "h264",
+  "ingest": "on",
+  "switched": false
+}
+```
+
+## ScreenStreamIngest
+
+[JSON Schema](schema/ScreenStreamIngest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| socket | yes | string | {"minLength":1,"maxLength":1024} |
+| token | yes | string | {"minLength":44,"maxLength":44} |
+
+Example:
+
+```json
+{
+  "socket": "example",
+  "token": "examplexxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+}
+```
+
+## ScreenStreamIngestEvent
+
+[JSON Schema](schema/ScreenStreamIngestEvent.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| event | yes | `"stream.ingest"` |  |
+| sessionId | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| state | yes | `"closed"` |  |
+| boundary | yes | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]} |
+
+Example:
+
+```json
+{
+  "boundary": null,
+  "event": "stream.ingest",
+  "sessionId": "vXwm-NZhSU8yt1bwMG",
+  "state": "closed"
 }
 ```
 
