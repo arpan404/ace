@@ -35,6 +35,29 @@ export function simulatorNeedsTranscode(input: {
   return input.bitrate < source * (input.transcoding ? passThroughFrom : transcodeBelow);
 }
 
+/** The largest even size at or below `value`, as every hardware encoder takes. */
+const even = (value: number) => Math.max(2, Math.floor(value / 2) * 2);
+
+/**
+ * The encode ace-media re-encodes a Simulator at for a viewer (E3b, the `--transcode`
+ * replacement): serve-sim's native picture fitted inside the viewer's box at its aspect, never
+ * larger than native, even sides, at the viewer's bit rate.
+ */
+export function simulatorEncodeSpec(
+  native: { width: number; height: number },
+  settings: { maxWidth: number; maxHeight: number; bitrate: number },
+): { id: number; codec: string; width: number; height: number; fps: number; bitrate: number } {
+  const fit = Math.min(1, settings.maxWidth / native.width, settings.maxHeight / native.height);
+  return {
+    id: 1,
+    codec: "avc1.640033",
+    width: even(native.width * fit),
+    height: even(native.height * fit),
+    fps: 60,
+    bitrate: settings.bitrate,
+  };
+}
+
 /**
  * How much input may wait in the transcoder's pipe. Past it, pictures are dropped rather than
  * queued: a few seconds of backlog would only make the live view late.

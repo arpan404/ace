@@ -1429,7 +1429,7 @@ Example:
 
 ```json
 {
-  "key": "threads.unresponsiveAfter",
+  "key": "threads.autoSettleAfter",
   "requestId": "example",
   "scope": {},
   "type": "settings.get"
@@ -3587,6 +3587,7 @@ Semantic rule: Exactly one of token, ticket and grant is required; machineCode a
 | flowControl | no | array | {"maxItems":8,"items":{"type":"string","maxLength":32}} |
 | trims | no | array | {"maxItems":16,"items":{"type":"string","maxLength":32}} |
 | framing | no | array | {"maxItems":8,"items":{"type":"string","maxLength":32}} |
+| nextTicket | no | `true` |  |
 
 Example:
 
@@ -3596,6 +3597,7 @@ Example:
   "deviceId": "example",
   "grant": "example",
   "installId": "01936d1e-3f8a-7c2b-9d4e-5f6a7b8c9d0e",
+  "nextTicket": true,
   "protocolVersion": 1,
   "trims": [],
   "type": "hello"

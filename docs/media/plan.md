@@ -437,6 +437,11 @@ H   ..   payload
 - **Shared codec.** The codec lives in `media-wire::frame`, and in TypeScript in
   `packages/media/src/frame.ts`, which is portable (no Node built-ins) so the video extension's
   bundle includes it. Vectors live in `vectors/frame/`.
+- **Producer stamp.** A producer that needs its own frame header rebuilt after egress adds a
+  header extension: u16 tag 1, u16 length 24, then u64 its frame sequence, f64 its capture
+  time (Unix ms) and f64 its exact scale (`packages/media/src/producer-stamp.ts`). ace-media
+  passes extensions through untouched. The Mac screen helper sends it on every unit, so the
+  daemon's legacy consumers get the same frame header and packet the helper socket carries.
 - **Restarts.** The ingest socket path and WebSocket port change on every ace-media start.
   Producers learn them from the daemon with each `stream.configure` or capture start, so a
   restart never leaves a producer writing to a dead address.
@@ -1610,3 +1615,74 @@ ace-media --example still`, 20 warm-up stills then 3 × 200, 1206 × 2622 → 72
   `builtRouteCapabilities.stills` stays false. Moving each of them onto `MediaStills`, the
   Windows and Linux numbers, and the daemon RSS check over 10 min of stills at 2 fps from three
   simulators remain for F2's follow-up.
+
+## E3 notes
+
+- **Built: the Mac screen.** `stream.configure` carries `ingest: {socket, token}` (the token
+  base64) and `epoch`; each request is the whole state, so an absent `ingest` means the helper
+  socket. While `ingest` is set the helper writes its H.264 units to ace-media as MediaFrames
+  with the producer stamp; JPEG stills stay on the helper socket. The helper stamps each
+  picture with the epoch it holds at the ScreenCaptureKit callback (0 before any is given),
+  asks ScreenCaptureKit for `420v` at the encode size while streaming video (BGRA for stills),
+  and leaves the VideoToolbox session as it was. Its hello's `encoders` comes from one
+  bounded trial frame (NV12 IOSurface into a hardware H.264 session) at the first hello.
+- **Switching paths.** The helper picks the path per unit under one lock, so a switch has an
+  exact boundary: its reply says `switched` and `boundary`, the last sequence the previous
+  path took, and the new path starts at a keyframe. A switch away from ace-media finishes the
+  old connection: every queued unit is written, then it closes cleanly. The screen's
+  `ScreenMediaSource` (`packages/screen/src/media-source.ts`) runs video through the shared
+  `PathMerge` (see "E4 notes"): leaving the helper socket, that path ends once its boundary
+  has been delivered; leaving ace-media, the old path ends with ace-media's end marker, after
+  its last unit, which `IngestSources` waits for before closing the handle. Stills always take
+  the helper socket, so they stay out of the merge and keep their own order; the screen
+  manager takes a media source's video and stills each in their own order, keeping the newest
+  as `latest`. A failed ingest connection (ace-media killed) sends video back to the helper
+  socket at once, said with a `stream.ingest` event, and the merge treats the old path as cut:
+  video starts again at the helper's next keyframe. The measured fallback on the M4 Max was
+  milliseconds, well inside the 2 s bound.
+- **Wiring.** Screens use the shared `IngestSources` through the daemon's one `startMedia`
+  (`apps/daemon/src/services/media.ts`), which the browser shares. A screen session is long
+  lived, so it is `attach`ed: a session started while `media.encode` is `legacy` waits there
+  and is added once the runtime starts, so it moves when the setting turns `auto`.
+  `platformRouteCapabilities(platform)` adds `screen` to this build's ingest kinds on macOS
+  only; the daemon passes it to `MediaRuntime`.
+- **Tests.** `media-ingest.native.process.test.ts` (real helper, real ace-media, the screen
+  manager's legacy viewer: headers, epochs, four route flips with no hole or repeat in the
+  helper's sequence, `kill -9` back to the helper socket within 2 s and onto the restarted
+  process); `media-backlog.process.test.ts` (real ace-media and a scripted helper: a flip back
+  while 300 units are still queued on the old connection, which loses and repeats none); and `helper-identity.native.process.test.ts` (the built app's designated
+  requirement equals `identity.txt`) run from `check:media` on macOS; the first only with
+  `ACE_SCREEN_INTEGRATION=1`, since it shows a fixture window.
+- **Devices (E3b).** Each device's video goes through `DeviceVideoPaths`
+  (`packages/devices/src/media-paths.ts`): the shared `PathMerge`, and egress units turned back
+  into the units the capture publishes as before. A path that ends interrupted asks its
+  producer for the keyframe its successor needs.
+  - **Android emulators on a Mac.** `--encode-frames` takes `{"op":"ingest","socket","token"}` on
+    stdin (no socket: back to stdout) and uses the helper's `IngestRoute`; each switch is
+    answered on stderr with its boundary. `emulator-frames` sources are fed over ingest; the
+    origin's path and size name the frame file the helper encodes. A switch's keyframe may
+    re-encode the last picture, the one picture that can show twice.
+  - **Android devices (scrcpy).** The daemon keeps both scrcpy sockets, opened in the same order
+    and at startup as before, and while routed forwards each unit unchanged through
+    `IngestWriter` (`packages/media/src/ingest-writer.ts`). A move to ace-media keeps units on
+    the daemon's path until the device's next keyframe, the first unit forwarded; a move back
+    writes what is queued and an end frame, so ace-media's marker is clean (a connection that
+    only closes is a cut path).
+  - **Simulators.** ace-media reads serve-sim's `/stream.avcc` itself (`serve_sim.rs`, the
+    reader in `shell/readers.rs`), over loopback only, and stamps the source's epoch as it
+    reads. serve-sim sends one stream to every subscription, so a switch cuts the old path,
+    recorded as an interrupted end, and starts the new one at a fresh keyframe; nothing older
+    repeats. `IngestSources` closes these sources in ace-media at once when they move back.
+  - **The Simulator transcode.** A viewer too small for serve-sim's stream gets `source.encodes`
+    while ace-media reads it: its reader decodes at the viewer's size and encodes again in
+    VideoToolbox (`media_vt::VtTranscoder`, `shell/sim_transcode.rs`), reporting decode, scale
+    and encode with their copies. The screen helper's `--transcode` stays for the daemon's own
+    path until phase 2's deletion.
+- **Not built or measured yet.** A run on a real Android device (scrcpy is tested against the
+  fake device only); the Simulator 59 fps bench (no window with the shared Mac's load under
+  24); epochs beyond each source's opening one until F1's wiring issues them.
+- **Clean handoffs.** A writer the helper's `IngestRoute` retires (the Mac screen and
+  `--encode-frames`) writes its queue, then the end-of-source frame, then closes, so ace-media's
+  marker for that path is clean and a planned switch hands over without a forced keyframe.
+  Interrupted means only a failure, the 2 s drain limit or eviction, where the writer is closed
+  without one.

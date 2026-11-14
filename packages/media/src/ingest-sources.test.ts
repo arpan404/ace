@@ -13,7 +13,7 @@ import type { MediaHealth, MediaSettings } from "./supervision-policy.ts";
 import type { ToMedia } from "./wire.ts";
 
 const capabilities: RouteCapabilities = {
-  ingest: ["tab", "tab-pictures", "screen"],
+  ingest: ["tab", "tab-pictures", "screen", "simulator"],
   recordings: false,
   stills: false,
   delivery: false,
@@ -287,6 +287,20 @@ describe("IngestSources", () => {
     expect(w.opened()).toHaveLength(maxIngestReopens + 1);
     w.sources.routesChanged(["tab"]);
     expect(w.opened()).toHaveLength(maxIngestReopens + 2);
+  });
+
+  it("a Simulator ace-media reads itself is closed there at once when it moves back, so its reader drains and the end marker follows its last unit", () => {
+    const w = world();
+    const l = producer("simulator");
+    w.sources.add(l.p);
+    w.status("s1", "starting");
+    expect(l.points.at(-1)).toBeDefined();
+    w.state.settings = { ...w.state.settings, encode: "legacy" };
+    w.sources.routesChanged(["simulator"]);
+    // No producer of its own to drain: only ace-media's close ends its reading.
+    expect(w.closed()).toEqual(["s1"]);
+    w.router.push(encodeEgressEnd(1, 0, false));
+    expect(l.ended.at(-1)).toEqual(["s1", false]);
   });
 
   it("a source ace-media ended with a reason stays on the daemon until its route changes", () => {

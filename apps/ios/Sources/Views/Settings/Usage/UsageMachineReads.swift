@@ -114,6 +114,40 @@ import Foundation
         return state.counted ? nil : problem
     }
 
+    /// One level of the ledger: `group` within `filters` over the days `from` to `to`, on every
+    /// machine in scope, or on `machine` alone when a machine's row opened it. `parent` is the row
+    /// it opened from, so an account under its provider drops the provider's name. `fresh` reads
+    /// past the bridge's kept answers (Refresh, Retry).
+    func ledger(group: String, filters: [String: [String]], machine: String?, parent: UsageLedgerStep?,
+                from: String, to: String, fresh: Bool = false) async -> UsageLedgerReply? {
+        let reads = machine.map { only in UsageMachineReads(machines: machines.filter { $0.hostId == only }, name: name) } ?? self
+        var state = Gathered()
+        for each in reads.machines { state.reach[each.hostId] = Self.online(each) ? "loading" : "offline" }
+        await withTaskGroup(of: (String, ServiceValue?).self) { tasks in
+            for each in reads.machines where Self.online(each) {
+                let client: ClientModel = each.client
+                let id: String = each.hostId
+                tasks.addTask { await Self.ledgerPart(client, id: id, group: group, filters: filters, from: from, to: to, fresh: fresh) }
+            }
+            for await (id, part) in tasks {
+                if Task.isCancelled { return }
+                if let part { state.counted(id, part) } else { state.failed(id) }
+            }
+        }
+        if Task.isCancelled || reads.machines.isEmpty { return nil }
+        var payload: [String: Any] = ["type": "usage.combineLedger", "group": group, "from": from, "to": to,
+                                      "machines": reads.entries(state, field: "part") { $0.json }]
+        if let parent { payload["parent"] = ["group": parent.group, "label": parent.label] }
+        return try? await reads.combiner?.service(payload, as: UsageLedgerReply.self)
+    }
+
+    private static func ledgerPart(_ client: ClientModel, id: String, group: String, filters: [String: [String]],
+                                   from: String, to: String, fresh: Bool) async -> (String, ServiceValue?) {
+        var read: [String: Any] = ["type": "usage.ledgerPart", "group": group, "from": from, "to": to, "filters": filters]
+        if fresh { read["fresh"] = true }
+        return (id, try? await client.read(read, as: ServiceValue.self))
+    }
+
     private static func part(_ client: ClientModel, id: String, days: Int, provider: String?, from: String?, to: String?,
                              fresh: Bool) async -> (String, ServiceValue?) {
         let read = partRequest(days: days, provider: provider, from: from, to: to, fresh: fresh)

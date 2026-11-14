@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   builtRouteCapabilities,
+  platformRouteCapabilities,
   changedRoutes,
   mediaRoutes,
   sourceKinds,
@@ -200,6 +201,34 @@ describe("named routes", () => {
       expect(routes[kind]).toMatchObject({ producer: "daemon", tee: false, egress: false });
     for (const health of ["restarting", "unavailable"] as const)
       expect(mediaRoutes(auto, health, builtRouteCapabilities).tab.producer).toBe("daemon");
+  });
+
+  it("on a Mac the screen, host-encoded emulators and Simulators stream into ace-media too, Android devices everywhere, with egress feeding their legacy consumers; elsewhere they stay on the daemon", () => {
+    const auto: MediaSettings = {
+      encode: "auto",
+      delivery: "auto",
+      recordings: "auto",
+      stills: "auto",
+    };
+    const mac = mediaRoutes(auto, "healthy", platformRouteCapabilities("darwin"));
+    for (const kind of ["screen", "emulator-frames", "simulator"] as const)
+      expect(mac[kind]).toEqual({
+        producer: "ace-media",
+        tee: false,
+        egress: true,
+        deliverer: "legacy",
+        recorder: "legacy",
+        stills: "legacy",
+      });
+    for (const platform of ["darwin", "linux"])
+      expect(
+        mediaRoutes(auto, "healthy", platformRouteCapabilities(platform)).scrcpy,
+      ).toMatchObject({ producer: "ace-media", egress: true });
+    for (const platform of ["linux", "win32"])
+      for (const kind of ["screen", "emulator-frames"] as const)
+        expect(
+          mediaRoutes(auto, "healthy", platformRouteCapabilities(platform))[kind],
+        ).toMatchObject({ producer: "daemon", tee: false, egress: false });
   });
 });
 

@@ -53,7 +53,13 @@ export async function fakeServeSim(
   home: string,
   version: string,
   udid: string,
-  options: { video?: boolean; turned?: string; notice?: string } = {},
+  options: {
+    video?: boolean;
+    turned?: string;
+    notice?: string;
+    /** Real H.264 instead of placeholder NAL units: what each subscription opens with. */
+    stream?: { description: Buffer; key: Buffer };
+  } = {},
 ) {
   const base = `/helper/${udid}`;
   const avcc: ServerResponse[] = [];
@@ -87,7 +93,11 @@ export async function fakeServeSim(
       res.on("close", () => avcc.splice(avcc.indexOf(res), 1));
       // Like serve-sim: a preview seed, then the description and an IDR for every subscriber.
       res.write(record(4, jpeg));
-      res.write(Buffer.concat([record(1, description), record(2, unit([0x25, 0x88, avccOpened]))]));
+      res.write(
+        options.stream
+          ? Buffer.concat([record(1, options.stream.description), record(2, options.stream.key)])
+          : Buffer.concat([record(1, description), record(2, unit([0x25, 0x88, avccOpened]))]),
+      );
       return;
     }
     if (req.url === `${base}/ax`) {
@@ -168,6 +178,10 @@ export async function fakeServeSim(
       avcc
         .at(-1)
         ?.write(record(3, unit([0x21, byte, ...Array<number>(Math.max(0, size - 2)).fill(0)]))),
+    /** One record to every subscription, as serve-sim broadcasts its stream. */
+    send: (tag: number, body: Buffer) => {
+      for (const res of avcc) res.write(record(tag, body));
+    },
     /** Announces a new screen orientation, as serve-sim does after a rotate request. */
     orient: (orientation: string) => {
       device = announced = orientation;

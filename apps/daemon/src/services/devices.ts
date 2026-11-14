@@ -14,6 +14,7 @@ import { screenHelperExecutable } from "../screen-helper-path.ts";
 import { deviceAccessRefused, devicesUnavailable } from "./device-refusals.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 import { writeDeviceMessage } from "./device-write.ts";
+import { startMedia } from "./media.ts";
 
 export async function startDevices(context: ServiceContext): Promise<void> {
   const { resources, services, options } = context;
@@ -39,6 +40,7 @@ async function buildDevices(context: ServiceContext, enabled: boolean): Promise<
   const { DevicesService, DevicePlatform, renderDeviceVideo, consumeDeviceRecording } =
     await import("@ace/devices");
   const frameEncoder = await deviceHelper(context);
+  const media = startMedia(context);
   return new DevicesService({
     enabled,
     // The person and agents share devices; agents wait while the person uses one (ADR 0143).
@@ -70,6 +72,8 @@ async function buildDevices(context: ServiceContext, enabled: boolean): Promise<
     },
     env: process.env,
     ...(services.screen ? { screen: services.screen } : {}),
+    // ace-media (ADR 0147, phase 2): device video streams into it while `media.encode` is auto.
+    ...(media ? { media: { attach: (producer) => media.attach(producer) } } : {}),
     log: (level, message, fields) =>
       context.log.log(
         level,

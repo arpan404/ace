@@ -46,6 +46,7 @@
     "computer.lockedUse",
     "spade.enabled",
     "devices.emulatorWindow",
+    "media.encode",
     "devices.enabled",
     "access.defaultMode",
     "access.nativeModes",
