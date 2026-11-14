@@ -127,16 +127,12 @@ for (const [label, items] of [
   const scope = { kind: "thread" as const, threadId: thread };
   const opened = wire(scope, undefined, screen);
   row(label, wire(scope), opened);
-  // Then, behind the painted screen, one `items.fill` read for the rest of a full snapshot.
+  // Then, behind the painted screen, the full snapshot that replaces the tail.
   const snapshot = opened[0];
   if (snapshot?.type !== "snapshot" || snapshot.view.kind !== "thread") continue;
-  const request = snapshot.view.fill;
-  const pages: ServerMessage[] =
-    request === undefined
-      ? []
-      : [{ type: "items.fill", requestId: "fill", ...store.readSnapshotFill(thread, request) }];
+  const pages: ServerMessage[] = snapshot.view.partial ? wire(scope) : [];
   console.log(
-    `${"  then in the background".padEnd(44)} ${pages.length} fill read, ${kb(raw(pages))} (${kb(gzip(pages))} gz)`,
+    `${"  then in the background".padEnd(44)} full snapshot, ${kb(raw(pages))} (${kb(gzip(pages))} gz)`,
   );
 }
 

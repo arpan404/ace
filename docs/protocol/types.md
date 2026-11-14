@@ -10122,28 +10122,6 @@ Example:
 }
 ```
 
-### items.fill
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| type | yes | `"items.fill"` |  |
-| requestId | yes | string | {"minLength":1} |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| before | yes | union | {"anyOf":[{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},{"type":"null"}]} |
-| whole | no | array | {"maxItems":200,"items":{"type":"string","minLength":1}} |
-
-Example:
-
-```json
-{
-  "before": 10,
-  "requestId": "example",
-  "threadId": "example",
-  "type": "items.fill",
-  "whole": []
-}
-```
-
 ### entities.page
 
 | Field | Required | Type | Constraints |
@@ -10159,9 +10137,9 @@ Example:
 
 ```json
 {
-  "before": 8,
-  "collection": "backgroundTasks",
-  "limit": 8,
+  "before": 10,
+  "collection": "agents",
+  "limit": 3,
   "requestId": "example",
   "threadId": "example",
   "type": "entities.page"
@@ -10182,7 +10160,7 @@ Example:
 ```json
 {
   "before": {
-    "at": 7,
+    "at": 8,
     "id": "example"
   },
   "requestId": "example",
@@ -10454,13 +10432,12 @@ Example:
 
 ```json
 {
-  "seq": 4,
+  "seq": 0,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
     "kind": "threads",
-    "reads": {},
-    "seq": 4,
+    "seq": 0,
     "threads": {}
   }
 }
@@ -10653,38 +10630,6 @@ Example:
 }
 ```
 
-### items.fill
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| seq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| order | yes | array | {"maxItems":200,"items":{"type":"string","minLength":1}} |
-| items | yes | array | {"maxItems":200,"items":{"$ref":"https://ace.local/protocol/v1/Item.json"}} |
-| itemSeqs | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
-| itemsBefore | yes | union | {"anyOf":[{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},{"type":"null"}]} |
-| agentIds | yes | array | {"maxItems":16384,"items":{"type":"string","minLength":1}} |
-| agents | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/Agent.json"},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
-| type | yes | `"items.fill"` |  |
-| requestId | yes | string |  |
-
-Example:
-
-```json
-{
-  "agentIds": [],
-  "agents": {},
-  "itemSeqs": {},
-  "items": [],
-  "itemsBefore": null,
-  "order": [],
-  "requestId": "example",
-  "seq": 6,
-  "threadId": "example",
-  "type": "items.fill"
-}
-```
-
 ### items.page
 
 Semantic rule: itemSeqs holds the creation sequence of every item.
@@ -10705,10 +10650,10 @@ Example:
 ```json
 {
   "items": [],
-  "itemsBefore": 7,
+  "itemsBefore": null,
   "omitted": [],
   "requestId": "example",
-  "seq": 8,
+  "seq": 6,
   "threadId": "example",
   "type": "items.page"
 }
@@ -10760,7 +10705,7 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "grantTtlMs": 1,
+    "grantTtlMs": 3,
     "ok": true
   },
   "type": "account.grant.refresh.result"
@@ -16901,36 +16846,6 @@ Example:
 
 ```json
 "example"
-```
-
-## ItemsFill
-
-[JSON Schema](schema/ItemsFill.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| seq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| order | yes | array | {"maxItems":200,"items":{"type":"string","minLength":1}} |
-| items | yes | array | {"maxItems":200,"items":{"$ref":"https://ace.local/protocol/v1/Item.json"}} |
-| itemSeqs | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
-| itemsBefore | yes | union | {"anyOf":[{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},{"type":"null"}]} |
-| agentIds | yes | array | {"maxItems":16384,"items":{"type":"string","minLength":1}} |
-| agents | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/Agent.json"},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
-
-Example:
-
-```json
-{
-  "agentIds": [],
-  "agents": {},
-  "itemSeqs": {},
-  "items": [],
-  "itemsBefore": 5,
-  "order": [],
-  "seq": 3,
-  "threadId": "example"
-}
 ```
 
 ## ItemsPage
@@ -32249,23 +32164,6 @@ Example:
 }
 ```
 
-## SnapshotFill
-
-[JSON Schema](schema/SnapshotFill.json), input validation.
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| before | yes | union | {"anyOf":[{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},{"type":"null"}]} |
-| whole | no | array | {"maxItems":200,"items":{"type":"string","minLength":1}} |
-
-Example:
-
-```json
-{
-  "before": 8
-}
-```
-
 ## SnapshotView
 
 [JSON Schema](schema/SnapshotView.json), input validation.
@@ -32287,7 +32185,7 @@ Example:
 | itemOrder | yes | array | {"items":{"type":"string"}} |
 | itemSeqs | no | object | {"propertyNames":{"type":"string"},"additionalProperties":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
 | itemsBefore | no | union | {"default":null,"anyOf":[{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},{"type":"null"}]} |
-| fill | no | [SnapshotFill.json](schema/SnapshotFill.json) |  |
+| partial | no | object | {"properties":{"previews":{"maxItems":200,"type":"array","items":{"type":"string","minLength":1}}},"required":["previews"]} |
 | interactions | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/Interaction.json"},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
 | backgroundTasks | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/BackgroundTask.json"},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
 | usage | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/UsageUpdated.json"},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
@@ -32300,13 +32198,13 @@ Example:
   "agentChildren": {},
   "agents": {},
   "backgroundTasks": {},
-  "fill": {
-    "before": null
-  },
   "interactions": {},
   "itemOrder": [],
   "items": {},
   "kind": "thread",
+  "partial": {
+    "previews": []
+  },
   "runs": {},
   "seq": 1,
   "thread": {
@@ -36157,7 +36055,7 @@ Example:
 | itemOrder | yes | array | {"items":{"type":"string"}} |
 | itemSeqs | no | object | {"propertyNames":{"type":"string"},"additionalProperties":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
 | itemsBefore | no | union | {"default":null,"anyOf":[{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},{"type":"null"}]} |
-| fill | no | [SnapshotFill.json](schema/SnapshotFill.json) |  |
+| partial | no | object | {"properties":{"previews":{"maxItems":200,"type":"array","items":{"type":"string","minLength":1}}},"required":["previews"]} |
 | interactions | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/Interaction.json"},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
 | backgroundTasks | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/BackgroundTask.json"},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
 | usage | yes | object | {"propertyNames":{"type":"string"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/UsageUpdated.json"},"x-ace-constraint":"Plain JSON object with every own opaque ID, including __proto__, validated and retained."} |
@@ -36170,14 +36068,13 @@ Example:
   "agentChildren": {},
   "agents": {},
   "backgroundTasks": {},
-  "fill": {
-    "before": 8,
-    "whole": []
-  },
   "interactions": {},
   "itemOrder": [],
   "items": {},
   "kind": "thread",
+  "partial": {
+    "previews": []
+  },
   "runs": {},
   "seq": 4,
   "thread": {
@@ -36333,8 +36230,7 @@ Example:
     "updatedAt": 1,
     "workspaceId": "example"
   },
-  "usage": {},
-  "usageSnapshots": {}
+  "usage": {}
 }
 ```
 

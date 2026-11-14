@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { Agent, AgentId, Interaction, type ServerMessage, type ThreadView } from "@ace/protocol";
+import { Interaction, type ServerMessage, type ThreadView } from "@ace/protocol";
 import { createDevThread } from "./commands.ts";
 import { Store } from "./store.ts";
 import { subscribe } from "./subscription.ts";
@@ -123,43 +123,21 @@ it("a small tail stops at its byte budget before its item count", () => {
   expect(pageIn(store, small.view)).toHaveLength(60);
 });
 
-it("a small tail and its fill hold a full snapshot's items, root lane included, with busy subagents", () => {
-  const { store, thread } = setup(100);
-  store.appendEvents(thread.id, [
-    {
-      type: "agent.created",
-      agent: Agent.parse({
-        id: "root",
-        threadId: thread.id,
-        parentId: null,
-        origin: "root",
-        fidelity: "full",
-        native: { provider: "codex" },
-        cwd: "/repo",
-        status: { state: "idle" },
-        createdAt: 1,
-        background: false,
-      }),
-    },
+it("a small tail says it is partial, naming the items it only previewed", () => {
+  const screen = { items: 30, bytes: 48 * 1024 };
+  // Older items left: partial. The full snapshot never is.
+  const many = setup(100);
+  expect(open(many.store, many.thread.id, screen).view.partial).toEqual({ previews: [] });
+  expect(open(many.store, many.thread.id).view.partial).toBeUndefined();
+  // Every item fits, whole: a tail that is the full snapshot is not partial.
+  const few = setup(5);
+  expect(open(few.store, few.thread.id, screen).view.partial).toBeUndefined();
+  // A newest reply past the tail's budget is sent as a preview, and named.
+  const long = setup(3);
+  long.store.appendEvents(long.thread.id, [
+    { type: "item.created", item: message("long", "a long answer line\n".repeat(3300)) },
   ]);
-  // A subagent's long run after the person's transcript: a full snapshot keeps the root share.
-  for (let index = 0; index < 300; index++)
-    store.appendEvents(thread.id, [
-      {
-        type: "item.created",
-        item: { ...message(`child${index}`), agentId: AgentId.parse("child") },
-      },
-    ]);
-  const full = open(store, thread.id).view;
-  const small = open(store, thread.id, { items: 30, bytes: 48 * 1024 }).view;
-  expect(full.fill).toBeUndefined();
-  const request = small.fill;
-  if (request === undefined) throw new Error("No fill request");
-  const fill = store.readSnapshotFill(thread.id, request);
-  expect(fill.order).toEqual(full.itemOrder);
-  // Every item the full snapshot holds is either in the small snapshot or sent with the fill.
-  const sent = new Set<string>(fill.items.map((item) => item.id));
-  expect(fill.order.filter((id) => !sent.has(id) && !Object.hasOwn(small.items, id))).toEqual([]);
-  expect(full.itemOrder.filter((id) => id.startsWith("m"))).toHaveLength(100);
-  expect(fill.itemsBefore).toBe(full.itemsBefore);
+  const view = open(long.store, long.thread.id, screen).view;
+  expect(view.itemOrder).toEqual(["long"]);
+  expect(view.partial).toEqual({ previews: ["long"] });
 });

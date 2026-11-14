@@ -2707,48 +2707,6 @@
     {
       "properties": {
         "before": {
-          "anyOf": [
-            {
-              "exclusiveMinimum": 0,
-              "maximum": 9007199254740991,
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "requestId": {
-          "minLength": 1,
-          "type": "string"
-        },
-        "threadId": {
-          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
-        },
-        "type": {
-          "const": "items.fill",
-          "type": "string"
-        },
-        "whole": {
-          "items": {
-            "minLength": 1,
-            "type": "string"
-          },
-          "maxItems": 200,
-          "type": "array"
-        }
-      },
-      "required": [
-        "type",
-        "requestId",
-        "threadId",
-        "before"
-      ],
-      "type": "object"
-    },
-    {
-      "properties": {
-        "before": {
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,
           "type": "integer"

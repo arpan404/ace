@@ -14,6 +14,7 @@ export type ThreadKey =
   | "tasks"
   | "sync"
   | "unconfirmed"
+  | "filling"
   | `item:${string}`
   | `agent:${string}`
   | `run:${string}`
@@ -43,9 +44,9 @@ export interface ThreadReader {
   readonly cursor: number | undefined;
   readonly itemsBefore: number | null | undefined;
   /**
-   * The thread was opened from a small tail and the rest of what a full snapshot holds is still
-   * on its way: older items, agents, or the whole text of items shown cut (`truncated`). A view
-   * shows that more is loading. Select with `history`.
+   * The thread was opened from a small tail and the daemon's full snapshot, which replaces it, is
+   * still on its way: older items, the agents they need, and the whole text of items shown cut
+   * (`truncated`). A view shows that more is loading. Select with `filling`.
    */
   readonly filling?: boolean;
   /** Fresh membership lists: select with the "agents", "interactions" or "tasks" key and

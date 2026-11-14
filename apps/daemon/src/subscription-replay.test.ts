@@ -132,7 +132,7 @@ it("a resume never answers with a snapshot cut to a tail: it gets the full one",
   if (snapshot?.type !== "snapshot" || snapshot.view.kind !== "thread") throw new Error("No view");
   const [full] = reconnect(store, a.id, store.headSeq() + 1, 5000);
   expect(snapshot).toEqual({ ...full, subscriptionId: snapshot.subscriptionId });
-  expect(snapshot.view.fill).toBeUndefined();
+  expect(snapshot.view.partial).toBeUndefined();
 });
 
 it("a resume past the replay limit gets the full snapshot, as a cursor with no replay does", () => {

@@ -141,8 +141,8 @@ export interface ClientOptions {
   limits?: Partial<Limits>;
   /**
    * A thread's first snapshot carries only its newest items, at most `items` in at most `bytes`,
-   * so it paints after one small message; the rest of what a full snapshot holds then follows
-   * in one `items.fill` read. Status, agents, approvals and queue always arrive whole. None: the
+   * so it paints after one small message; the client then subscribes again for the full
+   * snapshot, which replaces it. Status, agents, approvals and queue always arrive whole. None: the
    * daemon's full snapshot. A daemon that predates the field sends the full one anyway.
    */
   openTail?: OpenTail;

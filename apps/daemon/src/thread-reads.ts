@@ -1,8 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import type {
   EntitiesPage,
-  ItemsFill,
-  SnapshotFill,
   EntityCollection,
   Event,
   ItemId,
@@ -151,59 +149,11 @@ export class ThreadReads {
         previewed = ids;
       });
       // A tail with older items left, or an item it could only preview, holds less than a full
-      // snapshot: `items.fill` reads the rest. One holding every item whole is a full snapshot.
+      // snapshot: the client completes it from the full one. One holding every item whole is one.
       if (!full && (view.itemsBefore !== null || previewed.length))
-        view.fill = {
-          before: view.itemsBefore,
-          ...(previewed.length ? { whole: [...previewed] } : {}),
-        };
+        view.partial = { previews: [...previewed] };
       return view;
     });
-  }
-  /**
-   * What a full snapshot holds beyond a snapshot cut to a tail (`fill`): its item and agent ids,
-   * with the bodies of the items created before `fill.before` or named in `fill.whole`, and of
-   * the agents those items need (the agents a full snapshot keeps for its items, and their
-   * parents). With that snapshot it is exactly a full snapshot's transcript and agents.
-   */
-  readSnapshotFill(id: ThreadId, fill: SnapshotFill): ItemsFill {
-    this.source.flush();
-    if (!this.source.readThread(id)) throw new Error("Unknown thread");
-    const full = this.sharedSnapshot(id, fullTail);
-    const seqs = full.itemSeqs ?? {};
-    const whole = new Set(fill.whole);
-    const before = fill.before;
-    const ids = full.itemOrder.filter(
-      (itemId) => whole.has(itemId) || (before !== null && (seqs[itemId] ?? before) < before),
-    );
-    const items = ids.flatMap((itemId) =>
-      Object.hasOwn(full.items, itemId) && full.items[itemId] ? [full.items[itemId]] : [],
-    );
-    const agents: ItemsFill["agents"] = {};
-    const need = items.flatMap((item) => (item.agentId ? [item.agentId] : []));
-    for (let index = 0; index < need.length; index++) {
-      const agentId = need[index] ?? "";
-      if (Object.hasOwn(agents, agentId) || !Object.hasOwn(full.agents, agentId)) continue;
-      const agent = full.agents[agentId];
-      if (!agent) continue;
-      Object.defineProperty(agents, agentId, {
-        value: agent,
-        writable: true,
-        enumerable: true,
-        configurable: true,
-      });
-      if (agent.parentId) need.push(agent.parentId);
-    }
-    return {
-      threadId: id,
-      seq: this.source.headSeq(),
-      order: [...full.itemOrder],
-      items,
-      itemSeqs: Object.fromEntries(ids.map((itemId) => [itemId, seqs[itemId] ?? 0])),
-      itemsBefore: full.itemsBefore,
-      agentIds: Object.keys(full.agents),
-      agents,
-    };
   }
   private loadSnapshot(
     id: ThreadId,

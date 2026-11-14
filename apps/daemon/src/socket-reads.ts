@@ -161,29 +161,6 @@ export function readCore(message: SocketMessage, reader: CoreReader): boolean {
       }
       break;
     }
-    case "items.fill": {
-      if (
-        !authorize("read") ||
-        !options.store.readThread(message.threadId) ||
-        options.canReadThread?.(device, message.threadId) === false
-      ) {
-        fail("read_denied", "Thread is not readable", false, { requestId: message.requestId });
-        break;
-      }
-      try {
-        send({
-          type: "items.fill",
-          requestId: message.requestId,
-          ...options.store.readSnapshotFill(message.threadId, {
-            before: message.before,
-            ...(message.whole ? { whole: message.whole } : {}),
-          }),
-        });
-      } catch {
-        fail("read_denied", "Invalid item cursor", false, { requestId: message.requestId });
-      }
-      break;
-    }
     case "items.page": {
       if (!authorize("read")) {
         fail("forbidden", "Read scope required", false, { requestId: message.requestId });

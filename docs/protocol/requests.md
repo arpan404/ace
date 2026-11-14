@@ -3714,28 +3714,6 @@ Example:
 }
 ```
 
-### items.fill
-
-| Field | Required | Type | Constraints |
-| --- | --- | --- | --- |
-| type | yes | `"items.fill"` |  |
-| requestId | yes | string | {"minLength":1} |
-| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| before | yes | union | {"anyOf":[{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},{"type":"null"}]} |
-| whole | no | array | {"maxItems":200,"items":{"type":"string","minLength":1}} |
-
-Example:
-
-```json
-{
-  "before": 6,
-  "requestId": "example",
-  "threadId": "example",
-  "type": "items.fill",
-  "whole": []
-}
-```
-
 ### entities.page
 
 | Field | Required | Type | Constraints |
@@ -3751,9 +3729,9 @@ Example:
 
 ```json
 {
-  "before": 4,
-  "collection": "agents",
-  "limit": 7,
+  "before": 6,
+  "collection": "runs",
+  "limit": 2,
   "requestId": "example",
   "threadId": "example",
   "type": "entities.page"
@@ -3774,7 +3752,7 @@ Example:
 ```json
 {
   "before": {
-    "at": 0,
+    "at": 2,
     "id": "example"
   },
   "requestId": "example",

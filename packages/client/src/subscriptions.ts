@@ -34,11 +34,18 @@ interface Cached {
   restored: boolean;
   /** Its kept record is still being read: it subscribes once that settles. */
   loading: boolean;
+  /** Completions of a tail-only copy that failed in a row, and the retry waiting, if any. */
+  completions: number;
+  retry: (() => void) | undefined;
 }
-/** Threads open with a small tail (`ClientOptions.openTail`); `older` reads in the rest. */
+/**
+ * Threads open with a small tail (`ClientOptions.openTail`). A store that holds only a tail is
+ * completed by subscribing again with neither a cursor nor a tail: the daemon's full snapshot
+ * replaces it, as an open without a tail gets. `delay` paces retries of a completion that fails.
+ */
 export interface TailOpen {
   tail: OpenTail;
-  older(threadId: string): void;
+  delay(milliseconds: number, run: () => void): () => void;
 }
 export interface ThreadSubscription {
   store: ThreadStore;
@@ -123,6 +130,8 @@ export class Subscriptions {
         database: undefined,
         restored: false,
         loading: false,
+        completions: 0,
+        retry: undefined,
       };
       entry.binding = this.#bind(entry);
       if (entry.binding) {
@@ -174,21 +183,16 @@ export class Subscriptions {
     };
   }
   /**
-   * Resubscribe a held thread for the daemon's full snapshot, replacing what it holds: what a
-   * thread falls back to when its small-tail fill cannot be had (`TailFill`).
+   * Complete a store that holds only a small tail: resubscribe with neither a cursor nor a tail
+   * (`#resumable` is false for it), so the daemon's full snapshot replaces what it holds.
    */
-  full(threadId: string): void {
-    const entry = this.#cache.get(threadId);
-    if (!entry?.refs) return;
+  #complete(entry: Cached): void {
     if (entry.subscriptionId) {
       this.#send({ type: "unsubscribe", subscriptionId: entry.subscriptionId });
       this.#wires.delete(entry.subscriptionId);
       this.#starting.delete(entry.subscriptionId);
     }
     entry.subscriptionId = undefined;
-    // No cursor and no tail: the daemon answers with its full snapshot, which replaces the copy.
-    entry.fresh = true;
-    entry.store.replaceOnSnapshot();
     this.#pump();
   }
   /** Slots an optional hold may still take: free ones beyond the reserve. */
@@ -353,6 +357,11 @@ export class Subscriptions {
    * only under the database that copy was kept under.
    */
   #resumable(entry: Cached): boolean {
+    // A copy that holds only a tail, live or from disk, is replaced by the full snapshot.
+    if (entry.store.filling) {
+      entry.store.replaceOnSnapshot();
+      return false;
+    }
     if (entry.fresh || entry.store.cursor === undefined) return false;
     if (!entry.restored) return true;
     if (entry.database !== undefined && entry.database === this.#database) return true;
@@ -412,6 +421,16 @@ export class Subscriptions {
     entry.rejected = true;
     entry.store.setSyncing(false);
     entry.store.fail(error);
+    // A tail-only copy never rests as if complete: its completion is tried again, with backoff,
+    // while the thread stays held (and on the next connection, which subscribes it afresh).
+    if (this.#tail && entry.store.filling && entry.refs && !entry.retry) {
+      const wait = Math.min(30_000, 500 * 2 ** entry.completions++);
+      entry.retry = this.#tail.delay(wait, () => {
+        entry.retry = undefined;
+        entry.rejected = false;
+        this.#pump();
+      });
+    }
     this.#pump();
   }
   receive(message: ServerMessage): void {
@@ -420,8 +439,6 @@ export class Subscriptions {
       if (!entry) return;
       if (entry.store.cursor === message.seq) entry.store.recover();
       entry.store.setSyncing(false);
-      // Caught up by replay while still owed the rest of a small-tail open: ask for it again.
-      if (this.#tail && entry.store.filling) this.#tail.older(entry.threadId);
       // Caught up by replay or snapshot: the daemon has confirmed what the store holds.
       entry.store.setUnconfirmed(false);
       this.#starting.delete(message.subscriptionId);
@@ -451,8 +468,12 @@ export class Subscriptions {
         this.reject(message.subscriptionId, error);
         return;
       }
-      // A small tail paints first; the rest of a full snapshot follows in one fill read.
-      if (this.#tail && entry.store.filling) this.#tail.older(entry.threadId);
+      // A small tail paints first; the full snapshot that replaces it is asked for at once.
+      if (entry.store.filling) {
+        this.#complete(entry);
+        return;
+      }
+      entry.completions = 0;
       // A complete snapshot finishes initialization itself. Keep replay paced by its
       // explicit acknowledgement, but don't leave a hydrated scope holding a startup slot.
       this.#starting.delete(message.subscriptionId);

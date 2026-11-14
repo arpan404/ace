@@ -141,8 +141,6 @@ export {
   coreServerTypes,
   DeliveryEvent,
   ItemsPage,
-  ItemsFill,
-  SnapshotFill,
   EntitiesPage,
   EntityCollection,
   SnapshotView,

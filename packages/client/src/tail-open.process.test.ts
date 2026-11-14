@@ -138,7 +138,7 @@ async function open(client: Client, threadId: ThreadId, items: number) {
   return lease;
 }
 
-test("a thread opened from a small tail fills in to what a full snapshot shows", async () => {
+test("a thread opened from a small tail completes to what a full snapshot shows", async () => {
   const h = await setup();
   cleanup = h.cleanup;
   fill(h, 120);
@@ -162,7 +162,7 @@ test("a thread opened from a small tail fills in to what a full snapshot shows",
   expect(shown(tail.client, h.thread.id)).toEqual(shown(full.client, h.thread.id));
 });
 
-test("a small-tail open with busy subagents fills in to what a full snapshot shows", async () => {
+test("a small-tail open with busy subagents completes to what a full snapshot shows", async () => {
   const h = await setup();
   cleanup = h.cleanup;
   // The person's transcript first, then a subagent's long run: a full snapshot keeps the root
@@ -227,7 +227,7 @@ const childAgent = (h: Harness, id: string, createdAt: number) => ({
   },
 });
 
-/** Open the thread on a full-snapshot client and a small-tail one; the second fills to the first. */
+/** Open the thread on a full-snapshot client and a small-tail one; the second completes to the first. */
 async function bothOpen(h: Harness) {
   const full = h.make();
   const tail = h.make({ openTail: screenTail });
@@ -243,7 +243,7 @@ async function bothOpen(h: Harness) {
   return { full, tail };
 }
 
-test("an older child referenced only by an item outside the tail is held after the fill", async () => {
+test("an older child referenced only by an item outside the tail is held once the thread completes", async () => {
   const h = await setup();
   cleanup = h.cleanup;
   fill(h, 0);
@@ -266,7 +266,7 @@ test("an older child referenced only by an item outside the tail is held after t
   expect(tail.client.cachedThread(h.thread.id)?.agent("early")).toBeDefined();
 });
 
-test("a newest reply too large for the tail is held whole after the fill", async () => {
+test("a newest reply too large for the tail is held whole once the thread completes", async () => {
   const h = await setup();
   cleanup = h.cleanup;
   fill(h, 10);
@@ -286,7 +286,12 @@ test("a client asking for a small tail still opens a daemon that sends the full 
   const client = h.make({ openTail: screenTail, transport: older.transport }).client;
   await open(reference.client, h.thread.id, 60);
   await open(client, h.thread.id, 60);
-  expect(older.faults.sent.some((text) => /"items\.(page|fill)"/.test(text))).toBe(false);
+  // Its full snapshot is not partial: nothing pages in and no completing subscribe follows.
+  expect(older.faults.sent.some((text) => text.includes('"items.page"'))).toBe(false);
+  const threadSubscribes = older.faults.sent.filter(
+    (text) => text.includes('"type":"subscribe"') && text.includes('"kind":"thread"'),
+  );
+  expect(threadSubscribes).toHaveLength(1);
   expect(shown(client, h.thread.id)).toEqual(shown(reference.client, h.thread.id));
 });
 

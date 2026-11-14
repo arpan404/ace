@@ -13,15 +13,7 @@ import {
   retainedTail,
 } from "@ace/projection";
 import { resumeTranscript } from "./snapshot-merge.ts";
-import type {
-  ThreadView,
-  EventBatch,
-  Progress,
-  Item,
-  ItemsFill,
-  ItemsPage,
-  SnapshotFill,
-} from "@ace/protocol";
+import type { ThreadView, EventBatch, Progress, Item, ItemsPage } from "@ace/protocol";
 import type { Mirrorable, ThreadExport, ThreadSource } from "./api.ts";
 import type { ThreadKey, ThreadReader } from "./readers.ts";
 import { Notifications, type ChangeTap, type Selection } from "./observable.ts";
@@ -111,23 +103,15 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
   get itemsBefore() {
     return this.#view?.itemsBefore;
   }
-  /** Set while the snapshot held is cut short of a full one: what `items.fill` asks for. */
-  get fillRequest(): SnapshotFill | undefined {
-    return this.#trimmed ? undefined : this.#view?.fill;
-  }
   /**
-   * The store holds less than a full snapshot of the thread and is still owed the rest
-   * (`ThreadReader.filling`). Select with `history`.
+   * The store holds only a small tail of the thread (`ThreadView.partial`) until the daemon's
+   * full snapshot replaces it (`ThreadReader.filling`). Select with `filling`.
    */
   get filling(): boolean {
-    return this.#view?.fill !== undefined;
+    return this.#partial !== undefined;
   }
-  /** The window has evicted items since its snapshot: a fill would no longer meet it. */
-  #trimmed = false;
-  /** The newest event about an agent this store did not hold, so it could not apply. */
-  #missedAgentSeq = 0;
-  /** Agents created by live events since the snapshot, with the sequence that created them. */
-  #agentsCreated = new Map<string, number>();
+  /** What the tail snapshot held lacked: the items it sent only as previews. */
+  #partial: { previews: string[] } | undefined;
   agentIds(): readonly string[] {
     return this.#view ? Object.keys(this.#view.agents) : emptyOrder;
   }
@@ -221,6 +205,8 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
         usageSnapshots: view.usageSnapshots,
         ...(view.queue && { queue: view.queue }),
         ...(view.contextMeters && { contextMeters: view.contextMeters }),
+        // Only a tail: a copy kept or mirrored from it is completed from the full snapshot too.
+        ...(this.#partial && { partial: { previews: [...this.#partial.previews] } }),
       },
       truncated: [...this.#clipped],
       deleted: [...this.#deleted],
@@ -319,9 +305,9 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
       view.itemsBefore = resumed.before;
     }
     this.#view = view;
-    this.#trimmed = false;
-    this.#missedAgentSeq = 0;
-    this.#agentsCreated.clear();
+    // Only a full snapshot clears the mark: a tail, from the wire or from disk, sets it.
+    this.#partial = view.partial ? { previews: [...view.partial.previews] } : undefined;
+    delete view.partial;
     this.#failure = undefined;
     this.#replace = false;
     this.#journal.reset(view.seq);
@@ -333,8 +319,8 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
     delete view.itemSeqs;
     this.#trim();
     for (const id of view.itemOrder) this.#clip(id);
-    // Sent only as a preview, its whole body owed by the fill: shown as cut until it lands.
-    for (const id of view.fill?.whole ?? []) if (this.item(id)) this.#clipped.add(id);
+    // Sent only as a preview, its whole body comes with the full snapshot: shown cut until then.
+    for (const id of this.#partial?.previews ?? []) if (this.item(id)) this.#clipped.add(id);
   }
   /** What a held transcript keeps of itself when `view` arrives for the same thread. */
   #resume(view: ThreadView): ReturnType<typeof resumeTranscript> {
@@ -433,7 +419,6 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
           keys.add("thread");
           break;
         case "agent.created":
-          this.#agentsCreated.set(p.agent.id, event.seq);
           if (!keys.has(`agent:${p.agent.id}`))
             this.#capacity("agents", !!this.agent(p.agent.id), keys);
           if (p.agent.origin === "root") {
@@ -445,7 +430,6 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
           break;
         case "agent.status":
         case "agent.updated":
-          if (!this.agent(p.agentId)) this.#missedAgentSeq = event.seq;
           this.#copy(view.agents, p.agentId);
           keys.add(`agent:${p.agentId}`);
           if (p.type === "agent.updated" && (p.parentId !== undefined || p.spawnedBy !== undefined))
@@ -623,99 +607,6 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
     }
     this.#notifications.emit(keys);
   }
-  /**
-   * Become what a full snapshot holds, given what it holds beyond the small one held (the
-   * answer to `request`, this store's `fillRequest`): its items in its order, with the bodies
-   * the small snapshot lacked or only previewed, and its agents. Items and agents created live
-   * since the answer was read stay. "stale" when the answer is too old to apply (an event about
-   * an agent it does not carry arrived after it was read): ask again. Ignored once another
-   * snapshot came or the window evicted items.
-   */
-  fill(answer: ItemsFill, request: SnapshotFill): "applied" | "ignored" | "stale" {
-    const view = this.#view;
-    if (!view) throw new ClientError("offline");
-    if (answer.threadId !== view.thread.id) throw new ClientError("protocol");
-    if (this.fillRequest !== request) return "ignored";
-    if (this.#missedAgentSeq > answer.seq) return "stale";
-    // Bodies read before live changes the store has since applied take those changes too.
-    const bodies = new Map<string, Item>(
-      this.#journal.reconcile(answer, view.seq).map((item) => [item.id, item]),
-    );
-    for (const id of answer.order) {
-      // A live deletion since the read stands; anything else the answer names is held or sent.
-      if (this.#deleted.has(id)) continue;
-      const seq = answer.itemSeqs[id] ?? this.#creation.get(id);
-      if (seq === undefined || (!bodies.has(id) && !this.item(id))) return "stale";
-    }
-    const keys = new Set<ThreadKey>(["order", "history", "agents"]);
-    const items: Record<string, Item> = {};
-    const creation = new Map<string, number>();
-    const keep = (id: string, item: Item, seq: number) => {
-      Object.defineProperty(items, id, {
-        value: item,
-        writable: true,
-        enumerable: true,
-        configurable: true,
-      });
-      creation.set(id, seq);
-    };
-    for (const id of answer.order) {
-      if (this.#deleted.has(id)) continue;
-      const body = bodies.get(id) ?? this.item(id);
-      const seq = answer.itemSeqs[id] ?? this.#creation.get(id);
-      if (!body || seq === undefined) continue;
-      keep(id, body, seq);
-      if (bodies.has(id)) this.#hydrated.set(id, Math.max(answer.seq, view.seq));
-    }
-    // Created live after the answer was read: not in it, and still the window's.
-    for (const id of view.itemOrder) {
-      const seq = this.#creation.get(id);
-      const item = this.item(id);
-      if (!Object.hasOwn(items, id) && item && seq !== undefined && seq > answer.seq)
-        keep(id, item, seq);
-    }
-    for (const id of view.itemOrder)
-      if (!Object.hasOwn(items, id)) {
-        keys.add(`item:${id}`);
-        this.#clipped.delete(id);
-        this.#hydrated.delete(id);
-      }
-    for (const id of bodies.keys()) {
-      keys.add(`item:${id}`);
-      // A preview's whole body has landed: it is cut again only if it is over this client's limits.
-      this.#clipped.delete(id);
-    }
-    view.items = items;
-    view.itemOrder = [...creation.keys()].toSorted(
-      (a, b) => (creation.get(a) ?? 0) - (creation.get(b) ?? 0),
-    );
-    this.#creation = creation;
-    view.itemsBefore = answer.itemsBefore;
-    const agents: ThreadView["agents"] = {};
-    const own = new Set(answer.agentIds);
-    for (const [id, seq] of this.#agentsCreated) if (seq > answer.seq) own.add(id);
-    for (const id of own) {
-      const agent =
-        this.agent(id) ?? (Object.hasOwn(answer.agents, id) ? answer.agents[id] : undefined);
-      if (!agent) continue;
-      Object.defineProperty(agents, id, {
-        value: agent,
-        writable: true,
-        enumerable: true,
-        configurable: true,
-      });
-      keys.add(`agent:${id}`);
-    }
-    for (const id of Object.keys(view.agents)) if (!own.has(id)) keys.add(`agent:${id}`);
-    view.agents = agents;
-    rebuildAgentChildren(view);
-    this.#counts.set("agents", Object.keys(agents).length);
-    delete view.fill;
-    for (const id of view.itemOrder) this.#clip(id);
-    for (const id of this.#trim()) keys.add(`item:${id}`);
-    this.#notifications.emit(keys);
-    return "applied";
-  }
   /** Bound the window, keeping the root agent's share of it (ADR 0062). */
   #trim(): string[] {
     const view = this.#view;
@@ -730,7 +621,6 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
       this.#limits.items,
     );
     view.itemOrder = tail.kept.map((entry) => entry.id);
-    if (tail.evicted.length) this.#trimmed = true;
     // Everything from the evicted boundary on is held; the cursor never moves back over a hole.
     if (tail.before !== undefined)
       view.itemsBefore =

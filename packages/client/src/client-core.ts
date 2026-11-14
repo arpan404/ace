@@ -1,4 +1,3 @@
-import { TailFill, type FillResult } from "./tail-fill.ts";
 import { z } from "zod";
 import { KeptHistory } from "./kept-history.ts";
 import { SendOps } from "./send-ops.ts";
@@ -187,7 +186,6 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   #binding: Promise<void> | undefined;
   #pendingSendEntries = new Map<string, PendingSend>();
   #waitingHints = new Map<string, () => void>();
-  #tailFill: TailFill;
   constructor(options: ClientOptions) {
     options = { ...options };
     this.options = options;
@@ -349,16 +347,9 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       this.#persistence(),
       options.openTail && {
         tail: options.openTail,
-        older: (threadId) => this.#tailFill.start(threadId),
+        delay: (milliseconds, run) => options.scheduler.set(milliseconds, run),
       },
     );
-    this.#tailFill = new TailFill({
-      fill: (threadId) => this.fillThread(threadId),
-      owed: (threadId) => this.#subscriptions.held(threadId)?.filling === true,
-      askable: (threadId) => this.#subscriptions.held(threadId)?.fillRequest !== undefined,
-      full: (threadId) => this.#subscriptions.full(threadId),
-      delay: (milliseconds, run) => options.scheduler.set(milliseconds, run),
-    });
     this.#sidebar = new Sidebar(
       limits,
       (message) => this.connection.send(message),
@@ -988,7 +979,6 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   async #readCore<T>(
     payload:
       | { type: "items.page"; threadId: string; before: number; limit: number }
-      | ({ type: "items.fill"; threadId: string } & import("@ace/protocol").SnapshotFill)
       | { type: "output.read"; streamId: string; offset: number; limit: number }
       | {
           type: "threads.page";
@@ -1135,25 +1125,6 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     return this.state === "ready" && thread && !thread.syncing && !thread.unconfirmed
       ? thread.cursor
       : undefined;
-  }
-  /**
-   * Read the rest of what a full snapshot holds into a thread opened from a small one
-   * (`ClientOptions.openTail`), so its window holds what a full snapshot would have.
-   */
-  async fillThread(threadId: string, options: RequestOptions = {}): Promise<FillResult> {
-    const request = this.#subscriptions.held(threadId)?.fillRequest;
-    if (!request) return "absent";
-    const answer = await this.#readCore(
-      { type: "items.fill", threadId, ...request },
-      (value) => {
-        const parsed = CoreServerMessage.parse(value);
-        if (parsed.type !== "items.fill" || parsed.threadId !== threadId)
-          throw new ClientError("protocol");
-        return parsed;
-      },
-      options,
-    );
-    return this.#subscriptions.held(threadId)?.fill(answer, request) ?? "absent";
   }
   async loadOlder(threadId: string, limit: number, options: RequestOptions = {}): Promise<void> {
     const store = this.#subscriptions.held(threadId);
