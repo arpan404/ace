@@ -22,9 +22,28 @@ name = "still"
 path = "bench/still.rs"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFData", "CFDictionary", "CFNumber", "CFString", "CFCGTypes"] }
-objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGBitmapContext", "CGContext", "CGImage", "CGDataProvider", "CGColorSpace"] }
-objc2-image-io = { version = "0.3", default-features = false, features = ["std", "CGImageSource", "CGImageDestination", "objc2-core-graphics"] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = [
+  "std",
+  "CFData",
+  "CFDictionary",
+  "CFNumber",
+  "CFString",
+  "CFCGTypes",
+] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = [
+  "std",
+  "CGBitmapContext",
+  "CGContext",
+  "CGImage",
+  "CGDataProvider",
+  "CGColorSpace",
+] }
+objc2-image-io = { version = "0.3", default-features = false, features = [
+  "std",
+  "CGImageSource",
+  "CGImageDestination",
+  "objc2-core-graphics",
+] }
 
 [[example]]
 name = "alloc"

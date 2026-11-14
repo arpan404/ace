@@ -108,10 +108,10 @@ the native macOS comparison. The counting allocator lives only in bench code.
 
 Mac16,5, eight workers, NEON, host load average about 70:
 
-| Path | Median | p95 | Decode p50/p95 | Scale p50/p95 | Encode p50/p95 |
-| --- | --- | --- | --- | --- | --- |
-| CPU | 5.357 ms | 6.226 ms | 1.871 / 2.054 | 1.665 / 1.856 | 1.810 / 2.081 ms |
-| ImageIO | 16.581 ms | 18.254 ms | 6.024 mean | 7.671 mean | 3.179 mean |
+| Path    | Median    | p95       | Decode p50/p95 | Scale p50/p95 | Encode p50/p95   |
+| ------- | --------- | --------- | -------------- | ------------- | ---------------- |
+| CPU     | 5.357 ms  | 6.226 ms  | 1.871 / 2.054  | 1.665 / 1.856 | 1.810 / 2.081 ms |
+| ImageIO | 16.581 ms | 18.254 ms | 6.024 mean     | 7.671 mean    | 3.179 mean       |
 
 **Allocations: 0 per frame after warm-up** in every stage (decode, scale, encode)
 and in the worker queues. The previous library-based path made 2325 per frame.
