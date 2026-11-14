@@ -39,6 +39,12 @@ export interface CaptureEvents {
    * picture); `reason` says why, when the encoder said.
    */
   ended(reason?: string): void;
+  /**
+   * The encoder moved its chunks to ace-media's ingest, or back to the daemon (E4). Sent on the
+   * daemon's path in order with its chunks: the last thing there before the move to ace-media,
+   * the first thing after the move back.
+   */
+  moved?(to: "ingest" | "daemon"): void;
 }
 /** What ace-media calls a host's sources (docs/media/plan.md, "Routes"). */
 export type VideoMediaKind = "tab" | "tab-pictures" | "user-tab" | "embedded";
@@ -71,6 +77,11 @@ export interface VideoCaptureHandle {
 export interface VideoHost {
   /** The kind of ace-media source this host's captures are; absent: never routed there. */
   mediaKind?: VideoMediaKind;
+  /**
+   * ace-media's ingest is at `url` now: an encoder whose page must be made to reach it (the
+   * desktop's, whose policy names one port) gets ready before its next capture.
+   */
+  reach?(url: string): Promise<void>;
   /** The codecs (of those asked, in order) the encoder supports at this size. */
   supported(codecs: readonly string[], width: number, height: number): Promise<string[]>;
   /** Captures the tab `page` shows, at exactly this many pixels. */

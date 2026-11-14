@@ -7,7 +7,7 @@ import {
 import { affordsSettleKey, QuantizerControl } from "../src/quantizer-control.ts";
 import { ReadStamper } from "@ace/media/epochs";
 import { TabAudio } from "./audio.ts";
-import { IngestSink, videoCodec, type IngestTarget } from "./ingest.ts";
+import { base64Bytes, IngestSink, videoCodec, type IngestTarget } from "./ingest.ts";
 
 /*
  * The video extension's offscreen document (ADR 0088): opens a tab capture and encodes it with
@@ -288,26 +288,48 @@ function keyframes(capture: Capture): void {
   for (const entry of capture.encoders.values()) entry.pacer.requestKeyframe();
 }
 
+/**
+ * The capture's word on the daemon's path that its chunks move: sent there in order with its
+ * chunks, so the daemon hands on everything before it first (`PathMerge`).
+ */
+function moved(capture: Capture, to: "ingest" | "daemon"): void {
+  emit({ t: "moved", capture: capture.id, to });
+}
+
 /** Points the capture's chunks at ace-media's ingest, or (no target) back at the daemon. */
 function ingest(capture: Capture, target: IngestTarget | undefined): void {
   const old = capture.ingest;
   capture.ingest = undefined;
-  old?.close();
-  if (old) keyframes(capture);
+  if (old) {
+    old.close();
+    // Chunks come to the daemon again from here; an old socket that never opened sent none.
+    moved(capture, "daemon");
+    keyframes(capture);
+  }
   if (!target) return;
   capture.stamper = new ReadStamper(target.epoch);
-  const sink: IngestSink = new IngestSink(
-    target,
-    () => {
-      if (capture.ingest === sink) keyframes(capture);
-    },
-    () => {
-      if (capture.ingest !== sink) return;
-      // ace-media went away or refused the token: back to the daemon until it gives another.
-      capture.ingest = undefined;
-      keyframes(capture);
-    },
-  );
+  let sink: IngestSink;
+  try {
+    sink = new IngestSink(
+      target,
+      () => {
+        if (capture.ingest !== sink) return;
+        // The last thing on the daemon's path before the chunks go to ace-media.
+        moved(capture, "ingest");
+        keyframes(capture);
+      },
+      () => {
+        if (capture.ingest !== sink) return;
+        // ace-media went away or refused the token: back to the daemon until it gives another.
+        capture.ingest = undefined;
+        moved(capture, "daemon");
+        keyframes(capture);
+      },
+    );
+  } catch {
+    moved(capture, "daemon");
+    return;
+  }
   capture.ingest = sink;
 }
 
@@ -659,9 +681,15 @@ Object.assign(globalThis, {
      * Its chunks switch once the socket is open; until then, and if it fails, they go to the
      * daemon.
      */
-    ingest(id: string, target: IngestTarget | null): void {
+    ingest(id: string, target: { url: string; token: string; epoch: number } | null): void {
       const capture = captures.get(id);
-      if (capture) ingest(capture, target ?? undefined);
+      if (!capture) return;
+      ingest(
+        capture,
+        target
+          ? { url: target.url, token: base64Bytes(target.token), epoch: target.epoch }
+          : undefined,
+      );
     },
     /**
      * Capture `id` holds privacy epoch `epoch` from now (`followsPrivate`: the previous one was

@@ -1,10 +1,13 @@
 import type { EgressUnit } from "@ace/media/egress";
-import type { IngestTarget, MediaSource, MediaSourceListener } from "@ace/media/sources";
+import type { IngestAddress, IngestProducer, IngestSource } from "@ace/media/ingest-sources";
+import { PathMerge } from "@ace/media/path-merge";
 import type {
   CaptureEvents,
+  EncodedAudio,
   EncodedChunk,
   VideoCaptureHandle,
   VideoHost,
+  VideoIngestTarget,
   VideoMediaKind,
 } from "./backend.ts";
 import type { VideoEncode } from "./video-policy.ts";
@@ -16,27 +19,35 @@ import type { VideoEncode } from "./video-policy.ts";
  * so; tabs only seen as JPEG screencasts (a private context, "Use my Chrome") have ace-media
  * encode their pictures on this computer's hardware encoder instead of the daemon's encoder
  * Chrome. Either way the units come back on egress to the same `CaptureEvents`, so the live
- * video, its viewers and recordings are unchanged while delivery is legacy.
+ * video, its viewers and recordings are unchanged while delivery is legacy. A capture that
+ * moves between the two paths goes through one `PathMerge`, so its units stay in order.
  */
 
-/** One source in ace-media, as a capture uses it (`@ace/media`'s `MediaSource`). */
-export type BrowserMediaSource = Pick<MediaSource, "encodes" | "key" | "picture" | "close">;
+/** One source in ace-media, as a capture uses it (`@ace/media`'s `IngestSource`). */
+export type BrowserMediaSource = Pick<
+  IngestSource,
+  "streaming" | "encodes" | "key" | "picture" | "close"
+>;
 
 /** What the browser needs of the daemon's ace-media. */
 export interface BrowserMedia {
   /** Undefined while this daemon has no ace-media (never asked for, or not installed). */
-  open(
-    kind: VideoMediaKind,
-    listener: MediaSourceListener,
-    ids?: { threadId?: string; tabId?: string },
-  ): BrowserMediaSource | undefined;
+  add(producer: IngestProducer): BrowserMediaSource | undefined;
   /** A kind's producers stream into ace-media now. */
   routed(kind: VideoMediaKind): boolean;
   /** The settings route a kind through ace-media once it is up. */
   wanted(kind: VideoMediaKind): boolean;
   /** The codecs ace-media encodes pictures in on this computer, best first. */
   pictureCodecs(): readonly string[];
+  /** ace-media's ingest WebSocket now, while it runs. */
+  endpoint(): string | undefined;
 }
+
+type Ids = { threadId?: string; tabId?: string };
+
+/** How long a capture's new path waits for its old path's end before starting at a keyframe. */
+const holdMs = 1_000;
+let captures = 0;
 
 /** An encode's id in ace-media's frames, per capture, from 1. */
 class EncodeIds {
@@ -81,28 +92,36 @@ function chunkOf(unit: EgressUnit, ids: EncodeIds): EncodedChunk | undefined {
   };
 }
 
-function audioOf(unit: EgressUnit, events: CaptureEvents): void {
+function audioOf(unit: EgressUnit): EncodedAudio | undefined {
   const { frame } = unit;
-  if (frame.kind !== 2 || frame.description.length < 5) return;
+  if (frame.kind !== 2 || frame.description.length < 5) return undefined;
   const view = new DataView(
     frame.description.buffer,
     frame.description.byteOffset,
     frame.description.byteLength,
   );
-  events.audio?.({
+  return {
     codec: "opus",
     sampleRate: view.getUint32(0),
     channels: frame.description[4] ?? 1,
     age: frame.ageUs / 1000,
     bytes: frame.payload,
-  });
+  };
 }
 
-function wire(target: IngestTarget): { url: string; token: string; epoch: number } {
-  const token = Buffer.from(target.token).toString("base64");
-  target.token.fill(0);
-  return { url: target.url, token, epoch: target.epoch };
+function wire(address: IngestAddress): VideoIngestTarget {
+  return {
+    url: address.url,
+    token: Buffer.from(address.token).toString("base64"),
+    epoch: address.epoch,
+  };
 }
+
+const consumers = (deliver: (unit: EgressUnit) => void) => ({
+  deliver,
+  record: () => {},
+  still: () => {},
+});
 
 /**
  * The routed host for each backend host, kept per inner host so what a host learned (that
@@ -110,7 +129,7 @@ function wire(target: IngestTarget): { url: string; token: string; epoch: number
  */
 export function mediaVideoHosts(
   media: BrowserMedia,
-  ids: () => { threadId?: string; tabId?: string },
+  ids: () => Ids,
 ): (inner: VideoHost) => VideoHost {
   const routed = new WeakMap<VideoHost, VideoHost>();
   return (inner) => {
@@ -123,11 +142,7 @@ export function mediaVideoHosts(
   };
 }
 
-export function mediaVideoHost(
-  inner: VideoHost,
-  media: BrowserMedia,
-  ids: () => { threadId?: string; tabId?: string },
-): VideoHost {
+export function mediaVideoHost(inner: VideoHost, media: BrowserMedia, ids: () => Ids): VideoHost {
   const kind = inner.mediaKind;
   if (!kind) return inner;
   if (kind === "tab-pictures" || kind === "user-tab") return pictureHost(inner, kind, media, ids);
@@ -136,47 +151,93 @@ export function mediaVideoHost(
     mediaKind: kind,
     supported: (codecs, width, height) => inner.supported(codecs, width, height),
     open: async (page, width, height, events) => {
-      const handle = await inner.open(page, width, height, events);
-      return handle.ingest ? streamed(handle, kind, media, events, ids()) : handle;
+      const endpoint = media.endpoint();
+      if (endpoint && media.routed(kind)) await inner.reach?.(endpoint).catch(() => {});
+      return streamed(
+        (merged) => inner.open(page, width, height, merged),
+        kind,
+        media,
+        events,
+        ids(),
+      );
     },
   };
 }
 
+type Unit = { chunk: EncodedChunk } | { audio: EncodedAudio };
+
 /**
- * A capture whose own encoder streams into ace-media while its route says so: its chunks go to
- * the daemon or to ace-media, never both, and the ones from ace-media come back on egress.
+ * A capture whose own encoder streams into ace-media while its route says so. Its chunks go to
+ * the daemon or to ace-media, never both; both paths feed one merge, so a path's units are
+ * handed on only after the previous path's last ones.
  */
-function streamed(
-  handle: VideoCaptureHandle,
+async function streamed(
+  open: (events: CaptureEvents) => Promise<VideoCaptureHandle>,
   kind: VideoMediaKind,
   media: BrowserMedia,
   events: CaptureEvents,
-  ids: { threadId?: string; tabId?: string },
-): VideoCaptureHandle {
-  const encodeIds = new EncodeIds();
-  const ingest = handle.ingest?.bind(handle);
-  const source = media.open(
-    kind,
-    {
-      target: (target) => ingest?.(target ? wire(target) : undefined),
-      unit: (unit) => {
-        const chunk = chunkOf(unit, encodeIds);
-        if (chunk) events.chunk(chunk);
-        else audioOf(unit, events);
-      },
-      keyframe: (encode) => {
-        const key = encodeIds.key(encode);
-        if (key !== undefined) handle.keyframe(key);
-      },
+  ids: Ids,
+): Promise<VideoCaptureHandle> {
+  const merge = new PathMerge<Unit>("daemon", {
+    emit: (unit) => {
+      if ("chunk" in unit) events.chunk(unit.chunk);
+      else events.audio?.(unit.audio);
     },
-    ids,
-  );
+    stream: (unit) => ("chunk" in unit ? unit.chunk.encode : "audio"),
+    key: (unit) => !("chunk" in unit) || unit.chunk.key,
+    schedule: (callback, ms) => {
+      const timer = setTimeout(callback, ms);
+      return () => clearTimeout(timer);
+    },
+    holdMs,
+  });
+  const handle = await open({
+    chunk: (chunk) => merge.deliver("daemon", { chunk }),
+    audio: (audio) => merge.deliver("daemon", { audio }),
+    failed: (encode) => events.failed(encode),
+    ended: (reason) => {
+      merge.dispose();
+      events.ended(reason);
+    },
+    // The encoder's own word on the daemon's path, ordered with its chunks there.
+    moved: (to) => {
+      if (to === "ingest") merge.ended("daemon", false);
+      else merge.switching("daemon");
+    },
+  });
+  const ingest = handle.ingest?.bind(handle);
+  if (!ingest) return handle;
+  const encodeIds = new EncodeIds();
+  const source = media.add({
+    source: `capture-${++captures}`,
+    kind,
+    origin: { kind },
+    ...ids,
+    epoch: () => 0,
+    consumers: consumers((unit) => {
+      const chunk = chunkOf(unit, encodeIds);
+      if (chunk) return merge.deliver(unit.source, { chunk });
+      const audio = audioOf(unit);
+      if (audio) merge.deliver(unit.source, { audio });
+    }),
+    point: (address) => {
+      merge.switching(address ? address.path : "daemon");
+      ingest(address ? wire(address) : undefined);
+      return Promise.resolve();
+    },
+    keyframe: (encode) => {
+      const key = encodeIds.key(encode);
+      if (key !== undefined) handle.keyframe(key);
+    },
+    pathEnded: (path, interrupted) => merge.ended(path, interrupted),
+  });
   if (!source) return handle;
   return {
     encodes: (specs) => handle.encodes(encodeIds.stamp(specs)),
     keyframe: (key) => handle.keyframe(key),
     ...(handle.audio ? { audio: (on: boolean) => handle.audio?.(on) } : {}),
     close: () => {
+      merge.dispose();
       source.close();
       handle.close();
     },
@@ -192,22 +253,17 @@ function pictureHost(
   inner: VideoHost,
   kind: "tab-pictures" | "user-tab",
   media: BrowserMedia,
-  ids: () => { threadId?: string; tabId?: string },
+  ids: () => Ids,
 ): VideoHost {
-  const canEncode = (codecs: readonly string[]) => {
-    const offered = media.pictureCodecs();
-    return codecs.length > 0 && codecs.every((codec) => offered.some((o) => same(o, codec)));
-  };
+  const offered = (codec: string) => media.pictureCodecs().some((o) => same(o, codec));
+  const canEncode = (codecs: readonly string[]) => codecs.length > 0 && codecs.every(offered);
   /** After ace-media ended a capture on its own, its next ones stay with the inner host. */
   let refused = false;
-  const host: VideoHost = {
+  return {
     ...inner,
     mediaKind: kind,
     supported: (codecs, width, height) => {
-      if (!refused && media.routed(kind)) {
-        const offered = media.pictureCodecs();
-        return Promise.resolve(codecs.filter((codec) => offered.some((o) => same(o, codec))));
-      }
+      if (!refused && media.routed(kind)) return Promise.resolve(codecs.filter(offered));
       return inner.supported(codecs, width, height);
     },
     open: async (page, width, height, events) => {
@@ -232,7 +288,11 @@ function pictureHost(
       return capture ?? inner.open(page, width, height, events);
     },
   };
-  return host;
+}
+
+/** Same codec family: ace-media writes the profile and level it chose. */
+function same(offered: string, asked: string): boolean {
+  return offered.slice(0, 4) === asked.slice(0, 4);
 }
 
 /**
@@ -245,39 +305,39 @@ function untilMedia(
   kind: VideoMediaKind,
   media: BrowserMedia,
   events: CaptureEvents,
-  ids: { threadId?: string; tabId?: string },
+  ids: Ids,
 ): VideoCaptureHandle {
   let open = true;
-  const watch = media.open(
+  let watch: BrowserMediaSource | undefined;
+  watch = media.add({
+    source: `capture-${++captures}`,
     kind,
-    {
-      target: (target) => {
-        if (!target || !open) return;
-        target.token.fill(0);
-        open = false;
-        watch?.close();
-        handle.close();
-        events.ended("ace-media takes over encoding this tab");
-      },
-      unit: () => {},
+    origin: { kind },
+    ...ids,
+    epoch: () => 0,
+    consumers: consumers(() => {}),
+    point: (address) => {
+      if (!address || !open) return Promise.resolve();
+      address.token.fill(0);
+      open = false;
+      watch?.close();
+      handle.close();
+      events.ended("ace-media takes over encoding this tab");
+      return Promise.resolve();
     },
-    ids,
-  );
-  if (!watch) return handle;
+    keyframe: () => {},
+  });
+  const held = watch;
+  if (!held) return handle;
   return {
     ...handle,
     close: () => {
       if (!open) return;
       open = false;
-      watch.close();
+      held.close();
       handle.close();
     },
   };
-}
-
-/** Same codec family: ace-media writes the profile and level it chose. */
-function same(offered: string, asked: string): boolean {
-  return offered.slice(0, 4) === asked.slice(0, 4);
 }
 
 function pictureCapture(options: {
@@ -286,7 +346,7 @@ function pictureCapture(options: {
   width: number;
   height: number;
   events: CaptureEvents;
-  ids: { threadId?: string; tabId?: string };
+  ids: Ids;
   canEncode: (codecs: readonly string[]) => boolean;
   refuse: () => void;
 }): VideoCaptureHandle | undefined {
@@ -294,36 +354,40 @@ function pictureCapture(options: {
   const encodeIds = new EncodeIds();
   let open = true;
   let streaming = false;
+  let source: BrowserMediaSource | undefined;
   const end = (reason: string) => {
     if (!open) return;
     open = false;
-    opened?.close();
+    source?.close();
     events.ended(reason);
   };
-  const opened: BrowserMediaSource | undefined = options.media.open(
-    options.kind,
-    {
-      target: (target) => {
-        if (target) target.token.fill(0);
-        const was = streaming;
-        streaming = target !== undefined;
-        // ace-media went away (or the route left it): the live video opens a new capture,
-        // which the inner host serves until ace-media is back.
-        if (was && !streaming) end("ace-media stopped encoding this tab");
-      },
-      unit: (unit) => {
-        const chunk = chunkOf(unit, encodeIds);
-        if (open && chunk) events.chunk(chunk);
-      },
-      ended: (reason) => {
-        options.refuse();
-        end(reason ?? "ace-media could not encode this tab");
-      },
+  source = options.media.add({
+    source: `capture-${++captures}`,
+    kind: options.kind,
+    origin: { kind: options.kind },
+    ...options.ids,
+    epoch: () => 0,
+    consumers: consumers((unit) => {
+      const chunk = chunkOf(unit, encodeIds);
+      if (open && chunk) events.chunk(chunk);
+    }),
+    point: (address) => {
+      address?.token.fill(0);
+      const was = streaming;
+      streaming = address !== undefined;
+      // ace-media went away (or the route left it): the live video opens a new capture, which
+      // the inner host serves until ace-media is back.
+      if (was && !streaming) end("ace-media stopped encoding this tab");
+      return Promise.resolve();
     },
-    options.ids,
-  );
+    keyframe: () => {},
+    refused: (reason) => {
+      options.refuse();
+      end(reason ?? "ace-media could not encode this tab");
+    },
+  });
+  const opened = source;
   if (!opened) return undefined;
-  const source = opened;
   return {
     encodes: (specs) => {
       if (!open) return;
@@ -332,7 +396,7 @@ function pictureCapture(options: {
         for (const spec of specs) events.failed(spec.key);
         return end("ace-media can't encode these codecs here");
       }
-      source.encodes(
+      opened.encodes(
         encodeIds.stamp(specs).map((spec) => ({
           id: spec.id,
           codec: spec.codec,
@@ -343,18 +407,18 @@ function pictureCapture(options: {
         })),
       );
     },
-    keyframe: (key) => source.key(encodeIds.id(key)),
+    keyframe: (key) => opened.key(encodeIds.id(key)),
     pictures: {
       width: options.width,
       height: options.height,
       push: (base64) => {
-        if (open) source.picture(base64);
+        if (open) opened.picture(base64);
       },
     },
     close: () => {
       if (!open) return;
       open = false;
-      source.close();
+      opened.close();
     },
   };
 }

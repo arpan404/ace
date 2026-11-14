@@ -38,6 +38,8 @@ function media(settings: MediaSettings) {
   const path = binary ?? "";
   const runtimeDir = mkdtempSync(join(tmpdir(), "acem-"));
   let ids = 0;
+  const units: EgressUnit[] = [];
+  const statuses: unknown[] = [];
   const runtime = new MediaRuntime({
     version: execFileSync(path, ["--version"]).toString().trim(),
     binary: path,
@@ -50,30 +52,26 @@ function media(settings: MediaSettings) {
     listen: () => ({ message: { type: "listen", loopback: true }, payload: new Uint8Array(0) }),
     id: () => `source-${++ids}`,
     log: () => {},
+    onMessage: (message) => {
+      if (message.type === "source.status") statuses.push(message);
+    },
   });
-  const units: EgressUnit[] = [];
-  const statuses: unknown[] = [];
   const browser: BrowserMedia = {
-    open: (kind, listener, sourceIds) =>
-      runtime.sources.open(
-        kind,
-        { kind },
-        {
-          ...listener,
-          unit: (unit) => {
+    add: (producer) =>
+      runtime.sources.add({
+        ...producer,
+        consumers: {
+          ...producer.consumers,
+          deliver: (unit) => {
             units.push(unit);
-            listener.unit(unit);
-          },
-          status: (status) => {
-            statuses.push(status);
-            listener.status?.(status);
+            producer.consumers.deliver(unit);
           },
         },
-        sourceIds,
-      ),
+      }),
     routed: (kind) => runtime.sources.routed(kind),
     wanted: (kind) => runtime.sources.wanted(kind),
     pictureCodecs: () => runtime.pictureCodecs(),
+    endpoint: () => runtime.sources.endpoint(),
   };
   cleanups.push(() => {
     runtime.dispose();
