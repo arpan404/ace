@@ -16,6 +16,7 @@ import { pairingLinkFromUrl } from "./boot/fragment-handoff.ts";
 import { DaemonConnectionContext, type NoMachinePlace } from "./boot/connection.tsx";
 import type { AccountRouteSource } from "./boot/main-machine.ts";
 import { createDaemonClient, forgetDaemonIdentity } from "./boot/daemon.ts";
+import { startClientWorker } from "./boot/worker-client.ts";
 import { afterFirstScreen, useBrowserMachinePool } from "./boot/machine-pool-boot.ts";
 import { loadKeptQueries, useKeptQueries } from "./boot/kept-queries.ts";
 import { KeptTurnStepsConnection } from "./boot/kept-turn-steps.ts";
@@ -302,10 +303,14 @@ async function content(): Promise<ReactNode> {
 const element = document.getElementById("root");
 if (!element) throw new Error("Missing #root");
 const daemonMode = import.meta.env.MODE !== "fake" && import.meta.env.MODE !== "perf";
-// A browser with a machine stored keeps lookups from its last session: their code downloads
-// while the gate connects, so the app restores them as it mounts. Not awaited.
-if (daemonMode && !hasDesktopBridge() && loadTarget(stores).target)
+// A browser with a machine stored will connect to it: its client worker starts now, so its
+// script downloads while this one runs and React renders (the gate still decides where it
+// connects), and the lookups kept from its last session load their code while the gate
+// connects, so the app restores them as it mounts. Not awaited.
+if (daemonMode && !hasDesktopBridge() && loadTarget(stores).target) {
+  startClientWorker();
   void loadKeptQueries().catch(() => {});
+}
 /** Start over at the connection screen without the stored token (from `BootFailure`). */
 const connectionSettings = daemonMode
   ? () => {

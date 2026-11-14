@@ -58,8 +58,70 @@ export function createWorkerClient(target: DaemonTarget, deviceId: string): Clie
   });
 }
 
+type SpawnedClientWorker = WorkerHandle & {
+  port: PortLike;
+  failure: NonNullable<WorkerHandle["failure"]>;
+};
+
 let sharedFailed = false;
-function workerPort(): (WorkerHandle & { port: PortLike }) | undefined {
+/** A worker started ahead of the first client (`startClientWorker`), not yet handed to one. */
+let early: { worker: SpawnedClientWorker; expire: ReturnType<typeof setTimeout> } | undefined;
+/** How long a worker started ahead waits for a client before it is closed. */
+const earlyWorkerMs = 30_000;
+
+/**
+ * Start the client worker now, ahead of the connection gate: its script, and the service
+ * schemas it loads at once, then download while the page's own code runs and React renders,
+ * instead of after the gate's first commit. The worker does nothing until a client attaches
+ * and says which daemon to reach (it only ever answers a tab), so nothing about the connection
+ * is decided here; the first `createWorkerClient` takes this worker. A failure before then is
+ * kept and reported to that client. Unclaimed after 30 s (the gate chose no machine) it is
+ * closed.
+ */
+export function startClientWorker(): void {
+  if (early) return;
+  const worker = spawnWorker();
+  if (!worker) return;
+  let failed = false;
+  const stopEarly = worker.failure.watch(() => {
+    failed = true;
+  });
+  const held: SpawnedClientWorker = {
+    ...worker,
+    failure: {
+      watch(lost) {
+        stopEarly();
+        if (failed) {
+          queueMicrotask(lost);
+          return () => {};
+        }
+        return worker.failure.watch(lost);
+      },
+      close: () => worker.failure.close(),
+    },
+  };
+  early = {
+    worker: held,
+    expire: setTimeout(() => {
+      if (early?.worker !== held) return;
+      early = undefined;
+      stopEarly();
+      held.failure.close();
+    }, earlyWorkerMs),
+  };
+}
+
+function workerPort(): SpawnedClientWorker | undefined {
+  const waiting = early;
+  if (waiting) {
+    early = undefined;
+    clearTimeout(waiting.expire);
+    return waiting.worker;
+  }
+  return spawnWorker();
+}
+
+function spawnWorker(): SpawnedClientWorker | undefined {
   // Vite bundles each worker from these literal constructor calls.
   if (!sharedFailed && typeof SharedWorker === "function") {
     try {
