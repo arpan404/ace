@@ -186,8 +186,8 @@ it("a closed channel refuses a large send without deflating it", async () => {
   expect(deflates).toBe(0);
 });
 
-/** JSON text of exactly `bytes` bytes that won't deflate. */
-function incompressible(bytes: number): string {
+/** JSON text of exactly `bytes` bytes of base64, which deflates by only about a quarter. */
+function base64Text(bytes: number): string {
   const head = '{"type":"pong","data":"';
   return `${head}${randomBytes(bytes)
     .toString("base64")
@@ -203,9 +203,9 @@ it("a slow deflate holds room for its whole message, so ready bytes never pass 1
     },
     { flowControl: true },
   );
-  // The reader never reads. 16 MiB that won't deflate, held in its deflate…
-  const first = server.sendText(incompressible(LOGICAL_MESSAGE_LIMIT), true).catch(() => {});
-  // …leaves no room behind it, as when it was deflated at once.
+  // The reader never reads. 16 MiB held in its deflate holds room for all of itself, so
+  // nothing fits behind it until the deflate is done.
+  const first = server.sendText(base64Text(LOGICAL_MESSAGE_LIMIT), true).catch(() => {});
   for (let index = 0; index < 4; index++)
     await expect(server.sendText(exactly(4 * 1024 * 1024), false)).rejects.toThrow(
       "send queue too large",

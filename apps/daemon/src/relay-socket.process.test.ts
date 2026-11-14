@@ -129,7 +129,9 @@ it("with the queue full behind a reader that stopped, a close loses nothing it q
   const { channel, client } = await relayedMain();
   const socket = new RelaySocket(channel, { deflate: true, delay: manualDelay().delay });
   const errors: string[] = [];
-  // 16 MiB that won't deflate, then 16 MiB that will, while the reader reads nothing.
+  // About 16 MiB of base64 (which deflates by only a quarter), then 16 MiB that deflates well,
+  // while the reader reads nothing: the later ones no longer fit undeflated and are deflated
+  // at once, then queued.
   const texts = [
     ...Array.from({ length: 4 }, (_, index) =>
       JSON.stringify({ type: "pong", index, pad: randomBytes(3 * 1024 * 1024).toString("base64") }),
