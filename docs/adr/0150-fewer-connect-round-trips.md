@@ -47,7 +47,9 @@ fixed 150 ms race stagger dialed every path every time.
    ordinary drop or timeout names nothing, so a flaky link keeps reusing a healthy grant. A
    browser can't tell the relay refusing a grant at the WebSocket upgrade from a dropped link,
    so the relay route names a grant only after two attempts in a row that offered that same
-   grant failed before the relay opened. The cache drops a named grant only if it is still the
+   grant failed before their WebSocket opened. An attempt whose upgrade succeeded resets that
+   count, however it ends after (a pairing or Noise handshake that times out during a daemon or
+   relay outage says nothing of the grant). The cache drops a named grant only if it is still the
    kept one, so one machine's refusal never evicts a newer grant another machine fetched. A
    kept grant refused in a hello earns one retry with a fresh grant; a fresh grant refused is
    final, as before.
@@ -67,9 +69,12 @@ fixed 150 ms race stagger dialed every path every time.
    (`ClientApi.wake()`, when the app comes back to the front) probes the active socket at once,
    and only the pong for the probe's own ping answers it: the daemon answers a socket's pings in
    order, so the client pairs the nth pong with the nth ping, with nothing new on the wire. A
-   pong or any other frame already on its way before the wake proves nothing. So a socket that
-   died while the app was away, or at the wake, is dropped and redialed within 5 s of `wake()`.
-   The regular idle beat still counts any frame as liveness.
+   pong or any other frame already on its way before the wake proves nothing. The ping count
+   belongs to the socket and lives as long as it does: a standby promoted to active brings the
+   pings it sent and still owes pongs for, and only a new socket starts from zero. A wake while
+   probes are waiting adds its own ping and deadline and never moves theirs. So a socket that
+   died while the app was away, or at a wake, is dropped and redialed within 5 s of that wake,
+   however many wakes follow. The regular idle beat still counts any frame as liveness.
 
 The client keeps one link estimate, the active path's smoothed round trip, readable through
 `ClientApi.linkEstimate()` for other features.
