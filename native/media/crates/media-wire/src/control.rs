@@ -815,6 +815,10 @@ pub enum FromMedia {
         width: u32,
         #[serde(rename = "height")]
         height: u32,
+        /// The path the still took: decode (or JPEG decode), scale and JPEG encode, each with
+        /// its backend, whether it ran on hardware, and its picture-sized copies.
+        #[serde(rename = "steps")]
+        steps: Vec<SourceStep>,
     },
     #[serde(rename = "still.failed")]
     StillFailed {
