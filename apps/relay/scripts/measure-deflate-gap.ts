@@ -11,6 +11,7 @@ import { spawn } from "node:child_process";
 import { DeviceId } from "@ace/protocol";
 import { keyPair } from "@ace/secure-channel";
 import { connectClientViaRelay, connectHostToRelay, startRelay } from "../src/index.ts";
+import { deflateLater } from "../src/channel.ts";
 import type { HostChannel } from "../src/index.ts";
 
 // The child: dial the relay, say hello, read messages and report each one's length.
@@ -95,11 +96,25 @@ for (const mib of sizes) {
   const text = transcript(mib);
   const json = new TextEncoder().encode(text);
   const before: number[] = [];
+  const alone: number[] = [];
+  const took: number[] = [];
   const after: number[] = [];
   for (let run = 0; run < runs; run++) {
     before.push(await longestGap(() => deflateRawSync(json, { level: 6 })));
+    // The channel's own deflate by itself: how long it takes, and how long the loop stalls.
+    alone.push(
+      await longestGap(async () => {
+        const start = performance.now();
+        await deflateLater(json);
+        took.push(performance.now() - start);
+      }),
+    );
     after.push(await longestGap(() => send(text)));
   }
+  console.log(
+    `${mib} MiB: the channel's own deflate takes ${median(took).toFixed(1)} ms; ` +
+      `the event loop's longest gap meanwhile ${median(alone).toFixed(1)} ms`,
+  );
   console.log(
     `${mib} MiB (${json.length} bytes): synchronous deflate stalls ${median(before).toFixed(1)} ms; ` +
       `sent through the channel now, longest gap ${median(after).toFixed(1)} ms (medians of ${runs})`,
