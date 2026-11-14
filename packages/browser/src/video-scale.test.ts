@@ -102,9 +102,12 @@ describe("the picture and frame rate a link carries", () => {
   });
 });
 
-describe("stepping back up", () => {
-  const megapixel = (link: number, now: number) => ({ link, pixels: 1_000_000, fps: 60, now });
+/** A one-megapixel view at 60 fps, its link measured. */
+function megapixel(link: number, now: number) {
+  return { link, pixels: 1_000_000, fps: 60, now };
+}
 
+describe("stepping back up", () => {
   it("more frames at the same size come back after 1 s, not the size step's 3 s", () => {
     const scale = new PictureScale();
     expect(scale.update(megapixel(900e3, 0))).toEqual({ scale: 1, fps: 30 });
@@ -115,7 +118,6 @@ describe("stepping back up", () => {
 
   it("a higher target waits its own time: a spike doesn't inherit a smaller step's timer", () => {
     const scale = new PictureScale();
-    const at = (link: number, now: number) => ({ link, pixels, fps: 60, now });
     const low = scale.update(at(1.2e6, 0));
     expect(low.scale).toBeLessThan(1);
     // A modest step up qualifies from 100 ms and is pending...
