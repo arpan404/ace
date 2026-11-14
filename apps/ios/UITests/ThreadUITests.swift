@@ -43,7 +43,7 @@ import XCTest
         XCTAssertTrue(tests.waitForExistence(timeout: 25))
         clearOfComposer(tests, in: app)
         tests.tap()
-        XCTAssertTrue(app.staticTexts["Writing the PID-reuse regression."].waitForExistence(timeout: 10))
+        XCTAssertTrue(words("Writing the PID-reuse regression.", in: app).waitForExistence(timeout: 10))
         screenshot("thread-agent-lane")
         app.buttons["Done"].tap()
         app.openModelPicker()
@@ -86,7 +86,7 @@ import XCTest
         for _ in 0..<3 { transcript.swipeUp(velocity: .fast) }
         sleep(2)
         screenshot("thread-end-subagents-open")
-        let last = app.staticTexts["Wiring the filters while the agents work"]
+        let last = words("Wiring the filters while the agents work", in: app)
         XCTAssertTrue(last.waitForExistence(timeout: 5))
         let input = app.textViews["composer.input"]
         let pill = app.descendants(matching: .any)["composer.live"]
@@ -316,6 +316,10 @@ import XCTest
         _ = row.waitForExistence(timeout: 25)
         for _ in 0..<4 where !row.isHittable { app.dragListUp() }
         XCTAssertTrue(row.waitForExistence(timeout: 5))
+    }
+    /// Agent prose as drawn: markit puts each block in a text view whose value is its words.
+    private func words(_ text: String, in app: XCUIApplication) -> XCUIElement {
+        app.textViews.matching(NSPredicate(format: "value CONTAINS %@", text)).firstMatch
     }
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
