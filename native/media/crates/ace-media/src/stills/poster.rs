@@ -77,17 +77,27 @@ pub fn poster(
     let mut target = fit_size(source, viewport).map_err(|_| "invalid")?;
     let mut next = Some(input);
     let mut retry = None;
+    // Copies over every attempt: each smaller try prepares, and may read back, again.
+    let (mut readbacks, mut uploads) = (0, 0);
     for _ in 0..=SHRINKS {
         let input = next.take().or_else(|| retry.take()).ok_or("invalid")?;
         retry = Some(again(&input));
         let mut steps = backend.prepare(stream, input, target)?;
         let mut jpeg = Vec::new();
+        let mut count = |step: &media_wire::control::SourceStep| {
+            readbacks += step.readbacks;
+            uploads += step.uploads;
+        };
         let chosen = quality(|q| {
-            backend.encode_poster(q, &mut jpeg)?;
+            count(&backend.encode_poster(q, &mut jpeg)?);
             Ok(jpeg.len())
         })?;
         if let Some(q) = chosen {
-            steps.push(backend.encode_poster(q, &mut jpeg)?);
+            let mut encode = backend.encode_poster(q, &mut jpeg)?;
+            count(&encode);
+            encode.readbacks = readbacks;
+            encode.uploads = uploads;
+            steps.push(encode);
             return Ok(Made {
                 jpeg,
                 size: target,

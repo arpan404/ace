@@ -1453,12 +1453,20 @@ hardware, zeroCopy, state, maxWidth, maxHeight}`. `step` is one of `encode`, `de
 ## F2 notes
 
 - **The current picture** (`ace-media` `engine/stills.rs`, pure). A JPEG source keeps its
-  latest picture (`source.picture` or an ingest picture). A video source keeps the units its
-  still maker hasn't been given yet: a keyframe starts a new group and drops the one before; a
-  keyframe without a description keeps the source's last one, since producers send it only when
-  it changes. Past 120 units or 32 MiB undecoded the group is dropped, and the next still sends
-  `source.keyframe` (`drop`) once and waits for the keyframe. VP8, VP9 and PNG sources fail
-  `unsupported-codec`.
+  latest picture: an ingest picture, or `source.picture`'s base64 text decoded at the input
+  (bounded by the 8 MiB lane frame; text that isn't padded standard base64 leaves no picture).
+  A video source keeps the units its still maker hasn't been given yet:
+  - **One encode.** Stills follow the encode whose keyframe started the current group; other
+    encodes' units are ignored until one of them sends a keyframe, which starts a new group.
+  - **Its configuration.** A group's configuration is its encode, `MediaFrame` codec (which
+    also fixes Annex B or length-prefixed) and coded size. A keyframe without a record keeps
+    the last one only when the configuration is the same, since producers send it only when it
+    changes; any other configuration drops it. A delta whose configuration differs ends the
+    group. For Annex B the parameter sets in the stream win over any record
+    (`record::video::encoded`, which recordings use too).
+  - **Bounds.** Past 120 units or 32 MiB undecoded the group is dropped, and the next still
+    sends `source.keyframe` (`drop`) once and waits for the keyframe. VP8, VP9 and PNG sources
+    fail `unsupported-codec`.
 - **The maker** (`ace-media` `stills/`). A fixed set of threads (cores − 1, 1 to 8), never the
   tokio threads; a source's jobs always go to the same thread, in order, because each continues
   the decoder the one before left. Four jobs queue per thread; past that a still fails `busy`.
@@ -1469,7 +1477,8 @@ hardware, zeroCopy, state, maxWidth, maxHeight}`. `step` is one of `encode`, `de
     the same group at a smaller size is scaled by `VTPixelTransferSession` (reported
     `hardware: false`); a larger one answers `needs-keyframe`, and the engine sends
     `source.keyframe` and takes the request again from the new group, so a still is never
-    scaled up. JPEG sources use VT JPEG decode where the probe found it hardware, else the CPU
+    scaled up. A group whose keyframe this decoder never saw (after a backend change) answers
+    `needs-keyframe` the same way. JPEG sources use VT JPEG decode where the probe found it hardware, else the CPU
     path end to end.
   - **Everywhere else, and JPEG sources without hardware JPEG** (`stills/cpu.rs`, M5): one
     planar transcode. A video source here fails `decode-unavailable` (ace-media has no software
@@ -1477,18 +1486,24 @@ hardware, zeroCopy, state, maxWidth, maxHeight}`. `step` is one of `encode`, `de
     NVDEC still backends plug into the same `StillBackend` seam once ace-media runs on Windows
     and its B2, B3 and B5 decoders are wired into its probe; until then those machines take this
     path.
-  - **The probe** now runs B1's VideoToolbox trial beside the CPU one (`probe::trials`), and the
-    backend is chosen from what it found (`stills::backend_for`).
+  - **The probe** now runs B1's VideoToolbox trial beside the CPU one (`probe::trials`), with
+    B1's own deadline and shared worker. A trial publishes its whole list each time it learns
+    more: the last list by the deadline goes into `ready`, and each later one goes out as
+    `capabilities.changed` as soon as it is published, not when the trial ends. The still path
+    is chosen from the list (`stills::Choice`), and a `capabilities.changed` that changes the
+    choice replaces each maker thread's backend between jobs.
 - **Failures, so the daemon falls back in time.** `no-source`, `no-picture`, `invalid` (box
   under 2 px or quality outside 1–100), `busy`, `unsupported-codec`, `decode-unavailable`,
   `decode-failed` (which also drops the group), `deadline` (checked on every 100 ms tick and by
-  the maker), `source-closed`, `shutdown`. A result after its request failed is dropped.
+  the maker), `source-closed` (every request for the source, waiting or with the maker),
+  `shutdown`. A result after its request failed is dropped, so a closed or reopened source
+  never gets a still from before.
 - **The poster** (`stills/poster.rs`, consumed by D1): the still path at the viewer's viewport,
   then the highest JPEG quality from 10 to 90 whose size is at most 20 KB, stopping at the first
   of at least 10 KB; a picture too busy for 20 KB at quality 10 is made ¾ the size, up to three
   times. VideoToolbox's JPEG quality has a floor (about 46 KB for a 388 × 844 screen whatever the
-  quality asked), so on the Mac a poster is converted to BGRA on the GPU, read back once and
-  searched on the CPU encoder.
+  quality asked), so on the Mac a poster is converted to BGRA on the GPU, read back once per
+  size tried and searched on the CPU encoder; its encode step reports every readback it took.
 - **The daemon side** (`packages/media/src/stills.ts`): `stillRoute` (`media.stills` is
   `legacy` by default; `auto` only while ace-media is healthy), and `MediaStills`, which sends
   `still.take` and answers with ace-media's JPEG, or calls the caller's legacy still maker on

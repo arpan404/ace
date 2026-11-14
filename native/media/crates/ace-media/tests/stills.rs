@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //! `still.take` through the real binary: the JPEG comes back as `still.done`'s payload, from a
-//! JPEG the daemon passed on and from H.264 a producer streams on the ingest socket, and a
+//! screencast frame the daemon passed on (base64 text) and from H.264 a producer streams on the ingest socket, and a
 //! request past its deadline fails so the daemon's legacy still maker answers in time.
 #![cfg(unix)]
 mod support;
@@ -57,6 +57,24 @@ fn done(media: &mut Media) -> (Size, Vec<SourceStep>, Vec<u8>) {
     }
 }
 
+/// Standard base64 with padding (RFC 4648 §4).
+fn base64(bytes: &[u8]) -> Vec<u8> {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = Vec::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let at = |i: usize| u32::from(*chunk.get(i).unwrap_or(&0));
+        let n = at(0) << 16 | at(1) << 8 | at(2);
+        for i in 0..4 {
+            out.push(if i <= chunk.len() {
+                ALPHABET[(n >> (18 - 6 * i) & 63) as usize]
+            } else {
+                b'='
+            });
+        }
+    }
+    out
+}
+
 fn picture(width: u32, height: u32) -> Vec<u8> {
     let data = (0..width * height * 3).map(|i| (i % 251) as u8).collect();
     let picture = CpuPicture::new(
@@ -79,9 +97,10 @@ fn a_still_of_a_jpeg_source_comes_back_as_the_payload_at_the_requested_box() {
     let mut media = Media::spawn("stills-jpeg");
     media.start();
     open_source(&mut media, "s1", 1, 3);
+    // As the daemon forwards a screencast frame: Chrome's base64 JPEG text, as received.
     media.send(
         json!({ "type": "source.picture", "source": "s1", "ageMs": 0, "epoch": 1 }),
-        &picture(800, 400),
+        &base64(&picture(800, 400)),
     );
     take(&mut media, "q1", "s1", 200, 2_000);
     let (size, steps, jpeg) = done(&mut media);

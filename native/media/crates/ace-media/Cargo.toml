@@ -36,6 +36,9 @@ tokio-tungstenite = { version = "0.29", default-features = false, features = ["h
 [target.'cfg(target_os = "macos")'.dependencies]
 media-vt = { path = "../media-vt" }
 
+[dev-dependencies]
+media-bitstream = { path = "../media-bitstream" }
+
 [[example]]
 name = "ingest"
 path = "bench/ingest.rs"

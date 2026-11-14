@@ -13,7 +13,7 @@
 //!   to its legacy still maker in time. A result that arrives later is dropped.
 use super::{Effect, normal};
 use media_codec::{Size, fit_size_with_max_pixels};
-use media_wire::control::{FromMedia, Id, KeyReason, SourceStep};
+use media_wire::control::{Capability, FromMedia, Id, KeyReason, SourceStep};
 use media_wire::frame::MediaFrame;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -90,6 +90,8 @@ pub trait StillMaker: Send {
     fn take(&mut self, job: StillJob) -> Result<(), StillJob>;
     /// The source closed: drop its decoder state.
     fn forget(&mut self, stream: u32);
+    /// The probe's findings changed (`capabilities.changed`).
+    fn capabilities(&mut self, _capabilities: &[Capability]) {}
 }
 
 /// No still path in this process: every request fails, so the daemon keeps its legacy one.
@@ -104,11 +106,13 @@ impl StillMaker for NoStills {
 
 struct Entry {
     handle: u32,
-    /// The encode id of the latest video unit: what a keyframe request names.
+    /// The encode the stills follow: the one whose keyframe started the current group. A
+    /// keyframe request names it; other encodes' deltas are ignored.
     encode: u32,
-    /// The latest configuration record: a producer sends it only when it changes, so a
-    /// keyframe without one keeps the one before.
-    description: Vec<u8>,
+    /// The last configuration record the selected stream sent, with the configuration it
+    /// belongs to. A producer sends it only when it changes, so a keyframe of the same
+    /// configuration without one keeps it; any other configuration drops it.
+    config: Option<(Config, Vec<u8>)>,
     current: Current,
 }
 
@@ -120,7 +124,7 @@ enum Current {
     },
     Video {
         group: u64,
-        size: Size,
+        config: Config,
         units: Vec<StillUnit>,
         bytes: usize,
     },
@@ -128,6 +132,14 @@ enum Current {
     Lost,
     /// A codec stills don't take (VP8, VP9, PNG).
     Unsupported,
+}
+
+/// What a configuration record belongs to: one encode's codec, layout and coded size.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Config {
+    encode: u32,
+    codec: u8,
+    size: Size,
 }
 
 struct Request {
@@ -171,13 +183,14 @@ impl Stills {
         let entry = Entry {
             handle,
             encode: 0,
-            description: Vec::new(),
+            config: None,
             current: Current::Nothing,
         };
         self.current.insert(source.to_owned(), entry);
     }
 
-    /// The source closed: its waiting requests fail, and its maker state goes.
+    /// The source closed: every request for it fails now, whether waiting for a keyframe or
+    /// with its maker, and a maker's result for one is dropped when it arrives.
     pub fn close(&mut self, source: &str, out: &mut Vec<Effect>) {
         if let Some(entry) = self.current.remove(source) {
             self.maker.forget(entry.handle);
@@ -186,7 +199,18 @@ impl Stills {
             .into_iter()
             .partition(|r| r.source == source);
         self.waiting = kept;
-        for request in gone {
+        let mut made: Vec<String> = self
+            .made
+            .iter()
+            .filter(|(_, held)| held.request.source == source)
+            .map(|(request, _)| request.clone())
+            .collect();
+        made.sort();
+        let made = made
+            .into_iter()
+            .filter_map(|request| self.made.remove(&request))
+            .map(|held| held.request);
+        for request in gone.into_iter().chain(made) {
             failed(out, request.request, "source-closed");
         }
     }
@@ -196,63 +220,81 @@ impl Stills {
         let Some(entry) = self.current.get_mut(source) else {
             return;
         };
-        if frame.kind == KIND_VIDEO {
-            entry.encode = frame.encode;
-            if !frame.description.is_empty() {
-                entry.description.clone_from(&frame.description);
-            }
-        }
-        let current = &mut entry.current;
         let key = frame.flags & FLAG_KEYFRAME != 0;
-        let size = Size {
-            width: u32::from(frame.width),
-            height: u32::from(frame.height),
+        let config = Config {
+            encode: frame.encode,
+            codec: frame.codec,
+            size: Size {
+                width: u32::from(frame.width),
+                height: u32::from(frame.height),
+            },
         };
         match (frame.kind, frame.codec) {
-            (KIND_PICTURE, CODEC_JPEG) => *current = jpeg(&frame.payload, size),
+            (KIND_PICTURE, CODEC_JPEG) => entry.current = jpeg(&frame.payload, config.size),
             (KIND_VIDEO, 1..=4) if key => {
-                if size.validate().is_err() {
-                    *current = Current::Lost;
+                entry.encode = frame.encode;
+                if config.size.validate().is_err() {
+                    entry.current = Current::Lost;
                     return;
                 }
+                if !frame.description.is_empty() {
+                    entry.config = Some((config, frame.description.clone()));
+                } else if entry.config.as_ref().is_some_and(|(c, _)| *c != config) {
+                    entry.config = None;
+                }
+                let mut unit = unit(frame, true, config.size);
+                if let Some((_, description)) = &entry.config {
+                    unit.description.clone_from(description);
+                }
                 self.next_group += 1;
-                let mut key = unit(frame, true, size);
-                key.description.clone_from(&entry.description);
-                *current = Current::Video {
+                entry.current = Current::Video {
                     group: self.next_group,
-                    size,
-                    units: vec![key],
+                    config,
+                    units: vec![unit],
                     bytes: frame.payload.len(),
                 };
                 self.dispatch_waiting(source, out);
             }
             (KIND_VIDEO, 1..=4) => {
-                if let Current::Video {
-                    size, units, bytes, ..
-                } = current
-                {
-                    *bytes += frame.payload.len();
-                    units.push(unit(frame, false, *size));
-                    if units.len() > MAX_UNITS || *bytes > MAX_BYTES {
-                        *current = Current::Lost;
-                    }
+                let Current::Video {
+                    config: group,
+                    units,
+                    bytes,
+                    ..
+                } = &mut entry.current
+                else {
+                    return;
+                };
+                // Another encode's deltas belong to another decoder.
+                if frame.encode != group.encode {
+                    return;
+                }
+                // A new configuration without a keyframe can't continue this group.
+                if config != *group {
+                    entry.current = Current::Lost;
+                    return;
+                }
+                *bytes += frame.payload.len();
+                units.push(unit(frame, false, group.size));
+                if units.len() > MAX_UNITS || *bytes > MAX_BYTES {
+                    entry.current = Current::Lost;
                 }
             }
-            (KIND_VIDEO | KIND_PICTURE, _) => *current = Current::Unsupported,
+            (KIND_VIDEO | KIND_PICTURE, _) => entry.current = Current::Unsupported,
             _ => {}
         }
     }
 
-    /// `source.picture`: a JPEG the daemon passes on.
-    pub fn picture(&mut self, source: &str, jpeg_bytes: &[u8]) {
+    /// `source.picture`: a screencast frame the daemon passes on, as the base64 JPEG text
+    /// Chrome sent. Text that doesn't decode leaves the source with no picture.
+    pub fn picture(&mut self, source: &str, text: &[u8]) {
         if let Some(entry) = self.current.get_mut(source) {
-            entry.current = jpeg(
-                jpeg_bytes,
-                Size {
-                    width: 0,
-                    height: 0,
-                },
-            );
+            let no_size = Size {
+                width: 0,
+                height: 0,
+            };
+            entry.current =
+                super::base64::decode(text).map_or(Current::Nothing, |bytes| jpeg(&bytes, no_size));
         }
     }
 
@@ -325,7 +367,7 @@ impl Stills {
             ),
             Current::Video {
                 group,
-                size,
+                config,
                 units,
                 bytes,
             } => {
@@ -333,10 +375,10 @@ impl Stills {
                 (
                     StillInput::Video {
                         group: *group,
-                        size: *size,
+                        size: config.size,
                         units: std::mem::take(units),
                     },
-                    *size,
+                    config.size,
                 )
             }
         };
@@ -439,6 +481,11 @@ impl Stills {
                 failed(out, outcome.request, &reason);
             }
         }
+    }
+
+    /// The probe's findings changed: the maker may change its path.
+    pub fn capabilities(&mut self, capabilities: &[Capability]) {
+        self.maker.capabilities(capabilities);
     }
 
     /// Fails every request past its deadline.

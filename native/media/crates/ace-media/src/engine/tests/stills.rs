@@ -1,70 +1,109 @@
 // SPDX-License-Identifier: Apache-2.0
-//! `still.take` against a recording maker: what each job carries, and every way a request
-//! ends so the daemon can fall back in time.
+//! `still.take` end to end through the engine, against a model decoder standing in for the
+//! hardware. Each test unit's payload is `[picture id, encode id]`, and a configuration record
+//! names its codec and width. The model decodes as a real decoder does: a group starts at a
+//! keyframe whose record fits it, a decoder fed another stream's units or a stale record
+//! fails, and a still is the last picture decoded. So every assertion is on what the daemon
+//! receives: the still's picture and size, or why it failed.
 use super::super::stills::{
     DECODE_FAILED, Made, NEEDS_KEYFRAME, StillInput, StillJob, StillMaker, StillOutcome,
 };
 use super::*;
-use media_codec::{CpuJpegCodec, CpuPicture, PixelFormat, Plane, Size, StillCodec};
-use media_wire::control::{Backend, KeyReason, SourceStep, Step};
+use media_codec::Size;
+use media_wire::control::KeyReason;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-/// What a job carried, as the test reads it back.
-#[derive(Debug, PartialEq)]
-enum Seen {
-    Jpeg {
-        request: String,
-        target: (u32, u32),
-    },
-    Video {
-        request: String,
-        group: u64,
-        units: Vec<(bool, u8)>,
-        target: (u32, u32),
-    },
+struct Stream {
+    group: u64,
+    /// The encode of the group's keyframe: the only stream this decoder can continue.
+    encode: u8,
+    decoded_at: Size,
+    picture: Option<u8>,
+}
+
+#[derive(Default)]
+struct Model {
+    streams: HashMap<u32, Stream>,
+    /// Finished jobs, delivered when the test lets them arrive.
+    outcomes: Vec<StillOutcome>,
+    full: bool,
 }
 
 #[derive(Clone, Default)]
-struct Maker {
-    jobs: Arc<Mutex<Vec<Seen>>>,
-    forgotten: Arc<Mutex<Vec<u32>>>,
-    full: Arc<Mutex<bool>>,
-}
+struct Maker(Arc<Mutex<Model>>);
 
 impl Maker {
-    fn jobs(&self) -> Vec<Seen> {
-        std::mem::take(&mut *self.jobs.lock().unwrap_or_else(|e| e.into_inner()))
+    fn model(&self) -> std::sync::MutexGuard<'_, Model> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
     }
+}
+
+/// The record a length-prefixed unit of `codec` at `width` needs. Annex B (1 and 3) carries
+/// its parameter sets in band, so it decodes without one, but not with another stream's.
+fn record(codec: u8, width: u16) -> Vec<u8> {
+    vec![codec, (width / 10) as u8]
+}
+
+fn decode(streams: &mut HashMap<u32, Stream>, job: &StillJob) -> Result<u8, String> {
+    let StillInput::Video { group, units, .. } = &job.input else {
+        unreachable!()
+    };
+    if streams.get(&job.stream).is_none_or(|s| s.group != *group) {
+        let Some(key) = units.first().filter(|u| u.key) else {
+            return Err(NEEDS_KEYFRAME.into());
+        };
+        let in_band = matches!(key.codec, 1 | 3) && key.description.is_empty();
+        let width = key.size.width as u16;
+        if !in_band && key.description != record(key.codec, width) {
+            return Err(DECODE_FAILED.into());
+        }
+        let stream = Stream {
+            group: *group,
+            encode: key.payload[1],
+            decoded_at: job.target,
+            picture: None,
+        };
+        streams.insert(job.stream, stream);
+    }
+    let Some(state) = streams.get_mut(&job.stream) else {
+        unreachable!()
+    };
+    for unit in units {
+        if unit.payload[1] != state.encode {
+            return Err(DECODE_FAILED.into());
+        }
+        state.picture = Some(unit.payload[0]);
+    }
+    if job.target.width > state.decoded_at.width {
+        return Err(NEEDS_KEYFRAME.into());
+    }
+    state.picture.ok_or_else(|| "no-picture".into())
 }
 
 impl StillMaker for Maker {
     fn take(&mut self, job: StillJob) -> Result<(), StillJob> {
-        if *self.full.lock().unwrap_or_else(|e| e.into_inner()) {
+        let mut model = self.model();
+        if model.full {
             return Err(job);
         }
-        let target = (job.target.width, job.target.height);
-        let request = job.request.get().to_owned();
-        let seen = match job.input {
-            StillInput::Jpeg { .. } => Seen::Jpeg { request, target },
-            StillInput::Video { group, units, .. } => Seen::Video {
-                request,
-                group,
-                // Each unit's key flag and first payload byte (its id in these tests).
-                units: units.iter().map(|u| (u.key, u.payload[0])).collect(),
-                target,
-            },
+        let result = match &job.input {
+            StillInput::Jpeg { data, .. } => Ok(data.to_vec()),
+            StillInput::Video { .. } => decode(&mut model.streams, &job).map(|p| vec![p]),
         };
-        self.jobs
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .push(seen);
+        let outcome = StillOutcome {
+            request: job.request,
+            result: result.map(|jpeg| Made {
+                jpeg,
+                size: job.target,
+                steps: Vec::new(),
+            }),
+        };
+        model.outcomes.push(outcome);
         Ok(())
     }
     fn forget(&mut self, stream: u32) {
-        self.forgotten
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .push(stream);
+        self.model().streams.remove(&stream);
     }
 }
 
@@ -73,25 +112,72 @@ fn with_maker() -> (Engine, Maker) {
     (engine().with_stills(Box::new(maker.clone())), maker)
 }
 
-fn jpeg(width: u32, height: u32) -> Vec<u8> {
-    let size = Size { width, height };
-    let picture = CpuPicture::new(
+/// How a request ended, as the daemon sees it.
+#[derive(Debug, PartialEq)]
+enum Answer {
+    Still {
+        request: String,
+        picture: Vec<u8>,
+        size: (u32, u32),
+    },
+    Failed {
+        request: String,
+        reason: String,
+    },
+}
+
+fn answers(effects: &[Effect]) -> Vec<Answer> {
+    effects
+        .iter()
+        .filter_map(|e| match e {
+            Effect::NormalWith(
+                FromMedia::StillDone {
+                    request,
+                    width,
+                    height,
+                    ..
+                },
+                jpeg,
+            ) => Some(Answer::Still {
+                request: request.get().to_owned(),
+                picture: jpeg.clone(),
+                size: (*width, *height),
+            }),
+            Effect::Normal(FromMedia::StillFailed { request, reason }) => Some(Answer::Failed {
+                request: request.get().to_owned(),
+                reason: reason.clone(),
+            }),
+            _ => None,
+        })
+        .collect()
+}
+
+fn still(request: &str, picture: u8, size: (u32, u32)) -> Answer {
+    Answer::Still {
+        request: request.into(),
+        picture: vec![picture],
         size,
-        PixelFormat::Rgb8,
-        [Plane {
-            data: vec![90; (width * height * 3) as usize],
-            stride: width as usize * 3,
-        }],
-        0,
-    );
-    match picture.and_then(|p| StillCodec::encode(&mut CpuJpegCodec::default(), &p, 80)) {
-        Ok(jpeg) => jpeg,
-        Err(error) => panic!("{error}"),
     }
 }
 
-fn take(engine: &mut Engine, request: &str, source: &str, side: u32, now: Now) -> Vec<Effect> {
-    take_with(engine, request, source, side, 500, now)
+fn failed(request: &str, reason: &str) -> Answer {
+    Answer::Failed {
+        request: request.into(),
+        reason: reason.into(),
+    }
+}
+
+/// Lets every finished job reach the engine; the effects that follow.
+fn arrive(engine: &mut Engine, maker: &Maker) -> Vec<Effect> {
+    let outcomes = std::mem::take(&mut maker.model().outcomes);
+    for outcome in outcomes {
+        engine.still_finished(outcome);
+    }
+    engine.effects().collect()
+}
+
+fn take(engine: &mut Engine, request: &str, source: &str, side: u32) -> Vec<Effect> {
+    take_with(engine, request, source, side, 500, NOW)
 }
 
 fn take_with(
@@ -112,16 +198,11 @@ fn take_with(
     )
 }
 
-fn failures(effects: &[Effect]) -> Vec<(String, String)> {
-    effects
-        .iter()
-        .filter_map(|e| match e {
-            Effect::Normal(FromMedia::StillFailed { request, reason }) => {
-                Some((request.get().to_owned(), reason.clone()))
-            }
-            _ => None,
-        })
-        .collect()
+/// Takes a still and lets its job finish: the daemon's answers.
+fn shot(engine: &mut Engine, maker: &Maker, request: &str, side: u32) -> Vec<Answer> {
+    let mut effects = take(engine, request, "s1", side);
+    effects.extend(arrive(engine, maker));
+    answers(&effects)
 }
 
 fn keyframe_requests(effects: &[Effect]) -> usize {
@@ -132,7 +213,6 @@ fn keyframe_requests(effects: &[Effect]) -> usize {
                 e,
                 Effect::Normal(FromMedia::SourceKeyframe {
                     reason: KeyReason::Drop,
-                    encode: 7,
                     ..
                 })
             )
@@ -140,12 +220,25 @@ fn keyframe_requests(effects: &[Effect]) -> usize {
         .count()
 }
 
-/// A 640×480 video unit whose payload starts with `id`.
-fn video(id: u8, key: bool) -> MediaFrame {
-    let mut unit = frame(1, u32::from(key), 1, vec![id; 64]);
-    unit.width = 640;
-    unit.height = 480;
-    unit
+/// A unit of encode `encode`: H.264 AVCC (codec 2) at `width` × ¾ width.
+fn unit(picture: u8, encode: u8, key: bool, codec: u8, width: u16) -> MediaFrame {
+    let mut frame = frame(1, u32::from(key), 1, vec![picture, encode]);
+    frame.codec = codec;
+    frame.encode = u32::from(encode);
+    frame.width = width;
+    frame.height = width / 4 * 3;
+    frame
+}
+
+/// A keyframe with its configuration record, and a delta, of encode 1 at 640 px.
+fn key(picture: u8) -> MediaFrame {
+    let mut frame = unit(picture, 1, true, 2, 640);
+    frame.description = record(2, 640);
+    frame
+}
+
+fn delta(picture: u8) -> MediaFrame {
+    unit(picture, 1, false, 2, 640)
 }
 
 fn producing(engine: &mut Engine) {
@@ -153,104 +246,161 @@ fn producing(engine: &mut Engine) {
     hello(engine, 1, 9);
 }
 
-fn finish(engine: &mut Engine, request: &str, result: Result<Made, String>) -> Vec<Effect> {
-    engine.still_finished(StillOutcome {
-        request: Id::new(request.to_owned()).unwrap_or_else(|_| unreachable!()),
-        result,
-    });
-    engine.effects().collect()
+fn feed(engine: &mut Engine, frames: impl IntoIterator<Item = MediaFrame>) -> Vec<Effect> {
+    frames
+        .into_iter()
+        .flat_map(|f| ingest(engine, 1, f, NOW))
+        .collect()
+}
+
+/// Standard base64, as Chrome sends a screencast frame.
+fn base64(bytes: &[u8]) -> Vec<u8> {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = Vec::new();
+    for chunk in bytes.chunks(3) {
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
+        let n = u32::from(b[0]) << 16 | u32::from(b[1]) << 8 | u32::from(b[2]);
+        for i in 0..4 {
+            out.push(if i <= chunk.len() {
+                ALPHABET[(n >> (18 - 6 * i) & 63) as usize]
+            } else {
+                b'='
+            });
+        }
+    }
+    out
+}
+
+fn jpeg(width: u32, height: u32) -> Vec<u8> {
+    use media_codec::{CpuJpegCodec, CpuPicture, PixelFormat, Plane, StillCodec};
+    let picture = CpuPicture::new(
+        Size { width, height },
+        PixelFormat::Rgb8,
+        [Plane {
+            data: vec![90; (width * height * 3) as usize],
+            stride: width as usize * 3,
+        }],
+        0,
+    );
+    match picture.and_then(|p| StillCodec::encode(&mut CpuJpegCodec::default(), &p, 80)) {
+        Ok(jpeg) => jpeg,
+        Err(error) => panic!("{error}"),
+    }
 }
 
 #[test]
-fn a_jpeg_sources_still_is_fitted_to_the_box_and_answered_with_the_jpeg_and_its_steps() {
+fn a_screencast_frames_base64_jpeg_is_the_still_fitted_to_the_box() {
     let (mut engine, maker) = with_maker();
     open_tab(&mut engine, "s1", 1, 9);
-    send(
-        &mut engine,
-        json!({ "type": "source.picture", "source": "s1", "ageMs": 0, "epoch": 1 }),
-        &jpeg(1200, 600),
-        NOW,
-    );
-    assert!(take(&mut engine, "q1", "s1", 400, NOW).is_empty());
+    let picture = jpeg(1200, 600);
+    let screencast = |engine: &mut Engine, text: &[u8]| {
+        send(
+            engine,
+            json!({ "type": "source.picture", "source": "s1", "ageMs": 0, "epoch": 1 }),
+            text,
+            NOW,
+        )
+    };
+    screencast(&mut engine, &base64(&picture));
     assert_eq!(
-        maker.jobs(),
-        [Seen::Jpeg {
+        shot(&mut engine, &maker, "q1", 400),
+        [Answer::Still {
             request: "q1".into(),
-            target: (400, 200)
+            picture: picture.clone(),
+            size: (400, 200)
         }]
     );
-    let steps = vec![SourceStep {
-        step: Step::JpegEncode,
-        backend: Backend::Cpu,
-        hardware: false,
-        readbacks: 0,
-        uploads: 0,
-    }];
-    let made = Made {
-        jpeg: vec![0xff, 0xd8, 1, 2],
-        size: Size {
-            width: 400,
-            height: 200,
-        },
-        steps: steps.clone(),
-    };
-    let done = finish(&mut engine, "q1", Ok(made));
-    let [
-        Effect::NormalWith(
-            FromMedia::StillDone {
-                request,
-                width,
-                height,
-                steps: sent,
-            },
-            jpeg,
-        ),
-    ] = done.as_slice()
-    else {
-        panic!("expected still.done, got {done:?}")
-    };
-    assert_eq!((request.get(), *width, *height), ("q1", 400, 200));
+    // Raw bytes aren't what Chrome sends: no picture rather than a guess.
+    screencast(&mut engine, &picture);
     assert_eq!(
-        (sent, jpeg.as_slice()),
-        (&steps, [0xff, 0xd8, 1, 2].as_slice())
+        shot(&mut engine, &maker, "q2", 400),
+        [failed("q2", "no-picture")]
     );
 }
 
 #[test]
-fn a_video_source_hands_its_maker_only_the_units_since_the_last_still_and_restarts_at_a_keyframe() {
+fn each_still_shows_the_latest_picture_of_the_stream() {
     let (mut engine, maker) = with_maker();
     producing(&mut engine);
-    for (id, key) in [(1, true), (2, false), (3, false)] {
-        ingest(&mut engine, 1, video(id, key), NOW);
-    }
-    take(&mut engine, "q1", "s1", 320, NOW);
-    ingest(&mut engine, 1, video(4, false), NOW);
-    take(&mut engine, "q2", "s1", 320, NOW);
-    take(&mut engine, "q3", "s1", 320, NOW);
-    ingest(&mut engine, 1, video(5, true), NOW);
-    ingest(&mut engine, 1, video(6, false), NOW);
-    take(&mut engine, "q4", "s1", 320, NOW);
-    let groups: Vec<_> = maker
-        .jobs()
-        .into_iter()
-        .map(|seen| match seen {
-            Seen::Video {
-                group,
-                units,
-                target,
-                ..
-            } => (group, units, target),
-            other => panic!("expected video, got {other:?}"),
-        })
-        .collect();
+    feed(&mut engine, [key(1), delta(2), delta(3)]);
     assert_eq!(
-        groups,
+        shot(&mut engine, &maker, "q1", 320),
+        [still("q1", 3, (320, 240))]
+    );
+    feed(&mut engine, [delta(4)]);
+    assert_eq!(
+        shot(&mut engine, &maker, "q2", 320),
+        [still("q2", 4, (320, 240))]
+    );
+    assert_eq!(
+        shot(&mut engine, &maker, "q3", 320),
+        [still("q3", 4, (320, 240))]
+    );
+    feed(&mut engine, [key(5), delta(6)]);
+    assert_eq!(
+        shot(&mut engine, &maker, "q4", 320),
+        [still("q4", 6, (320, 240))]
+    );
+}
+
+#[test]
+fn a_keyframe_without_a_record_keeps_the_last_one_only_for_the_same_configuration() {
+    let (mut engine, maker) = with_maker();
+    producing(&mut engine);
+    feed(&mut engine, [key(1)]);
+    // Producers send the record only when it changes.
+    feed(&mut engine, [unit(2, 1, true, 2, 640)]);
+    assert_eq!(
+        shot(&mut engine, &maker, "same", 1000),
+        [still("same", 2, (640, 480))]
+    );
+    // Annex B HEVC at another size with its parameter sets in band: the old record isn't its.
+    feed(
+        &mut engine,
+        [unit(3, 1, true, 3, 320), unit(4, 1, false, 3, 320)],
+    );
+    assert_eq!(
+        shot(&mut engine, &maker, "annexb", 1000),
+        [still("annexb", 4, (320, 240))]
+    );
+    // Length-prefixed again at a new size and without a record: nothing stale to decode with.
+    feed(&mut engine, [unit(5, 1, true, 4, 800)]);
+    assert_eq!(
+        shot(&mut engine, &maker, "missing", 1000),
+        [failed("missing", DECODE_FAILED)]
+    );
+}
+
+#[test]
+fn stills_follow_one_encode_when_several_are_interleaved() {
+    let (mut engine, maker) = with_maker();
+    producing(&mut engine);
+    let mut small_key = unit(20, 2, true, 2, 320);
+    small_key.description = record(2, 320);
+    feed(
+        &mut engine,
         [
-            (1, vec![(true, 1), (false, 2), (false, 3)], (320, 240)),
-            (1, vec![(false, 4)], (320, 240)),
-            (1, vec![], (320, 240)),
-            (2, vec![(true, 5), (false, 6)], (320, 240)),
-        ]
+            key(10),
+            small_key,
+            delta(11),
+            unit(21, 2, false, 2, 320),
+            delta(12),
+        ],
+    );
+    // The latest keyframe's encode, and none of the other's deltas.
+    assert_eq!(
+        shot(&mut engine, &maker, "q1", 1000),
+        [still("q1", 21, (320, 240))]
+    );
+    // The other encode's deltas, at another size, don't end the group either.
+    feed(&mut engine, [delta(13), unit(22, 2, false, 2, 320)]);
+    assert_eq!(
+        shot(&mut engine, &maker, "q2", 1000),
+        [still("q2", 22, (320, 240))]
     );
 }
 
@@ -258,133 +408,130 @@ fn a_video_source_hands_its_maker_only_the_units_since_the_last_still_and_restar
 fn a_group_too_long_to_hold_waits_for_a_keyframe_it_asks_for_once() {
     let (mut engine, maker) = with_maker();
     producing(&mut engine);
-    ingest(&mut engine, 1, video(1, true), NOW);
-    for _ in 0..super::super::stills::MAX_UNITS {
-        ingest(&mut engine, 1, video(2, false), NOW);
-    }
-    let first = take(&mut engine, "q1", "s1", 320, NOW);
-    let second = take(&mut engine, "q2", "s1", 320, NOW);
+    feed(&mut engine, [key(1)]);
+    feed(
+        &mut engine,
+        (0..super::super::stills::MAX_UNITS).map(|_| delta(2)),
+    );
+    let first = take(&mut engine, "q1", "s1", 320);
+    let second = take(&mut engine, "q2", "s1", 320);
     assert_eq!(
         (keyframe_requests(&first), keyframe_requests(&second)),
         (1, 0)
     );
-    assert!(
-        maker.jobs().is_empty(),
-        "nothing to decode until the keyframe"
-    );
-    ingest(&mut engine, 1, video(3, true), NOW);
-    let requests: Vec<_> = maker
-        .jobs()
-        .into_iter()
-        .map(|seen| match seen {
-            Seen::Video { request, units, .. } => (request, units),
-            other => panic!("expected video, got {other:?}"),
-        })
-        .collect();
-    // The first job carries the keyframe; the second continues from it.
+    assert!(answers(&arrive(&mut engine, &maker)).is_empty(), "waiting");
+    feed(&mut engine, [key(3)]);
     assert_eq!(
-        requests,
-        [("q1".into(), vec![(true, 3)]), ("q2".into(), vec![])]
+        answers(&arrive(&mut engine, &maker)),
+        [still("q1", 3, (320, 240)), still("q2", 3, (320, 240))]
     );
 }
 
 #[test]
 fn a_still_past_its_deadline_fails_so_the_daemon_falls_back_and_its_late_result_is_dropped() {
-    let (mut engine, _maker) = with_maker();
+    let (mut engine, maker) = with_maker();
     producing(&mut engine);
-    ingest(&mut engine, 1, video(1, true), NOW);
+    feed(&mut engine, [key(1)]);
     take_with(&mut engine, "made", "s1", 320, 200, NOW);
     // Waiting for a keyframe that never comes counts too.
-    for _ in 0..=super::super::stills::MAX_UNITS {
-        ingest(&mut engine, 1, video(2, false), NOW);
-    }
+    feed(
+        &mut engine,
+        (0..=super::super::stills::MAX_UNITS).map(|_| delta(2)),
+    );
     take_with(&mut engine, "waiting", "s1", 320, 300, NOW);
     engine.tick(at(NOW.mono_ms + 199));
-    assert!(failures(&engine.effects().collect::<Vec<_>>()).is_empty());
+    assert!(answers(&engine.effects().collect::<Vec<_>>()).is_empty());
     engine.tick(at(NOW.mono_ms + 300));
-    let failed = failures(&engine.effects().collect::<Vec<_>>());
     assert_eq!(
-        failed,
-        [
-            ("waiting".into(), "deadline".into()),
-            ("made".into(), "deadline".into())
-        ]
+        answers(&engine.effects().collect::<Vec<_>>()),
+        [failed("waiting", "deadline"), failed("made", "deadline")]
     );
-    assert!(finish(&mut engine, "made", Err("too late".into())).is_empty());
+    assert!(answers(&arrive(&mut engine, &maker)).is_empty());
 }
 
 #[test]
 fn a_failed_decode_drops_the_group_and_a_still_too_large_for_it_waits_for_a_keyframe() {
     let (mut engine, maker) = with_maker();
     producing(&mut engine);
-    ingest(&mut engine, 1, video(1, true), NOW);
-    take(&mut engine, "q1", "s1", 160, NOW);
-    let failed = finish(&mut engine, "q1", Err(DECODE_FAILED.into()));
-    assert_eq!(failures(&failed), [("q1".into(), DECODE_FAILED.into())]);
-    // The group is gone: the next still asks for a keyframe instead of decoding past the hole.
+    // A keyframe whose record doesn't fit it fails to decode.
+    let mut broken = key(1);
+    broken.description = record(2, 999);
+    feed(&mut engine, [broken, delta(2)]);
     assert_eq!(
-        keyframe_requests(&take(&mut engine, "q2", "s1", 160, NOW)),
-        1
+        shot(&mut engine, &maker, "q1", 160),
+        [failed("q1", DECODE_FAILED)]
     );
-    ingest(&mut engine, 1, video(2, true), NOW);
-    maker.jobs();
-    finish(&mut engine, "q2", Err("decode-unavailable".into()));
-    // A still larger than the group was decoded at is taken again from the next keyframe.
-    take(&mut engine, "q3", "s1", 640, NOW);
-    maker.jobs();
-    let retried = finish(&mut engine, "q3", Err(NEEDS_KEYFRAME.into()));
-    assert!(failures(&retried).is_empty());
-    assert_eq!(keyframe_requests(&retried), 1);
-    ingest(&mut engine, 1, video(3, true), NOW);
-    let again = maker.jobs();
-    assert!(
-        matches!(again.as_slice(), [Seen::Video { request, target: (640, 480), .. }] if request == "q3")
+    // The group is gone: the next still asks for a keyframe instead of decoding past the hole.
+    assert_eq!(keyframe_requests(&take(&mut engine, "q2", "s1", 160)), 1);
+    feed(&mut engine, [key(3)]);
+    assert_eq!(
+        answers(&arrive(&mut engine, &maker)),
+        [still("q2", 3, (160, 120))]
+    );
+    // Larger than the group was decoded at: taken again from the next keyframe.
+    let mut effects = take(&mut engine, "q3", "s1", 640);
+    effects.extend(arrive(&mut engine, &maker));
+    assert!(answers(&effects).is_empty());
+    assert_eq!(keyframe_requests(&effects), 1);
+    feed(&mut engine, [key(4)]);
+    assert_eq!(
+        answers(&arrive(&mut engine, &maker)),
+        [still("q3", 4, (640, 480))]
     );
 }
 
 #[test]
 fn requests_end_at_once_when_nothing_can_answer_them() {
     let (mut engine, maker) = with_maker();
-    let unknown = take(&mut engine, "q0", "nope", 320, NOW);
+    let unknown = take(&mut engine, "q0", "nope", 320);
     producing(&mut engine);
-    let empty = take(&mut engine, "q1", "s1", 320, NOW);
-    let bad_box = take(&mut engine, "q2", "s1", 1, NOW);
-    ingest(&mut engine, 1, video(1, true), NOW);
-    *maker.full.lock().unwrap_or_else(|e| e.into_inner()) = true;
-    let busy = take(&mut engine, "q3", "s1", 320, NOW);
+    let empty = take(&mut engine, "q1", "s1", 320);
+    let bad_box = take(&mut engine, "q2", "s1", 1);
+    feed(&mut engine, [key(1)]);
+    maker.model().full = true;
+    let busy = take(&mut engine, "q3", "s1", 320);
     let reasons: Vec<_> = [unknown, empty, bad_box, busy]
         .iter()
-        .flat_map(|e| failures(e))
-        .map(|(_, reason)| reason)
+        .flat_map(|e| answers(e))
         .collect();
-    assert_eq!(reasons, ["no-source", "no-picture", "invalid", "busy"]);
-    // A refused job's units aren't lost: the next still still starts at the keyframe.
-    *maker.full.lock().unwrap_or_else(|e| e.into_inner()) = false;
-    take(&mut engine, "q4", "s1", 320, NOW);
-    assert!(
-        matches!(maker.jobs().as_slice(), [Seen::Video { units, .. }] if units == &[(true, 1)])
+    assert_eq!(
+        reasons,
+        [
+            failed("q0", "no-source"),
+            failed("q1", "no-picture"),
+            failed("q2", "invalid"),
+            failed("q3", "busy")
+        ]
+    );
+    // A refused job's units aren't lost: the next still still decodes from the keyframe.
+    maker.model().full = false;
+    assert_eq!(
+        shot(&mut engine, &maker, "q4", 320),
+        [still("q4", 1, (320, 240))]
     );
 }
 
 #[test]
-fn closing_a_source_fails_its_waiting_stills_and_drops_its_decoder() {
+fn closing_a_source_fails_its_stills_in_flight_and_their_late_results_never_arrive() {
     let (mut engine, maker) = with_maker();
     producing(&mut engine);
-    ingest(&mut engine, 1, video(1, true), NOW);
-    for _ in 0..=super::super::stills::MAX_UNITS {
-        ingest(&mut engine, 1, video(2, false), NOW);
-    }
-    take(&mut engine, "q1", "s1", 320, NOW);
+    feed(&mut engine, [key(1)]);
+    take(&mut engine, "in-flight", "s1", 320);
     let closed = send(
         &mut engine,
         json!({ "type": "source.close", "source": "s1" }),
         &[],
         NOW,
     );
-    assert_eq!(failures(&closed), [("q1".into(), "source-closed".into())]);
+    assert_eq!(answers(&closed), [failed("in-flight", "source-closed")]);
+    // Reopened under the same id: the old job's result belongs to nothing now.
+    open_tab(&mut engine, "s1", 2, 8);
+    assert!(answers(&arrive(&mut engine, &maker)).is_empty());
+    hello(&mut engine, 2, 8);
+    ingest(&mut engine, 2, key(5), NOW);
     assert_eq!(
-        *maker.forgotten.lock().unwrap_or_else(|e| e.into_inner()),
-        [1]
+        shot(&mut engine, &maker, "fresh", 320),
+        [still("fresh", 5, (320, 240))]
     );
 }
 
@@ -392,9 +539,11 @@ fn closing_a_source_fails_its_waiting_stills_and_drops_its_decoder() {
 fn shutdown_fails_every_still_still_open() {
     let (mut engine, _maker) = with_maker();
     producing(&mut engine);
-    ingest(&mut engine, 1, video(1, true), NOW);
-    take(&mut engine, "q1", "s1", 320, NOW);
+    feed(&mut engine, [key(1)]);
+    take(&mut engine, "q1", "s1", 320);
     engine.finish();
-    let failed = failures(&engine.effects().collect::<Vec<_>>());
-    assert_eq!(failed, [("q1".into(), "shutdown".into())]);
+    assert_eq!(
+        answers(&engine.effects().collect::<Vec<_>>()),
+        [failed("q1", "shutdown")]
+    );
 }

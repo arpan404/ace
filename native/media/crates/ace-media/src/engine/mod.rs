@@ -2,6 +2,7 @@
 //! ace-media's decisions, with no I/O: every control message and ingest frame goes in, and
 //! what to send and which connections to close comes out as [`Effect`]s, in order. The shell
 //! executes them; a revocation's answer always follows the closes it caused.
+pub mod base64;
 pub mod egress;
 pub mod grants;
 pub mod ledger;
@@ -110,6 +111,11 @@ impl Engine {
     pub fn with_stills(mut self, maker: Box<dyn StillMaker>) -> Self {
         self.stills = Stills::new(maker);
         self
+    }
+
+    /// `capabilities.changed`: what the probe found now.
+    pub fn capabilities_changed(&mut self, capabilities: &[media_wire::control::Capability]) {
+        self.stills.capabilities(capabilities);
     }
 
     /// A still a maker finished.

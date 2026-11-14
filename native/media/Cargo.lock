@@ -8,6 +8,7 @@ version = "0.1.0"
 dependencies = [
  "futures-util",
  "libc",
+ "media-bitstream",
  "media-codec",
  "media-core",
  "media-mp4",

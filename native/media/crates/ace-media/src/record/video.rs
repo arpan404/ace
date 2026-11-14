@@ -140,10 +140,12 @@ fn annex_b(bytes: &[u8], codec: VideoCodec, given: Option<Vec<u8>>) -> Result<Un
         (VideoCodec::Hevc, Some(vps), Some(sps), Some(pps)) => hvcc(vps, sps, pps),
         _ => None,
     };
+    // The parameter sets in the stream are the ones its pictures were coded with; a record
+    // the producer sent (or one kept from an earlier keyframe) only stands in for missing ones.
     Ok(Unit {
         codec,
         data,
-        description: given.or(built),
+        description: built.or(given),
     })
 }
 

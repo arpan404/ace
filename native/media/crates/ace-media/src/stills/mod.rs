@@ -55,6 +55,9 @@ pub const QUEUE: usize = 4;
 enum Work {
     Job(StillJob),
     Forget(u32),
+    /// The probe's findings changed the path: replace the backend between jobs. Its decoders
+    /// go with it, so a group in progress continues only from its next keyframe.
+    Backend(BackendFactory),
 }
 
 struct Worker {
@@ -64,6 +67,8 @@ struct Worker {
 
 pub struct StillThreads {
     workers: Vec<Worker>,
+    /// The path chosen from the probe, when the threads follow it.
+    choice: Option<Choice>,
 }
 
 /// One thread per core but one, at least 1, at most 8.
@@ -95,6 +100,7 @@ impl StillThreads {
                     while let Ok(work) = rx.recv() {
                         match work {
                             Work::Forget(stream) => backend.forget(stream),
+                            Work::Backend(factory) => backend = factory(),
                             Work::Job(job) => {
                                 count.fetch_sub(1, Ordering::AcqRel);
                                 deliver(make(backend.as_mut(), job, clock.as_ref()));
@@ -104,7 +110,23 @@ impl StillThreads {
                 })?;
             workers.push(Worker { tx, queued });
         }
-        Ok(Self { workers })
+        Ok(Self {
+            workers,
+            choice: None,
+        })
+    }
+
+    /// Threads on the path the probe's `capabilities` choose, following later changes.
+    pub fn probed(
+        threads: usize,
+        capabilities: &[Capability],
+        clock: StillClock,
+        deliver: Deliver,
+    ) -> std::io::Result<Self> {
+        let choice = Choice::of(capabilities);
+        let mut made = Self::new(threads, choice.factory(), clock, deliver)?;
+        made.choice = Some(choice);
+        Ok(made)
     }
 
     fn worker(&self, stream: u32) -> &Worker {
@@ -123,7 +145,7 @@ impl StillMaker for StillThreads {
             worker.queued.fetch_sub(1, Ordering::AcqRel);
             match e.0 {
                 Work::Job(job) => job,
-                Work::Forget(_) => unreachable!(),
+                Work::Forget(_) | Work::Backend(_) => unreachable!(),
             }
         })
     }
@@ -131,31 +153,63 @@ impl StillMaker for StillThreads {
     fn forget(&mut self, stream: u32) {
         let _ = self.worker(stream).tx.send(Work::Forget(stream));
     }
-}
 
-/// The backend for what the probe found: VideoToolbox where its decode or JPEG trials passed,
-/// else the CPU path.
-pub fn backend_for(capabilities: &[Capability]) -> BackendFactory {
-    let found = |step: Step, backend: Backend, hardware: bool| {
-        capabilities.iter().any(|c| {
-            c.step == step
-                && c.backend == backend
-                && c.state == TrialState::Ok
-                && (c.hardware || !hardware)
-        })
-    };
-    #[cfg(target_os = "macos")]
-    {
-        let options = vt::VtOptions {
-            jpeg_encode: found(Step::JpegEncode, Backend::Vt, true),
-            jpeg_decode: found(Step::JpegDecode, Backend::Vt, true),
+    fn capabilities(&mut self, capabilities: &[Capability]) {
+        let Some(current) = self.choice else {
+            return;
         };
-        if found(Step::Decode, Backend::Vt, false) || options.jpeg_encode || options.jpeg_decode {
-            return Arc::new(move || Box::new(vt::VtStills::new(options)));
+        let choice = Choice::of(capabilities);
+        if choice == current {
+            return;
+        }
+        self.choice = Some(choice);
+        for worker in &self.workers {
+            let _ = worker.tx.send(Work::Backend(choice.factory()));
         }
     }
-    let _ = found;
-    Arc::new(|| Box::<cpu::CpuStills>::default())
+}
+
+/// The still path for what the probe found: VideoToolbox where its decode or JPEG trials
+/// passed, else the CPU path.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Choice {
+    Cpu,
+    #[cfg(target_os = "macos")]
+    Vt(vt::VtOptions),
+}
+
+impl Choice {
+    pub fn of(capabilities: &[Capability]) -> Self {
+        let found = |step: Step, backend: Backend, hardware: bool| {
+            capabilities.iter().any(|c| {
+                c.step == step
+                    && c.backend == backend
+                    && c.state == TrialState::Ok
+                    && (c.hardware || !hardware)
+            })
+        };
+        #[cfg(target_os = "macos")]
+        {
+            let options = vt::VtOptions {
+                jpeg_encode: found(Step::JpegEncode, Backend::Vt, true),
+                jpeg_decode: found(Step::JpegDecode, Backend::Vt, true),
+            };
+            if found(Step::Decode, Backend::Vt, false) || options.jpeg_encode || options.jpeg_decode
+            {
+                return Self::Vt(options);
+            }
+        }
+        let _ = found;
+        Self::Cpu
+    }
+
+    pub fn factory(self) -> BackendFactory {
+        match self {
+            Self::Cpu => Arc::new(|| Box::<cpu::CpuStills>::default()),
+            #[cfg(target_os = "macos")]
+            Self::Vt(options) => Arc::new(move || Box::new(vt::VtStills::new(options))),
+        }
+    }
 }
 
 /// One job, start to end.

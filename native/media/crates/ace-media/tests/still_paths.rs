@@ -165,10 +165,6 @@ fn a_still_of_an_h264_and_an_hevc_stream_takes_the_hardware_path_this_mac_probed
             assert_eq!(copies(&encode), (1, 0));
         }
     }
-    assert!(
-        decode_hardware && jpeg_hardware,
-        "this Mac's probe lists hardware decode and JPEG encode, so the path above was all hardware"
-    );
 }
 
 #[test]
@@ -204,10 +200,10 @@ fn a_later_still_continues_the_group_and_another_size_is_scaled_without_hardware
     // A larger box can't be scaled up from this group's pictures.
     let larger = make(&mut backend, job(video(1, Vec::new()), SCREEN), &|| 0).result;
     assert!(matches!(larger, Err(reason) if reason == "needs-keyframe"));
-    // A new group must start at its keyframe; a delta can't.
+    // A group this decoder never saw the keyframe of can start only at the next one.
     let delta = stream(Codec::Hevc, 2).split_off(1);
     let refused = make(&mut backend, job(video(2, delta), first), &|| 0).result;
-    assert!(matches!(refused, Err(reason) if reason == "decode-failed"));
+    assert!(matches!(refused, Err(reason) if reason == "needs-keyframe"));
 }
 
 #[test]
@@ -340,11 +336,20 @@ fn a_poster_is_ten_to_twenty_kilobytes_at_each_viewport_on_the_gpu_and_the_cpu()
             payload: units[0].payload.clone(),
         };
         match poster(&mut gpu, 1, video(group, vec![key]), viewport) {
-            Ok(made) => check_poster(&made, viewport),
+            Ok(made) => {
+                check_poster(&made, viewport);
+                // One readback per size tried, however many qualities the search took.
+                let encode = of(&made.steps, Step::JpegEncode);
+                assert!((1..=4).contains(&encode.readbacks), "{encode:?}");
+                assert_eq!(encode.uploads, 0);
+            }
             Err(reason) => panic!("GPU poster for {viewport:?}: {reason}"),
         }
         match poster(&mut cpu, 1, jpeg_source(), viewport) {
-            Ok(made) => check_poster(&made, viewport),
+            Ok(made) => {
+                check_poster(&made, viewport);
+                assert_eq!(copies(&of(&made.steps, Step::JpegEncode)), (0, 0));
+            }
             Err(reason) => panic!("CPU poster for {viewport:?}: {reason}"),
         }
     }

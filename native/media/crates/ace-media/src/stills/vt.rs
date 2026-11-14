@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 /// What the probe found: whether VideoToolbox's JPEG sessions are worth opening.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct VtOptions {
     pub jpeg_encode: bool,
     pub jpeg_decode: bool,
@@ -114,8 +114,10 @@ impl VtStills {
     ) -> Result<Vec<SourceStep>, String> {
         let current = self.streams.get(&stream).is_some_and(|s| s.group == group);
         if !current {
+            // This decoder never saw the group's keyframe (a new backend, or a source it
+            // forgot): it can start only from the next one.
             if units.first().is_none_or(|u| !u.key) {
-                return Err("decode-failed".into());
+                return Err(NEEDS_KEYFRAME.into());
             }
             let decoder = VtDecoder::new(DecodeOutput {
                 size: Some(target),
@@ -210,7 +212,8 @@ impl StillBackend for VtStills {
     /// the quality asked), so a poster is converted to BGRA on the GPU, read back once, and
     /// searched on the CPU encoder.
     fn encode_poster(&mut self, quality: u8, out: &mut Vec<u8>) -> Result<SourceStep, String> {
-        if self.poster.is_none() {
+        let read_back_now = self.poster.is_none();
+        if read_back_now {
             let Some(picture) = prepared_picture(&self.prepared, &self.streams)? else {
                 return self.cpu.encode_poster(quality, out);
             };
@@ -228,8 +231,9 @@ impl StillBackend for VtStills {
         self.poster_codec
             .encode_into(picture, quality, out)
             .map_err(|_| "encode-failed")?;
+        // The readback happens once per prepared picture, not once per quality tried.
         let copies = Copies {
-            readbacks: 1,
+            readbacks: u32::from(read_back_now),
             uploads: 0,
         };
         Ok(step(Step::JpegEncode, Backend::Cpu, false, copies))

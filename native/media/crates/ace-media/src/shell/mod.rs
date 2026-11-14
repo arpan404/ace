@@ -207,9 +207,9 @@ async fn serve(
     );
     let (still_tx, mut still_rx) = mpsc::unbounded_channel();
     let started = clock.0;
-    let threads = crate::stills::StillThreads::new(
+    let threads = crate::stills::StillThreads::probed(
         crate::stills::thread_count(std::thread::available_parallelism().map_or(1, |n| n.get())),
-        crate::stills::backend_for(&capabilities.list()),
+        &capabilities.list(),
         Arc::new(move || started.elapsed().as_micros() as u64),
         Arc::new(move |outcome| {
             let _ = still_tx.send(outcome);
@@ -311,7 +311,9 @@ async fn serve(
             },
             Some((trial, found)) = late_rx.recv() => {
                 capabilities.update(trial, found);
-                let changed = FromMedia::CapabilitiesChanged { capabilities: capabilities.list() };
+                let list = capabilities.list();
+                engine.capabilities_changed(&list);
+                let changed = FromMedia::CapabilitiesChanged { capabilities: list };
                 if let Ok(bytes) = encode(changed, Lane::Normal)
                     && stdout.send(bytes).is_err()
                 {
