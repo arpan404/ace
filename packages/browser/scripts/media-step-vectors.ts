@@ -76,12 +76,16 @@ export function planSteps() {
     { scale: 1, fps: 30, link: 3e6 },
     { scale: 0.84, fps: 5, link: 400e3 },
     { scale: 1, fps: 15, link: 2.5e6 },
-  ].map((step, i) => ({
-    id: `v${i}`,
-    viewport: { width: 1280 - i * 10, height: 800 - i * 6, devicePixelRatio: 2 },
-    codecs: ["avc1.42001f"],
-    ...step,
-  }));
+  ].map((step, i) =>
+    Object.assign(
+      {
+        id: `v${i}`,
+        viewport: { width: 1280 - i * 10, height: 800 - i * 6, devicePixelRatio: 2 },
+        codecs: ["avc1.42001f"],
+      },
+      step,
+    ),
+  );
   return { input: { source, viewers }, output: planVideo(source, viewers) };
 }
 

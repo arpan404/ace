@@ -87,15 +87,15 @@ describe("ace's own rate control for quantizer-mode encoders", () => {
   });
 });
 
-describe("the keyframe cap", () => {
-  /** A keyframe that costs `bytesAt24` at quantizer 24, halving each +6. */
-  const keyAt = (control: QuantizerControl, bytesAt24: number) => {
-    const quantizer = control.next(true);
-    const bytes = bytesAt24 / 2 ** ((quantizer - 24) / 6);
-    control.observe(bytes, true);
-    return bytes;
-  };
+/** A keyframe that costs `bytesAt24` at quantizer 24, halving each +6. */
+function keyAt(control: QuantizerControl, bytesAt24: number): number {
+  const quantizer = control.next(true);
+  const bytes = bytesAt24 / 2 ** ((quantizer - 24) / 6);
+  control.observe(bytes, true);
+  return bytes;
+}
 
+describe("the keyframe cap", () => {
   it("holds a keyframe to half a second of a 3G link, judged from the last one", () => {
     const control = new QuantizerControl(400_000, 5);
     run(control, 20_000, 30);

@@ -23,7 +23,7 @@ describe("the picture and frame rate a link carries", () => {
       new PictureScale().update(at(link, 0)),
     );
     const fps = steps.map((step) => step.fps);
-    expect(fps).toEqual([...fps].sort((a, b) => b - a));
+    expect(fps).toEqual(fps.toSorted((a, b) => b - a));
     // Every frame rate step comes at full size; the picture shrinks only at 5 fps.
     for (const step of steps) if (step.scale < 1) expect(step.fps).toBe(5);
     expect(steps.at(-1)?.scale).toBeLessThan(1);
