@@ -1,8 +1,10 @@
+import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
 import {
   authenticateLane,
   controlFrameReader,
   LaneWriter,
+  nodeByteSource,
   type ByteSink,
   type LaneSocket,
 } from "./lanes.ts";
@@ -168,5 +170,17 @@ describe("authenticateLane", () => {
     expect(pair.written[0]?.[4]).toBe(2);
     pair.close();
     await expect(lane).rejects.toThrow(/egress lane closed/);
+  });
+});
+
+describe("nodeByteSource", () => {
+  it("reports an end that happened before the listener was added", () => {
+    const stream = new EventEmitter();
+    const source = nodeByteSource(stream);
+    stream.emit("close");
+    let ended = 0;
+    source.onEnd(() => ended++);
+    stream.emit("close");
+    expect(ended).toBe(1);
   });
 });

@@ -48,7 +48,8 @@ class Source implements ByteSource {
     this.#data.push(listener);
   }
   onEnd(listener: (error?: Error) => void): void {
-    this.#end.push(listener);
+    if (this.ended) listener();
+    else this.#end.push(listener);
   }
   emit(chunk: Uint8Array): void {
     for (const listener of this.#data) listener(chunk);
@@ -162,6 +163,8 @@ export class FakeSocket implements LaneSocket {
 }
 
 export type FakeBehaviour = {
+  /** Holds this lane's accept until `releaseHeld()`. */
+  hold?: "priority" | "egress" | undefined;
   version: string;
   /** Answers `init` with `ready`. */
   ready: boolean;
@@ -186,6 +189,8 @@ export class FakeMedia implements MediaChild {
   #exit!: (exit: { code: number | null; signal: string | null }) => void;
   #seen = 0;
   #secret?: Uint8Array;
+  readonly #accepted = new Set<number>();
+  #held?: () => void;
 
   readonly behaviour: FakeBehaviour;
 
@@ -193,6 +198,11 @@ export class FakeMedia implements MediaChild {
     this.pid = pid;
     this.behaviour = behaviour;
     this.exited = new Promise((resolve) => (this.#exit = resolve));
+    const unblock = this.stdin.unblock.bind(this.stdin);
+    this.stdin.unblock = () => {
+      unblock();
+      this.#onStdin();
+    };
     const write = this.stdin.write.bind(this.stdin);
     this.stdin.write = (chunk, done) => {
       const open = write(chunk, done);
@@ -232,17 +242,33 @@ export class FakeMedia implements MediaChild {
     return this.#secret;
   }
 
+  /**
+   * ace-media's lane rules: the right secret, a known tag not used before, and no lane once
+   * both are up. A refused lane is closed without an answer.
+   */
   onHello(socket: FakeSocket): void {
     const hello = socket.hello;
     const secret = this.#secret;
+    const tag = hello?.[4] ?? 0;
     const ok =
       !this.behaviour.refuseLanes &&
       hello !== undefined &&
       secret !== undefined &&
       hello.length === 37 &&
       new DataView(hello.buffer).getUint32(0) === 0x4143454c &&
+      (tag === 1 || tag === 2) &&
+      !this.#accepted.has(tag) &&
+      this.#accepted.size < 2 &&
       hello.subarray(5).every((byte, i) => byte === secret[i]);
-    queueMicrotask(() => (ok ? socket.source.emit(Uint8Array.of(1)) : socket.source.end()));
+    if (!ok) return void queueMicrotask(() => socket.source.end());
+    this.#accepted.add(tag);
+    const accept = () => socket.source.emit(Uint8Array.of(1));
+    if (this.behaviour.hold === socket.lane) this.#held = accept;
+    else queueMicrotask(accept);
+  }
+
+  releaseHeld(): void {
+    this.#held?.();
   }
 
   #onStdin(): void {

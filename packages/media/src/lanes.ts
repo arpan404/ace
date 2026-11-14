@@ -20,7 +20,10 @@ export interface ByteSink {
   onDrain(listener: () => void): void;
 }
 
-/** A readable byte stream. `onEnd` fires once, on close or error. */
+/**
+ * A readable byte stream. `onEnd` fires once, on close or error; a listener added after the end
+ * is called at once.
+ */
 export interface ByteSource {
   onData(listener: (chunk: Uint8Array) => void): void;
   onEnd(listener: (error?: Error) => void): void;
@@ -192,7 +195,7 @@ const secretPayloads = new Set<ToMedia["type"]>([
 
 export type QueuedMessage = { readonly message: ToMedia; readonly payload: Uint8Array };
 
-type Entry = QueuedMessage & { header: Uint8Array };
+type Entry = QueuedMessage & { header: Uint8Array; onWritten: (() => void) | undefined };
 
 /**
  * Writes control frames to one lane in order, holding the rest while the sink is backpressured.
@@ -203,6 +206,9 @@ export class LaneWriter {
   #queue: Entry[] = [];
   #blocked = false;
   #closed = false;
+  /** Chunks handed to the sink whose write callback hasn't fired. */
+  #inFlight = 0;
+  #completed = 0;
 
   private readonly lane: ControlLane;
   private readonly sink: ByteSink;
@@ -218,13 +224,20 @@ export class LaneWriter {
     });
   }
 
-  /** Frames waiting behind backpressure. */
-  get queued(): number {
-    return this.#queue.length;
+  /**
+   * How far writing has got: frames and chunks not yet completed, and a count of completed
+   * writes that grows whenever the reader makes progress.
+   */
+  progress(): { pending: number; completed: number } {
+    return { pending: this.#queue.length + this.#inFlight, completed: this.#completed };
   }
 
-  /** Encodes and queues one message. Throws (after zeroing a secret payload) if it is invalid. */
-  send(message: ToMedia, payload: Uint8Array = new Uint8Array(0)): void {
+  /**
+   * Encodes and queues one message. `onWritten` runs once all of its bytes have been handed to
+   * the reader (the sink's write callbacks), never for a message that is dropped. Throws (after
+   * zeroing a secret payload) if the message is invalid.
+   */
+  send(message: ToMedia, payload: Uint8Array = new Uint8Array(0), onWritten?: () => void): void {
     let header: Uint8Array;
     try {
       header = encodeControl(message, payload, this.lane).header;
@@ -236,7 +249,7 @@ export class LaneWriter {
       wipe(message, payload);
       return;
     }
-    this.#queue.push({ message, payload, header });
+    this.#queue.push({ message, payload, header, onWritten });
     this.#flush();
   }
 
@@ -263,16 +276,25 @@ export class LaneWriter {
     while (!this.#blocked && !this.#closed) {
       const entry = this.#queue.shift();
       if (!entry) return;
-      const { message, payload, header } = entry;
-      const failed = (error?: Error | null) => {
-        if (error && !this.#closed) this.onError(error);
+      const { message, payload, header, onWritten } = entry;
+      let remaining = payload.length > 0 ? 2 : 1;
+      let failedOnce = false;
+      const done = (error?: Error | null) => {
+        this.#inFlight--;
+        this.#completed++;
+        if (error) {
+          failedOnce = true;
+          if (!this.#closed) this.onError(error);
+        }
+        if (--remaining === 0 && !failedOnce && !this.#closed) onWritten?.();
       };
-      let open = this.sink.write(header, failed);
+      this.#inFlight += remaining;
+      let open = this.sink.write(header, done);
       if (payload.length > 0)
         open =
           this.sink.write(payload, (error) => {
             wipe(message, payload);
-            failed(error);
+            done(error);
           }) && open;
       this.#blocked = !open;
     }
@@ -299,18 +321,25 @@ export function nodeByteSink(stream: NodeWritable): ByteSink {
   };
 }
 
+/**
+ * A Node stream as a `ByteSource`. Its end is observed from creation, so a listener added after
+ * the stream closed still hears of it.
+ */
 export function nodeByteSource(stream: NodeReadable): ByteSource {
+  let ended: { error: Error | undefined } | undefined;
+  const listeners: ((error?: Error) => void)[] = [];
+  const end = (error?: Error) => {
+    if (ended) return;
+    ended = { error };
+    for (const listener of listeners.splice(0)) listener(error);
+  };
+  stream.once("error", end);
+  stream.once("close", () => end());
   return {
     onData: (listener) => void stream.on("data", listener),
     onEnd(listener) {
-      let ended = false;
-      const end = (error?: Error) => {
-        if (ended) return;
-        ended = true;
-        listener(error);
-      };
-      stream.once("error", end);
-      stream.once("close", () => end());
+      if (ended) listener(ended.error);
+      else listeners.push(listener);
     },
   };
 }

@@ -614,155 +614,37 @@ ace-media.
   - a priority lane that drops causes a kill and a restart.
 - **Rule.** The supervisor never blocks agent tools: every call that needs ace-media has a
   deadline and a fallback.
-- **As built in M6** (`packages/media/src/supervisor.ts`).
+- **As built in M6** (`packages/media/src/supervisor.ts`, with its rules in
+  `supervision-policy.ts`, `health.ts`, `grants.ts`, `media-binary.ts`, `diagnostics.ts` and
+  `supervisor-host.ts`).
   - **Setting gate.** `need()` does nothing while every media setting is `legacy`, the default,
     so nothing starts ace-media until a setting turns `auto`.
-  - **Sends.** `send()` returns false while ace-media isn't up with both lanes, or when a
-    revocation already covers the grant. The caller falls back; sources and recordings come back
-    through `replay`, which runs once both lanes are up and `listen` is sent.
+  - **Sends.** `send()` returns false while ace-media isn't up with both lanes, while it is
+    shutting down after idle, or when a revocation already covers the grant. The caller falls
+    back; sources and recordings come back through `replay`, which runs once both lanes are up
+    and `listen` is sent. A need that arrives during an idle shutdown starts a new process
+    once the old one exits.
+  - **Pings.** A ping's 5 s pong deadline starts when its bytes are written, not when it is
+    queued, and no second ping queues behind an unwritten one, so normal-lane backpressure never
+    counts as missed pongs. A child that stops reading stdin altogether is killed separately:
+    normal-lane bytes pending and no write completing across six ping intervals.
+  - **Lanes.** A socket lane's close is watched from the moment it connects, so a lane that
+    drops while the other is still authenticating ends the run.
   - **Revocations.** `revoke()` writes to the priority lane and drops queued, unwritten grants it
     covers (same device and admission with `issued` at most the revocation's, the connection,
     or the stream), zeroing their payloads. It resolves `answered`, `killed` (the process is
     gone, so every socket is) or `not-running`.
   - **Exits.** `onExit` lists the stills, connections, sources and recordings the process held,
-    for their owners to fail or replay, and says whether the exit counted as a failure. An idle
-    shutdown and `dispose()` don't count. Secret payloads (`init`, `media.ticket`,
-    `source.open`, `relay.keys`, `listen`) are zeroed after their write callback, or when
-    they're dropped unwritten.
-  - **Binary.** `mediaBinaryPath` resolves `ACE_MEDIA_PATH`, then `media/ace-media(.exe)` under
-    the bundle root of the daemon's entry (the release folder or the desktop app's resources,
-    as `@ace/service/spade-layout` defines), then the source tree's release build, then its
-    debug build.
-
-## Helper changes
-
-### Windows (`native/screen-helper-windows`, Media Foundation)
-
-1. **D3D11 device.** Create the device with `D3D11_CREATE_DEVICE_VIDEO_SUPPORT` and set
-   `ID3D11Multithread::SetMultithreadProtected(TRUE)`. Share it through `IMFDXGIDeviceManager`
-   (`MFCreateDXGIDeviceManager`, `ResetDevice`).
-2. **Colour and scale on the GPU.** `ID3D11VideoProcessor` converts BGRA to NV12 and scales in
-   one `VideoProcessorBlt`, replacing today's scale-then-readback. There is no staging readback
-   on the hardware path.
-3. **Encoder choice.** Use `MFTEnumEx(MFT_CATEGORY_VIDEO_ENCODER, MFT_ENUM_FLAG_HARDWARE |
-MFT_ENUM_FLAG_SORTANDFILTER, NV12 in, MFVideoFormat_HEVC / MFVideoFormat_H264 out)`.
-   - Async hardware MFTs need `MF_TRANSFORM_ASYNC_UNLOCK` and are driven by
-     `METransformNeedInput` / `METransformHaveOutput`. Send them `MFT_MESSAGE_SET_D3D_MANAGER`.
-   - The fallback is Microsoft's software H.264 MFT (synchronous, system-memory NV12 after a
-     readback).
-   - Machines with no MFT at all (N editions without the Media Feature Pack) report no
-     encoder, and ace-media uses its last-resort encoder.
-4. **Settings.**
-   - `CODECAPI_AVLowLatencyMode`;
-   - `CODECAPI_AVEncMPVDefaultBPictureCount = 0`;
-   - a large `CODECAPI_AVEncMPVGOPSize` (keyframes on demand);
-   - `CODECAPI_AVEncCommonRateControlMode` (low-delay VBR), with `CODECAPI_AVEncVideoEncodeQP`
-     for ace's quantizer control where the MFT takes it;
-   - `CODECAPI_AVEncVideoForceKeyFrame` on request.
-5. **Input samples** come from `MFCreateDXGISurfaceBuffer(__uuidof(ID3D11Texture2D), nv12, 0,
-FALSE)`.
-6. **Output.** Annex B. The parameter sets come from `MF_MT_MPEG_SEQUENCE_HEADER`, and the helper
-   puts them before every IDR that lacks them.
-7. **Rate.** Capture goes to 60 fps while a viewer watches as video; the 30 fps cap stays for
-   JPEG stills. XXH3 dirty-tile skipping stays: an unchanged picture is not encoded.
-8. **Frames** go to ace-media's named pipe as `MediaFrame`s, through `media-wire` (a path
-   dependency). JPEG stills for agents stay as they are.
-9. **Test matrix.**
-   - The Windows test VM covers the software MFT path and the no-MFT path.
-   - The owner's machines with Intel, NVIDIA, AMD and Qualcomm (arm64) GPUs cover the hardware
-     MFTs. Their quirks (output types offered only after the first input, ignored QP) are
-     handled by probing, and a watchdog replaces an MFT that has had input for a second without
-     output, as the browser encoder does.
-
-### Linux (`native/screen-helper-linux`, VA-API)
-
-1. **Loading.** `libloading` opens `libva.so.2` and `libva-drm.so.2` at run time. There is no
-   link dependency. With either missing, the helper reports no encoder.
-2. **Device choice.** Probe `/dev/dri/renderD*` and pick the first node whose driver lists
-   `VAEntrypointEncSliceLP` or `VAEntrypointEncSlice` for `VAProfileHEVCMain` or
-   `VAProfileH264High`/`Main`/`ConstrainedBaseline` (iHD and Mesa radeonsi).
-3. **Capture.** Offer `SPA_DATA_DmaBuf` with the modifiers VA can import (`vaQuerySurfaceAttributes`,
-   `VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_2`), so the picture never touches the CPU. On compositors
-   that send only shared memory, upload with `vaCreateImage`/`vaPutImage`.
-4. **Colour and scale.** VA video processing (`VAEntrypointVideoProc`) converts BGRx/RGBx to NV12
-   and scales in the same pass.
-5. **Encoding.**
-   - Sequence, picture and slice parameter buffers for IPPP with one reference and no B-frames.
-   - IDR on request.
-   - Low-delay CBR/VBR through `VAEncMiscParameterRateControl`, or CQP for ace's quantizer
-     control.
-   - Packed SPS/PPS (and VPS for HEVC) written by `media-bitstream` when the driver asks for
-     them (`VAConfigAttribEncPackedHeaders`).
-6. **NVIDIA.** It has no VA-API encode, so the last-resort encoder applies. NVENC is a later,
-   separate decision.
-7. **Rate.** The 10 fps default becomes 60 fps while watched as video. Nothing is encoded while
-   nobody watches, as today.
-8. **Frames** go to ace-media's ingest socket as `MediaFrame`s. JPEG stills stay.
-9. **Test matrix.** Ubuntu, Fedora and Debian on GNOME Wayland, and Omarchy on Hyprland. Intel
-   (iHD) and AMD (radeonsi) for hardware; a VM for the fallback.
-
-### macOS (`native/screen-helper`, Swift)
-
-- **Capture and encode stay.** ScreenCaptureKit, VideoToolbox and the helper's signature, which
-  carries the Screen Recording permission, are unchanged.
-- **Frames.**
-  - `stream.configure` gains `ingest: {socket, token}` and `epoch`.
-  - The helper opens that socket, sends the hello, and writes `MediaFrame`s (H.264 Annex B,
-    with HEVC later) instead of frame packets on the daemon socket. It stamps each frame with
-    the epoch at its ScreenCaptureKit callback.
-  - With `ingest` absent, it keeps sending frame packets to the daemon (the legacy route).
-  - JPEG stills for agents keep the existing path.
-- **`--encode-frames`** (emulator) writes to the ingest socket too.
-- **`--transcode`** is deleted after its replacement in `media-vt` ships (phase 2 deletion).
-- **The helper's identity must not change.** Its bundle id (`dev.ace.screen-helper`), its
-  signing identity and its designated requirement are what macOS ties the Screen Recording grant
-  to.
-  - `tools/release` records the expected requirement in `native/screen-helper/identity.txt`.
-  - E3 and every later PR that touches the helper check that the built
-    `AceScreenHelper.app` still matches it (`codesign -d -r-`).
-  - R1 checks the same on the packaged app.
-
-## Clients
-
-- **Protocol additions** (`packages/protocol`):
-  - `media.connect` → `{connection, url?, ticket, expiresAt}` (no `url` when only the relay
-    reaches this client); the relay media hello carries the same ticket;
-  - `MediaConnectionId`;
-  - an optional `media: {connection}` on `browser.subscribe`, the device stream request and the
-    screen subscribe;
-  - `codecs` on the device and screen subscribes;
-  - the relay hello's `channel: "media"`;
-  - the relay client's `purpose=media` (`apps/relay`, `apps/cloud`).
-
-  `bun run docs:protocol` regenerates the protocol docs.
-
-- **Web and remote desktop** (`apps/web/src/lib/video`, `packages/client*`):
-  - open one media connection per daemon connection;
-  - send acks on it;
-  - resubscribe with the new connection id after it reconnects;
-  - decode HEVC Annex B device and screen pictures (WebCodecs without a description).
-- **iOS:** the HEVC change below, and the media connection, through the shared JS bridge.
-  Swift implements the socket (native host, one JS contract).
-
-### iOS HEVC
-
-1. **Codec list.** `apps/ios/bridge/browser-live.ts`: `nativeVideoCodecs` comes from the host
-   contract (`host.video.decoders()`). It is `["hvc1.1.6.L153.B0", "avc1.42E033"]` when
-   `VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC)` is true, otherwise
-   `["avc1.42E033"]`. The device and screen subscribes send the same list.
-2. **Decoder.** `apps/ios/Sources/Browser/H264Decoder.swift` becomes `VideoDecoder.swift`:
-   - an `avcC` description goes to `CMVideoFormatDescriptionCreateFromH264ParameterSets`;
-   - an `hvcC` description goes to `CMVideoFormatDescriptionCreateFromHEVCParameterSets`, with
-     its VPS/SPS/PPS taken from the record;
-   - decoding into `AVSampleBufferDisplayLayer` is unchanged. `BrowserVideoChunk.swift` carries
-     the codec.
-3. **Pictures.** `Devices/AnnexB.swift` learns HEVC NAL types (VPS 32, SPS 33, PPS 34, IDR 19/20,
-   CRA 21) for device and screen pictures.
-4. **Tests.**
-   - A Swift test decodes recorded HEVC and H.264 chunks (fixtures from the `video-profile.ts`
-     encodes) to the expected size.
-   - A bridge test checks the list includes HEVC exactly when the host says so.
-5. **This PR is independent:** Chrome tab capture already encodes HEVC first.
+    for their owners to fail or replay. A recording stays listed after `record.stop` until its
+    `record.done` or `record.failed`. It also says whether the exit counted as a failure; an idle
+    shutdown and `dispose()` don't. Secret payloads (`init`, `media.ticket`, `source.open`,
+    `relay.keys`, `listen`) are zeroed after their write callback, or when dropped unwritten.
+    The lane secret comes from the platform CSPRNG unless a test injects `randomBytes`.
+  - **Binary.** `mediaBinaryPath` takes an explicit mode. A release runs only
+    `media/ace-media(.exe)` under the bundle root of the daemon's entry (the release folder or
+    the desktop app's resources, as `@ace/service/spade-layout` defines) and ignores the
+    environment, since the binary receives secrets. Development honours `ACE_MEDIA_PATH`, then
+    the source tree's release build, then its debug build.
 
 ## Packaging
 

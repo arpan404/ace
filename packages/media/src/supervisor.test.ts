@@ -27,6 +27,26 @@ const viewerOpen = (viewer: string, who: Owner, issued: number): ToMedia => ({
   local: true,
   audio: false,
 });
+function egressUnit(payloadBytes: number): Uint8Array {
+  return encodeEgress(1, 0, {
+    kind: 1,
+    flags: 0,
+    ageUs: 0,
+    width: 2,
+    height: 2,
+    displayWidth: 2,
+    displayHeight: 2,
+    scale: 1000,
+    rotation: 0,
+    codec: 1,
+    encode: 0,
+    epoch: 0,
+    codecString: "",
+    description: new Uint8Array(0),
+    extension: new Uint8Array(0),
+    payload: new Uint8Array(payloadBytes),
+  });
+}
 const picture = (): ToMedia => ({ type: "source.picture", source: "source-1", ageMs: 0, epoch: 0 });
 
 async function running(overrides: Parameters<typeof harness>[0] = {}) {
@@ -137,6 +157,30 @@ describe("MediaSupervisor", () => {
     expect(h.supervisor.health()).toBe("unavailable");
   });
 
+  it("never counts pings held behind normal-lane backpressure as missed", async () => {
+    const h = await running();
+    const stdin = h.host.last.stdin;
+    stdin.blocked = true;
+    for (let i = 0; i < 5; i++) h.supervisor.send(picture(), new Uint8Array(1024 * 1024));
+    await h.clock.advance(30_000);
+    expect(h.host.last.killed).toBe(false);
+    stdin.unblock();
+    await h.clock.advance(60_000);
+    expect(h.host.last.killed).toBe(false);
+    expect(h.supervisor.health()).toBe("healthy");
+  });
+
+  it("kills a child whose normal lane completes no write across six ping intervals", async () => {
+    const h = await running();
+    h.host.last.stdin.blocked = true;
+    h.supervisor.send(picture(), new Uint8Array(1024));
+    // The 5 s tick first sees the stuck write; six intervals later, at 35 s, it is hung.
+    await h.clock.advance(34_999);
+    expect(h.host.last.killed).toBe(false);
+    await h.clock.advance(1);
+    expect(h.events.exits[0]).toMatchObject({ cause: "normal-lane-stalled", failure: true });
+  });
+
   it("kills a child that misses three pongs", async () => {
     const h = harness();
     h.host.behaviour.answerPings = false;
@@ -224,6 +268,21 @@ describe("MediaSupervisor", () => {
     expect(h.supervisor.snapshot().recentFailures).toBe(0);
   });
 
+  it("refuses work during an idle shutdown and starts afresh for a need that came meanwhile", async () => {
+    const h = await running();
+    h.release();
+    await h.clock.advance(60_000);
+    expect(h.supervisor.snapshot().phase).toBe("stopping");
+    h.supervisor.need();
+    expect(h.supervisor.send(picture(), new Uint8Array(1))).toBe(false);
+    expect(h.supervisor.health()).toBe("restarting");
+    h.host.last.exit(0, null);
+    await h.clock.advance(0);
+    expect(h.host.children).toHaveLength(2);
+    expect(h.events.replays).toBe(2);
+    expect(h.supervisor.health()).toBe("healthy");
+  });
+
   it("keeps running when a new need arrives before the idle timeout", async () => {
     const h = await running();
     h.release();
@@ -270,9 +329,14 @@ describe("MediaSupervisor", () => {
     const stdin = h.host.last.stdin;
     stdin.blocked = true;
     for (let i = 0; i < 20; i++) h.supervisor.send(picture(), new Uint8Array(1024 * 1024));
+    // The egress lane is full too: 4 MiB of frames arriving while the revocation goes out.
+    const egress = h.host.last.lane("egress");
+    const unit = egressUnit(64 * 1024);
+    for (let i = 0; i < 64; i++) egress.source.emit(unit);
     const result = await h.supervisor.revoke({ type: "revoke", id: "r1", issued: 1, device: "d1" });
     expect(result).toBe("answered");
     expect(stdin.types("normal").filter((t) => t === "source.picture")).toHaveLength(1);
+    expect(h.events.egress).toHaveLength(64);
   });
 
   it("drops grants queued behind a revocation for their owner and refuses later ones", async () => {
@@ -321,6 +385,22 @@ describe("MediaSupervisor", () => {
     expect(h.supervisor.health()).toBe("healthy");
   });
 
+  it("ends the run when a lane closes after its accept while the other is still authenticating", async () => {
+    const h = harness();
+    h.host.behaviour.hold = "egress";
+    const supervisor = new MediaSupervisor(h.options);
+    supervisor.need();
+    await h.clock.advance(0);
+    h.host.last.lane("priority").source.end();
+    await h.clock.advance(0);
+    expect(h.host.last.killed).toBe(true);
+    h.host.last.releaseHeld();
+    await h.clock.advance(0);
+    expect(supervisor.health()).toBe("restarting");
+    expect(h.events.replays).toBe(0);
+    expect(h.events.exits[0]).toMatchObject({ cause: "lane-closed", failure: true });
+  });
+
   it("kills a child that refuses the lane secret", async () => {
     const h = harness();
     h.host.behaviour.refuseLanes = true;
@@ -361,6 +441,18 @@ describe("MediaSupervisor", () => {
       maxBytes: 1,
       pointerTrack: false,
     });
+    h.supervisor.send({
+      type: "record.start",
+      recording: "rec-2",
+      source: "s1",
+      directory: "/r",
+      maxBytes: 1,
+      pointerTrack: false,
+    });
+    // A stopped recording still awaits its record.done; rec-2's arrives, rec-1's never does.
+    h.supervisor.send({ type: "record.stop", recording: "rec-1" });
+    h.supervisor.send({ type: "record.stop", recording: "rec-2" });
+    h.host.last.send({ type: "record.done", recording: "rec-2", parts: [] });
     h.host.last.send(
       { type: "still.done", request: "still-1", width: 1, height: 1 },
       new Uint8Array(4),
@@ -392,50 +484,65 @@ describe("MediaSupervisor", () => {
 });
 
 const exists = (paths: string[]) => (path: string) => paths.includes(path);
-const fromSource = (paths: string[]) =>
+const fromSource = (paths: string[], env: Record<string, string> = {}) =>
   mediaBinaryPath({
-    env: {},
-    entry: undefined,
+    mode: "development",
+    env,
     sourceRoot: "/src",
     platform: "linux",
     exists: exists(paths),
   });
 
 describe("mediaBinaryPath", () => {
-  it("prefers ACE_MEDIA_PATH", () => {
-    expect(
-      mediaBinaryPath({
-        env: { ACE_MEDIA_PATH: "/x/ace-media" },
-        entry: "/r/ace.mjs",
-        sourceRoot: "/src",
-        platform: "linux",
-        exists: exists([]),
-      }),
-    ).toBe("/x/ace-media");
+  it("runs only the bundled binary in a release, whatever ACE_MEDIA_PATH says", () => {
+    const original = process.env.ACE_MEDIA_PATH;
+    process.env.ACE_MEDIA_PATH = "/tmp/evil";
+    try {
+      expect(
+        mediaBinaryPath({
+          mode: "release",
+          entry: "/rel/ace.mjs",
+          platform: "linux",
+          exists: exists(["/rel/media/ace-media"]),
+        }),
+      ).toBe("/rel/media/ace-media");
+    } finally {
+      if (original === undefined) delete process.env.ACE_MEDIA_PATH;
+      else process.env.ACE_MEDIA_PATH = original;
+    }
   });
-  it("finds a standalone release's and the desktop app's media folder", () => {
+  it("finds a release's and the desktop app's media folder, and nothing when it is missing", () => {
     expect(
       mediaBinaryPath({
-        env: {},
+        mode: "release",
         entry: "/rel/ace.mjs",
-        sourceRoot: undefined,
         platform: "win32",
-        exists: exists([]),
+        exists: exists(["/rel/media/ace-media.exe"]),
       }),
     ).toBe("/rel/media/ace-media.exe");
     expect(
       mediaBinaryPath({
-        env: {},
+        mode: "release",
         entry: "/App/Resources/daemon/ace.mjs",
-        sourceRoot: undefined,
         platform: "darwin",
-        exists: (path) => path.startsWith("/App/Resources/daemon/") && !path.endsWith("ace.mjs"),
+        exists: (path) =>
+          path === "/App/Resources/media/ace-media" ||
+          (path.startsWith("/App/Resources/daemon/") && !path.endsWith("ace.mjs")),
       }),
     ).toBe("/App/Resources/media/ace-media");
+    expect(
+      mediaBinaryPath({
+        mode: "release",
+        entry: "/rel/ace.mjs",
+        platform: "linux",
+        exists: exists([]),
+      }),
+    ).toBeUndefined();
   });
-  it("uses the source tree's release build, then its debug build", () => {
+  it("honours ACE_MEDIA_PATH in development, then the source tree's release and debug builds", () => {
     const release = "/src/native/media/target/release/ace-media";
     const debug = "/src/native/media/target/debug/ace-media";
+    expect(fromSource([release], { ACE_MEDIA_PATH: "/x/ace-media" })).toBe("/x/ace-media");
     expect(fromSource([release, debug])).toBe(release);
     expect(fromSource([debug])).toBe(debug);
     expect(fromSource([])).toBeUndefined();
