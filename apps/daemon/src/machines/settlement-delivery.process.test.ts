@@ -155,3 +155,18 @@ test("re-checks of a machine that can't be reached back off, log once, and resum
     expect.objectContaining({ fields: expect.objectContaining({ attempts: 3 }) }),
   ]);
 });
+
+test("a machine answering another call again is asked about its children on the next poll", async () => {
+  const h = machine();
+  const child = h.add("child");
+  h.reads.error = new MachineFailure("offline");
+  await h.fire();
+  await h.fire();
+  expect(h.asked).toHaveLength(1);
+  h.reads.error = undefined;
+  h.report(child, done("Back online"));
+  h.children.machineReachable("studio");
+  await h.fire();
+  expect(h.asked).toHaveLength(2);
+  expect(h.delivered).toEqual([expect.stringContaining("Back online")]);
+});

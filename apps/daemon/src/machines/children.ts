@@ -391,6 +391,10 @@ export class MachineChildren implements RemoteChildren {
     this.cancelTimer = undefined;
     this.arm();
   }
+  /** Another call to the machine got through: status calls to it go on the next poll. */
+  machineReachable(machine: string): void {
+    this.reach.retryNow(machine);
+  }
   /** A status call to the machine got through: its failure episode, if any, ends. */
   private reached(machine: string) {
     const failures = this.reach.succeeded(machine);

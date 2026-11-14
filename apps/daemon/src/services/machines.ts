@@ -198,7 +198,10 @@ export function startMachines(context: ServiceContext): void {
     log: record("info"),
   });
 
+  // Bound once the children exist below: a machine answering again ends their wait on it.
+  let machineReachable: ((machine: string) => void) | undefined;
   const directory = new MachineDirectory({
+    reachable: (machine) => machineReachable?.(machine),
     profiles: () => {
       const profiles = new Profiles(config.dataDir);
       try {
@@ -352,6 +355,7 @@ export function startMachines(context: ServiceContext): void {
     log: record("warn"),
   });
   resources.own(() => children.close());
+  machineReachable = (machine) => children.machineReachable(machine);
   // New input on a stopped parent may resume it: what waits for it is tried at once.
   resources.own(
     store.subscribe((events) => {

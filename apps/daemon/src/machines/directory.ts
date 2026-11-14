@@ -25,6 +25,8 @@ export interface DirectoryDeps {
   log(message: string, fields: Record<string, unknown>): void;
   /** The tool groups other machines serve here changed, e.g. a Mac now lends its simulators. */
   served?(): void;
+  /** A call to a machine whose calls were failing got through: loops waiting on it go now. */
+  reachable?(machine: string): void;
 }
 const MachineToolGroupNames = MachineToolGroup.options;
 /** A failure as the calling agent reads it: an authored code and a short reason. */
@@ -157,6 +159,7 @@ export class MachineDirectory {
     try {
       const result = await this.deps.transport(profile, { origin, call }, options);
       const failures = this.failing.succeeded(machine);
+      if (failures > 0) this.deps.reachable?.(machine);
       if (failures > 0)
         this.deps.log("Machine calls to another device work again", {
           machine,

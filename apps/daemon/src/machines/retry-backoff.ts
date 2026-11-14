@@ -46,7 +46,8 @@ export class RetryBackoff {
   /** The earliest time any episode is due again, or undefined with none open. */
   nextDue(): number | undefined {
     let next: number | undefined;
-    for (const { dueAt } of this.episodes.values()) if (next === undefined || dueAt < next) next = dueAt;
+    for (const { dueAt } of this.episodes.values())
+      if (next === undefined || dueAt < next) next = dueAt;
     return next;
   }
 }

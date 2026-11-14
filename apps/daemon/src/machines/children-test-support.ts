@@ -195,8 +195,8 @@ export function machine(
       return found;
     },
     device,
-    log: (message, fields) => {
-      logs.push({ message, fields });
+    log: (line, fields) => {
+      logs.push({ message: line, fields });
     },
   });
   const add = (id: string, host = "studio", from: ThreadId = parent) => {
