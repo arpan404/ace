@@ -71,10 +71,17 @@ fixed 150 ms race stagger dialed every path every time.
    order, so the client pairs the nth pong with the nth ping, with nothing new on the wire. A
    pong or any other frame already on its way before the wake proves nothing. The ping count
    belongs to the socket and lives as long as it does: a standby promoted to active brings the
-   pings it sent and still owes pongs for, and only a new socket starts from zero. A wake while
-   probes are waiting adds its own ping and deadline and never moves theirs. So a socket that
-   died while the app was away, or at a wake, is dropped and redialed within 5 s of that wake,
-   however many wakes follow. The regular idle beat still counts any frame as liveness.
+   pings it sent and still owes pongs for, and only a new socket starts from zero. A probe waits
+   the active path's pong deadline (four smoothed round trips, at least 2 s, at most 10 s, from
+   the path manager's link estimate), or 5 s while nothing has measured the link, so a healthy
+   slow link is not dropped at every wake. A wake while probes are waiting never moves their
+   deadlines: it adds its own ping and deadline, joins the newest probe if that one pinged less
+   than 300 ms before, and is covered by the newest when four are already waiting, so a burst
+   of wakes sends a few pings, not one each. A socket owing 64 pongs is not pinged again rather
+   than dropping an earlier ping's answer. So a socket that died while the app was away, or at
+   a wake, is dropped and redialed within that link's probe deadline plus 300 ms of that wake
+   (at most 10.3 s; 5.3 s before any measurement), however many wakes follow. The regular idle
+   beat still counts any frame as liveness.
 
 The client keeps one link estimate, the active path's smoothed round trip, readable through
 `ClientApi.linkEstimate()` for other features.

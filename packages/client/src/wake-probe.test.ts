@@ -8,8 +8,11 @@ import { WireCodec } from "./wire-codec.ts";
 /** Longer than the gap between a probe's answer and its 5 s deadline, so only the probe decides. */
 const beatMs = 3_000;
 
-/** A ready connection on manual time whose daemon answers pings only when told. */
-async function ready() {
+/**
+ * A ready connection on manual time whose daemon answers pings only when told, or each one
+ * promptly (`answering`).
+ */
+async function ready(answering = false) {
   let now = 0;
   const timers = new Set<{ at: number; run(): void }>();
   let events: TransportEvents | undefined;
@@ -23,7 +26,9 @@ async function ready() {
           next.open();
         },
         send(text) {
-          if (JSON.parse(text).type === "ping") pings++;
+          if (JSON.parse(text).type !== "ping") return;
+          pings++;
+          if (answering) queueMicrotask(() => events?.message(JSON.stringify({ type: "pong" })));
         },
         close() {},
       }),
@@ -185,4 +190,44 @@ test("on a slow link a silent socket is dropped at its scaled probe deadline", a
   expect(socket.closed).toBe(false);
   await wait(h.clock, 200);
   expect(socket.closed).toBe(true);
+});
+
+/** Let queued pongs land. */
+const flush = async () => {
+  for (let i = 0; i < 20; i++) await Promise.resolve();
+};
+
+test("200 wakes in a burst on a live socket send a few pings and keep it", async () => {
+  const h = await ready(true);
+  const before = h.pings();
+  for (let wake = 0; wake < 200; wake++) h.connection.wake();
+  await flush();
+  for (let step = 0; step < 10; step++) {
+    h.advance(1_000);
+    await flush();
+  }
+  expect(h.pings() - before).toBeLessThanOrEqual(4);
+  expect(h.connection.state).toBe("ready");
+});
+
+test("the same burst on a dead socket drops it within the bound of the first wake", async () => {
+  const h = await ready();
+  for (let wake = 0; wake < 200; wake++) h.connection.wake();
+  h.advance(4_900);
+  expect(h.connection.state).toBe("ready");
+  // One probe deadline (5 s, nothing measured) plus the 300 ms coalescing window.
+  h.advance(400);
+  expect(h.connection.state).toBe("reconnecting");
+});
+
+test("wakes spaced over 20 s on a dead socket still drop it within the bound of the first", async () => {
+  const h = await ready();
+  let elapsed = 0;
+  while (elapsed < 20_000 && h.connection.state === "ready") {
+    h.connection.wake();
+    h.advance(250);
+    elapsed += 250;
+  }
+  expect(h.connection.state).toBe("reconnecting");
+  expect(elapsed).toBeLessThanOrEqual(5_300);
 });

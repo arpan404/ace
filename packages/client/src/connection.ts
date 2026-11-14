@@ -69,6 +69,8 @@ const heartbeatMissed = "Heartbeat missed";
  * when nothing has measured the link yet; once measured, the path's own pong deadline.
  */
 const wakeProbeMs = 5000;
+/** Pings a socket may owe pongs for; past this, no more go out on it. */
+const maxUnansweredPings = 64;
 /** A handed-over ticket with less than this left is not used: it may lapse before the hello lands. */
 const handedMarginMs = 15_000;
 
@@ -153,7 +155,7 @@ export class Connection {
     this.#deliver = received;
     this.#changed = changed;
     this.#disconnected = disconnected;
-    this.#heartbeat = new Heartbeat(options.scheduler, limits.heartbeatMs);
+    this.#heartbeat = new Heartbeat(options.scheduler, limits.heartbeatMs, options.now);
     this.#held = new HeldFrames(limits.frameBytes * 4);
     this.#fragments = new FragmentAssembly(
       limits.fragmentBytes,
@@ -768,9 +770,11 @@ export class Connection {
    * a socket's pings in order, so each pong settles the oldest ping, never a newer one.
    */
   #ping(answered: () => void): boolean {
+    // A socket owing this many pongs is not pinged again: no ping's answer is ever dropped to
+    // make room (the heartbeat and the path manager drop such a socket long before).
+    if (this.#pongs.length >= maxUnansweredPings) return false;
     if (!this.send({ type: "ping" })) return false;
-    // A socket that stops answering is dropped by the heartbeat long before this fills.
-    if (this.#pongs.push(answered) > 64) this.#pongs.shift();
+    this.#pongs.push(answered);
     return true;
   }
   /**

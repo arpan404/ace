@@ -17,6 +17,11 @@ interface HeartbeatEvents {
  * proof of life, not just the pong: the daemon sends its pong behind whatever it already queued,
  * so on a busy stream the pong can be late while the socket is plainly alive.
  */
+/** A wake this soon after the newest outstanding probe joins it instead of pinging again. */
+export const probeJoinMs = 300;
+/** At most this many probes wait at once; a wake beyond them is covered by the newest. */
+export const maxProbes = 4;
+
 export class Heartbeat {
   #scheduler: Scheduler;
   #intervalMs: number;
@@ -27,9 +32,13 @@ export class Heartbeat {
   #quiet = false;
   /** Each probe still waiting out its own deadline: cancels its timer. */
   #probes = new Set<() => void>();
-  constructor(scheduler: Scheduler, intervalMs: number) {
+  /** When the newest outstanding probe pinged, on `now`. */
+  #newestAt: number | undefined;
+  #now: (() => number) | undefined;
+  constructor(scheduler: Scheduler, intervalMs: number, now?: () => number) {
     this.#scheduler = scheduler;
     this.#intervalMs = intervalMs;
+    this.#now = now;
   }
   start(events: HeartbeatEvents): void {
     this.stop();
@@ -43,17 +52,30 @@ export class Heartbeat {
    * about the socket now. Silence ends the beat as a miss; once every probe is answered, the
    * regular beat resumes. A probe while others wait never moves their deadlines: each keeps its
    * own, so a socket dead at the first of many wakes is dropped `withinMs` after that one. A
-   * no-op unless a beat is running.
+   * wake within `probeJoinMs` of the newest outstanding probe joins it, and at most `maxProbes`
+   * wait at once (a wake beyond them is covered by the newest), so a burst of wakes sends a few
+   * pings, not one each. Either way a socket dead at a wake is dropped within one deadline plus
+   * `probeJoinMs` of it. A no-op unless a beat is running.
    */
   probe(withinMs: number): void {
     const events = this.#events;
     if (!events) return;
+    const at = this.#now?.();
+    if (this.#probes.size) {
+      // Without a clock every wake joins: the newest probe was sent no earlier than the first.
+      const newest = this.#newestAt;
+      const recent = at === undefined || newest === undefined || at - newest < probeJoinMs;
+      if (recent || this.#probes.size >= maxProbes) return;
+    }
     // The regular beat waits while any probe does.
     this.#cancel?.();
     this.#cancel = undefined;
     this.#awaiting = true;
     let answered = false;
+    // A ping that can't go out (the socket ended, or owes too many pongs) is no probe: one
+    // still waiting covers this wake, or the connection's own close does.
     if (!events.ping(() => (answered = true))) return;
+    this.#newestAt = at;
     const cancel = this.#scheduler.set(withinMs, () => {
       this.#probes.delete(cancel);
       if (!answered) {
