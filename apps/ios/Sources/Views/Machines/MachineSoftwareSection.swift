@@ -14,6 +14,8 @@ struct MachineSoftwareData: Decodable, Equatable {
     let note: String?
     let confirm: Confirm?
     let updating: Bool
+    /// False when the machine didn't answer and this is the last status it gave.
+    let reachable: Bool
     let problem: String?
 
     /// The request for `action`; Update now carries the agents the person agreed to stop.
@@ -32,15 +34,25 @@ struct MachineSoftwareData: Decodable, Equatable {
 struct MachineSoftwareSection: View {
     let model: ClientModel
     let name: String
-    @State private var data: MachineSoftwareData?
+    @State private var software: MachineSoftwareFollow
     @State private var acting = false
     @State private var confirming = false
-    @State private var problem: String?
     /// Moves when an action starts an update: the page's read task follows it from there.
     @State private var round = 0
 
-    private var access: String { model.canAdmin.map { $0 ? "admin" : "read" } ?? "unknown" }
-    private var label: String { String((name.isEmpty ? "This machine" : name).prefix(128)) }
+    init(model: ClientModel, name: String) {
+        self.model = model
+        self.name = name
+        let label = Self.label(name)
+        _software = State(initialValue: MachineSoftwareFollow(fetch: { [weak model] in
+            guard let model else { throw CancellationError() }
+            return try await model.service(MachineSoftwareData.read(name: label, access: Self.access(model)), as: MachineSoftwareData.self)
+        }))
+    }
+
+    private static func access(_ model: ClientModel) -> String { model.canAdmin.map { $0 ? "admin" : "read" } ?? "unknown" }
+    private static func label(_ name: String) -> String { String((name.isEmpty ? "This machine" : name).prefix(128)) }
+    private var data: MachineSoftwareData? { software.data }
 
     var body: some View {
         Section {
@@ -81,7 +93,7 @@ struct MachineSoftwareSection: View {
                 Text(model.connection == "ready" ? "Reading its version…" : "Its version shows when it's back online.")
                     .font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
             }
-            ServiceProblem(message: problem ?? data?.problem)
+            ServiceProblem(message: software.problem ?? data?.problem)
         } header: { InsetHeader("Software") }
         .insetRowBackground()
         .disabled(acting)
@@ -90,39 +102,20 @@ struct MachineSoftwareSection: View {
             Button(confirm.confirm, role: .destructive) { act("now", agents: confirm.agents) }
                 .accessibilityIdentifier("machine.software.now.confirm")
         } message: { confirm in Text(confirm.body) }
-        // Read when connected; while an update runs, again every few seconds so its progress and
-        // result show. The machine restarts on the way, so a failed read just waits for the next.
-        .readWhenConnected(model, id: "\(name)/\(round)") { await follow() }
-    }
-
-    private func follow() async {
-        await read()
-        while data?.updating == true, !Task.isCancelled {
-            try? await Task.sleep(for: .seconds(3))
-            await read()
-        }
-    }
-
-    private func read() async {
-        do {
-            let next = try await model.service(MachineSoftwareData.read(name: label, access: access), as: MachineSoftwareData.self)
-            withAnimation { data = next }
-            problem = nil
-        } catch {
-            if data == nil, !Task.isCancelled { problem = error.localizedDescription }
-        }
+        // Read when connected, and while an update runs follow it to its result (`MachineSoftwareFollow`).
+        .readWhenConnected(model, id: "\(name)/\(round)") { await software.follow() }
     }
 
     private func act(_ action: String, agents: Int? = nil) {
-        acting = true; problem = nil
+        acting = true
         Task {
             defer { acting = false }
             do {
-                let next = try await model.service(MachineSoftwareData.act(action, name: label, access: access, agents: agents),
-                                                   as: MachineSoftwareData.self, timeout: .seconds(20))
-                withAnimation { data = next }
+                let request = MachineSoftwareData.act(action, name: Self.label(name), access: Self.access(model), agents: agents)
+                let next = try await model.service(request, as: MachineSoftwareData.self, timeout: .seconds(20))
+                withAnimation { software.show(next) }
                 if next.updating { round += 1 }
-            } catch { problem = error.localizedDescription }
+            } catch { software.fail(error.localizedDescription) }
         }
     }
 }
