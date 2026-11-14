@@ -29,6 +29,13 @@ import type { RequestMirror } from "./mirror.ts";
 import type { RemoteJobs } from "./remote-jobs.ts";
 import { MachineFailure } from "./transport.ts";
 import { machineStatusThreads } from "./status-result.ts";
+import { QuietBackoff } from "./quiet-backoff.ts";
+
+/**
+ * While a browser or screen tool runs there, its session is read for requests waiting on the
+ * person at most this many polls apart once nothing has changed (4 s at the default 1 s poll).
+ */
+const SESSION_WATCH_SLOWEST_POLLS = 4;
 
 /**
  * A refusal the target recorded before the message ever reached its thread (its access or
@@ -458,16 +465,26 @@ export class MachineCaller {
     const name = directory.label(machine);
     let stop: (() => void) | undefined;
     let done = false;
-    const watch = () => {
-      stop = this.deps.schedule(this.deps.pollMs, () => {
+    // Read every poll at first and after any change there, slower while nothing changes.
+    const pace = new QuietBackoff(
+      this.deps.pollMs,
+      this.deps.pollMs * SESSION_WATCH_SLOWEST_POLLS,
+    );
+    let seen = "[]";
+    const watch = (delay = pace.waitMs) => {
+      stop = this.deps.schedule(delay, () => {
+        let changed = false;
         void this.status(machine, caller.threadId, [session])
           .then(([view]) => {
-            if (!done)
-              this.deps.mirror.sync(source, caller.threadId, machine, name, view?.requests ?? []);
+            const requests = view?.requests ?? [];
+            const now = JSON.stringify(requests);
+            changed = now !== seen;
+            seen = now;
+            if (!done) this.deps.mirror.sync(source, caller.threadId, machine, name, requests);
           })
           .catch(() => {})
           .finally(() => {
-            if (!done) watch();
+            if (!done) watch(pace.next(changed));
           });
       });
     };
