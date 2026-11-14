@@ -222,11 +222,15 @@ import QuartzCore
         activityGeneration = 0
         frames = BridgeFrames(); batch.reset(); generation = 0
         // The last known inbox, unconfirmed, in the first frame; the runtime replaces it in place.
+        // Read and decoded off the main thread (it may be megabytes), applied here in one step.
         let restoring = LaunchTrace.begin("inbox.restore", target.hostId)
         // One machine's cache whichever route reaches it (`ConnectionTarget.scope`).
         let database = Self.database(hostId: target.scope.hostId, deviceId: target.scope.deviceId, in: directory)
-        apply(InboxCheckpoint.read(database: database))
+        let restored = await Task.detached(priority: .userInitiated) { InboxCheckpoint.read(database: database) }.value
         restoring.end()
+        // A newer connection began meanwhile: it restores its own copy.
+        guard connectionEpoch == epoch else { return }
+        apply(restored)
         await closing?.value
         guard connectionEpoch == epoch, !Task.isCancelled else { return }
         shutdown = nil

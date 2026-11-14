@@ -52,6 +52,24 @@ import Testing
         #expect(model.inbox["kept"]?.confirmed == true)
     }
 
+    @Test func aConnectionMadeWhileTheLastCopyIsReadKeepsOnlyItsOwnInbox() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let studio = ClientModel.database(hostId: "studio", deviceId: "device", in: directory)
+        try InboxCheckpoint.write(try json([
+            ["type": "inbox.reset", "ids": ["studio-row"]],
+            ["type": "inbox.row", "id": "studio-row", "row": row("studio-row", state: "done", label: "Syncing", token: "neutral")],
+        ]), database: studio)
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: { _, _, _, _ in StartRecorder() })
+        // The person switches machines before the first machine's copy has been read.
+        let first = Task { await model.connect(target: try target(host: "studio"), directory: directory) }
+        await Task.yield()
+        await model.connect(target: try target(host: "laptop"), directory: directory)
+        try await first.value
+        #expect(model.hostId == "laptop")
+        #expect(model.inbox["studio-row"] == nil, "another machine's kept rows never show under this one")
+    }
+
     @Test func anUnreadableCopyStartsTheInboxEmpty() async throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -68,8 +86,8 @@ import Testing
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
-    private func target() throws -> ConnectionTarget {
-        ConnectionTarget(endpoint: try #require(URL(string: "ws://127.0.0.1:1")), hostId: "host", deviceId: "device", pin: nil,
+    private func target(host: String = "host") throws -> ConnectionTarget {
+        ConnectionTarget(endpoint: try #require(URL(string: "ws://127.0.0.1:1")), hostId: host, deviceId: "device", pin: nil,
                          credential: { "{}" })
     }
     private func json(_ patches: [[String: Any]]) throws -> String {
