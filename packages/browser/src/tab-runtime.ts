@@ -358,6 +358,17 @@ export class TabRuntime {
     this.lastActiveAt = this.host.options.now();
     this.cursor.personActed();
   }
+  private lifecycleLane: Promise<unknown> = Promise.resolve();
+  /**
+   * Runs one lifecycle change (rest, freeze, discard) or wake of this tab, after those before
+   * it: a wake never sees the tab half-way into a change, and the next change starts from a woken
+   * tab.
+   */
+  lifecycleTurn<T>(work: () => Promise<T>): Promise<T> {
+    const run = this.lifecycleLane.then(work);
+    this.lifecycleLane = run.catch(() => {});
+    return run;
+  }
   /** The person watched this tab: its idle time starts over. */
   seen(): void {
     this.lastActiveAt = this.host.options.now();
@@ -626,6 +637,9 @@ export class TabRuntime {
     const zoom = this.page.zoom ? zoomChord(input) : undefined;
     const work = this.personLane.then(async () => {
       this.check(actor, undefined, generation);
+      // The person's input reaches a shown, running page, never one that rested or froze.
+      await this.host.wake(this.id);
+      this.check(actor, undefined, generation);
       // ⌘+ / ⌘- / ⌘0 zoom the page, as in a browser; the page never sees them.
       if (zoom) {
         if (input.kind === "key" && input.event === "keyDown") await this.zoomStep(zoom);
@@ -657,11 +671,12 @@ export class TabRuntime {
     this.touch(actor);
     this.humanActivity();
     const generation = this.access.generation;
-    const work = this.personLane.then(() =>
-      dropFiles(this.page.cdp, paths, point, modifiers, () =>
+    const work = this.personLane.then(async () => {
+      await this.host.wake(this.id);
+      await dropFiles(this.page.cdp, paths, point, modifiers, () =>
         this.check(actor, undefined, generation),
-      ),
-    );
+      );
+    });
     this.personLane = work.catch(() => {});
     return work;
   }

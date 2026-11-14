@@ -583,6 +583,7 @@ export class BrowserSession {
     const runtime = tabId === undefined ? this.tabs.viewed() : this.tabs.find(tabId);
     if (!runtime || runtime.private) return;
     this.printing = (async () => {
+      await this.wakeIdle(runtime.id);
       const pdf = await printPdf(
         this.tabs.page(runtime.id),
         this.options.dir,
@@ -813,6 +814,8 @@ export class BrowserSession {
     const viewed = this.tab();
     const epoch = viewed.access.epoch;
     return viewed.serialize(async () => {
+      // A recording captures a running, shown page: one that rested or froze unwatched wakes.
+      await this.wakeIdle(viewed.id);
       await this.recordings.start(
         () => viewed.readCheck({ kind: "agent" }, epoch),
         this.recordedTab(viewed.id),
@@ -858,17 +861,17 @@ export class BrowserSession {
     if (!lifecycle || this.closed) return;
     this.stopLifecycle = lifecycle.set(lifecycle.every, () => {
       if (this.closed) return;
-      const dialogs = new Set(
-        this.options.backend.tabs?.list().flatMap((tab) => (tab.pending_dialog ? [tab.tabId] : [])),
-      );
       // A dialog, a download still arriving or a recording keeps a tab as it is.
       void settleIdleTabs(
         this.tabs.all(),
-        (tab) => this.watching(tab),
-        this.tabs.viewedId(),
-        this.options.now(),
+        {
+          viewed: (tab) => this.watching(tab),
+          shownId: () => this.tabs.viewedId(),
+          pinned: (tab) =>
+            this.dialogOpen(tab.id) || this.downloading(tab.id) || this.recordings.active,
+          now: () => this.options.now(),
+        },
         lifecycle.policy,
-        (tab) => dialogs.has(tab.id) || this.downloading(tab.id) || this.recordings.active,
         this.options.backend.tabs,
       )
         .then((changed) => {
@@ -884,6 +887,14 @@ export class BrowserSession {
   private watching(tab: TabRuntime): boolean {
     if (tab.id !== this.tabs.viewedId()) return false;
     return this.options.backendKind !== "headless" || this.live.watched();
+  }
+  /** A dialog waits for an answer in this tab, as the backend lists it now. */
+  private dialogOpen(tabId: string): boolean {
+    return (
+      this.options.backend.tabs
+        ?.list()
+        .some((tab) => tab.tabId === tabId && tab.pending_dialog !== undefined) === true
+    );
   }
   /** A download still arriving in this tab: the tab must not freeze, discard or close under it. */
   private downloading(tabId: string): boolean {
