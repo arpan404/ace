@@ -33,6 +33,8 @@ export interface PathConnection {
   failover(reason: string): void;
   setStandby(standby: PathStandby | undefined): void;
   onWrongHost(refused: (() => void) | undefined): void;
+  /** This manager pings the active path: the connection's own heartbeat stands down. */
+  pingedElsewhere?(on: boolean): void;
 }
 
 /** The active path's measured round trip (`Multipath.linkEstimate`). */
@@ -70,7 +72,7 @@ export interface MultipathOptions {
   now(): number;
   /** High resolution, for the swap's duration (`performance.now`); `now` when absent. */
   clock?(): number;
-  /** Whether the app is in front: pings are 5 s apart then, 15 s otherwise. */
+  /** Whether the app is in front: pings are 5 s apart then, 40 s otherwise. */
   visible?(): boolean;
   /** The path that won last time, tried first. */
   lastWinner?: string | undefined;
@@ -176,6 +178,7 @@ export class Multipath {
     connection.onWrongHost(() => {
       if (this.#racing) this.#refuse(this.#racing);
     });
+    connection.pingedElsewhere?.(true);
     this.#stopState = state.subscribe(() => this.#changed());
     this.#stopNetwork ??= this.#options.watchNetwork?.(() => this.networkChanged());
     this.#changed();
@@ -196,6 +199,7 @@ export class Multipath {
     this.#stopLoops();
     this.#connection?.setStandby(undefined);
     this.#connection?.onWrongHost(undefined);
+    this.#connection?.pingedElsewhere?.(false);
   }
 
   /** The paths the platform offers, less any that reached another daemon. */

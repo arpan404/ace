@@ -161,8 +161,16 @@ export interface Limits {
   text: number;
   listeners: number;
   requestMs: number;
-  /** Cold startup may outlive an ordinary read; never extend this deadline on progress. */
+  /**
+   * The longest a connect may wait: for a daemon that said `starting`, whose cold start may
+   * outlive an ordinary read. Never extended on progress.
+   */
   handshakeMs: number;
+  /**
+   * Each other stage of a connect (the socket opening; the hello waiting for its welcome) gets
+   * this long, or four times what it took last time on a slower link, at most `handshakeMs`.
+   */
+  handshakeStageMs: number;
   heartbeatMs: number;
   retryBaseMs: number;
   retryCapMs: number;
@@ -193,6 +201,7 @@ export const defaultLimits: Limits = {
   listeners: 4096,
   requestMs: 15000,
   handshakeMs: 120_000,
+  handshakeStageMs: 30_000,
   heartbeatMs: 15000,
   retryBaseMs: 250,
   retryCapMs: 30000,

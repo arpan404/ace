@@ -1,6 +1,7 @@
 import { parseCredential, type Credential } from "./credentials.ts";
 import { handshakePath, type PathRoute, type WelcomedPath } from "./path-handshake.ts";
 import { pathTiming } from "./path-plan.ts";
+import { stageDeadline } from "./handshake-deadline.ts";
 import { retryDelay, disconnectDecision, networkDecision } from "./lifecycle.ts";
 import { fitsUtf8 } from "./bounds.ts";
 import { FragmentAssembly, matchesFragments, type FragmentPart } from "./fragment-assembly.ts";
@@ -120,6 +121,12 @@ export class Connection {
    */
   #handed: { ticket: string; expiresAt: number } | undefined;
   #usedHanded = -1;
+  /** What each connect stage took last time it finished, and when the current one began. */
+  #lastOpenMs: number | undefined;
+  #lastWelcomeMs: number | undefined;
+  #stageAt: number | undefined;
+  /** The daemon of this attempt said `starting`: its welcome waits out a cold start. */
+  #starting = false;
   constructor(
     options: ClientOptions,
     codec: WireCodec,
@@ -338,9 +345,8 @@ export class Connection {
     this.#setState(this.#attempt ? "reconnecting" : "connecting");
     this.#restorer = new WireRestorer();
     const epoch = this.#epoch;
-    this.#cancel = this.#options.scheduler.set(this.#limits.handshakeMs, () =>
-      this.#lost(1006, "Handshake timed out"),
-    );
+    this.#starting = false;
+    this.#stage(this.#lastOpenMs);
     try {
       const transport = this.#options.transport();
       this.#transport = transport;
@@ -352,6 +358,8 @@ export class Connection {
       transport.open({
         open: () => {
           if (epoch !== this.#epoch) return;
+          this.#lastOpenMs = this.#elapsed() ?? this.#lastOpenMs;
+          this.#stage(this.#lastWelcomeMs);
           void Promise.resolve()
             .then(() => early ?? transport.credential?.() ?? this.#options.credential())
             .then((credential) => {
@@ -374,6 +382,24 @@ export class Connection {
     } catch {
       this.#lost(1006, "Transport failed to open");
     }
+  }
+  /**
+   * Start the next stage of this connect: it must finish within its deadline, scaled to what
+   * it took last time (`lastMs`), or the attempt is dropped and retried.
+   */
+  #stage(lastMs: number | undefined, deadlineMs?: number): void {
+    this.#cancel?.();
+    this.#stageAt = this.#options.now?.();
+    const limit =
+      deadlineMs ?? stageDeadline(this.#limits.handshakeStageMs, this.#limits.handshakeMs, lastMs);
+    this.#cancel = this.#options.scheduler.set(limit, () =>
+      this.#lost(1006, "Handshake timed out"),
+    );
+  }
+  /** How long the current stage has run, when there is a clock. */
+  #elapsed(): number | undefined {
+    const now = this.#options.now?.();
+    return now === undefined || this.#stageAt === undefined ? undefined : now - this.#stageAt;
   }
   /** The route's credential, asked for now; a failure is read once the socket opens. */
   #prefetch(): Promise<Credential> {
@@ -520,6 +546,9 @@ export class Connection {
           }
         }
         if (message.type === "starting") {
+          // A cold start: the attempt may now take the whole handshake limit.
+          this.#starting = true;
+          this.#stage(undefined, this.#limits.handshakeMs);
           this.#setState("starting");
           return;
         }
@@ -535,6 +564,7 @@ export class Connection {
         }
         this.#cancel?.();
         this.#cancel = undefined;
+        if (!this.#starting) this.#lastWelcomeMs = this.#elapsed() ?? this.#lastWelcomeMs;
         // Backoff starts over only once this connection has stayed up for a while.
         this.#healthy = this.#options.scheduler.set(this.#limits.healthyMs, () => {
           this.#attempt = 0;
@@ -665,6 +695,13 @@ export class Connection {
   /** Where a dropped active path fails over to at once, before any reconnect backoff. */
   setStandby(standby: PathStandby | undefined): void {
     this.#standby = standby;
+  }
+  /**
+   * The path manager pings the active path itself and fails it over on a missed pong: the
+   * connection's own heartbeat stands down meanwhile, so one socket carries one ping loop.
+   */
+  pingedElsewhere(on: boolean): void {
+    this.#heartbeat.quiet(on);
   }
   /** Frames heard on the active path so far: a ping that hears anything was not missed. */
   get heard(): number {

@@ -196,6 +196,6 @@ test("the smoothed round trip moves an eighth of the way to each sample", () => 
   expect(smoothRtt(50, -5)).toBeCloseTo(43.75);
 });
 
-test("pings every 5 s while visible and 15 s while hidden", () => {
-  expect([pingEvery(true), pingEvery(false)]).toEqual([5_000, 15_000]);
+test("pings every 5 s while visible and 40 s while hidden, inside the daemon's 60 s idle limit", () => {
+  expect([pingEvery(true), pingEvery(false)]).toEqual([5_000, 40_000]);
 });

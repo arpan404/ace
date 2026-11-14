@@ -19,6 +19,8 @@ export class Heartbeat {
   #cancel: (() => void) | undefined;
   #awaiting = false;
   #events: HeartbeatEvents | undefined;
+  /** Another loop pings this socket (the path manager's): no regular beat, probes only. */
+  #quiet = false;
   constructor(scheduler: Scheduler, intervalMs: number) {
     this.#scheduler = scheduler;
     this.#intervalMs = intervalMs;
@@ -49,6 +51,20 @@ export class Heartbeat {
       this.#beat(events);
     });
   }
+  /**
+   * Whether another loop already pings this socket and drops it when a pong goes missing (the
+   * path manager's, ADR 0114). While quiet there is no regular beat, so one socket never carries
+   * two ping loops; `probe` still checks it at once.
+   */
+  quiet(on: boolean): void {
+    if (on === this.#quiet) return;
+    this.#quiet = on;
+    const events = this.#events;
+    if (!events || this.#awaiting) return;
+    this.#cancel?.();
+    this.#cancel = undefined;
+    this.#beat(events);
+  }
   /** A frame from the daemon arrived, the pong or any other. */
   heard(): void {
     this.#awaiting = false;
@@ -60,6 +76,7 @@ export class Heartbeat {
     this.#events = undefined;
   }
   #beat(events: HeartbeatEvents): void {
+    if (this.#quiet) return;
     this.#cancel = this.#scheduler.set(this.#intervalMs, () => {
       this.#cancel = undefined;
       if (this.#awaiting) {

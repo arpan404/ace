@@ -14,7 +14,8 @@ export const pathTiming = {
   raceStaggerMs: 150,
   raceStaggerCapMs: 2_000,
   pingVisibleMs: 5_000,
-  pingHiddenMs: 15_000,
+  /** Hidden, a ping only keeps the socket inside the daemon's 60 s idle limit. */
+  pingHiddenMs: 40_000,
   /** The warm standby only proves it is alive. */
   standbyPingMs: 30_000,
   /**
@@ -246,7 +247,7 @@ function standbyRelays(paths: readonly PlannedPath[], active: PlannedPath): Plan
     .toSorted((a, b) => pathRank(a.kind) - pathRank(b.kind));
 }
 
-/** How often the active path is pinged: every 5 s while visible, 15 s while hidden. */
+/** How often the active path is pinged: every 5 s while visible, 40 s while hidden. */
 export function pingEvery(visible: boolean): number {
   return visible ? pathTiming.pingVisibleMs : pathTiming.pingHiddenMs;
 }
