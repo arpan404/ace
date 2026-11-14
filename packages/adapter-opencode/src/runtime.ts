@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { discoverProvider, discoverProviders } from "@ace/provider-kit/discovery";
 import { spawnSupervised } from "@ace/provider-kit/process";
 import type { LaunchedTree } from "./launched-tree.ts";
+import { installationIdentity } from "./installation.ts";
 export type Runtime = {
   wallTime(): number;
   monotonic(): number;
@@ -11,6 +12,8 @@ export type Runtime = {
   spawn: typeof spawnSupervised;
   fetch: typeof fetch;
   schedule(callback: () => void, delayMs: number): () => void;
+  /** The file an OpenCode path runs right now; see installation.ts. */
+  installationIdentity(path: string): Promise<string | undefined>;
   /** Host platform; tests inject "win32" to cover the Windows launch path. */
   platform?: NodeJS.Platform;
   /** Windows only: ties a shimmed server's pid to the tree ace launched. Loaded on demand. */
@@ -30,6 +33,7 @@ export function runtime(overrides: Partial<Runtime> = {}): Runtime {
       const timer = setTimeout(callback, delayMs);
       return () => clearTimeout(timer);
     },
+    installationIdentity,
     ...overrides,
   };
 }
