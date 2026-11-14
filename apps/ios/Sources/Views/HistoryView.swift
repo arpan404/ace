@@ -66,9 +66,10 @@ struct HistoryView: View {
         if let name = projects.first(where: { $0.id == project })?.name { chosenName = name }
     }
 
-    /// Asked again when a machine connects or pages in more of its list.
+    /// Asked again when a machine connects, or a thread is settled, reopened or changes while
+    /// settled (`HistoryRevision`).
     private var readKey: String {
-        inbox.sessions.map { "\($0.hostId):\($0.client.connection):\($0.client.inbox.count)" }.joined(separator: "|")
+        inbox.sessions.map { "\($0.hostId):\($0.client.connection):\($0.client.historyRevision.value)" }.joined(separator: "|")
     }
     private func machineName(_ row: HistoryRow) -> String? {
         inbox.showsMachineNames ? inbox.name(row.machineId) : nil

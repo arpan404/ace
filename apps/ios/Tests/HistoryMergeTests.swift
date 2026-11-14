@@ -56,3 +56,91 @@ import Testing
         for place in [SearchPlace.usage, .automations, .history, .archived] { #expect(paired.contains(place)) }
     }
 }
+
+/// History reads again when a thread joins or leaves Settled or a settled row changes, and never
+/// for the rest of the list's traffic.
+@Suite struct HistoryRevisionTests {
+    private func row(_ id: String, title: String? = nil, state: String = "done") -> ThreadRow {
+        ThreadRow(id: id, title: title ?? id, state: state, attention: nil, project: "ace", branch: "", machine: "", provider: "codex",
+                  model: "", agents: 1, snoozedUntil: nil, updatedAt: 1, canSteer: false,
+                  status: StatusDisplay(label: "Done", token: "done"), machineId: nil, activityAt: nil)
+    }
+    private func layout(inbox: [String], settled: [String]) -> InboxLayout {
+        InboxLayout(sections: [InboxLayout.Section(key: "inbox", label: "Inbox", ids: inbox, tab: "inbox"),
+                               InboxLayout.Section(key: "settled", label: "Settled", ids: settled, tab: "settled")],
+                    more: false, snooze: [])
+    }
+
+    @Test func settlingAndReopeningAThreadReadsHistoryAgain() {
+        var revision = HistoryRevision()
+        revision.layout(layout(inbox: ["a", "b"], settled: []))
+        let start = revision.value
+        revision.layout(layout(inbox: ["b"], settled: ["a"]))
+        #expect(revision.value != start)
+        let settled = revision.value
+        revision.layout(layout(inbox: ["a", "b"], settled: []))
+        #expect(revision.value != settled)
+    }
+
+    @Test func renamingOrUpdatingASettledThreadReadsHistoryAgain() {
+        var revision = HistoryRevision()
+        revision.layout(layout(inbox: [], settled: ["a"]))
+        let start = revision.value
+        revision.row("a", old: row("a"), new: row("a", title: "Renamed"))
+        #expect(revision.value != start)
+    }
+
+    @Test func aWorkingThreadsStreamAndAnUnchangedLayoutDontReadHistoryAgain() {
+        var revision = HistoryRevision()
+        revision.layout(layout(inbox: ["live"], settled: ["a"]))
+        let start = revision.value
+        revision.row("live", old: row("live", state: "working"), new: row("live", title: "Streaming", state: "working"))
+        revision.row("a", old: row("a"), new: row("a"))
+        revision.layout(layout(inbox: ["live"], settled: ["a"]))
+        #expect(revision.value == start)
+    }
+}
+
+/// What History says when machines can't answer, and how answers from several machines combine.
+@Suite struct HistoryAnswerTests {
+    private let one = HistoryAnswer(threads: [HistoryAnswer.Thread(id: "a", title: "A", project: "ace", workspaceId: "ace", at: 1,
+                                                                   group: "week", label: "This week", date: "1d", listed: true)])
+
+    @Test func machinesStillMakingTheirFirstConnectionShowLoadingAndOfflineOnesAFailure() {
+        #expect(HistoryList.phaseWithoutAnswers(["connecting"]) == .loading)
+        #expect(HistoryList.phaseWithoutAnswers(["reconnecting", "starting"]) == .loading)
+        #expect(HistoryList.phaseWithoutAnswers(["reconnecting"]) == .failed)
+        #expect(HistoryList.phaseWithoutAnswers(["fatal", "offline"]) == .failed)
+        #expect(HistoryList.phaseWithoutAnswers([]) == .failed)
+    }
+
+    @Test func everyMachineFailingToAnswerIsAFailure() {
+        let result = HistoryList.merged(found: [:], asked: ["studio", "laptop"], previous: [:], sameQuery: false)
+        #expect(result.phase == .failed)
+        #expect(result.answers.isEmpty)
+    }
+
+    @Test func oneMachineFailingKeepsItsLastAnswerToTheSameQueryOnly() {
+        let kept = HistoryList.merged(found: ["laptop": one], asked: ["studio", "laptop"], previous: ["studio": one], sameQuery: true)
+        #expect(kept.phase == .ready)
+        #expect(Set(kept.answers.keys) == ["studio", "laptop"])
+        let changed = HistoryList.merged(found: ["laptop": one], asked: ["studio", "laptop"], previous: ["studio": one], sameQuery: false)
+        #expect(Set(changed.answers.keys) == ["laptop"])
+    }
+
+    @Test func aGroupMetTwiceStillShowsAsOneSection() {
+        func thread(_ id: String, at: Double, group: String, label: String) -> HistoryAnswer.Thread {
+            HistoryAnswer.Thread(id: id, title: id, project: "ace", workspaceId: "ace", at: at, group: group, label: label, date: "", listed: true)
+        }
+        // An answer kept from an earlier read filed its thread a week later than the rest.
+        let answers = [
+            "studio": HistoryAnswer(threads: [thread("s1", at: 90, group: "week", label: "This week"),
+                                              thread("s2", at: 70, group: "week", label: "This week")]),
+            "laptop": HistoryAnswer(threads: [thread("l1", at: 80, group: "last-week", label: "Last week")]),
+        ]
+        let sections = HistoryMerge.sections(answers)
+        #expect(sections.map(\.id) == ["week", "last-week"])
+        #expect(Set(sections.map(\.id)).count == sections.count)
+        #expect(sections[0].rows.map(\.id) == ["studio/s1", "studio/s2"])
+    }
+}
