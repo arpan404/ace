@@ -106,16 +106,27 @@ import XCTest
         let after = progress.label
         capture("viewed")
 
-        // Closing the sheet and opening it again keeps the mark and the count.
-        app.buttons["changes.close"].tap()
-        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 10))
-        app.buttons["thread.menu"].tap()
-        let again = app.threadMenuItem("thread.changes")
-        XCTAssertTrue(again.waitForExistence(timeout: 10)); again.tap()
-        // It opens on the last turn again; the mark was made on Uncommitted.
-        XCTAssertTrue(scope.waitForExistence(timeout: 20)); scope.tap()
-        XCTAssertTrue(app.buttons["Uncommitted"].waitForExistence(timeout: 5)); app.buttons["Uncommitted"].tap()
-        wait(for: [expectation(for: NSPredicate(format: "label CONTAINS 'Uncommitted'"), evaluatedWith: scope)], timeout: 20)
+        // Leaving Changes and coming back keeps the mark and the count: on a phone Changes is a
+        // page beside Chat, elsewhere a sheet.
+        let chat = app.buttons["thread.page.chat"]
+        if chat.exists {
+            chat.tap()
+            XCTAssertTrue(app.scrollViews["transcript"].waitForExistence(timeout: 10))
+            app.buttons["thread.page.changes"].tap()
+        } else {
+            app.buttons["changes.close"].tap()
+            XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 10))
+            app.buttons["thread.menu"].tap()
+            let again = app.threadMenuItem("thread.changes")
+            XCTAssertTrue(again.waitForExistence(timeout: 10)); again.tap()
+        }
+        // The mark was made on Uncommitted; a fresh sheet opens on the last turn.
+        XCTAssertTrue(scope.waitForExistence(timeout: 20))
+        if !scope.label.contains("Uncommitted") {
+            scope.tap()
+            XCTAssertTrue(app.buttons["Uncommitted"].waitForExistence(timeout: 5)); app.buttons["Uncommitted"].tap()
+            wait(for: [expectation(for: NSPredicate(format: "label CONTAINS 'Uncommitted'"), evaluatedWith: scope)], timeout: 20)
+        }
         let reopened = app.descendants(matching: .any)["review.progress"]
         XCTAssertTrue(reopened.waitForExistence(timeout: 20))
         wait(for: [expectation(for: NSPredicate(format: "label == %@", after), evaluatedWith: reopened)], timeout: 20)
