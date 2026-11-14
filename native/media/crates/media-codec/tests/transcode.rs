@@ -19,56 +19,93 @@ fn dct_reduction_never_requires_upscaling_to_the_requested_size() {
     }
 }
 #[test]
-fn repeated_transcodes_reuse_storage_without_leaking_the_previous_picture() -> Result<(), CodecError>
+fn size_helpers_widen_instead_of_overflowing() {
+    let huge = Size {
+        width: u32::MAX,
+        height: u32::MAX,
+    };
+    let tiny = Size {
+        width: 1,
+        height: 1,
+    };
+    assert_eq!(
+        dct_scaled_size(huge, tiny),
+        Size {
+            width: u32::MAX.div_ceil(8),
+            height: u32::MAX.div_ceil(8)
+        }
+    );
+    assert_eq!(dct_scaled_size(tiny, huge), tiny);
+    assert!(
+        jpeg_capacity(Size {
+            width: 8192,
+            height: 4096
+        }) >= 8192 * 4096 * 3
+    );
+}
+
+/// A solid frame: `colour` everywhere, at an odd size so planes carry padding.
+fn solid(width: usize, height: usize, colour: [u8; 3]) -> Vec<u8> {
+    libjpeg_turbo_rs::Encoder::new(
+        &colour.repeat(width * height),
+        width,
+        height,
+        libjpeg_turbo_rs::PixelFormat::Rgb,
+    )
+    .quality(95)
+    .subsampling(libjpeg_turbo_rs::Subsampling::S420)
+    .encode()
+    .unwrap_or_else(|e| panic!("{e}"))
+}
+
+#[test]
+fn alternating_frames_never_show_the_previous_frame_at_edges_or_padding() -> Result<(), CodecError>
 {
     let mut codec = CpuJpegCodec::default();
     let mut output = Vec::new();
-    for target in [
-        Size {
-            width: 300,
-            height: 650,
-        },
-        Size {
-            width: 150,
-            height: 326,
-        },
-        Size {
-            width: 300,
-            height: 650,
-        },
-    ] {
-        codec.transcode_into(INPUT, target, 80, &mut output)?;
-        assert_eq!(codec.decode(&output)?.size(), target);
-    }
-    assert!(
-        codec
-            .transcode_into(
-                b"bad jpeg",
-                Size {
-                    width: 300,
-                    height: 650
-                },
-                80,
-                &mut output
-            )
-            .is_err()
-    );
-    codec.transcode_into(
-        INPUT,
-        Size {
-            width: 300,
-            height: 650,
-        },
-        80,
-        &mut output,
-    )?;
-    assert_eq!(
-        codec.decode(&output)?.size(),
-        Size {
-            width: 300,
-            height: 650
+    let red = [220, 20, 20];
+    let blue = [20, 20, 220];
+    // Large frames fill more padded storage than the small odd ones use, so
+    // a stale sample would surface along the small frames' last row/column.
+    let large = solid(96, 80, red);
+    let small = solid(37, 23, blue);
+    let frames: [(&[u8], [u8; 3], (u32, u32)); 4] = [
+        (&large, red, (96, 80)),
+        (&small, blue, (37, 23)),
+        (&large, red, (48, 40)),
+        (&small, blue, (17, 11)),
+    ];
+    for round in 0..3 {
+        for (jpeg, colour, (width, height)) in frames {
+            let target = Size { width, height };
+            codec.transcode_into(jpeg, target, 90, &mut output)?;
+            let picture = codec.decode(&output)?;
+            assert_eq!(picture.size(), target);
+            let plane = &picture.planes()[0];
+            let (w, h) = (width as usize, height as usize);
+            let edges = (0..w)
+                .map(|x| (x, h - 1))
+                .chain((0..h).map(|y| (w - 1, y)))
+                .chain([(0, 0), (w / 2, h / 2)]);
+            for (x, y) in edges {
+                let px = &plane.data[y * plane.stride + x * 3..][..3];
+                for (actual, expected) in px.iter().zip(colour) {
+                    assert!(
+                        actual.abs_diff(expected) <= 12,
+                        "round {round}, {width}x{height} at ({x}, {y}): {px:?}"
+                    );
+                }
+            }
+            // A failed frame in between must leave nothing behind either.
+            let cut = &jpeg[..jpeg.len() - 40];
+            assert!(codec.transcode_into(cut, target, 90, &mut output).is_err());
+            assert!(
+                codec
+                    .transcode_into(b"bad jpeg", target, 90, &mut output)
+                    .is_err()
+            );
         }
-    );
+    }
     Ok(())
 }
 

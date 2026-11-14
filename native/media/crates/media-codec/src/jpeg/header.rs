@@ -99,7 +99,10 @@ impl Default for Tables {
 #[derive(Clone, Copy)]
 pub(crate) struct Frame {
     pub size: Size,
+    /// Components in SOF order, which is also plane order.
     pub components: [Component; 3],
+    /// Indices into `components` in SOS order: the order blocks arrive in.
+    pub order: [usize; 3],
     pub count: usize,
     pub hmax: usize,
     pub vmax: usize,
@@ -201,6 +204,7 @@ fn sof(s: &[u8]) -> Result<Frame, CodecError> {
         size,
         count,
         components: [Component::default(); 3],
+        order: [0, 1, 2],
         hmax: 1,
         vmax: 1,
         restart: 0,
@@ -228,7 +232,10 @@ fn sof(s: &[u8]) -> Result<Frame, CodecError> {
         f.hmax = f.hmax.max(h);
         f.vmax = f.vmax.max(v);
     }
-    for c in &f.components[..count] {
+    for (i, c) in f.components[..count].iter().enumerate() {
+        if f.components[..i].iter().any(|other| other.id == c.id) {
+            return Err(invalid("duplicate component id"));
+        }
         if !f.hmax.is_multiple_of(c.h) || !f.vmax.is_multiple_of(c.v) {
             return Err(unsupported("fractional sampling ratio"));
         }
@@ -239,17 +246,21 @@ fn sof(s: &[u8]) -> Result<Frame, CodecError> {
 fn dqt(mut s: &[u8], t: &mut Tables, defined: &mut [bool; 4]) -> Result<(), CodecError> {
     while let Some((&pq_tq, rest)) = s.split_first() {
         let (precision, id) = (pq_tq >> 4, usize::from(pq_tq & 15));
-        let bytes = if precision == 0 { 64 } else { 128 };
-        if id > 3 || precision > 1 || rest.len() < bytes {
+        if id > 3 || precision > 1 {
             return Err(invalid("DQT"));
         }
-        for (k, natural) in ZIGZAG_ORDER.iter().enumerate() {
-            t.quant[id][*natural] = if precision == 0 {
-                u16::from(rest[k])
-            } else {
-                u16::from_be_bytes([rest[2 * k], rest[2 * k + 1]])
-            };
+        // 8-bit samples use 8-bit quantisers (T.81 B.2.4.1).
+        if precision == 1 {
+            return Err(unsupported("16-bit quantiser for 8-bit samples"));
         }
+        let values = rest.get(..64).ok_or_else(|| invalid("DQT"))?;
+        if values.contains(&0) {
+            return Err(invalid("zero quantiser"));
+        }
+        for (v, natural) in values.iter().zip(ZIGZAG_ORDER.iter()) {
+            t.quant[id][*natural] = u16::from(*v);
+        }
+        let bytes = 64;
         defined[id] = true;
         s = &rest[bytes..];
     }
@@ -285,11 +296,17 @@ fn sos(s: &[u8], f: &mut Frame, t: &Tables, quant: &[bool; 4]) -> Result<(), Cod
         return Err(unsupported("multi-scan image"));
     }
     let body = s.get(1..1 + n * 2 + 3).ok_or_else(|| invalid("SOS"))?;
-    for pair in body[..n * 2].chunks_exact(2) {
-        let c = f.components[..f.count]
-            .iter_mut()
-            .find(|c| c.id == pair[0])
+    let mut seen = [false; 3];
+    for (slot, pair) in body[..n * 2].chunks_exact(2).enumerate() {
+        let index = f.components[..f.count]
+            .iter()
+            .position(|c| c.id == pair[0])
             .ok_or_else(|| invalid("scan component"))?;
+        if std::mem::replace(&mut seen[index], true) {
+            return Err(invalid("component selected twice in scan"));
+        }
+        f.order[slot] = index;
+        let c = &mut f.components[index];
         c.dc = usize::from(pair[1] >> 4);
         c.ac = usize::from(pair[1] & 15);
         if c.dc > 3 || c.ac > 3 {

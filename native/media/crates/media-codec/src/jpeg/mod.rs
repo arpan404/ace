@@ -7,6 +7,7 @@
 mod color;
 mod decode;
 mod encode;
+mod entropy;
 mod header;
 use crate::resample::{Layout, Pack, Resampler, SimdKernel};
 use crate::*;
