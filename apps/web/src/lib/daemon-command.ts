@@ -51,6 +51,7 @@ const refusals: Record<string, string> = {
   queue_capacity_exceeded: "The queue is full. Send or remove a queued message first.",
   queue_limit: "The queue is full. Send or remove a queued message first.",
   stale_interrupt: "That turn had already ended.",
+  thread_changed: "This thread changed since you looked. Look again.",
   stale_copy: "What this shows isn't up to date yet. Try again once it is.",
   unfenced: "Open the thread and try again there.",
   fork_tree_is_live: "Wait for all agents in the fork to finish, then try again.",

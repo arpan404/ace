@@ -1198,6 +1198,13 @@ export class FakeDaemon implements Host {
       const host = this.threads.get(payload.threadId);
       if (!host || host.view.thread.deletedAt !== undefined)
         return { commandId, ok: false, error: "thread_not_found" };
+      // As the daemon does: an archive or delete decided before newer work started is refused.
+      if (
+        (payload.type === "thread.delete" || payload.type === "thread.archive") &&
+        payload.beforeSeq !== undefined &&
+        host.workSeq > payload.beforeSeq
+      )
+        return { commandId, ok: false, error: "thread_changed" };
       if (payload.type === "thread.delete") {
         const alive = prepareFakeDelete(
           host,

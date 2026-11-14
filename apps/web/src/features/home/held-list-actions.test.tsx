@@ -1,6 +1,6 @@
-import { workbench } from "@ace/fake-daemon";
+import { facts, workbench } from "@ace/fake-daemon";
 import { ThreadId, type CommandPayload } from "@ace/protocol";
-import { configure, screen, waitFor, within } from "@testing-library/react";
+import { act, configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { slowReplay } from "@/test/held-replay.ts";
@@ -117,4 +117,41 @@ test("Stop and delete asked while current and confirmed after the list went stal
   expect(
     app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-install-page") }),
   ).toBeDefined();
+});
+
+/** Newer work starts on the install page's thread from another device: a new root run. */
+function newerWork(app: Awaited<ReturnType<typeof openHome>>["app"]) {
+  act(() =>
+    app.daemon.apply("thread-install-page", [
+      facts.endTurn("root"),
+      { type: "turn.started", agent: "root", nativeTurnId: "elsewhere", trigger: "user" },
+    ]),
+  );
+}
+
+test("a Stop and delete replayed from the outbox after newer work started is refused, and says so", async () => {
+  const { app, replay } = await openHome();
+  await menu(/^Rewrite the install page/, "Delete thread");
+  const ask = await screen.findByRole("dialog", { name: "Delete thread?" });
+  // Confirmed while current; the command is lost on the way and waits in the outbox.
+  replay.loseCommands();
+  await userEvent.click(within(ask).getByRole("button", { name: "Stop and delete" }));
+  newerWork(app);
+  replay.deliverCommands(app.client);
+  expect((await screen.findAllByText(/changed since you looked/)).length).toBeGreaterThan(0);
+  expect(
+    app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("thread-install-page") }),
+  ).toBeDefined();
+});
+
+test("an Archive replayed from the outbox after newer work started is refused, and says so", async () => {
+  const { app, replay, listed } = await openHome();
+  await menu(/^Rewrite the install page/, "Archive");
+  const ask = await screen.findByRole("dialog", { name: "Archive a running thread?" });
+  replay.loseCommands();
+  await userEvent.click(within(ask).getByRole("button", { name: "Archive, keep running" }));
+  newerWork(app);
+  replay.deliverCommands(app.client);
+  expect((await screen.findAllByText(/changed since you looked/)).length).toBeGreaterThan(0);
+  expect(listed("thread-install-page")?.archivedAt).toBeUndefined();
 });

@@ -230,10 +230,24 @@ export async function resumeQueue(client: ClientApi, threadId: string): Promise<
 }
 
 /**
+ * The newest thread event this client has seen: its loaded copy's cursor, or its list entry's
+ * latest status. A command that stops the thread's work names it, and the daemon refuses it
+ * (`thread_changed`) once work started after it, also when it replays from the outbox later.
+ */
+function decidedAt(client: ClientApi, threadId: string): number | undefined {
+  const seen = Math.max(
+    client.peekThread?.(threadId)?.cursor ?? -1,
+    client.cachedThreads?.()?.thread(threadId)?.activitySeq ?? -1,
+  );
+  return seen < 0 ? undefined : seen;
+}
+
+/**
  * Send a list action, checking the list as it sends. An archive (it stops commands a thread left
  * running) or a forced delete (Stop and delete) confirmed after the list stopped being current is
- * refused (`CommandRefused` `stale_copy`), never sent as it was asked. A plain delete goes as it
- * is, offline too: the daemon refuses it while any work of the thread still runs.
+ * refused (`CommandRefused` `stale_copy`), never sent as it was asked; one sent names the event
+ * it was decided at (`decidedAt`), so the daemon refuses it if newer work started. A plain delete
+ * goes as it is, offline too: the daemon refuses it while any work of the thread still runs.
  */
 export function sendListAction<T>(
   client: ClientApi,
@@ -242,10 +256,12 @@ export function sendListAction<T>(
 ): Promise<T> {
   const threadId = ThreadId.parse(action.threadId);
   if (action.kind === "delete" && !action.force) return send({ type: "thread.delete", threadId });
+  const seen = decidedAt(client, threadId);
+  const fence = seen === undefined ? {} : { beforeSeq: seen };
   const payload: CommandPayload =
     action.kind === "archive"
-      ? { type: "thread.archive", threadId }
-      : { type: "thread.delete", threadId, force: true };
+      ? { type: "thread.archive", threadId, ...fence }
+      : { type: "thread.delete", threadId, force: true, ...fence };
   return refusing(gated(client, "list", payload, send));
 }
 

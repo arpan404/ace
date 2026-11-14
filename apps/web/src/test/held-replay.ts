@@ -16,7 +16,7 @@ const frame = (text: string): Frame => {
  * command payload the client sends (`sent`).
  */
 export function slowReplay(daemon: FakeDaemon) {
-  const state = { held: false };
+  const state = { held: false, commands: false };
   const sent: { type: string; [key: string]: unknown }[] = [];
   const connect = daemon.connect.bind(daemon);
   daemon.connect = (wire) => {
@@ -26,6 +26,8 @@ export function slowReplay(daemon: FakeDaemon) {
       const message = frame(text);
       if (message.type === "command" && message.command?.payload)
         sent.push(message.command.payload as (typeof sent)[number]);
+      // Lost on the way: the client keeps it in its outbox and sends it again on reconnect.
+      if (state.commands && message.type === "command") return;
       const kind = message.scope?.kind;
       if (state.held && message.type === "subscribe" && (kind === "thread" || kind === "threads"))
         return;
@@ -41,6 +43,16 @@ export function slowReplay(daemon: FakeDaemon) {
       act(() => daemon.disconnectAll());
       act(() => client.reconnectNow());
       await waitFor(() => expect(client.state).toBe("ready"), { timeout: 10_000 });
+    },
+    /** Commands the client sends from now on are lost on the way, until `deliverCommands`. */
+    loseCommands() {
+      state.commands = true;
+    },
+    /** Reconnect with commands getting through: the client's outbox replays what was lost. */
+    deliverCommands(client: { reconnectNow(): void }) {
+      state.commands = false;
+      act(() => daemon.disconnectAll());
+      act(() => client.reconnectNow());
     },
     /** Reconnect again and let the replay through. */
     release(client: { reconnectNow(): void }) {
