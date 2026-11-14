@@ -1,5 +1,5 @@
 import { createServer, request, type IncomingHttpHeaders, type Server } from "node:http";
-import { mkdtemp, mkdir, rm, symlink, utimes, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { brotliCompressSync, brotliDecompressSync, gunzipSync, gzipSync } from "node:zlib";
@@ -239,7 +239,7 @@ test("a repeat load of an unchanged page is answered 304, and a rebuilt one in f
   const { port, root } = await serveRenderer(onTestFinished);
   const first = await fetchRaw(port, "/t/some-thread", { "accept-encoding": "br" });
   const tag = first.headers.etag;
-  expect(tag).toMatch(/^W\/".+"$/);
+  expect(tag).toMatch(/^".+"$/);
   const again = await fetchRaw(port, "/t/other-thread", {
     "accept-encoding": "br",
     "if-none-match": String(tag),
@@ -284,4 +284,25 @@ test("a compressed copy older than its file is ignored", async ({ onTestFinished
   await utimes(stale, new Date(0), new Date(0));
   const response = await fetchRaw(port, "/assets/app.js", { "accept-encoding": "br" });
   expect(brotliDecompressSync(response.body).toString("utf8")).toBe(script);
+});
+
+test("a page rewritten at the same length with its timestamp kept gets a new tag and its new bytes", async ({
+  onTestFinished,
+}) => {
+  const { port, root, html } = await serveRenderer(onTestFinished);
+  const page = join(root, "index.html");
+  const before = await stat(page);
+  const first = await fetchRaw(port, "/", { "accept-encoding": "br" });
+  const tag = String(first.headers.etag);
+  // An update that names other chunks in the same number of bytes, its mtime restored.
+  const replaced = html.replace("hello ace ", "howdy ace ");
+  expect(replaced.length).toBe(html.length);
+  await writeFile(page, replaced);
+  await utimes(page, before.atime, before.mtime);
+  const again = await fetchRaw(port, "/", { "accept-encoding": "br", "if-none-match": tag });
+  expect(again.status).toBe(200);
+  expect(again.headers.etag).not.toBe(tag);
+  expect(brotliDecompressSync(again.body).toString("utf8")).toBe(replaced);
+  const plain = await fetchRaw(port, "/");
+  expect(plain.body.toString("utf8")).toBe(replaced);
 });

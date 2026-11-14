@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { stat, realpath } from "node:fs/promises";
+import { readFile, stat, realpath } from "node:fs/promises";
 import { resolve, sep, extname } from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { RequestListener } from "node:http";
@@ -26,14 +27,18 @@ const compressible = new Set([".html", ".js", ".css", ".svg"]);
  */
 const hashedAssetCache = "public, max-age=31536000, immutable";
 const revalidated = "no-cache";
-/** The file's version (size and modification time); weak, so it holds across codings. */
-const versionTag = (size: number, mtimeMs: number) =>
-  `W/"${size.toString(36)}-${Math.trunc(mtimeMs).toString(36)}"`;
+/**
+ * A strong tag from the bytes themselves: an update that keeps the page's size and modification
+ * time (a restored timestamp, a same-size rewrite) still gets a new tag, so a browser holding
+ * the old page never revalidates HTML that names chunks the update removed.
+ */
+const contentTag = (bytes: Buffer) =>
+  `"${createHash("sha256").update(bytes).digest("base64url").slice(0, 27)}"`;
 const matches = (header: string | undefined, tag: string) =>
   header !== undefined &&
   header.split(",").some((candidate) => {
     const trimmed = candidate.trim();
-    return trimmed === "*" || trimmed.replace(/^W\//, "") === tag.replace(/^W\//, "");
+    return trimmed === "*" || trimmed.replace(/^W\//, "") === tag;
   });
 /**
  * The build's own compressed copy of `file` (`apps/web/precompress.ts`), if it has one written
@@ -82,8 +87,11 @@ export function webHttp(root: string | undefined, next: RequestListener): Reques
       response.setHeader("Referrer-Policy", "no-referrer");
       response.setHeader("X-Content-Type-Options", "nosniff");
       if (compressible.has(extension)) response.setHeader("Vary", "Accept-Encoding");
-      if (!hashed) {
-        const tag = versionTag(info.size, info.mtimeMs);
+      // The page and the icons are small and keep their names: read them whole, so the tag,
+      // the compressed copy and the body all come from the same bytes.
+      const bytes = hashed ? undefined : await readFile(file);
+      if (bytes) {
+        const tag = contentTag(bytes);
         response.setHeader("ETag", tag);
         if (matches(request.headers["if-none-match"], tag)) {
           response.statusCode = 304;
@@ -101,15 +109,16 @@ export function webHttp(root: string | undefined, next: RequestListener): Reques
       }
       const body =
         encoding &&
-        (await compressed(file, encoding, info.size, info.mtimeMs).catch(() => undefined));
+        (await compressed(file, encoding, info.size, info.mtimeMs, bytes).catch(() => undefined));
       if (encoding && body) {
         response.setHeader("Content-Encoding", encoding);
         response.setHeader("Content-Length", body.length);
         response.end(request.method === "HEAD" ? undefined : body);
         return;
       }
-      response.setHeader("Content-Length", info.size);
+      response.setHeader("Content-Length", bytes ? bytes.length : info.size);
       if (request.method === "HEAD") response.end();
+      else if (bytes) response.end(bytes);
       else await pipeline(createReadStream(file), response);
     })().catch(() => {
       if (response.headersSent) {
