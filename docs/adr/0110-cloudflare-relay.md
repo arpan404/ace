@@ -74,6 +74,18 @@ ace runs the relay at a public `wss://` address. It is a forwarder only:
   throughput for a reader that keeps up is unchanged. Clients that don't ask (older builds)
   keep the unbounded behaviour; the daemon's 16 MiB send cap is all that limits them. Worst
   case per object with every client stalled: one window per stream per direction.
+- **Head-of-line blocking.** With credit alone a stream's messages go strictly in order and a
+  reader may leave a whole window unconsumed, so on a 400 kbit/s, 400 ms link an approval
+  queued behind a 1 MiB snapshot waited 20.7 s. A main-channel hello that lists `lanes` with
+  `credit` lets the daemon interleave interactive messages with bulk ones; the reader credits
+  every 32 KiB and the sender keeps only what the path holds in flight (at least 128 KiB), so
+  the same approval waits 2.7 to 3.7 s. The lane marker is a bit in the encrypted fragment
+  flag: the relay, hosted or self-hosted, forwards the same opaque frames and needs no change.
+  Fragments are sealed in the order they are written, so nonce order and replay protection
+  per direction hold. Peers that don't announce lanes keep the old framing byte for byte.
+  Details in the [relay README](../relay/README.md). Capping in flight alone, without lanes,
+  would not help: the sender's queue is in order, so an approval still waits for the whole
+  snapshot, and a reader that credits every quarter window stalls a sender held below it.
 - **Rate limits.** Per-IP connection budgets become a Workers rate-limit binding on upgrades.
   Per-socket frame rates are counted in memory and reset on hibernation.
 - **Idle sockets.** The relay does not ping. Daemons already ping every 10 seconds and
