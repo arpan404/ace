@@ -173,6 +173,8 @@ it("a held view whose rebuild fails is rebuilt by the next read", () => {
   expect(stored().held).toBe("resolved");
 });
 
+const state = (view: { interactions: Record<string, { state: string } | undefined> }) =>
+  view.interactions.approval?.state;
 /** A thread with a pending approval and no held view yet. */
 function unheld() {
   const home = mkdtempSync(join(tmpdir(), "ace-held-lease-"));
@@ -192,15 +194,13 @@ function unheld() {
   store.appendEvents(thread.id, [{ type: "interaction.opened", interaction: approval }]);
   const resolve = () =>
     store.appendEvents(thread.id, [
-      { type: "interaction.closed", interactionId: "approval", state: "resolved", closedAt: 2 },
+      { type: "interaction.closed", interactionId: approval.id, state: "resolved", closedAt: 2 },
     ]);
-  const state = (view: { interactions: Record<string, { state: string } | undefined> }) =>
-    view.interactions.approval?.state;
-  return { store, id: thread.id, resolve, state };
+  return { store, id: thread.id, resolve };
 }
 
 it("a thread first acquired inside a rolled-back transaction is held as stored", () => {
-  const { store, id, resolve, state } = unheld();
+  const { store, id, resolve } = unheld();
   expect(() =>
     store.atomic(() => {
       resolve();
@@ -221,7 +221,7 @@ it("a thread first acquired inside a rolled-back transaction is held as stored",
 });
 
 it("a lease taken inside a transaction and released outside it balances", () => {
-  const { store, id, resolve, state } = unheld();
+  const { store, id, resolve } = unheld();
   const held = store.acquireThread(id);
   store.atomic(() => {
     store.acquireThread(id);
@@ -236,7 +236,7 @@ it("a lease taken inside a transaction and released outside it balances", () => 
 });
 
 it("a lease taken outside a transaction and released inside it balances", () => {
-  const { store, id, resolve, state } = unheld();
+  const { store, id, resolve } = unheld();
   const held = store.acquireThread(id);
   const again = store.acquireThread(id);
   expect(again).toBe(held);
