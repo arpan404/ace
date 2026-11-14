@@ -1415,10 +1415,13 @@ token, epoch} | null)` and `aceVideo.epoch(capture, epoch, followsPrivate)`. Wit
   `vectors/frame/egress-end.json`). A kind-4 `MediaFrame` on egress after a handle's last unit,
   with the next sequence, flag 8 (`interrupted`) when the stream was cut. ace-media sends it
   when a producer's end frame arrives, when its connection drops (interrupted), when the daemon
-  closes a source that still streams or that ace-media encodes, and when a JPEG source's
-  encoder fails (interrupted). It is queued past the lane's bound, so a full egress never loses
-  it. The router hands it to the source's consumers whatever the route says now, and a gap
-  before it makes it interrupted.
+  closes a source that still streams, and when a JPEG source's encoder fails (interrupted). A
+  closed JPEG source keeps delivering while its encoder thread drains (`Drain`: every encoder
+  flushed, its held output handed over, then `Drained`); only then is its marker clean. An
+  encoder that can't flush, or a drain past 2 s, ends it interrupted. It is queued past the lane's bound, so a full egress never loses
+  it. The router hands it to the source's consumers whatever the route says now, and any unit
+  lost in the handle's life (a sequence gap, or a first unit that isn't sequence 0) makes it
+  interrupted.
 - **Shared sources** (`packages/media/src/ingest-sources.ts`, `IngestSources`, for every
   producer kind: E3's helper and devices move onto it). Each open gets a fresh ace-media id
   (the path's name), single-use token and egress handle; the producer is pointed once
@@ -1433,7 +1436,8 @@ token, epoch} | null)` and `aceVideo.epoch(capture, epoch, followsPrivate)`. Wit
   holds the new path's units until the old path's ordered end: ace-media's end marker, or the
   producer's `moved` on the daemon's path. A clean end releases them in order; an interrupted
   end, or none within 1 s, starts each encode at its next keyframe and drops what the old path
-  still sends. A switch abandoned before the old path ended keeps the old path. The screen
+  still sends. Holding more than 32 MiB settles the same way. A switch abandoned before the old
+  path ended keeps the old path. The screen
   helper's sequence boundary maps to `ended` once its boundary unit has been handed on.
 - **Daemon wiring** (`packages/media/src/runtime.ts`, `packages/browser/src/media-video.ts`,
   `apps/daemon/src/services/media.ts`). `mediaVideoHost` wraps a backend's `VideoHost` by its
