@@ -1,0 +1,9 @@
+{
+  "direction": "FromMedia",
+  "message": {
+    "type": "still.done",
+    "request": "source-1",
+    "width": 1,
+    "height": 1
+  }
+}

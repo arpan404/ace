@@ -899,3 +899,32 @@ acceptance with the real web and iOS clients is C1's and C2's, and Q1 runs after
   exists, `video-link.ts` keeps running against it.
 - **Load.** Benches record load average at start and refuse to enforce above 2 × the core count,
   so a loaded machine reports instead of failing.
+
+## K1 contract clarifications
+
+- `source.open`'s `token` column denotes its binary payload, not a JSON field. The JSON has
+  no token. Control messages and nested contract objects reject unknown fields and tags on
+  both sides, as specified by the Rust control contract; opaque `record.meta.data` and
+  `log.fields` retain arbitrary JSON, including unknown fields. This differs from lenient
+  provider event decoding: these are version-matched internal contracts, not provider events.
+- `EncodeSpec` is `{id, codec, width, height, fps, bitrate, quantizer?}`; ids and dimensions
+  are unsigned 32-bit integers, codec is a string. Decoder capability entries use the same
+  `{codec, hardware, backend}` shape as encoders. `record.done.parts` entries have the
+  `{path, index, bytes, durationMs, gaps}` fields of `record.part` without `recording`.
+  `stills` is a boolean, `log.level` is `debug | info | warn | error`, and `gaps` is a count.
+- JSON counters and issue sequences are nonnegative safe integers (at most 2^53−1); epochs,
+  handles, encode ids, dimensions and lengths are u32. Key-block counters remain full u64.
+  Epoch ranges are inclusive ordered pairs. Empty identifiers are allowed; the maximum is
+  64 Unicode scalar values. Reasons, backend, platform and codec strings remain open strings.
+- MediaFrame codec 0 is the absent codec for hello/end frames; other codec values are 1 to 9.
+  Rotation is 0 to 3. Hello payloads have exactly 32 bytes. Bytes between the codec description
+  and H are opaque extensions and survive re-encoding, as do unknown flag bits. Unknown
+  versions and kinds are rejected. One decode consumes exactly one frame, rejecting trailing bytes.
+- K1 tests and package-local exporter scripts are included in its path ownership. No package
+  manifest or platform implementation is introduced; the daemon-internal package scaffold is
+  left to its supervisor PR. The exporter harness lives alongside the browser exporter.
+- K1 necessarily updates `media-wire/Cargo.toml` and the workspace `Cargo.lock` for serde,
+  serde_json and zeroize. They are part of its codec ownership. The relay exporter uses the
+  production channel fragmenter with a test-only cipher subclass scheduling rekeys at 16,
+  rather than changing the production channel's interval or public API. These are synthetic
+  keys only. Protocol vectors are generated once; exporters regenerate only legacy-rule vectors.

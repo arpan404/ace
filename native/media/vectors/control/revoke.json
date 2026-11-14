@@ -1,0 +1,9 @@
+{
+  "direction": "ToMedia",
+  "message": {
+    "type": "revoke",
+    "id": "source-1",
+    "issued": 1,
+    "device": "source-1"
+  }
+}

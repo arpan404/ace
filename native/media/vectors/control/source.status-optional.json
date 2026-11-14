@@ -1,0 +1,10 @@
+{
+  "direction": "FromMedia",
+  "message": {
+    "type": "source.status",
+    "source": "source-1",
+    "status": "starting",
+    "reason": "value",
+    "attempts": 1
+  }
+}
