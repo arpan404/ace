@@ -22,7 +22,7 @@ import { dispatchCommand, type Receipt } from "./commands.ts";
 import type { InboxOrganizer } from "./inbox-organize.ts";
 import type { InboxClock } from "./inbox-rows.ts";
 import { preview } from "./presentation.ts";
-import { answerHistory, HistoryRequest } from "./history.ts";
+import { answerHistory, HistoryRequest, type HistoryPorts } from "./history.ts";
 import { answerPalette, PaletteRequest } from "./palette.ts";
 
 /*
@@ -383,6 +383,41 @@ export function readDeleteQuestion(
   return deleteQuestion(threads.length ? threads : [{ title: "", status: { state: "done" } }]);
 }
 
+/** History's reads on this machine: its list, its search and the list's older pages. */
+function historyPorts(
+  owner: ClientCore,
+  organizer: InboxOrganizer,
+  clock: InboxClock,
+  requestId: string,
+): HistoryPorts {
+  return {
+    entries: () => organizer.entries(),
+    search: async (text) => {
+      const reply = await owner.request(
+        {
+          type: "search.query",
+          requestId: `${requestId}.history`,
+          text,
+          scope: "threads",
+          limit: 50,
+        },
+        { timeoutMs: 8_000 },
+      );
+      return reply.type === "search.results" ? reply.hits : [];
+    },
+    holdsOlder: () => {
+      const { store, release } = owner.threads();
+      try {
+        return (store.homeWindow ?? store.window)?.before != null;
+      } finally {
+        release();
+      }
+    },
+    loadOlder: () => owner.threadsMore({ timeoutMs: 8_000 }),
+    now: () => clock.now(),
+  };
+}
+
 /** The inbox's own requests, answered by `NativeServices`; undefined for any other request. */
 export type InboxRequests = (raw: unknown, requestId: string) => Promise<unknown> | undefined;
 
@@ -399,7 +434,7 @@ export function inboxRequests(
     if (palette.success) return answerPalette(owner, organizer.entries(), palette.data, requestId);
     const history = HistoryRequest.safeParse(raw);
     if (history.success)
-      return answerHistory(owner, organizer.entries(), history.data, requestId, clock.now());
+      return answerHistory(historyPorts(owner, organizer, clock, requestId), history.data);
     const link = AceLinkRequest.safeParse(raw);
     if (link.success) return Promise.resolve({ link: readAceLink(link.data.url) ?? null });
     const question = InboxDeleteQuestionRequest.safeParse(raw);

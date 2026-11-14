@@ -1,4 +1,3 @@
-import type { ClientCore } from "@ace/client";
 import type { ThreadListEntry } from "@ace/protocol";
 import {
   historyDate,
@@ -15,19 +14,26 @@ import { preview } from "./presentation.ts";
  * The phone's History (the web's `/history`): every settled thread on this machine, newest first,
  * each with the week group the web files it under. A query narrows the loaded ones by the web's
  * rule (title, project, branch, pull request) and adds older ones the machine's own search finds.
- * Each machine answers for itself; the phone merges them by time, so the groups stay in order.
+ * A search hit carries no settlement, pin or archive state, so a hit the list hasn't loaded is
+ * paged in first (as Show older threads does, a few pages at most) and admitted only through its
+ * loaded entry, by the same rules as the rest. Every machine groups and dates against the moment
+ * the phone sends, so merged answers file each thread under one group.
  */
 
 export const HistoryRequest = z.object({
   type: z.literal("history.query"),
   query: z.string().max(512).default(""),
+  /** The phone's clock (ms), the same for every machine it asks. */
+  now: z.number().finite().nonnegative().optional(),
+  /** Page older threads in to resolve search hits; off for a re-read the paging itself caused. */
+  older: z.boolean().default(true),
 });
 export type HistoryRequest = z.infer<typeof HistoryRequest>;
 
 export interface HistoryThread {
   id: string;
   title: string;
-  /** The project's name; empty when the machine doesn't list it. */
+  /** The project's name. */
   project: string;
   workspaceId: string;
   at: number;
@@ -36,7 +42,7 @@ export interface HistoryThread {
   label: string;
   /** Its age within the past week ("3h"), else the day ("Oct 24"), as the web's rows say. */
   date: string;
-  /** On the machine's list now; otherwise found by its search (older, not loaded). */
+  /** Always on the machine's list: a hit is shown only once its entry is loaded. */
   listed: boolean;
 }
 
@@ -44,119 +50,104 @@ export interface HistoryAnswer {
   threads: HistoryThread[];
 }
 
-const searchLimit = 50;
+/** What History reads on one machine. */
+export interface HistoryPorts {
+  entries(): readonly ThreadListEntry[];
+  /** Threads the machine's own search finds for `text`. */
+  search(text: string): Promise<readonly { threadId: string }[]>;
+  /** The list still holds older threads back. */
+  holdsOlder(): boolean;
+  /** Pages the next older threads into the list. */
+  loadOlder(): Promise<void>;
+  now(): number;
+}
+
+/** At most this many pages are read to resolve one query's hits. */
+export const olderPages = 5;
 
 const isChat = (entry: ThreadListEntry) => entry.details?.workspace?.kind === "chat";
 const projectOf = (entry: ThreadListEntry) => entry.details?.workspace?.name ?? entry.workspaceId;
 
-function thread(
-  input: Omit<HistoryThread, "group" | "label" | "date" | "title" | "project"> & {
-    title: string;
-    project: string;
-  },
-  now: number,
-): HistoryThread {
-  const group = historyGroupOf(input.at, now);
+/** A thread History lists: settled, and not pinned, archived, deleted or a chat. */
+function belongs(entry: ThreadListEntry): boolean {
+  return (
+    entry.archivedAt === undefined &&
+    entry.deletedAt === undefined &&
+    entry.pinned !== true &&
+    !isChat(entry) &&
+    isSettled(entry)
+  );
+}
+
+function thread(entry: ThreadListEntry, now: number): HistoryThread {
+  const at = entry.activityAt ?? entry.updatedAt;
+  const group = historyGroupOf(at, now);
   return {
-    ...input,
-    title: preview(input.title, 512),
-    project: preview(input.project, 512),
+    id: entry.id,
+    title: preview(entry.title, 512),
+    project: preview(projectOf(entry), 512),
+    workspaceId: entry.workspaceId,
+    at,
     group,
     label: historyGroupLabels[group],
-    date: historyDate(input.at, now),
+    date: historyDate(at, now),
+    listed: true,
   };
 }
 
-/** The settled threads this machine lists, matching `query`, newest first. */
+const newestFirst = (a: HistoryThread, b: HistoryThread) => b.at - a.at || a.id.localeCompare(b.id);
+
+/**
+ * The settled threads this machine lists that match `query` by the web's rule, or that its
+ * search `found`, newest first.
+ */
 export function settledHistory(
   entries: readonly ThreadListEntry[],
   query: string,
   now: number,
+  found: ReadonlySet<string> = new Set(),
 ): HistoryThread[] {
   const text = query.trim();
   return entries
     .filter(
       (entry) =>
-        entry.archivedAt === undefined &&
-        entry.deletedAt === undefined &&
-        entry.pinned !== true &&
-        !isChat(entry) &&
-        isSettled(entry) &&
-        threadMatches(entry, text, projectOf(entry)),
+        belongs(entry) && (threadMatches(entry, text, projectOf(entry)) || found.has(entry.id)),
     )
-    .map((entry) =>
-      thread(
-        {
-          id: entry.id,
-          title: entry.title,
-          project: projectOf(entry),
-          workspaceId: entry.workspaceId,
-          at: entry.activityAt ?? entry.updatedAt,
-          listed: true,
-        },
-        now,
-      ),
-    )
-    .toSorted((a, b) => b.at - a.at || a.id.localeCompare(b.id));
+    .map((entry) => thread(entry, now))
+    .toSorted(newestFirst);
 }
 
-/** Threads the machine's search finds beyond its list; never fails the answer. */
-async function searched(
-  owner: ClientCore,
-  entries: readonly ThreadListEntry[],
-  query: string,
-  requestId: string,
-  now: number,
-): Promise<HistoryThread[]> {
-  if (query.length < 2) return [];
-  const listed = new Set(entries.map((entry) => entry.id));
-  const projects = new Map<string, string>();
-  const chats = new Set<string>();
-  for (const entry of entries)
-    if (isChat(entry)) chats.add(entry.workspaceId);
-    else projects.set(entry.workspaceId, projectOf(entry));
+async function searched(ports: HistoryPorts, text: string): Promise<Set<string>> {
+  if (text.length < 2) return new Set();
   try {
-    const reply = await owner.request(
-      { type: "search.query", requestId, text: query, scope: "threads", limit: searchLimit },
-      { timeoutMs: 8_000 },
-    );
-    if (reply.type !== "search.results") return [];
-    const seen = new Set<string>();
-    return reply.hits.flatMap((hit) => {
-      if (listed.has(hit.threadId) || seen.has(hit.threadId) || chats.has(hit.workspaceId))
-        return [];
-      seen.add(hit.threadId);
-      return [
-        thread(
-          {
-            id: hit.threadId,
-            title: hit.threadTitle,
-            project: projects.get(hit.workspaceId) ?? "",
-            workspaceId: hit.workspaceId,
-            at: hit.createdAt,
-            listed: false,
-          },
-          now,
-        ),
-      ];
-    });
+    return new Set((await ports.search(text)).map((hit) => hit.threadId));
   } catch {
-    return [];
+    return new Set();
+  }
+}
+
+/** Pages older threads in until every hit is loaded, the list ends, or `olderPages` are read. */
+async function resolveHits(ports: HistoryPorts, hits: ReadonlySet<string>): Promise<void> {
+  const unloaded = () => {
+    const loaded = new Set<string>(ports.entries().map((entry) => entry.id));
+    return [...hits].some((id) => !loaded.has(id));
+  };
+  for (let page = 0; page < olderPages && unloaded() && ports.holdsOlder(); page++) {
+    try {
+      await ports.loadOlder();
+    } catch {
+      return;
+    }
   }
 }
 
 export async function answerHistory(
-  owner: ClientCore,
-  entries: readonly ThreadListEntry[],
+  ports: HistoryPorts,
   request: HistoryRequest,
-  requestId: string,
-  now: number,
 ): Promise<HistoryAnswer> {
   const text = request.query.trim();
-  const found = await searched(owner, entries, text, `${requestId}.history`, now);
-  return {
-    threads: [...settledHistory(entries, text, now), ...found].toSorted(
-      (a, b) => b.at - a.at || a.id.localeCompare(b.id),
-    ),
-  };
+  const now = request.now ?? ports.now();
+  const hits = await searched(ports, text);
+  if (request.older && hits.size) await resolveHits(ports, hits);
+  return { threads: settledHistory(ports.entries(), text, now, hits) };
 }
