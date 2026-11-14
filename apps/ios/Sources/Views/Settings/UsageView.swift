@@ -163,7 +163,7 @@ struct UsageView: View {
         ServiceProblem(message: reportProblem)
         if let report {
             let view = tab == .cost ? report.cost : report.tokens
-            if view.providers.isEmpty, view.byDay.isEmpty {
+            if !view.hasUsage {
                 if report.coverage.complete || reportLoading {
                     empty("No usage in this range", systemImage: "chart.xyaxis.line")
                 } else {

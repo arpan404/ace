@@ -65,19 +65,6 @@ struct UsageMetricView: Decodable, Sendable {
         let title: String
         let parts: [Part]
     }
-    struct Line: Decodable, Sendable, Hashable, Identifiable {
-        var id: String { key }
-        let key: String
-        let name: String
-        let provider: String?
-        let hue: UsageHue?
-        let ink: Bool
-        let figure: String
-        let share: String
-        let other: String
-        let fraction: Double
-    }
-    struct Unpriced: Decodable, Sendable { let label: String; let lines: [Line] }
     let total: String
     let growth: UsageGrowth
     let basis: String
@@ -87,9 +74,8 @@ struct UsageMetricView: Decodable, Sendable {
     let chart: Chart
     let totals: [Stat]
     let types: Types
-    let byModel: [Line]
-    let byDay: [Line]
-    let unpriced: Unpriced?
+    /// Any tokens in the range; false draws the empty state instead of zeroes.
+    let hasUsage: Bool
 }
 
 /// `usage.useReset`: what redeeming a banked reset did, in the web's words.
