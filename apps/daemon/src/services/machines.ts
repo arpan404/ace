@@ -234,7 +234,7 @@ export function startMachines(context: ServiceContext): void {
     served: () => services.mcp?.toolsChanged(),
   });
   // Settings' links to other machines (`fleet.request`), checked through the same directory.
-  services.fleet = new FleetLinks({
+  const fleet = new FleetLinks({
     profiles: () => new Profiles(config.dataDir),
     describe: async (profile) =>
       MachineDescription.parse(
@@ -256,6 +256,9 @@ export function startMachines(context: ServiceContext): void {
     hostName,
     transfers: (profile) => new TransferClient(probes, profile).probe(),
   });
+  // Linking again or unlinking ends that machine's old connections before it reports done.
+  resources.own(fleet.onChange((profiles) => connections.retain(profiles)));
+  services.fleet = fleet;
   const pollMs = options.machines?.pollMs ?? 1000;
   let caller: MachineCaller | undefined;
   const mirror = new RequestMirror({

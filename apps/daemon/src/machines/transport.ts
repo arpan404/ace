@@ -85,13 +85,22 @@ export interface PinnedRequest {
  */
 const rereadableOps: ReadonlySet<string> = new Set(["status", "describe", "command.jobs"]);
 
+/** Short reads, which no long call can hold up (ConnectionLane `reads`). */
+const readOps: ReadonlySet<string> = new Set([
+  "status",
+  "describe",
+  "command.jobs",
+  "browser.session",
+]);
+
 /**
- * Calls that must reach the machine even while long tool calls hold every shared connection:
- * a cancel, an answer to a request for the person, and stopping a command there.
+ * Which connections a call uses (ConnectionLane): a cancel, an answer to a request for the
+ * person and a command stop are urgent; short reads have their own; everything else is work.
  */
 export function laneOf(call: MachineCallRequest["call"]): ConnectionLane {
   if (call.op === "cancel" || call.op === "respond") return "urgent";
-  return call.op === "commands" && call.tool === "command_stop" ? "urgent" : "shared";
+  if (call.op === "commands" && call.tool === "command_stop") return "urgent";
+  return readOps.has(call.op) ? "reads" : "work";
 }
 
 /**
@@ -166,7 +175,7 @@ function pinnedOnce(
   { fresh }: Attempt,
 ): Promise<unknown> {
   const url = new URL(route.path, profile.origin);
-  const pooled = fresh ? undefined : options.connections?.lease(profile, route.lane ?? "shared");
+  const pooled = fresh ? undefined : options.connections?.lease(profile, route.lane ?? "work");
   const lease: ConnectionLease = pooled ?? oneShot(profile);
   const agent = lease.agent;
   const data = typeof route.body === "string" ? Buffer.from(route.body) : route.body;

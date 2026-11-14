@@ -53,6 +53,8 @@ export class TransferClient {
         method: "POST",
         body: JSON.stringify(call),
         contentType: "application/json",
+        // A probe and a status read are answered at once; the rest may take long.
+        lane: call.op === "probe" || call.op === "status" ? "reads" : "work",
       },
       timeoutMs,
       signal,

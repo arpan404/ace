@@ -7,10 +7,16 @@ import type { RemoteProfile } from "../cli/profiles.ts";
 export type ConnectionProfile = Pick<RemoteProfile, "origin" | "fingerprint" | "token">;
 
 /**
- * Which connections a call uses. `urgent` calls (a cancel, a stop, an answer to the person's
- * request) have connections of their own, which long tool calls can never fill.
+ * Which connections a call uses, so no kind of call can wait behind another that may itself
+ * wait on it:
+ * - `reads`: short reads made by polling or answered at once (child and session status, job
+ *   reads, describe, starting a session, transfer probes and status), which a long call can
+ *   never hold up;
+ * - `work`: calls that may take long or wait on a person (tool calls, delegate, message,
+ *   transfer calls and chunks);
+ * - `urgent`: a cancel, a command stop, an answer to a request for the person.
  */
-export type ConnectionLane = "shared" | "urgent";
+export type ConnectionLane = "reads" | "work" | "urgent";
 
 /** An open connection's use by one request, given back once its answer has been read. */
 export interface ConnectionLease {
@@ -32,6 +38,11 @@ export interface AnswerHeaders {
 
 export interface MachineConnectionsDeps {
   schedule(ms: number, run: () => void): () => void;
+  /**
+   * The pairings saved now, read on every lease, for a pool whose callers may hold a profile
+   * across a wait (transfer clients). Without it the pool serves what `retain` was last given.
+   */
+  current?(): readonly ConnectionProfile[];
 }
 
 /** Idle connections close this long before the other machine says it would close them. */
@@ -41,11 +52,11 @@ const IDLE_CAP_MS = 45_000;
 /** Kept this long when the other machine says nothing, as an older daemon's 5 s allows. */
 const IDLE_DEFAULT_MS = 3000;
 /**
- * Connections per machine per lane: tool calls and reads share six. Urgent calls open one more
- * connection rather than wait behind another urgent call, up to eight at once; two are kept
- * open when idle.
+ * Connections per machine per lane, the most a lane opens at once: a call opens another rather
+ * than wait while its lane has fewer, as each had its own before; two are kept open when idle.
+ * Reads and work up to 32 each, urgent calls up to 8.
  */
-const laneSockets: Record<ConnectionLane, number> = { shared: 6, urgent: 8 };
+const laneSockets: Record<ConnectionLane, number> = { reads: 32, work: 32, urgent: 8 };
 
 interface Lane {
   agent: Agent | undefined;
@@ -81,23 +92,26 @@ const lane = (): Lane => ({ agent: undefined, inflight: 0, cancelIdle: undefined
 export class MachineConnections {
   private deps: MachineConnectionsDeps;
   private entries = new Map<string, Entry>();
+  /** The pairings it may serve, once told: any other profile is refused. */
+  private known: Set<string> | undefined;
   private closed = false;
   constructor(deps: MachineConnectionsDeps) {
     this.deps = deps;
   }
-  lease(profile: ConnectionProfile, use: ConnectionLane = "shared"): ConnectionLease {
+  lease(profile: ConnectionProfile, use: ConnectionLane = "work"): ConnectionLease {
+    if (this.deps.current) this.retain(this.deps.current());
     const key = connectionKey(profile);
+    // A pairing removed or replaced since its holder read it is refused: nothing is sent.
+    if (this.closed || (this.known && !this.known.has(key))) return endedLease(profile);
     let entry = this.entries.get(key);
     if (!entry) {
       let session: Buffer | undefined;
       entry = {
-        lanes: { shared: lane(), urgent: lane() },
+        lanes: { reads: lane(), work: lane(), urgent: lane() },
         ended: new AbortController(),
         sessions: { get: () => session, set: (next) => void (session = next) },
         idleMs: IDLE_DEFAULT_MS,
       };
-      // A closed pool hands out nothing: the call fails as never sent.
-      if (this.closed) return endedLease(profile);
       this.entries.set(key, entry);
     }
     const held = entry;
@@ -131,6 +145,7 @@ export class MachineConnections {
   /** Drops connections to machines no longer paired as they were (unpaired, new pin or token). */
   retain(profiles: readonly ConnectionProfile[]): void {
     const keep = new Set(profiles.map(connectionKey));
+    this.known = keep;
     for (const [key, entry] of this.entries)
       if (!keep.has(key)) {
         this.entries.delete(key);
