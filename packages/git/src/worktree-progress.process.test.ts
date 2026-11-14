@@ -17,7 +17,7 @@ import { join, sep } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { expect, test } from "vitest";
-import { GitService, type WorktreeProgress } from "./index.ts";
+import { GitService, spawnGitProcess, type WorktreeProgress } from "./index.ts";
 
 const git = promisify(execFile);
 async function fixture(gitBinary?: string) {
@@ -302,3 +302,73 @@ else {
     await rm(scripts, { recursive: true, force: true });
   }
 });
+
+async function put(path: string, content: string) {
+  await mkdir(join(path, ".."), { recursive: true });
+  await writeFile(path, content);
+}
+
+/** Every `checkout-index` exits 0 after closing its stdin unread, as a broken Git could. */
+function deafCheckout(): GitService {
+  return new GitService({
+    processRuntime: {
+      spawn(binary, args, options) {
+        if (!args.includes("checkout-index")) return spawnGitProcess(binary, args, options);
+        return spawnGitProcess("/bin/sh", ["-c", "exec 0<&-; sleep 0.2; exit 0"], options);
+      },
+    },
+  });
+}
+
+for (const [name, prefix] of [
+  // Each batch (about 600 KB of paths) is far larger than any pipe buffer, so writing it fails.
+  ["the input fails to write", `${"a".repeat(200)}/${"b".repeat(200)}/${"c".repeat(180)}`],
+  // Each batch fits in the pipe buffer: only the result shows the paths were never read.
+  ["the input fits the pipe", "s"],
+] as const)
+  test.runIf(process.platform !== "win32")(
+    `a checkout that exits 0 without reading its paths rolls the worktree back (${name})`,
+    async () => {
+      const f = await fixture();
+      const service = deafCheckout();
+      try {
+        await Promise.all(
+          Array.from({ length: 1500 }, (_, index) =>
+            put(join(f.repo, `${prefix}${index}`), `${index}\n`),
+          ),
+        );
+        await git("git", ["-C", f.repo, "add", "."]);
+        await git("git", [
+          "-C",
+          f.repo,
+          "-c",
+          "maintenance.auto=false",
+          "-c",
+          "gc.auto=0",
+          "-c",
+          "user.name=Test",
+          "-c",
+          "user.email=test@ace.local",
+          "commit",
+          "-qm",
+          "More",
+        ]);
+        await expect(
+          service.createWorktree({
+            repo: f.repo,
+            path: f.path,
+            branch: "ace/deaf",
+            baseRef: "main",
+            onProgress: () => {},
+          }),
+        ).rejects.toMatchObject({ code: "git_failed" });
+        expect(await f.service.listWorktrees(f.repo)).toHaveLength(1);
+        expect(await f.service.branchHead({ repo: f.repo, branch: "ace/deaf" })).toBeUndefined();
+        await expect(access(f.path)).rejects.toMatchObject({ code: "ENOENT" });
+      } finally {
+        await service.close();
+        await f.service.close();
+        await rm(f.home, { recursive: true, force: true });
+      }
+    },
+  );

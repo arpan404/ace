@@ -255,6 +255,11 @@ async function checkoutFiles(repository: Repository, path: string, options: Crea
   }
   if (offset !== listing.stdout.length)
     throw new GitError("malformed_output", "Invalid checkout path listing");
+  // A batch Git exited from without reading leaves its paths unwritten; never hand on a
+  // checkout with tracked files missing.
+  const missing = await cli.call(path, ["ls-files", "--deleted", "-z"]);
+  if (missing.stdout.length)
+    throw new GitError("git_failed", "The new worktree is missing files Git should have written");
   if (!total) options.onProgress?.({ step: "checking_out", percent: 100 });
 }
 
