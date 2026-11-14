@@ -2,72 +2,105 @@ import { expect, it } from "vitest";
 import { BULK, INTERACTIVE } from "@ace/secure-channel";
 import { LaneRouter } from "./relay-lanes.ts";
 
+const subscribe = (subscriptionId: string, threadId: string) =>
+  JSON.stringify({ type: "subscribe", subscriptionId, scope: { kind: "thread", threadId } });
 const snapshot = (subscriptionId: string) =>
   JSON.stringify({ type: "snapshot", subscriptionId, seq: 1, view: { kind: "thread" } });
-const events = (subscriptionId: string) =>
-  JSON.stringify({ type: "events", subscriptionId, afterSeq: 1, throughSeq: 2, events: [] });
-const page = (requestId: string) =>
-  JSON.stringify({ type: "entities.page", requestId, page: { threadId: "t", seq: 1 } });
-const threadsPatch = JSON.stringify({ type: "threads.patch", patch: [] });
+const events = (subscriptionId: string, threadId: string, ...types: string[]) =>
+  JSON.stringify({
+    type: "events",
+    subscriptionId,
+    afterSeq: 1,
+    throughSeq: 2,
+    events: types.map((type, seq) => ({ seq, threadId, payload: { type } })),
+  });
+const approval = (subscriptionId: string, threadId: string) =>
+  events(subscriptionId, threadId, "interaction.opened");
+const page = JSON.stringify({ type: "entities.page", requestId: "r1", page: { threadId: "a" } });
+const sidebarPatch = JSON.stringify({ type: "threads.patch", subscriptionId: "side", seq: 3 });
+const receipt = JSON.stringify({ type: "commandResult", commandId: "c1", status: "accepted" });
 
-it("an approval for another thread overtakes a snapshot in flight", () => {
-  const router = new LaneRouter();
-  expect(router.route(snapshot("a")).lane).toBe(BULK);
-  expect(router.route(events("b")).lane).toBe(INTERACTIVE);
-  expect(router.route(threadsPatch).lane).toBe(INTERACTIVE);
+/** A router that knows subscriptions `sa` and `sb` are on threads `a` and `b`. */
+function router() {
+  const lanes = new LaneRouter();
+  lanes.observe(subscribe("sa", "a"));
+  lanes.observe(subscribe("sb", "b"));
+  return lanes;
+}
+
+it("an approval on another thread goes ahead of a thread's snapshot", () => {
+  const lanes = router();
+  expect(lanes.route(snapshot("sa")).lane).toBe(BULK);
+  expect(lanes.route(approval("sb", "b")).lane).toBe(INTERACTIVE);
+  expect(lanes.route(events("sb", "b", "item.delta", "item.created")).lane).toBe(INTERACTIVE);
 });
 
-it("a subscription's deltas stay behind its own snapshot until it has gone", () => {
-  const router = new LaneRouter();
-  const sent = router.route(snapshot("a"));
-  expect(router.route(events("a")).lane).toBe(BULK);
+it("a sidebar patch saying a thread is done waits behind that thread's queued output", () => {
+  const lanes = router();
+  lanes.route(snapshot("sa"));
+  lanes.route(events("sa", "a", "item.created", "agent.status"));
+  expect(lanes.route(sidebarPatch).lane).toBe(BULK);
+});
+
+it("a status on any thread waits behind every queued bulk message", () => {
+  const lanes = router();
+  lanes.route(snapshot("sa"));
+  // A child's done could stand for its parent's; the router doesn't know the tree.
+  expect(lanes.route(events("sb", "b", "agent.status")).lane).toBe(BULK);
+  expect(lanes.route(events("sb", "b", "run.ended")).lane).toBe(BULK);
+});
+
+it("a command receipt waits behind the events it confirms", () => {
+  const lanes = router();
+  lanes.route(snapshot("sa"));
+  lanes.route(events("sa", "a", "item.updated"));
+  expect(lanes.route(receipt).lane).toBe(BULK);
+});
+
+it("once a status waits, later approvals wait behind it too", () => {
+  const lanes = router();
+  lanes.route(snapshot("sa"));
+  lanes.route(events("sb", "b", "agent.status"));
+  expect(lanes.route(approval("sb", "b")).lane).toBe(BULK);
+});
+
+it("a thread's own approval waits behind its snapshot and the deltas before it", () => {
+  const lanes = router();
+  const sent = lanes.route(snapshot("sa"));
+  expect(lanes.route(approval("sa", "a")).lane).toBe(BULK);
   sent.sent();
-  // The held delta still orders what follows on its subscription.
-  expect(router.route(events("a")).lane).toBe(BULK);
+  // The approval still waiting keeps the next one behind it.
+  expect(lanes.route(approval("sa", "a")).lane).toBe(BULK);
 });
 
-it("once the bulk lane is empty, everything is interactive again", () => {
-  const router = new LaneRouter();
-  const first = router.route(snapshot("a"));
-  const delta = router.route(events("a"));
-  first.sent();
-  delta.sent();
-  expect(router.route(events("a")).lane).toBe(INTERACTIVE);
+it("a snapshot of a subscription the router never saw, and any page, hold back everything", () => {
+  const lanes = router();
+  lanes.route(snapshot("unknown"));
+  expect(lanes.route(approval("sb", "b")).lane).toBe(BULK);
+  const other = router();
+  other.route(page);
+  expect(other.route(approval("sb", "b")).lane).toBe(BULK);
 });
 
-it("deltas wait behind a queued page, other replies do not", () => {
-  const router = new LaneRouter();
-  expect(router.route(page("r1")).lane).toBe(BULK);
-  expect(router.route(events("b")).lane).toBe(BULK);
-  expect(router.route(JSON.stringify({ type: "pong" })).lane).toBe(INTERACTIVE);
-  expect(router.route(JSON.stringify({ type: "error", requestId: "r1" })).lane).toBe(BULK);
+it("a pong always goes ahead, and nothing is held once the bulk lane is empty", () => {
+  const lanes = router();
+  const sent = lanes.route(snapshot("sa"));
+  expect(lanes.route(JSON.stringify({ type: "pong" })).lane).toBe(INTERACTIVE);
+  sent.sent();
+  expect(lanes.route(receipt).lane).toBe(INTERACTIVE);
 });
 
-it("a message the router cannot read waits, and holds back everything after it", () => {
-  const router = new LaneRouter();
-  router.route(snapshot("a"));
-  const opaque = router.routeOpaque();
-  expect(opaque.lane).toBe(BULK);
-  expect(router.route(threadsPatch).lane).toBe(BULK);
-  expect(router.route(`{"type":"other","data":"${"x".repeat(70_000)}"}`).lane).toBe(BULK);
+it("a packed frame goes ahead only if every message in it may", () => {
+  const lanes = router();
+  lanes.route(snapshot("sa"));
+  expect(lanes.route(`${approval("sb", "b")}\n${events("sb", "b", "agent.status")}`).lane).toBe(
+    BULK,
+  );
 });
 
-it("a bulk message whose ids aren't where the daemon writes them is a barrier", () => {
-  const router = new LaneRouter();
-  router.route(JSON.stringify({ type: "snapshot", seq: 1, subscriptionId: "a" }));
-  expect(router.route(events("b")).lane).toBe(BULK);
-});
-
-it("channel.close always goes last", () => {
-  const router = new LaneRouter();
-  router.route(snapshot("a"));
-  expect(router.route(JSON.stringify({ type: "channel.close", code: 1000 })).lane).toBe(BULK);
-});
-
-it("a packed frame with a delta for a subscription with a queued snapshot waits whole", () => {
-  const router = new LaneRouter();
-  router.route(snapshot("a"));
-  expect(router.route(`${events("b")}\n${events("a")}`).lane).toBe(BULK);
-  // And holds back later deltas of both subscriptions.
-  expect(router.route(events("b")).lane).toBe(BULK);
+it("a thread subscription closed and reopened elsewhere is no longer about its old thread", () => {
+  const lanes = router();
+  lanes.observe(JSON.stringify({ type: "unsubscribe", subscriptionId: "sa" }));
+  lanes.route(snapshot("sa"));
+  expect(lanes.route(approval("sb", "b")).lane).toBe(BULK);
 });

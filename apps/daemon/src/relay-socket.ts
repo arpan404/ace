@@ -71,6 +71,8 @@ export class RelaySocket extends EventEmitter implements MainSocket {
     this.#channel = channel;
     this.#deflate = options.deflate;
     this.#delay = options.delay;
+    // The relay host turns lanes on before it hands the channel over, as it reads the hello.
+    if (channel.interleaving) this.#router = new LaneRouter();
     void channel.closed.then((cause) => this.#finish(...endedBy(cause)));
   }
   get readyState(): 0 | 1 | 2 | 3 {
@@ -84,14 +86,10 @@ export class RelaySocket extends EventEmitter implements MainSocket {
   }
   /** The lane for the next message: interactive unless it must wait behind bulk. */
   #route(text: string): Routed {
-    if (!this.#channel.interleaving) return unrouted;
-    this.#router ??= new LaneRouter();
-    return this.#router.route(text);
+    return this.#router?.route(text) ?? unrouted;
   }
   #routeOpaque(): Routed {
-    if (!this.#channel.interleaving) return unrouted;
-    this.#router ??= new LaneRouter();
-    return this.#router.routeOpaque();
+    return this.#router?.routeOpaque() ?? unrouted;
   }
   get isPaused(): boolean {
     return this.#paused;
@@ -109,8 +107,10 @@ export class RelaySocket extends EventEmitter implements MainSocket {
           if (this.#state !== OPEN) return;
           const frame = await this.#channel.receiveRaw();
           if (this.#state !== OPEN) return;
-          if (typeof frame === "string") this.emit("message", Buffer.from(frame), false);
-          else
+          if (typeof frame === "string") {
+            this.#router?.observe(frame);
+            this.emit("message", Buffer.from(frame), false);
+          } else
             this.emit("message", Buffer.from(frame.buffer, frame.byteOffset, frame.length), true);
         }
       } catch {

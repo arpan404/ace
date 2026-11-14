@@ -2,28 +2,32 @@ import { BULK, INTERACTIVE, type Lane } from "@ace/secure-channel";
 
 /*
  * Which lane a server message takes on a relayed main channel whose client announced lanes
- * (ADR 0110), so an approval, a question or a delta need not wait behind a snapshot.
+ * (ADR 0110), so an approval or a stream of output need not wait behind another thread's
+ * snapshot.
  *
  * Bulk: the large pieces of state a client asked for (snapshots and their parts, pages,
- * windows, search and history results). Everything else is interactive, unless it must stay
- * behind something already in the bulk lane:
+ * windows, search and history results). A message may go ahead of queued bulk only when it
+ * can't make anything look further along than the data it passes:
  *
- * - a message about a subscription or request a queued bulk message is about (events after
- *   their subscription's snapshot: a client drops a snapshot that comes after its events);
- * - any delta (`events`, `progress`) while a page is queued: a page and later deltas of one
- *   thread are not tied by any id this router reads;
- * - anything at all while a message the router can't place is queued (a barrier), and
- *   `channel.close`, which goes last.
+ * - `pong`, which carries no state;
+ * - an `events` batch whose every event only adds output or asks a human (`item.delta`,
+ *   `item.created`, `interaction.opened`), when no queued bulk message is about one of its
+ *   threads or its subscription. A thread's own snapshot is about that thread only if the
+ *   client subscribed to it by thread (`observe`); any other snapshot, and every page, is
+ *   about all threads.
  *
- * A message held back joins the bulk lane, and its own ids hold back what follows it. The
- * relay only ever reorders messages with nothing in common, so what a client reads is a
- * valid order it could have been sent in. Pure; the socket tells it when a bulk message has
- * gone out in full.
+ * Everything else waits behind all queued bulk, and holds back everything after it: statuses
+ * (agent and run state, settles, sidebar patches), command receipts, item updates, closes and
+ * anything the router can't read. So nothing that says a thread moved on (done, settled,
+ * accepted) ever reaches the client before data sent ahead of it, on any subscription; an
+ * overtaking batch only adds work or output, which no later state contradicts. The channel's
+ * queue adds the other half: a bulk message never passes an interactive one sent before it.
+ * Pure; the socket says when a bulk message has gone out in full.
  */
 
-/** Types that are bulk, by the id that orders what follows them. */
-const bulkBySubscription = new Set(["snapshot", "snapshot.part"]);
-const bulkByRequest = new Set([
+const bulkTypes = new Set([
+  "snapshot",
+  "snapshot.part",
   "entities.page",
   "entities.page.part",
   "items.page",
@@ -35,50 +39,15 @@ const bulkByRequest = new Set([
   "search.results",
   "history.list",
 ]);
-const deltas = new Set(["events", "progress"]);
-/** Every message after any page: page and deltas share a thread, not an id. */
-const PAGES = "pages";
-/** A queued message whose place the router can't tell holds back everything. */
-const BARRIER = "*";
-/** Larger interactive messages are not parsed for their ids; they wait as barriers. */
+/** Event payloads that only add output or ask a human: nothing reads them as progress. */
+const additive = new Set(["item.delta", "item.created", "interaction.opened"]);
+/** Every thread and subscription: what a message the router can't scope is about. */
+const ALL = "*";
+/** Larger batches are not parsed; they wait as if about everything. */
 const PARSE_LIMIT = 64 * 1024;
 
 const TYPE_PREFIX = /^\{"type":"([^"\\]{1,64})"/;
-const SECOND_KEY = /^,"(subscriptionId|requestId)":"([^"\\]{1,256})"/;
-
-/** What one message is: its type and the ids that order it, or undefined when unknown. */
-interface Facts {
-  type: string;
-  ids: string[] | undefined;
-}
-
-/** A bulk message's facts from its first two keys (the daemon writes `type` first). */
-function prefixFacts(line: string): Facts | undefined {
-  const type = TYPE_PREFIX.exec(line);
-  if (!type?.[1]) return undefined;
-  const key = SECOND_KEY.exec(line.slice(type[0].length));
-  return {
-    type: type[1],
-    ids: key?.[1] && key[2] ? [`${key[1] === "requestId" ? "req" : "sub"}:${key[2]}`] : undefined,
-  };
-}
-
-/** An interactive message's ids: its top-level subscription and request ids. */
-function parsedIds(line: string): string[] | undefined {
-  if (line.length > PARSE_LIMIT) return undefined;
-  try {
-    const value: unknown = JSON.parse(line);
-    if (typeof value !== "object" || value === null) return undefined;
-    const ids: string[] = [];
-    if ("subscriptionId" in value && typeof value.subscriptionId === "string")
-      ids.push(`sub:${value.subscriptionId}`);
-    if ("requestId" in value && typeof value.requestId === "string")
-      ids.push(`req:${value.requestId}`);
-    return ids;
-  } catch {
-    return undefined;
-  }
-}
+const SUBSCRIPTION_KEY = /^,"subscriptionId":"([^"\\]{1,256})"/;
 
 export interface Routed {
   lane: Lane;
@@ -88,75 +57,109 @@ export interface Routed {
 
 const nothing = () => {};
 
+function record(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? Object.fromEntries(Object.entries(value))
+    : undefined;
+}
+
+/** What an additive batch is about (its subscription and threads), else undefined. */
+function additiveScope(line: string): string[] | undefined {
+  if (line.length > PARSE_LIMIT) return undefined;
+  let parsed: Record<string, unknown> | undefined;
+  try {
+    parsed = record(JSON.parse(line));
+  } catch {
+    return undefined;
+  }
+  if (parsed?.type !== "events" || typeof parsed.subscriptionId !== "string") return undefined;
+  const events = parsed.events;
+  if (!Array.isArray(events)) return undefined;
+  const scope = [`sub:${parsed.subscriptionId}`];
+  for (const value of events) {
+    const event = record(value);
+    const payload = record(event?.payload);
+    if (typeof event?.threadId !== "string" || typeof payload?.type !== "string") return undefined;
+    if (!additive.has(payload.type)) return undefined;
+    scope.push(`thread:${event.threadId}`);
+  }
+  return scope;
+}
+
 export class LaneRouter {
-  /** Ids held by messages queued in the bulk lane, counted. */
+  /** Subscriptions the client opened on one thread, by id. */
+  readonly #threadOf = new Map<string, string>();
+  /** What queued bulk messages are about, counted. */
   readonly #held = new Map<string, number>();
 
-  /** The lane for bytes the router can't read (a binary message): behind any bulk. */
+  /** A message from the client: learns which subscriptions are on one thread. */
+  observe(text: string): void {
+    if (!text.startsWith('{"type":"subscribe"') && !text.startsWith('{"type":"unsubscribe"'))
+      return;
+    let message: Record<string, unknown> | undefined;
+    try {
+      message = record(JSON.parse(text));
+    } catch {
+      return;
+    }
+    const id = message?.subscriptionId;
+    if (typeof id !== "string") return;
+    const scope = record(message?.scope);
+    if (
+      message?.type === "subscribe" &&
+      scope?.kind === "thread" &&
+      typeof scope.threadId === "string"
+    )
+      this.#threadOf.set(id, scope.threadId);
+    else this.#threadOf.delete(id);
+  }
+
+  /** The lane for bytes the router can't read (a binary message). */
   routeOpaque(): Routed {
-    return this.#held.size === 0
-      ? { lane: INTERACTIVE, sent: nothing }
-      : this.#hold(new Set([BARRIER]));
+    return this.#held.size === 0 ? { lane: INTERACTIVE, sent: nothing } : this.#hold([ALL]);
   }
 
   /** The lane for one frame's text: one message, or several on their own lines. */
   route(text: string): Routed {
     const lines = text.includes("\n") ? text.split("\n") : [text];
-    const keys = new Set<string>();
-    let bulk = this.#held.has(BARRIER);
-    const unread: string[] = [];
-    for (const line of lines) {
-      const facts = prefixFacts(line);
-      const type = facts?.type;
-      if (type !== undefined && (bulkBySubscription.has(type) || bulkByRequest.has(type))) {
-        bulk = true;
-        for (const id of facts?.ids ?? [BARRIER]) keys.add(id);
-        if (bulkByRequest.has(type)) keys.add(PAGES);
-        continue;
-      }
-      if (type === "channel.close") {
-        bulk = true;
-        keys.add(BARRIER);
-        continue;
-      }
-      // Nothing queued in bulk: nothing to stay behind, nothing to read unless the frame waits.
-      if (this.#held.size === 0) {
-        unread.push(line);
-        continue;
-      }
-      const ids = parsedIds(line);
-      if (!ids) {
-        // Can't tell what it belongs to: it waits, and so does what follows it.
-        bulk = true;
-        keys.add(BARRIER);
-        continue;
-      }
-      for (const id of ids) keys.add(id);
-      if (ids.some((id) => this.#held.has(id))) bulk = true;
-      if (type !== undefined && deltas.has(type) && this.#held.has(PAGES)) bulk = true;
-      // A message with no ids joining the bulk lane holds back all that follows.
-      if (ids.length === 0) keys.add(BARRIER);
-    }
-    if (!bulk) return { lane: INTERACTIVE, sent: nothing };
-    // A frame packing a bulk message with others: their ids wait with it.
-    for (const line of unread) {
-      const ids = parsedIds(line);
-      for (const id of ids?.length ? ids : [BARRIER]) keys.add(id);
-    }
-    // Ordered behind the bulk lane but holding no id: it still keeps what follows behind it.
-    if (keys.size === 0) keys.add(BARRIER);
-    return this.#hold(keys);
+    const types = lines.map((line) => TYPE_PREFIX.exec(line)?.[1]);
+    const bulk = lines.flatMap((line, index) => {
+      const type = types[index];
+      return type !== undefined && bulkTypes.has(type) ? [this.#bulkScope(type, line)] : [];
+    });
+    if (bulk.length > 0) return this.#hold(bulk.flat());
+    // Nothing queued in bulk: nothing to go ahead of.
+    if (this.#held.size === 0) return { lane: INTERACTIVE, sent: nothing };
+    if (types.every((type) => type === "pong")) return { lane: INTERACTIVE, sent: nothing };
+    const scopes = lines.map((line, index) =>
+      types[index] === "pong" ? [] : (additiveScope(line) ?? [ALL]),
+    );
+    const scope = scopes.flat();
+    if (this.#held.has(ALL) || scope.some((key) => key === ALL || this.#held.has(key)))
+      return this.#hold(scope);
+    return { lane: INTERACTIVE, sent: nothing };
   }
 
-  #hold(keys: Set<string>): Routed {
-    for (const key of keys) this.#held.set(key, (this.#held.get(key) ?? 0) + 1);
+  /** A thread subscription's snapshot is about its thread; any other bulk, about all. */
+  #bulkScope(type: string, line: string): string[] {
+    if (type !== "snapshot" && type !== "snapshot.part") return [ALL];
+    const subscription = SUBSCRIPTION_KEY.exec(line.slice(`{"type":"${type}"`.length))?.[1];
+    const thread = subscription === undefined ? undefined : this.#threadOf.get(subscription);
+    return subscription === undefined || thread === undefined
+      ? [ALL]
+      : [`sub:${subscription}`, `thread:${thread}`];
+  }
+
+  #hold(keys: string[]): Routed {
+    const held = new Set(keys.length > 0 ? keys : [ALL]);
+    for (const key of held) this.#held.set(key, (this.#held.get(key) ?? 0) + 1);
     let done = false;
     return {
       lane: BULK,
       sent: () => {
         if (done) return;
         done = true;
-        for (const key of keys) {
+        for (const key of held) {
           const count = (this.#held.get(key) ?? 0) - 1;
           if (count > 0) this.#held.set(key, count);
           else this.#held.delete(key);
