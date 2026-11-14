@@ -1,4 +1,10 @@
-import { decodeStoredItem, storedItem, untrusted, type StoredTrust } from "./stored-decode.ts";
+import {
+  decodeStoredItem,
+  storedItem,
+  storedTextChunk,
+  untrusted,
+  type StoredTrust,
+} from "./stored-decode.ts";
 import { ItemTextStore } from "./item-text-store.ts";
 import { recordSkillUsage } from "./skill-usage.ts";
 import { ItemPageCapacityExceeded } from "./item-page-capacity.ts";
@@ -170,29 +176,45 @@ export class ItemStore {
   private materializeRow(id: string, row: Record<string, unknown> | undefined): Item {
     return this.materialize(id, row?.item, row?.created_seq);
   }
-  /** `created` (the item's creation sequence) decides whether this build wrote the body (see `storedItem`). */
+  /**
+   * `created` (the item's creation sequence) decides whether this build wrote the body (see
+   * `storedItem`); each text chunk is trusted by its own sequence the same way.
+   */
   private materialize(id: string, body: unknown, created: unknown): Item {
     const item = storedItem(Number(created), String(body), this.trust.from);
     let field: unknown;
+    // Set from the first chunk when every chunk is trusted: the field `applyDelta` takes as is.
+    let trustedField: ReturnType<typeof storedTextChunk>["field"] | undefined;
+    let trusted = true;
     const appends: string[] = [];
     // Stream rows instead of retaining their objects. Accepted fields share one append target.
     for (const row of this.statement(
-      "SELECT field, append FROM item_text_chunks WHERE item_id = ? ORDER BY seq",
+      "SELECT seq, field, append FROM item_text_chunks WHERE item_id = ? ORDER BY seq",
     ).iterate(id)) {
       field ??= row.field;
-      appends.push(decodeAppend(row.append));
+      if (Number(row.seq) >= this.trust.from) {
+        const chunk = storedTextChunk(row.field, row.append);
+        trustedField ??= chunk.field;
+        appends.push(chunk.append);
+      } else {
+        trusted = false;
+        appends.push(decodeAppend(row.append));
+      }
     }
-    if (appends.length) {
-      const delta = EventPayload.parse({
-        type: "item.delta",
-        itemId: item.id,
-        agentId: item.agentId,
-        field,
-        append: appends.join(""),
-      });
-      if (delta.type !== "item.delta") throw new Error("Invalid text delta");
-      applyDelta(item, delta.field, delta.append);
+    if (!appends.length) return item;
+    if (trusted && trustedField) {
+      applyDelta(item, trustedField, appends.join(""));
+      return item;
     }
+    const delta = EventPayload.parse({
+      type: "item.delta",
+      itemId: item.id,
+      agentId: item.agentId,
+      field,
+      append: appends.join(""),
+    });
+    if (delta.type !== "item.delta") throw new Error("Invalid text delta");
+    applyDelta(item, delta.field, delta.append);
     return item;
   }
   wirePage(
