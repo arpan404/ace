@@ -31,8 +31,11 @@ import XCTest
         let app = launch()
         open("ios-turns", in: app)
         XCTAssertTrue(waitForAny(prefix: "message.user.", in: app))
-        // The first message that can be edited carries a picture.
-        openMenu(of: message("message.user.", in: app), in: app)
+        // The opening message has no answer before it, so it can't be edited: the second ask can,
+        // and it carries a picture.
+        let ask = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Can we fake the clock")).firstMatch
+        XCTAssertTrue(ask.waitForExistence(timeout: 20))
+        openMenu(of: ask, in: app)
         app.buttons["Edit"].tap()
         XCTAssertTrue(app.staticTexts["composer.fork"].waitForExistence(timeout: 15))
         let input = app.textViews["composer.input"]
@@ -69,16 +72,19 @@ import XCTest
         screenshot("renamed")
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier == 'thread.title' AND label CONTAINS 'Fake the queue clock'")).firstMatch.waitForExistence(timeout: 15))
         app.buttons["thread.menu"].tap()
-        XCTAssertTrue(app.buttons["Turns"].waitForExistence(timeout: 10))
+        // Turns and Attachments sit in the ⋯ panel's Conversation menu.
+        let turns = app.threadMenuItem("thread.turns")
+        XCTAssertTrue(turns.waitForExistence(timeout: 10))
         screenshot("thread-menu")
-        app.buttons["Turns"].tap()
+        turns.tap()
         XCTAssertTrue(app.buttons["turn.1"].waitForExistence(timeout: 15))
         screenshot("turns-sheet")
         app.buttons["turn.1"].tap()
         XCTAssertTrue(app.buttons["turn.1"].waitForNonExistence(timeout: 10))
         app.buttons["thread.menu"].tap()
-        XCTAssertTrue(app.buttons["Attachments"].waitForExistence(timeout: 10))
-        app.buttons["Attachments"].tap()
+        let attachments = app.threadMenuItem("thread.attachments")
+        XCTAssertTrue(attachments.waitForExistence(timeout: 10))
+        attachments.tap()
         XCTAssertTrue(app.navigationBars["Attachments"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.buttons["file.open.timings.txt"].waitForExistence(timeout: 15))
         screenshot("attachments-sheet")
@@ -102,7 +108,9 @@ import XCTest
         openMenu(of: answers.element(boundBy: answers.count - 1), in: app)
         XCTAssertTrue(app.buttons["Retry"].waitForExistence(timeout: 10))
         screenshot("pi-retry-rewind")
-        app.tap()
+        // Close the menu by tapping above it: the middle of the screen can land on one of its rows.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.03)).tap()
+        XCTAssertTrue(app.buttons["Retry"].waitForNonExistence(timeout: 10))
         openMenu(of: answers.element(boundBy: 0), in: app)
         app.buttons["Rewind to here"].tap()
         XCTAssertTrue(app.buttons["rewind.confirm"].waitForExistence(timeout: 10))
@@ -114,9 +122,11 @@ import XCTest
         open("ios-fork", in: app)
         XCTAssertTrue(waitForAny(prefix: "message.", in: app))
         app.buttons["thread.menu"].tap()
-        XCTAssertTrue(app.buttons["Bring back to parent…"].waitForExistence(timeout: 15))
+        // Bring back sits in the ⋯ panel's Conversation menu.
+        let bringBack = app.threadMenuItem("thread.merge")
+        XCTAssertTrue(bringBack.waitForExistence(timeout: 15))
         screenshot("fork-menu")
-        app.buttons["Bring back to parent…"].tap()
+        bringBack.tap()
         XCTAssertTrue(app.textViews["merge.summary"].waitForExistence(timeout: 15))
         screenshot("bring-back")
     }
